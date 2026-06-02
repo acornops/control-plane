@@ -1,0 +1,41 @@
+{
+  "realm": "acornops",
+  "enabled": true,
+  "displayName": "AcornOps",
+  "clients": [
+    {
+      "clientId": "acornops-control-plane",
+      "name": "AcornOps Control Plane",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "acornops-control-plane-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8081/*"
+      ],
+      "webOrigins": [
+        "http://localhost:8081"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "dev",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Dev",
+      "lastName": "User",
+      "email": "dev@acornops.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "devpass",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

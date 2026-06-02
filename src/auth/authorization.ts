@@ -1,0 +1,254 @@
+import { Role, RoleTemplate } from '../types/domain.js';
+
+export const WORKSPACE_CAPABILITIES = [
+  'read_workspace_data',
+  'read_members',
+  'read_audit_log',
+  'delete_workspace',
+  'manage_members',
+  'manage_targets',
+  'manage_mcp',
+  'manage_tools',
+  'manage_agent_keys',
+  'manage_webhooks',
+  'create_sessions',
+  'create_read_only_runs',
+  'create_read_write_runs',
+  'read_target_logs',
+  'cancel_runs',
+  'delete_sessions'
+] as const;
+
+export type WorkspaceCapability = typeof WORKSPACE_CAPABILITIES[number];
+
+export type WorkspacePermissions = Record<WorkspaceCapability, boolean>;
+export type TokenScope = 'read' | WorkspaceCapability;
+
+export const BUILT_IN_ROLE_KEYS = ['owner', 'admin', 'operator', 'viewer', 'auditor'] as const;
+export type BuiltInRoleKey = typeof BUILT_IN_ROLE_KEYS[number];
+export const OWNER_ROLE_KEY: BuiltInRoleKey = 'owner';
+
+const EMPTY_PERMISSIONS: WorkspacePermissions = {
+  read_workspace_data: false,
+  read_members: false,
+  read_audit_log: false,
+  delete_workspace: false,
+  manage_members: false,
+  manage_targets: false,
+  manage_mcp: false,
+  manage_tools: false,
+  manage_agent_keys: false,
+  manage_webhooks: false,
+  create_sessions: false,
+  create_read_only_runs: false,
+  create_read_write_runs: false,
+  read_target_logs: false,
+  cancel_runs: false,
+  delete_sessions: false
+};
+
+const READ_ONLY_PERMISSIONS: WorkspacePermissions = {
+  read_workspace_data: true,
+  read_members: true,
+  read_audit_log: false,
+  delete_workspace: false,
+  manage_members: false,
+  manage_targets: false,
+  manage_mcp: false,
+  manage_tools: false,
+  manage_agent_keys: false,
+  manage_webhooks: false,
+  create_sessions: false,
+  create_read_only_runs: false,
+  create_read_write_runs: false,
+  read_target_logs: false,
+  cancel_runs: false,
+  delete_sessions: false
+};
+
+const OWNER_PERMISSIONS: WorkspacePermissions = {
+  read_workspace_data: true,
+  read_members: true,
+  read_audit_log: true,
+  delete_workspace: true,
+  manage_members: true,
+  manage_targets: true,
+  manage_mcp: true,
+  manage_tools: true,
+  manage_agent_keys: true,
+  manage_webhooks: true,
+  create_sessions: true,
+  create_read_only_runs: true,
+  create_read_write_runs: true,
+  read_target_logs: true,
+  cancel_runs: true,
+  delete_sessions: true
+};
+
+const ADMIN_PERMISSIONS: WorkspacePermissions = {
+  ...OWNER_PERMISSIONS,
+  delete_workspace: false
+};
+
+const OPERATOR_PERMISSIONS: WorkspacePermissions = {
+  ...READ_ONLY_PERMISSIONS,
+  create_sessions: true,
+  create_read_only_runs: true,
+  read_target_logs: true,
+  cancel_runs: true
+};
+
+const AUDITOR_PERMISSIONS: WorkspacePermissions = {
+  ...READ_ONLY_PERMISSIONS,
+  read_workspace_data: false,
+  read_members: true,
+  read_audit_log: true
+};
+
+export const BUILT_IN_ROLE_TEMPLATES: Record<BuiltInRoleKey, Omit<RoleTemplate, 'createdAt' | 'updatedAt'>> = {
+  owner: {
+    key: 'owner',
+    displayName: 'Owner',
+    description: 'Required governance role with full workspace control.',
+    kind: 'system',
+    capabilities: [...WORKSPACE_CAPABILITIES],
+    protected: true,
+    sortOrder: 0
+  },
+  admin: {
+    key: 'admin',
+    displayName: 'Admin',
+    description: 'Manages members, targets, tools, webhooks, and run workflows without deleting the workspace.',
+    kind: 'system',
+    capabilities: permissionsToCapabilities(ADMIN_PERMISSIONS),
+    protected: false,
+    sortOrder: 100
+  },
+  operator: {
+    key: 'operator',
+    displayName: 'Operator',
+    description: 'Runs read-only troubleshooting workflows and reads target logs.',
+    kind: 'system',
+    capabilities: permissionsToCapabilities(OPERATOR_PERMISSIONS),
+    protected: false,
+    sortOrder: 200
+  },
+  viewer: {
+    key: 'viewer',
+    displayName: 'Viewer',
+    description: 'Reads workspace, target, session, and run data.',
+    kind: 'system',
+    capabilities: permissionsToCapabilities(READ_ONLY_PERMISSIONS),
+    protected: false,
+    sortOrder: 300
+  },
+  auditor: {
+    key: 'auditor',
+    displayName: 'Auditor',
+    description: 'Reads audit logs and member context without operational workspace data.',
+    kind: 'system',
+    capabilities: permissionsToCapabilities(AUDITOR_PERMISSIONS),
+    protected: true,
+    sortOrder: 400
+  }
+};
+
+const VALID_TOKEN_SCOPES = new Set<TokenScope>([
+  'read',
+  ...WORKSPACE_CAPABILITIES
+]);
+
+const roleTemplates = new Map<Role, RoleTemplate>();
+
+function permissionsToCapabilities(permissions: WorkspacePermissions): WorkspaceCapability[] {
+  return WORKSPACE_CAPABILITIES.filter((capability) => permissions[capability]);
+}
+
+export function capabilitiesToPermissions(capabilities: Iterable<WorkspaceCapability>): WorkspacePermissions {
+  const permissions = { ...EMPTY_PERMISSIONS };
+  for (const capability of capabilities) {
+    permissions[capability] = true;
+  }
+  return permissions;
+}
+
+function sortRoleTemplates(templates: RoleTemplate[]): RoleTemplate[] {
+  return [...templates].sort((left, right) => left.sortOrder - right.sortOrder || left.displayName.localeCompare(right.displayName));
+}
+
+export function configureRoleTemplates(templates: RoleTemplate[]): RoleTemplate[] {
+  roleTemplates.clear();
+  for (const template of sortRoleTemplates(templates)) {
+    roleTemplates.set(template.key, { ...template, capabilities: [...template.capabilities] });
+  }
+  return listConfiguredRoleTemplates();
+}
+
+export function listConfiguredRoleTemplates(): RoleTemplate[] {
+  return [...roleTemplates.values()].map((template) => ({ ...template, capabilities: [...template.capabilities] }));
+}
+
+export function getConfiguredRoleTemplate(role: Role | null | undefined): RoleTemplate | undefined {
+  if (!role) return undefined;
+  const template = roleTemplates.get(role);
+  return template ? { ...template, capabilities: [...template.capabilities] } : undefined;
+}
+
+export function isSupportedRole(role: Role | null | undefined): boolean {
+  return Boolean(getConfiguredRoleTemplate(role));
+}
+
+export function isProtectedRole(role: Role | null | undefined): boolean {
+  return getConfiguredRoleTemplate(role)?.protected === true;
+}
+
+export function getWorkspacePermissions(role: Role | null | undefined): WorkspacePermissions {
+  const template = getConfiguredRoleTemplate(role);
+  if (!template) return { ...EMPTY_PERMISSIONS };
+  return capabilitiesToPermissions(template.capabilities);
+}
+
+export function hasWorkspaceCapability(
+  role: Role | null | undefined,
+  capability: WorkspaceCapability
+): boolean {
+  return getWorkspacePermissions(role)[capability];
+}
+
+export function parseScopeString(scope: string): TokenScope[] {
+  const parsed: TokenScope[] = [];
+  const seen = new Set<TokenScope>();
+  for (const rawScope of scope.split(/\s+/)) {
+    if (!rawScope) {
+      continue;
+    }
+    if (!VALID_TOKEN_SCOPES.has(rawScope as TokenScope)) {
+      throw new Error(`Invalid token scope: ${rawScope}`);
+    }
+    const tokenScope = rawScope as TokenScope;
+    if (!seen.has(tokenScope)) {
+      seen.add(tokenScope);
+      parsed.push(tokenScope);
+    }
+  }
+  return parsed;
+}
+
+export function formatScopes(scopes: Iterable<TokenScope>): string {
+  return [...scopes].join(' ');
+}
+
+export function scopesIncludeAll(availableScopes: Iterable<TokenScope>, requestedScopes: Iterable<TokenScope>): boolean {
+  const available = new Set(availableScopes);
+  return [...requestedScopes].every((scope) => available.has(scope));
+}
+
+export function hasEffectiveWorkspaceCapability(
+  role: Role | null | undefined,
+  capability: WorkspaceCapability,
+  tokenScopes: Set<TokenScope>
+): boolean {
+  return hasWorkspaceCapability(role, capability) && tokenScopes.has(capability);
+}
+
+configureRoleTemplates(Object.values(BUILT_IN_ROLE_TEMPLATES));

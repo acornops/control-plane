@@ -1,0 +1,113 @@
+import { recordWorkspaceAuditEvent } from '../../services/workspace-audit.js';
+import { TargetType } from '../../types/domain.js';
+
+interface McpServerAuditInput {
+  workspaceId: string;
+  targetId: string;
+  targetType: TargetType;
+  actorUserId: string;
+  eventType: 'mcp.server.created.v1' | 'mcp.server.updated.v1';
+  summary: string;
+  server: {
+    id: string;
+    server_name: string;
+    enabled: boolean;
+    tools: unknown[];
+  };
+}
+
+export async function recordMcpServerAudit(input: McpServerAuditInput): Promise<void> {
+  await recordWorkspaceAuditEvent({
+    workspaceId: input.workspaceId,
+    category: 'mcp',
+    eventType: input.eventType,
+    operation: 'write',
+    actorUserId: input.actorUserId,
+    targetType: 'mcp_server',
+    targetId: input.server.id,
+    targetName: input.server.server_name,
+    summary: input.summary,
+    metadata: {
+      targetId: input.targetId,
+      targetType: input.targetType,
+      enabled: input.server.enabled,
+      toolCount: input.server.tools.length
+    }
+  });
+}
+
+export async function recordMcpServerDeletedAudit(
+  workspaceId: string,
+  targetId: string,
+  targetType: TargetType,
+  actorUserId: string,
+  serverId: string
+): Promise<void> {
+  await recordWorkspaceAuditEvent({
+    workspaceId,
+    category: 'mcp',
+    eventType: 'mcp.server.deleted.v1',
+    operation: 'write',
+    actorUserId,
+    targetType: 'mcp_server',
+    targetId: serverId,
+    summary: 'MCP server deleted',
+    metadata: { targetId, targetType }
+  });
+}
+
+export async function recordMcpServerTestAudit(
+  workspaceId: string,
+  targetId: string,
+  targetType: TargetType,
+  actorUserId: string,
+  serverId: string,
+  testResult: {
+    server_name: string;
+    connection_status: 'ok' | 'error';
+    discovered_tool_count: number;
+    error?: string | null;
+  }
+): Promise<void> {
+  await recordWorkspaceAuditEvent({
+    workspaceId,
+    category: 'mcp',
+    eventType: 'mcp.server.tested.v1',
+    operation: 'read',
+    actorUserId,
+    targetType: 'mcp_server',
+    targetId: serverId,
+    targetName: testResult.server_name,
+    summary: 'MCP server connection tested',
+    metadata: {
+      targetId,
+      targetType,
+      connectionStatus: testResult.connection_status,
+      discoveredToolCount: testResult.discovered_tool_count,
+      hasError: Boolean(testResult.error)
+    }
+  });
+}
+
+export async function recordToolCatalogAudit(
+  workspaceId: string,
+  targetId: string,
+  targetType: TargetType,
+  actorUserId: string,
+  toolName: string,
+  enabled: boolean,
+  capability: 'read' | 'write'
+): Promise<void> {
+  await recordWorkspaceAuditEvent({
+    workspaceId,
+    category: 'tool',
+    eventType: 'tool.catalog.changed.v1',
+    operation: 'write',
+    actorUserId,
+    targetType: 'tool',
+    targetId: toolName,
+    targetName: toolName,
+    summary: 'Tool enablement changed',
+    metadata: { targetId, targetType, enabled, capability }
+  });
+}

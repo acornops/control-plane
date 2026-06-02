@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, "feat/*", "feature/*" ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      run_full: ${{ steps.filter.outputs.run_full }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        name: Detect docs-only changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]] && git rev-parse --verify HEAD^1 >/dev/null 2>&1 && git rev-parse --verify HEAD^2 >/dev/null 2>&1; then
+            files="$(git diff --name-only HEAD^1 HEAD^2)"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+            if [[ "${base}" =~ ^0+$ ]]; then
+              base="$(git rev-list --max-parents=0 "${head}")"
+            fi
+
+            if ! git cat-file -e "${base}^{commit}" 2>/dev/null || ! git cat-file -e "${head}^{commit}" 2>/dev/null; then
+              echo "run_full=true" >> "${GITHUB_OUTPUT}"
+              echo "Unable to resolve diff range; running full CI."
+              exit 0
+            fi
+
+            files="$(git diff --name-only "${base}" "${head}")"
+          fi
+          if [[ -z "${files}" ]]; then
+            run_full=true
+          else
+            docs_only=true
+            while IFS= read -r file; do
+              [[ -z "${file}" ]] && continue
+              case "${file}" in
+                *.md|*.mdx|docs/**|README|README.*|CHANGELOG|CHANGELOG.*|CONTRIBUTING|CONTRIBUTING.*|LICENSE|LICENSE.*)
+                  ;;
+                *)
+                  docs_only=false
+                  ;;
+              esac
+            done <<< "${files}"
+
+            if [[ "${docs_only}" == "true" ]]; then
+              run_full=false
+            else
+              run_full=true
+            fi
+          fi
+
+          echo "run_full=${run_full}" >> "${GITHUB_OUTPUT}"
+          echo "run_full=${run_full}"
+
+  docs-only:
+    needs: changes
+    if: needs.changes.outputs.run_full != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip expensive CI
+        run: echo "Only Markdown/docs files changed; expensive CI jobs skipped."
+
+  validate:
+    needs: changes
+    if: needs.changes.outputs.run_full == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install dependencies
+        run: npm ci
+      - name: Run validation
+        run: npm run validate:ci
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: control-plane-coverage
+          path: coverage
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/lcov.info
+          flags: control-plane
+          fail_ci_if_error: false

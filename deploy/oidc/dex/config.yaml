@@ -1,0 +1,26 @@
+issuer: http://localhost:5556/dex
+
+storage:
+  type: sqlite3
+  config:
+    file: /var/dex/dex.db
+
+web:
+  http: 0.0.0.0:5556
+
+enablePasswordDB: true
+
+staticClients:
+  - id: acornops-control-plane
+    name: AcornOps Control Plane
+    secret: acornops-control-plane-secret
+    redirectURIs:
+      - http://console.acornops.localhost:8088/api/v1/auth/oidc/callback
+      - http://control-plane.acornops.localhost:8088/api/v1/auth/oidc/callback
+      - http://localhost:8081/api/v1/auth/oidc/callback
+
+staticPasswords:
+  - email: dev@acornops.local
+    hash: "$2y$10$yM9Cg3PM16xo9RF5/Ljh8.FLyd.Na8mq2M10yLEGfHc8FaljucEV."
+    username: dev
+    userID: "u-dev-local"

@@ -1,0 +1,326 @@
+import assert from 'node:assert/strict';
+import { afterEach, describe, it, mock } from 'node:test';
+import { agentGateway } from '../src/agent/ws-server.js';
+import { createSession, postMessage } from '../src/controllers/sessions-controller.js';
+import { cancelRun, decideRunApproval } from '../src/controllers/runs-controller.js';
+import { rotateAgentKey } from '../src/controllers/workspaces/kubernetes-cluster-controller.js';
+import {
+  createTargetMcpServerForTarget,
+  updateTargetToolSettings
+} from '../src/controllers/workspaces/target-tool-controller.js';
+import { createWebhook, deleteWebhook } from '../src/controllers/webhooks-controller.js';
+import { logger } from '../src/logger.js';
+import { repo } from '../src/store/repository.js';
+import type { TargetAgentRegistration, RunContinuation } from '../src/types/domain.js';
+import {
+  callController,
+  createApproval,
+  createMessage,
+  createRequest,
+  createRun,
+  createSessionRecord,
+  createWebhookSubscription,
+  installWorkspace,
+  restoreControllerRegressionState
+} from './helpers/controller-regression-fixtures.js';
+
+afterEach(restoreControllerRegressionState);
+
+describe('controller authorization regressions', () => {
+  it('requires create_sessions to create sessions', async () => {
+    installWorkspace('viewer');
+    const denied = await callController(
+      createSession,
+      createRequest({ workspaceId: 'workspace-1', clusterId: 'cluster-1' }, { title: 'Session' })
+    );
+    assert.equal(denied.statusCode, 403);
+
+    installWorkspace('operator');
+    repo.addSession = async () => createSessionRecord();
+    const allowed = await callController(
+      createSession,
+      createRequest({ workspaceId: 'workspace-1', clusterId: 'cluster-1' }, { title: 'Session' })
+    );
+    assert.equal(allowed.statusCode, 201);
+  });
+
+  it('does not fail completed session creation when nontransactional audit logging fails', async () => {
+    installWorkspace('operator');
+    repo.addSession = async () => createSessionRecord();
+    repo.insertWorkspaceAuditEvent = async () => {
+      throw new Error('audit store unavailable');
+    };
+    mock.method(logger, 'warn', () => undefined);
+
+    const allowed = await callController(
+      createSession,
+      createRequest({ workspaceId: 'workspace-1', clusterId: 'cluster-1' }, { title: 'Session' })
+    );
+
+    assert.equal(allowed.statusCode, 201);
+  });
+
+  it('requires create_read_write_runs for explicit read-write messages', async () => {
+    installWorkspace('operator');
+    repo.getSession = async () => createSessionRecord();
+    const denied = await callController(
+      postMessage,
+      createRequest({ sessionId: 'session-1' }, { content: 'diagnose', toolAccessMode: 'read_write' })
+    );
+    assert.equal(denied.statusCode, 403);
+
+    installWorkspace('admin');
+    repo.getSession = async () => createSessionRecord();
+    repo.createRunFromUserMessage = async () => ({
+      message: createMessage(),
+      run: createRun(),
+      idempotent: true
+    });
+    const allowed = await callController(
+      postMessage,
+      createRequest({ sessionId: 'session-1' }, { content: 'diagnose', toolAccessMode: 'read_write' })
+    );
+    assert.equal(allowed.statusCode, 202);
+  });
+
+  it('requires conversation ownership before creating follow-up runs', async () => {
+    installWorkspace('admin');
+    repo.getSession = async () => createSessionRecord({ createdBy: 'other-user' });
+    let attemptedRunCreate = false;
+    repo.createRunFromUserMessage = async () => {
+      attemptedRunCreate = true;
+      return {
+        message: createMessage(),
+        run: createRun(),
+        idempotent: false
+      };
+    };
+
+    const denied = await callController(
+      postMessage,
+      createRequest(
+        { sessionId: 'session-1' },
+        { content: 'diagnose', toolAccessMode: 'read_write', clientMessageId: 'repeat-message' }
+      )
+    );
+
+    assert.equal(denied.statusCode, 403);
+    assert.equal((denied.body as { error: { code: string } }).error.code, 'CONVERSATION_OWNER_REQUIRED');
+    assert.equal(attemptedRunCreate, false);
+  });
+
+  it('requires cancel_runs to cancel runs', async () => {
+    repo.getRun = async () => createRun({ status: 'waiting_for_approval' });
+    installWorkspace('viewer');
+    const denied = await callController(cancelRun, createRequest({ runId: 'run-1' }));
+    assert.equal(denied.statusCode, 403);
+
+    installWorkspace('operator');
+    const continuation: RunContinuation = {
+      runId: 'run-1',
+      approvalId: 'approval-1',
+      schemaVersion: 1,
+      state: {},
+      createdAt: '2026-05-24T00:00:00.000Z',
+      updatedAt: '2026-05-24T00:00:00.000Z'
+    };
+    repo.getRunContinuation = async () => continuation;
+    repo.expireRunToolApproval = async () => createApproval({ status: 'expired' });
+    repo.deleteRunContinuation = async () => true;
+    repo.updateRun = async () => createRun({ status: 'cancelled' });
+    repo.getLatestRunEventSeq = async () => 0;
+    repo.appendRunEvents = async (_runId, events) => events;
+    const allowed = await callController(cancelRun, createRequest({ runId: 'run-1' }));
+    assert.equal(allowed.statusCode, 202);
+  });
+
+  it('requires create_read_write_runs for approval decisions except requester self-rejection', async () => {
+    installWorkspace('viewer');
+    repo.getRun = async () => createRun();
+    repo.getRunToolApproval = async () => createApproval();
+    const denied = await callController(
+      decideRunApproval,
+      createRequest({ runId: 'run-1', approvalId: 'approval-1' }, { decision: 'approved' })
+    );
+    assert.equal(denied.statusCode, 403);
+
+    let decidedBy = '';
+    repo.getRunToolApproval = async () => createApproval({ requestedBy: 'user-1' });
+    repo.decideRunToolApproval = async (_approvalId: string, decision: 'approved' | 'rejected', userId: string) => {
+      decidedBy = userId;
+      return createApproval({ status: 'rejected', decision, requestedBy: 'user-1', decidedBy: userId });
+    };
+    const allowed = await callController(
+      decideRunApproval,
+      createRequest({ runId: 'run-1', approvalId: 'approval-1' }, { decision: 'rejected' })
+    );
+    assert.equal(allowed.statusCode, 200);
+    assert.equal(decidedBy, 'user-1');
+  });
+
+  it('requires manage_agent_keys to rotate agent keys', async () => {
+    installWorkspace('operator');
+    const denied = await callController(rotateAgentKey, createRequest({ workspaceId: 'workspace-1', clusterId: 'cluster-1' }));
+    assert.equal(denied.statusCode, 403);
+
+    installWorkspace('admin');
+    const registration: TargetAgentRegistration = {
+      targetId: 'cluster-1',
+      targetType: 'kubernetes',
+      workspaceId: 'workspace-1',
+      agentKeyHash: 'old-hash',
+      keyVersion: 1
+    };
+    repo.getTargetAgentRegistration = async () => registration;
+    repo.upsertTargetAgentRegistration = async () => undefined;
+    let disconnectedClusterId = '';
+    mock.method(agentGateway, 'disconnectCluster', async (clusterId: string) => {
+      disconnectedClusterId = clusterId;
+      return true;
+    });
+    const allowed = await callController(rotateAgentKey, createRequest({ workspaceId: 'workspace-1', clusterId: 'cluster-1' }));
+    assert.equal(allowed.statusCode, 200);
+    assert.equal(disconnectedClusterId, 'cluster-1');
+  });
+
+  it('requires manage_mcp for MCP server mutations', async () => {
+    installWorkspace('operator');
+    const denied = await callController(
+      createTargetMcpServerForTarget,
+      createRequest(
+        { workspaceId: 'workspace-1', targetId: 'cluster-1' },
+        { name: 'server', url: 'https://mcp.example.test', enabled: true }
+      )
+    );
+    assert.equal(denied.statusCode, 403);
+
+    installWorkspace('admin');
+    mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({
+      id: 'server-1',
+      workspace_id: 'workspace-1',
+      target_id: 'cluster-1',
+      target_type: 'kubernetes',
+      server_name: 'server',
+      server_url: 'https://mcp.example.test',
+      enabled: true,
+      auth_type: 'none',
+      tools: []
+    }), { status: 200 }));
+    const allowed = await callController(
+      createTargetMcpServerForTarget,
+      createRequest(
+        { workspaceId: 'workspace-1', targetId: 'cluster-1' },
+        { name: 'server', url: 'https://mcp.example.test', enabled: true }
+      )
+    );
+    assert.equal(allowed.statusCode, 201);
+  });
+
+  it('requires manage_tools for tool settings updates', async () => {
+    installWorkspace('operator');
+    const denied = await callController(
+      updateTargetToolSettings,
+      createRequest({ workspaceId: 'workspace-1', targetId: 'cluster-1', toolName: 'get_pods' }, { enabled: false })
+    );
+    assert.equal(denied.statusCode, 403);
+
+    installWorkspace('admin');
+    repo.setTargetToolOverride = async () => undefined;
+    mock.method(globalThis, 'fetch', async (_input, init) => {
+      if (init?.method === 'PATCH') {
+        return new Response(JSON.stringify({
+          name: 'get_pods',
+          mcp_server_url: 'builtin://cluster',
+          timeout_ms: 10000,
+          enabled: false,
+          capability: 'read'
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify([
+        {
+          name: 'get_pods',
+          mcp_server_url: 'builtin://cluster',
+          timeout_ms: 10000,
+          enabled: true,
+          capability: 'read'
+        }
+      ]), { status: 200 });
+    });
+    const allowed = await callController(
+      updateTargetToolSettings,
+      createRequest({ workspaceId: 'workspace-1', targetId: 'cluster-1', toolName: 'get_pods' }, { enabled: false })
+    );
+    assert.equal(allowed.statusCode, 200);
+  });
+
+  it('requires explicit capability when enabling a discovered MCP tool', async () => {
+    installWorkspace('admin');
+    repo.setTargetToolOverride = async () => undefined;
+    mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify([
+      {
+        name: 'external.lookup',
+        mcp_server_url: 'https://mcp.example.test',
+        timeout_ms: 10000,
+        enabled: false,
+        capability: 'read',
+        source: 'mcp'
+      }
+    ]), { status: 200 }));
+
+    const response = await callController(
+      updateTargetToolSettings,
+      createRequest(
+        { workspaceId: 'workspace-1', targetId: 'cluster-1', toolName: 'external.lookup' },
+        { enabled: true }
+      )
+    );
+
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.body.error.code, 'VALIDATION_ERROR');
+  });
+
+  it('keeps webhook mutations capability-gated', async () => {
+    installWorkspace('operator');
+    const denied = await callController(
+      createWebhook,
+      createRequest(
+        { workspaceId: 'workspace-1' },
+        { name: 'Webhook', url: 'https://example.test/webhook', eventTypes: ['run.created.v1'], enabled: true }
+      )
+    );
+    assert.equal(denied.statusCode, 403);
+
+    installWorkspace('admin');
+    let createInput: Parameters<typeof repo.createWebhookSubscription>[0] | undefined;
+    repo.createWebhookSubscription = async (input) => {
+      createInput = input;
+      return {
+        ...createWebhookSubscription(),
+        targetId: input.targetId || undefined
+      };
+    };
+    const created = await callController(
+      createWebhook,
+      createRequest(
+        { workspaceId: 'workspace-1' },
+        { name: 'Webhook', url: 'https://example.test/webhook', eventTypes: ['run.created.v1'], targetId: 'target-1', enabled: true }
+      )
+    );
+    assert.equal(created.statusCode, 201);
+    assert.equal(createInput?.targetId, 'target-1');
+
+    const missingTarget = await callController(
+      createWebhook,
+      createRequest(
+        { workspaceId: 'workspace-1' },
+        { name: 'Webhook', url: 'https://example.test/webhook', eventTypes: ['run.created.v1'], targetId: 'missing-target', enabled: true }
+      )
+    );
+    assert.equal(missingTarget.statusCode, 404);
+    assert.equal(missingTarget.body.error.message, 'Target not found');
+
+    repo.deleteWebhookSubscription = async () => true;
+    const deleted = await callController(deleteWebhook, createRequest({ workspaceId: 'workspace-1', webhookId: 'webhook-1' }));
+    assert.equal(deleted.statusCode, 204);
+  });
+});

@@ -1,0 +1,138 @@
+name: acornops-control-plane
+
+services:
+  control-plane:
+    image: ${CONTROL_PLANE_IMAGE:-ghcr.io/acornops/control-plane:0.0.1-experimental.1}
+    environment:
+      NODE_ENV: production
+      PORT: 8081
+      LOG_LEVEL: info
+      ENABLE_API_DOCS: ${ENABLE_API_DOCS:-false}
+      CONTROL_PLANE_BASE_URL: ${CONTROL_PLANE_BASE_URL:-https://api.${BASE_DOMAIN:-acornops.dev}}
+      CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED: ${CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED:-true}
+      CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS: ${CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS:-90}
+      CONTROL_PLANE_AGENT_SNAPSHOT_INTERVAL_SECONDS: ${CONTROL_PLANE_AGENT_SNAPSHOT_INTERVAL_SECONDS:-60}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://console.${BASE_DOMAIN:-acornops.dev}}
+      SESSION_COOKIE_NAME: acornops_cp_session
+      SESSION_MAX_AGE_SECONDS: ${SESSION_MAX_AGE_SECONDS:-604800}
+      SESSION_IDLE_TIMEOUT_SECONDS: ${SESSION_IDLE_TIMEOUT_SECONDS:-86400}
+      CONVERSATION_RETENTION_DAYS: ${CONVERSATION_RETENTION_DAYS:-30}
+      CONVERSATION_RETENTION_JOB_INTERVAL_SECONDS: ${CONVERSATION_RETENTION_JOB_INTERVAL_SECONDS:-3600}
+      RUN_EVENT_BUFFER_SIZE: ${RUN_EVENT_BUFFER_SIZE:-200}
+      PERSIST_RUN_EVENTS: ${PERSIST_RUN_EVENTS:-true}
+      SEED_DEVELOPMENT_DATA: "false"
+      OIDC_PROVIDER_NAME: ${OIDC_PROVIDER_NAME:-keycloak}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-https://keycloak.${BASE_DOMAIN:-acornops.dev}/realms/acornops}
+      OIDC_PUBLIC_ISSUER_URL: ${OIDC_PUBLIC_ISSUER_URL:-https://keycloak.${BASE_DOMAIN:-acornops.dev}/realms/acornops}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-acornops-control-plane}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-change-me}
+      OIDC_TOKEN_ENDPOINT_AUTH_METHOD: ${OIDC_TOKEN_ENDPOINT_AUTH_METHOD:-client_secret_basic}
+      OIDC_AUTHORIZATION_ENDPOINT_OVERRIDE: ${OIDC_AUTHORIZATION_ENDPOINT_OVERRIDE:-}
+      OIDC_TOKEN_ENDPOINT_OVERRIDE: ${OIDC_TOKEN_ENDPOINT_OVERRIDE:-}
+      OIDC_USERINFO_ENDPOINT_OVERRIDE: ${OIDC_USERINFO_ENDPOINT_OVERRIDE:-}
+      OIDC_JWKS_URI_OVERRIDE: ${OIDC_JWKS_URI_OVERRIDE:-}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-https://console.${BASE_DOMAIN:-acornops.dev}/api/v1/auth/oidc/callback}
+      OIDC_SCOPES: openid profile email
+      OIDC_USE_USERINFO: ${OIDC_USE_USERINFO:-true}
+      ORCH_SERVICE_TOKEN: ${ORCH_SERVICE_TOKEN:-change-me}
+      EXECUTION_ENGINE_BASE_URL: ${EXECUTION_ENGINE_BASE_URL:-http://execution-engine:8080}
+      EXECUTION_ENGINE_DISPATCH_TOKEN: ${EXECUTION_ENGINE_DISPATCH_TOKEN:-change-me}
+      EXECUTION_ENGINE_TIMEOUT_MS: 10000
+      DATABASE_URL: postgresql://${CP_DB_USER:-acornops}:${CP_DB_PASSWORD:-change-me}@cp-postgres:5432/${CP_DB_NAME:-acornops_control_plane}
+      REDIS_URL: redis://cp-redis:6379/0
+      LLM_GATEWAY_URL: ${LLM_GATEWAY_URL:-http://llm-gateway:8001}
+      LLM_GATEWAY_ADMIN_TOKEN: ${LLM_GATEWAY_ADMIN_TOKEN:-change-me}
+      LLM_GATEWAY_TIMEOUT_MS: ${LLM_GATEWAY_TIMEOUT_MS:-120000}
+      LLM_DEFAULT_PROVIDER: ${LLM_DEFAULT_PROVIDER:-gemini}
+      LLM_DEFAULT_MODEL: ${LLM_DEFAULT_MODEL:-gemini-2.0-flash}
+      LLM_ALLOWED_PROVIDERS: ${LLM_ALLOWED_PROVIDERS:-openai,anthropic,gemini}
+      LLM_ALLOWED_MODELS: ${LLM_ALLOWED_MODELS:-gpt-4.1-mini,claude-3-5-sonnet-latest,gemini-2.0-flash}
+      AGENT_SYSTEM_INSTRUCTION: ${AGENT_SYSTEM_INSTRUCTION:-}
+      AGENT_CONTEXT_MAX_TOKENS: ${AGENT_CONTEXT_MAX_TOKENS:-120000}
+      AGENT_BUDGET_CENTS: ${AGENT_BUDGET_CENTS:-25}
+      AGENT_LLM_TEMPERATURE: ${AGENT_LLM_TEMPERATURE:-0.2}
+      AGENT_MAX_RUNTIME_MS: ${AGENT_MAX_RUNTIME_MS:-600000}
+      AGENT_MAX_STEPS: ${AGENT_MAX_STEPS:-16}
+      AGENT_MAX_TOOL_CALLS: ${AGENT_MAX_TOOL_CALLS:-24}
+      AGENT_MAX_DUPLICATE_TOOL_CALLS: ${AGENT_MAX_DUPLICATE_TOOL_CALLS:-2}
+      AGENT_TOOL_DEFAULT_TIMEOUT_MS: ${AGENT_TOOL_DEFAULT_TIMEOUT_MS:-10000}
+      BUILTIN_MCP_SERVER_NAME: ${BUILTIN_MCP_SERVER_NAME:-}
+      BUILTIN_MCP_SERVER_URL: ${BUILTIN_MCP_SERVER_URL:-}
+      BUILTIN_MCP_SERVER_DISPLAY_NAME: ${BUILTIN_MCP_SERVER_DISPLAY_NAME:-}
+      GATEWAY_TOKEN_ISSUER: llm-gateway
+      GATEWAY_TOKEN_AUDIENCE: execution-gateway
+      GATEWAY_TOKEN_TTL_SECONDS: 900
+      GATEWAY_SIGNING_KID: cp-rs256-1
+      WEBHOOK_SECRET_ENCRYPTION_KEY: ${WEBHOOK_SECRET_ENCRYPTION_KEY:-change-me}
+    depends_on:
+      cp-postgres:
+        condition: service_healthy
+      control-plane-init:
+        condition: service_completed_successfully
+      cp-redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8081/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    networks:
+      - acornops
+
+  control-plane-init:
+    image: ${CONTROL_PLANE_IMAGE:-ghcr.io/acornops/control-plane:0.0.1-experimental.1}
+    environment:
+      DATABASE_URL: postgresql://${CP_DB_USER:-acornops}:${CP_DB_PASSWORD:-change-me}@cp-postgres:5432/${CP_DB_NAME:-acornops_control_plane}
+    command: ["node", "dist/scripts/control-plane-db.js", "migrate"]
+    depends_on:
+      cp-postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - acornops
+
+  cp-postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${CP_DB_USER:-acornops}
+      POSTGRES_PASSWORD: ${CP_DB_PASSWORD:-change-me}
+      POSTGRES_DB: ${CP_DB_NAME:-acornops_control_plane}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CP_DB_USER:-acornops} -d ${CP_DB_NAME:-acornops_control_plane}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - cp-postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - acornops
+
+  cp-redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - cp-redis-data:/data
+    restart: unless-stopped
+    networks:
+      - acornops
+
+volumes:
+  cp-postgres-data:
+  cp-redis-data:
+
+networks:
+  acornops:
+    driver: bridge

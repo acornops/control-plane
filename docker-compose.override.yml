@@ -1,0 +1,314 @@
+services:
+  control-plane:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    image: acornops/control-plane:local
+    command: ["npm", "run", "dev"]
+    environment:
+      NODE_ENV: development
+      ENABLE_API_DOCS: "true"
+      CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-true}
+      CONTROL_PLANE_BASE_URL: http://localhost:8081
+      CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED: ${CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED:-false}
+      CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS: ${CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS:-90}
+      CONTROL_PLANE_AGENT_SNAPSHOT_INTERVAL_SECONDS: ${CONTROL_PLANE_AGENT_SNAPSHOT_INTERVAL_SECONDS:-60}
+      CORS_ORIGIN: http://localhost:3000
+      SEED_DEVELOPMENT_DATA: "true"
+      CONVERSATION_RETENTION_DAYS: ${CONVERSATION_RETENTION_DAYS:-30}
+      CONVERSATION_RETENTION_JOB_INTERVAL_SECONDS: ${CONVERSATION_RETENTION_JOB_INTERVAL_SECONDS:-3600}
+      RUN_EVENT_BUFFER_SIZE: ${RUN_EVENT_BUFFER_SIZE:-200}
+      PERSIST_RUN_EVENTS: ${PERSIST_RUN_EVENTS:-false}
+      OIDC_PROVIDER_NAME: ${OIDC_PROVIDER_NAME:-dex}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://dex:5556/dex}
+      OIDC_PUBLIC_ISSUER_URL: ${OIDC_PUBLIC_ISSUER_URL:-http://localhost:5556/dex}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-acornops-control-plane}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-acornops-control-plane-secret}
+      OIDC_TOKEN_ENDPOINT_AUTH_METHOD: ${OIDC_TOKEN_ENDPOINT_AUTH_METHOD:-client_secret_basic}
+      OIDC_AUTHORIZATION_ENDPOINT_OVERRIDE: ${OIDC_AUTHORIZATION_ENDPOINT_OVERRIDE:-http://localhost:${DEX_PORT:-5556}/dex/auth}
+      OIDC_TOKEN_ENDPOINT_OVERRIDE: ${OIDC_TOKEN_ENDPOINT_OVERRIDE:-http://dex:5556/dex/token}
+      OIDC_USERINFO_ENDPOINT_OVERRIDE: ${OIDC_USERINFO_ENDPOINT_OVERRIDE:-http://dex:5556/dex/userinfo}
+      OIDC_JWKS_URI_OVERRIDE: ${OIDC_JWKS_URI_OVERRIDE:-http://dex:5556/dex/keys}
+      OIDC_REDIRECT_URI: http://localhost:8081/api/v1/auth/oidc/callback
+      OIDC_USE_USERINFO: ${OIDC_USE_USERINFO:-true}
+      ORCH_SERVICE_TOKEN: dev_orchestrator_token
+      EXECUTION_ENGINE_BASE_URL: http://execution-engine:8080
+      EXECUTION_ENGINE_DISPATCH_TOKEN: ${EXECUTION_ENGINE_DISPATCH_TOKEN:-dev_execution_engine_dispatch_token}
+      LLM_GATEWAY_URL: http://llm-gateway:8001
+      LLM_GATEWAY_ADMIN_TOKEN: ${LLM_GATEWAY_ADMIN_TOKEN:-dev_orchestrator_token}
+      LLM_GATEWAY_TIMEOUT_MS: ${LLM_GATEWAY_TIMEOUT_MS:-120000}
+      LLM_DEFAULT_PROVIDER: ${LLM_DEFAULT_PROVIDER:-gemini}
+      LLM_DEFAULT_MODEL: ${LLM_DEFAULT_MODEL:-gemini-2.0-flash}
+      LLM_ALLOWED_PROVIDERS: ${LLM_ALLOWED_PROVIDERS:-openai,anthropic,gemini}
+      LLM_ALLOWED_MODELS: ${LLM_ALLOWED_MODELS:-gpt-4.1-mini,claude-3-5-sonnet-latest,gemini-2.0-flash}
+      AGENT_SYSTEM_INSTRUCTION: ${AGENT_SYSTEM_INSTRUCTION:-}
+      AGENT_CONTEXT_MAX_TOKENS: ${AGENT_CONTEXT_MAX_TOKENS:-120000}
+      AGENT_BUDGET_CENTS: ${AGENT_BUDGET_CENTS:-25}
+      AGENT_LLM_TEMPERATURE: ${AGENT_LLM_TEMPERATURE:-0.2}
+      AGENT_MAX_RUNTIME_MS: ${AGENT_MAX_RUNTIME_MS:-600000}
+      AGENT_MAX_STEPS: ${AGENT_MAX_STEPS:-16}
+      AGENT_MAX_TOOL_CALLS: ${AGENT_MAX_TOOL_CALLS:-24}
+      AGENT_MAX_DUPLICATE_TOOL_CALLS: ${AGENT_MAX_DUPLICATE_TOOL_CALLS:-2}
+      AGENT_TOOL_DEFAULT_TIMEOUT_MS: ${AGENT_TOOL_DEFAULT_TIMEOUT_MS:-10000}
+      BUILTIN_MCP_SERVER_NAME: ${BUILTIN_MCP_SERVER_NAME:-}
+      BUILTIN_MCP_SERVER_URL: ${BUILTIN_MCP_SERVER_URL:-}
+      BUILTIN_MCP_SERVER_DISPLAY_NAME: ${BUILTIN_MCP_SERVER_DISPLAY_NAME:-}
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./:/app
+      - control-plane-node-modules:/app/node_modules
+
+  control-plane-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    image: acornops/control-plane:local
+    command: ["npm", "run", "db:migrate"]
+    environment:
+      DATABASE_URL: postgresql://acornops:acornops@cp-postgres:5432/acornops_control_plane
+    volumes:
+      - ./:/app
+      - control-plane-node-modules:/app/node_modules
+
+  keycloak:
+    profiles:
+      - oidc-keycloak
+    image: quay.io/keycloak/keycloak:26.1
+    command: ["start-dev", "--import-realm", "--http-enabled=true", "--hostname-strict=false"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+    depends_on:
+      keycloak-postgres:
+        condition: service_healthy
+    volumes:
+      - ./deploy/keycloak/realm-acornops.json:/opt/keycloak/data/import/realm-acornops.json:ro
+    ports:
+      - "${KEYCLOAK_PORT:-8082}:8080"
+    restart: unless-stopped
+    networks:
+      - acornops
+
+  keycloak-postgres:
+    profiles:
+      - oidc-keycloak
+    image: postgres:16
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak
+      POSTGRES_DB: keycloak
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - keycloak-postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - acornops
+
+  dex:
+    image: ghcr.io/dexidp/dex:v2.39.1
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    volumes:
+      - ./deploy/oidc/dex/config.yaml:/etc/dex/config.yaml:ro
+      - dex-data:/var/dex
+    ports:
+      - "${DEX_PORT:-5556}:5556"
+    restart: unless-stopped
+    networks:
+      - acornops
+
+  execution-engine:
+    profiles:
+      - integration
+    build:
+      context: ../execution-engine-playground
+      dockerfile: Dockerfile
+    command:
+      [
+        "uvicorn",
+        "execution_engine.app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8080",
+        "--reload",
+        "--reload-dir",
+        "/app"
+      ]
+    environment:
+      ORCH_BASE_URL: http://control-plane:8081
+      ORCH_SERVICE_TOKEN: dev_orchestrator_token
+      EXECUTION_ENGINE_DISPATCH_TOKEN: ${EXECUTION_ENGINE_DISPATCH_TOKEN:-dev_execution_engine_dispatch_token}
+      HTTP_PORT: 8080
+      LOG_LEVEL: INFO
+      ENABLE_API_DOCS: "true"
+    depends_on:
+      control-plane:
+        condition: service_healthy
+      llm-gateway:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../execution-engine-playground:/app
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    networks:
+      - acornops
+
+  llm-gateway:
+    profiles:
+      - integration
+    build:
+      context: ../llm-gateway-playground
+      dockerfile: deployments/Dockerfile.gateway
+    command:
+      [
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8001",
+        "--reload",
+        "--reload-dir",
+        "/app"
+      ]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://gateway_user:gateway_password@gateway-postgres:5432/gateway
+      REDIS_URL: redis://gateway-redis:6379/0
+      SECRETS_KEK_BASE64: SglIGBscu1EgQ+AlpqJLADNN9QmCzS9d1ZvK3oT/e5s=
+      AUTH_JWKS_URL: http://control-plane:8081/api/v1/auth/jwks.json
+      AUTH_ISSUER: llm-gateway
+      AUTH_AUDIENCE: execution-gateway
+      ENABLE_API_DOCS: "true"
+      ADMIN_API_TOKEN: ${LLM_GATEWAY_ADMIN_TOKEN:-dev_orchestrator_token}
+    depends_on:
+      gateway-postgres:
+        condition: service_healthy
+      gateway-redis:
+        condition: service_healthy
+      llm-gateway-init:
+        condition: service_completed_successfully
+    ports:
+      - "8001:8001"
+    volumes:
+      - ../llm-gateway-playground:/app
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    networks:
+      - acornops
+
+  llm-gateway-init:
+    profiles:
+      - integration
+    build:
+      context: ../llm-gateway-playground
+      dockerfile: deployments/Dockerfile.gateway
+    environment:
+      DATABASE_URL: postgresql+asyncpg://gateway_user:gateway_password@gateway-postgres:5432/gateway
+      REDIS_URL: redis://gateway-redis:6379/0
+      SECRETS_KEK_BASE64: SglIGBscu1EgQ+AlpqJLADNN9QmCzS9d1ZvK3oT/e5s=
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    command: ["sh", "-c", "alembic upgrade head && python scripts/seed_db.py"]
+    depends_on:
+      gateway-postgres:
+        condition: service_healthy
+      gateway-redis:
+        condition: service_healthy
+      mock-mcp:
+        condition: service_started
+    restart: "no"
+    networks:
+      - acornops
+    volumes:
+      - ../llm-gateway-playground:/app
+
+  gateway-postgres:
+    profiles:
+      - integration
+    image: postgres:16
+    environment:
+      POSTGRES_USER: gateway_user
+      POSTGRES_PASSWORD: gateway_password
+      POSTGRES_DB: gateway
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gateway_user -d gateway"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - gateway-postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - acornops
+
+  gateway-redis:
+    profiles:
+      - integration
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - gateway-redis-data:/data
+    restart: unless-stopped
+    networks:
+      - acornops
+
+  mock-mcp:
+    profiles:
+      - integration
+    build:
+      context: ../llm-gateway-playground
+      dockerfile: deployments/Dockerfile.mock-mcp
+    command:
+      [
+        "uvicorn",
+        "mock_mcp_server:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8002",
+        "--reload",
+        "--reload-dir",
+        "/app"
+      ]
+    ports:
+      - "8002:8002"
+    restart: unless-stopped
+    networks:
+      - acornops
+    volumes:
+      - ../llm-gateway-playground/test:/app
+
+volumes:
+  keycloak-postgres-data:
+  dex-data:
+  control-plane-node-modules:
+  gateway-postgres-data:
+  gateway-redis-data:
