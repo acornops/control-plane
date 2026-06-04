@@ -132,7 +132,7 @@ services:
     profiles:
       - integration
     build:
-      context: ../execution-engine-playground
+      context: ../execution-engine
       dockerfile: Dockerfile
     command:
       [
@@ -161,7 +161,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ../execution-engine-playground:/app
+      - ../execution-engine:/app
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 10s
@@ -175,7 +175,7 @@ services:
     profiles:
       - integration
     build:
-      context: ../llm-gateway-playground
+      context: ../llm-gateway
       dockerfile: deployments/Dockerfile.gateway
     command:
       [
@@ -208,7 +208,7 @@ services:
     ports:
       - "8001:8001"
     volumes:
-      - ../llm-gateway-playground:/app
+      - ../llm-gateway:/app
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 10s
@@ -222,7 +222,7 @@ services:
     profiles:
       - integration
     build:
-      context: ../llm-gateway-playground
+      context: ../llm-gateway
       dockerfile: deployments/Dockerfile.gateway
     environment:
       DATABASE_URL: postgresql+asyncpg://gateway_user:gateway_password@gateway-postgres:5432/gateway
@@ -243,7 +243,7 @@ services:
     networks:
       - acornops
     volumes:
-      - ../llm-gateway-playground:/app
+      - ../llm-gateway:/app
 
   gateway-postgres:
     profiles:
@@ -284,7 +284,7 @@ services:
     profiles:
       - integration
     build:
-      context: ../llm-gateway-playground
+      context: ../llm-gateway
       dockerfile: deployments/Dockerfile.mock-mcp
     command:
       [
@@ -304,7 +304,7 @@ services:
     networks:
       - acornops
     volumes:
-      - ../llm-gateway-playground/test:/app
+      - ../llm-gateway/test:/app
 
 volumes:
   keycloak-postgres-data:
