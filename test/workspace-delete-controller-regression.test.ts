@@ -109,4 +109,29 @@ describe('workspace deletion controller regressions', () => {
       { targetId: 'target-1', targetType: 'virtual_machine', serverId: 'target-1-server' }
     ]);
   });
+
+  it('maps AI credential cleanup gateway failures with workspace AI error copy', async () => {
+    installWorkspace('owner');
+    repo.getWorkspaceSummaryForUser = async () => createWorkspaceSummary();
+    repo.listTargets = async () => ({ items: [], nextCursor: undefined });
+    repo.deleteWorkspace = async () => true;
+    mock.method(globalThis, 'fetch', async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname.startsWith('/api/v1/internal/llm/provider-credentials/') && init?.method === 'DELETE') {
+        return new Response(JSON.stringify({ detail: 'llm-gateway unavailable' }), { status: 503 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
+
+    const response = await callController(deleteWorkspace, createRequest({ workspaceId: 'workspace-1' }));
+
+    assert.equal(response.statusCode, 502);
+    assert.deepEqual(response.body, {
+      error: {
+        code: 'UPSTREAM_ERROR',
+        message: 'Failed to synchronize AI provider settings with llm-gateway',
+        retryable: true
+      }
+    });
+  });
 });

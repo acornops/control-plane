@@ -3,7 +3,7 @@ import { NextFunction, Request, Response } from 'express';
 import { agentGateway } from '../agent/ws-server.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
-import { listTargetMcpTools, McpToolConfig } from '../services/mcp-registry-client.js';
+import { listTargetMcpTools, LlmGatewayHttpError, McpToolConfig } from '../services/mcp-registry-client.js';
 import { isModelAllowedForProvider } from '../services/llm-policy.js';
 import { syncTargetBuiltInTools } from '../services/target-built-in-tool-sync.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
@@ -15,8 +15,10 @@ import { repo } from '../store/repository.js';
 import { runtime } from '../store/runtime.js';
 import { KUBERNETES_TARGET_TYPE, RunEvent, TargetType } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
+import { mapGatewayError } from './workspaces/common.js';
 
 const TERMINAL_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+const AI_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
 
 export function normalizeToolCapability(tool: Pick<McpToolConfig, 'capability'>): 'read' | 'write' {
   return tool.capability === 'read' ? 'read' : 'write';
@@ -259,6 +261,11 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
 
     res.status(200).json(snapshot);
   } catch (err) {
+    if (err instanceof LlmGatewayHttpError) {
+      const mapped = mapGatewayError(err, { upstreamMessage: AI_GATEWAY_UPSTREAM_MESSAGE });
+      res.status(mapped.status).json(mapped.body);
+      return;
+    }
     next(err);
   }
 }

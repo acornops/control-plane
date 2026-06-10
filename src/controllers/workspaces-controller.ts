@@ -29,6 +29,8 @@ import {
 import { mapGatewayError } from './workspaces/common.js';
 import { cleanupWorkspaceAiProviderCredentials } from './workspaces/ai-settings-controller.js';
 
+const AI_GATEWAY_UPSTREAM_MESSAGE = 'Failed to synchronize AI provider settings with llm-gateway';
+
 export function applyWorkspaceSummaryPermissions(
   workspace: WorkspaceSummary,
   permissions: WorkspaceSummary['permissions']
@@ -262,7 +264,7 @@ export async function deleteWorkspace(req: AuthenticatedRequest, res: Response, 
     res.status(204).send();
   } catch (err) {
     if (err instanceof LlmGatewayHttpError) {
-      const mapped = mapGatewayError(err);
+      const mapped = mapGatewayError(err, { upstreamMessage: AI_GATEWAY_UPSTREAM_MESSAGE });
       res.status(mapped.status).json(mapped.body);
       return;
     }
