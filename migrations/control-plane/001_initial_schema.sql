@@ -17,6 +17,14 @@ CREATE TABLE IF NOT EXISTS workspaces (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS workspace_ai_settings (
+  workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+  default_provider TEXT NOT NULL CHECK (default_provider IN ('openai', 'anthropic', 'gemini')),
+  default_model TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS workspace_memberships (
   workspace_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
@@ -160,6 +168,8 @@ CREATE TABLE IF NOT EXISTS runs (
   target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
   session_id TEXT NOT NULL,
   message_id TEXT NOT NULL,
+  llm_provider TEXT NOT NULL CHECK (llm_provider IN ('openai', 'anthropic', 'gemini')),
+  llm_model TEXT NOT NULL,
   status TEXT NOT NULL,
   requested_at TIMESTAMPTZ NOT NULL,
   started_at TIMESTAMPTZ NULL,

@@ -5,7 +5,9 @@ import {
   addWorkspaceMemberSchema,
   createWorkspaceInvitationSchema,
   createWorkspaceSchema,
-  updateWorkspaceMemberSchema
+  updateWorkspaceAiSettingsSchema,
+  updateWorkspaceMemberSchema,
+  upsertWorkspaceAiProviderCredentialSchema
 } from '../../types/contracts.js';
 import { validateBody } from '../../utils/http.js';
 
@@ -25,6 +27,24 @@ export function registerWorkspaceRoutes(router: Router): void {
   router.get('/workspaces/:workspaceId/roles', requireUser, authed(workspacesController.listWorkspaceRoleTemplates));
   router.get('/workspaces/:workspaceId/members', requireUser, authed(workspacesController.listWorkspaceMembers));
   router.get('/workspaces/:workspaceId/audit-log', requireUser, authed(workspacesController.listWorkspaceAuditEvents));
+  router.get('/workspaces/:workspaceId/ai-settings', requireUser, authed(workspacesController.getWorkspaceAiSettings));
+  router.patch(
+    '/workspaces/:workspaceId/ai-settings',
+    requireUser,
+    validateBody(updateWorkspaceAiSettingsSchema),
+    authed(workspacesController.updateWorkspaceAiSettings)
+  );
+  router.put(
+    '/workspaces/:workspaceId/ai-provider-credentials/:provider',
+    requireUser,
+    validateBody(upsertWorkspaceAiProviderCredentialSchema),
+    authed(workspacesController.upsertWorkspaceAiProviderCredential)
+  );
+  router.delete(
+    '/workspaces/:workspaceId/ai-provider-credentials/:provider',
+    requireUser,
+    authed(workspacesController.deleteWorkspaceAiProviderCredential)
+  );
   router.get(
     '/workspaces/:workspaceId/invitations',
     requireUser,

@@ -106,6 +106,28 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
       required: ['items'],
       properties: { items: { type: 'array', items: schemaRef('WorkspaceRoleTemplate') } }
     },
+    WorkspaceAiProviderStatus: {
+      type: 'object',
+      required: ['provider', 'configured', 'enabled'],
+      properties: {
+        provider: { type: 'string', enum: ['openai', 'anthropic', 'gemini'] },
+        configured: { type: 'boolean' },
+        enabled: { type: 'boolean' }
+      }
+    },
+    WorkspaceAiSettings: {
+      type: 'object',
+      required: ['workspaceId', 'defaultProvider', 'defaultModel', 'allowedProviders', 'allowedModels', 'providers'],
+      properties: {
+        workspaceId: uuid,
+        defaultProvider: { type: 'string', enum: ['openai', 'anthropic', 'gemini'] },
+        defaultModel: { type: 'string' },
+        allowedProviders: { type: 'array', items: { type: 'string', enum: ['openai', 'anthropic', 'gemini'] } },
+        allowedModels: stringArray,
+        providers: { type: 'array', items: schemaRef('WorkspaceAiProviderStatus') }
+      },
+      additionalProperties: false
+    },
     WorkspaceMember: {
       type: 'object',
       required: ['workspaceId', 'userId', 'role'],

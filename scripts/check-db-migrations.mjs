@@ -42,7 +42,9 @@ assert.deepEqual(files, [
   '010_auth_methods.sql',
   '011_paged_list_indexes.sql',
   '012_workspace_audit_events.sql',
-  '013_admin_api.sql'
+  '013_admin_api.sql',
+  '014_workspace_ai_settings.sql',
+  '015_run_llm_snapshot.sql'
 ]);
 for (const file of files) {
   assert(/^\d{3,}_[a-z0-9_]+\.sql$/.test(file), `invalid migration filename ${file}`);
@@ -61,6 +63,8 @@ const authMethodsUpgrade = read('migrations/control-plane/010_auth_methods.sql')
 const pagedListIndexesUpgrade = read('migrations/control-plane/011_paged_list_indexes.sql');
 const workspaceAuditEventsUpgrade = read('migrations/control-plane/012_workspace_audit_events.sql');
 const adminApiUpgrade = read('migrations/control-plane/013_admin_api.sql');
+const workspaceAiSettingsUpgrade = read('migrations/control-plane/014_workspace_ai_settings.sql');
+const runLlmSnapshotUpgrade = read('migrations/control-plane/015_run_llm_snapshot.sql');
 for (const table of [
   'users',
   'workspaces',
@@ -79,7 +83,8 @@ for (const table of [
   'runs',
   'run_events',
   'webhook_subscriptions',
-  'webhook_history'
+  'webhook_history',
+  'workspace_ai_settings'
 ]) {
   assert(initial.includes(`CREATE TABLE IF NOT EXISTS ${table}`), `initial migration must create ${table}`);
 }
@@ -97,6 +102,8 @@ for (const needle of [
   'fk_runs_workspace_target',
   'fk_webhook_subscriptions_workspace_target',
   'fk_webhook_history_workspace_target',
+  "llm_provider TEXT NOT NULL CHECK (llm_provider IN ('openai', 'anthropic', 'gemini'))",
+  'llm_model TEXT NOT NULL',
   'idx_inventory_items_target_sort',
   'idx_inventory_items_search_trgm',
   'idx_target_findings_target_order',
@@ -162,6 +169,20 @@ for (const needle of [
   'admin_audit_events_action_idx'
 ]) {
   assert(adminApiUpgrade.includes(needle), `admin api migration missing ${needle}`);
+}
+for (const needle of [
+  'CREATE TABLE IF NOT EXISTS workspace_ai_settings',
+  "default_provider TEXT NOT NULL CHECK (default_provider IN ('openai', 'anthropic', 'gemini'))",
+  'default_model TEXT NOT NULL'
+]) {
+  assert(workspaceAiSettingsUpgrade.includes(needle), `workspace ai settings migration missing ${needle}`);
+}
+for (const needle of [
+  'ADD COLUMN IF NOT EXISTS llm_provider',
+  "CHECK (llm_provider IN ('openai', 'anthropic', 'gemini'))",
+  'ADD COLUMN IF NOT EXISTS llm_model'
+]) {
+  assert(runLlmSnapshotUpgrade.includes(needle), `run llm snapshot migration missing ${needle}`);
 }
 for (const needle of [
   'CREATE TABLE IF NOT EXISTS target_snapshot_history',

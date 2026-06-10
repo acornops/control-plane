@@ -9,6 +9,11 @@ const workspaceRoleKeySchema = {
   description: 'Deployment-supported workspace role key. Built-ins are owner, admin, operator, viewer, and auditor; custom roles are lowercase snake_case.'
 };
 
+const llmProviderSchema = {
+  type: 'string',
+  enum: ['openai', 'anthropic', 'gemini']
+};
+
 export function buildWorkspacePaths(): Record<string, unknown> {
   return {
 '/api/v1/workspaces': {
@@ -157,6 +162,102 @@ export function buildWorkspacePaths(): Record<string, unknown> {
               description: 'Deployment-supported role catalog: { items: RoleTemplate[] }. Role templates include key, displayName, description, kind, capabilities, protected, and sortOrder.'
             },
             '403': { description: 'No workspace read access.' }
+          }
+        }
+      },
+      '/api/v1/workspaces/{workspaceId}/ai-settings': {
+        get: {
+          tags: ['workspaces'],
+          summary: 'Get workspace AI assistant settings and provider credential status',
+          security: [{ userSession: [] }],
+          parameters: [
+            {
+              in: 'path',
+              name: 'workspaceId',
+              required: true,
+              schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID }
+            }
+          ],
+          responses: {
+            '200': { description: 'Workspace AI assistant settings. Response includes default provider/model, platform allow-lists, and configured/not-configured provider credential status. It never includes API key values or internal secret names.' },
+            '403': { description: 'No workspace read access.' }
+          }
+        },
+        patch: {
+          tags: ['workspaces'],
+          summary: 'Update workspace default AI provider and model',
+          security: [{ userSession: [] }],
+          parameters: [
+            {
+              in: 'path',
+              name: 'workspaceId',
+              required: true,
+              schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID }
+            }
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['defaultProvider', 'defaultModel'],
+                  properties: {
+                    defaultProvider: llmProviderSchema,
+                    defaultModel: { type: 'string', example: 'gemini-2.0-flash' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            '200': { description: 'Workspace AI assistant settings updated.' },
+            '400': { description: 'Selected provider or model is not allowed by deployment policy.' },
+            '403': { description: 'Requires manage_ai_settings.' }
+          }
+        }
+      },
+      '/api/v1/workspaces/{workspaceId}/ai-provider-credentials/{provider}': {
+        put: {
+          tags: ['workspaces'],
+          summary: 'Save or rotate a workspace AI provider credential',
+          security: [{ userSession: [] }],
+          parameters: [
+            { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
+            { in: 'path', name: 'provider', required: true, schema: llmProviderSchema }
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['apiKey'],
+                  properties: {
+                    apiKey: { type: 'string', writeOnly: true, minLength: 1 }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            '200': { description: 'Credential saved. Response returns safe AI settings status only, with no key value or secret name.' },
+            '400': { description: 'Selected provider is not allowed by deployment policy.' },
+            '403': { description: 'Requires manage_ai_settings.' }
+          }
+        },
+        delete: {
+          tags: ['workspaces'],
+          summary: 'Delete a workspace AI provider credential',
+          security: [{ userSession: [] }],
+          parameters: [
+            { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
+            { in: 'path', name: 'provider', required: true, schema: llmProviderSchema }
+          ],
+          responses: {
+            '200': { description: 'Credential deleted. Response returns safe AI settings status only.' },
+            '400': { description: 'Selected provider is not supported.' },
+            '403': { description: 'Requires manage_ai_settings.' }
           }
         }
       },

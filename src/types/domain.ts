@@ -104,6 +104,7 @@ export interface WorkspacePermissions {
   manage_targets: boolean;
   manage_mcp: boolean;
   manage_tools: boolean;
+  manage_ai_settings: boolean;
   manage_agent_keys: boolean;
   manage_webhooks: boolean;
   create_sessions: boolean;
@@ -135,6 +136,16 @@ export interface WorkspaceSummary extends Workspace {
   clusterCount: number;
   memberCount: number;
   quota: WorkspaceQuota;
+}
+
+export type LlmProvider = 'openai' | 'anthropic' | 'gemini';
+
+export interface WorkspaceAiSettings {
+  workspaceId: string;
+  defaultProvider: LlmProvider;
+  defaultModel: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface TargetSummary {
@@ -363,6 +374,8 @@ export interface Run {
   clusterId?: string;
   sessionId: string;
   messageId: string;
+  llmProvider: LlmProvider;
+  llmModel: string;
   toolAccessMode: ToolAccessMode;
   status: RunStatus;
   requestedAt: string;

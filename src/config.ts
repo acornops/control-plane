@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { accessSync, constants } from 'node:fs';
 import { z } from 'zod';
 import { configureWorkspaceRoleTemplates } from './auth/role-template-config.js';
+import { validateLlmPolicyConfig } from './config-llm-policy.js';
 import {
   parseAdminTokenDescriptors,
   parseWorkspacePlansConfig,
@@ -364,6 +365,7 @@ const envSchema = z.object({
       'SESSION_IDLE_TIMEOUT_SECONDS must be less than or equal to SESSION_MAX_AGE_SECONDS'
     );
   }
+  validateLlmPolicyConfig(ctx, value);
   try {
     parseWorkspacePlansConfig(value.WORKSPACE_PLANS_CONFIG_JSON);
   } catch (err) {

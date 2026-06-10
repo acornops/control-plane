@@ -41,6 +41,10 @@ import {
   updateWorkspaceMemberRole as updateWorkspaceMemberRoleRecord
 } from './repository-workspaces.js';
 import {
+  getWorkspaceAiSettings as getWorkspaceAiSettingsRecord,
+  upsertWorkspaceAiSettings as upsertWorkspaceAiSettingsRecord
+} from './repository-ai-settings.js';
+import {
   acceptWorkspaceInvitation as acceptWorkspaceInvitationRecord,
   createWorkspaceInvitation as createWorkspaceInvitationRecord,
   getWorkspaceInvitationByTokenHash as getWorkspaceInvitationByTokenHashRecord,
@@ -93,6 +97,7 @@ import {
   appendRunEvents as appendRunEventsRecord,
   createRunFromUserMessage as createRunFromUserMessageRecord,
   deleteSession as deleteSessionRecord,
+  findRunByClientMessageId as findRunByClientMessageIdRecord,
   getRun as getRunRecord,
   getRunEvents as getRunEventsRecord,
   getLatestRunEventSeq as getLatestRunEventSeqRecord,
@@ -219,6 +224,10 @@ export class Repository {
 
   getWorkspaceRole = getWorkspaceRoleRecord;
 
+  getWorkspaceAiSettings = getWorkspaceAiSettingsRecord;
+
+  upsertWorkspaceAiSettings = upsertWorkspaceAiSettingsRecord;
+
   listWorkspaceMembers = listWorkspaceMembersRecord;
 
   getWorkspaceMember = getWorkspaceMemberRecord;
@@ -290,6 +299,8 @@ export class Repository {
   listMessages = listMessagesRecord;
 
   updateMessageRunId = updateMessageRunIdRecord;
+
+  findRunByClientMessageId = findRunByClientMessageIdRecord;
 
   createRunFromUserMessage = createRunFromUserMessageRecord;
 

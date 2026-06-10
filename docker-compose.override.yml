@@ -228,9 +228,9 @@ services:
       DATABASE_URL: postgresql+asyncpg://gateway_user:gateway_password@gateway-postgres:5432/gateway
       REDIS_URL: redis://gateway-redis:6379/0
       SECRETS_KEK_BASE64: SglIGBscu1EgQ+AlpqJLADNN9QmCzS9d1ZvK3oT/e5s=
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ACORNOPS_DEV_SEED_OPENAI_API_KEY: ${ACORNOPS_DEV_SEED_OPENAI_API_KEY:-}
+      ACORNOPS_DEV_SEED_ANTHROPIC_API_KEY: ${ACORNOPS_DEV_SEED_ANTHROPIC_API_KEY:-}
+      ACORNOPS_DEV_SEED_GEMINI_API_KEY: ${ACORNOPS_DEV_SEED_GEMINI_API_KEY:-}
     command: ["sh", "-c", "alembic upgrade head && python scripts/seed_db.py"]
     depends_on:
       gateway-postgres:

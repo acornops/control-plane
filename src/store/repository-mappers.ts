@@ -130,6 +130,8 @@ export interface RunRow {
   target_type: Run['targetType'];
   session_id: string;
   message_id: string;
+  llm_provider: Run['llmProvider'];
+  llm_model: string;
   tool_access_mode: Run['toolAccessMode'];
   status: Run['status'];
   requested_at: Date | string;
@@ -460,6 +462,8 @@ export function mapRun(row: RunRow): Run {
     clusterId: targetType === KUBERNETES_TARGET_TYPE ? targetId : undefined,
     sessionId: row.session_id,
     messageId: row.message_id,
+    llmProvider: row.llm_provider,
+    llmModel: row.llm_model,
     toolAccessMode: row.tool_access_mode || 'read_only',
     status: row.status,
     requestedAt: toIso(row.requested_at)!,

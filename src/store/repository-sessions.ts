@@ -204,12 +204,41 @@ export async function listMessages(
 export async function updateMessageRunId(messageId: string, runId: string): Promise<void> {
     await db.query('UPDATE messages SET run_id = $2 WHERE id = $1', [messageId, runId]);
   }
+export async function findRunByClientMessageId(sessionId: string, clientMessageId: string): Promise<CreateRunFromMessageResult | null> {
+    const messageResult = await db.query(
+      `SELECT *
+       FROM messages
+       WHERE session_id = $1
+         AND client_message_id = $2
+         AND kind = 'user'
+       LIMIT 1`,
+      [sessionId, clientMessageId]
+    );
+    if (!messageResult.rowCount) {
+      return null;
+    }
+    const message = mapMessage(messageResult.rows[0] as MessageRow);
+    if (!message.runId) {
+      return null;
+    }
+    const runResult = await db.query(`${runSelect} WHERE r.id = $1 LIMIT 1`, [message.runId]);
+    if (!runResult.rowCount) {
+      return null;
+    }
+    return {
+      message,
+      run: mapRun(runResult.rows[0] as RunRow),
+      idempotent: true
+    };
+  }
 export async function createRunFromUserMessage(params: {
     sessionId: string;
     workspaceId: string;
     targetId: string;
     content: string;
     toolAccessMode: Run['toolAccessMode'];
+    llmProvider: Run['llmProvider'];
+    llmModel: string;
     clientMessageId?: string;
   }): Promise<CreateRunFromMessageResult> {
     return withTransaction(async (client) => {
@@ -277,9 +306,10 @@ export async function createRunFromUserMessage(params: {
         `WITH inserted AS (
            INSERT INTO runs (
              id, workspace_id, target_id, session_id, message_id,
+             llm_provider, llm_model,
              tool_access_mode, status, requested_at, started_at, ended_at,
              error_code, error_message, usage, assistant_message
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb)
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16::jsonb)
            RETURNING *
          )
          SELECT inserted.*, t.target_type
@@ -291,6 +321,8 @@ export async function createRunFromUserMessage(params: {
           params.targetId,
           params.sessionId,
           messageId,
+          params.llmProvider,
+          params.llmModel,
           params.toolAccessMode,
           'queued',
           now,
@@ -376,10 +408,11 @@ export async function addRun(run: Run): Promise<Run> {
       `WITH inserted AS (
          INSERT INTO runs (
            id, workspace_id, target_id, session_id, message_id,
+           llm_provider, llm_model,
            tool_access_mode,
            status, requested_at, started_at, ended_at,
            error_code, error_message, usage, assistant_message
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb)
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16::jsonb)
          RETURNING *
        )
        SELECT inserted.*, t.target_type
@@ -391,6 +424,8 @@ export async function addRun(run: Run): Promise<Run> {
         run.targetId,
         run.sessionId,
         run.messageId,
+        run.llmProvider,
+        run.llmModel,
         run.toolAccessMode,
         run.status,
         run.requestedAt,

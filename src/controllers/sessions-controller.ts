@@ -8,8 +8,11 @@ import {
 } from '../auth/workspace-authorization.js';
 import { config } from '../config.js';
 import { dispatchRunToExecutionEngine } from '../services/execution-engine-client.js';
+import { isModelAllowedForProvider } from '../services/llm-policy.js';
+import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
 import { emitRunStatusTransition, webhooks } from '../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
+import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
 import { repo } from '../store/repository.js';
 import { runtime } from '../store/runtime.js';
 import { ChatSession, KUBERNETES_TARGET_TYPE, Run, TargetType, VIRTUAL_MACHINE_TARGET_TYPE } from '../types/domain.js';
@@ -21,6 +24,7 @@ import {
   normalizeSearchQuery,
   parseBoundedLimit
 } from '../utils/pagination.js';
+import { mapGatewayError } from './workspaces/common.js';
 
 function enqueueRunDispatch(run: Run): void {
   queueMicrotask(async () => {
@@ -405,12 +409,62 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
     if (!target) {
       return;
     }
+    if (req.body.clientMessageId) {
+      const existing = await repo.findRunByClientMessageId(session.id, req.body.clientMessageId);
+      if (existing) {
+        res.status(202).json({ message_id: existing.message.id, run_id: existing.run.id });
+        return;
+      }
+    }
+    const llmSettings = await resolveWorkspaceLlmSettings(session.workspaceId);
+    if (!llmSettings.allowedProviders.includes(llmSettings.provider)) {
+      res.status(400).json({
+        error: {
+          code: 'PROVIDER_NOT_ALLOWED',
+          message: 'The workspace AI provider is not enabled by this deployment.',
+          retryable: false
+        }
+      });
+      return;
+    }
+    if (!llmSettings.allowedModels.includes(llmSettings.model)) {
+      res.status(400).json({
+        error: {
+          code: 'MODEL_NOT_ALLOWED',
+          message: 'The workspace AI model is not allowed by this deployment.',
+          retryable: false
+        }
+      });
+      return;
+    }
+    if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, llmSettings.allowedModels)) {
+      res.status(400).json({
+        error: {
+          code: 'MODEL_NOT_ALLOWED',
+          message: 'The workspace AI model is not available for the selected provider.',
+          retryable: false
+        }
+      });
+      return;
+    }
+    if (!llmSettings.credentialConfigured) {
+      res.status(400).json({
+        error: {
+          code: 'AI_PROVIDER_CREDENTIAL_MISSING',
+          message: 'Configure an AI provider API key in AI Settings before starting an assistant run.',
+          retryable: false
+        }
+      });
+      return;
+    }
     const created = await repo.createRunFromUserMessage({
       sessionId: session.id,
       workspaceId: session.workspaceId,
       targetId: target.targetId,
       content: req.body.content,
       toolAccessMode,
+      llmProvider: llmSettings.provider,
+      llmModel: llmSettings.model,
       clientMessageId: req.body.clientMessageId
     });
 
@@ -467,6 +521,11 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
 
     res.status(202).json({ message_id: created.message.id, run_id: created.run.id });
   } catch (err) {
+    if (err instanceof LlmGatewayHttpError) {
+      const mapped = mapGatewayError(err, { upstreamMessage: 'Failed to check workspace AI provider settings with llm-gateway' });
+      res.status(mapped.status).json(mapped.body);
+      return;
+    }
     next(err);
   }
 }

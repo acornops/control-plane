@@ -2,7 +2,7 @@ import { LlmGatewayHttpError } from '../../services/mcp-registry-client.js';
 import { Role, WorkspaceInvitation, WorkspaceMembership } from '../../types/domain.js';
 import { getWorkspacePermissions, isProtectedRole, isSupportedRole, OWNER_ROLE_KEY } from '../../auth/authorization.js';
 
-export function mapGatewayError(err: LlmGatewayHttpError): {
+export function mapGatewayError(err: LlmGatewayHttpError, options?: { upstreamMessage?: string }): {
   status: number;
   body: { error: { code: string; message: string; retryable: boolean } };
 } {
@@ -59,7 +59,7 @@ export function mapGatewayError(err: LlmGatewayHttpError): {
     body: {
       error: {
         code: 'UPSTREAM_ERROR',
-        message: 'Failed to synchronize MCP configuration with llm-gateway',
+        message: options?.upstreamMessage || 'Failed to synchronize MCP configuration with llm-gateway',
         retryable: true
       }
     }

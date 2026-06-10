@@ -4,7 +4,9 @@ import { agentGateway } from '../agent/ws-server.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { listTargetMcpTools, McpToolConfig } from '../services/mcp-registry-client.js';
+import { isModelAllowedForProvider } from '../services/llm-policy.js';
 import { syncTargetBuiltInTools } from '../services/target-built-in-tool-sync.js';
+import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
 import { publishRunEvents } from '../services/control-plane-coordination.js';
 import { sanitizeToolInputSchema, sanitizeToolText } from '../services/tool-metadata.js';
 import { gatewayTokenService } from '../services/token-service.js';
@@ -14,38 +16,7 @@ import { runtime } from '../store/runtime.js';
 import { KUBERNETES_TARGET_TYPE, RunEvent, TargetType } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
 
-const SUPPORTED_PROVIDERS = new Set(['openai', 'anthropic', 'gemini']);
 const TERMINAL_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled']);
-
-function parseCsv(value: string): string[] {
-  return value
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
-}
-
-function parseAllowedProviders(value: string): string[] {
-  const uniqueProviders: string[] = [];
-  for (const provider of parseCsv(value).map((entry) => entry.toLowerCase())) {
-    if (!SUPPORTED_PROVIDERS.has(provider)) {
-      continue;
-    }
-    if (!uniqueProviders.includes(provider)) {
-      uniqueProviders.push(provider);
-    }
-  }
-  return uniqueProviders;
-}
-
-function parseAllowedModels(value: string): string[] {
-  const uniqueModels: string[] = [];
-  for (const model of parseCsv(value)) {
-    if (!uniqueModels.includes(model)) {
-      uniqueModels.push(model);
-    }
-  }
-  return uniqueModels;
-}
 
 export function normalizeToolCapability(tool: Pick<McpToolConfig, 'capability'>): 'read' | 'write' {
   return tool.capability === 'read' ? 'read' : 'write';
@@ -191,14 +162,27 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
       allowedToolNames = [];
     }
 
-    const allowedProviders = parseAllowedProviders(config.LLM_ALLOWED_PROVIDERS);
-    if (!allowedProviders.includes(config.LLM_DEFAULT_PROVIDER)) {
-      allowedProviders.unshift(config.LLM_DEFAULT_PROVIDER);
+    const llmSettings = await resolveWorkspaceLlmSettings(run.workspaceId, {
+      provider: run.llmProvider,
+      model: run.llmModel
+    });
+    const allowedProviders = llmSettings.allowedProviders;
+    const allowedModels = llmSettings.allowedModels;
+    if (!allowedProviders.includes(llmSettings.provider)) {
+      res.status(400).json({ error: { code: 'PROVIDER_NOT_ALLOWED', message: 'Workspace AI provider is not enabled', retryable: false } });
+      return;
     }
-
-    const allowedModels = parseAllowedModels(config.LLM_ALLOWED_MODELS);
-    if (!allowedModels.includes(config.LLM_DEFAULT_MODEL)) {
-      allowedModels.unshift(config.LLM_DEFAULT_MODEL);
+    if (!allowedModels.includes(llmSettings.model)) {
+      res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Workspace AI model is not allowed', retryable: false } });
+      return;
+    }
+    if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, allowedModels)) {
+      res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Workspace AI model is not available for the selected provider', retryable: false } });
+      return;
+    }
+    if (!llmSettings.credentialConfigured) {
+      res.status(400).json({ error: { code: 'AI_PROVIDER_CREDENTIAL_MISSING', message: 'Workspace AI provider credential is not configured', retryable: false } });
+      return;
     }
     const maxOutputTokens = config.LLM_MAX_OUTPUT_TOKENS;
     const allowedToolOperations = Object.fromEntries(
@@ -241,8 +225,8 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
         max_context_tokens: config.AGENT_CONTEXT_MAX_TOKENS
       },
       llm: {
-        provider: config.LLM_DEFAULT_PROVIDER,
-        model: config.LLM_DEFAULT_MODEL,
+        provider: llmSettings.provider,
+        model: llmSettings.model,
         temperature: config.AGENT_LLM_TEMPERATURE,
         mode: 'gateway',
         gateway: {
