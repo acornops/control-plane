@@ -1,0 +1,246 @@
+import { NextFunction, Response } from 'express';
+import { AuthenticatedRequest } from '../../auth/middleware.js';
+import {
+  requireWorkspaceCapability,
+  requireWorkspaceRead
+} from '../../auth/workspace-authorization.js';
+import {
+  deleteWorkspaceProviderCredential,
+  listWorkspaceProviderCredentials,
+  putWorkspaceProviderCredential
+} from '../../services/llm-provider-credential-client.js';
+import {
+  defaultModel,
+  defaultProvider,
+  isModelAllowedForProvider,
+  isSupportedLlmProvider,
+  parseAllowedModels,
+  parseAllowedProviders,
+  SUPPORTED_LLM_PROVIDERS
+} from '../../services/llm-policy.js';
+import { effectiveAllowedProviders } from '../../services/workspace-ai-resolution.js';
+import { recordWorkspaceAuditEvent } from '../../services/workspace-audit.js';
+import { repo } from '../../store/repository.js';
+import { LlmProvider, WorkspaceAiSettings } from '../../types/domain.js';
+import { toSingleParam } from '../../utils/params.js';
+import { LlmGatewayHttpError } from '../../services/mcp-registry-client.js';
+import { mapGatewayError } from './common.js';
+
+const AI_GATEWAY_UPSTREAM_MESSAGE = 'Failed to synchronize AI provider settings with llm-gateway';
+
+function effectiveSettings(settings: WorkspaceAiSettings | null): WorkspaceAiSettings {
+  return {
+    workspaceId: settings?.workspaceId || '',
+    defaultProvider: settings?.defaultProvider || defaultProvider(),
+    defaultModel: settings?.defaultModel || defaultModel(),
+    createdAt: settings?.createdAt,
+    updatedAt: settings?.updatedAt
+  };
+}
+
+async function buildAiSettingsResponse(workspaceId: string) {
+  const [settings, credentials] = await Promise.all([
+    repo.getWorkspaceAiSettings(workspaceId),
+    listWorkspaceProviderCredentials(workspaceId)
+  ]);
+  const resolved = effectiveSettings(settings);
+  const allowedProviders = effectiveAllowedProviders(credentials.providers);
+  return {
+    workspaceId,
+    defaultProvider: resolved.defaultProvider,
+    defaultModel: resolved.defaultModel,
+    allowedProviders,
+    allowedModels: parseAllowedModels(),
+    providers: credentials.providers.map((provider) => ({
+      ...provider,
+      enabled: provider.enabled && allowedProviders.includes(provider.provider)
+    }))
+  };
+}
+
+function validateProviderModel(res: Response, provider: LlmProvider, model: string): boolean {
+  if (!parseAllowedProviders().includes(provider)) {
+    res.status(400).json({ error: { code: 'PROVIDER_NOT_ALLOWED', message: 'Selected provider is not allowed by this deployment', retryable: false } });
+    return false;
+  }
+  if (!parseAllowedModels().includes(model)) {
+    res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Selected model is not allowed by this deployment', retryable: false } });
+    return false;
+  }
+  if (!isModelAllowedForProvider(provider, model)) {
+    res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Selected model is not available for the selected provider', retryable: false } });
+    return false;
+  }
+  return true;
+}
+
+async function validateProviderEnabled(res: Response, workspaceId: string, provider: LlmProvider): Promise<boolean> {
+  const credentials = await listWorkspaceProviderCredentials(workspaceId);
+  if (!effectiveAllowedProviders(credentials.providers).includes(provider)) {
+    res.status(400).json({ error: { code: 'PROVIDER_NOT_ALLOWED', message: 'Selected provider is not enabled by this deployment', retryable: false } });
+    return false;
+  }
+  return true;
+}
+
+export async function cleanupWorkspaceAiProviderCredentials(workspaceId: string): Promise<void> {
+  for (const provider of SUPPORTED_LLM_PROVIDERS) {
+    await deleteWorkspaceProviderCredential(workspaceId, provider);
+  }
+}
+
+export async function getWorkspaceAiSettings(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const workspaceId = toSingleParam(req.params.workspaceId);
+    if (!(await requireWorkspaceRead(req, res, workspaceId))) {
+      return;
+    }
+    res.status(200).json(await buildAiSettingsResponse(workspaceId));
+  } catch (err) {
+    if (err instanceof LlmGatewayHttpError) {
+      const mapped = mapGatewayError(err, { upstreamMessage: AI_GATEWAY_UPSTREAM_MESSAGE });
+      res.status(mapped.status).json(mapped.body);
+      return;
+    }
+    next(err);
+  }
+}
+
+export async function updateWorkspaceAiSettings(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const workspaceId = toSingleParam(req.params.workspaceId);
+    if (
+      !(await requireWorkspaceCapability(
+        req,
+        res,
+        workspaceId,
+        'manage_ai_settings',
+        'Only workspace admins and owners can manage AI assistant settings'
+      ))
+    ) {
+      return;
+    }
+    if (!validateProviderModel(res, req.body.defaultProvider, req.body.defaultModel)) {
+      return;
+    }
+    if (!(await validateProviderEnabled(res, workspaceId, req.body.defaultProvider))) {
+      return;
+    }
+    const previous = await repo.getWorkspaceAiSettings(workspaceId);
+    await repo.upsertWorkspaceAiSettings(workspaceId, {
+      defaultProvider: req.body.defaultProvider,
+      defaultModel: req.body.defaultModel
+    });
+    await recordWorkspaceAuditEvent({
+      workspaceId,
+      category: 'workspace',
+      eventType: 'workspace.ai_settings.updated.v1',
+      operation: 'write',
+      actorUserId: req.auth.userId,
+      targetType: 'workspace',
+      targetId: workspaceId,
+      summary: 'Workspace AI assistant settings updated',
+      metadata: {
+        previousProvider: previous?.defaultProvider || null,
+        previousModel: previous?.defaultModel || null,
+        nextProvider: req.body.defaultProvider,
+        nextModel: req.body.defaultModel
+      }
+    });
+    res.status(200).json(await buildAiSettingsResponse(workspaceId));
+  } catch (err) {
+    if (err instanceof LlmGatewayHttpError) {
+      const mapped = mapGatewayError(err, { upstreamMessage: AI_GATEWAY_UPSTREAM_MESSAGE });
+      res.status(mapped.status).json(mapped.body);
+      return;
+    }
+    next(err);
+  }
+}
+
+export async function upsertWorkspaceAiProviderCredential(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const workspaceId = toSingleParam(req.params.workspaceId);
+    const provider = toSingleParam(req.params.provider) as LlmProvider;
+    if (
+      !(await requireWorkspaceCapability(
+        req,
+        res,
+        workspaceId,
+        'manage_ai_settings',
+        'Only workspace admins and owners can manage AI assistant settings'
+      ))
+    ) {
+      return;
+    }
+    if (!isSupportedLlmProvider(provider)) {
+      res.status(400).json({ error: { code: 'PROVIDER_NOT_SUPPORTED', message: 'Selected provider is not supported', retryable: false } });
+      return;
+    }
+    if (!(await validateProviderEnabled(res, workspaceId, provider))) {
+      return;
+    }
+    await putWorkspaceProviderCredential(workspaceId, provider, req.body.apiKey);
+    await recordWorkspaceAuditEvent({
+      workspaceId,
+      category: 'workspace',
+      eventType: 'workspace.ai_provider_credential.saved.v1',
+      operation: 'write',
+      actorUserId: req.auth.userId,
+      targetType: 'workspace',
+      targetId: workspaceId,
+      summary: 'Workspace AI provider credential saved',
+      metadata: { provider }
+    });
+    res.status(200).json(await buildAiSettingsResponse(workspaceId));
+  } catch (err) {
+    if (err instanceof LlmGatewayHttpError) {
+      const mapped = mapGatewayError(err, { upstreamMessage: AI_GATEWAY_UPSTREAM_MESSAGE });
+      res.status(mapped.status).json(mapped.body);
+      return;
+    }
+    next(err);
+  }
+}
+
+export async function deleteWorkspaceAiProviderCredential(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const workspaceId = toSingleParam(req.params.workspaceId);
+    const provider = toSingleParam(req.params.provider) as LlmProvider;
+    if (
+      !(await requireWorkspaceCapability(
+        req,
+        res,
+        workspaceId,
+        'manage_ai_settings',
+        'Only workspace admins and owners can manage AI assistant settings'
+      ))
+    ) {
+      return;
+    }
+    if (!isSupportedLlmProvider(provider)) {
+      res.status(400).json({ error: { code: 'PROVIDER_NOT_SUPPORTED', message: 'Selected provider is not supported', retryable: false } });
+      return;
+    }
+    await deleteWorkspaceProviderCredential(workspaceId, provider);
+    await recordWorkspaceAuditEvent({
+      workspaceId,
+      category: 'workspace',
+      eventType: 'workspace.ai_provider_credential.deleted.v1',
+      operation: 'write',
+      actorUserId: req.auth.userId,
+      targetType: 'workspace',
+      targetId: workspaceId,
+      summary: 'Workspace AI provider credential deleted',
+      metadata: { provider }
+    });
+    res.status(200).json(await buildAiSettingsResponse(workspaceId));
+  } catch (err) {
+    if (err instanceof LlmGatewayHttpError) {
+      const mapped = mapGatewayError(err, { upstreamMessage: AI_GATEWAY_UPSTREAM_MESSAGE });
+      res.status(mapped.status).json(mapped.body);
+      return;
+    }
+    next(err);
+  }
+}

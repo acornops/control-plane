@@ -22,7 +22,9 @@ import {
   createRequest,
   createRun,
   createSessionRecord,
+  createWorkspaceAiCredentialStatusResponse,
   installWorkspace,
+  isWorkspaceAiCredentialStatusRequest,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
 
@@ -138,6 +140,12 @@ describe('target controller regressions', () => {
         toolAccessMode: 'read_only'
       }),
       idempotent: true
+    });
+    mock.method(globalThis, 'fetch', async (input) => {
+      if (isWorkspaceAiCredentialStatusRequest(input)) {
+        return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
+      }
+      return new Response('unexpected request', { status: 500 });
     });
 
     const allowed = await callController(

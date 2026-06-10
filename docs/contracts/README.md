@@ -11,7 +11,7 @@ Machine-readable contract data for this repo lives in `docs/contracts/manifest.j
 | Webhook consumers | control-plane -> external HTTP endpoints | Best-effort business event delivery with HMAC signatures and delivery history |
 | Execution engine | control-plane -> execution-engine | Run dispatch and cancel APIs |
 | Execution engine | execution-engine -> control-plane | Bootstrap, context fetch, run event ingestion, run commit |
-| LLM gateway | control-plane -> llm-gateway | Internal MCP admin API |
+| LLM gateway | control-plane -> llm-gateway | Internal MCP admin API and workspace AI provider credential status/write/delete API |
 | LLM gateway | llm-gateway -> control-plane | JWKS fetch for run JWT validation, builtin MCP tool bridge |
 | K8s agent | k8s-agent -> control-plane | WebSocket handshake, heartbeat, snapshot, `tools/list`, `tools/call` |
 | K8s agent | control-plane -> k8s-agent | Handshake response, JSON-RPC tool execution requests |
@@ -140,6 +140,10 @@ resulting effective limit are rejected before mutation.
 - `POST /api/v1/workspaces/{workspaceId}/members`
 - `PATCH /api/v1/workspaces/{workspaceId}/members/{userId}`
 - `DELETE /api/v1/workspaces/{workspaceId}/members/{userId}`
+- `GET /api/v1/workspaces/{workspaceId}/ai-settings`
+- `PATCH /api/v1/workspaces/{workspaceId}/ai-settings`
+- `PUT /api/v1/workspaces/{workspaceId}/ai-provider-credentials/{provider}`
+- `DELETE /api/v1/workspaces/{workspaceId}/ai-provider-credentials/{provider}`
 - `GET /api/v1/workspaces/{workspaceId}/targets`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}`
 - `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters`
@@ -175,6 +179,7 @@ Workspace responses expose server-owned authorization fields:
 - `permissions.manage_targets`
 - `permissions.manage_mcp`
 - `permissions.manage_tools`
+- `permissions.manage_ai_settings`
 - `permissions.manage_agent_keys`
 - `permissions.manage_webhooks`
 - `permissions.create_sessions`
@@ -202,6 +207,8 @@ Workspace membership responses are server-owned and include:
 - `source`
 
 `GET /api/v1/workspaces/{workspaceId}/roles` returns the deployment-supported role template catalog for the workspace. The catalog is deployment-wide, read-only, and includes `key`, `displayName`, `description`, `kind`, `capabilities`, `protected`, and `sortOrder`. Workspace summaries may include `currentUserRoleTemplate`; memberships and invitations may include `roleTemplate`. Clients must use these fields for labels and role selection instead of duplicating role/capability logic.
+
+`GET /api/v1/workspaces/{workspaceId}/ai-settings` returns the workspace AI assistant default provider/model, deployment-allowed providers/models, and per-provider configured status to workspace members. It never returns API key values or internal secret names. `PATCH /ai-settings` updates `{defaultProvider,defaultModel}` and requires `permissions.manage_ai_settings`. `PUT /ai-provider-credentials/{provider}` accepts write-only `{apiKey}` to save or rotate a workspace provider credential and validates deployment provider policy. `DELETE /ai-provider-credentials/{provider}` removes a supported provider credential even if that provider is no longer deployment-allowed, so stale secrets can be cleaned up after policy changes. AI settings and credential mutations require `permissions.manage_ai_settings` and write workspace audit events. Assistant run creation resolves provider/model from workspace AI settings, stores that provider/model on the run snapshot, and rejects before dispatch when the selected provider/model is not deployment-allowed or the selected provider has no workspace credential.
 
 Owners can manage all member roles. Other roles with `permissions.manage_members` can directly assign, update, or remove non-protected members. `owner` is always present, protected, and required; the built-in `auditor` role is protected when enabled. A non-owner assigning or modifying a protected role returns `PROTECTED_ROLE_REQUIRES_OWNER`. Membership and invitation roles must exist in the deployment-supported catalog or the API returns `ROLE_NOT_SUPPORTED`. Any role update or removal that would leave a workspace with no owner must return `LAST_OWNER` and must not mutate membership.
 
@@ -586,6 +593,9 @@ remain required in both modes.
 
 The control plane manages llm-gateway registry state with `Authorization: Bearer <ADMIN_API_TOKEN>` against:
 
+- `GET /api/v1/internal/llm/provider-credentials?workspace_id=<workspaceId>`
+- `PUT /api/v1/internal/llm/provider-credentials/{provider}`
+- `DELETE /api/v1/internal/llm/provider-credentials/{provider}?workspace_id=<workspaceId>`
 - `GET /api/v1/internal/mcp/servers`
 - `GET /api/v1/internal/mcp/tools`
 - `PATCH /api/v1/internal/mcp/tools/{tool_name}`
@@ -594,7 +604,16 @@ The control plane manages llm-gateway registry state with `Authorization: Bearer
 - `POST /api/v1/internal/mcp/servers/{server_id}/test`
 - `DELETE /api/v1/internal/mcp/servers/{server_id}`
 
-Scope is carried as required `workspace_id`, `target_id`, and `target_type` query/body fields. Control plane depends on llm-gateway preserving tool fields:
+Provider credential status/write/delete scope is workspace-only. LLM provider
+secret names are `{provider}_api_key` and tenant scope is
+`{"workspace_id":"<workspaceId>"}`. Target-scoped secrets remain reserved for
+MCP/server credentials. The provider credential status response includes
+`provider`, `configured`, and `enabled`, and must not include key values,
+ciphertexts, or secret names.
+
+MCP registry scope is carried as required `workspace_id`, `target_id`, and
+`target_type` query/body fields. Control plane depends on llm-gateway preserving
+tool fields:
 
 - `name`
 - `mcp_server_url`

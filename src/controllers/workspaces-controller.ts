@@ -7,12 +7,16 @@ import {
   requireWorkspaceDataRead,
   requireWorkspaceRead
 } from '../auth/workspace-authorization.js';
-import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
+import {
+  deleteTargetMcpServer,
+  LlmGatewayHttpError,
+  listTargetMcpServers
+} from '../services/mcp-registry-client.js';
 import { webhooks } from '../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { repo } from '../store/repository.js';
 import { buildWorkspaceQuota } from '../store/repository-quotas.js';
-import { WorkspaceSummary } from '../types/domain.js';
+import { TargetSummary, WorkspaceSummary } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
 import {
   CursorMismatchError,
@@ -23,7 +27,9 @@ import {
 } from '../utils/pagination.js';
 
 import { mapGatewayError } from './workspaces/common.js';
-import { cleanupTargetMcpServers } from './workspaces/kubernetes-cluster-mcp-controller.js';
+import { cleanupWorkspaceAiProviderCredentials } from './workspaces/ai-settings-controller.js';
+
+const AI_GATEWAY_UPSTREAM_MESSAGE = 'Failed to synchronize AI provider settings with llm-gateway';
 
 export function applyWorkspaceSummaryPermissions(
   workspace: WorkspaceSummary,
@@ -51,6 +57,13 @@ function withEffectiveWorkspacePermissions(req: AuthenticatedRequest, workspace:
     return null;
   }
   return applyWorkspaceSummaryPermissions(workspace, getEffectiveWorkspacePermissions(req, workspace.currentUserRole));
+}
+
+async function cleanupTargetMcpServers(target: TargetSummary): Promise<void> {
+  const servers = await listTargetMcpServers(target.workspaceId, target.id, target.targetType);
+  for (const server of servers) {
+    await deleteTargetMcpServer(target.workspaceId, target.id, target.targetType, server.id);
+  }
 }
 
 export async function listWorkspaces(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
@@ -204,18 +217,20 @@ export async function deleteWorkspace(req: AuthenticatedRequest, res: Response, 
     }
     const workspace = await repo.getWorkspaceSummaryForUser(req.auth.userId, workspaceId);
 
-    const clusters = [];
+    const targets: TargetSummary[] = [];
     let cursor: string | undefined;
     do {
       const signature = makeQuerySignature({});
-      const decoded = decodeCursor<{ createdAt: string; clusterId: string; signature: string }>(cursor, signature);
-      const page = await repo.listClusters(workspaceId, { limit: 100, cursor: decoded, signature });
-      clusters.push(...page.items);
+      const decoded = decodeCursor<{ createdAt: string; targetId: string; signature: string }>(cursor, signature);
+      const page = await repo.listTargets(workspaceId, { limit: 100, cursor: decoded, signature });
+      targets.push(...page.items);
       cursor = page.nextCursor;
     } while (cursor);
-    for (const cluster of clusters) {
-      await cleanupTargetMcpServers(workspaceId, cluster.id);
+    await cleanupWorkspaceAiProviderCredentials(workspaceId);
+    for (const target of targets) {
+      await cleanupTargetMcpServers(target);
     }
+    const clusterCount = targets.filter((target) => target.targetType === 'kubernetes').length;
 
     const workspaceDeletedWebhook = await webhooks.prepare({
       type: 'workspace.deleted.v1',
@@ -223,7 +238,7 @@ export async function deleteWorkspace(req: AuthenticatedRequest, res: Response, 
       subject: { type: 'workspace', id: workspaceId },
       data: {
         deletedBy: req.auth.userId,
-        clusterCount: clusters.length
+        clusterCount
       }
     });
 
@@ -244,18 +259,25 @@ export async function deleteWorkspace(req: AuthenticatedRequest, res: Response, 
       targetId: workspaceId,
       targetName: workspace?.name || null,
       summary: 'Workspace deleted',
-      metadata: { clusterCount: clusters.length }
+      metadata: { clusterCount }
     });
     res.status(204).send();
   } catch (err) {
     if (err instanceof LlmGatewayHttpError) {
-      const mapped = mapGatewayError(err);
+      const mapped = mapGatewayError(err, { upstreamMessage: AI_GATEWAY_UPSTREAM_MESSAGE });
       res.status(mapped.status).json(mapped.body);
       return;
     }
     next(err);
   }
 }
+
+export {
+  deleteWorkspaceAiProviderCredential,
+  getWorkspaceAiSettings,
+  updateWorkspaceAiSettings,
+  upsertWorkspaceAiProviderCredential
+} from './workspaces/ai-settings-controller.js';
 
 export {
   listWorkspaceAuditEvents

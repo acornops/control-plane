@@ -91,6 +91,17 @@ export const updateWorkspaceMemberSchema = z.object({
   role: workspaceRoleSchema
 });
 
+export const llmProviderSchema = z.enum(['openai', 'anthropic', 'gemini']);
+
+export const updateWorkspaceAiSettingsSchema = z.object({
+  defaultProvider: llmProviderSchema,
+  defaultModel: z.string().trim().min(1).max(160)
+}).strict();
+
+export const upsertWorkspaceAiProviderCredentialSchema = z.object({
+  apiKey: z.string().trim().min(1).max(4096)
+}).strict();
+
 const namespaceListSchema = z.array(z.string().trim().min(1).max(253)).max(100).optional();
 
 export const registerClusterSchema = z.object({

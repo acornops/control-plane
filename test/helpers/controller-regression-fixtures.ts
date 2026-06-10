@@ -12,12 +12,17 @@ import type {
 } from '../../src/types/domain.js';
 
 const originals = {
+  getWorkspaceSummaryForUser: repo.getWorkspaceSummaryForUser,
   getWorkspaceRole: repo.getWorkspaceRole,
   getCluster: repo.getCluster,
   getTarget: repo.getTarget,
+  listTargets: repo.listTargets,
   addSession: repo.addSession,
   listRecentTargetChatActivity: repo.listRecentTargetChatActivity,
   getSession: repo.getSession,
+  getWorkspaceAiSettings: repo.getWorkspaceAiSettings,
+  upsertWorkspaceAiSettings: repo.upsertWorkspaceAiSettings,
+  findRunByClientMessageId: repo.findRunByClientMessageId,
   createRunFromUserMessage: repo.createRunFromUserMessage,
   getRun: repo.getRun,
   createRunToolApproval: repo.createRunToolApproval,
@@ -37,16 +42,22 @@ const originals = {
   setTargetToolOverride: repo.setTargetToolOverride,
   createWebhookSubscription: repo.createWebhookSubscription,
   updateWebhookSubscription: repo.updateWebhookSubscription,
-  deleteWebhookSubscription: repo.deleteWebhookSubscription
+  deleteWebhookSubscription: repo.deleteWebhookSubscription,
+  deleteWorkspace: repo.deleteWorkspace
 };
 
 export function restoreControllerRegressionState(): void {
+  repo.getWorkspaceSummaryForUser = originals.getWorkspaceSummaryForUser;
   repo.getWorkspaceRole = originals.getWorkspaceRole;
   repo.getCluster = originals.getCluster;
   repo.getTarget = originals.getTarget;
+  repo.listTargets = originals.listTargets;
   repo.addSession = originals.addSession;
   repo.listRecentTargetChatActivity = originals.listRecentTargetChatActivity;
   repo.getSession = originals.getSession;
+  repo.getWorkspaceAiSettings = originals.getWorkspaceAiSettings;
+  repo.upsertWorkspaceAiSettings = originals.upsertWorkspaceAiSettings;
+  repo.findRunByClientMessageId = originals.findRunByClientMessageId;
   repo.createRunFromUserMessage = originals.createRunFromUserMessage;
   repo.getRun = originals.getRun;
   repo.createRunToolApproval = originals.createRunToolApproval;
@@ -67,6 +78,7 @@ export function restoreControllerRegressionState(): void {
   repo.createWebhookSubscription = originals.createWebhookSubscription;
   repo.updateWebhookSubscription = originals.updateWebhookSubscription;
   repo.deleteWebhookSubscription = originals.deleteWebhookSubscription;
+  repo.deleteWorkspace = originals.deleteWorkspace;
   mock.restoreAll();
 }
 
@@ -141,6 +153,22 @@ export function installWorkspace(role: Role | null): void {
     metadata: event.metadata ?? {},
     occurredAt: '2026-05-24T00:00:00.000Z'
   });
+  repo.getWorkspaceAiSettings = async () => null;
+}
+
+export function createWorkspaceAiCredentialStatusResponse(workspaceId = 'workspace-1') {
+  return {
+    workspace_id: workspaceId,
+    providers: [
+      { provider: 'openai', configured: true, enabled: true },
+      { provider: 'anthropic', configured: true, enabled: true },
+      { provider: 'gemini', configured: true, enabled: true }
+    ]
+  };
+}
+
+export function isWorkspaceAiCredentialStatusRequest(input: unknown): boolean {
+  return String(input).includes('/api/v1/internal/llm/provider-credentials?');
 }
 
 export function createCluster(): Cluster {
@@ -202,6 +230,8 @@ export function createRun(overrides: Partial<Run> = {}): Run {
     clusterId: 'cluster-1',
     sessionId: 'session-1',
     messageId: 'message-1',
+    llmProvider: 'gemini',
+    llmModel: 'gemini-2.0-flash',
     toolAccessMode: 'read_write',
     status: 'completed',
     requestedAt: '2026-05-24T00:00:00.000Z',
@@ -209,7 +239,7 @@ export function createRun(overrides: Partial<Run> = {}): Run {
   };
 }
 
-export function createMessage(): Message {
+export function createMessage(overrides: Partial<Message> = {}): Message {
   return {
     id: 'message-1',
     sessionId: 'session-1',
@@ -217,7 +247,8 @@ export function createMessage(): Message {
     role: 'user',
     kind: 'user',
     content: 'diagnose',
-    createdAt: '2026-05-24T00:00:00.000Z'
+    createdAt: '2026-05-24T00:00:00.000Z',
+    ...overrides
   };
 }
 

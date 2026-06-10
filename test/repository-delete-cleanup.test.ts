@@ -65,6 +65,7 @@ describe('target delete cleanup', () => {
     assert(statements.some((sql) => sql === 'DELETE FROM workspace_invitations WHERE workspace_id = $1'));
     assert(statements.some((sql) => sql === 'DELETE FROM workspace_audit_events WHERE workspace_id = $1'));
     assert(statements.some((sql) => sql === 'DELETE FROM workspace_membership_audit WHERE workspace_id = $1'));
+    assert(statements.some((sql) => sql === 'DELETE FROM workspace_ai_settings WHERE workspace_id = $1'));
     assert(statements.some((sql) => sql === 'DELETE FROM workspaces WHERE id = $1'));
     assert.equal(statements.at(-1), 'COMMIT');
   });

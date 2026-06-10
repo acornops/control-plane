@@ -11,6 +11,8 @@ import {
   createRun,
   createSessionRecord,
   createTarget,
+  createWorkspaceAiCredentialStatusResponse,
+  isWorkspaceAiCredentialStatusRequest,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
 
@@ -57,6 +59,7 @@ describe('internal execution bootstrap audit metadata', () => {
       keyVersion: 1,
       capabilities: ['read', 'write']
     });
+    repo.getWorkspaceAiSettings = async () => null;
     repo.listTargetToolOverrides = async () => ({});
     mock.method(globalThis, 'fetch', async (input) => {
       const url = String(input);
@@ -86,6 +89,9 @@ describe('internal execution bootstrap audit metadata', () => {
           }
         ]), { status: 200 });
       }
+      if (isWorkspaceAiCredentialStatusRequest(input)) {
+        return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
+      }
       return new Response('unexpected request', { status: 500 });
     });
 
@@ -94,6 +100,72 @@ describe('internal execution bootstrap audit metadata', () => {
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(allowedTools, ['get_logs', 'restart_service']);
+  });
+
+  it('bootstraps with the run provider/model snapshot even when workspace defaults changed later', async () => {
+    repo.getRun = async () => createRun({
+      targetId: 'vm-1',
+      targetType: 'virtual_machine',
+      clusterId: undefined,
+      llmProvider: 'openai',
+      llmModel: 'gpt-4.1-mini'
+    });
+    repo.getTarget = async () => createTarget({ id: 'vm-1', targetType: 'virtual_machine', name: 'vm' });
+    repo.getSession = async () => createSessionRecord({ targetId: 'vm-1', targetType: 'virtual_machine', clusterId: undefined });
+    repo.getTargetAgentRegistration = async () => null;
+    repo.getWorkspaceAiSettings = async () => ({
+      workspaceId: 'workspace-1',
+      defaultProvider: 'gemini',
+      defaultModel: 'gemini-2.0-flash'
+    });
+    repo.listTargetToolOverrides = async () => ({});
+    mock.method(globalThis, 'fetch', async (input) => {
+      const url = String(input);
+      if (url.includes('/api/v1/internal/mcp/tools?')) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (isWorkspaceAiCredentialStatusRequest(input)) {
+        return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
+
+    const response = await callController(bootstrap, createRequest({ runId: 'run-1' }));
+    const llm = (response.body as { llm: { provider: string; model: string } }).llm;
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(llm.provider, 'openai');
+    assert.equal(llm.model, 'gpt-4.1-mini');
+  });
+
+  it('maps workspace AI credential status failures during bootstrap', async () => {
+    repo.getRun = async () => createRun({ status: 'queued' });
+    repo.getTarget = async () => createTarget();
+    repo.getSession = async () => createSessionRecord();
+    repo.getTargetAgentRegistration = async () => null;
+    repo.getWorkspaceAiSettings = async () => null;
+    repo.listTargetToolOverrides = async () => ({});
+    mock.method(globalThis, 'fetch', async (input) => {
+      const url = String(input);
+      if (url.includes('/api/v1/internal/mcp/tools?')) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (isWorkspaceAiCredentialStatusRequest(input)) {
+        return new Response(JSON.stringify({ detail: 'llm-gateway unavailable' }), { status: 503 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
+
+    const response = await callController(bootstrap, createRequest({ runId: 'run-1' }));
+
+    assert.equal(response.statusCode, 502);
+    assert.deepEqual(response.body, {
+      error: {
+        code: 'UPSTREAM_ERROR',
+        message: 'Failed to check workspace AI provider settings with llm-gateway',
+        retryable: true
+      }
+    });
   });
 
   it('drops late execution events for runs that are already cancelled', async () => {

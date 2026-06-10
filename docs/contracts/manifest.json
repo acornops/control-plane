@@ -38,6 +38,10 @@
         "POST /api/v1/workspaces/{workspaceId}/members",
         "PATCH /api/v1/workspaces/{workspaceId}/members/{userId}",
         "DELETE /api/v1/workspaces/{workspaceId}/members/{userId}",
+        "GET /api/v1/workspaces/{workspaceId}/ai-settings",
+        "PATCH /api/v1/workspaces/{workspaceId}/ai-settings",
+        "PUT /api/v1/workspaces/{workspaceId}/ai-provider-credentials/{provider}",
+        "DELETE /api/v1/workspaces/{workspaceId}/ai-provider-credentials/{provider}",
         "GET /api/v1/workspaces/{workspaceId}/targets",
         "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}",
         "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters",
@@ -168,6 +172,7 @@
       "responseFields": {
         "user": ["quota.workspaceMemberships.{used,limit}"],
         "workspace": ["plan.{key,name}", "currentUserRoleTemplate?", "permissions", "quota.members.{used,limit}", "quota.kubernetesClusters.{used,limit}", "quota.virtualMachines.{used,limit}"],
+        "workspaceAiSettings": ["workspaceId", "defaultProvider", "defaultModel", "allowedProviders", "allowedModels", "providers[].{provider,configured,enabled}", "no API key values or secret names"],
         "roleTemplate": ["key", "displayName", "description", "kind", "capabilities", "protected", "sortOrder"],
         "membership": ["role", "roleTemplate?"],
         "invitation": ["role", "roleTemplate?"],
@@ -297,6 +302,9 @@
     },
     "llm-gateway": {
       "adminPaths": [
+        "GET /api/v1/internal/llm/provider-credentials",
+        "PUT /api/v1/internal/llm/provider-credentials/{provider}",
+        "DELETE /api/v1/internal/llm/provider-credentials/{provider}",
         "GET /api/v1/internal/mcp/servers",
         "GET /api/v1/internal/mcp/tools",
         "PATCH /api/v1/internal/mcp/tools/{tool_name}",
@@ -305,7 +313,10 @@
         "POST /api/v1/internal/mcp/servers/{server_id}/test",
         "DELETE /api/v1/internal/mcp/servers/{server_id}"
       ],
-      "adminScopeFields": ["workspace_id", "target_id", "target_type"],
+      "providerCredentialScope": "workspace-only: secret_name={provider}_api_key, tenant_scope={workspace_id}; target-scoped secrets are reserved for MCP/server credentials",
+      "providerCredentialScopeFields": ["workspace_id"],
+      "providerCredentialStatusFields": ["provider", "configured", "enabled"],
+      "mcpRegistryScopeFields": ["workspace_id", "target_id", "target_type"],
       "serverFields": [
         "id",
         "workspace_id",
