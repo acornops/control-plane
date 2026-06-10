@@ -54,12 +54,17 @@ export function configuredModelBelongsToProvider(
   return normalized.includes('gemini');
 }
 
+function configuredModelBelongsToAnyProvider(model: string): boolean {
+  return SUPPORTED_LLM_PROVIDER_VALUES.some((provider) => configuredModelBelongsToProvider(model, provider));
+}
+
 export function configuredAllowedModelsForProvider(
   provider: typeof SUPPORTED_LLM_PROVIDER_VALUES[number],
   models: string[]
 ): string[] {
-  const providerModels = models.filter((model) => configuredModelBelongsToProvider(model, provider));
-  return providerModels.length > 0 ? providerModels : models;
+  return models.filter((model) =>
+    configuredModelBelongsToProvider(model, provider) || !configuredModelBelongsToAnyProvider(model)
+  );
 }
 
 export function validateLlmPolicyConfig(ctx: z.RefinementCtx, value: LlmPolicyConfig): void {

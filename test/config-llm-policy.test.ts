@@ -60,4 +60,27 @@ describe('LLM provider policy config', () => {
     assert.equal(config.LLM_DEFAULT_PROVIDER, 'openai');
     assert.equal(config.LLM_DEFAULT_MODEL, 'workspace-primary');
   });
+
+  it('allows unclassified custom model names in mixed provider allowlists', () => {
+    const config = parseAppConfig({
+      LLM_DEFAULT_PROVIDER: 'openai',
+      LLM_DEFAULT_MODEL: 'workspace-primary',
+      LLM_ALLOWED_PROVIDERS: 'openai',
+      LLM_ALLOWED_MODELS: 'gpt-4.1-mini,workspace-primary'
+    });
+
+    assert.equal(config.LLM_DEFAULT_PROVIDER, 'openai');
+    assert.equal(config.LLM_DEFAULT_MODEL, 'workspace-primary');
+
+    assert.throws(
+      () =>
+        parseAppConfig({
+          LLM_DEFAULT_PROVIDER: 'gemini',
+          LLM_DEFAULT_MODEL: 'gpt-4.1-mini',
+          LLM_ALLOWED_PROVIDERS: 'gemini',
+          LLM_ALLOWED_MODELS: 'gpt-4.1-mini,workspace-primary'
+        }),
+      (error) => Boolean(fieldErrors(error).LLM_DEFAULT_MODEL?.length)
+    );
+  });
 });
