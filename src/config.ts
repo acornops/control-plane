@@ -305,6 +305,9 @@ const envSchema = z.object({
   LLM_ALLOWED_PROVIDERS: z.string().default('openai,anthropic,gemini'),
   LLM_ALLOWED_MODELS: z.string().default('gpt-4.1-mini,claude-3-5-sonnet-latest,gemini-2.0-flash'),
   LLM_MAX_OUTPUT_TOKENS: optionalPositiveIntFromEnv,
+  LLM_REASONING_SUMMARIES_ENABLED: envBoolean(true),
+  LLM_ALLOWED_REASONING_SUMMARY_MODES: z.string().default('off,auto,concise,detailed'),
+  LLM_ALLOWED_REASONING_EFFORTS: z.string().default('default,low,medium,high'),
   AGENT_SYSTEM_INSTRUCTION: z.preprocess(
     emptyStringToUndefined,
     z.string().min(1).default(DEFAULT_AGENT_SYSTEM_INSTRUCTION)

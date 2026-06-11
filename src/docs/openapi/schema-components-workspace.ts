@@ -117,11 +117,28 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
     },
     WorkspaceAiSettings: {
       type: 'object',
-      required: ['workspaceId', 'defaultProvider', 'defaultModel', 'allowedProviders', 'allowedModels', 'providers'],
+      required: [
+        'workspaceId',
+        'defaultProvider',
+        'defaultModel',
+        'reasoningSummaryMode',
+        'reasoningEffort',
+        'allowedReasoningSummaryModes',
+        'allowedReasoningEfforts',
+        'reasoningSummariesEnabled',
+        'allowedProviders',
+        'allowedModels',
+        'providers'
+      ],
       properties: {
         workspaceId: uuid,
         defaultProvider: { type: 'string', enum: ['openai', 'anthropic', 'gemini'] },
         defaultModel: { type: 'string' },
+        reasoningSummaryMode: { type: 'string', enum: ['off', 'auto', 'concise', 'detailed'] },
+        reasoningEffort: { type: 'string', enum: ['default', 'low', 'medium', 'high'] },
+        allowedReasoningSummaryModes: { type: 'array', items: { type: 'string', enum: ['off', 'auto', 'concise', 'detailed'] } },
+        allowedReasoningEfforts: { type: 'array', items: { type: 'string', enum: ['default', 'low', 'medium', 'high'] } },
+        reasoningSummariesEnabled: { type: 'boolean' },
         allowedProviders: { type: 'array', items: { type: 'string', enum: ['openai', 'anthropic', 'gemini'] } },
         allowedModels: stringArray,
         providers: { type: 'array', items: schemaRef('WorkspaceAiProviderStatus') }

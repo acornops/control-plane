@@ -208,7 +208,7 @@ Workspace membership responses are server-owned and include:
 
 `GET /api/v1/workspaces/{workspaceId}/roles` returns the deployment-supported role template catalog for the workspace. The catalog is deployment-wide, read-only, and includes `key`, `displayName`, `description`, `kind`, `capabilities`, `protected`, and `sortOrder`. Workspace summaries may include `currentUserRoleTemplate`; memberships and invitations may include `roleTemplate`. Clients must use these fields for labels and role selection instead of duplicating role/capability logic.
 
-`GET /api/v1/workspaces/{workspaceId}/ai-settings` returns the workspace AI assistant default provider/model, deployment-allowed providers/models, and per-provider configured status to workspace members. It never returns API key values or internal secret names. `PATCH /ai-settings` updates `{defaultProvider,defaultModel}` and requires `permissions.manage_ai_settings`. `PUT /ai-provider-credentials/{provider}` accepts write-only `{apiKey}` to save or rotate a workspace provider credential and validates deployment provider policy. `DELETE /ai-provider-credentials/{provider}` removes a supported provider credential even if that provider is no longer deployment-allowed, so stale secrets can be cleaned up after policy changes. AI settings and credential mutations require `permissions.manage_ai_settings` and write workspace audit events. Assistant run creation resolves provider/model from workspace AI settings, stores that provider/model on the run snapshot, and rejects before dispatch when the selected provider/model is not deployment-allowed or the selected provider has no workspace credential.
+`GET /api/v1/workspaces/{workspaceId}/ai-settings` returns the workspace AI assistant default provider/model, deployment-allowed providers/models, reasoning summary mode/effort policy, derived `reasoningSummariesEnabled`, and per-provider configured status to workspace members. It never returns API key values, internal secret names, or reasoning summary text. `PATCH /ai-settings` updates `{defaultProvider,defaultModel,reasoningSummaryMode,reasoningEffort}` and requires `permissions.manage_ai_settings`. `PUT /ai-provider-credentials/{provider}` accepts write-only `{apiKey}` to save or rotate a workspace provider credential and validates deployment provider policy. `DELETE /ai-provider-credentials/{provider}` removes a supported provider credential even if that provider is no longer deployment-allowed, so stale secrets can be cleaned up after policy changes. AI settings and credential mutations require `permissions.manage_ai_settings` and write workspace audit events. Assistant run creation resolves provider/model and reasoning settings from workspace AI settings, stores them on the run snapshot, and rejects before dispatch when the selected provider/model is not deployment-allowed or the selected provider has no workspace credential.
 
 Owners can manage all member roles. Other roles with `permissions.manage_members` can directly assign, update, or remove non-protected members. `owner` is always present, protected, and required; the built-in `auditor` role is protected when enabled. A non-owner assigning or modifying a protected role returns `PROTECTED_ROLE_REQUIRES_OWNER`. Membership and invitation roles must exist in the deployment-supported catalog or the API returns `ROLE_NOT_SUPPORTED`. Any role update or removal that would leave a workspace with no owner must return `LAST_OWNER` and must not mutate membership.
 
@@ -345,6 +345,9 @@ Current event types emitted by execution-engine and forwarded by control plane:
 - `run_started`
 - `assistant_message_started`
 - `assistant_token_delta`
+- `assistant_reasoning_summary_delta`
+- `assistant_reasoning_summary_completed`
+- `assistant_reasoning_summary_unavailable`
 - `tool_call_started`
 - `tool_call_completed`
 - `tool_approval_requested`
@@ -548,7 +551,7 @@ Bootstrap response contract:
 - `scope.{workspace_id,target_id,target_type,session_id,run_id,user_id}`
 - `policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}`
 - `context.{endpoint,max_context_tokens}`
-- `llm.{provider,model,temperature,mode,gateway.{url,token,request_timeout_ms}}`
+- `llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}`
 - `tools.{tool_registry_version,allowed_tools,tool_specs,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}`
 - `routing`
 - `tracing`
@@ -570,7 +573,7 @@ Commit contract:
 
 - `status` in `completed | failed | cancelled`
 - optional `assistant_message.{content,format}`
-- `usage.{input_tokens,output_tokens,tool_calls}`
+- `usage.{input_tokens,output_tokens,tool_calls,reasoning_tokens?}`
 - `timing.{started_at,ended_at}`
 
 Durable approval interrupt contract:

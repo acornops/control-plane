@@ -185,7 +185,7 @@ export function buildWorkspacePaths(): Record<string, unknown> {
         },
         patch: {
           tags: ['workspaces'],
-          summary: 'Update workspace default AI provider and model',
+          summary: 'Update workspace default AI provider, model, and reasoning summary settings',
           security: [{ userSession: [] }],
           parameters: [
             {
@@ -204,7 +204,9 @@ export function buildWorkspacePaths(): Record<string, unknown> {
                   required: ['defaultProvider', 'defaultModel'],
                   properties: {
                     defaultProvider: llmProviderSchema,
-                    defaultModel: { type: 'string', example: 'gemini-2.0-flash' }
+                    defaultModel: { type: 'string', example: 'gemini-2.0-flash' },
+                    reasoningSummaryMode: { type: 'string', enum: ['off', 'auto', 'concise', 'detailed'], default: 'off' },
+                    reasoningEffort: { type: 'string', enum: ['default', 'low', 'medium', 'high'], default: 'default' }
                   }
                 }
               }
@@ -212,7 +214,7 @@ export function buildWorkspacePaths(): Record<string, unknown> {
           },
           responses: {
             '200': { description: 'Workspace AI assistant settings updated.' },
-            '400': { description: 'Selected provider or model is not allowed by deployment policy.' },
+            '400': { description: 'Selected provider, model, reasoning summary mode, or effort is not allowed by deployment policy.' },
             '403': { description: 'Requires manage_ai_settings.' }
           }
         }

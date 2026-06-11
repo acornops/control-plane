@@ -4,9 +4,11 @@ import {
   configuredModelBelongsToProvider,
   parseConfigCsv,
   parseConfiguredAllowedProviders,
+  parseConfiguredReasoningEfforts,
+  parseConfiguredReasoningSummaryModes,
   SUPPORTED_LLM_PROVIDER_VALUES
 } from '../config-llm-policy.js';
-import { LlmProvider } from '../types/domain.js';
+import { LlmProvider, ReasoningEffort, ReasoningSummaryMode } from '../types/domain.js';
 
 export const SUPPORTED_LLM_PROVIDERS: LlmProvider[] = [...SUPPORTED_LLM_PROVIDER_VALUES];
 
@@ -24,6 +26,18 @@ export function parseAllowedProviders(value = config.LLM_ALLOWED_PROVIDERS): Llm
 
 export function parseAllowedModels(value = config.LLM_ALLOWED_MODELS): string[] {
   return parseConfigCsv(value);
+}
+
+export function parseAllowedReasoningSummaryModes(
+  value = config.LLM_ALLOWED_REASONING_SUMMARY_MODES
+): ReasoningSummaryMode[] {
+  return parseConfiguredReasoningSummaryModes(value);
+}
+
+export function parseAllowedReasoningEfforts(
+  value = config.LLM_ALLOWED_REASONING_EFFORTS
+): ReasoningEffort[] {
+  return parseConfiguredReasoningEfforts(value);
 }
 
 export function modelBelongsToProvider(model: string, provider: LlmProvider): boolean {

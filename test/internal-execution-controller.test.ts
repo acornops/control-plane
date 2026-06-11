@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
-import { bootstrap, commitRun, ingestRunEvents, normalizeToolCapability } from '../src/controllers/internal-execution-controller.js';
+import {
+  bootstrap,
+  commitRun,
+  ingestRunEvents,
+  normalizeToolCapability,
+  summarizeRunEventCounts
+} from '../src/controllers/internal-execution-controller.js';
 import { repo } from '../src/store/repository.js';
 import { runtime } from '../src/store/runtime.js';
 import type { RunEvent } from '../src/types/domain.js';
@@ -45,6 +51,19 @@ describe('internal execution bootstrap audit metadata', () => {
     assert.equal(normalizeToolCapability({ capability: 'write' }), 'write');
     assert.equal(normalizeToolCapability({ capability: undefined }), 'write');
     assert.equal(normalizeToolCapability({ capability: 'unknown' as never }), 'write');
+  });
+
+  it('aggregates unknown run event types before metrics/logging', () => {
+    const counts = summarizeRunEventCounts([
+      createRunEvent('run_progress', 1),
+      createRunEvent('future_custom_event', 2),
+      createRunEvent('another_custom_event', 3)
+    ]);
+
+    assert.deepEqual(Object.fromEntries(counts), {
+      run_progress: 1,
+      other: 2
+    });
   });
 
   it('allows VM write tools when the target advertises write capability and the run is read-write', async () => {

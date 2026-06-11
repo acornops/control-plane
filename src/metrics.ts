@@ -13,6 +13,7 @@ function metricLine(name: string, labels: Record<string, string>, value: number)
 
 const adminAuthFailures = new Map<string, number>();
 const adminRequests = new Map<string, number>();
+const runEventIngestCounts = new Map<string, number>();
 let adminMutations = 0;
 let adminAuditWriteFailures = 0;
 
@@ -34,6 +35,10 @@ export function incrementAdminMutations(): void {
 
 export function incrementAdminAuditWriteFailures(): void {
   adminAuditWriteFailures += 1;
+}
+
+export function incrementRunEventsIngested(eventType: string, count = 1): void {
+  runEventIngestCounts.set(eventType, (runEventIngestCounts.get(eventType) || 0) + count);
 }
 
 export function renderControlPlaneMetrics(): string {
@@ -77,7 +82,12 @@ export function renderControlPlaneMetrics(): string {
     metricLine('control_plane_admin_mutations_total', serviceLabels, adminMutations),
     '# HELP control_plane_admin_audit_write_failures_total Admin audit write failures.',
     '# TYPE control_plane_admin_audit_write_failures_total counter',
-    metricLine('control_plane_admin_audit_write_failures_total', serviceLabels, adminAuditWriteFailures)
+    metricLine('control_plane_admin_audit_write_failures_total', serviceLabels, adminAuditWriteFailures),
+    '# HELP control_plane_run_events_ingested_total Run events accepted from execution-engine by event type.',
+    '# TYPE control_plane_run_events_ingested_total counter',
+    ...Array.from(runEventIngestCounts.entries()).map(([eventType, value]) =>
+      metricLine('control_plane_run_events_ingested_total', { ...serviceLabels, event_type: eventType }, value)
+    )
   ];
   return `${lines.join('\n')}\n`;
 }

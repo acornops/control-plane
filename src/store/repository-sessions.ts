@@ -239,6 +239,8 @@ export async function createRunFromUserMessage(params: {
     toolAccessMode: Run['toolAccessMode'];
     llmProvider: Run['llmProvider'];
     llmModel: string;
+    llmReasoningSummaryMode: Run['llmReasoningSummaryMode'];
+    llmReasoningEffort: Run['llmReasoningEffort'];
     clientMessageId?: string;
   }): Promise<CreateRunFromMessageResult> {
     return withTransaction(async (client) => {
@@ -306,10 +308,10 @@ export async function createRunFromUserMessage(params: {
         `WITH inserted AS (
            INSERT INTO runs (
              id, workspace_id, target_id, session_id, message_id,
-             llm_provider, llm_model,
+             llm_provider, llm_model, llm_reasoning_summary_mode, llm_reasoning_effort,
              tool_access_mode, status, requested_at, started_at, ended_at,
              error_code, error_message, usage, assistant_message
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16::jsonb)
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb)
            RETURNING *
          )
          SELECT inserted.*, t.target_type
@@ -323,6 +325,8 @@ export async function createRunFromUserMessage(params: {
           messageId,
           params.llmProvider,
           params.llmModel,
+          params.llmReasoningSummaryMode,
+          params.llmReasoningEffort,
           params.toolAccessMode,
           'queued',
           now,
@@ -408,11 +412,11 @@ export async function addRun(run: Run): Promise<Run> {
       `WITH inserted AS (
          INSERT INTO runs (
            id, workspace_id, target_id, session_id, message_id,
-           llm_provider, llm_model,
+           llm_provider, llm_model, llm_reasoning_summary_mode, llm_reasoning_effort,
            tool_access_mode,
            status, requested_at, started_at, ended_at,
            error_code, error_message, usage, assistant_message
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16::jsonb)
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb)
          RETURNING *
        )
        SELECT inserted.*, t.target_type
@@ -426,6 +430,8 @@ export async function addRun(run: Run): Promise<Run> {
         run.messageId,
         run.llmProvider,
         run.llmModel,
+        run.llmReasoningSummaryMode,
+        run.llmReasoningEffort,
         run.toolAccessMode,
         run.status,
         run.requestedAt,
