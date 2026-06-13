@@ -1,12 +1,16 @@
 import { z } from 'zod';
 
 export const SUPPORTED_LLM_PROVIDER_VALUES = ['openai', 'anthropic', 'gemini'] as const;
+export const REASONING_SUMMARY_MODE_VALUES = ['off', 'auto', 'concise', 'detailed'] as const;
+export const REASONING_EFFORT_VALUES = ['default', 'low', 'medium', 'high'] as const;
 
 interface LlmPolicyConfig {
   LLM_DEFAULT_PROVIDER: typeof SUPPORTED_LLM_PROVIDER_VALUES[number];
   LLM_DEFAULT_MODEL: string;
   LLM_ALLOWED_PROVIDERS: string;
   LLM_ALLOWED_MODELS: string;
+  LLM_ALLOWED_REASONING_SUMMARY_MODES: string;
+  LLM_ALLOWED_REASONING_EFFORTS: string;
 }
 
 function addConfigIssue(ctx: z.RefinementCtx, field: string, message: string): void {
@@ -38,6 +42,24 @@ export function parseConfiguredAllowedProviders(value: string): Array<typeof SUP
     }
   }
   return providers;
+}
+
+function parseAllowedEnumValues<T extends readonly string[]>(value: string, allowedValues: T): Array<T[number]> {
+  const parsed: Array<T[number]> = [];
+  for (const entry of parseConfigCsv(value).map((item) => item.toLowerCase())) {
+    if (allowedValues.includes(entry as T[number]) && !parsed.includes(entry as T[number])) {
+      parsed.push(entry as T[number]);
+    }
+  }
+  return parsed;
+}
+
+export function parseConfiguredReasoningSummaryModes(value: string): Array<typeof REASONING_SUMMARY_MODE_VALUES[number]> {
+  return parseAllowedEnumValues(value, REASONING_SUMMARY_MODE_VALUES);
+}
+
+export function parseConfiguredReasoningEfforts(value: string): Array<typeof REASONING_EFFORT_VALUES[number]> {
+  return parseAllowedEnumValues(value, REASONING_EFFORT_VALUES);
 }
 
 export function configuredModelBelongsToProvider(
@@ -87,5 +109,21 @@ export function validateLlmPolicyConfig(ctx: z.RefinementCtx, value: LlmPolicyCo
   }
   if (!configuredAllowedModelsForProvider(value.LLM_DEFAULT_PROVIDER, allowedModels).includes(value.LLM_DEFAULT_MODEL)) {
     addConfigIssue(ctx, 'LLM_DEFAULT_MODEL', 'LLM_DEFAULT_MODEL must be available for LLM_DEFAULT_PROVIDER');
+  }
+
+  const reasoningModes = parseConfiguredReasoningSummaryModes(value.LLM_ALLOWED_REASONING_SUMMARY_MODES);
+  if (reasoningModes.length === 0) {
+    addConfigIssue(ctx, 'LLM_ALLOWED_REASONING_SUMMARY_MODES', 'LLM_ALLOWED_REASONING_SUMMARY_MODES must include at least one supported mode');
+  }
+  if (!reasoningModes.includes('off')) {
+    addConfigIssue(ctx, 'LLM_ALLOWED_REASONING_SUMMARY_MODES', 'LLM_ALLOWED_REASONING_SUMMARY_MODES must include off');
+  }
+
+  const reasoningEfforts = parseConfiguredReasoningEfforts(value.LLM_ALLOWED_REASONING_EFFORTS);
+  if (reasoningEfforts.length === 0) {
+    addConfigIssue(ctx, 'LLM_ALLOWED_REASONING_EFFORTS', 'LLM_ALLOWED_REASONING_EFFORTS must include at least one supported effort');
+  }
+  if (!reasoningEfforts.includes('default')) {
+    addConfigIssue(ctx, 'LLM_ALLOWED_REASONING_EFFORTS', 'LLM_ALLOWED_REASONING_EFFORTS must include default');
   }
 }

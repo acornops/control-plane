@@ -1,5 +1,6 @@
 import { NextFunction, Response } from 'express';
 import { AuthenticatedRequest } from '../../auth/middleware.js';
+import { config } from '../../config.js';
 import {
   requireWorkspaceCapability,
   requireWorkspaceRead
@@ -10,6 +11,8 @@ import {
   putWorkspaceProviderCredential
 } from '../../services/llm-provider-credential-client.js';
 import {
+  parseAllowedReasoningEfforts,
+  parseAllowedReasoningSummaryModes,
   defaultModel,
   defaultProvider,
   isModelAllowedForProvider,
@@ -21,7 +24,7 @@ import {
 import { effectiveAllowedProviders } from '../../services/workspace-ai-resolution.js';
 import { recordWorkspaceAuditEvent } from '../../services/workspace-audit.js';
 import { repo } from '../../store/repository.js';
-import { LlmProvider, WorkspaceAiSettings } from '../../types/domain.js';
+import { LlmProvider, ReasoningEffort, ReasoningSummaryMode, WorkspaceAiSettings } from '../../types/domain.js';
 import { toSingleParam } from '../../utils/params.js';
 import { LlmGatewayHttpError } from '../../services/mcp-registry-client.js';
 import { mapGatewayError } from './common.js';
@@ -33,6 +36,8 @@ function effectiveSettings(settings: WorkspaceAiSettings | null): WorkspaceAiSet
     workspaceId: settings?.workspaceId || '',
     defaultProvider: settings?.defaultProvider || defaultProvider(),
     defaultModel: settings?.defaultModel || defaultModel(),
+    reasoningSummaryMode: settings?.reasoningSummaryMode || 'off',
+    reasoningEffort: settings?.reasoningEffort || 'default',
     createdAt: settings?.createdAt,
     updatedAt: settings?.updatedAt
   };
@@ -45,10 +50,26 @@ async function buildAiSettingsResponse(workspaceId: string) {
   ]);
   const resolved = effectiveSettings(settings);
   const allowedProviders = effectiveAllowedProviders(credentials.providers);
+  const configuredReasoningSummaryModes = parseAllowedReasoningSummaryModes();
+  const allowedReasoningSummaryModes = config.LLM_REASONING_SUMMARIES_ENABLED
+    ? configuredReasoningSummaryModes
+    : ['off' as const];
+  const allowedReasoningEfforts = parseAllowedReasoningEfforts();
+  const effectiveReasoningSummaryMode =
+    config.LLM_REASONING_SUMMARIES_ENABLED && allowedReasoningSummaryModes.includes(resolved.reasoningSummaryMode)
+      ? resolved.reasoningSummaryMode
+      : 'off';
   return {
     workspaceId,
     defaultProvider: resolved.defaultProvider,
     defaultModel: resolved.defaultModel,
+    reasoningSummaryMode: effectiveReasoningSummaryMode,
+    reasoningEffort: allowedReasoningEfforts.includes(resolved.reasoningEffort)
+      ? resolved.reasoningEffort
+      : 'default',
+    allowedReasoningSummaryModes,
+    allowedReasoningEfforts,
+    reasoningSummariesEnabled: config.LLM_REASONING_SUMMARIES_ENABLED && effectiveReasoningSummaryMode !== 'off',
     allowedProviders,
     allowedModels: parseAllowedModels(),
     providers: credentials.providers.map((provider) => ({
@@ -69,6 +90,28 @@ function validateProviderModel(res: Response, provider: LlmProvider, model: stri
   }
   if (!isModelAllowedForProvider(provider, model)) {
     res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Selected model is not available for the selected provider', retryable: false } });
+    return false;
+  }
+  return true;
+}
+
+function validateReasoningSettings(
+  res: Response,
+  mode: ReasoningSummaryMode,
+  effort: ReasoningEffort
+): boolean {
+  const allowedModes = parseAllowedReasoningSummaryModes();
+  const allowedEfforts = parseAllowedReasoningEfforts();
+  if (!allowedModes.includes(mode)) {
+    res.status(400).json({ error: { code: 'REASONING_SUMMARY_MODE_NOT_ALLOWED', message: 'Selected reasoning summary mode is not allowed by this deployment', retryable: false } });
+    return false;
+  }
+  if (!allowedEfforts.includes(effort)) {
+    res.status(400).json({ error: { code: 'REASONING_EFFORT_NOT_ALLOWED', message: 'Selected reasoning effort is not allowed by this deployment', retryable: false } });
+    return false;
+  }
+  if (!config.LLM_REASONING_SUMMARIES_ENABLED && mode !== 'off') {
+    res.status(400).json({ error: { code: 'REASONING_SUMMARIES_DISABLED', message: 'Reasoning summaries are disabled by this deployment', retryable: false } });
     return false;
   }
   return true;
@@ -126,10 +169,17 @@ export async function updateWorkspaceAiSettings(req: AuthenticatedRequest, res: 
     if (!(await validateProviderEnabled(res, workspaceId, req.body.defaultProvider))) {
       return;
     }
+    const reasoningSummaryMode = (req.body.reasoningSummaryMode || 'off') as ReasoningSummaryMode;
+    const reasoningEffort = (req.body.reasoningEffort || 'default') as ReasoningEffort;
+    if (!validateReasoningSettings(res, reasoningSummaryMode, reasoningEffort)) {
+      return;
+    }
     const previous = await repo.getWorkspaceAiSettings(workspaceId);
     await repo.upsertWorkspaceAiSettings(workspaceId, {
       defaultProvider: req.body.defaultProvider,
-      defaultModel: req.body.defaultModel
+      defaultModel: req.body.defaultModel,
+      reasoningSummaryMode,
+      reasoningEffort
     });
     await recordWorkspaceAuditEvent({
       workspaceId,
@@ -143,8 +193,12 @@ export async function updateWorkspaceAiSettings(req: AuthenticatedRequest, res: 
       metadata: {
         previousProvider: previous?.defaultProvider || null,
         previousModel: previous?.defaultModel || null,
+        previousReasoningSummaryMode: previous?.reasoningSummaryMode || null,
+        previousReasoningEffort: previous?.reasoningEffort || null,
         nextProvider: req.body.defaultProvider,
-        nextModel: req.body.defaultModel
+        nextModel: req.body.defaultModel,
+        nextReasoningSummaryMode: reasoningSummaryMode,
+        nextReasoningEffort: reasoningEffort
       }
     });
     res.status(200).json(await buildAiSettingsResponse(workspaceId));

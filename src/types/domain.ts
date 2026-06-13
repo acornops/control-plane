@@ -139,11 +139,15 @@ export interface WorkspaceSummary extends Workspace {
 }
 
 export type LlmProvider = 'openai' | 'anthropic' | 'gemini';
+export type ReasoningSummaryMode = 'off' | 'auto' | 'concise' | 'detailed';
+export type ReasoningEffort = 'default' | 'low' | 'medium' | 'high';
 
 export interface WorkspaceAiSettings {
   workspaceId: string;
   defaultProvider: LlmProvider;
   defaultModel: string;
+  reasoningSummaryMode: ReasoningSummaryMode;
+  reasoningEffort: ReasoningEffort;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -376,6 +380,8 @@ export interface Run {
   messageId: string;
   llmProvider: LlmProvider;
   llmModel: string;
+  llmReasoningSummaryMode: ReasoningSummaryMode;
+  llmReasoningEffort: ReasoningEffort;
   toolAccessMode: ToolAccessMode;
   status: RunStatus;
   requestedAt: string;
@@ -387,6 +393,7 @@ export interface Run {
     input_tokens: number;
     output_tokens: number;
     tool_calls: number;
+    reasoning_tokens?: number;
   };
   assistantMessage?: {
     content: string;

@@ -3,6 +3,7 @@ import { NextFunction, Request, Response } from 'express';
 import { agentGateway } from '../agent/ws-server.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
+import { incrementRunEventsIngested } from '../metrics.js';
 import { listTargetMcpTools, LlmGatewayHttpError, McpToolConfig } from '../services/mcp-registry-client.js';
 import { isModelAllowedForProvider } from '../services/llm-policy.js';
 import { syncTargetBuiltInTools } from '../services/target-built-in-tool-sync.js';
@@ -19,6 +20,26 @@ import { mapGatewayError } from './workspaces/common.js';
 
 const TERMINAL_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 const AI_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
+const RUN_EVENT_METRIC_TYPE_OTHER = 'other';
+const RUN_EVENT_METRIC_TYPES = new Set([
+  'run_progress',
+  'run_started',
+  'assistant_message_started',
+  'assistant_token_delta',
+  'assistant_reasoning_summary_delta',
+  'assistant_reasoning_summary_completed',
+  'assistant_reasoning_summary_unavailable',
+  'tool_call_started',
+  'tool_call_completed',
+  'tool_approval_requested',
+  'tool_approval_approved',
+  'tool_approval_rejected',
+  'tool_approval_expired',
+  'assistant_message_completed',
+  'run_failed',
+  'run_cancelled',
+  'run_completed'
+]);
 
 export function normalizeToolCapability(tool: Pick<McpToolConfig, 'capability'>): 'read' | 'write' {
   return tool.capability === 'read' ? 'read' : 'write';
@@ -44,6 +65,15 @@ function acceptsExecutionRunEvent(status: string, event: RunEvent): boolean {
     return event.type === 'run_cancelled';
   }
   return true;
+}
+
+export function summarizeRunEventCounts(events: RunEvent[]): Map<string, number> {
+  const eventCounts = new Map<string, number>();
+  for (const event of events) {
+    const eventType = RUN_EVENT_METRIC_TYPES.has(event.type) ? event.type : RUN_EVENT_METRIC_TYPE_OTHER;
+    eventCounts.set(eventType, (eventCounts.get(eventType) || 0) + 1);
+  }
+  return eventCounts;
 }
 
 async function resolveTargetToolsForRun(workspaceId: string, targetId: string, targetType: TargetType, runId: string): Promise<McpToolConfig[]> {
@@ -166,7 +196,9 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
 
     const llmSettings = await resolveWorkspaceLlmSettings(run.workspaceId, {
       provider: run.llmProvider,
-      model: run.llmModel
+      model: run.llmModel,
+      reasoningSummaryMode: run.llmReasoningSummaryMode,
+      reasoningEffort: run.llmReasoningEffort
     });
     const allowedProviders = llmSettings.allowedProviders;
     const allowedModels = llmSettings.allowedModels;
@@ -231,6 +263,7 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
         model: llmSettings.model,
         temperature: config.AGENT_LLM_TEMPERATURE,
         mode: 'gateway',
+        reasoning: llmSettings.reasoning,
         gateway: {
           url: config.LLM_GATEWAY_URL,
           token,
@@ -340,6 +373,19 @@ export async function ingestRunEvents(req: Request, res: Response, next: NextFun
     }
     const accepted = await repo.appendRunEvents(run.id, acceptedEvents);
     const buffered = runtime.appendRunEvents(run.id, accepted);
+    const bufferedEventCounts = summarizeRunEventCounts(buffered);
+    for (const [eventType, count] of bufferedEventCounts.entries()) {
+      incrementRunEventsIngested(eventType, count);
+    }
+    logger.info(
+      {
+        runId: run.id,
+        workspaceId: run.workspaceId,
+        accepted: buffered.length,
+        eventTypes: Object.fromEntries(bufferedEventCounts)
+      },
+      'Accepted execution run events'
+    );
     for (const event of buffered) {
       if (isTerminalRunStatus(currentRun.status)) {
         runtime.runStreams.emit(`run:${run.id}`, { event });

@@ -132,6 +132,8 @@ export interface RunRow {
   message_id: string;
   llm_provider: Run['llmProvider'];
   llm_model: string;
+  llm_reasoning_summary_mode: Run['llmReasoningSummaryMode'];
+  llm_reasoning_effort: Run['llmReasoningEffort'];
   tool_access_mode: Run['toolAccessMode'];
   status: Run['status'];
   requested_at: Date | string;
@@ -464,6 +466,8 @@ export function mapRun(row: RunRow): Run {
     messageId: row.message_id,
     llmProvider: row.llm_provider,
     llmModel: row.llm_model,
+    llmReasoningSummaryMode: row.llm_reasoning_summary_mode || 'off',
+    llmReasoningEffort: row.llm_reasoning_effort || 'default',
     toolAccessMode: row.tool_access_mode || 'read_only',
     status: row.status,
     requestedAt: toIso(row.requested_at)!,

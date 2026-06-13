@@ -44,7 +44,8 @@ assert.deepEqual(files, [
   '012_workspace_audit_events.sql',
   '013_admin_api.sql',
   '014_workspace_ai_settings.sql',
-  '015_run_llm_snapshot.sql'
+  '015_run_llm_snapshot.sql',
+  '016_reasoning_summaries.sql'
 ]);
 for (const file of files) {
   assert(/^\d{3,}_[a-z0-9_]+\.sql$/.test(file), `invalid migration filename ${file}`);
@@ -65,6 +66,7 @@ const workspaceAuditEventsUpgrade = read('migrations/control-plane/012_workspace
 const adminApiUpgrade = read('migrations/control-plane/013_admin_api.sql');
 const workspaceAiSettingsUpgrade = read('migrations/control-plane/014_workspace_ai_settings.sql');
 const runLlmSnapshotUpgrade = read('migrations/control-plane/015_run_llm_snapshot.sql');
+const reasoningSummariesUpgrade = read('migrations/control-plane/016_reasoning_summaries.sql');
 for (const table of [
   'users',
   'workspaces',
@@ -183,6 +185,18 @@ for (const needle of [
   'ADD COLUMN IF NOT EXISTS llm_model'
 ]) {
   assert(runLlmSnapshotUpgrade.includes(needle), `run llm snapshot migration missing ${needle}`);
+}
+for (const needle of [
+  'ADD COLUMN IF NOT EXISTS reasoning_summary_mode',
+  "CHECK (reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed'))",
+  'ADD COLUMN IF NOT EXISTS reasoning_effort',
+  "CHECK (reasoning_effort IN ('default', 'low', 'medium', 'high'))",
+  'ADD COLUMN IF NOT EXISTS llm_reasoning_summary_mode',
+  "CHECK (llm_reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed'))",
+  'ADD COLUMN IF NOT EXISTS llm_reasoning_effort',
+  "CHECK (llm_reasoning_effort IN ('default', 'low', 'medium', 'high'))"
+]) {
+  assert(reasoningSummariesUpgrade.includes(needle), `reasoning summaries migration missing ${needle}`);
 }
 for (const needle of [
   'CREATE TABLE IF NOT EXISTS target_snapshot_history',
@@ -310,6 +324,10 @@ async function runSqlChecks(databaseUrl) {
       ['sessions', 'deleted_at'],
       ['messages', 'kind'],
       ['messages', 'client_message_id'],
+      ['workspace_ai_settings', 'reasoning_summary_mode'],
+      ['workspace_ai_settings', 'reasoning_effort'],
+      ['runs', 'llm_reasoning_summary_mode'],
+      ['runs', 'llm_reasoning_effort'],
       ['kubernetes_target_settings', 'namespace_include'],
       ['kubernetes_target_settings', 'namespace_exclude']
     ]) {

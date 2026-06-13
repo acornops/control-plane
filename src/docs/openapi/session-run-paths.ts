@@ -447,7 +447,8 @@ export function buildSessionRunPaths(): Record<string, unknown> {
                     usage: {
                       input_tokens: 642,
                       output_tokens: 311,
-                      tool_calls: 2
+                      tool_calls: 2,
+                      reasoning_tokens: 42
                     },
                     timing: {
                       started_at: '2026-03-01T00:00:00.000Z',

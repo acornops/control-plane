@@ -465,6 +465,8 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       toolAccessMode,
       llmProvider: llmSettings.provider,
       llmModel: llmSettings.model,
+      llmReasoningSummaryMode: llmSettings.reasoning.summary_mode,
+      llmReasoningEffort: llmSettings.reasoning.effort,
       clientMessageId: req.body.clientMessageId
     });
 

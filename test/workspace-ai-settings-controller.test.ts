@@ -381,7 +381,7 @@ describe('workspace AI settings controller', () => {
   it('persists allowed default provider and model changes', async () => {
     installWorkspace('admin');
     installAiCredentialGateway();
-    let persisted: { defaultProvider: LlmProvider; defaultModel: string } | undefined;
+    let persisted: Parameters<typeof repo.upsertWorkspaceAiSettings>[1] | undefined;
     repo.upsertWorkspaceAiSettings = async (_workspaceId, settings) => {
       persisted = settings;
     };
@@ -395,7 +395,7 @@ describe('workspace AI settings controller', () => {
     );
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(persisted, { defaultProvider: 'gemini', defaultModel: 'gemini-2.0-flash' });
+    assert.deepEqual(persisted, { defaultProvider: 'gemini', defaultModel: 'gemini-2.0-flash', reasoningSummaryMode: 'off', reasoningEffort: 'default' });
   });
 
   it('rejects default model changes that do not match the selected provider', async () => {
