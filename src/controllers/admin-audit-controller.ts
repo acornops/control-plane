@@ -81,7 +81,7 @@ export async function listWorkspaceAuditEvents(req: AdminAuthenticatedRequest, r
     const filters = {
       eventType: parseStringFilter(req.query.eventType, 'eventType'),
       actorUserId: parseStringFilter(req.query.actorUserId, 'actorUserId'),
-      targetType: parseStringFilter(req.query.targetType, 'targetType')
+      objectType: parseStringFilter(req.query.objectType, 'objectType')
     };
     for (const parsed of Object.values(filters)) {
       if (parsed.error) {
@@ -93,7 +93,7 @@ export async function listWorkspaceAuditEvents(req: AdminAuthenticatedRequest, r
       category: category.value as never,
       eventType: filters.eventType.value,
       actorUserId: filters.actorUserId.value,
-      targetType: filters.targetType.value,
+      objectType: filters.objectType.value,
       ...range
     };
     const signature = makeQuerySignature({ workspaceId, ...normalizedFilters });

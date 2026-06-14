@@ -86,9 +86,9 @@ describe('workspace invitation audit events', () => {
               actor_email: null,
               actor_display_name: null,
               actor_token_id: null,
-              target_type: 'member',
-              target_id: 'invitee-1',
-              target_name: null,
+              object_type: 'member',
+              object_id: 'invitee-1',
+              object_name: null,
               summary: 'Workspace member added from invitation',
               metadata: {},
               occurred_at: '2026-05-30T00:00:00.000Z'

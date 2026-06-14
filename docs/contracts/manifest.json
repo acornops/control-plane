@@ -192,7 +192,7 @@
         "roleTemplate": ["key", "displayName", "description", "kind", "capabilities", "protected", "sortOrder"],
         "membership": ["role", "roleTemplate?"],
         "invitation": ["role", "roleTemplate?"],
-        "auditEvent": ["id", "workspaceId", "category", "eventType", "operation", "actor", "target", "summary", "metadata", "occurredAt"],
+        "auditEvent": ["id", "workspaceId", "category", "eventType", "operation", "actor", "object", "summary", "metadata", "occurredAt"],
         "quotaExceeded": ["error.code=QUOTA_EXCEEDED", "error.details.{quotaKey,used,limit}"],
         "cluster": ["writeConfirmationPolicy"],
         "clusterRegistration": ["cluster", "agentKey"],

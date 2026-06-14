@@ -104,8 +104,8 @@ export async function cancelRun(req: AuthenticatedRequest, res: Response, next: 
       eventType: 'run.cancel_requested.v1',
       operation: 'write',
       actorUserId: req.auth.userId,
-      targetType: 'run',
-      targetId: run.id,
+      objectType: 'run',
+      objectId: run.id,
       summary: 'Troubleshooting run cancellation requested',
       metadata: {
         sessionId: run.sessionId,
@@ -248,9 +248,9 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
       eventType: 'run.tool_approval_decided.v1',
       operation: 'write',
       actorUserId: req.auth.userId,
-      targetType: 'tool_approval',
-      targetId: decided.id,
-      targetName: decided.toolName,
+      objectType: 'tool_approval',
+      objectId: decided.id,
+      objectName: decided.toolName,
       summary: 'Write-tool approval decided',
       metadata: {
         runId: run.id,

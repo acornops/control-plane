@@ -192,9 +192,9 @@ export async function patchWorkspacePlan(req: AdminAuthenticatedRequest, res: Re
       tokenId: req.admin.tokenId,
       category: 'workspace',
       eventType: 'workspace.plan.updated.v1',
-      targetType: 'workspace',
-      targetId: workspaceId,
-      targetName: before.name,
+      objectType: 'workspace',
+      objectId: workspaceId,
+      objectName: before.name,
       summary: 'Workspace plan updated by admin token',
       metadata: { beforePlan: before.plan.key, afterPlan: targetPlan.key, reason: req.body.reason, ticketRef: req.body.ticketRef || null }
     });
@@ -256,9 +256,9 @@ export async function patchWorkspaceQuotas(req: AdminAuthenticatedRequest, res: 
       tokenId: req.admin.tokenId,
       category: 'workspace',
       eventType: 'workspace.quotas.updated.v1',
-      targetType: 'workspace',
-      targetId: workspaceId,
-      targetName: before.name,
+      objectType: 'workspace',
+      objectId: workspaceId,
+      objectName: before.name,
       summary: 'Workspace quota overrides updated by admin token',
       metadata: { before: before.quotaOverrides, after: requestedOverrides, reason: req.body.reason, ticketRef: req.body.ticketRef || null }
     });
@@ -414,8 +414,8 @@ export async function addWorkspaceMember(req: AdminAuthenticatedRequest, res: Re
       tokenId: req.admin.tokenId,
       category: 'membership',
       eventType: 'workspace.member.added.v1',
-      targetType: 'member',
-      targetId: userId,
+      objectType: 'member',
+      objectId: userId,
       summary: 'Workspace member added by admin token',
       metadata: { role: req.body.role, reason: req.body.reason, ticketRef: req.body.ticketRef || null }
     });
@@ -468,8 +468,8 @@ export async function updateWorkspaceMemberRole(req: AdminAuthenticatedRequest, 
       tokenId: req.admin.tokenId,
       category: 'membership',
       eventType: 'workspace.member.role_updated.v1',
-      targetType: 'member',
-      targetId: userId,
+      objectType: 'member',
+      objectId: userId,
       summary: 'Workspace member role updated by admin token',
       metadata: { beforeRole: result.previousRole || null, afterRole: req.body.role, reason: req.body.reason, ticketRef: req.body.ticketRef || null }
     });
@@ -531,8 +531,8 @@ export async function deleteWorkspaceMember(req: AdminAuthenticatedRequest, res:
       tokenId: req.admin.tokenId,
       category: 'membership',
       eventType: 'workspace.member.removed.v1',
-      targetType: 'member',
-      targetId: userId,
+      objectType: 'member',
+      objectId: userId,
       summary: 'Workspace member removed by admin token',
       metadata: { previousRole: current.role, reason: req.body.reason, ticketRef: req.body.ticketRef || null }
     });

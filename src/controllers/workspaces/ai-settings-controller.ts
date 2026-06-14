@@ -187,8 +187,8 @@ export async function updateWorkspaceAiSettings(req: AuthenticatedRequest, res: 
       eventType: 'workspace.ai_settings.updated.v1',
       operation: 'write',
       actorUserId: req.auth.userId,
-      targetType: 'workspace',
-      targetId: workspaceId,
+      objectType: 'workspace',
+      objectId: workspaceId,
       summary: 'Workspace AI assistant settings updated',
       metadata: {
         previousProvider: previous?.defaultProvider || null,
@@ -241,8 +241,8 @@ export async function upsertWorkspaceAiProviderCredential(req: AuthenticatedRequ
       eventType: 'workspace.ai_provider_credential.saved.v1',
       operation: 'write',
       actorUserId: req.auth.userId,
-      targetType: 'workspace',
-      targetId: workspaceId,
+      objectType: 'workspace',
+      objectId: workspaceId,
       summary: 'Workspace AI provider credential saved',
       metadata: { provider }
     });
@@ -283,8 +283,8 @@ export async function deleteWorkspaceAiProviderCredential(req: AuthenticatedRequ
       eventType: 'workspace.ai_provider_credential.deleted.v1',
       operation: 'write',
       actorUserId: req.auth.userId,
-      targetType: 'workspace',
-      targetId: workspaceId,
+      objectType: 'workspace',
+      objectId: workspaceId,
       summary: 'Workspace AI provider credential deleted',
       metadata: { provider }
     });

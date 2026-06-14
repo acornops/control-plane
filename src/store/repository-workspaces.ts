@@ -115,8 +115,8 @@ async function recordWorkspaceMembershipAudit(
         eventType,
         operation: 'write',
         actorUserId: data.actorUserId,
-        targetType: 'member',
-        targetId: data.targetUserId,
+        objectType: 'member',
+        objectId: data.targetUserId,
         summary,
         metadata: {
           previousRole: data.previousRole || null,

@@ -183,7 +183,7 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
     },
     WorkspaceAuditEvent: {
       type: 'object',
-      required: ['id', 'workspaceId', 'category', 'eventType', 'operation', 'createdAt'],
+      required: ['id', 'workspaceId', 'category', 'eventType', 'operation', 'actor', 'object', 'summary', 'metadata', 'occurredAt'],
       properties: {
         id: uuid,
         workspaceId: uuid,
@@ -191,9 +191,10 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
         eventType: { type: 'string' },
         operation: { type: 'string', enum: ['read', 'write'] },
         actor: jsonObject,
-        target: jsonObject,
+        object: jsonObject,
+        summary: { type: 'string' },
         metadata: jsonObject,
-        createdAt: dateTime
+        occurredAt: dateTime
       },
       additionalProperties: true
     },

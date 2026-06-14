@@ -26,9 +26,9 @@ interface WorkspaceAuditEventRow {
   actor_token_id: string | null;
   actor_email: string | null;
   actor_display_name: string | null;
-  target_type: string;
-  target_id: string | null;
-  target_name: string | null;
+  object_type: string;
+  object_id: string | null;
+  object_name: string | null;
   summary: string;
   metadata: Record<string, unknown> | string | null;
   occurred_at: Date | string;
@@ -102,10 +102,10 @@ function mapAuditEvent(row: WorkspaceAuditEventRow): WorkspaceAuditEvent {
       ...(row.actor_email ? { email: row.actor_email } : {}),
       ...(row.actor_display_name ? { displayName: row.actor_display_name } : {})
     },
-    target: {
-      type: row.target_type,
-      ...(row.target_id ? { id: row.target_id } : {}),
-      ...(row.target_name ? { name: row.target_name } : {})
+    object: {
+      type: row.object_type,
+      ...(row.object_id ? { id: row.object_id } : {}),
+      ...(row.object_name ? { name: row.object_name } : {})
     },
     summary: row.summary,
     metadata,
@@ -134,7 +134,7 @@ export async function insertWorkspaceAuditEvent(
   const result = await queryable.query(
     `INSERT INTO workspace_audit_events (
        id, workspace_id, category, event_type, operation, actor_type, actor_user_id, actor_token_id,
-       target_type, target_id, target_name, summary, metadata, occurred_at
+       object_type, object_id, object_name, summary, metadata, occurred_at
      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, NOW())
      RETURNING
        workspace_audit_events.*,
@@ -149,9 +149,9 @@ export async function insertWorkspaceAuditEvent(
       actorType,
       actorType === 'user' ? input.actorUserId || null : null,
       actorType === 'admin_token' ? input.actorTokenId || null : null,
-      input.targetType,
-      input.targetId || null,
-      input.targetName || null,
+      input.objectType,
+      input.objectId || null,
+      input.objectName || null,
       input.summary,
       JSON.stringify(sanitizeAuditMetadata(input.metadata))
     ]
@@ -193,7 +193,7 @@ export async function listWorkspaceAuditEvents(
     category?: WorkspaceAuditCategory;
     eventType?: string;
     actorUserId?: string;
-    targetType?: string;
+    objectType?: string;
     from?: string;
     to?: string;
     signature?: string;
@@ -214,9 +214,9 @@ export async function listWorkspaceAuditEvents(
     params.push(options.actorUserId);
     clauses.push(`e.actor_user_id = $${params.length}`);
   }
-  if (options.targetType) {
-    params.push(options.targetType);
-    clauses.push(`e.target_type = $${params.length}`);
+  if (options.objectType) {
+    params.push(options.objectType);
+    clauses.push(`e.object_type = $${params.length}`);
   }
   if (options.from) {
     params.push(options.from);

@@ -311,7 +311,7 @@ describe('target controller regressions', () => {
         category: event.category,
         eventType: event.eventType,
         actor: { type: 'user', userId: 'user-1' },
-        target: { type: event.targetType, id: event.targetId, name: event.targetName },
+        object: { type: event.objectType, id: event.objectId, name: event.objectName },
         summary: event.summary,
         metadata: event.metadata ?? {},
         occurredAt: '2026-05-24T00:00:00.000Z'

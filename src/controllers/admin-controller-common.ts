@@ -68,9 +68,9 @@ export async function bestEffortWorkspaceAudit(input: {
   tokenId: string;
   category: 'membership' | 'workspace' | 'target' | 'run' | 'tool';
   eventType: string;
-  targetType: string;
-  targetId?: string | null;
-  targetName?: string | null;
+  objectType: string;
+  objectId?: string | null;
+  objectName?: string | null;
   summary: string;
   metadata?: Record<string, unknown>;
 }): Promise<void> {
@@ -81,9 +81,9 @@ export async function bestEffortWorkspaceAudit(input: {
     operation: 'write',
     actorType: 'admin_token',
     actorTokenId: input.tokenId,
-    targetType: input.targetType,
-    targetId: input.targetId,
-    targetName: input.targetName,
+    objectType: input.objectType,
+    objectId: input.objectId,
+    objectName: input.objectName,
     summary: input.summary,
     metadata: input.metadata
   });

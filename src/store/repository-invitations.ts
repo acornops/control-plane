@@ -218,8 +218,8 @@ async function recordInvitationMembershipAudit(
       eventType: 'workspace.member.added.v1',
       operation: 'write',
       actorUserId: data.actorUserId,
-      targetType: 'member',
-      targetId: data.targetUserId,
+      objectType: 'member',
+      objectId: data.targetUserId,
       summary: 'Workspace member added from invitation',
       metadata: {
         previousRole: null,
@@ -252,9 +252,9 @@ async function recordInvitationLifecycleAudit(
       eventType: data.eventType,
       operation: 'write',
       actorUserId: data.actorUserId,
-      targetType: 'invitation',
-      targetId: data.invitationId,
-      targetName: data.invitationEmail,
+      objectType: 'invitation',
+      objectId: data.invitationId,
+      objectName: data.invitationEmail,
       summary: data.summary,
       metadata: {
         email: data.invitationEmail,

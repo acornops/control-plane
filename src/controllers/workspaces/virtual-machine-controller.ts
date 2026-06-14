@@ -100,9 +100,9 @@ export async function registerVirtualMachine(req: AuthenticatedRequest, res: Res
       eventType: 'target.registered.v1',
       operation: 'write',
       actorUserId: req.auth.userId,
-      targetType: 'virtual_machine',
-      targetId: vm.id,
-      targetName: vm.name,
+      objectType: 'virtual_machine',
+      objectId: vm.id,
+      objectName: vm.name,
       summary: 'Virtual machine registered',
       metadata: { status: vm.status, osFamily: vm.osFamily, serviceManager: vm.serviceManager }
     });
@@ -193,9 +193,9 @@ export async function updateVirtualMachine(req: AuthenticatedRequest, res: Respo
       eventType: 'target.updated.v1',
       operation: 'write',
       actorUserId: req.auth.userId,
-      targetType: 'virtual_machine',
-      targetId: vm.id,
-      targetName: vm.name,
+      objectType: 'virtual_machine',
+      objectId: vm.id,
+      objectName: vm.name,
       summary: 'Virtual machine settings updated',
       metadata: {
         nameChanged: previous ? previous.name !== vm.name : false,
@@ -234,9 +234,9 @@ export async function deleteVirtualMachine(req: AuthenticatedRequest, res: Respo
       eventType: 'target.deleted.v1',
       operation: 'write',
       actorUserId: req.auth.userId,
-      targetType: 'virtual_machine',
-      targetId: vmId,
-      targetName,
+      objectType: 'virtual_machine',
+      objectId: vmId,
+      objectName: targetName,
       summary: 'Virtual machine deleted',
       metadata: {}
     });
@@ -274,9 +274,9 @@ export async function rotateVirtualMachineAgentKey(req: AuthenticatedRequest, re
       eventType: 'agent.key_rotated.v1',
       operation: 'write',
       actorUserId: req.auth.userId,
-      targetType: 'virtual_machine',
-      targetId: vmId,
-      targetName: access.target.name,
+      objectType: 'virtual_machine',
+      objectId: vmId,
+      objectName: access.target.name,
       summary: 'VM agent key rotated',
       metadata: { keyVersion: reg.keyVersion + 1 }
     });
@@ -378,9 +378,9 @@ export async function getVirtualMachineLogs(req: AuthenticatedRequest, res: Resp
         eventType: 'tool.called.v1',
         operation: 'read',
         actorUserId: req.auth.userId,
-        targetType: 'tool_call',
-        targetId: `${vmId}:${toolName}:${startedAt}`,
-        targetName: toolName,
+        objectType: 'tool_call',
+        objectId: `${vmId}:${toolName}:${startedAt}`,
+        objectName: toolName,
         summary: 'VM log tool called',
         metadata: {
           targetId: vmId,
@@ -418,9 +418,9 @@ export async function getVirtualMachineLogs(req: AuthenticatedRequest, res: Resp
         eventType: 'tool.called.v1',
         operation: 'read',
         actorUserId: req.auth.userId,
-        targetType: 'tool_call',
-        targetId: `${vmId}:${toolName}:${startedAt}`,
-        targetName: toolName,
+        objectType: 'tool_call',
+        objectId: `${vmId}:${toolName}:${startedAt}`,
+        objectName: toolName,
         summary: 'VM log tool call failed',
         metadata: {
           targetId: vmId,

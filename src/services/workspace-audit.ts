@@ -11,8 +11,8 @@ export async function recordWorkspaceAuditEvent(input: WorkspaceAuditEventInput)
         err,
         workspaceId: input.workspaceId,
         eventType: input.eventType,
-        targetType: input.targetType,
-        targetId: input.targetId || null
+        objectType: input.objectType,
+        objectId: input.objectId || null
       },
       'Failed recording workspace audit event'
     );
