@@ -62,7 +62,7 @@ Primary docs:
 - `src/services`: external/internal service clients
 - `src/store`: repository and runtime state coordination
 - `src/infra`: Postgres/Redis infrastructure wiring
-- `migrations/control-plane`: versioned Postgres schema migrations
+- `migrations/control-plane`: pre-release Postgres schema baseline
 
 ## Prerequisites
 

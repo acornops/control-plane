@@ -30,52 +30,31 @@ assert(!/ALTER TABLE \w+/i.test(dbSource), 'startup must not alter application t
 assert(dbSource.includes('assertDatabaseMigrationsCurrent'), 'startup must verify migrations are current');
 
 const files = migrationFiles();
-assert.deepEqual(files, [
-  '001_initial_schema.sql',
-  '002_session_run_and_fk_upgrades.sql',
-  '003_workspace_membership_audit.sql',
-  '004_target_snapshot_history.sql',
-  '005_kubernetes_namespace_scope.sql',
-  '006_password_auth.sql',
-  '007_workspace_invitations.sql',
-  '009_write_tool_approvals.sql',
-  '010_auth_methods.sql',
-  '011_paged_list_indexes.sql',
-  '012_workspace_audit_events.sql',
-  '013_admin_api.sql',
-  '014_workspace_ai_settings.sql',
-  '015_run_llm_snapshot.sql',
-  '016_reasoning_summaries.sql'
-]);
+assert.deepEqual(files, ['001_initial_schema.sql']);
 for (const file of files) {
   assert(/^\d{3,}_[a-z0-9_]+\.sql$/.test(file), `invalid migration filename ${file}`);
   assert(checksumSql(read(`migrations/control-plane/${file}`)).length === 64, `missing checksum coverage for ${file}`);
 }
 
 const initial = read('migrations/control-plane/001_initial_schema.sql');
-const upgrade = read('migrations/control-plane/002_session_run_and_fk_upgrades.sql');
-const membershipUpgrade = read('migrations/control-plane/003_workspace_membership_audit.sql');
-const snapshotHistoryUpgrade = read('migrations/control-plane/004_target_snapshot_history.sql');
-const namespaceScopeUpgrade = read('migrations/control-plane/005_kubernetes_namespace_scope.sql');
-const passwordAuthUpgrade = read('migrations/control-plane/006_password_auth.sql');
-const workspaceInvitationsUpgrade = read('migrations/control-plane/007_workspace_invitations.sql');
-const writeToolApprovalsUpgrade = read('migrations/control-plane/009_write_tool_approvals.sql');
-const authMethodsUpgrade = read('migrations/control-plane/010_auth_methods.sql');
-const pagedListIndexesUpgrade = read('migrations/control-plane/011_paged_list_indexes.sql');
-const workspaceAuditEventsUpgrade = read('migrations/control-plane/012_workspace_audit_events.sql');
-const adminApiUpgrade = read('migrations/control-plane/013_admin_api.sql');
-const workspaceAiSettingsUpgrade = read('migrations/control-plane/014_workspace_ai_settings.sql');
-const runLlmSnapshotUpgrade = read('migrations/control-plane/015_run_llm_snapshot.sql');
-const reasoningSummariesUpgrade = read('migrations/control-plane/016_reasoning_summaries.sql');
 for (const table of [
   'users',
+  'user_password_credentials',
+  'user_email_verification_tokens',
+  'user_password_reset_tokens',
+  'user_federated_identities',
   'workspaces',
+  'workspace_quota_overrides',
+  'workspace_ai_settings',
   'workspace_memberships',
+  'workspace_membership_audit',
+  'workspace_invitations',
   'role_templates',
   'targets',
   'kubernetes_target_settings',
   'target_agent_registrations',
   'target_snapshots',
+  'target_snapshot_history',
   'target_inventory_items',
   'target_findings',
   'target_snapshot_summaries',
@@ -84,34 +63,106 @@ for (const table of [
   'messages',
   'runs',
   'run_events',
+  'run_tool_approvals',
+  'run_continuations',
   'webhook_subscriptions',
   'webhook_history',
-  'workspace_ai_settings'
+  'workspace_audit_events',
+  'admin_audit_events'
 ]) {
   assert(initial.includes(`CREATE TABLE IF NOT EXISTS ${table}`), `initial migration must create ${table}`);
 }
 for (const needle of [
   'CREATE EXTENSION IF NOT EXISTS pg_trgm',
+  'email_verification_required BOOLEAN NOT NULL DEFAULT false',
+  'username TEXT UNIQUE NOT NULL',
+  'token_hash TEXT UNIQUE NOT NULL',
+  'PRIMARY KEY (provider, subject)',
+  'plan_key TEXT NOT NULL DEFAULT',
+  'CREATE TABLE IF NOT EXISTS workspace_quota_overrides',
+  "default_provider TEXT NOT NULL CHECK (default_provider IN ('openai', 'anthropic', 'gemini'))",
+  'reasoning_summary_mode TEXT NOT NULL DEFAULT',
+  "CHECK (reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed'))",
+  'reasoning_effort TEXT NOT NULL DEFAULT',
+  "CHECK (reasoning_effort IN ('default', 'low', 'medium', 'high'))",
+  'source TEXT NOT NULL DEFAULT',
   "kind TEXT NOT NULL CHECK (kind IN ('system', 'custom'))",
   'capabilities JSONB NOT NULL',
   "target_type TEXT NOT NULL CHECK (target_type IN ('kubernetes', 'virtual_machine'))",
   "status TEXT NOT NULL CHECK (status IN ('online', 'offline', 'degraded', 'unknown'))",
+  "namespace_include JSONB NOT NULL DEFAULT '[]'::jsonb",
+  "namespace_exclude JSONB NOT NULL DEFAULT '[]'::jsonb",
+  'write_confirmation_required_override BOOLEAN NULL',
   'location TEXT NULL',
   'inventory_count INTEGER NOT NULL',
   'summary JSONB NOT NULL',
+  'last_message_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
+  "expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '30 days')",
+  'deleted_at TIMESTAMPTZ NULL',
+  "kind TEXT NOT NULL DEFAULT 'user'",
+  'client_message_id TEXT NULL',
+  'fk_messages_session',
+  'fk_runs_session',
+  'fk_run_events_run',
+  "llm_provider TEXT NOT NULL DEFAULT 'gemini' CHECK (llm_provider IN ('openai', 'anthropic', 'gemini'))",
+  "llm_model TEXT NOT NULL DEFAULT 'gemini-2.0-flash'",
+  'llm_reasoning_summary_mode TEXT NOT NULL DEFAULT',
+  "CHECK (llm_reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed'))",
+  'llm_reasoning_effort TEXT NOT NULL DEFAULT',
+  'tool_access_mode TEXT NOT NULL DEFAULT',
+  'execution_status TEXT NOT NULL DEFAULT',
+  'CREATE TABLE IF NOT EXISTS run_continuations',
+  'idx_run_continuations_approval',
+  'CREATE TABLE IF NOT EXISTS workspace_audit_events',
+  'workspace_audit_events_category_check',
+  'workspace_audit_events_operation_check',
+  "operation TEXT NOT NULL",
+  "CHECK (operation IN ('read', 'write'))",
+  "actor_type IN ('user', 'system', 'admin_token')",
+  'actor_token_id TEXT NULL',
+  'workspace_audit_events_user_actor_check',
+  'workspace_audit_events_metadata_object_check',
+  'CREATE TABLE IF NOT EXISTS admin_audit_events',
+  'admin_audit_events_metadata_object_check',
   'targets_workspace_id_id_unique',
   'fk_sessions_workspace_target',
   'fk_runs_workspace_target',
+  'fk_run_tool_approvals_workspace_target',
   'fk_webhook_subscriptions_workspace_target',
   'fk_webhook_history_workspace_target',
-  "llm_provider TEXT NOT NULL CHECK (llm_provider IN ('openai', 'anthropic', 'gemini'))",
-  'llm_model TEXT NOT NULL',
+  'fk_target_snapshot_history_workspace_target',
+  'idx_user_password_credentials_last_login',
+  'idx_user_email_verification_tokens_user_email',
+  'idx_user_password_reset_tokens_expires_at',
+  'idx_user_federated_identities_user_id',
+  'idx_workspaces_created_id',
+  'idx_workspace_memberships_workspace_role',
+  'idx_workspace_memberships_workspace_role_user',
+  'idx_workspace_membership_audit_workspace_created',
+  'idx_workspace_invitations_workspace_status',
+  'idx_workspace_invitations_workspace_status_created_id',
+  'idx_targets_workspace_type_status_created_id',
+  'idx_sessions_target_last_message',
+  'idx_sessions_workspace_target_last_message_id',
+  'idx_messages_session_client_message_id',
+  'idx_messages_run_assistant_final',
+  'idx_run_tool_approvals_run_call',
+  'idx_run_tool_approvals_run_status',
+  'idx_target_snapshot_history_target_ts',
   'idx_inventory_items_target_sort',
   'idx_inventory_items_search_trgm',
   'idx_target_findings_target_order',
   'idx_target_findings_workspace_order',
   'idx_target_findings_search_trgm',
-  'idx_snapshot_summaries_workspace_target'
+  'idx_snapshot_summaries_workspace_target',
+  'idx_workspace_audit_events_workspace_occurred',
+  'idx_workspace_audit_events_workspace_type',
+  'idx_workspace_audit_events_workspace_category',
+  'idx_workspace_audit_events_occurred',
+  'admin_audit_events_occurred_at_idx',
+  'admin_audit_events_workspace_idx',
+  'admin_audit_events_token_idx',
+  'admin_audit_events_action_idx'
 ]) {
   assert(initial.includes(needle), `initial migration missing ${needle}`);
 }
@@ -119,150 +170,15 @@ assert(!initial.includes('node TEXT NULL'), 'target inventory items must not exp
 assert(!initial.includes('resource_count INTEGER'), 'target snapshot summaries must use target-neutral inventory_count');
 assert(!initial.includes('namespace_count INTEGER'), 'target snapshot summaries must not expose Kubernetes-only namespace_count as a generic column');
 assert(!initial.includes('node_count INTEGER'), 'target snapshot summaries must not expose Kubernetes-only node_count as a generic column');
+assert(!initial.includes('INSERT INTO workspace_audit_events'), 'squashed baseline must not backfill old audit rows');
+assert(!initial.includes('ADD COLUMN IF NOT EXISTS'), 'squashed baseline must define columns directly');
 const nullableTargetFkCount = [...initial.matchAll(/target_id TEXT NULL REFERENCES targets\(id\) ON DELETE CASCADE/g)].length;
 assert(nullableTargetFkCount >= 2, 'webhook target scopes must reference targets with cascade cleanup');
-for (const needle of [
-  'ADD COLUMN IF NOT EXISTS tool_access_mode',
-  'ADD COLUMN IF NOT EXISTS last_message_at',
-  'ADD COLUMN IF NOT EXISTS expires_at',
-  'ADD COLUMN IF NOT EXISTS deleted_at',
-  'ADD COLUMN IF NOT EXISTS kind',
-  'ADD COLUMN IF NOT EXISTS client_message_id',
-  'fk_messages_session',
-  'fk_runs_session',
-  'fk_run_events_run'
-]) {
-  assert(upgrade.includes(needle), `upgrade migration missing ${needle}`);
-}
-for (const needle of [
-  'ADD COLUMN IF NOT EXISTS source',
-  'ADD COLUMN IF NOT EXISTS created_at',
-  'ADD COLUMN IF NOT EXISTS updated_at',
-  'CREATE TABLE IF NOT EXISTS workspace_membership_audit',
-  'idx_workspace_membership_audit_workspace_created'
-]) {
-  assert(membershipUpgrade.includes(needle), `membership migration missing ${needle}`);
-}
-for (const needle of [
-  'CREATE TABLE IF NOT EXISTS workspace_audit_events',
-  'workspace_audit_events_category_check',
-  'workspace_audit_events_operation_check',
-  "operation TEXT NOT NULL",
-  "CHECK (operation IN ('read', 'write'))",
-  'workspace_audit_events_actor_type_check',
-  'workspace_audit_events_user_actor_check',
-  'workspace_audit_events_metadata_object_check',
-  'idx_workspace_audit_events_workspace_occurred',
-  'idx_workspace_audit_events_workspace_type',
-  'idx_workspace_audit_events_workspace_category',
-  'idx_workspace_audit_events_occurred',
-  'INSERT INTO workspace_audit_events'
-]) {
-  assert(workspaceAuditEventsUpgrade.includes(needle), `workspace audit events migration missing ${needle}`);
-}
-for (const needle of [
-  'CREATE TABLE IF NOT EXISTS workspace_quota_overrides',
-  'ADD COLUMN IF NOT EXISTS actor_token_id',
-  "actor_type IN ('user', 'system', 'admin_token')",
-  'CREATE TABLE IF NOT EXISTS admin_audit_events',
-  'admin_audit_events_occurred_at_idx',
-  'admin_audit_events_token_idx',
-  'admin_audit_events_workspace_idx',
-  'admin_audit_events_action_idx'
-]) {
-  assert(adminApiUpgrade.includes(needle), `admin api migration missing ${needle}`);
-}
-for (const needle of [
-  'CREATE TABLE IF NOT EXISTS workspace_ai_settings',
-  "default_provider TEXT NOT NULL CHECK (default_provider IN ('openai', 'anthropic', 'gemini'))",
-  'default_model TEXT NOT NULL'
-]) {
-  assert(workspaceAiSettingsUpgrade.includes(needle), `workspace ai settings migration missing ${needle}`);
-}
-for (const needle of [
-  'ADD COLUMN IF NOT EXISTS llm_provider',
-  "CHECK (llm_provider IN ('openai', 'anthropic', 'gemini'))",
-  'ADD COLUMN IF NOT EXISTS llm_model'
-]) {
-  assert(runLlmSnapshotUpgrade.includes(needle), `run llm snapshot migration missing ${needle}`);
-}
-for (const needle of [
-  'ADD COLUMN IF NOT EXISTS reasoning_summary_mode',
-  "CHECK (reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed'))",
-  'ADD COLUMN IF NOT EXISTS reasoning_effort',
-  "CHECK (reasoning_effort IN ('default', 'low', 'medium', 'high'))",
-  'ADD COLUMN IF NOT EXISTS llm_reasoning_summary_mode',
-  "CHECK (llm_reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed'))",
-  'ADD COLUMN IF NOT EXISTS llm_reasoning_effort',
-  "CHECK (llm_reasoning_effort IN ('default', 'low', 'medium', 'high'))"
-]) {
-  assert(reasoningSummariesUpgrade.includes(needle), `reasoning summaries migration missing ${needle}`);
-}
-for (const needle of [
-  'CREATE TABLE IF NOT EXISTS target_snapshot_history',
-  'idx_target_snapshot_history_target_ts',
-  'idx_target_snapshot_history_workspace_target_ts',
-  'fk_target_snapshot_history_workspace_target'
-]) {
-  assert(snapshotHistoryUpgrade.includes(needle), `snapshot history migration missing ${needle}`);
-}
-assert(!snapshotHistoryUpgrade.includes('INSERT INTO'), 'fresh target snapshot history migration must not backfill old data');
-for (const needle of [
-  'ADD COLUMN IF NOT EXISTS namespace_include',
-  'ADD COLUMN IF NOT EXISTS namespace_exclude'
-]) {
-  assert(namespaceScopeUpgrade.includes(needle), `namespace scope migration missing ${needle}`);
-}
-for (const needle of [
-  'CREATE TABLE IF NOT EXISTS user_password_credentials',
-  'username TEXT UNIQUE NOT NULL',
-  'password_hash TEXT NOT NULL',
-  'idx_user_password_credentials_last_login'
-]) {
-  assert(passwordAuthUpgrade.includes(needle), `password auth migration missing ${needle}`);
-}
-for (const needle of [
-  'CREATE TABLE IF NOT EXISTS workspace_invitations',
-  'token_hash TEXT UNIQUE NOT NULL',
-  'idx_workspace_invitations_workspace_status',
-  'idx_workspace_invitations_workspace_role',
-  'idx_workspace_invitations_email_status'
-]) {
-  assert(workspaceInvitationsUpgrade.includes(needle), `workspace invitations migration missing ${needle}`);
-}
 assert(initial.includes('CREATE TABLE IF NOT EXISTS role_templates'), 'initial migration must create role_templates directly');
 assert(initial.includes('idx_workspace_memberships_workspace_role'), 'initial migration must index workspace role filtering directly');
 assert(!initial.includes('workspace_memberships_role_check'), 'workspace memberships must not use enum-style role constraints');
-assert(!workspaceInvitationsUpgrade.includes('workspace_invitations_role_check'), 'workspace invitations must not use enum-style role constraints');
-assert(!workspaceInvitationsUpgrade.includes("CHECK (role IN ('owner', 'admin', 'operator', 'viewer"), 'workspace invitations role must not be enum constrained');
-for (const needle of [
-  'CREATE TABLE IF NOT EXISTS run_tool_approvals',
-  'execution_status TEXT NOT NULL DEFAULT',
-  'fk_run_tool_approvals_workspace_target',
-  'CREATE TABLE IF NOT EXISTS run_continuations',
-  'idx_run_continuations_approval'
-]) {
-  assert(writeToolApprovalsUpgrade.includes(needle), `write tool approvals migration missing ${needle}`);
-}
-for (const needle of [
-  'CREATE TABLE IF NOT EXISTS user_federated_identities',
-  'provider TEXT NOT NULL',
-  'subject TEXT NOT NULL',
-  'PRIMARY KEY (provider, subject)',
-  'idx_user_federated_identities_user_id'
-]) {
-  assert(authMethodsUpgrade.includes(needle), `auth methods migration missing ${needle}`);
-}
-for (const needle of [
-  'idx_workspaces_created_id',
-  'idx_workspace_memberships_workspace_role_user',
-  'idx_workspace_invitations_workspace_status_created_id',
-  'idx_targets_workspace_type_status_created_id',
-  'idx_sessions_workspace_target_last_message_id',
-  'idx_messages_session_created_id'
-]) {
-  assert(pagedListIndexesUpgrade.includes(needle), `paged list index migration missing ${needle}`);
-}
+assert(!initial.includes('workspace_invitations_role_check'), 'workspace invitations must not use enum-style role constraints');
+assert(!initial.includes("CHECK (role IN ('owner', 'admin', 'operator', 'viewer"), 'workspace invitations role must not be enum constrained');
 
 const packageJson = JSON.parse(read('package.json'));
 assert(packageJson.scripts['db:migrate'], 'package must expose db:migrate');
