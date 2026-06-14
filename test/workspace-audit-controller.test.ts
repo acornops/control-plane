@@ -50,7 +50,7 @@ describe('workspace audit log controller', () => {
       { category: 'everything' },
       { eventType: '   ' },
       { actorUserId: '   ' },
-      { targetType: '   ' },
+      { objectType: '   ' },
       { from: 'not-a-date' },
       { to: 'not-a-date' },
       { from: '2026-05-30T12:00:00.000Z', to: '2026-05-30T11:00:00.000Z' }
@@ -97,7 +97,7 @@ describe('workspace audit log controller', () => {
           eventType: 'tool.called.v1',
           operation: 'read',
           actor: { type: 'system' },
-          target: { type: 'tool_call', id: 'target-1', name: 'get_resource_logs' },
+          object: { type: 'tool_call', id: 'object-1', name: 'get_resource_logs' },
           summary: 'Tool called',
           metadata: { toolName: 'get_resource_logs' },
           occurredAt: '2026-06-01T00:00:00.000Z'

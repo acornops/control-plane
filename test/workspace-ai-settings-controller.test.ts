@@ -223,7 +223,7 @@ describe('workspace AI settings controller', () => {
         category: event.category,
         eventType: event.eventType,
         actor: { type: 'user', userId: event.actorUserId },
-        target: { type: event.targetType, id: event.targetId },
+        object: { type: event.objectType, id: event.objectId },
         summary: event.summary,
         metadata: event.metadata ?? {},
         occurredAt: '2026-05-24T00:00:00.000Z'

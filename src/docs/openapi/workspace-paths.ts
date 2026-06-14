@@ -275,7 +275,7 @@ export function buildWorkspacePaths(): Record<string, unknown> {
             { in: 'query', name: 'category', required: false, schema: { type: 'string', enum: ['membership', 'workspace', 'target', 'session', 'run', 'approval', 'mcp', 'tool'] } },
             { in: 'query', name: 'eventType', required: false, schema: { type: 'string' } },
             { in: 'query', name: 'actorUserId', required: false, schema: { type: 'string' } },
-            { in: 'query', name: 'targetType', required: false, schema: { type: 'string' } },
+            { in: 'query', name: 'objectType', required: false, schema: { type: 'string' } },
             { in: 'query', name: 'from', required: false, schema: { type: 'string', format: 'date-time' } },
             { in: 'query', name: 'to', required: false, schema: { type: 'string', format: 'date-time' } }
           ],

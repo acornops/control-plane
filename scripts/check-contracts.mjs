@@ -168,6 +168,31 @@ for (const [docPath, routeNeedle, source, label] of [
   expectIncludes(source, routeNeedle, `${label} implementation`);
 }
 
+for (const [needle, label] of [
+  ['`objectType`', 'Workspace audit object-type filter doc'],
+  ['`object`', 'Workspace audit object field doc']
+]) {
+  expectIncludes(doc, needle, label);
+}
+
+const workspaceAuditSources = [
+  read('src/controllers/workspaces/audit-controller.ts'),
+  read('src/store/repository-audit-events.ts')
+].join('\n');
+
+for (const [needle, label] of [
+  ['const objectType = parseAuditStringFilter', 'Workspace audit object-type controller filter'],
+  ['object: event.object', 'Workspace audit object serialization'],
+  ['object_type, object_id, object_name', 'Workspace audit object persistence columns']
+]) {
+  expectIncludes(workspaceAuditSources, needle, label);
+}
+
+expectIncludes(openApi, "name: 'objectType'", 'Workspace audit OpenAPI object-type query');
+expectIncludes(openApi, 'object: jsonObject', 'Workspace audit OpenAPI object field');
+expectIncludes(openApi, 'occurredAt: dateTime', 'Workspace audit OpenAPI occurredAt field');
+expectIncludes(openApi, 'workspaceAuditSearchParameters', 'Admin workspace audit OpenAPI query parameter docs');
+
 for (const [functionName, label] of [
   ['oidcCallback', 'OIDC callback'],
   ['passwordLogin', 'Password login'],

@@ -142,8 +142,8 @@ Kubernetes deployments run this through the Helm migration Job:
 node dist/scripts/control-plane-db.js migrate
 ```
 
-Pre-release deployments may rewrite schema files directly; reset disposable
-databases when a local volume has already applied an older schema.
+Pre-release deployments may rewrite the schema baseline directly; reset
+disposable databases when a local volume has already applied an older baseline.
 
 ## Failure Modes
 

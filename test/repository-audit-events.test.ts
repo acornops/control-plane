@@ -62,7 +62,7 @@ describe('workspace audit repository helpers', () => {
         eventType: 'tool.called.v1',
         operation: 'read',
         actorType: 'system',
-        targetType: 'tool_call',
+        objectType: 'tool_call',
         summary: 'Read tool called',
         metadata: { token: 'raw-token' }
       },
@@ -92,9 +92,9 @@ describe('workspace audit repository helpers', () => {
               actor_token_id: null,
               actor_email: null,
               actor_display_name: null,
-              target_type: 'tool_call',
-              target_id: null,
-              target_name: null,
+              object_type: 'tool_call',
+              object_id: null,
+              object_name: null,
               summary: 'Write tool called',
               metadata: { token: '[redacted]' },
               occurred_at: '2026-06-01T00:00:00.000Z'
@@ -111,7 +111,7 @@ describe('workspace audit repository helpers', () => {
         eventType: 'tool.called.v1',
         operation: 'write',
         actorType: 'system',
-        targetType: 'tool_call',
+        objectType: 'tool_call',
         summary: 'Write tool called',
         metadata: { token: 'raw-token' }
       },

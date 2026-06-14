@@ -82,9 +82,9 @@ export async function createRunToolApproval(params: {
         eventType: 'run.tool_approval_requested.v1',
         operation: 'write',
         actorUserId: params.requestedBy || null,
-        targetType: 'tool_approval',
-        targetId: approval.id,
-        targetName: approval.toolName,
+        objectType: 'tool_approval',
+        objectId: approval.id,
+        objectName: approval.toolName,
         summary: 'Write-tool approval requested',
         metadata: {
           runId: params.runId,

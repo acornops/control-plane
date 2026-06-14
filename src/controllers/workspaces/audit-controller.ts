@@ -50,7 +50,7 @@ function serializeAuditEvent(event: WorkspaceAuditEvent): Record<string, unknown
     eventType: event.eventType,
     operation: event.operation,
     actor: event.actor,
-    target: event.target,
+    object: event.object,
     summary: event.summary,
     metadata: event.metadata,
     occurredAt: event.occurredAt
@@ -108,11 +108,11 @@ export async function listWorkspaceAuditEvents(
       toSingleParam(req.query.actorUserId as string | string[] | undefined),
       'actorUserId'
     );
-    const targetType = parseAuditStringFilter(
-      toSingleParam(req.query.targetType as string | string[] | undefined),
-      'targetType'
+    const objectType = parseAuditStringFilter(
+      toSingleParam(req.query.objectType as string | string[] | undefined),
+      'objectType'
     );
-    for (const parsedFilter of [eventType, actorUserId, targetType]) {
+    for (const parsedFilter of [eventType, actorUserId, objectType]) {
       if (parsedFilter.error) {
         res.status(400).json(validationError(parsedFilter.error));
         return;
@@ -123,7 +123,7 @@ export async function listWorkspaceAuditEvents(
       category,
       eventType: eventType.value,
       actorUserId: actorUserId.value,
-      targetType: targetType.value,
+      objectType: objectType.value,
       from,
       to
     };

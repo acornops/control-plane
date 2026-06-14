@@ -130,9 +130,9 @@ export async function disconnectTargetAgent(req: AdminAuthenticatedRequest, res:
       tokenId: req.admin.tokenId,
       category: 'target',
       eventType: 'agent.disconnected.v1',
-      targetType: target.targetType,
-      targetId,
-      targetName: target.name,
+      objectType: target.targetType,
+      objectId: targetId,
+      objectName: target.name,
       summary: 'Target agent disconnected by admin token',
       metadata: { reason: req.body.reason, disconnected, ticketRef: req.body.ticketRef || null }
     });
@@ -188,9 +188,9 @@ export async function rotateTargetAgentKey(req: AdminAuthenticatedRequest, res: 
       tokenId: req.admin.tokenId,
       category: 'target',
       eventType: 'agent.key_rotated.v1',
-      targetType: target.targetType,
-      targetId,
-      targetName: target.name,
+      objectType: target.targetType,
+      objectId: targetId,
+      objectName: target.name,
       summary: 'Target agent key rotated by admin token',
       metadata: { keyVersion, disconnected, reason: req.body.reason, ticketRef: req.body.ticketRef || null }
     });
@@ -288,7 +288,7 @@ export async function cancelRun(req: AdminAuthenticatedRequest, res: Response, n
       }
     }
     await auditAdmin(req, { action: 'admin.run.cancel', workspaceId: run.workspaceId, targetType: run.targetType, targetId: run.targetId, subjectType: 'run', subjectId: run.id, reason: req.body.reason, metadata: { previousStatus, ticketRef: req.body.ticketRef || null } });
-    await bestEffortWorkspaceAudit({ workspaceId: run.workspaceId, tokenId: req.admin.tokenId, category: 'run', eventType: 'run.cancel_requested.v1', targetType: 'run', targetId: run.id, summary: 'Run cancellation requested by admin token', metadata: { previousStatus, reason: req.body.reason, ticketRef: req.body.ticketRef || null } });
+    await bestEffortWorkspaceAudit({ workspaceId: run.workspaceId, tokenId: req.admin.tokenId, category: 'run', eventType: 'run.cancel_requested.v1', objectType: 'run', objectId: run.id, summary: 'Run cancellation requested by admin token', metadata: { previousStatus, reason: req.body.reason, ticketRef: req.body.ticketRef || null } });
     res.status(202).json({ status: 'accepted' });
   } catch (err) {
     next(err);
@@ -326,7 +326,7 @@ export async function markRunFailed(req: AdminAuthenticatedRequest, res: Respons
     });
     emitRunStatusTransition(run, updated);
     await auditAdmin(req, { action: 'admin.run.mark_failed', workspaceId: run.workspaceId, targetType: run.targetType, targetId: run.targetId, subjectType: 'run', subjectId: run.id, reason: req.body.reason, metadata: { previousStatus: run.status, force: req.body.force, errorCode: req.body.errorCode, ticketRef: req.body.ticketRef || null } });
-    await bestEffortWorkspaceAudit({ workspaceId: run.workspaceId, tokenId: req.admin.tokenId, category: 'run', eventType: 'run.failed.v1', targetType: 'run', targetId: run.id, summary: 'Run marked failed by admin token', metadata: { previousStatus: run.status, force: req.body.force, errorCode: req.body.errorCode, reason: req.body.reason, ticketRef: req.body.ticketRef || null } });
+    await bestEffortWorkspaceAudit({ workspaceId: run.workspaceId, tokenId: req.admin.tokenId, category: 'run', eventType: 'run.failed.v1', objectType: 'run', objectId: run.id, summary: 'Run marked failed by admin token', metadata: { previousStatus: run.status, force: req.body.force, errorCode: req.body.errorCode, reason: req.body.reason, ticketRef: req.body.ticketRef || null } });
     res.status(200).json(safeRun(updated || run));
   } catch (err) {
     next(err);
@@ -385,8 +385,8 @@ export async function syncTooling(req: AdminAuthenticatedRequest, res: Response,
         tokenId: req.admin.tokenId,
         category: 'tool',
         eventType: 'tool.catalog.changed.v1',
-        targetType,
-        targetId,
+        objectType: targetType,
+        objectId: targetId,
         summary: 'Target tooling synchronized by admin token',
         metadata: { synced, failureCount: failures.length, reason: req.body.reason, ticketRef: req.body.ticketRef || null }
       });

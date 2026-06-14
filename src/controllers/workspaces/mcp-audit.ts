@@ -23,9 +23,9 @@ export async function recordMcpServerAudit(input: McpServerAuditInput): Promise<
     eventType: input.eventType,
     operation: 'write',
     actorUserId: input.actorUserId,
-    targetType: 'mcp_server',
-    targetId: input.server.id,
-    targetName: input.server.server_name,
+    objectType: 'mcp_server',
+    objectId: input.server.id,
+    objectName: input.server.server_name,
     summary: input.summary,
     metadata: {
       targetId: input.targetId,
@@ -49,8 +49,8 @@ export async function recordMcpServerDeletedAudit(
     eventType: 'mcp.server.deleted.v1',
     operation: 'write',
     actorUserId,
-    targetType: 'mcp_server',
-    targetId: serverId,
+    objectType: 'mcp_server',
+    objectId: serverId,
     summary: 'MCP server deleted',
     metadata: { targetId, targetType }
   });
@@ -75,9 +75,9 @@ export async function recordMcpServerTestAudit(
     eventType: 'mcp.server.tested.v1',
     operation: 'read',
     actorUserId,
-    targetType: 'mcp_server',
-    targetId: serverId,
-    targetName: testResult.server_name,
+    objectType: 'mcp_server',
+    objectId: serverId,
+    objectName: testResult.server_name,
     summary: 'MCP server connection tested',
     metadata: {
       targetId,
@@ -104,9 +104,9 @@ export async function recordToolCatalogAudit(
     eventType: 'tool.catalog.changed.v1',
     operation: 'write',
     actorUserId,
-    targetType: 'tool',
-    targetId: toolName,
-    targetName: toolName,
+    objectType: 'tool',
+    objectId: toolName,
+    objectName: toolName,
     summary: 'Tool enablement changed',
     metadata: { targetId, targetType, enabled, capability }
   });

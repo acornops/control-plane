@@ -39,7 +39,7 @@ const repository = [
 const authorization = read('src/auth/authorization.ts');
 const contracts = read('src/types/contracts.ts');
 const domain = read('src/types/domain.ts');
-const migration = read('migrations/control-plane/003_workspace_membership_audit.sql');
+const migration = read('migrations/control-plane/001_initial_schema.sql');
 const authzDoc = read('docs/authorization-matrix.md');
 
 for (const routeNeedle of [
@@ -95,6 +95,6 @@ for (const repositoryNeedle of [
 }
 
 assert(domain.includes('WorkspaceMembershipAuditAction'), 'domain model must include membership audit action type');
-assert(migration.includes('CREATE TABLE IF NOT EXISTS workspace_membership_audit'), 'membership audit migration missing');
+assert(migration.includes('CREATE TABLE IF NOT EXISTS workspace_membership_audit'), 'membership audit schema missing');
 
 console.log('Workspace membership checks passed.');

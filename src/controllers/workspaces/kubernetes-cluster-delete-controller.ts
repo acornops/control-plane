@@ -62,9 +62,9 @@ export async function deleteCluster(req: AuthenticatedRequest, res: Response, ne
       eventType: 'target.deleted.v1',
       operation: 'write',
       actorUserId: req.auth.userId,
-      targetType: 'kubernetes_cluster',
-      targetId: clusterId,
-      targetName: cluster?.name || null,
+      objectType: 'kubernetes_cluster',
+      objectId: clusterId,
+      objectName: cluster?.name || null,
       summary: 'Kubernetes cluster deleted',
       metadata: {}
     });

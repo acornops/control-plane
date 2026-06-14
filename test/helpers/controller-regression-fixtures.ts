@@ -144,10 +144,10 @@ export function installWorkspace(role: Role | null): void {
       type: event.actorType || (event.actorUserId ? 'user' : 'system'),
       ...(event.actorUserId ? { userId: event.actorUserId } : {})
     },
-    target: {
-      type: event.targetType,
-      ...(event.targetId ? { id: event.targetId } : {}),
-      ...(event.targetName ? { name: event.targetName } : {})
+    object: {
+      type: event.objectType,
+      ...(event.objectId ? { id: event.objectId } : {}),
+      ...(event.objectName ? { name: event.objectName } : {})
     },
     summary: event.summary,
     metadata: event.metadata ?? {},

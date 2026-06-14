@@ -1,5 +1,16 @@
 export function buildAdminPaths(): Record<string, unknown> {
   const adminSecurity = [{ adminBearer: [] }];
+  const workspaceAuditSearchParameters = [
+    { in: 'query', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid' } },
+    { in: 'query', name: 'category', required: false, schema: { type: 'string' } },
+    { in: 'query', name: 'eventType', required: false, schema: { type: 'string' } },
+    { in: 'query', name: 'actorUserId', required: false, schema: { type: 'string' } },
+    { in: 'query', name: 'objectType', required: false, schema: { type: 'string' } },
+    { in: 'query', name: 'from', required: false, schema: { type: 'string', format: 'date-time' } },
+    { in: 'query', name: 'to', required: false, schema: { type: 'string', format: 'date-time' } },
+    { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100 } },
+    { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } }
+  ];
   const mutationBody = {
     required: true,
     content: {
@@ -216,6 +227,7 @@ export function buildAdminPaths(): Record<string, unknown> {
         tags: ['admin'],
         summary: 'Search workspace audit events across workspaces',
         security: adminSecurity,
+        parameters: workspaceAuditSearchParameters,
         responses: { '200': { description: 'Paged sanitized workspace audit events.' } }
       }
     }

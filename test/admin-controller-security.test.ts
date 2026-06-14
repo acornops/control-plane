@@ -296,6 +296,33 @@ describe('admin controller security invariants', () => {
     }
   });
 
+  it('uses objectType for admin workspace audit searches', async () => {
+    let capturedOptions: Record<string, unknown> | undefined;
+    mock.method(repo, 'insertAdminAuditEvent', async (event) => event);
+    mock.method(repo, 'listWorkspaceAuditEvents', async (_workspaceId, options) => {
+      capturedOptions = options as Record<string, unknown>;
+      return { items: [], nextCursor: undefined };
+    });
+    const res = response();
+
+    await listWorkspaceAuditEvents({
+      ...adminReq,
+      query: {
+        workspaceId: 'workspace-1',
+        category: 'target',
+        eventType: 'target.registered.v1',
+        actorUserId: 'user-1',
+        objectType: 'kubernetes_cluster'
+      }
+    } as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(capturedOptions?.objectType, 'kubernetes_cluster');
+    assert.equal(capturedOptions?.targetType, undefined);
+  });
+
   it('rejects unknown fields in mutating admin bodies', () => {
     assert.equal(adminReasonOnlySchema.safeParse({ reason: 'support ticket TEST-5', agentKey: 'secret' }).success, false);
     assert.equal(adminWorkspacePlanPatchSchema.safeParse({

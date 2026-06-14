@@ -343,9 +343,9 @@ describe('emitRunStatusTransition', () => {
       category: event.category,
       eventType: event.eventType,
       actor: { type: event.actorType || (event.actorUserId ? 'user' : 'system') },
-      target: {
-        type: event.targetType,
-        ...(event.targetId ? { id: event.targetId } : {})
+      object: {
+        type: event.objectType,
+        ...(event.objectId ? { id: event.objectId } : {})
       },
       summary: event.summary,
       metadata: event.metadata || {},

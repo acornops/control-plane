@@ -208,8 +208,8 @@ function recordRunLifecycleAudit(eventType: WebhookEventType, run: Run): void {
     eventType,
     operation: 'write',
     actorType: 'system',
-    targetType: 'run',
-    targetId: run.id,
+    objectType: 'run',
+    objectId: run.id,
     summary: `Run ${run.status}`,
     metadata: {
       sessionId: run.sessionId,

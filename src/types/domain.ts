@@ -227,7 +227,7 @@ export interface WorkspaceAuditActor {
   displayName?: string;
 }
 
-export interface WorkspaceAuditTarget {
+export interface WorkspaceAuditObject {
   type: string;
   id?: string;
   name?: string;
@@ -240,7 +240,7 @@ export interface WorkspaceAuditEvent {
   eventType: string;
   operation: WorkspaceAuditOperation;
   actor: WorkspaceAuditActor;
-  target: WorkspaceAuditTarget;
+  object: WorkspaceAuditObject;
   summary: string;
   metadata: Record<string, unknown>;
   occurredAt: string;
@@ -254,9 +254,9 @@ export interface WorkspaceAuditEventInput {
   actorUserId?: string | null;
   actorTokenId?: string | null;
   actorType?: 'user' | 'system' | 'admin_token';
-  targetType: string;
-  targetId?: string | null;
-  targetName?: string | null;
+  objectType: string;
+  objectId?: string | null;
+  objectName?: string | null;
   summary: string;
   metadata?: Record<string, unknown>;
 }
