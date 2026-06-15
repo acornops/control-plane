@@ -354,9 +354,9 @@ Current event types emitted by execution-engine and forwarded by control plane:
 - `tool_call_started`
 - `tool_call_completed`
 - `tool_approval_requested` with optional `payload.summary`
-- `tool_approval_approved`
-- `tool_approval_rejected`
-- `tool_approval_expired`
+- `tool_approval_approved` with optional `payload.summary`
+- `tool_approval_rejected` with optional `payload.summary`
+- `tool_approval_expired` with optional `payload.summary`
 - `assistant_message_completed`
 - `run_failed`
 - `run_cancelled`
