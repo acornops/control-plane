@@ -3,6 +3,14 @@ import { TARGET_TYPES } from './domain.js';
 
 const uuidV4Pattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const uuidV4Schema = z.string().regex(uuidV4Pattern, 'must be a UUIDv4');
+const approvalSummarySchema = z.preprocess(
+  (value) => {
+    if (typeof value !== 'string') return value;
+    const summary = value.replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').replace(/\s+/g, ' ').trim();
+    return summary || undefined;
+  },
+  z.string().max(240).optional()
+);
 
 export const runRequestSchema = z.object({
   contract_version: z.number().int().default(1),
@@ -31,6 +39,7 @@ export const runEventsBatchSchema = z.object({
 export const createToolApprovalSchema = z.object({
   toolCallId: z.string().min(1),
   toolName: z.string().min(1),
+  summary: approvalSummarySchema,
   arguments: z.record(z.unknown()).optional().default({}),
   continuation: z.record(z.unknown()).optional()
 });

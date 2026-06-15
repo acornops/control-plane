@@ -262,6 +262,7 @@ export function createApproval(overrides: Partial<RunToolApproval> = {}): RunToo
     targetType: 'kubernetes',
     toolCallId: 'call-1',
     toolName: 'restart_workload',
+    summary: 'Restart workload default/api.',
     arguments: {},
     status: 'pending',
     executionStatus: 'not_started',

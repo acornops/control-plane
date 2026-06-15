@@ -197,6 +197,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         clusterId: uuid,
         status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'expired'] },
         toolName: { type: 'string' },
+        summary: { type: 'string', description: 'Human-readable, non-authoritative description of the pending write action.' },
         createdAt: dateTime,
         expiresAt: dateTime,
         decidedAt: dateTime

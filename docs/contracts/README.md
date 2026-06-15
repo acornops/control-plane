@@ -318,7 +318,7 @@ Session listing response must remain cursor-based:
 
 - `{ items, nextCursor? }`
 - Each session item includes `targetId`, `targetType`, `createdBy`, and optional `createdByUser.{id,displayName}`. Kubernetes session items also include `clusterId`, which is the same backing target ID.
-- Run details and approval replay payloads include `targetId` and `targetType`. Kubernetes payloads also include `clusterId`; non-Kubernetes targets must not receive a synthetic cluster alias.
+- Run details and approval replay payloads include `targetId` and `targetType`. Approval payloads may include `summary`, a human-readable sentence for approval UI copy. Kubernetes payloads also include `clusterId`; non-Kubernetes targets must not receive a synthetic cluster alias.
 
 Recent target chat activity uses `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity?windowSeconds=300`. It requires target read access, not `create_sessions`. The server clamps optional `windowSeconds` from 60 to 3600 seconds and defaults to `TARGET_CHAT_RECENT_ACTIVITY_WINDOW_SECONDS=300`. The response includes `targetId`, `targetType`, `targetName`, `windowSeconds`, `generatedAt`, and `recentActivity[]`. Each activity row includes `sessionId`, `title`, `createdBy`, optional `createdByUser.{id,displayName}`, `lastActivityAt`, optional latest run metadata, optional active run metadata, `hasActiveRun`, `hasRecentWriteCapableRun`, and optional `latestToolAccessMode`.
 
@@ -353,7 +353,7 @@ Current event types emitted by execution-engine and forwarded by control plane:
 - `assistant_reasoning_summary_unavailable`
 - `tool_call_started`
 - `tool_call_completed`
-- `tool_approval_requested`
+- `tool_approval_requested` with optional `payload.summary`
 - `tool_approval_approved`
 - `tool_approval_rejected`
 - `tool_approval_expired`
@@ -475,7 +475,7 @@ Webhook event catalog:
 
 The webhook catalog intentionally excludes `assistant_token_delta`, `assistant_message_started`, `assistant_message_completed`, `run_progress`, heartbeats, and raw snapshot events.
 
-Approval webhook events are channel-agnostic notifications. Browser and bot adapters may render approval buttons from their payloads, but they must call the public decision API as an authenticated AcornOps user. Backend approval enforcement happens in execution-engine before write tool execution.
+Approval webhook events are channel-agnostic notifications. Browser and bot adapters may render approval buttons from their payloads, but they must call the public decision API as an authenticated AcornOps user. Backend approval enforcement happens in execution-engine before write tool execution. Approval payloads may include `summary`, a short human-readable sentence for UI copy. `summary` is explanatory only; tool execution remains authorized and resumed from the stored approval id, tool name, arguments, and continuation.
 
 ## Run Approvals
 
@@ -486,7 +486,7 @@ Public approval endpoints:
 - `GET /api/v1/runs/{runId}/approvals`
 - `POST /api/v1/runs/{runId}/approvals/{approvalId}/decision`
 
-Decision body is `{ "decision": "approved" | "rejected" }`. Approval requires `create_read_write_runs`; the original requester may reject their own pending approval. The first decision wins. Repeating the same decision is idempotent, while a conflicting decision or an already expired approval returns conflict with the current approval.
+Approval resources include `toolName`, `arguments`, and optional `summary`. Decision body is `{ "decision": "approved" | "rejected" }`. Approval requires `create_read_write_runs`; the original requester may reject their own pending approval. The first decision wins. Repeating the same decision is idempotent, while a conflicting decision or an already expired approval returns conflict with the current approval.
 
 Run status includes:
 
@@ -581,7 +581,7 @@ Commit contract:
 
 Durable approval interrupt contract:
 
-- `POST /internal/v1/runs/{runId}/approvals` creates the pending approval and stores a `run_continuations` row containing the resumable ReAct state and pending tool call.
+- `POST /internal/v1/runs/{runId}/approvals` creates the pending approval and stores a `run_continuations` row containing the resumable ReAct state and pending tool call. The request may include `summary`, a deterministic, human-readable sentence for approval UI copy.
 - Continuations must not store gateway tokens or other credentials. Resume always calls bootstrap again and revalidates tool allow-list and capability.
 - `GET /internal/v1/runs/{runId}/continuation` returns the stored continuation plus current approval state after approval, rejection, or expiry.
 - `POST /execution-started` claims the approved write for at-most-once execution. If a prior attempt was already executing, the control plane returns `execution_status=unknown`, and execution-engine must fail closed without retrying the write.

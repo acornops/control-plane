@@ -13,7 +13,7 @@ import { agentGateway } from '../src/agent/ws-server.js';
 import { syncTooling } from '../src/controllers/internal-tooling-controller.js';
 import { webhooks, type WebhookEventInput } from '../src/services/webhooks.js';
 import { repo } from '../src/store/repository.js';
-import { internalToolingSyncSchema } from '../src/types/contracts.js';
+import { createToolApprovalSchema, internalToolingSyncSchema } from '../src/types/contracts.js';
 import type { ChatSession } from '../src/types/domain.js';
 import {
   callController,
@@ -103,6 +103,32 @@ describe('target controller regressions', () => {
       }).success,
       false
     );
+  });
+
+  it('normalizes optional tool approval summaries at the contract boundary', () => {
+    const parsed = createToolApprovalSchema.safeParse({
+      toolCallId: 'call-1',
+      toolName: 'restart_workload',
+      summary: '  Restart\u0007\n\tDeployment   default/api.  ',
+      arguments: { namespace: 'default', name: 'api' }
+    });
+
+    assert.equal(parsed.success, true);
+    if (!parsed.success) return;
+    assert.equal(parsed.data.summary, 'Restart Deployment default/api.');
+  });
+
+  it('treats blank tool approval summaries as omitted for compatibility', () => {
+    const parsed = createToolApprovalSchema.safeParse({
+      toolCallId: 'call-1',
+      toolName: 'restart_workload',
+      summary: '  \n\t  ',
+      arguments: { namespace: 'default', name: 'api' }
+    });
+
+    assert.equal(parsed.success, true);
+    if (!parsed.success) return;
+    assert.equal(parsed.data.summary, undefined);
   });
 
   it('does not infer Kubernetes target type for direct tooling sync calls', async () => {
@@ -334,7 +360,7 @@ describe('target controller regressions', () => {
 
   it('creates tool approvals against the run target id without forcing a Kubernetes cluster alias', async () => {
     const emitted: WebhookEventInput[] = [];
-    let capturedApprovalParams: { targetId?: string; clusterId?: string } | undefined;
+    let capturedApprovalParams: { targetId?: string; clusterId?: string; summary?: string } | undefined;
     mock.method(webhooks, 'emit', (event: WebhookEventInput) => {
       emitted.push(event);
     });
@@ -352,7 +378,8 @@ describe('target controller regressions', () => {
       return createApproval({
         targetId: params.targetId,
         targetType: 'virtual_machine',
-        clusterId: params.targetId
+        clusterId: params.targetId,
+        summary: params.summary
       });
     };
 
@@ -363,6 +390,7 @@ describe('target controller regressions', () => {
         {
           toolCallId: 'call-1',
           toolName: 'vm.restart_service',
+          summary: 'Restart service nginx.',
           arguments: { service: 'nginx' }
         }
       )
@@ -371,8 +399,10 @@ describe('target controller regressions', () => {
     assert.equal(created.statusCode, 201);
     assert.equal(capturedApprovalParams?.targetId, 'vm-1');
     assert.equal(capturedApprovalParams?.clusterId, undefined);
+    assert.equal(capturedApprovalParams?.summary, 'Restart service nginx.');
     assert.equal(emitted[0]?.targetId, 'vm-1');
     assert.equal(emitted[0]?.targetType, 'virtual_machine');
     assert.equal(emitted[0]?.clusterId, undefined);
+    assert.equal(emitted[0]?.data?.summary, 'Restart service nginx.');
   });
 });

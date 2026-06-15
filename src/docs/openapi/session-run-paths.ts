@@ -203,6 +203,11 @@ export function buildSessionRunPaths(): Record<string, unknown> {
                   properties: {
                     toolCallId: { type: 'string', example: 'call_01JABCDEF' },
                     toolName: { type: 'string', example: 'restart_workload' },
+                    summary: {
+                      type: 'string',
+                      example: 'Restart Deployment payments/payments-api.',
+                      description: 'Human-readable, non-authoritative description for approval UI.'
+                    },
                     arguments: { type: 'object', additionalProperties: true },
                     continuation: {
                       type: 'object',
@@ -213,6 +218,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
                   example: {
                     toolCallId: 'call_01JABCDEF',
                     toolName: 'restart_workload',
+                    summary: 'Restart Deployment payments/payments-api.',
                     arguments: { namespace: 'payments', name: 'payments-api', kind: 'Deployment' },
                     continuation: { schema_version: 1, pending_tool_call: { tool: 'restart_workload' } }
                   }

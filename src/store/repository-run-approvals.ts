@@ -21,6 +21,7 @@ export async function createRunToolApproval(params: {
   targetId: string;
   toolCallId: string;
   toolName: string;
+  summary?: string;
   arguments: Record<string, unknown>;
   requestedBy?: string;
   sessionId?: string;
@@ -33,10 +34,11 @@ export async function createRunToolApproval(params: {
       `WITH upserted AS (
          INSERT INTO run_tool_approvals (
            id, run_id, workspace_id, target_id, tool_call_id, tool_name,
-           arguments, status, execution_status, requested_by, expires_at
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,'pending','not_started',$8,$9)
+           summary, arguments, status, execution_status, requested_by, expires_at
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,'pending','not_started',$9,$10)
          ON CONFLICT (run_id, tool_call_id) DO UPDATE
            SET tool_name = EXCLUDED.tool_name,
+               summary = COALESCE(EXCLUDED.summary, run_tool_approvals.summary),
                arguments = EXCLUDED.arguments
          RETURNING *
        )
@@ -50,6 +52,7 @@ export async function createRunToolApproval(params: {
         params.targetId,
         params.toolCallId,
         params.toolName,
+        params.summary || null,
         JSON.stringify(params.arguments || {}),
         params.requestedBy || null,
         params.expiresAt
@@ -92,6 +95,7 @@ export async function createRunToolApproval(params: {
           targetId: params.targetId,
           toolCallId: params.toolCallId,
           toolName: params.toolName,
+          ...(params.summary ? { summary: params.summary } : {}),
           expiresAt: params.expiresAt
         }
       },

@@ -310,6 +310,7 @@ CREATE TABLE IF NOT EXISTS run_tool_approvals (
   target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
   tool_call_id TEXT NOT NULL,
   tool_name TEXT NOT NULL,
+  summary TEXT NULL,
   arguments JSONB NOT NULL DEFAULT '{}'::jsonb,
   status TEXT NOT NULL,
   execution_status TEXT NOT NULL DEFAULT 'not_started',
