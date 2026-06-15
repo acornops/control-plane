@@ -42,6 +42,7 @@ function createApproval(overrides: Partial<RunToolApproval> = {}): RunToolApprov
     clusterId: 'cluster-1',
     toolCallId: 'call-1',
     toolName: 'restart_workload',
+    summary: 'Restart workload default/web.',
     arguments: { namespace: 'default', name: 'web' },
     status: 'expired',
     executionStatus: 'not_started',

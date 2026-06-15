@@ -419,6 +419,7 @@ export interface RunToolApproval {
   clusterId?: string;
   toolCallId: string;
   toolName: string;
+  summary?: string;
   arguments: Record<string, unknown>;
   status: ToolApprovalStatus;
   executionStatus: ToolApprovalExecutionStatus;

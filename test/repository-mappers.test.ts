@@ -65,6 +65,7 @@ describe('repository mappers', () => {
       target_type: 'virtual_machine',
       tool_call_id: 'call-1',
       tool_name: 'restart_service',
+      summary: 'Restart service default/api.',
       arguments: {},
       status: 'pending',
       execution_status: 'not_started',
@@ -85,6 +86,7 @@ describe('repository mappers', () => {
     assert.equal(approval.targetId, 'target-1');
     assert.equal(approval.targetType, 'virtual_machine');
     assert.equal(approval.clusterId, undefined);
+    assert.equal(approval.summary, 'Restart service default/api.');
   });
 
   it('maps session target scope and only exposes a cluster alias for Kubernetes targets', () => {

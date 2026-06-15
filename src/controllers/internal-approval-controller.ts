@@ -25,6 +25,7 @@ export async function createToolApproval(req: Request, res: Response, next: Next
       targetId: run.targetId,
       toolCallId: req.body.toolCallId,
       toolName: req.body.toolName,
+      summary: req.body.summary,
       arguments: req.body.arguments || {},
       requestedBy: session?.createdBy,
       sessionId: run.sessionId,
@@ -43,6 +44,7 @@ export async function createToolApproval(req: Request, res: Response, next: Next
         sessionId: run.sessionId,
         toolCallId: approval.toolCallId,
         toolName: approval.toolName,
+        summary: approval.summary,
         arguments: approval.arguments,
         expiresAt: approval.expiresAt
       }

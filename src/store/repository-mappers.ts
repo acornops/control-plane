@@ -161,6 +161,7 @@ export interface RunToolApprovalRow {
   target_type: RunToolApproval['targetType'];
   tool_call_id: string;
   tool_name: string;
+  summary: string | null;
   arguments: Record<string, unknown> | null;
   status: RunToolApproval['status'];
   execution_status: RunToolApproval['executionStatus'];
@@ -503,6 +504,7 @@ export function mapRunToolApproval(row: RunToolApprovalRow): RunToolApproval {
     clusterId: targetType === KUBERNETES_TARGET_TYPE ? targetId : undefined,
     toolCallId: row.tool_call_id,
     toolName: row.tool_name,
+    summary: row.summary || undefined,
     arguments: row.arguments || {},
     status: row.status,
     executionStatus: row.execution_status || 'not_started',
