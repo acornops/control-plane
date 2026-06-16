@@ -16,7 +16,7 @@ Kubernetes clusters and Linux/systemd virtual machines are active target types. 
 ```mermaid
 flowchart LR
     User[User / Browser]
-    UI[management-console-playground]
+    UI[management-console]
     OIDC[OIDC Provider]
     CP[Express + TypeScript Control Plane]
     DB[(Postgres)]
@@ -90,7 +90,7 @@ flowchart TD
     end
 
     subgraph External[External Dependencies]
-        UI[management-console-playground]
+        UI[management-console]
         OIDC[Dex / Keycloak / External OIDC]
         EE[execution-engine]
         GW[llm-gateway]
