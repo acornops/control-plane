@@ -127,15 +127,15 @@ describe('internal execution bootstrap audit metadata', () => {
       targetType: 'virtual_machine',
       clusterId: undefined,
       llmProvider: 'openai',
-      llmModel: 'gpt-4.1-mini'
+      llmModel: 'gpt-5.5'
     });
     repo.getTarget = async () => createTarget({ id: 'vm-1', targetType: 'virtual_machine', name: 'vm' });
     repo.getSession = async () => createSessionRecord({ targetId: 'vm-1', targetType: 'virtual_machine', clusterId: undefined });
     repo.getTargetAgentRegistration = async () => null;
     repo.getWorkspaceAiSettings = async () => ({
       workspaceId: 'workspace-1',
-      defaultProvider: 'gemini',
-      defaultModel: 'gemini-2.0-flash'
+      defaultProvider: 'openai',
+      defaultModel: 'gpt-5.5'
     });
     repo.listTargetToolOverrides = async () => ({});
     mock.method(globalThis, 'fetch', async (input) => {
@@ -154,7 +154,7 @@ describe('internal execution bootstrap audit metadata', () => {
 
     assert.equal(response.statusCode, 200);
     assert.equal(llm.provider, 'openai');
-    assert.equal(llm.model, 'gpt-4.1-mini');
+    assert.equal(llm.model, 'gpt-5.5');
   });
 
   it('maps workspace AI credential status failures during bootstrap', async () => {

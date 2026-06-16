@@ -204,7 +204,7 @@ export function buildWorkspacePaths(): Record<string, unknown> {
                   required: ['defaultProvider', 'defaultModel'],
                   properties: {
                     defaultProvider: llmProviderSchema,
-                    defaultModel: { type: 'string', example: 'gemini-2.0-flash' },
+                    defaultModel: { type: 'string', example: 'gpt-5.5' },
                     reasoningSummaryMode: { type: 'string', enum: ['off', 'auto', 'concise', 'detailed'], default: 'off' },
                     reasoningEffort: { type: 'string', enum: ['default', 'low', 'medium', 'high'], default: 'default' }
                   }

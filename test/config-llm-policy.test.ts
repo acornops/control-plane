@@ -9,6 +9,22 @@ function fieldErrors(error: unknown): Record<string, string[] | undefined> {
 }
 
 describe('LLM provider policy config', () => {
+  it('defaults to OpenAI GPT-5 models without GPT-4 OpenAI entries', () => {
+    const config = parseAppConfig({});
+    const models = config.LLM_ALLOWED_MODELS.split(',');
+
+    assert.equal(config.LLM_DEFAULT_PROVIDER, 'openai');
+    assert.equal(config.LLM_DEFAULT_MODEL, 'gpt-5.5');
+    assert(models.includes('gpt-5.5'));
+    assert(models.includes('gpt-5.4'));
+    assert(models.includes('gpt-5.4-mini'));
+    assert(models.includes('gpt-5.4-nano'));
+    assert(models.includes('gpt-5'));
+    assert(models.includes('gpt-5-mini'));
+    assert(models.includes('gpt-5-nano'));
+    assert.equal(models.some((model) => model.startsWith('gpt-4')), false);
+  });
+
   it('rejects inconsistent provider policy defaults before run creation', () => {
     assert.throws(
       () =>

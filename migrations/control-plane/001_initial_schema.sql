@@ -269,8 +269,8 @@ CREATE TABLE IF NOT EXISTS runs (
   target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
   session_id TEXT NOT NULL,
   message_id TEXT NOT NULL,
-  llm_provider TEXT NOT NULL DEFAULT 'gemini' CHECK (llm_provider IN ('openai', 'anthropic', 'gemini')),
-  llm_model TEXT NOT NULL DEFAULT 'gemini-2.0-flash',
+  llm_provider TEXT NOT NULL DEFAULT 'openai' CHECK (llm_provider IN ('openai', 'anthropic', 'gemini')),
+  llm_model TEXT NOT NULL DEFAULT 'gpt-5.5',
   llm_reasoning_summary_mode TEXT NOT NULL DEFAULT 'off'
     CHECK (llm_reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed')),
   llm_reasoning_effort TEXT NOT NULL DEFAULT 'default'
