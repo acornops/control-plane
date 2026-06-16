@@ -10,6 +10,18 @@ import {
 } from './mcp-registry-client.js';
 import { webhooks } from './webhooks.js';
 
+export interface BuiltInToolSyncResult {
+  ok: boolean;
+  workspaceId: string;
+  targetId: string;
+  targetType: TargetType;
+  discoveredToolCount: number;
+  registeredToolCount: number;
+  addedTools: string[];
+  removedTools: string[];
+  error?: string;
+}
+
 function normalizeCapability(value: unknown): 'read' | 'write' {
   return value === 'read' ? 'read' : 'write';
 }
@@ -26,11 +38,15 @@ function targetWebhookScope(targetId: string, targetType: TargetType): {
   };
 }
 
+function countRegisteredTools(tools: Array<{ name: string }>, expectedNames: Set<string>): number {
+  return tools.filter((tool) => expectedNames.has(tool.name)).length;
+}
+
 export async function syncTargetBuiltInTools(
   workspaceId: string,
   targetId: string,
   targetType: TargetType
-): Promise<void> {
+): Promise<BuiltInToolSyncResult> {
   try {
     const discoveredTools = await agentGateway.listAgentTools(targetId);
     const servers = await listTargetMcpServers(workspaceId, targetId, targetType);
@@ -55,7 +71,7 @@ export async function syncTargetBuiltInTools(
     const removeTools = [...existingBuiltinNames].filter((name) => !discoveredNames.has(name));
 
     if (!existing) {
-      await createTargetMcpServer({
+      const created = await createTargetMcpServer({
         workspaceId,
         targetId,
         targetType,
@@ -77,10 +93,31 @@ export async function syncTargetBuiltInTools(
           removedTools: []
         }
       });
-      return;
+      logger.info(
+        {
+          workspaceId,
+          targetId,
+          targetType,
+          discoveredToolCount: builtinTools.length,
+          registeredToolCount: countRegisteredTools(created.tools, discoveredNames),
+          addedToolCount: discoveredNames.size,
+          removedToolCount: 0
+        },
+        'Synchronized built-in target tools'
+      );
+      return {
+        ok: true,
+        workspaceId,
+        targetId,
+        targetType,
+        discoveredToolCount: builtinTools.length,
+        registeredToolCount: countRegisteredTools(created.tools, discoveredNames),
+        addedTools: [...discoveredNames],
+        removedTools: []
+      };
     }
 
-    await updateTargetMcpServer({
+    const updated = await updateTargetMcpServer({
       workspaceId,
       targetId,
       targetType,
@@ -107,7 +144,40 @@ export async function syncTargetBuiltInTools(
         }
       });
     }
+    logger.info(
+      {
+        workspaceId,
+        targetId,
+        targetType,
+        discoveredToolCount: builtinTools.length,
+        registeredToolCount: countRegisteredTools(updated.tools, discoveredNames),
+        addedToolCount: addedTools.length,
+        removedToolCount: removeTools.length
+      },
+      'Synchronized built-in target tools'
+    );
+    return {
+      ok: true,
+      workspaceId,
+      targetId,
+      targetType,
+      discoveredToolCount: builtinTools.length,
+      registeredToolCount: countRegisteredTools(updated.tools, discoveredNames),
+      addedTools,
+      removedTools: removeTools
+    };
   } catch (err) {
     logger.warn({ workspaceId, targetId, targetType, err }, 'Failed synchronizing built-in target tools');
+    return {
+      ok: false,
+      workspaceId,
+      targetId,
+      targetType,
+      discoveredToolCount: 0,
+      registeredToolCount: 0,
+      addedTools: [],
+      removedTools: [],
+      error: err instanceof Error ? err.message : 'Built-in tool sync failed'
+    };
   }
 }

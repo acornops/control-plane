@@ -85,7 +85,22 @@ async function resolveTargetToolsForRun(workspaceId: string, targetId: string, t
     logger.warn({ workspaceId, targetId, targetType, runId, err }, 'Failed listing target tools; attempting resync');
   }
 
-  await syncTargetBuiltInTools(workspaceId, targetId, targetType);
+  const syncResult = await syncTargetBuiltInTools(workspaceId, targetId, targetType);
+  if (!syncResult.ok || syncResult.registeredToolCount === 0) {
+    logger.warn(
+      {
+        workspaceId,
+        targetId,
+        targetType,
+        runId,
+        ok: syncResult.ok,
+        discoveredToolCount: syncResult.discoveredToolCount,
+        registeredToolCount: syncResult.registeredToolCount,
+        error: syncResult.error
+      },
+      'Run bootstrap built-in tool sync did not register target tools'
+    );
+  }
   try {
     const tools = await listTargetMcpTools(workspaceId, targetId, targetType);
     if (tools.length > 0) {

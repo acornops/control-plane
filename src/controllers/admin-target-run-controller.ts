@@ -343,7 +343,15 @@ export async function syncTooling(req: AdminAuthenticatedRequest, res: Response,
     const failures: Array<Record<string, unknown>> = [];
     const syncOne = async (item: { workspaceId: string; targetId: string; targetType: TargetType }): Promise<void> => {
       try {
-        await syncTargetBuiltInTools(item.workspaceId, item.targetId, item.targetType);
+        const result = await syncTargetBuiltInTools(item.workspaceId, item.targetId, item.targetType);
+        if (!result.ok || result.registeredToolCount === 0) {
+          failures.push({
+            targetId: item.targetId,
+            targetType: item.targetType,
+            message: result.error || 'No built-in tools were registered in llm-gateway'
+          });
+          return;
+        }
         synced += 1;
       } catch (err) {
         failures.push({ targetId: item.targetId, targetType: item.targetType, message: err instanceof Error ? err.message : 'Sync failed' });
