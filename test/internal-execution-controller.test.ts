@@ -7,6 +7,7 @@ import {
   normalizeToolCapability,
   summarizeRunEventCounts
 } from '../src/controllers/internal-execution-controller.js';
+import { agentGateway } from '../src/agent/ws-server.js';
 import { repo } from '../src/store/repository.js';
 import { runtime } from '../src/store/runtime.js';
 import type { RunEvent } from '../src/types/domain.js';
@@ -155,6 +156,65 @@ describe('internal execution bootstrap audit metadata', () => {
     assert.equal(response.statusCode, 200);
     assert.equal(llm.provider, 'openai');
     assert.equal(llm.model, 'gpt-5.5');
+  });
+
+  it('does not expose agent-advertised tools that are missing from the gateway registry', async () => {
+    repo.getRun = async () => createRun({ targetId: 'cluster-1', targetType: 'kubernetes', toolAccessMode: 'read_only' });
+    repo.getTarget = async () => createTarget({ id: 'cluster-1', targetType: 'kubernetes', name: 'cluster' });
+    repo.getSession = async () => createSessionRecord({ targetId: 'cluster-1', targetType: 'kubernetes', clusterId: 'cluster-1' });
+    repo.getTargetAgentRegistration = async () => ({
+      targetId: 'cluster-1',
+      targetType: 'kubernetes',
+      workspaceId: 'workspace-1',
+      agentKeyHash: 'hash',
+      keyVersion: 1,
+      capabilities: ['read']
+    });
+    repo.getWorkspaceAiSettings = async () => null;
+    repo.listTargetToolOverrides = async () => ({});
+    mock.method(agentGateway, 'listAgentTools', async () => [
+      {
+        name: 'list_pods',
+        description: 'List pods',
+        capability: 'read' as const,
+        timeout_ms: 10000,
+        version: 'v1',
+        input_schema: { type: 'object' }
+      }
+    ]);
+    mock.method(globalThis, 'fetch', async (input, init) => {
+      const url = String(input);
+      if (url.includes('/api/v1/internal/mcp/tools?')) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (url.includes('/api/v1/internal/mcp/servers?')) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (url.endsWith('/api/v1/internal/mcp/servers') && init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          id: 'server-1',
+          workspace_id: 'workspace-1',
+          target_id: 'cluster-1',
+          target_type: 'kubernetes',
+          server_name: 'acornops-cluster-agent',
+          server_url: 'http://control-plane:8081/internal/v1/mcp',
+          enabled: true,
+          auth_type: 'none',
+          tools: []
+        }), { status: 200 });
+      }
+      if (isWorkspaceAiCredentialStatusRequest(input)) {
+        return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
+
+    const response = await callController(bootstrap, createRequest({ runId: 'run-1' }));
+    const tools = (response.body as { tools: { allowed_tools: string[]; tool_specs: unknown[] } }).tools;
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(tools.allowed_tools, []);
+    assert.deepEqual(tools.tool_specs, []);
   });
 
   it('maps workspace AI credential status failures during bootstrap', async () => {

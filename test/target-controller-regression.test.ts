@@ -6,6 +6,7 @@ import { listTargets } from '../src/controllers/workspaces/target-controller.js'
 import {
   createTargetMcpServerForTarget,
   listTargetMcpServers,
+  listTargetMcpServerTools,
   listTargetToolsCatalog
 } from '../src/controllers/workspaces/target-tool-controller.js';
 import { getVirtualMachineLogs } from '../src/controllers/workspaces/virtual-machine-controller.js';
@@ -267,6 +268,30 @@ describe('target controller regressions', () => {
     assert.deepEqual(servers.body, []);
     assert(capturedUrls.some((url) => /target_id=target-1/.test(url)));
     assert(capturedUrls.every((url) => /target_type=virtual_machine/.test(url)));
+  });
+
+  it('lists tools for the synthetic built-in server without requiring gateway server metadata', async () => {
+    installWorkspace('viewer');
+    repo.listTargetToolOverrides = async () => ({});
+
+    mock.method(globalThis, 'fetch', async (input) => {
+      const url = String(input);
+      if (url.includes('/api/v1/internal/mcp/servers?')) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (url.includes('/api/v1/internal/mcp/tools?')) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
+
+    const response = await callController(
+      listTargetMcpServerTools,
+      createRequest({ workspaceId: 'workspace-1', targetId: 'cluster-1', serverId: 'builtin-system-server' })
+    );
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual((response.body as { items: unknown[] }).items, []);
   });
 
   it('preserves the Kubernetes cluster alias on target-scoped MCP mutation webhooks', async () => {

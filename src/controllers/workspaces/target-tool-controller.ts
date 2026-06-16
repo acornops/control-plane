@@ -8,7 +8,6 @@ import {
   LlmGatewayHttpError,
   listTargetMcpServers as listGatewayTargetMcpServers,
   listTargetMcpTools,
-  McpToolConfig,
   testTargetMcpServerConnection,
   updateTargetMcpServer,
   updateTargetTool
@@ -53,20 +52,6 @@ function targetWebhookScope(targetId: string, targetType: TargetType): {
     ...(targetType === KUBERNETES_TARGET_TYPE ? { clusterId: targetId } : {}),
     targetId,
     targetType
-  };
-}
-
-function toTargetCatalogTool(serverEnabled: boolean, tool: McpToolConfig) {
-  const enabledConfigured = Boolean(tool.enabled);
-  return {
-    name: tool.name,
-    description: tool.description,
-    capability: tool.capability === 'read' ? 'read' : 'write',
-    version: tool.version || 'v1',
-    source: tool.source === 'builtin' ? 'builtin' : 'mcp',
-    enabledConfigured,
-    enabledEffective: serverEnabled && enabledConfigured,
-    effectiveDisabledReason: !serverEnabled && enabledConfigured ? 'server_disabled' : null
   };
 }
 
@@ -157,8 +142,24 @@ export async function listTargetMcpServerTools(req: AuthenticatedRequest, res: R
       return;
     }
 
-    const servers = await listGatewayTargetMcpServers(workspaceId, targetId, access.target.targetType);
-    const server = servers.find((item) => item.id === serverId);
+    const [tools, servers, overrides] = await Promise.all([
+      listTargetMcpTools(workspaceId, targetId, access.target.targetType, {
+        includeServerDisabled: true,
+        includeDisabled: true
+      }),
+      listGatewayTargetMcpServers(workspaceId, targetId, access.target.targetType),
+      repo.listTargetToolOverrides(targetId)
+    ]);
+    const catalog = composeTargetToolsCatalog({
+      workspaceId,
+      targetId,
+      targetType: access.target.targetType,
+      canEdit: access.authz.can('manage_tools') && access.authz.can('manage_mcp'),
+      tools,
+      servers,
+      overrides
+    });
+    const server = catalog.servers.find((item) => item.id === serverId);
     if (!server) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'MCP server not found', retryable: false } });
       return;
@@ -174,7 +175,7 @@ export async function listTargetMcpServerTools(req: AuthenticatedRequest, res: R
     };
     const signature = makeQuerySignature(filters);
     const cursor = decodeCursor<{ offset?: number; signature: string }>(req.query.cursor, signature);
-    const filteredTools = server.tools.map((tool) => toTargetCatalogTool(server.enabled, tool)).filter((tool) => {
+    const filteredTools = server.tools.filter((tool) => {
       if (filters.capability && tool.capability !== filters.capability) return false;
       if (filters.enabled && String(tool.enabledEffective) !== filters.enabled) return false;
       return containsSearchText([tool.name, tool.description], q);
