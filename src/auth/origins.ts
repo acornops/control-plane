@@ -19,5 +19,6 @@ export function allowedReturnToOrigins(): Set<string> {
     }
   }
   allowedOrigins.add(new URL(config.CONTROL_PLANE_BASE_URL).origin);
+  allowedOrigins.add(new URL(config.MANAGEMENT_CONSOLE_BASE_URL).origin);
   return allowedOrigins;
 }

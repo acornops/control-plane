@@ -1,9 +1,15 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { createConsoleMattermostLinkStatusUrl, createConsoleMattermostLinkUrl, hashMattermostLinkToken } from '../auth/mattermost-link.js';
 import { requestIp } from '../auth/client-ip.js';
 import { getOrSetCsrfToken } from '../auth/csrf.js';
 import { AuthenticatedRequest } from '../auth/middleware.js';
-import { buildAuthorizationUrl, buildLinkAuthorizationUrl, exchangeCodeForUser } from '../auth/oidc.js';
+import {
+  buildAuthorizationUrl,
+  buildIntegrationLinkAuthorizationUrl,
+  buildLinkAuthorizationUrl,
+  exchangeCodeForUser
+} from '../auth/oidc.js';
 import {
   hashPassword,
   generateEmailVerificationToken,
@@ -78,7 +84,19 @@ export async function oidcLogin(req: Request, res: Response, next: NextFunction)
   try {
     const redirectUri = String(req.query.redirect_uri || config.OIDC_REDIRECT_URI);
     const returnTo = typeof req.query.return_to === 'string' ? req.query.return_to : undefined;
-    const url = await buildAuthorizationUrl(redirectUri, returnTo);
+    const mattermostLinkToken = typeof req.query.mattermost_link_token === 'string' ? req.query.mattermost_link_token : undefined;
+    let effectiveReturnTo = returnTo;
+    if (mattermostLinkToken) {
+      const tokenHash = hashMattermostLinkToken(mattermostLinkToken);
+      if (!await repo.mattermostLinkTokenIsPending(tokenHash)) {
+        res.redirect(createConsoleMattermostLinkStatusUrl('expired'));
+        return;
+      }
+      effectiveReturnTo = returnTo || createConsoleMattermostLinkUrl(mattermostLinkToken);
+    }
+    const url = mattermostLinkToken
+      ? await buildIntegrationLinkAuthorizationUrl(redirectUri, effectiveReturnTo)
+      : await buildAuthorizationUrl(redirectUri, effectiveReturnTo);
     res.redirect(url);
   } catch (err) {
     handleOidcError(err, res, next);

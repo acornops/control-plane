@@ -112,6 +112,7 @@ resulting effective limit are rejected before mutation.
 - Password change entrypoint for authenticated password-backed users: `POST /api/v1/auth/password/change`.
 - Current auth-methods entrypoint: `GET /api/v1/auth/methods`.
 - Explicit SSO linking entrypoint for authenticated password-backed users: `POST /api/v1/auth/oidc/link/start`.
+- Mattermost account link browser completion entrypoint: `POST /api/v1/auth/chat/mattermost/link/complete`.
 - Logout entrypoint: `POST /api/v1/auth/logout`.
 - Current-user endpoint: `GET /api/v1/me`.
 - Dev-only shortcut outside production: `POST /api/v1/auth/dev-login`.
@@ -126,6 +127,19 @@ resulting effective limit are rejected before mutation.
 - `POST /api/v1/auth/password/reset` accepts `{ token, password }`; valid single-use tokens update the password hash, verify the account email, consume outstanding reset and verification tokens for that user/email, revoke browser sessions, and return `{ status: "ok" }` without creating a new session. Invalid or consumed tokens return `PASSWORD_RESET_TOKEN_INVALID`; expired tokens return `PASSWORD_RESET_TOKEN_EXPIRED`; policy failures return `PASSWORD_POLICY_VIOLATION`.
 - Verification and reset tokens are bearer secrets, are stored only as hashes, and must only be sent over HTTPS outside local development.
 - Workspace invitation acceptance returns `EMAIL_VERIFICATION_REQUIRED` when the signed-in password account email matches the invite but is still pending verification.
+
+### Mattermost account link integration contract
+
+- External Mattermost integration clients use `Authorization: Bearer <MATTERMOST_CHAT_SERVICE_TOKEN>`. This token is only valid for the Mattermost account link endpoints and is not a browser session, admin token, run token, or orchestrator service token.
+- Create link endpoint: `POST /api/v1/auth/chat/mattermost/link`.
+- Resolve link endpoint: `POST /api/v1/auth/chat/mattermost/resolve`.
+- Browser link completion endpoint: `POST /api/v1/auth/chat/mattermost/link/complete` with a session cookie and body `{ token }`.
+- `POST /api/v1/auth/chat/mattermost/link` accepts `{ mattermostUserId }`, validates it as a bounded string, stores a short-lived hashed link token with that Mattermost user identity, and returns `{ linkUrl, expiresAt }`.
+- `linkUrl` points at the management console route `/integrations/mattermost/link?token=<mattermost-link-token>`. The console shows the normal login page when no browser session exists, preserving the token for password or OIDC sign-in. After either login method establishes a normal browser session, the console calls the completion endpoint to bind the Mattermost identity to the signed-in AcornOps user.
+- OIDC sign-in from the Mattermost link route uses an AcornOps-controlled OIDC state purpose of `integration_link` for routing/observability. The OIDC callback still only establishes the browser session and redirects back to the console route; it does not complete the Mattermost link.
+- After browser authentication succeeds, AcornOps upserts the durable Mattermost identity link `{ mattermostUserId, acornopsUserId, linkedAt, lastAuthenticatedAt, expiresAt, revokedAt }` and consumes the short-lived link token. `lastAuthenticatedAt` is set on the initial link and updated when the Mattermost user reauthenticates through a fresh link.
+- `POST /api/v1/auth/chat/mattermost/resolve` accepts `{ mattermostUserId }` for subsequent integration requests and returns either `{ status: "unlinked" }` or `{ status: "linked", user, link }`, where `link` includes required `linkedAt`, `lastAuthenticatedAt`, and `expiresAt`.
+- Browser cookies, OIDC access tokens, ID tokens, refresh tokens, and raw link tokens are never returned to external integration clients. Link tokens are stored only as hashes.
 
 ### Workspace, target, and cluster APIs consumed by management console
 

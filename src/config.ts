@@ -21,6 +21,7 @@ const PLACEHOLDER_VALUES = new Set([
   'dev_csrf_secret_change_me_32_bytes_minimum',
   'dev_orchestrator_token',
   'dev_execution_engine_dispatch_token',
+  'dev_mattermost_chat_service_token',
   'acornops-control-plane-secret',
   'acornops'
 ]);
@@ -181,12 +182,9 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   ENABLE_API_DOCS: envBoolean(false),
   TRUST_PROXY: trustProxyFromEnv,
-
   CONTROL_PLANE_BASE_URL: z.string().url().default('http://localhost:8081'),
-  CONTROL_PLANE_INSTANCE_ID: z.preprocess(
-    emptyStringToUndefined,
-    z.string().min(1).default(process.env.HOSTNAME || randomUUID())
-  ),
+  CONTROL_PLANE_INSTANCE_ID: z.preprocess(emptyStringToUndefined, z.string().min(1).default(process.env.HOSTNAME || randomUUID())),
+  MANAGEMENT_CONSOLE_BASE_URL: z.string().url().default('http://localhost:3000'),
   CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS: z.coerce.number().int().positive().default(90),
   CONTROL_PLANE_AGENT_SNAPSHOT_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(60),
   CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED: optionalEnvBoolean(),
@@ -226,18 +224,9 @@ const envSchema = z.object({
   SEED_DEVELOPMENT_DATA: envBoolean(true),
   SEED_AGENT_KEY: z.string().optional(),
   SEED_VM_AGENT_KEY: z.string().optional(),
-  AGENT_HELM_RELEASE_NAME: z.preprocess(
-    emptyStringToUndefined,
-    z.string().min(1).default('acornops-agent')
-  ),
-  AGENT_HELM_CHART_REF: z.preprocess(
-    emptyStringToUndefined,
-    z.string().min(1).default('oci://ghcr.io/acornops/charts/acornops-k8s-agent')
-  ),
-  AGENT_HELM_NAMESPACE: z.preprocess(
-    emptyStringToUndefined,
-    z.string().min(1).default('acornops')
-  ),
+  AGENT_HELM_RELEASE_NAME: z.preprocess(emptyStringToUndefined, z.string().min(1).default('acornops-agent')),
+  AGENT_HELM_CHART_REF: z.preprocess(emptyStringToUndefined, z.string().min(1).default('oci://ghcr.io/acornops/charts/acornops-k8s-agent')),
+  AGENT_HELM_NAMESPACE: z.preprocess(emptyStringToUndefined, z.string().min(1).default('acornops')),
 
   OIDC_PROVIDER_NAME: z.string().default('oidc'),
   OIDC_ISSUER_URL: z.string().url().default('http://localhost:8080/realms/acornops'),
@@ -272,15 +261,16 @@ const envSchema = z.object({
   EMAIL_DELIVERY_MODE: z.enum(['smtp', 'log', 'disabled']).default('log'),
   EMAIL_DELIVERY_ALLOW_LOG_IN_PRODUCTION: envBoolean(false),
   EMAIL_FROM: z.string().default('AcornOps <noreply@localhost>'),
-  EMAIL_PUBLIC_BASE_URL: z.string().url().default('http://localhost:3000'),
-  SMTP_HOST: optionalStringFromEnv,
+  EMAIL_PUBLIC_BASE_URL: z.string().url().default('http://localhost:3000'), SMTP_HOST: optionalStringFromEnv,
   SMTP_PORT: z.coerce.number().int().positive().default(587),
   SMTP_USERNAME: optionalStringFromEnv,
   SMTP_PASSWORD: optionalStringFromEnv,
   SMTP_SECURE: envBoolean(false),
   SMTP_REQUIRE_TLS: envBoolean(true),
-
   ORCH_SERVICE_TOKEN: z.string().default('dev_orchestrator_token'),
+  MATTERMOST_CHAT_SERVICE_TOKEN: z.string().default('dev_mattermost_chat_service_token'),
+  MATTERMOST_CHAT_LINK_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(600),
+  MATTERMOST_CHAT_LINK_TTL_SECONDS: z.coerce.number().int().min(86400).max(31536000).default(2592000),
   EXECUTION_ENGINE_BASE_URL: z.string().url().default('http://localhost:8080'),
   EXECUTION_ENGINE_DISPATCH_TOKEN: z.string().default('dev_execution_engine_dispatch_token'),
   EXECUTION_ENGINE_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
@@ -389,6 +379,7 @@ const envSchema = z.object({
     addProductionIssue(ctx, 'SEED_DEVELOPMENT_DATA', 'SEED_DEVELOPMENT_DATA must be false in production');
   }
   validateHttpsUrl(ctx, 'CONTROL_PLANE_BASE_URL', value.CONTROL_PLANE_BASE_URL);
+  validateHttpsUrl(ctx, 'MANAGEMENT_CONSOLE_BASE_URL', value.MANAGEMENT_CONSOLE_BASE_URL);
   validateHttpsUrl(ctx, 'OIDC_REDIRECT_URI', value.OIDC_REDIRECT_URI);
   validateHttpsUrl(ctx, 'OIDC_ISSUER_URL', value.OIDC_ISSUER_URL);
   if (value.OIDC_PUBLIC_ISSUER_URL) {
@@ -412,6 +403,9 @@ const envSchema = z.object({
   }
   if (isUnsafeSecretValue(value.ORCH_SERVICE_TOKEN)) {
     addProductionIssue(ctx, 'ORCH_SERVICE_TOKEN', 'ORCH_SERVICE_TOKEN must be a generated production token');
+  }
+  if (isUnsafeSecretValue(value.MATTERMOST_CHAT_SERVICE_TOKEN)) {
+    addProductionIssue(ctx, 'MATTERMOST_CHAT_SERVICE_TOKEN', 'MATTERMOST_CHAT_SERVICE_TOKEN must be a generated production token');
   }
   if (isUnsafeSecretValue(value.EXECUTION_ENGINE_DISPATCH_TOKEN)) {
     addProductionIssue(

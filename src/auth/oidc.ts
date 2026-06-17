@@ -22,7 +22,7 @@ export interface UserInfoResponse {
   name?: string;
 }
 
-type OidcStatePurpose = 'login' | 'link';
+type OidcStatePurpose = 'login' | 'link' | 'integration_link';
 
 interface OidcDiscovery {
   issuer: string;
@@ -68,7 +68,7 @@ function toOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-function sanitizeReturnTo(raw: string | undefined): string | undefined {
+export function sanitizeOidcReturnTo(raw: string | undefined): string | undefined {
   if (!raw) return undefined;
   if (raw.startsWith('/') && !raw.startsWith('//')) {
     return raw;
@@ -287,7 +287,7 @@ async function buildAuthorizationUrlForPurpose(
   purpose: OidcStatePurpose,
   redirectUri: string,
   returnTo?: string,
-  linkUserId?: string
+  options: { linkUserId?: string } = {}
 ): Promise<string> {
   validateRedirectUri(redirectUri);
   // Discovery must use the control-plane reachable issuer URL.
@@ -304,8 +304,8 @@ async function buildAuthorizationUrlForPurpose(
     nonce,
     codeVerifier: verifier,
     redirectUri,
-    returnTo: sanitizeReturnTo(returnTo),
-    linkUserId,
+    returnTo: sanitizeOidcReturnTo(returnTo),
+    linkUserId: options.linkUserId,
     createdAt: Date.now()
   };
   await redis.setex(`cp:oidc:state:${state}`, 600, JSON.stringify(stateRecord));
@@ -330,13 +330,22 @@ export async function buildAuthorizationUrl(redirectUri: string, returnTo?: stri
 }
 
 export async function buildLinkAuthorizationUrl(userId: string, redirectUri: string, returnTo?: string): Promise<string> {
-  return buildAuthorizationUrlForPurpose('link', redirectUri, returnTo, userId);
+  return buildAuthorizationUrlForPurpose('link', redirectUri, returnTo, { linkUserId: userId });
+}
+
+export async function buildIntegrationLinkAuthorizationUrl(redirectUri: string, returnTo?: string): Promise<string> {
+  return buildAuthorizationUrlForPurpose('integration_link', redirectUri, returnTo);
 }
 
 export async function exchangeCodeForUser(
   state: string,
   code: string
-): Promise<{ userInfo: UserInfoResponse; returnTo?: string; purpose: OidcStatePurpose; linkUserId?: string }> {
+): Promise<{
+  userInfo: UserInfoResponse;
+  returnTo?: string;
+  purpose: OidcStatePurpose;
+  linkUserId?: string;
+}> {
   const stateRaw = await redis.get(`cp:oidc:state:${state}`);
   const stateRecord = stateRaw ? (JSON.parse(stateRaw) as OidcStateRecord) : null;
   if (!stateRecord) {

@@ -45,6 +45,57 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
       required: ['authorizationUrl'],
       properties: { authorizationUrl: { type: 'string', format: 'uri' } }
     },
+    MattermostLinkCreation: {
+      type: 'object',
+      required: ['linkUrl', 'expiresAt'],
+      properties: {
+        linkUrl: { type: 'string', format: 'uri' },
+        expiresAt: dateTime
+      }
+    },
+    MattermostLinkCompletion: {
+      type: 'object',
+      required: ['status'],
+      properties: {
+        status: { type: 'string', enum: ['linked'] }
+      }
+    },
+    MattermostLinkResolution: {
+      oneOf: [
+        {
+          type: 'object',
+          required: ['status'],
+          properties: {
+            status: { type: 'string', enum: ['unlinked'] }
+          }
+        },
+        {
+          type: 'object',
+          required: ['status', 'user', 'link'],
+          properties: {
+            status: { type: 'string', enum: ['linked'] },
+            user: {
+              type: 'object',
+              required: ['id', 'displayName', 'email'],
+              properties: {
+                id: uuid,
+                displayName: { type: 'string' },
+                email: { type: 'string', format: 'email' }
+              }
+            },
+            link: {
+              type: 'object',
+              required: ['linkedAt', 'lastAuthenticatedAt', 'expiresAt'],
+              properties: {
+                linkedAt: dateTime,
+                lastAuthenticatedAt: dateTime,
+                expiresAt: dateTime
+              }
+            }
+          }
+        }
+      ]
+    },
     AuthMethods: {
       type: 'object',
       properties: {

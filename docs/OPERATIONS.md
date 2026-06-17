@@ -14,10 +14,12 @@
 - `DATABASE_URL`
 - `REDIS_URL`
 - `CONTROL_PLANE_BASE_URL`
+- `MANAGEMENT_CONSOLE_BASE_URL`
 - `CORS_ORIGIN`
 - `OIDC_HTTP_TIMEOUT_MS` (default `10000`)
 - `OIDC_CLIENT_SECRET`
 - `ORCH_SERVICE_TOKEN`
+- `MATTERMOST_CHAT_SERVICE_TOKEN`
 - `EXECUTION_ENGINE_DISPATCH_TOKEN`
 - `LLM_GATEWAY_ADMIN_TOKEN`
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`
@@ -25,6 +27,9 @@
 For multi-pod deployments, set a unique `CONTROL_PLANE_INSTANCE_ID` per pod.
 The platform Helm chart sets it from the Kubernetes pod name. Production also
 enables `CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED=true` by default.
+`MANAGEMENT_CONSOLE_BASE_URL` is used for user-facing Mattermost account link
+URLs returned by the integration endpoint and must be the public HTTPS console
+origin in production.
 
 ## Admin API
 

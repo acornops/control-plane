@@ -60,7 +60,10 @@ function assertNoForbiddenPaths(document: OpenApiLikeDocument, audience: PublicO
 function normalizeDocument(document: OpenApiLikeDocument, audience: PublicOpenApiAudience): OpenApiLikeDocument {
   document.components.securitySchemes =
     audience === 'public'
-      ? { userSession: document.components.securitySchemes.userSession }
+      ? {
+          userSession: document.components.securitySchemes.userSession,
+          mattermostChatServiceToken: document.components.securitySchemes.mattermostChatServiceToken
+        }
       : { adminBearer: document.components.securitySchemes.adminBearer };
   return document;
 }

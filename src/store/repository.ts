@@ -169,6 +169,13 @@ import {
   listRoleTemplates as listRoleTemplatesRecord,
   syncRoleTemplates as syncRoleTemplatesRecord
 } from './repository-role-templates.js';
+import {
+  completeMattermostLinkToken as completeMattermostLinkTokenRecord,
+  createMattermostLinkToken as createMattermostLinkTokenRecord,
+  getMattermostLinkTokenUser as getMattermostLinkTokenUserRecord,
+  mattermostLinkTokenIsPending as mattermostLinkTokenIsPendingRecord,
+  resolveMattermostUserLink as resolveMattermostUserLinkRecord
+} from './repository-mattermost-links.js';
 import { getUserQuotaForUser as getUserQuotaForUserRecord } from './repository-quotas.js';
 
 export class Repository {
@@ -213,6 +220,16 @@ export class Repository {
   linkFederatedIdentity = linkFederatedIdentityRecord;
 
   resolveOidcLogin = resolveOidcLoginRecord;
+
+  createMattermostLinkToken = createMattermostLinkTokenRecord;
+
+  completeMattermostLinkToken = completeMattermostLinkTokenRecord;
+
+  getMattermostLinkTokenUser = getMattermostLinkTokenUserRecord;
+
+  mattermostLinkTokenIsPending = mattermostLinkTokenIsPendingRecord;
+
+  resolveMattermostUserLink = resolveMattermostUserLinkRecord;
 
   addWorkspace = addWorkspaceRecord;
 

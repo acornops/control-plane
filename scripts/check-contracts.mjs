@@ -65,6 +65,7 @@ const internalController = read('src/controllers/internal-execution-controller.t
 const internalMcpBridgeController = read('src/controllers/internal-mcp-bridge-controller.ts');
 const openApi = [read('src/docs/openapi.ts'), readTree('src/docs/openapi')].join('\n');
 const managementConsoleContract = manifest.counterparts?.['management-console'];
+const mattermostIntegrationContract = manifest.counterparts?.['mattermost-integration-client'];
 const executionEngineContract = manifest.counterparts?.['execution-engine'];
 const llmGatewayContract = manifest.counterparts?.['llm-gateway'];
 const agentContract = manifest.counterparts?.['k8s-agent'];
@@ -87,7 +88,11 @@ for (const heading of [
 }
 
 function openApiPath(contractPath) {
-  return contractPath.replace(/^[A-Z]+ /, '').replace(/\?run_id=<runId>$/, '').replace(/\?return_to=<management-console-url>$/, '');
+  return contractPath
+    .replace(/^[A-Z]+ /, '')
+    .replace(/\?run_id=<runId>$/, '')
+    .replace(/\?return_to=<management-console-url>$/, '')
+    .replace(/\?token=<mattermost-link-token>$/, '');
 }
 
 for (const [docPath, routeNeedle, source, label] of [
@@ -97,6 +102,9 @@ for (const [docPath, routeNeedle, source, label] of [
   ['`POST /api/v1/auth/password/login`', "authRouter.post('/auth/password/login'", authRoutes, 'Password login route'],
   ['`POST /api/v1/auth/password/signup`', "authRouter.post('/auth/password/signup'", authRoutes, 'Password signup route'],
   ['`POST /api/v1/auth/logout`', "authRouter.post('/auth/logout'", authRoutes, 'Logout route'],
+  ['`POST /api/v1/auth/chat/mattermost/link`', "authRouter.post('/auth/chat/mattermost/link'", authRoutes, 'Mattermost link create route'],
+  ['`POST /api/v1/auth/chat/mattermost/resolve`', "authRouter.post('/auth/chat/mattermost/resolve'", authRoutes, 'Mattermost link resolve route'],
+  ['`POST /api/v1/auth/chat/mattermost/link/complete`', "authRouter.post('/auth/chat/mattermost/link/complete'", authRoutes, 'Mattermost browser link completion route'],
   ['`GET /api/v1/me`', "authRouter.get('/me'", authRoutes, 'Current-user route'],
   ['`POST /api/v1/auth/dev-login`', "authRouter.post('/auth/dev-login'", authRoutes, 'Dev-login route'],
   ['`GET /api/v1/workspaces`', "workspacesRouter.get('/workspaces'", workspaceRoutes, 'List workspaces route'],
@@ -213,6 +221,7 @@ for (const contractPath of [
   ...managementConsoleContract.toolingPaths,
   ...managementConsoleContract.chatRunPaths,
   ...managementConsoleContract.webhookPaths,
+  ...mattermostIntegrationContract.authPaths,
   ...executionEngineContract.controlPlanePaths,
   llmGatewayContract.jwksPath,
   llmGatewayContract.builtinBridge.callPath
