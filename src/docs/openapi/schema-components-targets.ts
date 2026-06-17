@@ -269,7 +269,8 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         capability: { type: 'string', enum: ['read', 'write'] },
         inputSchema: jsonObject,
         enabledConfigured: { type: 'boolean' },
-        enabledEffective: { type: 'boolean' }
+        enabledEffective: { type: 'boolean' },
+        effectiveDisabledReason: { type: 'string', enum: ['server_disabled', 'agent_write_disabled'], nullable: true }
       },
       additionalProperties: true
     },

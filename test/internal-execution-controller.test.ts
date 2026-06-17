@@ -46,6 +46,44 @@ function createRunEvent(type: string, seq: number, payload: Record<string, unkno
   };
 }
 
+const VM_BOOTSTRAP_TOOLS = [
+  {
+    name: 'restart_service',
+    mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
+    timeout_ms: 10000,
+    description: 'Restart a VM service',
+    capability: 'write',
+    version: 'v1',
+    source: 'builtin',
+    input_schema: { type: 'object' },
+    enabled: true
+  },
+  {
+    name: 'get_logs',
+    mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
+    timeout_ms: 10000,
+    description: 'Read VM logs',
+    capability: 'read',
+    version: 'v1',
+    source: 'builtin',
+    input_schema: { type: 'object' },
+    enabled: true
+  }
+];
+
+function mockVmBootstrapToolFetch(): void {
+  mock.method(globalThis, 'fetch', async (input) => {
+    const url = String(input);
+    if (url.includes('/api/v1/internal/mcp/tools?')) {
+      return new Response(JSON.stringify(VM_BOOTSTRAP_TOOLS), { status: 200 });
+    }
+    if (isWorkspaceAiCredentialStatusRequest(input)) {
+      return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
+    }
+    return new Response('unexpected request', { status: 500 });
+  });
+}
+
 describe('internal execution bootstrap audit metadata', () => {
   it('defaults unknown tool capabilities to write for audit classification', () => {
     assert.equal(normalizeToolCapability({ capability: 'read' }), 'read');
@@ -81,45 +119,61 @@ describe('internal execution bootstrap audit metadata', () => {
     });
     repo.getWorkspaceAiSettings = async () => null;
     repo.listTargetToolOverrides = async () => ({});
-    mock.method(globalThis, 'fetch', async (input) => {
-      const url = String(input);
-      if (url.includes('/api/v1/internal/mcp/tools?')) {
-        return new Response(JSON.stringify([
-          {
-            name: 'restart_service',
-            mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
-            timeout_ms: 10000,
-            description: 'Restart a VM service',
-            capability: 'write',
-            version: 'v1',
-            source: 'builtin',
-            input_schema: { type: 'object' },
-            enabled: true
-          },
-          {
-            name: 'get_logs',
-            mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
-            timeout_ms: 10000,
-            description: 'Read VM logs',
-            capability: 'read',
-            version: 'v1',
-            source: 'builtin',
-            input_schema: { type: 'object' },
-            enabled: true
-          }
-        ]), { status: 200 });
-      }
-      if (isWorkspaceAiCredentialStatusRequest(input)) {
-        return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
-      }
-      return new Response('unexpected request', { status: 500 });
-    });
+    mockVmBootstrapToolFetch();
 
     const response = await callController(bootstrap, createRequest({ runId: 'run-1' }));
     const allowedTools = (response.body as { tools: { allowed_tools: string[] } }).tools.allowed_tools;
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(allowedTools, ['get_logs', 'restart_service']);
+  });
+
+  it('reports read-only run mode when configured write tools are filtered from bootstrap', async () => {
+    repo.getRun = async () => createRun({ targetId: 'vm-1', targetType: 'virtual_machine', toolAccessMode: 'read_only' });
+    repo.getTarget = async () => createTarget({ id: 'vm-1', targetType: 'virtual_machine', name: 'vm' });
+    repo.getSession = async () => createSessionRecord({ targetId: 'vm-1', targetType: 'virtual_machine', clusterId: undefined });
+    repo.getTargetAgentRegistration = async () => ({
+      targetId: 'vm-1',
+      targetType: 'virtual_machine',
+      workspaceId: 'workspace-1',
+      agentKeyHash: 'hash',
+      keyVersion: 1,
+      capabilities: ['read', 'write']
+    });
+    repo.getWorkspaceAiSettings = async () => null;
+    repo.listTargetToolOverrides = async () => ({});
+    mockVmBootstrapToolFetch();
+
+    const response = await callController(bootstrap, createRequest({ runId: 'run-1' }));
+    const tools = (response.body as { tools: { allowed_tools: string[]; write_unavailable_reason: string | null } }).tools;
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(tools.allowed_tools, ['get_logs']);
+    assert.equal(tools.write_unavailable_reason, 'run_read_only');
+  });
+
+  it('reports read-only agent mode when configured write tools are filtered from bootstrap', async () => {
+    repo.getRun = async () => createRun({ targetId: 'vm-1', targetType: 'virtual_machine', toolAccessMode: 'read_write' });
+    repo.getTarget = async () => createTarget({ id: 'vm-1', targetType: 'virtual_machine', name: 'vm' });
+    repo.getSession = async () => createSessionRecord({ targetId: 'vm-1', targetType: 'virtual_machine', clusterId: undefined });
+    repo.getTargetAgentRegistration = async () => ({
+      targetId: 'vm-1',
+      targetType: 'virtual_machine',
+      workspaceId: 'workspace-1',
+      agentKeyHash: 'hash',
+      keyVersion: 1,
+      capabilities: ['read']
+    });
+    repo.getWorkspaceAiSettings = async () => null;
+    repo.listTargetToolOverrides = async () => ({});
+    mockVmBootstrapToolFetch();
+
+    const response = await callController(bootstrap, createRequest({ runId: 'run-1' }));
+    const tools = (response.body as { tools: { allowed_tools: string[]; write_unavailable_reason: string | null } }).tools;
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(tools.allowed_tools, ['get_logs']);
+    assert.equal(tools.write_unavailable_reason, 'agent_write_disabled');
   });
 
   it('bootstraps with the run provider/model snapshot even when workspace defaults changed later', async () => {

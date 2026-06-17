@@ -3,6 +3,8 @@ import { config } from '../config.js';
 import { KUBERNETES_TARGET_TYPE, TargetType } from '../types/domain.js';
 import { McpServerConfig, McpToolConfig } from './mcp-registry-client.js';
 
+type EffectiveDisabledReason = 'server_disabled' | 'agent_write_disabled' | null;
+
 export function getToolCatalogEditableRoles(): string[] {
   return listConfiguredRoleTemplates()
     .filter((role) => role.capabilities.includes('manage_tools') && role.capabilities.includes('manage_mcp'))
@@ -26,7 +28,7 @@ interface NormalizedTool {
   serverUrl: string;
   enabledConfigured: boolean;
   enabledEffective: boolean;
-  effectiveDisabledReason: 'server_disabled' | null;
+  effectiveDisabledReason: EffectiveDisabledReason;
 }
 
 interface ToolCounts {
@@ -45,7 +47,7 @@ export interface KubernetesClusterToolCatalogItem {
   source: 'builtin' | 'mcp';
   enabledConfigured: boolean;
   enabledEffective: boolean;
-  effectiveDisabledReason: 'server_disabled' | null;
+  effectiveDisabledReason: EffectiveDisabledReason;
 }
 
 export interface KubernetesClusterToolCatalogServer {
@@ -128,6 +130,7 @@ export function composeKubernetesClusterToolsCatalog(params: {
   tools: McpToolConfig[];
   servers: McpServerConfig[];
   overrides: Record<string, boolean>;
+  targetSupportsWrite: boolean;
 }): KubernetesClusterToolCatalogResponse {
   const catalog = composeTargetToolsCatalog({
     workspaceId: params.workspaceId,
@@ -136,7 +139,8 @@ export function composeKubernetesClusterToolsCatalog(params: {
     canEdit: params.canEdit,
     tools: params.tools,
     servers: params.servers,
-    overrides: params.overrides
+    overrides: params.overrides,
+    targetSupportsWrite: params.targetSupportsWrite
   });
   return {
     workspaceId: catalog.workspaceId,
@@ -154,8 +158,9 @@ export function composeTargetToolsCatalog(params: {
   tools: McpToolConfig[];
   servers: McpServerConfig[];
   overrides: Record<string, boolean>;
+  targetSupportsWrite: boolean;
 }): TargetToolCatalogResponse {
-  const { workspaceId, targetId, targetType, canEdit, tools, overrides } = params;
+  const { workspaceId, targetId, targetType, canEdit, tools, overrides, targetSupportsWrite } = params;
 
   const serverByUrl = new Map<string, McpServerConfig>();
   for (const server of params.servers) {
@@ -196,17 +201,23 @@ export function composeTargetToolsCatalog(params: {
         const enabledConfigured = Object.prototype.hasOwnProperty.call(overrides, tool.name)
           ? overrides[tool.name]
           : Boolean(tool.enabled);
-        const enabledEffective = Boolean(server.enabled) && enabledConfigured;
+        const capability = normalizeCapability(tool.capability);
+        const effectiveDisabledReason: EffectiveDisabledReason = !server.enabled && enabledConfigured
+          ? 'server_disabled'
+          : capability === 'write' && enabledConfigured && !targetSupportsWrite
+            ? 'agent_write_disabled'
+            : null;
+        const enabledEffective = Boolean(server.enabled) && enabledConfigured && effectiveDisabledReason === null;
         return {
           name: tool.name,
           description: tool.description || `Execute tool "${tool.name}"`,
-          capability: normalizeCapability(tool.capability),
+          capability,
           version: tool.version || 'v1',
           source: tool.source === 'builtin' ? ('builtin' as const) : ('mcp' as const),
           serverUrl: server.server_url,
           enabledConfigured,
           enabledEffective,
-          effectiveDisabledReason: !server.enabled && enabledConfigured ? ('server_disabled' as const) : null
+          effectiveDisabledReason
         };
       })
       .sort((left, right) => left.name.localeCompare(right.name));

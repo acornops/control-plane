@@ -277,7 +277,7 @@ The management console depends on these catalog fields:
 - `permissions.editableRoles`
 - `servers[].{id,name,url,type,enabled,isSystem,canDelete,canEditConnection,authType,connectionStatus,lastDiscoveryAt,lastDiscoveryError}`
 - `servers[].toolCounts.{total,enabledConfigured,enabledEffective,writeConfigured,writeEffective}`
-- `GET /mcp/servers/{serverId}/tools` returns paged tool rows with `{name,description,capability,version,source,enabledConfigured,enabledEffective,effectiveDisabledReason}`
+- `GET /mcp/servers/{serverId}/tools` returns paged tool rows with `{name,description,capability,version,source,enabledConfigured,enabledEffective,effectiveDisabledReason}`. `enabledEffective` includes target runtime availability; write tools on read-only agents return `effectiveDisabledReason=agent_write_disabled`.
 
 Mutation policy exposed to the management console:
 
@@ -555,7 +555,7 @@ Bootstrap response contract:
 - `policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}`
 - `context.{endpoint,max_context_tokens}`
 - `llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}`
-- `tools.{tool_registry_version,allowed_tools,tool_specs,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}`
+- `tools.{tool_registry_version,allowed_tools,tool_specs,write_unavailable_reason?,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}`. `write_unavailable_reason` is informational context for assistant wording when configured write tools are filtered out by a read-only run or read-only agent; `allowed_tools` and the run JWT remain authoritative.
 - `routing`
 - `tracing`
 
