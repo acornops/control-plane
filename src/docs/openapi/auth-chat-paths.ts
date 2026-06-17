@@ -72,7 +72,7 @@ export function buildAuthChatPaths(): Record<string, unknown> {
       post: {
         tags: ['auth'],
         summary: 'Complete a Mattermost account link',
-        description: 'Authenticated browser-session endpoint used by the management console after password or OIDC sign-in. It consumes a valid short-lived Mattermost link token and binds the Mattermost user id to the signed-in AcornOps user.',
+        description: 'Authenticated browser-session endpoint used by the management console after password or OIDC sign-in and explicit user approval. It consumes a valid short-lived Mattermost link token and binds the Mattermost user id to the signed-in AcornOps user.',
         security: [{ sessionCookie: [] }],
         requestBody: {
           required: true,

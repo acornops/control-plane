@@ -272,7 +272,7 @@
       "createResponseFields": ["linkUrl", "expiresAt"],
       "resolveStatusValues": ["linked", "unlinked"],
       "linkedResponseFields": ["status", "user.{id,displayName,email}", "link.{linkedAt,lastAuthenticatedAt,expiresAt}"],
-      "completionProof": "Only an authenticated AcornOps browser session can complete the link through POST /api/v1/auth/chat/mattermost/link/complete; OIDC and password flows only establish the session before completion.",
+      "completionProof": "Only an authenticated AcornOps browser session with explicit user approval can complete the link through POST /api/v1/auth/chat/mattermost/link/complete; OIDC and password flows only establish the session before the console approval screen.",
       "secretReturnPolicy": "Never returns browser cookies, OIDC access tokens, ID tokens, refresh tokens, or raw link tokens to external integration clients. Link tokens are stored only as hashes."
     },
     "execution-engine": {

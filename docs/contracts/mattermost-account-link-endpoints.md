@@ -62,7 +62,9 @@ shows the normal login page when no browser session exists, preserving the token
 while the user chooses password or OIDC sign-in.
 
 After an existing session, password sign-in, or OIDC sign-in establishes a
-browser session, the management console completes the durable link with:
+browser session, the management console shows an AcornOps approval screen that
+tells the user they are linking the signed-in account to Mattermost. The durable
+link is completed only after the user clicks approve:
 
 ```http
 POST {ACORNOPS_API_BASE_URL}/api/v1/auth/chat/mattermost/link/complete
