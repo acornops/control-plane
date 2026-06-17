@@ -58,6 +58,30 @@ describe('parseAppConfig production validation', () => {
     assert.equal(config.PASSWORD_AUTH_ENABLED, true);
   });
 
+  it('accepts cluster-local OIDC issuer URLs when a public issuer is configured', () => {
+    const config = parseAppConfig(productionEnv({
+      OIDC_ISSUER_URL: 'http://acornops-keycloak.acornops-identity.svc.cluster.local/realms/acornops',
+      OIDC_PUBLIC_ISSUER_URL: 'https://identity.demo.acornops.dev/realms/acornops',
+      OIDC_TOKEN_ENDPOINT_OVERRIDE: 'http://acornops-keycloak.acornops-identity.svc.cluster.local/realms/acornops/protocol/openid-connect/token',
+      OIDC_USERINFO_ENDPOINT_OVERRIDE: 'http://acornops-keycloak.acornops-identity.svc.cluster.local/realms/acornops/protocol/openid-connect/userinfo',
+      OIDC_JWKS_URI_OVERRIDE: 'http://acornops-keycloak.acornops-identity.svc.cluster.local/realms/acornops/protocol/openid-connect/certs'
+    }));
+
+    assert.equal(config.OIDC_ISSUER_URL, 'http://acornops-keycloak.acornops-identity.svc.cluster.local/realms/acornops');
+    assert.equal(config.OIDC_PUBLIC_ISSUER_URL, 'https://identity.demo.acornops.dev/realms/acornops');
+  });
+
+  it('requires a public issuer for production cluster-local OIDC issuer URLs', () => {
+    assert.throws(
+      () =>
+        parseAppConfig(productionEnv({
+          OIDC_ISSUER_URL: 'http://acornops-keycloak.acornops-identity.svc.cluster.local/realms/acornops',
+          OIDC_PUBLIC_ISSUER_URL: ''
+        })),
+      (error) => Boolean(fieldErrors(error).OIDC_PUBLIC_ISSUER_URL?.length)
+    );
+  });
+
   it('rejects placeholder production secrets and unsafe URLs', () => {
     assert.throws(
       () =>

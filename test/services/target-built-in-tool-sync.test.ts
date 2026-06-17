@@ -56,11 +56,37 @@ describe('syncTargetBuiltInTools', () => {
       return new Response('unexpected request', { status: 500 });
     });
 
-    await syncTargetBuiltInTools('ws-1', 'vm-1', 'virtual_machine');
+    const result = await syncTargetBuiltInTools('ws-1', 'vm-1', 'virtual_machine');
 
+    assert.equal(result.ok, true);
+    assert.equal(result.discoveredToolCount, 2);
+    assert.equal(result.registeredToolCount, 2);
     assert.equal(createdBody?.target_type, 'virtual_machine');
     const tools = createdBody?.tools as Array<Record<string, unknown>>;
     assert.equal(tools.find((tool) => tool.name === 'restart_service')?.capability, 'write');
     assert.equal(tools.find((tool) => tool.name === 'get_logs')?.capability, 'read');
+  });
+
+  it('reports failure when built-in tools cannot be registered in llm-gateway', async () => {
+    mock.method(agentGateway, 'listAgentTools', async () => [
+      {
+        name: 'get_logs',
+        description: 'Read logs',
+        capability: 'read' as const
+      }
+    ]);
+    mock.method(globalThis, 'fetch', async (input) => {
+      const url = String(input);
+      if (url.includes('/api/v1/internal/mcp/servers?')) {
+        return new Response('gateway down', { status: 503 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
+
+    const result = await syncTargetBuiltInTools('ws-1', 'vm-1', 'virtual_machine');
+
+    assert.equal(result.ok, false);
+    assert.equal(result.registeredToolCount, 0);
+    assert.match(result.error || '', /gateway down|llm-gateway request failed/);
   });
 });

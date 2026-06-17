@@ -31,8 +31,8 @@ async function patchAiSettings(body: Record<string, string>) {
     createRequest(
       { workspaceId: 'workspace-1' },
       {
-        defaultProvider: 'gemini',
-        defaultModel: 'gemini-2.0-flash',
+        defaultProvider: 'openai',
+        defaultModel: 'gpt-5.5',
         ...body
       }
     )

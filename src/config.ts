@@ -9,6 +9,7 @@ import {
   type AdminTokenDescriptor,
   type WorkspacePlanDefinition
 } from './config-admin.js';
+import { httpsInternalUrlConfigIssues, httpsUrlProductionIssues, oidcIssuerProductionIssues } from './config-url-policy.js';
 export { ADMIN_SCOPE_VALUES, parseAdminTokenDescriptors, parseWorkspacePlansConfig } from './config-admin.js';
 export type { AdminScope, AdminTokenDescriptor, WorkspacePlanDefinition } from './config-admin.js';
 
@@ -82,23 +83,6 @@ function addProductionIssue(ctx: z.RefinementCtx, path: string, message: string)
   });
 }
 
-function validateHttpsUrl(ctx: z.RefinementCtx, field: string, value: string): void {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    addProductionIssue(ctx, field, `${field} must be a valid URL in production`);
-    return;
-  }
-  const hostname = url.hostname.toLowerCase();
-  if (url.protocol !== 'https:') {
-    addProductionIssue(ctx, field, `${field} must use https in production`);
-  }
-  if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '127.0.0.1' || hostname === '::1') {
-    addProductionIssue(ctx, field, `${field} must not point at localhost in production`);
-  }
-}
-
 function addConfigIssue(ctx: z.RefinementCtx, field: string, message: string): void {
   ctx.addIssue({
     code: z.ZodIssueCode.custom,
@@ -116,17 +100,6 @@ function requireReadableFile(ctx: z.RefinementCtx, field: string, value: string 
     accessSync(value, constants.R_OK);
   } catch {
     addConfigIssue(ctx, field, `${field} must point to a readable file when internal transport TLS is enabled`);
-  }
-}
-
-function requireHttpsInternalUrl(ctx: z.RefinementCtx, field: string, value: string): void {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'https:') {
-      addConfigIssue(ctx, field, `${field} must use https when internal transport TLS is enabled`);
-    }
-  } catch {
-    addConfigIssue(ctx, field, `${field} must be a valid URL when internal transport TLS is enabled`);
   }
 }
 
@@ -290,10 +263,10 @@ const envSchema = z.object({
   LLM_GATEWAY_URL: z.string().url().default('http://localhost:8001'),
   LLM_GATEWAY_ADMIN_TOKEN: z.string().default('dev_orchestrator_token'),
   LLM_GATEWAY_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
-  LLM_DEFAULT_PROVIDER: z.enum(['openai', 'anthropic', 'gemini']).default('gemini'),
-  LLM_DEFAULT_MODEL: z.string().default('gemini-2.0-flash'),
+  LLM_DEFAULT_PROVIDER: z.enum(['openai', 'anthropic', 'gemini']).default('openai'),
+  LLM_DEFAULT_MODEL: z.string().default('gpt-5.5'),
   LLM_ALLOWED_PROVIDERS: z.string().default('openai,anthropic,gemini'),
-  LLM_ALLOWED_MODELS: z.string().default('gpt-4.1-mini,claude-3-5-sonnet-latest,gemini-2.0-flash'),
+  LLM_ALLOWED_MODELS: z.string().default('gpt-5.5,gpt-5.4,gpt-5.4-mini,gpt-5.4-nano,gpt-5,gpt-5-mini,gpt-5-nano,claude-3-5-sonnet-latest,gemini-2.0-flash'),
   LLM_MAX_OUTPUT_TOKENS: optionalPositiveIntFromEnv,
   LLM_REASONING_SUMMARIES_ENABLED: envBoolean(true),
   LLM_ALLOWED_REASONING_SUMMARY_MODES: z.string().default('off,auto,concise,detailed'),
@@ -368,9 +341,15 @@ const envSchema = z.object({
     requireReadableFile(ctx, 'INTERNAL_TRANSPORT_TLS_CERT_FILE', value.INTERNAL_TRANSPORT_TLS_CERT_FILE);
     requireReadableFile(ctx, 'INTERNAL_TRANSPORT_TLS_KEY_FILE', value.INTERNAL_TRANSPORT_TLS_KEY_FILE);
     requireReadableFile(ctx, 'INTERNAL_TRANSPORT_TLS_CA_FILE', value.INTERNAL_TRANSPORT_TLS_CA_FILE);
-    requireHttpsInternalUrl(ctx, 'EXECUTION_ENGINE_BASE_URL', value.EXECUTION_ENGINE_BASE_URL);
-    requireHttpsInternalUrl(ctx, 'LLM_GATEWAY_URL', value.LLM_GATEWAY_URL);
-    requireHttpsInternalUrl(ctx, 'BUILTIN_MCP_SERVER_URL', value.BUILTIN_MCP_SERVER_URL);
+    for (const issue of httpsInternalUrlConfigIssues('EXECUTION_ENGINE_BASE_URL', value.EXECUTION_ENGINE_BASE_URL)) {
+      addConfigIssue(ctx, issue.field, issue.message);
+    }
+    for (const issue of httpsInternalUrlConfigIssues('LLM_GATEWAY_URL', value.LLM_GATEWAY_URL)) {
+      addConfigIssue(ctx, issue.field, issue.message);
+    }
+    for (const issue of httpsInternalUrlConfigIssues('BUILTIN_MCP_SERVER_URL', value.BUILTIN_MCP_SERVER_URL)) {
+      addConfigIssue(ctx, issue.field, issue.message);
+    }
   }
   if (value.NODE_ENV !== 'production') {
     return;
@@ -378,18 +357,30 @@ const envSchema = z.object({
   if (value.SEED_DEVELOPMENT_DATA) {
     addProductionIssue(ctx, 'SEED_DEVELOPMENT_DATA', 'SEED_DEVELOPMENT_DATA must be false in production');
   }
-  validateHttpsUrl(ctx, 'CONTROL_PLANE_BASE_URL', value.CONTROL_PLANE_BASE_URL);
-  validateHttpsUrl(ctx, 'MANAGEMENT_CONSOLE_BASE_URL', value.MANAGEMENT_CONSOLE_BASE_URL);
-  validateHttpsUrl(ctx, 'OIDC_REDIRECT_URI', value.OIDC_REDIRECT_URI);
-  validateHttpsUrl(ctx, 'OIDC_ISSUER_URL', value.OIDC_ISSUER_URL);
+  for (const issue of httpsUrlProductionIssues('CONTROL_PLANE_BASE_URL', value.CONTROL_PLANE_BASE_URL)) {
+    addProductionIssue(ctx, issue.field, issue.message);
+  }
+  for (const issue of httpsUrlProductionIssues('MANAGEMENT_CONSOLE_BASE_URL', value.MANAGEMENT_CONSOLE_BASE_URL)) {
+    addProductionIssue(ctx, issue.field, issue.message);
+  }
+  for (const issue of httpsUrlProductionIssues('OIDC_REDIRECT_URI', value.OIDC_REDIRECT_URI)) {
+    addProductionIssue(ctx, issue.field, issue.message);
+  }
+  for (const issue of oidcIssuerProductionIssues(value.OIDC_ISSUER_URL, value.OIDC_PUBLIC_ISSUER_URL)) {
+    addProductionIssue(ctx, issue.field, issue.message);
+  }
   if (value.OIDC_PUBLIC_ISSUER_URL) {
-    validateHttpsUrl(ctx, 'OIDC_PUBLIC_ISSUER_URL', value.OIDC_PUBLIC_ISSUER_URL);
+    for (const issue of httpsUrlProductionIssues('OIDC_PUBLIC_ISSUER_URL', value.OIDC_PUBLIC_ISSUER_URL)) {
+      addProductionIssue(ctx, issue.field, issue.message);
+    }
   }
   if (value.CORS_ORIGIN === '*') {
     addProductionIssue(ctx, 'CORS_ORIGIN', 'CORS_ORIGIN must not be wildcard in production');
   } else {
     for (const origin of value.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)) {
-      validateHttpsUrl(ctx, 'CORS_ORIGIN', origin);
+      for (const issue of httpsUrlProductionIssues('CORS_ORIGIN', origin)) {
+        addProductionIssue(ctx, issue.field, issue.message);
+      }
     }
   }
   if (value.OIDC_TOKEN_ENDPOINT_AUTH_METHOD === 'none') {
@@ -436,7 +427,9 @@ const envSchema = z.object({
     );
   }
   if (passwordEmailFlowEnabled) {
-    validateHttpsUrl(ctx, 'EMAIL_PUBLIC_BASE_URL', value.EMAIL_PUBLIC_BASE_URL);
+    for (const issue of httpsUrlProductionIssues('EMAIL_PUBLIC_BASE_URL', value.EMAIL_PUBLIC_BASE_URL)) {
+      addProductionIssue(ctx, issue.field, issue.message);
+    }
   }
   if (
     value.PASSWORD_AUTH_ENABLED &&

@@ -5,8 +5,8 @@
 <h1 align="center">AcornOps Control Plane</h1>
 
 <p align="center">
-  <a href="https://github.com/acornops/control-plane-playground/actions/workflows/ci.yml"><img src="https://github.com/acornops/control-plane-playground/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="https://codecov.io/gh/acornops/control-plane-playground"><img src="https://codecov.io/gh/acornops/control-plane-playground/branch/main/graph/badge.svg" alt="Coverage" /></a>
+  <a href="https://github.com/acornops/control-plane/actions/workflows/ci.yml"><img src="https://github.com/acornops/control-plane/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://codecov.io/gh/acornops/control-plane"><img src="https://codecov.io/gh/acornops/control-plane/branch/main/graph/badge.svg" alt="Coverage" /></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-22-green.svg" alt="Node 22" /></a>
   <a href="docs/contracts/README.md"><img src="https://img.shields.io/badge/contracts-checked-blue.svg" alt="Contracts checked" /></a>
 </p>
@@ -68,8 +68,8 @@ Primary docs:
 
 - Docker Desktop (or Docker Engine + Compose plugin)
 - For the optional `integration` profile only, the following repos must be present as sibling folders:
-  - `../execution-engine-playground`
-  - `../llm-gateway-playground`
+  - `../execution-engine`
+  - `../llm-gateway`
 
 ## Compose Modes
 
@@ -104,10 +104,10 @@ Optional cross-repo integration profile:
 ```bash
 docker compose --profile integration up -d --build
 ```
-This profile requires sibling repositories `../execution-engine-playground` and `../llm-gateway-playground`.
+This profile requires sibling repositories `../execution-engine` and `../llm-gateway`.
 When enabled, execution-engine and llm-gateway are started in reload/watch mode as well.
-Default local run bootstrap is configured to `LLM_DEFAULT_PROVIDER=gemini` and
-`LLM_DEFAULT_MODEL=gemini-2.0-flash` (override via env if needed).
+Default local run bootstrap is configured to `LLM_DEFAULT_PROVIDER=openai` and
+`LLM_DEFAULT_MODEL=gpt-5.5` (override via env if needed).
 Agentic tool-loop guardrails are configurable via env:
 `AGENT_SYSTEM_INSTRUCTION`, `AGENT_CONTEXT_MAX_TOKENS` (default `120000`),
 `AGENT_BUDGET_CENTS` (default `25`), `AGENT_LLM_TEMPERATURE` (default `0.2`),
@@ -358,7 +358,7 @@ Agent websocket endpoint:
 
 - `ws://localhost:8081/api/v1/agent/connect`
 
-For `k8s-agent-playground`:
+For `k8s-agent`:
 
 - `ACORNOPS_AGENT_PLATFORM_URL=ws://localhost:8081/api/v1/agent/connect`
 - `ACORNOPS_CLUSTER_ID=<cluster id returned by cluster register API>`

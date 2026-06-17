@@ -1,5 +1,6 @@
 import WebSocket from 'ws';
 import type { TargetType } from '../types/domain.js';
+import type { BuiltInToolSyncResult } from '../services/target-built-in-tool-sync.js';
 
 export interface AgentConnection {
   connectionId: string;
@@ -13,6 +14,11 @@ export interface AgentConnection {
 }
 
 export type BuiltInToolSyncScheduler = (workspaceId: string, targetId: string, targetType: TargetType) => void;
+export type BuiltInToolSyncRunner = (
+  workspaceId: string,
+  targetId: string,
+  targetType: TargetType
+) => Promise<BuiltInToolSyncResult>;
 
 export interface AgentToolDefinition {
   name: string;

@@ -65,8 +65,18 @@ async function main(): Promise<void> {
     try {
       await withRedisLease('built-in-tool-sync', 120, async () => {
         const regs = await repo.listTargetAgentRegistrations();
+        let synced = 0;
+        let failed = 0;
         for (const reg of regs) {
-          await syncTargetBuiltInTools(reg.workspaceId, reg.targetId, reg.targetType);
+          const result = await syncTargetBuiltInTools(reg.workspaceId, reg.targetId, reg.targetType);
+          if (!result.ok || result.registeredToolCount === 0) {
+            failed += 1;
+            continue;
+          }
+          synced += 1;
+        }
+        if (failed > 0) {
+          logger.warn({ synced, failed, total: regs.length }, 'Periodic built-in tool sync completed with failures');
         }
       });
     } catch (err) {

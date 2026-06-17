@@ -72,7 +72,7 @@ describe('workspace AI settings controller', () => {
 
     assert.equal(response.statusCode, 200);
     const body = response.body as Record<string, unknown>;
-    assert.equal(body.defaultProvider, 'gemini');
+    assert.equal(body.defaultProvider, 'openai');
     assert.deepEqual(body.allowedProviders, ['openai', 'anthropic', 'gemini']);
     assert(Array.isArray(body.providers));
     assert(!JSON.stringify(body).includes('apiKey'));
@@ -89,7 +89,7 @@ describe('workspace AI settings controller', () => {
     );
 
     assert.equal(response.statusCode, 200);
-    assert.equal((response.body as { defaultProvider: string }).defaultProvider, 'gemini');
+    assert.equal((response.body as { defaultProvider: string }).defaultProvider, 'openai');
   });
 
   it('reports providers as disabled when the gateway adapter is disabled', async () => {
@@ -199,7 +199,7 @@ describe('workspace AI settings controller', () => {
       updateWorkspaceAiSettings,
       createRequest(
         { workspaceId: 'workspace-1' },
-        { defaultProvider: 'gemini', defaultModel: 'gemini-2.0-flash' }
+        { defaultProvider: 'openai', defaultModel: 'gpt-5.5' }
       )
     );
     const credential = await callController(
@@ -329,7 +329,7 @@ describe('workspace AI settings controller', () => {
     repo.getWorkspaceAiSettings = async () => ({
       workspaceId: 'workspace-1',
       defaultProvider: 'openai',
-      defaultModel: 'gpt-4.1-mini'
+      defaultModel: 'gpt-5.5'
     });
     repo.getSession = async () => createSessionRecord();
     repo.findRunByClientMessageId = async () => null;
@@ -350,12 +350,13 @@ describe('workspace AI settings controller', () => {
 
     assert.equal(response.statusCode, 202);
     assert.equal(createdRunInput?.llmProvider, 'openai');
-    assert.equal(createdRunInput?.llmModel, 'gpt-4.1-mini');
+    assert.equal(createdRunInput?.llmModel, 'gpt-5.5');
   });
 
   it('rejects run creation before dispatch when the selected provider is disabled', async () => {
     installWorkspace('admin');
     installAiCredentialGateway('disabled');
+    repo.getWorkspaceAiSettings = async () => ({ workspaceId: 'workspace-1', defaultProvider: 'gemini', defaultModel: 'gemini-2.0-flash' });
     repo.getSession = async () => createSessionRecord();
     repo.findRunByClientMessageId = async () => null;
     let attemptedRunCreate = false;
@@ -390,12 +391,12 @@ describe('workspace AI settings controller', () => {
       updateWorkspaceAiSettings,
       createRequest(
         { workspaceId: 'workspace-1' },
-        { defaultProvider: 'gemini', defaultModel: 'gemini-2.0-flash' }
+        { defaultProvider: 'openai', defaultModel: 'gpt-5.5' }
       )
     );
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(persisted, { defaultProvider: 'gemini', defaultModel: 'gemini-2.0-flash', reasoningSummaryMode: 'off', reasoningEffort: 'default' });
+    assert.deepEqual(persisted, { defaultProvider: 'openai', defaultModel: 'gpt-5.5', reasoningSummaryMode: 'off', reasoningEffort: 'default' });
   });
 
   it('rejects default model changes that do not match the selected provider', async () => {

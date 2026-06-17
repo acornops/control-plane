@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { NextFunction, Request, Response } from 'express';
-import { agentGateway } from '../agent/ws-server.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { incrementRunEventsIngested } from '../metrics.js';
@@ -86,7 +85,22 @@ async function resolveTargetToolsForRun(workspaceId: string, targetId: string, t
     logger.warn({ workspaceId, targetId, targetType, runId, err }, 'Failed listing target tools; attempting resync');
   }
 
-  await syncTargetBuiltInTools(workspaceId, targetId, targetType);
+  const syncResult = await syncTargetBuiltInTools(workspaceId, targetId, targetType);
+  if (!syncResult.ok || syncResult.registeredToolCount === 0) {
+    logger.warn(
+      {
+        workspaceId,
+        targetId,
+        targetType,
+        runId,
+        ok: syncResult.ok,
+        discoveredToolCount: syncResult.discoveredToolCount,
+        registeredToolCount: syncResult.registeredToolCount,
+        error: syncResult.error
+      },
+      'Run bootstrap built-in tool sync did not register target tools'
+    );
+  }
   try {
     const tools = await listTargetMcpTools(workspaceId, targetId, targetType);
     if (tools.length > 0) {
@@ -96,33 +110,11 @@ async function resolveTargetToolsForRun(workspaceId: string, targetId: string, t
     logger.warn({ workspaceId, targetId, targetType, runId, err }, 'Failed listing target tools after resync');
   }
 
-  try {
-    const agentTools = await agentGateway.listAgentTools(targetId);
-    if (agentTools.length === 0) {
-      return [];
-    }
-    logger.warn(
-      { workspaceId, targetId, targetType, runId, toolCount: agentTools.length },
-      'Using agent-advertised tool fallback for run bootstrap'
-    );
-    return agentTools.map((tool) => ({
-      name: tool.name,
-      mcp_server_url: config.BUILTIN_MCP_SERVER_URL,
-      timeout_ms: tool.timeout_ms ?? config.AGENT_TOOL_DEFAULT_TIMEOUT_MS,
-      description: tool.description,
-      capability: tool.capability === 'read' ? 'read' : 'write',
-      version: typeof tool.version === 'string' && tool.version.trim().length > 0 ? tool.version : 'v1',
-      source: 'builtin',
-      input_schema:
-        tool.input_schema && typeof tool.input_schema === 'object'
-          ? (tool.input_schema as Record<string, unknown>)
-          : { type: 'object', additionalProperties: true },
-      enabled: true
-    }));
-  } catch (err) {
-    logger.warn({ workspaceId, targetId, targetType, runId, err }, 'Agent fallback tool resolution failed');
-    return [];
-  }
+  logger.warn(
+    { workspaceId, targetId, targetType, runId },
+    'No gateway-registered target tools available for run bootstrap'
+  );
+  return [];
 }
 
 async function resolveWriteConfirmationRequired(targetType: TargetType, targetId: string): Promise<boolean> {
