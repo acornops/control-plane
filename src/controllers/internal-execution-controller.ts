@@ -145,6 +145,7 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
 
     let allowedToolNames: string[] = [];
     let allowedToolSpecs: Array<{ name: string; description: string; input_schema: Record<string, unknown>; capability: 'read' | 'write' }> = [];
+    let hasConfiguredWriteTool = false;
     try {
       const [tools, overrides] = await Promise.all([
         resolveTargetToolsForRun(run.workspaceId, targetId, target.targetType, run.id),
@@ -157,6 +158,7 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
             : tool.enabled;
           if (!effectiveEnabled) return false;
           const capability = normalizeToolCapability(tool);
+          if (capability === 'write') hasConfiguredWriteTool = true;
           if (capability === 'write' && !targetSupportsWrite) return false;
           if (capability === 'write' && !runAllowsWrite) return false;
           return true;
@@ -266,6 +268,13 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
         tool_registry_version: 'trv_1',
         allowed_tools: allowedToolNames,
         tool_specs: allowedToolSpecs,
+        write_unavailable_reason: hasConfiguredWriteTool
+          ? !runAllowsWrite
+            ? 'run_read_only'
+            : !targetSupportsWrite
+              ? 'agent_write_disabled'
+              : null
+          : null,
         confirmation_required_for_write: runAllowsWrite
           ? await resolveWriteConfirmationRequired(target.targetType, targetId)
           : false,

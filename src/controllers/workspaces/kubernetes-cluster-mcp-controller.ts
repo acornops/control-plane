@@ -42,13 +42,14 @@ export async function listKubernetesClusterToolsCatalog(
       return;
     }
 
-    const [tools, servers, overrides] = await Promise.all([
+    const [tools, servers, overrides, agentRegistration] = await Promise.all([
       listTargetMcpTools(workspaceId, clusterId, KUBERNETES_TARGET_TYPE, {
         includeServerDisabled: true,
         includeDisabled: true
       }),
       listTargetMcpServers(workspaceId, clusterId, KUBERNETES_TARGET_TYPE),
-      repo.listTargetToolOverrides(clusterId)
+      repo.listTargetToolOverrides(clusterId),
+      repo.getTargetAgentRegistration(clusterId)
     ]);
     const catalog = composeKubernetesClusterToolsCatalog({
       workspaceId,
@@ -56,7 +57,8 @@ export async function listKubernetesClusterToolsCatalog(
       canEdit: access.authz.can('manage_tools') && access.authz.can('manage_mcp'),
       tools,
       servers,
-      overrides
+      overrides,
+      targetSupportsWrite: Boolean(agentRegistration?.capabilities?.includes('write'))
     });
     const q = normalizeSearchQuery(req.query.q);
     const signature = makeQuerySignature({ q });

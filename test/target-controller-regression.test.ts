@@ -244,6 +244,7 @@ describe('target controller regressions', () => {
     repo.getCluster = async () => {
       throw new Error('target tool route should not require Kubernetes cluster lookup');
     };
+    repo.getTargetAgentRegistration = async () => null;
     repo.listTargetToolOverrides = async () => ({});
 
     const capturedUrls: string[] = [];
@@ -272,6 +273,7 @@ describe('target controller regressions', () => {
 
   it('lists tools for the synthetic built-in server without requiring gateway server metadata', async () => {
     installWorkspace('viewer');
+    repo.getTargetAgentRegistration = async () => null;
     repo.listTargetToolOverrides = async () => ({});
 
     mock.method(globalThis, 'fetch', async (input) => {

@@ -28,7 +28,8 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       canEdit: true,
       tools,
       servers: [],
-      overrides: {}
+      overrides: {},
+      targetSupportsWrite: true
     });
 
     assert.equal(catalog.permissions.canEdit, true);
@@ -127,7 +128,8 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       canEdit: false,
       tools,
       servers,
-      overrides: { 'a-write': true }
+      overrides: { 'a-write': true },
+      targetSupportsWrite: true
     });
 
     assert.deepEqual(
@@ -186,7 +188,8 @@ describe('composeKubernetesClusterToolsCatalog', () => {
         }
       ],
       servers: [],
-      overrides: {}
+      overrides: {},
+      targetSupportsWrite: true
     });
 
     const syntheticServer = catalog.servers.find((server) => server.name === 'remote-mcp-server');
@@ -215,6 +218,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       canEdit: true,
       servers: [],
       overrides: {},
+      targetSupportsWrite: true,
       tools: [
         {
           name: 'restart_service',
@@ -241,5 +245,68 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       writeEffective: 1
     });
     assert.equal(catalog.servers[0]?.tools[0]?.capability, 'write');
+  });
+
+  it('marks configured write tools ineffective when the agent is read-only', () => {
+    const catalog = composeKubernetesClusterToolsCatalog({
+      workspaceId: 'ws-4',
+      clusterId: 'cluster-4',
+      canEdit: true,
+      servers: [],
+      overrides: {},
+      targetSupportsWrite: false,
+      tools: [
+        {
+          name: 'restart_workload',
+          mcp_server_url: config.BUILTIN_MCP_SERVER_URL,
+          timeout_ms: 10000,
+          description: 'Restart a workload',
+          capability: 'write',
+          version: 'v1',
+          source: 'builtin',
+          enabled: true
+        },
+        {
+          name: 'list_resources',
+          mcp_server_url: config.BUILTIN_MCP_SERVER_URL,
+          timeout_ms: 10000,
+          description: 'List resources',
+          capability: 'read',
+          version: 'v1',
+          source: 'builtin',
+          enabled: true
+        }
+      ]
+    });
+
+    assert.deepEqual(catalog.servers[0]?.toolCounts, {
+      total: 2,
+      enabledConfigured: 2,
+      enabledEffective: 1,
+      writeConfigured: 1,
+      writeEffective: 0
+    });
+    assert.deepEqual(catalog.servers[0]?.tools, [
+      {
+        name: 'list_resources',
+        description: 'List resources',
+        capability: 'read',
+        version: 'v1',
+        source: 'builtin',
+        enabledConfigured: true,
+        enabledEffective: true,
+        effectiveDisabledReason: null
+      },
+      {
+        name: 'restart_workload',
+        description: 'Restart a workload',
+        capability: 'write',
+        version: 'v1',
+        source: 'builtin',
+        enabledConfigured: true,
+        enabledEffective: false,
+        effectiveDisabledReason: 'agent_write_disabled'
+      }
+    ]);
   });
 });
