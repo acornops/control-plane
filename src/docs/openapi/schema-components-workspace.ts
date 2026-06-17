@@ -45,7 +45,7 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
       required: ['authorizationUrl'],
       properties: { authorizationUrl: { type: 'string', format: 'uri' } }
     },
-    MattermostLinkCreation: {
+    ExternalIntegrationLinkCreation: {
       type: 'object',
       required: ['linkUrl', 'expiresAt'],
       properties: {
@@ -53,14 +53,14 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
         expiresAt: dateTime
       }
     },
-    MattermostLinkCompletion: {
+    ExternalIntegrationLinkCompletion: {
       type: 'object',
       required: ['status'],
       properties: {
         status: { type: 'string', enum: ['linked'] }
       }
     },
-    MattermostLinkResolution: {
+    ExternalIntegrationLinkResolution: {
       oneOf: [
         {
           type: 'object',

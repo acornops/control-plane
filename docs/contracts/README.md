@@ -112,7 +112,7 @@ resulting effective limit are rejected before mutation.
 - Password change entrypoint for authenticated password-backed users: `POST /api/v1/auth/password/change`.
 - Current auth-methods entrypoint: `GET /api/v1/auth/methods`.
 - Explicit SSO linking entrypoint for authenticated password-backed users: `POST /api/v1/auth/oidc/link/start`.
-- Mattermost account link browser completion entrypoint: `POST /api/v1/auth/chat/mattermost/link/complete`.
+- External integration account link browser completion entrypoint: `POST /api/v1/auth/chat/integration/link/complete`.
 - Logout entrypoint: `POST /api/v1/auth/logout`.
 - Current-user endpoint: `GET /api/v1/me`.
 - Dev-only shortcut outside production: `POST /api/v1/auth/dev-login`.
@@ -128,17 +128,17 @@ resulting effective limit are rejected before mutation.
 - Verification and reset tokens are bearer secrets, are stored only as hashes, and must only be sent over HTTPS outside local development.
 - Workspace invitation acceptance returns `EMAIL_VERIFICATION_REQUIRED` when the signed-in password account email matches the invite but is still pending verification.
 
-### Mattermost account link integration contract
+### External integration account link integration contract
 
-- External Mattermost integration clients use `Authorization: Bearer <MATTERMOST_CHAT_SERVICE_TOKEN>`. This token is only valid for the Mattermost account link endpoints and is not a browser session, admin token, run token, or orchestrator service token.
-- Create link endpoint: `POST /api/v1/auth/chat/mattermost/link`.
-- Resolve link endpoint: `POST /api/v1/auth/chat/mattermost/resolve`.
-- Browser link completion endpoint: `POST /api/v1/auth/chat/mattermost/link/complete` with a session cookie and body `{ token }`.
-- `POST /api/v1/auth/chat/mattermost/link` accepts `{ mattermostUserId }`, validates it as a bounded string, stores a short-lived hashed link token with that Mattermost user identity, and returns `{ linkUrl, expiresAt }`.
-- `linkUrl` points at the management console route `/integrations/mattermost/link?token=<mattermost-link-token>`. The console shows the normal login page when no browser session exists, preserving the token for password or OIDC sign-in. After either login method establishes a normal browser session, the console shows an AcornOps approval screen that tells the user they are linking the signed-in account to Mattermost. The console calls the completion endpoint only after the user clicks approve.
-- OIDC sign-in from the Mattermost link route uses an AcornOps-controlled OIDC state purpose of `integration_link` for routing/observability. The OIDC callback still only establishes the browser session and redirects back to the console route; it does not complete the Mattermost link.
-- After browser authentication and explicit approval succeed, AcornOps upserts the durable Mattermost identity link `{ mattermostUserId, acornopsUserId, linkedAt, lastAuthenticatedAt, expiresAt, revokedAt }` and consumes the short-lived link token. `lastAuthenticatedAt` is set on the initial link and updated when the Mattermost user reauthenticates through a fresh link.
-- `POST /api/v1/auth/chat/mattermost/resolve` accepts `{ mattermostUserId }` for subsequent integration requests and returns either `{ status: "unlinked" }` or `{ status: "linked", user, link }`, where `link` includes required `linkedAt`, `lastAuthenticatedAt`, and `expiresAt`.
+- External integration clients use `Authorization: Bearer <EXTERNAL_INTEGRATION_SERVICE_TOKEN>`. This token is only valid for the external integration account link endpoints and is not a browser session, admin token, run token, or orchestrator service token.
+- Create link endpoint: `POST /api/v1/auth/chat/integration/link`.
+- Resolve link endpoint: `POST /api/v1/auth/chat/integration/resolve`.
+- Browser link completion endpoint: `POST /api/v1/auth/chat/integration/link/complete` with a session cookie and body `{ token }`.
+- `POST /api/v1/auth/chat/integration/link` accepts `{ externalUserId }`, validates it as a bounded string, stores a short-lived hashed link token with that external user identity, and returns `{ linkUrl, expiresAt }`.
+- `linkUrl` points at the management console route `/integrations/external-chat/link?token=<external-chat-link-token>`. The console shows the normal login page when no browser session exists, preserving the token for password or OIDC sign-in. After either login method establishes a normal browser session, the console shows an AcornOps approval screen that tells the user they are linking the signed-in account to the external integration. The console calls the completion endpoint only after the user clicks approve.
+- OIDC sign-in from the external chat link route uses an AcornOps-controlled OIDC state purpose of `integration_link` for routing/observability. The OIDC callback still only establishes the browser session and redirects back to the console route; it does not complete the external integration link.
+- After browser authentication and explicit approval succeed, AcornOps upserts the durable external identity link `{ externalUserId, acornopsUserId, linkedAt, lastAuthenticatedAt, expiresAt, revokedAt }` and consumes the short-lived link token. `lastAuthenticatedAt` is set on the initial link and updated when the external user reauthenticates through a fresh link.
+- `POST /api/v1/auth/chat/integration/resolve` accepts `{ externalUserId }` for subsequent integration requests and returns either `{ status: "unlinked" }` or `{ status: "linked", user, link }`, where `link` includes required `linkedAt`, `lastAuthenticatedAt`, and `expiresAt`.
 - Browser cookies, OIDC access tokens, ID tokens, refresh tokens, and raw link tokens are never returned to external integration clients. Link tokens are stored only as hashes.
 
 ### Workspace, target, and cluster APIs consumed by management console

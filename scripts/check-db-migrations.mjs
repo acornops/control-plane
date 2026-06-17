@@ -43,8 +43,8 @@ for (const table of [
   'user_email_verification_tokens',
   'user_password_reset_tokens',
   'user_federated_identities',
-  'mattermost_link_tokens',
-  'mattermost_user_links',
+  'external_integration_link_tokens',
+  'external_integration_user_links',
   'workspaces',
   'workspace_quota_overrides',
   'workspace_ai_settings',
@@ -137,17 +137,17 @@ for (const needle of [
   'idx_user_email_verification_tokens_user_email',
   'idx_user_password_reset_tokens_expires_at',
   'idx_user_federated_identities_user_id',
-  'CREATE TABLE IF NOT EXISTS mattermost_link_tokens',
+  'CREATE TABLE IF NOT EXISTS external_integration_link_tokens',
   'invalidated_at TIMESTAMPTZ NULL',
-  'CREATE TABLE IF NOT EXISTS mattermost_user_links',
+  'CREATE TABLE IF NOT EXISTS external_integration_user_links',
   'acornops_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE',
   'last_authenticated_at TIMESTAMPTZ NOT NULL',
   'revoked_at TIMESTAMPTZ NULL',
-  'UNIQUE (mattermost_user_id)',
-  'idx_mattermost_link_tokens_identity',
-  'idx_mattermost_link_tokens_expires_at',
-  'idx_mattermost_user_links_user_id',
-  'idx_mattermost_user_links_active',
+  'UNIQUE (external_user_id)',
+  'idx_external_integration_link_tokens_identity',
+  'idx_external_integration_link_tokens_expires_at',
+  'idx_external_integration_user_links_user_id',
+  'idx_external_integration_user_links_active',
   'idx_workspaces_created_id',
   'idx_workspace_memberships_workspace_role',
   'idx_workspace_memberships_workspace_role_user',
@@ -260,9 +260,9 @@ async function runSqlChecks(databaseUrl) {
       ['kubernetes_target_settings', 'namespace_include'],
       ['kubernetes_target_settings', 'namespace_exclude'],
       ['run_tool_approvals', 'summary'],
-      ['mattermost_link_tokens', 'invalidated_at'],
-      ['mattermost_user_links', 'last_authenticated_at'],
-      ['mattermost_user_links', 'revoked_at']
+      ['external_integration_link_tokens', 'invalidated_at'],
+      ['external_integration_user_links', 'last_authenticated_at'],
+      ['external_integration_user_links', 'revoked_at']
     ]) {
       const result = await client.query(
         'SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2',
@@ -315,14 +315,14 @@ async function runSqlChecks(databaseUrl) {
       "SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'role_templates'"
     );
     assert.equal(roleTemplates.rowCount, 1, 'role template table must exist after migrations');
-    const mattermostLinkTokens = await client.query(
-      "SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'mattermost_link_tokens'"
+    const externalIntegrationLinkTokens = await client.query(
+      "SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'external_integration_link_tokens'"
     );
-    assert.equal(mattermostLinkTokens.rowCount, 1, 'Mattermost link token table must exist after migrations');
-    const mattermostUserLinks = await client.query(
-      "SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'mattermost_user_links'"
+    assert.equal(externalIntegrationLinkTokens.rowCount, 1, 'external integration link token table must exist after migrations');
+    const externalIntegrationUserLinks = await client.query(
+      "SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'external_integration_user_links'"
     );
-    assert.equal(mattermostUserLinks.rowCount, 1, 'Mattermost user link table must exist after migrations');
+    assert.equal(externalIntegrationUserLinks.rowCount, 1, 'external user link table must exist after migrations');
     const roleConstraintResult = await client.query(
       `SELECT conname
        FROM pg_constraint

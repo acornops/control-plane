@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { config } from '../config.js';
-import { authenticatedHandler, requireMattermostChatServiceToken, requireUser } from '../auth/middleware.js';
+import { authenticatedHandler, requireExternalIntegrationServiceToken, requireUser } from '../auth/middleware.js';
 import * as authController from '../controllers/auth-controller.js';
 import * as emailVerificationController from '../controllers/email-verification-controller.js';
-import * as mattermostLinkController from '../controllers/mattermost-link-controller.js';
+import * as externalIntegrationLinkController from '../controllers/external-integration-link-controller.js';
 import * as passwordResetController from '../controllers/password-reset-controller.js';
 
 export const authRouter = Router();
@@ -14,9 +14,9 @@ authRouter.get('/auth/csrf', authController.csrfToken);
 authRouter.get('/auth/oidc/login', authController.oidcLogin);
 authRouter.get('/auth/oidc/callback', authController.oidcCallback);
 authRouter.post('/auth/oidc/link/start', requireUser, authed(authController.oidcLinkStart));
-authRouter.post('/auth/chat/mattermost/link/complete', requireUser, authed(mattermostLinkController.completeMattermostLinkRequest));
-authRouter.post('/auth/chat/mattermost/link', requireMattermostChatServiceToken, mattermostLinkController.createMattermostLinkRequest);
-authRouter.post('/auth/chat/mattermost/resolve', requireMattermostChatServiceToken, mattermostLinkController.resolveMattermostLink);
+authRouter.post('/auth/chat/integration/link/complete', requireUser, authed(externalIntegrationLinkController.completeExternalIntegrationLinkRequest));
+authRouter.post('/auth/chat/integration/link', requireExternalIntegrationServiceToken, externalIntegrationLinkController.createExternalIntegrationLinkRequest);
+authRouter.post('/auth/chat/integration/resolve', requireExternalIntegrationServiceToken, externalIntegrationLinkController.resolveExternalIntegrationLink);
 authRouter.post('/auth/password/login', authController.passwordLogin);
 authRouter.post('/auth/password/signup', authController.passwordSignup);
 authRouter.post('/auth/password/verify-email', emailVerificationController.verifyPasswordEmail);

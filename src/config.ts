@@ -22,7 +22,7 @@ const PLACEHOLDER_VALUES = new Set([
   'dev_csrf_secret_change_me_32_bytes_minimum',
   'dev_orchestrator_token',
   'dev_execution_engine_dispatch_token',
-  'dev_mattermost_chat_service_token',
+  'dev_external_integration_service_token',
   'acornops-control-plane-secret',
   'acornops'
 ]);
@@ -241,9 +241,9 @@ const envSchema = z.object({
   SMTP_SECURE: envBoolean(false),
   SMTP_REQUIRE_TLS: envBoolean(true),
   ORCH_SERVICE_TOKEN: z.string().default('dev_orchestrator_token'),
-  MATTERMOST_CHAT_SERVICE_TOKEN: z.string().default('dev_mattermost_chat_service_token'),
-  MATTERMOST_CHAT_LINK_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(600),
-  MATTERMOST_CHAT_LINK_TTL_SECONDS: z.coerce.number().int().min(86400).max(31536000).default(2592000),
+  EXTERNAL_INTEGRATION_SERVICE_TOKEN: z.string().default('dev_external_integration_service_token'),
+  EXTERNAL_INTEGRATION_LINK_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(600),
+  EXTERNAL_INTEGRATION_LINK_TTL_SECONDS: z.coerce.number().int().min(86400).max(31536000).default(2592000),
   EXECUTION_ENGINE_BASE_URL: z.string().url().default('http://localhost:8080'),
   EXECUTION_ENGINE_DISPATCH_TOKEN: z.string().default('dev_execution_engine_dispatch_token'),
   EXECUTION_ENGINE_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
@@ -395,8 +395,8 @@ const envSchema = z.object({
   if (isUnsafeSecretValue(value.ORCH_SERVICE_TOKEN)) {
     addProductionIssue(ctx, 'ORCH_SERVICE_TOKEN', 'ORCH_SERVICE_TOKEN must be a generated production token');
   }
-  if (isUnsafeSecretValue(value.MATTERMOST_CHAT_SERVICE_TOKEN)) {
-    addProductionIssue(ctx, 'MATTERMOST_CHAT_SERVICE_TOKEN', 'MATTERMOST_CHAT_SERVICE_TOKEN must be a generated production token');
+  if (isUnsafeSecretValue(value.EXTERNAL_INTEGRATION_SERVICE_TOKEN)) {
+    addProductionIssue(ctx, 'EXTERNAL_INTEGRATION_SERVICE_TOKEN', 'EXTERNAL_INTEGRATION_SERVICE_TOKEN must be a generated production token');
   }
   if (isUnsafeSecretValue(value.EXECUTION_ENGINE_DISPATCH_TOKEN)) {
     addProductionIssue(

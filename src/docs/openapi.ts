@@ -41,7 +41,7 @@ export function buildOpenApiDocument(baseUrl: string, sessionCookieName: string)
     servers: [{ url: baseUrl }],
     tags: [
       { name: 'health', description: 'Health and readiness endpoints.' },
-      { name: 'auth', description: 'OIDC, password, browser session, and Mattermost account link endpoints.' },
+      { name: 'auth', description: 'OIDC, password, browser session, and external integration account link endpoints.' },
       { name: 'workspaces', description: 'Workspace, target, Kubernetes cluster, and VM management endpoints.' },
       { name: 'webhooks', description: 'Best-effort webhook subscription and delivery history endpoints.' },
       { name: 'sessions', description: 'Session and message endpoints.' },
@@ -73,10 +73,10 @@ export function buildOpenApiDocument(baseUrl: string, sessionCookieName: string)
           scheme: 'bearer',
           bearerFormat: 'opaque'
         },
-        mattermostChatServiceToken: {
+        externalIntegrationServiceToken: {
           type: 'http',
           scheme: 'bearer',
-          bearerFormat: 'opaque Mattermost chat service token'
+          bearerFormat: 'opaque external integration service token'
         },
         gatewayRunToken: {
           type: 'http',

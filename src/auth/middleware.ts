@@ -76,8 +76,8 @@ export function requireServiceToken(req: Request, res: Response, next: NextFunct
   requireBearerToken(req, res, next, config.ORCH_SERVICE_TOKEN);
 }
 
-export function requireMattermostChatServiceToken(req: Request, res: Response, next: NextFunction): void {
-  requireBearerToken(req, res, next, config.MATTERMOST_CHAT_SERVICE_TOKEN);
+export function requireExternalIntegrationServiceToken(req: Request, res: Response, next: NextFunction): void {
+  requireBearerToken(req, res, next, config.EXTERNAL_INTEGRATION_SERVICE_TOKEN);
 }
 
 export async function requireGatewayRunToken(req: Request, res: Response, next: NextFunction): Promise<void> {

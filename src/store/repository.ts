@@ -170,12 +170,12 @@ import {
   syncRoleTemplates as syncRoleTemplatesRecord
 } from './repository-role-templates.js';
 import {
-  completeMattermostLinkToken as completeMattermostLinkTokenRecord,
-  createMattermostLinkToken as createMattermostLinkTokenRecord,
-  getMattermostLinkTokenUser as getMattermostLinkTokenUserRecord,
-  mattermostLinkTokenIsPending as mattermostLinkTokenIsPendingRecord,
-  resolveMattermostUserLink as resolveMattermostUserLinkRecord
-} from './repository-mattermost-links.js';
+  completeExternalIntegrationLinkToken as completeExternalIntegrationLinkTokenRecord,
+  createExternalIntegrationLinkToken as createExternalIntegrationLinkTokenRecord,
+  getExternalIntegrationLinkTokenUser as getExternalIntegrationLinkTokenUserRecord,
+  externalIntegrationLinkTokenIsPending as externalIntegrationLinkTokenIsPendingRecord,
+  resolveExternalIntegrationUserLink as resolveExternalIntegrationUserLinkRecord
+} from './repository-external-integration-links.js';
 import { getUserQuotaForUser as getUserQuotaForUserRecord } from './repository-quotas.js';
 
 export class Repository {
@@ -221,15 +221,15 @@ export class Repository {
 
   resolveOidcLogin = resolveOidcLoginRecord;
 
-  createMattermostLinkToken = createMattermostLinkTokenRecord;
+  createExternalIntegrationLinkToken = createExternalIntegrationLinkTokenRecord;
 
-  completeMattermostLinkToken = completeMattermostLinkTokenRecord;
+  completeExternalIntegrationLinkToken = completeExternalIntegrationLinkTokenRecord;
 
-  getMattermostLinkTokenUser = getMattermostLinkTokenUserRecord;
+  getExternalIntegrationLinkTokenUser = getExternalIntegrationLinkTokenUserRecord;
 
-  mattermostLinkTokenIsPending = mattermostLinkTokenIsPendingRecord;
+  externalIntegrationLinkTokenIsPending = externalIntegrationLinkTokenIsPendingRecord;
 
-  resolveMattermostUserLink = resolveMattermostUserLinkRecord;
+  resolveExternalIntegrationUserLink = resolveExternalIntegrationUserLinkRecord;
 
   addWorkspace = addWorkspaceRecord;
 

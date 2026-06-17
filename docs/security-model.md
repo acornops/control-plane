@@ -6,7 +6,7 @@
 - Password self-service signup requires AcornOps email verification unless an operator explicitly enables unverified signup for a private deployment.
 - Password reset tokens prove mailbox possession; a successful reset verifies a pending password-backed account email and revokes existing browser sessions.
 - Internal execution callbacks use `ORCH_SERVICE_TOKEN`.
-- Mattermost account links use `MATTERMOST_CHAT_SERVICE_TOKEN` for the external integration client. AcornOps exposes link and resolve endpoints for Mattermost user ids in the configured single-server Mattermost deployment, but only an authenticated browser session may complete and bind a Mattermost identity to an AcornOps user.
+- external integration account links use `EXTERNAL_INTEGRATION_SERVICE_TOKEN` for the external integration client. AcornOps exposes link and resolve endpoints for external user ids in the configured single-server external integration deployment, but only an authenticated browser session may complete and bind an external identity to an AcornOps user.
 - Admin control-plane operations use `/admin/v1` with admin bearer tokens only.
   Browser session cookies, CSRF tokens, service tokens, run-scoped JWTs, and
   target agent keys are never accepted on admin endpoints.
@@ -23,12 +23,12 @@
 - Never log password email verification or reset tokens, token hashes, SMTP credentials, or email bodies. Production verification and reset URLs are also suppressed unless an operator enables the explicit unsafe `EMAIL_DELIVERY_ALLOW_LOG_IN_PRODUCTION=true` log-delivery override.
 - Keep JWKS issuer and audience settings aligned with downstream consumers.
 - Treat run-scoped gateway JWTs as bearer secrets; builtin MCP bridge scope must come from JWT claims, not caller-supplied headers.
-- Treat Mattermost `mmlink_` link tokens as short-lived bearer secrets. Store them only as hashes, invalidate older pending tokens when a new token is issued for the same Mattermost user, never log them, and never return browser cookies or OIDC provider tokens to external integration clients.
+- Treat external integration `intlink_` link tokens as short-lived bearer secrets. Store them only as hashes, invalidate older pending tokens when a new token is issued for the same external user, never log them, and never return browser cookies or OIDC provider tokens to external integration clients.
 - Treat MCP `publicHeaders` as visible non-secret metadata only; credential-like, hop-by-hop, and platform routing headers must be rejected before forwarding to the gateway.
 
 ## High-Risk Changes
 
-- Session middleware, OIDC callbacks/linking, Mattermost account link completion, password credential flows, JWKS shape, or token claims
+- Session middleware, OIDC callbacks/linking, external integration account link completion, password credential flows, JWKS shape, or token claims
 - Password email verification and reset token generation, storage, delivery, resend, and consumption behavior
 - Agent registration or key rotation behavior
 - Admin auth, audit, break-glass membership, quota, run intervention, or

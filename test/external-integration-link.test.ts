@@ -1,26 +1,26 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
-import { createMattermostLink, hashMattermostLinkToken } from '../src/auth/mattermost-link.js';
-import { requireMattermostChatServiceToken } from '../src/auth/middleware.js';
+import { createExternalIntegrationLink, hashExternalIntegrationLinkToken } from '../src/auth/external-integration-link.js';
+import { requireExternalIntegrationServiceToken } from '../src/auth/middleware.js';
 import {
-  completeMattermostLinkRequest,
-  createMattermostLinkRequest,
-  resolveMattermostLink
-} from '../src/controllers/mattermost-link-controller.js';
+  completeExternalIntegrationLinkRequest,
+  createExternalIntegrationLinkRequest,
+  resolveExternalIntegrationLink
+} from '../src/controllers/external-integration-link-controller.js';
 import { oidcLogin } from '../src/controllers/auth-controller.js';
 import { config } from '../src/config.js';
 import { db } from '../src/infra/db.js';
 import { redis } from '../src/infra/redis.js';
 import {
-  completeMattermostLinkToken as completeMattermostLinkTokenRecord,
-  createMattermostLinkToken as createMattermostLinkTokenRecord,
-  mattermostLinkTokenIsPending as mattermostLinkTokenIsPendingRecord
-} from '../src/store/repository-mattermost-links.js';
+  completeExternalIntegrationLinkToken as completeExternalIntegrationLinkTokenRecord,
+  createExternalIntegrationLinkToken as createExternalIntegrationLinkTokenRecord,
+  externalIntegrationLinkTokenIsPending as externalIntegrationLinkTokenIsPendingRecord
+} from '../src/store/repository-external-integration-links.js';
 import { repo } from '../src/store/repository.js';
 
 const mutableConfig = config as typeof config & {
   MANAGEMENT_CONSOLE_BASE_URL: string;
-  MATTERMOST_CHAT_SERVICE_TOKEN: string;
+  EXTERNAL_INTEGRATION_SERVICE_TOKEN: string;
   OIDC_ISSUER_URL: string;
   OIDC_REDIRECT_URI: string;
   OIDC_TOKEN_ENDPOINT_AUTH_METHOD: 'client_secret_basic' | 'client_secret_post' | 'none';
@@ -68,27 +68,27 @@ afterEach(() => {
   mock.restoreAll();
 });
 
-describe('Mattermost link contract', () => {
+describe('external integration link contract', () => {
   it('creates a DB-backed link token and returns a console link', async () => {
     const originalConsoleBaseUrl = config.MANAGEMENT_CONSOLE_BASE_URL;
     try {
       mutableConfig.MANAGEMENT_CONSOLE_BASE_URL = 'https://console.example.com';
       let stored: Record<string, unknown> | undefined;
-      mock.method(repo, 'createMattermostLinkToken', async (input: Record<string, unknown>) => {
+      mock.method(repo, 'createExternalIntegrationLinkToken', async (input: Record<string, unknown>) => {
         stored = input;
       });
 
-      const result = await createMattermostLink({
-        mattermostUserId: 'user-1'
+      const result = await createExternalIntegrationLink({
+        externalUserId: 'user-1'
       });
 
       const link = new URL(result.linkUrl);
       const token = link.searchParams.get('token');
       assert.equal(link.origin, 'https://console.example.com');
-      assert.equal(link.pathname, '/integrations/mattermost/link');
-      assert.match(token || '', /^mmlink_/);
-      assert.equal(stored?.mattermostUserId, 'user-1');
-      assert.equal(stored?.tokenHash, hashMattermostLinkToken(token || ''));
+      assert.equal(link.pathname, '/integrations/external-chat/link');
+      assert.match(token || '', /^intlink_/);
+      assert.equal(stored?.externalUserId, 'user-1');
+      assert.equal(stored?.tokenHash, hashExternalIntegrationLinkToken(token || ''));
       assert.equal(String(stored?.tokenHash).includes(token || 'raw-token-never'), false);
     } finally {
       mutableConfig.MANAGEMENT_CONSOLE_BASE_URL = originalConsoleBaseUrl;
@@ -109,8 +109,8 @@ describe('Mattermost link contract', () => {
     };
     mock.method(db, 'connect', async () => client);
 
-    await createMattermostLinkTokenRecord({
-      mattermostUserId: 'user-1',
+    await createExternalIntegrationLinkTokenRecord({
+      externalUserId: 'user-1',
       tokenHash: 'hash-new',
       expiresAt
     });
@@ -118,14 +118,14 @@ describe('Mattermost link contract', () => {
     const advisoryLock = queries.find((query) => query.sql.includes('pg_advisory_xact_lock'));
     assert.deepEqual(advisoryLock?.params, ['user-1']);
 
-    const invalidation = queries.find((query) => query.sql.includes('UPDATE mattermost_link_tokens'));
+    const invalidation = queries.find((query) => query.sql.includes('UPDATE external_integration_link_tokens'));
     assert.ok(invalidation?.sql.includes('invalidated_at = NOW()'));
     assert.ok(invalidation?.sql.includes('consumed_at IS NULL'));
     assert.ok(invalidation?.sql.includes('invalidated_at IS NULL'));
     assert.ok(invalidation?.sql.includes('expires_at > NOW()'));
     assert.deepEqual(invalidation?.params, ['user-1']);
 
-    const insert = queries.find((query) => query.sql.includes('INSERT INTO mattermost_link_tokens'));
+    const insert = queries.find((query) => query.sql.includes('INSERT INTO external_integration_link_tokens'));
     assert.equal(insert?.params?.[1], 'hash-new');
     assert.equal(insert?.params?.[2], 'user-1');
     assert.equal(insert?.params?.[3], expiresAt);
@@ -138,7 +138,7 @@ describe('Mattermost link contract', () => {
       return { rows: [{ exists: false }], rowCount: 1 };
     });
 
-    assert.equal(await mattermostLinkTokenIsPendingRecord('hash-old'), false);
+    assert.equal(await externalIntegrationLinkTokenIsPendingRecord('hash-old'), false);
   });
 
   it('rejects invalidated link tokens during completion', async () => {
@@ -151,7 +151,7 @@ describe('Mattermost link contract', () => {
             rows: [{
               id: 'token-1',
               token_hash: 'hash-old',
-              mattermost_user_id: 'user-1',
+              external_user_id: 'user-1',
               created_at: new Date('2026-06-08T00:00:00.000Z'),
               expires_at: new Date(Date.now() + 60000),
               consumed_at: null,
@@ -168,27 +168,27 @@ describe('Mattermost link contract', () => {
     };
     mock.method(db, 'connect', async () => client);
 
-    const completed = await completeMattermostLinkTokenRecord({
+    const completed = await completeExternalIntegrationLinkTokenRecord({
       tokenHash: 'hash-old',
       acornopsUserId: 'user-1',
       linkExpiresAt: new Date(Date.now() + 60000)
     });
 
     assert.equal(completed, false);
-    assert.equal(queries.some((query) => query.sql.includes('INSERT INTO mattermost_user_links')), false);
+    assert.equal(queries.some((query) => query.sql.includes('INSERT INTO external_integration_user_links')), false);
     assert.equal(queries.some((query) => query.sql.includes('SET consumed_at = NOW()')), false);
   });
 
-  it('exposes the bot create API with the Mattermost user id', async () => {
+  it('exposes the external integration create API with the external user id', async () => {
     const originalConsoleBaseUrl = config.MANAGEMENT_CONSOLE_BASE_URL;
     try {
       mutableConfig.MANAGEMENT_CONSOLE_BASE_URL = 'https://console.example.com';
-      mock.method(repo, 'createMattermostLinkToken', async () => undefined);
+      mock.method(repo, 'createExternalIntegrationLinkToken', async () => undefined);
       const res = createResponse();
 
-      await createMattermostLinkRequest({
+      await createExternalIntegrationLinkRequest({
         body: {
-          mattermostUserId: 'user-1'
+          externalUserId: 'user-1'
         }
       } as never, res as never, (err?: unknown) => {
         if (err) throw err;
@@ -196,26 +196,26 @@ describe('Mattermost link contract', () => {
 
       assert.equal(res.statusCode, 200);
       const body = res.body as { linkUrl: string; expiresAt: string };
-      assert.match(body.linkUrl, /^https:\/\/console\.example\.com\/integrations\/mattermost\/link\?token=mmlink_/);
+      assert.match(body.linkUrl, /^https:\/\/console\.example\.com\/integrations\/external-chat\/link\?token=intlink_/);
       assert.equal(typeof body.expiresAt, 'string');
     } finally {
       mutableConfig.MANAGEMENT_CONSOLE_BASE_URL = originalConsoleBaseUrl;
     }
   });
 
-  it('prevalidates Mattermost tokens before integration OIDC login returns to the console link route', async () => {
+  it('prevalidates external integration tokens before integration OIDC login returns to the console link route', async () => {
     const originalIssuer = config.OIDC_ISSUER_URL;
     const originalRedirectUri = config.OIDC_REDIRECT_URI;
     const originalTokenAuthMethod = config.OIDC_TOKEN_ENDPOINT_AUTH_METHOD;
     const originalConsoleBaseUrl = config.MANAGEMENT_CONSOLE_BASE_URL;
     let stateRecord: Record<string, unknown> | undefined;
     try {
-      mutableConfig.OIDC_ISSUER_URL = 'https://issuer-mattermost-link.example.com';
+      mutableConfig.OIDC_ISSUER_URL = 'https://issuer-external-integration-link.example.com';
       mutableConfig.OIDC_REDIRECT_URI = 'https://ops.example.com/api/v1/auth/oidc/callback';
       mutableConfig.OIDC_TOKEN_ENDPOINT_AUTH_METHOD = 'none';
       mutableConfig.MANAGEMENT_CONSOLE_BASE_URL = 'https://console.example.com';
       installOidcDiscovery(config.OIDC_ISSUER_URL);
-      mock.method(repo, 'mattermostLinkTokenIsPending', async () => true);
+      mock.method(repo, 'externalIntegrationLinkTokenIsPending', async () => true);
       mock.method(redis, 'setex', async (_key: string, _ttl: number, value: string) => {
         stateRecord = JSON.parse(value) as Record<string, unknown>;
         return 'OK';
@@ -224,16 +224,16 @@ describe('Mattermost link contract', () => {
       const res = createResponse();
       await oidcLogin({
         query: {
-          mattermost_link_token: 'mmlink_token-1',
-          return_to: 'https://console.example.com/integrations/mattermost/link?token=mmlink_token-1'
+          external_integration_link_token: 'intlink_token-1',
+          return_to: 'https://console.example.com/integrations/external-chat/link?token=intlink_token-1'
         }
       } as never, res as never, (err?: unknown) => {
         if (err) throw err;
       });
 
-      assert.match(res.redirectUrl, /^https:\/\/issuer-mattermost-link\.example\.com\/auth\?/);
+      assert.match(res.redirectUrl, /^https:\/\/issuer-external-integration-link\.example\.com\/auth\?/);
       assert.equal(stateRecord?.purpose, 'integration_link');
-      assert.equal(stateRecord?.returnTo, 'https://console.example.com/integrations/mattermost/link?token=mmlink_token-1');
+      assert.equal(stateRecord?.returnTo, 'https://console.example.com/integrations/external-chat/link?token=intlink_token-1');
     } finally {
       mutableConfig.OIDC_ISSUER_URL = originalIssuer;
       mutableConfig.OIDC_REDIRECT_URI = originalRedirectUri;
@@ -250,22 +250,22 @@ describe('Mattermost link contract', () => {
       createdAt: '2026-06-08T00:00:00.000Z'
     }));
     let completed: Record<string, unknown> | undefined;
-    mock.method(repo, 'completeMattermostLinkToken', async (input: Record<string, unknown>) => {
+    mock.method(repo, 'completeExternalIntegrationLinkToken', async (input: Record<string, unknown>) => {
       completed = input;
       return true;
     });
     const res = createResponse();
 
-    await completeMattermostLinkRequest({
+    await completeExternalIntegrationLinkRequest({
       auth: { userId: 'user-1', credential: { type: 'session', sessionId: 'session-1' } },
-      body: { token: 'mmlink_token-1' }
+      body: { token: 'intlink_token-1' }
     } as never, res as never, (err?: unknown) => {
       if (err) throw err;
     });
 
     assert.equal(res.statusCode, 200);
     assert.deepEqual(res.body, { status: 'linked' });
-    assert.equal(completed?.tokenHash, hashMattermostLinkToken('mmlink_token-1'));
+    assert.equal(completed?.tokenHash, hashExternalIntegrationLinkToken('intlink_token-1'));
     assert.equal(completed?.acornopsUserId, 'user-1');
   });
 
@@ -276,12 +276,12 @@ describe('Mattermost link contract', () => {
       displayName: 'Alice',
       createdAt: '2026-06-08T00:00:00.000Z'
     }));
-    mock.method(repo, 'completeMattermostLinkToken', async () => false);
+    mock.method(repo, 'completeExternalIntegrationLinkToken', async () => false);
     const res = createResponse();
 
-    await completeMattermostLinkRequest({
+    await completeExternalIntegrationLinkRequest({
       auth: { userId: 'user-1', credential: { type: 'session', sessionId: 'session-1' } },
-      body: { token: 'mmlink_token-1' }
+      body: { token: 'intlink_token-1' }
     } as never, res as never, (err?: unknown) => {
       if (err) throw err;
     });
@@ -289,15 +289,15 @@ describe('Mattermost link contract', () => {
     assert.equal(res.statusCode, 410);
     assert.deepEqual(res.body, {
       error: {
-        code: 'MATTERMOST_LINK_EXPIRED',
-        message: 'Mattermost link token is expired or unavailable',
+        code: 'EXTERNAL_INTEGRATION_LINK_EXPIRED',
+        message: 'External integration link token is expired or unavailable',
         retryable: false
       }
     });
   });
 
-  it('resolves durable links for subsequent bot requests', async () => {
-    mock.method(repo, 'resolveMattermostUserLink', async () => ({
+  it('resolves durable links for subsequent external integration requests', async () => {
+    mock.method(repo, 'resolveExternalIntegrationUserLink', async () => ({
       status: 'linked',
       user: { id: 'user-1', email: 'alice@example.com', displayName: 'Alice' },
       link: {
@@ -308,9 +308,9 @@ describe('Mattermost link contract', () => {
     }));
     const res = createResponse();
 
-    await resolveMattermostLink({
+    await resolveExternalIntegrationLink({
       body: {
-        mattermostUserId: 'user-1'
+        externalUserId: 'user-1'
       }
     } as never, res as never, (err?: unknown) => {
       if (err) throw err;
@@ -324,13 +324,13 @@ describe('Mattermost link contract', () => {
     });
   });
 
-  it('requires the Mattermost chat service token', () => {
-    const originalToken = config.MATTERMOST_CHAT_SERVICE_TOKEN;
+  it('requires the external integration service token', () => {
+    const originalToken = config.EXTERNAL_INTEGRATION_SERVICE_TOKEN;
     try {
-      mutableConfig.MATTERMOST_CHAT_SERVICE_TOKEN = 'mattermost-token-1234567890';
+      mutableConfig.EXTERNAL_INTEGRATION_SERVICE_TOKEN = 'external-integration-token-1234567890';
       const deniedRes = createResponse();
       let nextCalled = false;
-      requireMattermostChatServiceToken(
+      requireExternalIntegrationServiceToken(
         { header: () => 'Bearer wrong-token' } as never,
         deniedRes as never,
         () => {
@@ -341,8 +341,8 @@ describe('Mattermost link contract', () => {
       assert.equal(nextCalled, false);
 
       const allowedRes = createResponse();
-      requireMattermostChatServiceToken(
-        { header: () => 'Bearer mattermost-token-1234567890' } as never,
+      requireExternalIntegrationServiceToken(
+        { header: () => 'Bearer external-integration-token-1234567890' } as never,
         allowedRes as never,
         () => {
           nextCalled = true;
@@ -350,7 +350,7 @@ describe('Mattermost link contract', () => {
       );
       assert.equal(nextCalled, true);
     } finally {
-      mutableConfig.MATTERMOST_CHAT_SERVICE_TOKEN = originalToken;
+      mutableConfig.EXTERNAL_INTEGRATION_SERVICE_TOKEN = originalToken;
     }
   });
 });

@@ -17,7 +17,7 @@
         "POST /api/v1/auth/password/reset",
         "POST /api/v1/auth/password/change",
         "POST /api/v1/auth/oidc/link/start",
-        "POST /api/v1/auth/chat/mattermost/link/complete",
+        "POST /api/v1/auth/chat/integration/link/complete",
         "GET /api/v1/auth/methods",
         "POST /api/v1/auth/logout",
         "GET /api/v1/me",
@@ -262,17 +262,17 @@
       "responseCachePolicy": "All /admin/v1 responses set Cache-Control: no-store",
       "secretReturnPolicy": "No admin response returns secrets except one-time agent-key rotation, returned once"
     },
-    "mattermost-integration-client": {
-      "auth": "Authorization: Bearer <MATTERMOST_CHAT_SERVICE_TOKEN>",
+    "external-integration-client": {
+      "auth": "Authorization: Bearer <EXTERNAL_INTEGRATION_SERVICE_TOKEN>",
       "authPaths": [
-        "POST /api/v1/auth/chat/mattermost/link",
-        "POST /api/v1/auth/chat/mattermost/resolve"
+        "POST /api/v1/auth/chat/integration/link",
+        "POST /api/v1/auth/chat/integration/resolve"
       ],
-      "identityRequestFields": ["mattermostUserId"],
+      "identityRequestFields": ["externalUserId"],
       "createResponseFields": ["linkUrl", "expiresAt"],
       "resolveStatusValues": ["linked", "unlinked"],
       "linkedResponseFields": ["status", "user.{id,displayName,email}", "link.{linkedAt,lastAuthenticatedAt,expiresAt}"],
-      "completionProof": "Only an authenticated AcornOps browser session with explicit user approval can complete the link through POST /api/v1/auth/chat/mattermost/link/complete; OIDC and password flows only establish the session before the console approval screen.",
+      "completionProof": "Only an authenticated AcornOps browser session with explicit user approval can complete the link through POST /api/v1/auth/chat/integration/link/complete; OIDC and password flows only establish the session before the console approval screen.",
       "secretReturnPolicy": "Never returns browser cookies, OIDC access tokens, ID tokens, refresh tokens, or raw link tokens to external integration clients. Link tokens are stored only as hashes."
     },
     "execution-engine": {

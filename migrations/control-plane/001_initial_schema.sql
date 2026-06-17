@@ -51,25 +51,25 @@ CREATE TABLE IF NOT EXISTS user_federated_identities (
   PRIMARY KEY (provider, subject)
 );
 
-CREATE TABLE IF NOT EXISTS mattermost_link_tokens (
+CREATE TABLE IF NOT EXISTS external_integration_link_tokens (
   id TEXT PRIMARY KEY,
   token_hash TEXT UNIQUE NOT NULL,
-  mattermost_user_id TEXT NOT NULL,
+  external_user_id TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ NOT NULL,
   consumed_at TIMESTAMPTZ NULL,
   invalidated_at TIMESTAMPTZ NULL
 );
 
-CREATE TABLE IF NOT EXISTS mattermost_user_links (
+CREATE TABLE IF NOT EXISTS external_integration_user_links (
   id TEXT PRIMARY KEY,
-  mattermost_user_id TEXT NOT NULL,
+  external_user_id TEXT NOT NULL,
   acornops_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_authenticated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ NOT NULL,
   revoked_at TIMESTAMPTZ NULL,
-  UNIQUE (mattermost_user_id)
+  UNIQUE (external_user_id)
 );
 
 CREATE TABLE IF NOT EXISTS workspaces (
@@ -525,17 +525,17 @@ CREATE INDEX IF NOT EXISTS idx_user_federated_identities_user_id
 CREATE INDEX IF NOT EXISTS idx_user_federated_identities_last_login
   ON user_federated_identities (last_login_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_mattermost_link_tokens_identity
-  ON mattermost_link_tokens (mattermost_user_id);
+CREATE INDEX IF NOT EXISTS idx_external_integration_link_tokens_identity
+  ON external_integration_link_tokens (external_user_id);
 
-CREATE INDEX IF NOT EXISTS idx_mattermost_link_tokens_expires_at
-  ON mattermost_link_tokens (expires_at);
+CREATE INDEX IF NOT EXISTS idx_external_integration_link_tokens_expires_at
+  ON external_integration_link_tokens (expires_at);
 
-CREATE INDEX IF NOT EXISTS idx_mattermost_user_links_user_id
-  ON mattermost_user_links (acornops_user_id);
+CREATE INDEX IF NOT EXISTS idx_external_integration_user_links_user_id
+  ON external_integration_user_links (acornops_user_id);
 
-CREATE INDEX IF NOT EXISTS idx_mattermost_user_links_active
-  ON mattermost_user_links (mattermost_user_id, expires_at)
+CREATE INDEX IF NOT EXISTS idx_external_integration_user_links_active
+  ON external_integration_user_links (external_user_id, expires_at)
   WHERE revoked_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_workspaces_created_id

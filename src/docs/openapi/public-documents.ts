@@ -62,7 +62,7 @@ function normalizeDocument(document: OpenApiLikeDocument, audience: PublicOpenAp
     audience === 'public'
       ? {
           userSession: document.components.securitySchemes.userSession,
-          mattermostChatServiceToken: document.components.securitySchemes.mattermostChatServiceToken
+          externalIntegrationServiceToken: document.components.securitySchemes.externalIntegrationServiceToken
         }
       : { adminBearer: document.components.securitySchemes.adminBearer };
   return document;
