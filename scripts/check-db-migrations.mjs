@@ -30,10 +30,24 @@ assert(!/ALTER TABLE \w+/i.test(dbSource), 'startup must not alter application t
 assert(dbSource.includes('assertDatabaseMigrationsCurrent'), 'startup must verify migrations are current');
 
 const files = migrationFiles();
-assert.deepEqual(files, ['001_initial_schema.sql', '002_add_run_tool_approval_summary.sql']);
+assert.deepEqual(files, [
+  '001_initial_schema.sql',
+  '002_add_run_tool_approval_summary.sql',
+  '003_add_chat_activity_events.sql',
+  '004_default_reasoning_summary_mode_auto.sql'
+]);
 for (const file of files) {
   assert(/^\d{3,}_[a-z0-9_]+\.sql$/.test(file), `invalid migration filename ${file}`);
   assert(checksumSql(read(`migrations/control-plane/${file}`)).length === 64, `missing checksum coverage for ${file}`);
+}
+
+const chatActivityMigration = read('migrations/control-plane/003_add_chat_activity_events.sql');
+assert(chatActivityMigration.includes('CREATE TABLE IF NOT EXISTS chat_activity_events'), 'chat activity migration must create chat_activity_events');
+for (const childResource of ['sessions', 'runs', 'messages', 'run_tool_approvals']) {
+  assert(
+    !new RegExp(`REFERENCES\\s+${childResource}\\b`, 'i').test(chatActivityMigration),
+    `chat_activity_events must keep durable resource ids instead of cascading from ${childResource}`
+  );
 }
 
 const initial = read('migrations/control-plane/001_initial_schema.sql');
@@ -81,7 +95,7 @@ for (const needle of [
   'plan_key TEXT NOT NULL DEFAULT',
   'CREATE TABLE IF NOT EXISTS workspace_quota_overrides',
   "default_provider TEXT NOT NULL CHECK (default_provider IN ('openai', 'anthropic', 'gemini'))",
-  'reasoning_summary_mode TEXT NOT NULL DEFAULT',
+  "reasoning_summary_mode TEXT NOT NULL DEFAULT 'auto'",
   "CHECK (reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed'))",
   'reasoning_effort TEXT NOT NULL DEFAULT',
   "CHECK (reasoning_effort IN ('default', 'low', 'medium', 'high'))",
@@ -106,7 +120,7 @@ for (const needle of [
   'fk_run_events_run',
   "llm_provider TEXT NOT NULL DEFAULT 'openai' CHECK (llm_provider IN ('openai', 'anthropic', 'gemini'))",
   "llm_model TEXT NOT NULL DEFAULT 'gpt-5.5'",
-  'llm_reasoning_summary_mode TEXT NOT NULL DEFAULT',
+  "llm_reasoning_summary_mode TEXT NOT NULL DEFAULT 'auto'",
   "CHECK (llm_reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed'))",
   'llm_reasoning_effort TEXT NOT NULL DEFAULT',
   'tool_access_mode TEXT NOT NULL DEFAULT',
@@ -246,7 +260,8 @@ async function runSqlChecks(databaseUrl) {
       ['runs', 'llm_reasoning_effort'],
       ['kubernetes_target_settings', 'namespace_include'],
       ['kubernetes_target_settings', 'namespace_exclude'],
-      ['run_tool_approvals', 'summary']
+      ['run_tool_approvals', 'summary'],
+      ['chat_activity_events', 'payload']
     ]) {
       const result = await client.query(
         'SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2',
@@ -264,10 +279,11 @@ async function runSqlChecks(databaseUrl) {
            'fk_run_events_run',
            'fk_sessions_workspace_target',
            'fk_runs_workspace_target',
-           'fk_run_tool_approvals_workspace_target'
+           'fk_run_tool_approvals_workspace_target',
+           'fk_chat_activity_events_workspace_target'
          )`
     );
-    assert.equal(fkResult.rowCount, 6, 'expected session, run, and target-scope foreign keys after migrations');
+    assert.equal(fkResult.rowCount, 7, 'expected session, run, chat activity, and target-scope foreign keys after migrations');
     const membershipAudit = await client.query(
       "SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'workspace_membership_audit'"
     );

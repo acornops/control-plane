@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS workspace_ai_settings (
   workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
   default_provider TEXT NOT NULL CHECK (default_provider IN ('openai', 'anthropic', 'gemini')),
   default_model TEXT NOT NULL,
-  reasoning_summary_mode TEXT NOT NULL DEFAULT 'off'
+  reasoning_summary_mode TEXT NOT NULL DEFAULT 'auto'
     CHECK (reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed')),
   reasoning_effort TEXT NOT NULL DEFAULT 'default'
     CHECK (reasoning_effort IN ('default', 'low', 'medium', 'high')),
@@ -271,7 +271,7 @@ CREATE TABLE IF NOT EXISTS runs (
   message_id TEXT NOT NULL,
   llm_provider TEXT NOT NULL DEFAULT 'openai' CHECK (llm_provider IN ('openai', 'anthropic', 'gemini')),
   llm_model TEXT NOT NULL DEFAULT 'gpt-5.5',
-  llm_reasoning_summary_mode TEXT NOT NULL DEFAULT 'off'
+  llm_reasoning_summary_mode TEXT NOT NULL DEFAULT 'auto'
     CHECK (llm_reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed')),
   llm_reasoning_effort TEXT NOT NULL DEFAULT 'default'
     CHECK (llm_reasoning_effort IN ('default', 'low', 'medium', 'high')),

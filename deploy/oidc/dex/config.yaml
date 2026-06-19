@@ -24,3 +24,7 @@ staticPasswords:
     hash: "$2y$10$yM9Cg3PM16xo9RF5/Ljh8.FLyd.Na8mq2M10yLEGfHc8FaljucEV."
     username: dev
     userID: "u-dev-local"
+  - email: operator@acornops.local
+    hash: "$2y$10$yM9Cg3PM16xo9RF5/Ljh8.FLyd.Na8mq2M10yLEGfHc8FaljucEV."
+    username: operator
+    userID: "u-operator-local"

@@ -45,7 +45,7 @@ export async function resolveWorkspaceLlmSettings(
   const model = runSnapshot?.model || settings?.defaultModel || defaultModel();
   const allowedReasoningSummaryModes = parseAllowedReasoningSummaryModes();
   const allowedReasoningEfforts = parseAllowedReasoningEfforts();
-  const selectedSummaryMode = runSnapshot?.reasoningSummaryMode || settings?.reasoningSummaryMode || 'off';
+  const selectedSummaryMode = runSnapshot?.reasoningSummaryMode || settings?.reasoningSummaryMode || 'auto';
   const selectedEffort = runSnapshot?.reasoningEffort || settings?.reasoningEffort || 'default';
   const summaryMode =
     config.LLM_REASONING_SUMMARIES_ENABLED && allowedReasoningSummaryModes.includes(selectedSummaryMode)

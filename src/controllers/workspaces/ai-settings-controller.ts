@@ -36,7 +36,7 @@ function effectiveSettings(settings: WorkspaceAiSettings | null): WorkspaceAiSet
     workspaceId: settings?.workspaceId || '',
     defaultProvider: settings?.defaultProvider || defaultProvider(),
     defaultModel: settings?.defaultModel || defaultModel(),
-    reasoningSummaryMode: settings?.reasoningSummaryMode || 'off',
+    reasoningSummaryMode: settings?.reasoningSummaryMode || 'auto',
     reasoningEffort: settings?.reasoningEffort || 'default',
     createdAt: settings?.createdAt,
     updatedAt: settings?.updatedAt
@@ -169,7 +169,7 @@ export async function updateWorkspaceAiSettings(req: AuthenticatedRequest, res: 
     if (!(await validateProviderEnabled(res, workspaceId, req.body.defaultProvider))) {
       return;
     }
-    const reasoningSummaryMode = (req.body.reasoningSummaryMode || 'off') as ReasoningSummaryMode;
+    const reasoningSummaryMode = (req.body.reasoningSummaryMode || 'auto') as ReasoningSummaryMode;
     const reasoningEffort = (req.body.reasoningEffort || 'default') as ReasoningEffort;
     if (!validateReasoningSettings(res, reasoningSummaryMode, reasoningEffort)) {
       return;

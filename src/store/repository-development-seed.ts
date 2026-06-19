@@ -1,13 +1,30 @@
 import { DEVELOPMENT_CLUSTER_ID, DEVELOPMENT_VM_ID, DEVELOPMENT_WORKSPACE_ID } from '../constants/dev-defaults.js';
 import { db } from '../infra/db.js';
-import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE } from '../types/domain.js';
+import { KUBERNETES_TARGET_TYPE, Role, VIRTUAL_MACHINE_TARGET_TYPE } from '../types/domain.js';
 import { hashSecret } from '../utils/crypto.js';
 import { upsertTargetAgentRegistration } from './repository-target-agent-registrations.js';
+
+async function ensureDevelopmentWorkspaceMembership(userId: string, role: Role, resetRole: boolean): Promise<void> {
+  const conflictClause = resetRole
+    ? `DO UPDATE
+       SET role = EXCLUDED.role,
+           source = EXCLUDED.source,
+           updated_at = NOW()`
+    : 'DO NOTHING';
+  await db.query(
+    `INSERT INTO workspace_memberships (workspace_id, user_id, role, source)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (workspace_id, user_id) ${conflictClause}`,
+    [DEVELOPMENT_WORKSPACE_ID, userId, role, 'oidc']
+  );
+}
 
 export async function ensureDevelopmentWorkspaceAndTargets(
   createdByUserId: string,
   seedAgentKey?: string,
-  seedVmAgentKey?: string
+  seedVmAgentKey?: string,
+  additionalMemberships: Array<{ userId: string; role: Role }> = [],
+  resetMembershipRoles = false
 ): Promise<void> {
   await db.query(
     `INSERT INTO workspaces (id, name, created_by, created_at)
@@ -16,12 +33,10 @@ export async function ensureDevelopmentWorkspaceAndTargets(
     [DEVELOPMENT_WORKSPACE_ID, 'Development Workspace', createdByUserId]
   );
 
-  await db.query(
-    `INSERT INTO workspace_memberships (workspace_id, user_id, role, source)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (workspace_id, user_id) DO NOTHING`,
-    [DEVELOPMENT_WORKSPACE_ID, createdByUserId, 'owner', 'oidc']
-  );
+  await ensureDevelopmentWorkspaceMembership(createdByUserId, 'owner', resetMembershipRoles);
+  for (const membership of additionalMemberships) {
+    await ensureDevelopmentWorkspaceMembership(membership.userId, membership.role, resetMembershipRoles);
+  }
 
   const now = new Date().toISOString();
   await db.query(

@@ -28,6 +28,7 @@ function trimToBufferSize(events: BufferedRunEvent[]): BufferedRunEvent[] {
 
 export const runtime = {
   runStreams: new EventEmitter(),
+  targetChatActivityStreams: new EventEmitter(),
   agentCommands: new Map<string, AgentCommandPending>(),
   runEventBuffer: new Map<string, BufferedRunEvent[]>(),
   appendRunEvents(runId: string, events: BufferedRunEvent[]): BufferedRunEvent[] {
