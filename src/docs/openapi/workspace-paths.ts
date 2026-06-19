@@ -20,13 +20,24 @@ export function buildWorkspacePaths(): Record<string, unknown> {
         get: {
           tags: ['workspaces'],
           summary: 'List workspaces available to current user',
-          security: [{ userSession: [] }],
+          description: 'Browser callers use the session cookie. Phase-1 external integration callers may use the external integration service token plus x-acornops-external-user-id for a linked external user; external integration workspace summaries are shell-only with no workspace capabilities.',
+          security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
           parameters: [
+            {
+              in: 'header',
+              name: 'x-acornops-external-user-id',
+              required: false,
+              schema: { type: 'string', minLength: 1, maxLength: 128 },
+              description: 'Required only for external integration service-token requests. Must identify a linked external integration user.'
+            },
             { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
             { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } },
             { in: 'query', name: 'q', required: false, schema: { type: 'string' } }
           ],
-          responses: { '200': { description: 'Workspace page payload: { items, nextCursor? }. Workspace items include plan.{key,name} and quota.{members,kubernetesClusters,virtualMachines}.{used,limit}; operational quota usage is redacted to 0 when permissions.read_workspace_data is false, and member usage requires permissions.read_members.' } }
+          responses: {
+            '200': { description: 'Workspace page payload: { items, nextCursor? }. Workspace items include plan.{key,name} and quota.{members,kubernetesClusters,virtualMachines}.{used,limit}; operational quota usage is redacted to 0 when permissions.read_workspace_data is false, and member usage requires permissions.read_members. External integration requests currently receive no workspace capabilities, so operational and member usage are redacted.' },
+            '401': { description: 'Missing browser session or missing/invalid/unlinked external integration credentials.' }
+          }
         },
         post: {
           tags: ['workspaces'],

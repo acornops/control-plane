@@ -130,7 +130,7 @@ resulting effective limit are rejected before mutation.
 
 ### External integration account link integration contract
 
-- External integration clients use `Authorization: Bearer <EXTERNAL_INTEGRATION_SERVICE_TOKEN>`. This token is only valid for the external integration account link endpoints and is not a browser session, admin token, run token, or orchestrator service token.
+- External integration clients use `Authorization: Bearer <EXTERNAL_INTEGRATION_SERVICE_TOKEN>`. This token is valid only for external integration account link endpoints and explicitly enabled linked-account external integration endpoints; it is not a browser session, admin token, run token, or orchestrator service token.
 - Create link endpoint: `POST /api/v1/auth/chat/integration/link`.
 - Resolve link endpoint: `POST /api/v1/auth/chat/integration/resolve`.
 - Browser link completion endpoint: `POST /api/v1/auth/chat/integration/link/complete` with a session cookie and body `{ token }`.
@@ -140,6 +140,7 @@ resulting effective limit are rejected before mutation.
 - After browser authentication and explicit approval succeed, AcornOps upserts the durable external identity link `{ externalUserId, acornopsUserId, linkedAt, lastAuthenticatedAt, expiresAt, revokedAt }` and consumes the short-lived link token. `lastAuthenticatedAt` is set on the initial link and updated when the external user reauthenticates through a fresh link.
 - `POST /api/v1/auth/chat/integration/resolve` accepts `{ externalUserId }` for subsequent integration requests and returns either `{ status: "unlinked" }` or `{ status: "linked", user, link }`, where `link` includes required `linkedAt`, `lastAuthenticatedAt`, and `expiresAt`.
 - Browser cookies, OIDC access tokens, ID tokens, refresh tokens, and raw link tokens are never returned to external integration clients. Link tokens are stored only as hashes.
+- Phase-1 linked external integration workspace listing uses `GET /api/v1/workspaces` with `Authorization: Bearer <EXTERNAL_INTEGRATION_SERVICE_TOKEN>` and `x-acornops-external-user-id: <externalUserId>`. The control plane resolves the linked AcornOps user, assigns an `external_integration` auth credential, and returns workspace shell summaries only. External integration effective workspace permissions are default-deny, so operational/member counts and quota usage are redacted.
 
 ### Workspace, target, and cluster APIs consumed by management console
 

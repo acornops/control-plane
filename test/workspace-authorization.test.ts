@@ -31,6 +31,19 @@ function createRequest(userId = 'user-1') {
   };
 }
 
+function createExternalIntegrationRequest(userId = 'user-1') {
+  return {
+    auth: {
+      userId,
+      credential: {
+        type: 'external_integration' as const,
+        integrationId: 'external-chat',
+        externalUserId: 'external-user-1'
+      }
+    }
+  };
+}
+
 function createResponse() {
   return {
     statusCode: 200,
@@ -181,5 +194,35 @@ describe('workspace authorization helpers', () => {
     for (const role of ['owner', 'admin', 'operator', 'viewer', 'auditor'] as Role[]) {
       assert.deepEqual(getEffectiveWorkspacePermissions(req as never, role), getWorkspacePermissions(role));
     }
+  });
+
+  it('defaults external integration effective permissions to no workspace capabilities', () => {
+    const req = createExternalIntegrationRequest();
+    const emptyPermissions = getEffectiveWorkspacePermissions(req as never, 'owner');
+
+    for (const capability of Object.keys(emptyPermissions) as Array<keyof typeof emptyPermissions>) {
+      assert.equal(emptyPermissions[capability], false, capability);
+    }
+  });
+
+  it('denies workspace capabilities to external integration credentials even for owner memberships', async () => {
+    repo.getWorkspaceRole = async () => 'owner';
+    const req = createExternalIntegrationRequest();
+    const res = createResponse();
+
+    const authz = await getWorkspaceAuthorization(req as never, 'workspace-1');
+    assert.equal(authz?.role, 'owner');
+    assert.equal(authz?.can('delete_workspace'), false);
+    assert.equal(authz?.can('read_workspace_data'), false);
+
+    const mutationAuthz = await requireWorkspaceCapability(
+      req as never,
+      res as never,
+      'workspace-1',
+      'delete_workspace',
+      'denied'
+    );
+    assert.equal(mutationAuthz, null);
+    assert.equal(res.statusCode, 403);
   });
 });

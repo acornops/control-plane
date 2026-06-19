@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticatedHandler, requireUser } from '../../auth/middleware.js';
+import { authenticatedHandler, requireUser, requireUserOrExternalIntegration } from '../../auth/middleware.js';
 import * as workspacesController from '../../controllers/workspaces-controller.js';
 import {
   addWorkspaceMemberSchema,
@@ -20,7 +20,7 @@ export function registerWorkspaceRoutes(router: Router): void {
     requireUser,
     authed(workspacesController.acceptWorkspaceInvitation)
   );
-  router.get('/workspaces', requireUser, authed(workspacesController.listWorkspaces));
+  router.get('/workspaces', requireUserOrExternalIntegration, authed(workspacesController.listWorkspaces));
   router.post('/workspaces', requireUser, validateBody(createWorkspaceSchema), authed(workspacesController.createWorkspace));
   router.get('/workspaces/:workspaceId', requireUser, authed(workspacesController.getWorkspace));
   router.delete('/workspaces/:workspaceId', requireUser, authed(workspacesController.deleteWorkspace));

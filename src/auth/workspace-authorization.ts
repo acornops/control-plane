@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import {
+  capabilitiesToPermissions,
   getWorkspacePermissions,
   hasWorkspaceCapability,
   isSupportedRole,
@@ -18,11 +19,15 @@ export interface WorkspaceAuthorization {
   can(capability: WorkspaceCapability): boolean;
 }
 
+const EXTERNAL_INTEGRATION_WORKSPACE_PERMISSIONS = capabilitiesToPermissions([]);
+
 export function getEffectiveWorkspacePermissions(
-  _req: AuthenticatedRequest,
+  req: AuthenticatedRequest,
   role: Role | null | undefined
 ): WorkspacePermissions {
-  // Future PAT support should intersect role permissions with credential scopes here.
+  if (req.auth.credential?.type === 'external_integration') {
+    return { ...EXTERNAL_INTEGRATION_WORKSPACE_PERMISSIONS };
+  }
   return getWorkspacePermissions(role);
 }
 
