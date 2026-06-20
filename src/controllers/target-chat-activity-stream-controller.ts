@@ -22,6 +22,8 @@ function parseActivityAfterId(req: AuthenticatedRequest): string | undefined {
   return headerValue && /^\d+$/.test(headerValue) ? headerValue : undefined;
 }
 
+const ACTIVITY_REPLAY_PAGE_SIZE = 500;
+
 export async function getTargetChatActivity(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
@@ -88,12 +90,28 @@ export async function streamTargetChatActivity(req: AuthenticatedRequest, res: R
     };
     req.on('close', cleanup);
 
-    let existing: TargetChatActivityEvent[];
+    const existing: TargetChatActivityEvent[] = [];
+    let replayCursorId = lastReplayedId;
     try {
-      existing = await repo.listTargetChatActivityEvents(workspaceId, access.target.id, {
-        afterId: String(lastReplayedId),
-        limit: 500
-      });
+      while (!closed) {
+        const page = await repo.listTargetChatActivityEvents(workspaceId, access.target.id, {
+          afterId: String(replayCursorId),
+          limit: ACTIVITY_REPLAY_PAGE_SIZE
+        });
+        existing.push(...page);
+
+        let nextReplayCursorId = replayCursorId;
+        for (const event of page) {
+          const eventId = BigInt(event.id);
+          if (eventId > nextReplayCursorId) {
+            nextReplayCursorId = eventId;
+          }
+        }
+        if (page.length < ACTIVITY_REPLAY_PAGE_SIZE || nextReplayCursorId === replayCursorId) {
+          break;
+        }
+        replayCursorId = nextReplayCursorId;
+      }
     } catch (err) {
       cleanup();
       throw err;

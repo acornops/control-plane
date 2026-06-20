@@ -144,6 +144,42 @@ describe('target chat activity controller', () => {
     assert(writes.some((chunk) => chunk.includes('"type":"assistant_message.committed"')));
   });
 
+  it('replays all persisted target chat activity pages before live fanout', async () => {
+    installWorkspace('viewer');
+    const events = Array.from({ length: 501 }, (_, index) => ({
+      id: String(43 + index),
+      workspaceId: 'workspace-1',
+      targetId: 'cluster-1',
+      targetType: 'kubernetes',
+      sessionId: 'session-1',
+      runId: 'run-1',
+      messageId: `message-${index}`,
+      type: 'run.status_changed',
+      payload: { runId: 'run-1', status: 'running' },
+      createdAt: '2026-05-24T00:01:00.000Z'
+    } satisfies TargetChatActivityEvent));
+    const capturedAfterIds: string[] = [];
+    repo.listTargetChatActivityEvents = async (_workspaceId, _targetId, options) => {
+      capturedAfterIds.push(options?.afterId || '0');
+      const afterId = BigInt(options?.afterId || '0');
+      return events
+        .filter((event) => BigInt(event.id) > afterId)
+        .slice(0, options?.limit || 500);
+    };
+    const req = createStreamRequest({ workspaceId: 'workspace-1', targetId: 'cluster-1' }, { after: '42' });
+    const writes: string[] = [];
+    const res = createStreamResponse(writes);
+
+    await streamTargetChatActivity(req as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+    req.emit('close');
+
+    assert.deepEqual(capturedAfterIds, ['42', '542']);
+    assert(writes.includes('id: 43\n'));
+    assert(writes.includes('id: 543\n'));
+  });
+
   it('deduplicates repeated live target chat activity stream events', async () => {
     installWorkspace('viewer');
     repo.listTargetChatActivityEvents = async () => [];

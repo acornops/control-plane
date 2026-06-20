@@ -111,4 +111,61 @@ describe('workspace AI reasoning settings validation', () => {
       config.LLM_REASONING_SUMMARIES_ENABLED = previousSummariesEnabled;
     }
   });
+
+  it('falls back to off for omitted reasoning mode when summaries are disabled', async () => {
+    installWorkspace('admin');
+    installAiCredentialGateway();
+    const previousSummariesEnabled = config.LLM_REASONING_SUMMARIES_ENABLED;
+    let persisted: Parameters<typeof repo.upsertWorkspaceAiSettings>[1] | undefined;
+    repo.upsertWorkspaceAiSettings = async (_workspaceId, settings) => {
+      persisted = settings;
+    };
+
+    try {
+      config.LLM_REASONING_SUMMARIES_ENABLED = false;
+      const response = await patchAiSettings({});
+
+      assert.equal(response.statusCode, 200);
+      assert.deepEqual(persisted, {
+        defaultProvider: 'openai',
+        defaultModel: 'gpt-5.5',
+        reasoningSummaryMode: 'off',
+        reasoningEffort: 'default'
+      });
+    } finally {
+      config.LLM_REASONING_SUMMARIES_ENABLED = previousSummariesEnabled;
+    }
+  });
+
+  it('preserves an existing allowed reasoning mode when auto is disallowed and input is omitted', async () => {
+    installWorkspace('admin');
+    installAiCredentialGateway();
+    const previousAllowedModes = config.LLM_ALLOWED_REASONING_SUMMARY_MODES;
+    let persisted: Parameters<typeof repo.upsertWorkspaceAiSettings>[1] | undefined;
+    repo.getWorkspaceAiSettings = async () => ({
+      workspaceId: 'workspace-1',
+      defaultProvider: 'openai',
+      defaultModel: 'gpt-5.5',
+      reasoningSummaryMode: 'concise',
+      reasoningEffort: 'default'
+    });
+    repo.upsertWorkspaceAiSettings = async (_workspaceId, settings) => {
+      persisted = settings;
+    };
+
+    try {
+      config.LLM_ALLOWED_REASONING_SUMMARY_MODES = 'off,concise';
+      const response = await patchAiSettings({});
+
+      assert.equal(response.statusCode, 200);
+      assert.deepEqual(persisted, {
+        defaultProvider: 'openai',
+        defaultModel: 'gpt-5.5',
+        reasoningSummaryMode: 'concise',
+        reasoningEffort: 'default'
+      });
+    } finally {
+      config.LLM_ALLOWED_REASONING_SUMMARY_MODES = previousAllowedModes;
+    }
+  });
 });
