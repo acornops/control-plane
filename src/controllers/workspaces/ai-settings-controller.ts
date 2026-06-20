@@ -48,11 +48,11 @@ function defaultReasoningSummaryMode(existingMode?: ReasoningSummaryMode): Reaso
   if (!config.LLM_REASONING_SUMMARIES_ENABLED) {
     return 'off';
   }
-  if (allowedModes.includes('auto')) {
-    return 'auto';
-  }
   if (existingMode && allowedModes.includes(existingMode)) {
     return existingMode;
+  }
+  if (allowedModes.includes('auto')) {
+    return 'auto';
   }
   return 'off';
 }

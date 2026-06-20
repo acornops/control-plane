@@ -168,4 +168,30 @@ describe('workspace AI reasoning settings validation', () => {
       config.LLM_ALLOWED_REASONING_SUMMARY_MODES = previousAllowedModes;
     }
   });
+
+  it('preserves explicit off when auto is allowed and input is omitted', async () => {
+    installWorkspace('admin');
+    installAiCredentialGateway();
+    let persisted: Parameters<typeof repo.upsertWorkspaceAiSettings>[1] | undefined;
+    repo.getWorkspaceAiSettings = async () => ({
+      workspaceId: 'workspace-1',
+      defaultProvider: 'openai',
+      defaultModel: 'gpt-5.5',
+      reasoningSummaryMode: 'off',
+      reasoningEffort: 'default'
+    });
+    repo.upsertWorkspaceAiSettings = async (_workspaceId, settings) => {
+      persisted = settings;
+    };
+
+    const response = await patchAiSettings({});
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(persisted, {
+      defaultProvider: 'openai',
+      defaultModel: 'gpt-5.5',
+      reasoningSummaryMode: 'off',
+      reasoningEffort: 'default'
+    });
+  });
 });

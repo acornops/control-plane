@@ -180,6 +180,28 @@ describe('target chat activity controller', () => {
     assert(writes.includes('id: 543\n'));
   });
 
+  it('opens initial target chat activity streams without replaying unbounded history', async () => {
+    installWorkspace('viewer');
+    let replayAttempted = false;
+    repo.listTargetChatActivityEvents = async () => {
+      replayAttempted = true;
+      return [];
+    };
+    const req = createStreamRequest({ workspaceId: 'workspace-1', targetId: 'cluster-1' });
+    const writes: string[] = [];
+    const res = createStreamResponse(writes);
+
+    await streamTargetChatActivity(req as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+    req.emit('close');
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.headers?.['Content-Type'], 'text/event-stream');
+    assert.equal(replayAttempted, false);
+    assert.equal(writes.some((chunk) => chunk.startsWith('id: ')), false);
+  });
+
   it('deduplicates repeated live target chat activity stream events', async () => {
     installWorkspace('viewer');
     repo.listTargetChatActivityEvents = async () => [];

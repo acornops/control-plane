@@ -21,7 +21,7 @@
 - Preserve durable write-approval behavior: approval creation stores continuation and `waiting_for_approval` atomically, and decisions resume through backend redispatch.
 - Keep browser-facing snapshot resource, finding, investigation, and summary shapes explicit in contracts; raw snapshot history remains internal storage for metrics history and diagnostics.
 - Run event replay must read persisted `run_events` before live SSE fanout when persistence is enabled.
-- Target chat activity streams must replay persisted `chat_activity_events` before live SSE fanout so observers recover missed messages, approvals, and final commits after reconnect.
+- Target chat activity streams must replay persisted `chat_activity_events` before live SSE fanout when clients reconnect with `Last-Event-ID` or `?after=...`; fresh connects are live-only and should use recent activity/session reads for initial state.
 - Multi-pod deployments must keep unique `CONTROL_PLANE_INSTANCE_ID` values and a shared `REDIS_URL`.
 
 ## Recovery Expectations

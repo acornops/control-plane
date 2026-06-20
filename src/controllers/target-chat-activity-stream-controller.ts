@@ -62,9 +62,10 @@ export async function streamTargetChatActivity(req: AuthenticatedRequest, res: R
       return;
     }
 
+    const requestedAfterId = parseActivityAfterId(req);
     const bufferedLiveEvents: TargetChatActivityEvent[] = [];
     let replaying = true;
-    let lastReplayedId = BigInt(parseActivityAfterId(req) || '0');
+    let lastReplayedId = BigInt(requestedAfterId || '0');
     const key = targetChatActivityStreamKey(workspaceId, access.target.id);
     let keepAlive: ReturnType<typeof setInterval> | undefined;
     let closed = false;
@@ -93,7 +94,7 @@ export async function streamTargetChatActivity(req: AuthenticatedRequest, res: R
     const existing: TargetChatActivityEvent[] = [];
     let replayCursorId = lastReplayedId;
     try {
-      while (!closed) {
+      while (requestedAfterId !== undefined && !closed) {
         const page = await repo.listTargetChatActivityEvents(workspaceId, access.target.id, {
           afterId: String(replayCursorId),
           limit: ACTIVITY_REPLAY_PAGE_SIZE

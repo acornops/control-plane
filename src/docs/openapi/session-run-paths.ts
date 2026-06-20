@@ -71,7 +71,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         get: {
           tags: ['sessions'],
           summary: 'Stream target chat activity',
-          description: 'Long-lived SSE stream for browser-facing target chat activity. Frames use event: chat_activity, id: activity event id, and JSON data with resource identifiers. Supports Last-Event-ID and the optional after query parameter for replay.',
+          description: 'Long-lived SSE stream for browser-facing target chat activity. Frames use event: chat_activity, id: activity event id, and JSON data with resource identifiers. Supports Last-Event-ID and the optional after query parameter for resume replay; connections without a resume cursor are live-only.',
           security: [{ userSession: [] }],
           parameters: [
             { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
