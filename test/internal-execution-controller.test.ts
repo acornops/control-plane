@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it, mock } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import {
   bootstrap,
   commitRun,
@@ -8,6 +8,7 @@ import {
   summarizeRunEventCounts
 } from '../src/controllers/internal-execution-controller.js';
 import { agentGateway } from '../src/agent/ws-server.js';
+import { webhooks, type WebhookEventInput } from '../src/services/webhooks.js';
 import { repo } from '../src/store/repository.js';
 import { runtime } from '../src/store/runtime.js';
 import type { RunEvent } from '../src/types/domain.js';
@@ -26,12 +27,49 @@ import {
 const originalAppendRunEvents = repo.appendRunEvents;
 const originalUpdateRun = repo.updateRun;
 const originalUpsertAssistantFinalMessage = repo.upsertAssistantFinalMessage;
+const originalWebhookEmit = webhooks.emit;
+
+beforeEach(() => {
+  webhooks.emit = (_event: WebhookEventInput) => undefined;
+  repo.insertWorkspaceAuditEvent = async (event) => ({
+    id: 'audit-event-1',
+    workspaceId: event.workspaceId,
+    category: event.category,
+    eventType: event.eventType,
+    actor: {
+      type: event.actorType || (event.actorUserId ? 'user' : 'system'),
+      ...(event.actorUserId ? { userId: event.actorUserId } : {})
+    },
+    object: {
+      type: event.objectType,
+      ...(event.objectId ? { id: event.objectId } : {}),
+      ...(event.objectName ? { name: event.objectName } : {})
+    },
+    summary: event.summary,
+    metadata: event.metadata ?? {},
+    occurredAt: '2026-05-24T00:00:00.000Z'
+  });
+  repo.insertTargetChatActivityEvent = async (event) => ({
+    id: 'activity-event-1',
+    workspaceId: event.workspaceId,
+    targetId: event.targetId,
+    targetType: event.targetType,
+    sessionId: event.sessionId,
+    ...(event.runId ? { runId: event.runId } : {}),
+    ...(event.messageId ? { messageId: event.messageId } : {}),
+    ...(event.approvalId ? { approvalId: event.approvalId } : {}),
+    type: event.type,
+    payload: event.payload ?? {},
+    createdAt: '2026-05-24T00:00:00.000Z'
+  });
+});
 
 afterEach(() => {
   restoreControllerRegressionState();
   repo.appendRunEvents = originalAppendRunEvents;
   repo.updateRun = originalUpdateRun;
   repo.upsertAssistantFinalMessage = originalUpsertAssistantFinalMessage;
+  webhooks.emit = originalWebhookEmit;
   runtime.clearRunEvents('run-1');
 });
 

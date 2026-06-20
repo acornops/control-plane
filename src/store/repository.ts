@@ -109,7 +109,11 @@ import {
   updateRun as updateRunRecord,
   upsertAssistantFinalMessage as upsertAssistantFinalMessageRecord
 } from './repository-sessions.js';
-import { listRecentTargetChatActivity as listRecentTargetChatActivityRecord } from './repository-chat-activity.js';
+import {
+  insertTargetChatActivityEvent as insertTargetChatActivityEventRecord,
+  listRecentTargetChatActivity as listRecentTargetChatActivityRecord,
+  listTargetChatActivityEvents as listTargetChatActivityEventsRecord
+} from './repository-chat-activity.js';
 import {
   createRunToolApproval as createRunToolApprovalRecord,
   decideRunToolApproval as decideRunToolApprovalRecord,
@@ -287,6 +291,10 @@ export class Repository {
   listSessionsByTarget = listSessionsByTargetRecord;
 
   listRecentTargetChatActivity = listRecentTargetChatActivityRecord;
+
+  insertTargetChatActivityEvent = insertTargetChatActivityEventRecord;
+
+  listTargetChatActivityEvents = listTargetChatActivityEventsRecord;
 
   getSession = getSessionRecord;
 

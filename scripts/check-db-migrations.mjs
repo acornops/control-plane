@@ -30,7 +30,9 @@ assert(!/ALTER TABLE \w+/i.test(dbSource), 'startup must not alter application t
 assert(dbSource.includes('assertDatabaseMigrationsCurrent'), 'startup must verify migrations are current');
 
 const files = migrationFiles();
-assert.deepEqual(files, ['001_initial_schema.sql', '002_add_run_tool_approval_summary.sql']);
+assert.deepEqual(files, [
+  '001_initial_schema.sql'
+]);
 for (const file of files) {
   assert(/^\d{3,}_[a-z0-9_]+\.sql$/.test(file), `invalid migration filename ${file}`);
   assert(checksumSql(read(`migrations/control-plane/${file}`)).length === 64, `missing checksum coverage for ${file}`);
@@ -65,6 +67,7 @@ for (const table of [
   'run_events',
   'run_tool_approvals',
   'run_continuations',
+  'chat_activity_events',
   'webhook_subscriptions',
   'webhook_history',
   'workspace_audit_events',
@@ -81,7 +84,7 @@ for (const needle of [
   'plan_key TEXT NOT NULL DEFAULT',
   'CREATE TABLE IF NOT EXISTS workspace_quota_overrides',
   "default_provider TEXT NOT NULL CHECK (default_provider IN ('openai', 'anthropic', 'gemini'))",
-  'reasoning_summary_mode TEXT NOT NULL DEFAULT',
+  "reasoning_summary_mode TEXT NOT NULL DEFAULT 'auto'",
   "CHECK (reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed'))",
   'reasoning_effort TEXT NOT NULL DEFAULT',
   "CHECK (reasoning_effort IN ('default', 'low', 'medium', 'high'))",
@@ -106,13 +109,18 @@ for (const needle of [
   'fk_run_events_run',
   "llm_provider TEXT NOT NULL DEFAULT 'openai' CHECK (llm_provider IN ('openai', 'anthropic', 'gemini'))",
   "llm_model TEXT NOT NULL DEFAULT 'gpt-5.5'",
-  'llm_reasoning_summary_mode TEXT NOT NULL DEFAULT',
+  "llm_reasoning_summary_mode TEXT NOT NULL DEFAULT 'auto'",
   "CHECK (llm_reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed'))",
   'llm_reasoning_effort TEXT NOT NULL DEFAULT',
   'tool_access_mode TEXT NOT NULL DEFAULT',
   'execution_status TEXT NOT NULL DEFAULT',
   'CREATE TABLE IF NOT EXISTS run_continuations',
   'idx_run_continuations_approval',
+  'summary TEXT NULL',
+  'CREATE TABLE IF NOT EXISTS chat_activity_events',
+  'fk_chat_activity_events_workspace_target',
+  'idx_chat_activity_events_target_replay',
+  'idx_chat_activity_events_session',
   'CREATE TABLE IF NOT EXISTS workspace_audit_events',
   'workspace_audit_events_category_check',
   'workspace_audit_events_operation_check',
@@ -165,6 +173,12 @@ for (const needle of [
   'admin_audit_events_action_idx'
 ]) {
   assert(initial.includes(needle), `initial migration missing ${needle}`);
+}
+for (const childResource of ['sessions', 'runs', 'messages', 'run_tool_approvals']) {
+  assert(
+    !new RegExp(`REFERENCES\\s+${childResource}\\b`, 'i').test(initial.slice(initial.indexOf('CREATE TABLE IF NOT EXISTS chat_activity_events'))),
+    `chat_activity_events must keep durable resource ids instead of cascading from ${childResource}`
+  );
 }
 assert(!initial.includes('node TEXT NULL'), 'target inventory items must not expose Kubernetes-only node as a generic column');
 assert(!initial.includes('resource_count INTEGER'), 'target snapshot summaries must use target-neutral inventory_count');
@@ -246,7 +260,8 @@ async function runSqlChecks(databaseUrl) {
       ['runs', 'llm_reasoning_effort'],
       ['kubernetes_target_settings', 'namespace_include'],
       ['kubernetes_target_settings', 'namespace_exclude'],
-      ['run_tool_approvals', 'summary']
+      ['run_tool_approvals', 'summary'],
+      ['chat_activity_events', 'payload']
     ]) {
       const result = await client.query(
         'SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2',
@@ -264,10 +279,11 @@ async function runSqlChecks(databaseUrl) {
            'fk_run_events_run',
            'fk_sessions_workspace_target',
            'fk_runs_workspace_target',
-           'fk_run_tool_approvals_workspace_target'
+           'fk_run_tool_approvals_workspace_target',
+           'fk_chat_activity_events_workspace_target'
          )`
     );
-    assert.equal(fkResult.rowCount, 6, 'expected session, run, and target-scope foreign keys after migrations');
+    assert.equal(fkResult.rowCount, 7, 'expected session, run, chat activity, and target-scope foreign keys after migrations');
     const membershipAudit = await client.query(
       "SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'workspace_membership_audit'"
     );

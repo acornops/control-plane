@@ -8,6 +8,7 @@ import { isModelAllowedForProvider } from '../services/llm-policy.js';
 import { syncTargetBuiltInTools } from '../services/target-built-in-tool-sync.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
 import { publishRunEvents } from '../services/control-plane-coordination.js';
+import { recordTargetChatActivityEvent } from '../services/target-chat-activity-events.js';
 import { sanitizeToolInputSchema, sanitizeToolText } from '../services/tool-metadata.js';
 import { gatewayTokenService } from '../services/token-service.js';
 import { emitRunStatusTransition } from '../services/webhooks.js';
@@ -470,12 +471,30 @@ export async function commitRun(req: Request, res: Response, next: NextFunction)
     });
     emitRunStatusTransition(run, updatedRun);
 
+    const commitAssistantFinalMessage = async (content: string) => {
+      const message = await repo.upsertAssistantFinalMessage(run.sessionId, run.id, content);
+      await recordTargetChatActivityEvent({
+        workspaceId: run.workspaceId,
+        targetId: run.targetId,
+        targetType: run.targetType,
+        sessionId: run.sessionId,
+        runId: run.id,
+        messageId: message.id,
+        type: 'assistant_message.committed',
+        payload: {
+          status: req.body.status,
+          contentLength: content.length,
+          committedAt: new Date().toISOString()
+        }
+      });
+    };
+
     const committedContent = String(assistantMessage?.content || '').trim();
     if (committedContent) {
-      await repo.upsertAssistantFinalMessage(run.sessionId, run.id, committedContent);
+      await commitAssistantFinalMessage(committedContent);
     } else if (req.body.status === 'failed' || req.body.status === 'cancelled') {
       const failureMessage = buildTerminalFailureMessage(req.body.status, updatedRun?.errorMessage || run.errorMessage);
-      await repo.upsertAssistantFinalMessage(run.sessionId, run.id, failureMessage);
+      await commitAssistantFinalMessage(failureMessage);
     }
 
     res.status(200).json({ status: 'ok' });

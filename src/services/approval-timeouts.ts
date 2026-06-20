@@ -1,12 +1,16 @@
 import { dispatchRunToExecutionEngine } from './execution-engine-client.js';
 import { logger } from '../logger.js';
 import { repo } from '../store/repository.js';
+import { recordApprovalActivity } from './target-chat-activity-events.js';
 
 export async function expireAndResumeTimedOutApprovals(limit = 100): Promise<number> {
   const expired = await repo.expirePendingRunToolApprovals(limit);
   let resumed = 0;
   for (const approval of expired) {
     const run = await repo.getRun(approval.runId);
+    if (run) {
+      await recordApprovalActivity(approval, 'approval.expired', run.sessionId, run.messageId);
+    }
     if (!run || run.status !== 'waiting_for_approval') {
       continue;
     }

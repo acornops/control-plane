@@ -205,7 +205,7 @@ export function buildWorkspacePaths(): Record<string, unknown> {
                   properties: {
                     defaultProvider: llmProviderSchema,
                     defaultModel: { type: 'string', example: 'gpt-5.5' },
-                    reasoningSummaryMode: { type: 'string', enum: ['off', 'auto', 'concise', 'detailed'], default: 'off' },
+                    reasoningSummaryMode: { type: 'string', enum: ['off', 'auto', 'concise', 'detailed'], default: 'auto' },
                     reasoningEffort: { type: 'string', enum: ['default', 'low', 'medium', 'high'], default: 'default' }
                   }
                 }

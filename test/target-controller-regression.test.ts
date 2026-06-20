@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import { createToolApproval } from '../src/controllers/internal-approval-controller.js';
-import { createSession, getTargetChatActivity, postMessage } from '../src/controllers/sessions-controller.js';
+import { createSession, deleteSession, postMessage } from '../src/controllers/sessions-controller.js';
 import { listTargets } from '../src/controllers/workspaces/target-controller.js';
 import {
   createTargetMcpServerForTarget,
@@ -184,59 +184,53 @@ describe('target controller regressions', () => {
     assert.deepEqual(allowed.body, { message_id: 'message-1', run_id: 'run-1' });
   });
 
-  it('returns recent target chat activity for readable target sessions', async () => {
-    installWorkspace('viewer');
-    let capturedWindowSeconds = 0;
-    repo.listRecentTargetChatActivity = async (_workspaceId: string, targetId: string, windowSeconds: number) => {
-      capturedWindowSeconds = windowSeconds;
-      return [
-        {
-          sessionId: 'session-1',
-          title: 'Session',
-          createdBy: 'user-1',
-          createdByUser: { id: 'user-1', displayName: 'User One' },
-          lastActivityAt: '2026-05-24T00:01:00.000Z',
-          lastRunId: 'run-1',
-          lastRunStatus: 'waiting_for_approval',
-          activeRun: {
-            runId: 'run-1',
-            status: 'waiting_for_approval',
-            toolAccessMode: 'read_write',
-            requestedAt: '2026-05-24T00:00:30.000Z'
-          },
-          hasActiveRun: true,
-          hasRecentWriteCapableRun: true,
-          latestToolAccessMode: 'read_write'
-        }
-      ];
+  it('records durable target chat activity after deleting a session', async () => {
+    installWorkspace('admin');
+    const session = createSessionRecord({ id: 'session-delete', targetId: 'target-1', targetType: 'virtual_machine', clusterId: undefined });
+    const recorded: unknown[] = [];
+    repo.getSession = async () => session;
+    repo.deleteSession = async () => true;
+    repo.insertTargetChatActivityEvent = async (event) => {
+      recorded.push(event);
+      return {
+        id: 'activity-event-1',
+        workspaceId: event.workspaceId,
+        targetId: event.targetId,
+        targetType: event.targetType,
+        sessionId: event.sessionId,
+        type: event.type,
+        payload: event.payload ?? {},
+        createdAt: '2026-05-24T00:00:00.000Z'
+      };
     };
 
-    const allowed = await callController(
-      getTargetChatActivity,
-      createRequest({ workspaceId: 'workspace-1', targetId: 'cluster-1' })
+    const response = await callController(
+      deleteSession,
+      createRequest({ sessionId: 'session-delete' })
     );
 
-    assert.equal(allowed.statusCode, 200);
-    assert.equal(capturedWindowSeconds, 300);
-    assert.equal((allowed.body as { targetName: string }).targetName, 'cluster');
-    assert.equal((allowed.body as { recentActivity: unknown[] }).recentActivity.length, 1);
-  });
-
-  it('clamps target chat activity windows to the supported range', async () => {
-    installWorkspace('viewer');
-    let capturedWindowSeconds = 0;
-    repo.listRecentTargetChatActivity = async (_workspaceId: string, _targetId: string, windowSeconds: number) => {
-      capturedWindowSeconds = windowSeconds;
-      return [];
+    assert.equal(response.statusCode, 204);
+    assert.equal(recorded.length, 1);
+    const activity = recorded[0] as {
+      workspaceId: string;
+      targetId: string;
+      targetType: string;
+      sessionId: string;
+      type: string;
+      payload: { deletedBy: string; deletedAt: string };
     };
-
-    const request = createRequest({ workspaceId: 'workspace-1', targetId: 'cluster-1' });
-    request.query = { windowSeconds: '99999' };
-    const allowed = await callController(getTargetChatActivity, request);
-
-    assert.equal(allowed.statusCode, 200);
-    assert.equal(capturedWindowSeconds, 3600);
-    assert.equal((allowed.body as { windowSeconds: number }).windowSeconds, 3600);
+    assert.deepEqual(activity, {
+      workspaceId: 'workspace-1',
+      targetId: 'target-1',
+      targetType: 'virtual_machine',
+      sessionId: 'session-delete',
+      type: 'session.deleted',
+      payload: {
+        deletedBy: 'user-1',
+        deletedAt: activity.payload.deletedAt
+      }
+    });
+    assert.match(activity.payload.deletedAt, /^\d{4}-\d{2}-\d{2}T/);
   });
 
   it('routes target MCP catalogs and server reads by persisted target type', async () => {
@@ -386,6 +380,7 @@ describe('target controller regressions', () => {
   });
 
   it('creates tool approvals against the run target id without forcing a Kubernetes cluster alias', async () => {
+    installWorkspace('operator');
     const emitted: WebhookEventInput[] = [];
     let capturedApprovalParams: { targetId?: string; clusterId?: string; summary?: string } | undefined;
     mock.method(webhooks, 'emit', (event: WebhookEventInput) => {

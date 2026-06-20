@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticatedHandler, requireUser } from '../auth/middleware.js';
 import * as sessionsController from '../controllers/sessions-controller.js';
+import * as targetChatActivityStreamController from '../controllers/target-chat-activity-stream-controller.js';
 import { createSessionSchema, postMessageSchema } from '../types/contracts.js';
 import { validateBody } from '../utils/http.js';
 
@@ -32,7 +33,12 @@ sessionsRouter.get(
 sessionsRouter.get(
   '/workspaces/:workspaceId/targets/:targetId/chat-activity',
   requireUser,
-  authed(sessionsController.getTargetChatActivity)
+  authed(targetChatActivityStreamController.getTargetChatActivity)
+);
+sessionsRouter.get(
+  '/workspaces/:workspaceId/targets/:targetId/chat-activity/stream',
+  requireUser,
+  authed(targetChatActivityStreamController.streamTargetChatActivity)
 );
 
 sessionsRouter.get('/sessions/:sessionId', requireUser, authed(sessionsController.getSession));

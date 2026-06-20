@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import { config } from '../config.js';
+import { recordApprovalActivity, recordRunStatusChangedActivity } from '../services/target-chat-activity-events.js';
 import { webhooks } from '../services/webhooks.js';
 import { repo } from '../store/repository.js';
 import { KUBERNETES_TARGET_TYPE } from '../types/domain.js';
@@ -32,6 +33,9 @@ export async function createToolApproval(req: Request, res: Response, next: Next
       expiresAt,
       continuationState: req.body.continuation
     });
+    const waitingRun = await repo.getRun(run.id);
+    await recordRunStatusChangedActivity(run, waitingRun);
+    await recordApprovalActivity(approval, 'approval.requested', run.sessionId, run.messageId);
     webhooks.emit({
       type: 'run.tool_approval_requested.v1',
       workspaceId: run.workspaceId,
@@ -71,6 +75,12 @@ export async function getRunContinuation(req: Request, res: Response, next: Next
     let effectiveApproval = approval;
     if (approval.status === 'pending' && new Date(approval.expiresAt).getTime() <= Date.now()) {
       effectiveApproval = (await repo.expireRunToolApproval(approval.id)) || approval;
+      if (effectiveApproval.status === 'expired') {
+        const run = await repo.getRun(effectiveApproval.runId);
+        if (run) {
+          await recordApprovalActivity(effectiveApproval, 'approval.expired', run.sessionId, run.messageId);
+        }
+      }
     }
     res.status(200).json({ ...continuation, approval: effectiveApproval });
   } catch (err) {

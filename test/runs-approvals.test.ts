@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 import { decideRunApproval } from '../src/controllers/runs-controller.js';
 import { repo } from '../src/store/repository.js';
 import type { Run, RunToolApproval } from '../src/types/domain.js';
@@ -8,12 +8,30 @@ const originalGetRun = repo.getRun;
 const originalGetRunToolApproval = repo.getRunToolApproval;
 const originalGetWorkspaceRole = repo.getWorkspaceRole;
 const originalDecideRunToolApproval = repo.decideRunToolApproval;
+const originalInsertTargetChatActivityEvent = repo.insertTargetChatActivityEvent;
+
+beforeEach(() => {
+  repo.insertTargetChatActivityEvent = async (event) => ({
+    id: 'activity-event-1',
+    workspaceId: event.workspaceId,
+    targetId: event.targetId,
+    targetType: event.targetType,
+    sessionId: event.sessionId,
+    ...(event.runId ? { runId: event.runId } : {}),
+    ...(event.messageId ? { messageId: event.messageId } : {}),
+    ...(event.approvalId ? { approvalId: event.approvalId } : {}),
+    type: event.type,
+    payload: event.payload ?? {},
+    createdAt: '2026-05-06T00:00:00.000Z'
+  });
+});
 
 afterEach(() => {
   repo.getRun = originalGetRun;
   repo.getRunToolApproval = originalGetRunToolApproval;
   repo.getWorkspaceRole = originalGetWorkspaceRole;
   repo.decideRunToolApproval = originalDecideRunToolApproval;
+  repo.insertTargetChatActivityEvent = originalInsertTargetChatActivityEvent;
 });
 
 function createRun(overrides: Partial<Run> = {}): Run {

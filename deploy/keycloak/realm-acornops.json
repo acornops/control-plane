@@ -36,6 +36,21 @@
           "temporary": false
         }
       ]
+    },
+    {
+      "username": "operator",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Dev",
+      "lastName": "Operator",
+      "email": "operator@acornops.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "devpass",
+          "temporary": false
+        }
+      ]
     }
   ]
 }

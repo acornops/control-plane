@@ -108,7 +108,7 @@ export const reasoningEffortSchema = z.enum(['default', 'low', 'medium', 'high']
 export const updateWorkspaceAiSettingsSchema = z.object({
   defaultProvider: llmProviderSchema,
   defaultModel: z.string().trim().min(1).max(160),
-  reasoningSummaryMode: reasoningSummaryModeSchema.optional().default('off'),
+  reasoningSummaryMode: reasoningSummaryModeSchema.optional(),
   reasoningEffort: reasoningEffortSchema.optional().default('default')
 }).strict();
 

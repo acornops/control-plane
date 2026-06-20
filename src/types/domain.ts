@@ -358,6 +358,30 @@ export interface TargetChatActivity {
   recentActivity: RecentTargetChatActivity[];
 }
 
+export type TargetChatActivityEventType =
+  | 'message.created'
+  | 'run.created'
+  | 'run.status_changed'
+  | 'assistant_message.committed'
+  | 'approval.requested'
+  | 'approval.decided'
+  | 'approval.expired'
+  | 'session.deleted';
+
+export interface TargetChatActivityEvent {
+  id: string;
+  workspaceId: string;
+  targetId: string;
+  targetType: TargetType;
+  sessionId: string;
+  runId?: string;
+  messageId?: string;
+  approvalId?: string;
+  type: TargetChatActivityEventType;
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
 export interface Message {
   id: string;
   sessionId: string;

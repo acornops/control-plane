@@ -1,5 +1,5 @@
 import { db } from '../infra/db.js';
-import { RecentTargetChatActivity } from '../types/domain.js';
+import { RecentTargetChatActivity, TargetChatActivityEvent, TargetChatActivityEventType, TargetType } from '../types/domain.js';
 import { toIso } from './repository-mappers.js';
 
 interface RecentTargetChatActivityRow {
@@ -18,6 +18,36 @@ interface RecentTargetChatActivityRow {
   active_run_requested_at: Date | string | null;
   has_active_run: boolean;
   has_recent_write_capable_run: boolean;
+}
+
+interface TargetChatActivityEventRow {
+  id: string | number;
+  workspace_id: string;
+  target_id: string;
+  target_type: TargetType;
+  session_id: string;
+  run_id: string | null;
+  message_id: string | null;
+  approval_id: string | null;
+  type: TargetChatActivityEventType;
+  payload: Record<string, unknown>;
+  created_at: Date | string;
+}
+
+function mapTargetChatActivityEvent(row: TargetChatActivityEventRow): TargetChatActivityEvent {
+  return {
+    id: String(row.id),
+    workspaceId: row.workspace_id,
+    targetId: row.target_id,
+    targetType: row.target_type,
+    sessionId: row.session_id,
+    runId: row.run_id || undefined,
+    messageId: row.message_id || undefined,
+    approvalId: row.approval_id || undefined,
+    type: row.type,
+    payload: row.payload || {},
+    createdAt: toIso(row.created_at)!
+  };
 }
 
 function mapRecentTargetChatActivity(row: RecentTargetChatActivityRow): RecentTargetChatActivity {
@@ -126,4 +156,55 @@ export async function listRecentTargetChatActivity(
     [workspaceId, targetId, boundedWindowSeconds]
   );
   return result.rows.map((row) => mapRecentTargetChatActivity(row as RecentTargetChatActivityRow));
+}
+
+export async function insertTargetChatActivityEvent(params: {
+  workspaceId: string;
+  targetId: string;
+  targetType: TargetType;
+  sessionId: string;
+  runId?: string;
+  messageId?: string;
+  approvalId?: string;
+  type: TargetChatActivityEventType;
+  payload?: Record<string, unknown>;
+}): Promise<TargetChatActivityEvent> {
+  const result = await db.query<TargetChatActivityEventRow>(
+    `INSERT INTO chat_activity_events (
+       workspace_id, target_id, target_type, session_id, run_id, message_id, approval_id, type, payload
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
+     RETURNING id::text, workspace_id, target_id, target_type, session_id, run_id, message_id, approval_id, type, payload, created_at`,
+    [
+      params.workspaceId,
+      params.targetId,
+      params.targetType,
+      params.sessionId,
+      params.runId || null,
+      params.messageId || null,
+      params.approvalId || null,
+      params.type,
+      JSON.stringify(params.payload || {})
+    ]
+  );
+  return mapTargetChatActivityEvent(result.rows[0]);
+}
+
+export async function listTargetChatActivityEvents(
+  workspaceId: string,
+  targetId: string,
+  options?: { afterId?: string; limit?: number }
+): Promise<TargetChatActivityEvent[]> {
+  const limit = Math.max(1, Math.min(500, options?.limit ?? 100));
+  const afterId = options?.afterId && /^\d+$/.test(options.afterId) ? options.afterId : '0';
+  const result = await db.query<TargetChatActivityEventRow>(
+    `SELECT id::text, workspace_id, target_id, target_type, session_id, run_id, message_id, approval_id, type, payload, created_at
+     FROM chat_activity_events
+     WHERE workspace_id = $1
+       AND target_id = $2
+       AND id > $3::bigint
+     ORDER BY id ASC
+     LIMIT $4`,
+    [workspaceId, targetId, afterId, limit]
+  );
+  return result.rows.map(mapTargetChatActivityEvent);
 }

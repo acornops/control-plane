@@ -84,6 +84,7 @@
         "POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions",
         "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions",
         "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity",
+        "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity/stream",
         "POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/sessions",
         "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/sessions",
         "DELETE /api/v1/sessions/{sessionId}",
@@ -151,6 +152,16 @@
         "run_failed",
         "run_cancelled",
         "run_completed"
+      ],
+      "targetChatActivityEventTypes": [
+        "message.created",
+        "run.created",
+        "run.status_changed",
+        "assistant_message.committed",
+        "approval.requested",
+        "approval.decided",
+        "approval.expired",
+        "session.deleted"
       ],
       "snapshotFields": [
         "latestSnapshot.{clusterId,workspaceId,timestamp}",
