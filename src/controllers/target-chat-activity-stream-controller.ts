@@ -91,27 +91,14 @@ export async function streamTargetChatActivity(req: AuthenticatedRequest, res: R
     };
     req.on('close', cleanup);
 
-    const existing: TargetChatActivityEvent[] = [];
     let replayCursorId = lastReplayedId;
+    let firstReplayPage: TargetChatActivityEvent[] = [];
     try {
-      while (requestedAfterId !== undefined && !closed) {
-        const page = await repo.listTargetChatActivityEvents(workspaceId, access.target.id, {
+      if (requestedAfterId !== undefined && !closed) {
+        firstReplayPage = await repo.listTargetChatActivityEvents(workspaceId, access.target.id, {
           afterId: String(replayCursorId),
           limit: ACTIVITY_REPLAY_PAGE_SIZE
         });
-        existing.push(...page);
-
-        let nextReplayCursorId = replayCursorId;
-        for (const event of page) {
-          const eventId = BigInt(event.id);
-          if (eventId > nextReplayCursorId) {
-            nextReplayCursorId = eventId;
-          }
-        }
-        if (page.length < ACTIVITY_REPLAY_PAGE_SIZE || nextReplayCursorId === replayCursorId) {
-          break;
-        }
-        replayCursorId = nextReplayCursorId;
       }
     } catch (err) {
       cleanup();
@@ -127,11 +114,26 @@ export async function streamTargetChatActivity(req: AuthenticatedRequest, res: R
     });
     res.flushHeaders?.();
 
-    for (const event of existing) {
-      const eventId = BigInt(event.id);
-      if (eventId <= lastReplayedId) continue;
-      writeChatActivitySseEvent(res, event);
-      lastReplayedId = eventId;
+    let replayPage = firstReplayPage;
+    while (requestedAfterId !== undefined && !closed) {
+      let nextReplayCursorId = replayCursorId;
+      for (const event of replayPage) {
+        const eventId = BigInt(event.id);
+        if (eventId > nextReplayCursorId) {
+          nextReplayCursorId = eventId;
+        }
+        if (eventId <= lastReplayedId) continue;
+        writeChatActivitySseEvent(res, event);
+        lastReplayedId = eventId;
+      }
+      if (replayPage.length < ACTIVITY_REPLAY_PAGE_SIZE || nextReplayCursorId === replayCursorId) {
+        break;
+      }
+      replayCursorId = nextReplayCursorId;
+      replayPage = await repo.listTargetChatActivityEvents(workspaceId, access.target.id, {
+        afterId: String(replayCursorId),
+        limit: ACTIVITY_REPLAY_PAGE_SIZE
+      });
     }
 
     replaying = false;

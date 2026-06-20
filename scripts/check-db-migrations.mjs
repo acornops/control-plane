@@ -31,23 +31,11 @@ assert(dbSource.includes('assertDatabaseMigrationsCurrent'), 'startup must verif
 
 const files = migrationFiles();
 assert.deepEqual(files, [
-  '001_initial_schema.sql',
-  '002_add_run_tool_approval_summary.sql',
-  '003_add_chat_activity_events.sql',
-  '004_default_reasoning_summary_mode_auto.sql'
+  '001_initial_schema.sql'
 ]);
 for (const file of files) {
   assert(/^\d{3,}_[a-z0-9_]+\.sql$/.test(file), `invalid migration filename ${file}`);
   assert(checksumSql(read(`migrations/control-plane/${file}`)).length === 64, `missing checksum coverage for ${file}`);
-}
-
-const chatActivityMigration = read('migrations/control-plane/003_add_chat_activity_events.sql');
-assert(chatActivityMigration.includes('CREATE TABLE IF NOT EXISTS chat_activity_events'), 'chat activity migration must create chat_activity_events');
-for (const childResource of ['sessions', 'runs', 'messages', 'run_tool_approvals']) {
-  assert(
-    !new RegExp(`REFERENCES\\s+${childResource}\\b`, 'i').test(chatActivityMigration),
-    `chat_activity_events must keep durable resource ids instead of cascading from ${childResource}`
-  );
 }
 
 const initial = read('migrations/control-plane/001_initial_schema.sql');
@@ -79,6 +67,7 @@ for (const table of [
   'run_events',
   'run_tool_approvals',
   'run_continuations',
+  'chat_activity_events',
   'webhook_subscriptions',
   'webhook_history',
   'workspace_audit_events',
@@ -127,6 +116,11 @@ for (const needle of [
   'execution_status TEXT NOT NULL DEFAULT',
   'CREATE TABLE IF NOT EXISTS run_continuations',
   'idx_run_continuations_approval',
+  'summary TEXT NULL',
+  'CREATE TABLE IF NOT EXISTS chat_activity_events',
+  'fk_chat_activity_events_workspace_target',
+  'idx_chat_activity_events_target_replay',
+  'idx_chat_activity_events_session',
   'CREATE TABLE IF NOT EXISTS workspace_audit_events',
   'workspace_audit_events_category_check',
   'workspace_audit_events_operation_check',
@@ -179,6 +173,12 @@ for (const needle of [
   'admin_audit_events_action_idx'
 ]) {
   assert(initial.includes(needle), `initial migration missing ${needle}`);
+}
+for (const childResource of ['sessions', 'runs', 'messages', 'run_tool_approvals']) {
+  assert(
+    !new RegExp(`REFERENCES\\s+${childResource}\\b`, 'i').test(initial.slice(initial.indexOf('CREATE TABLE IF NOT EXISTS chat_activity_events'))),
+    `chat_activity_events must keep durable resource ids instead of cascading from ${childResource}`
+  );
 }
 assert(!initial.includes('node TEXT NULL'), 'target inventory items must not expose Kubernetes-only node as a generic column');
 assert(!initial.includes('resource_count INTEGER'), 'target snapshot summaries must use target-neutral inventory_count');
