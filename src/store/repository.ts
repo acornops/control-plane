@@ -68,7 +68,9 @@ import {
   getVirtualMachineSnapshot as getVirtualMachineSnapshotRecord,
   listVirtualMachineFindings as listVirtualMachineFindingsRecord,
   listVirtualMachineInventory as listVirtualMachineInventoryRecord,
+  getVirtualMachineSnapshotSummary as getVirtualMachineSnapshotSummaryRecord,
   listVirtualMachineSnapshotHistory as listVirtualMachineSnapshotHistoryRecord,
+  listVirtualMachineSnapshotSummaries as listVirtualMachineSnapshotSummariesRecord,
   listVirtualMachines as listVirtualMachinesRecord,
   updateVirtualMachine as updateVirtualMachineRecord,
   upsertVirtualMachineSnapshot as upsertVirtualMachineSnapshotRecord
@@ -365,6 +367,10 @@ export class Repository {
   upsertVirtualMachineSnapshot = upsertVirtualMachineSnapshotRecord;
 
   getVirtualMachineSnapshot = getVirtualMachineSnapshotRecord;
+
+  getVirtualMachineSnapshotSummary = getVirtualMachineSnapshotSummaryRecord;
+
+  listVirtualMachineSnapshotSummaries = listVirtualMachineSnapshotSummariesRecord;
 
   listVirtualMachineSnapshotHistory = listVirtualMachineSnapshotHistoryRecord;
 

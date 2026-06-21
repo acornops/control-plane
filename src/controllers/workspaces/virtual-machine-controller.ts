@@ -23,6 +23,16 @@ import {
 } from '../../utils/pagination.js';
 import { parseBoundedIntQuery, parseMetricLimit, parseMetricWindowMs } from './kubernetes-cluster-request-utils.js';
 
+const emptyVmSnapshotSummary = {
+  inventoryCount: 0,
+  findingCount: 0,
+  criticalFindingCount: 0,
+  serviceCount: 0,
+  processCount: 0,
+  listenerCount: 0,
+  logCount: 0
+};
+
 function buildVmInstallInstructions(input: { targetId: string; agentKey: string; platformUrl?: string }): string {
   return [
     'Install the AcornOps VM agent on a Linux/systemd host:',
@@ -136,7 +146,16 @@ export async function listVirtualMachines(req: AuthenticatedRequest, res: Respon
       status: filters.status as never,
       signature
     });
-    res.status(200).json(page);
+    const summaryRecords = await repo.listVirtualMachineSnapshotSummaries(page.items.map((vm) => vm.id));
+    const items = page.items.map((vm) => {
+      const snapshotRecord = summaryRecords.get(vm.id);
+      return {
+        ...vm,
+        latestSnapshot: snapshotRecord?.latestSnapshot || null,
+        summary: snapshotRecord?.summary || emptyVmSnapshotSummary
+      };
+    });
+    res.status(200).json({ items, nextCursor: page.nextCursor });
   } catch (err) {
     if (err instanceof CursorMismatchError) {
       res.status(400).json({ error: { code: 'INVALID_CURSOR', message: err.message, retryable: false } });
@@ -157,10 +176,11 @@ export async function getVirtualMachine(req: AuthenticatedRequest, res: Response
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Virtual machine not found', retryable: false } });
       return;
     }
-    const snapshot = await repo.getVirtualMachineSnapshot(vmId);
+    const snapshotRecord = await repo.getVirtualMachineSnapshotSummary(vmId);
     res.status(200).json({
       ...vm,
-      latestSnapshot: snapshot ? { targetId: vmId, workspaceId, timestamp: snapshot.timestamp } : null
+      latestSnapshot: snapshotRecord?.latestSnapshot || null,
+      summary: snapshotRecord?.summary || emptyVmSnapshotSummary
     });
   } catch (err) {
     next(err);
