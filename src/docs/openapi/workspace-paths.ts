@@ -159,7 +159,7 @@ export function buildWorkspacePaths(): Record<string, unknown> {
           ],
           responses: {
             '200': {
-              description: 'Deployment-supported role catalog: { items: RoleTemplate[] }. Role templates include key, displayName, description, kind, capabilities, protected, and sortOrder.'
+              description: 'Deployment-supported role catalog: { items: RoleTemplate[] }. Role templates include key, displayName, description, kind, capabilities, capabilityGroups[].{key,capabilities,sortOrder}, protected, and sortOrder.'
             },
             '403': { description: 'No workspace read access.' }
           }

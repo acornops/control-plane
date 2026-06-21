@@ -116,6 +116,13 @@ export interface WorkspacePermissions {
 }
 
 export type RoleTemplateKind = 'system' | 'custom';
+export type RoleTemplateCapabilityGroupKey = 'workspace' | 'members' | 'targets' | 'operations' | 'settings';
+
+export interface RoleTemplateCapabilityGroup {
+  key: RoleTemplateCapabilityGroupKey;
+  capabilities: Array<keyof WorkspacePermissions>;
+  sortOrder: number;
+}
 
 export interface RoleTemplate {
   key: Role;
@@ -123,6 +130,7 @@ export interface RoleTemplate {
   description: string;
   kind: RoleTemplateKind;
   capabilities: Array<keyof WorkspacePermissions>;
+  capabilityGroups?: RoleTemplateCapabilityGroup[];
   protected: boolean;
   sortOrder: number;
   createdAt?: string;

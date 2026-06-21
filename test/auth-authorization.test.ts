@@ -2,8 +2,12 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   formatScopes,
+  groupWorkspaceCapabilities,
   hasEffectiveWorkspaceCapability,
-  parseScopeString
+  listConfiguredRoleTemplates,
+  parseScopeString,
+  WORKSPACE_CAPABILITIES,
+  WORKSPACE_CAPABILITY_METADATA
 } from '../src/auth/authorization.js';
 
 describe('authorization helpers', () => {
@@ -22,5 +26,29 @@ describe('authorization helpers', () => {
     assert.equal(hasEffectiveWorkspaceCapability('admin', 'manage_targets', narrowToken), false);
     assert.equal(hasEffectiveWorkspaceCapability('admin', 'create_sessions', narrowToken), true);
     assert.equal(hasEffectiveWorkspaceCapability('operator', 'create_read_write_runs', broadToken), false);
+  });
+
+  it('defines display metadata for every workspace capability', () => {
+    assert.deepEqual(
+      Object.keys(WORKSPACE_CAPABILITY_METADATA).sort(),
+      [...WORKSPACE_CAPABILITIES].sort()
+    );
+  });
+
+  it('groups role-template capabilities for client display', () => {
+    assert.deepEqual(groupWorkspaceCapabilities([
+      'manage_members',
+      'read_workspace_data',
+      'create_sessions',
+      'read_members'
+    ]), [
+      { key: 'workspace', sortOrder: 0, capabilities: ['read_workspace_data'] },
+      { key: 'members', sortOrder: 100, capabilities: ['read_members', 'manage_members'] },
+      { key: 'operations', sortOrder: 300, capabilities: ['create_sessions'] }
+    ]);
+
+    const owner = listConfiguredRoleTemplates().find((template) => template.key === 'owner');
+    assert.ok(owner);
+    assert.ok(owner.capabilityGroups?.some((group) => group.key === 'settings' && group.capabilities.includes('manage_agent_keys')));
   });
 });

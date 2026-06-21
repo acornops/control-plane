@@ -1,4 +1,10 @@
-import { Role, RoleTemplate } from '../types/domain.js';
+import {
+  Role,
+  RoleTemplate,
+  RoleTemplateCapabilityGroup,
+  RoleTemplateCapabilityGroupKey,
+  WorkspacePermissions as DomainWorkspacePermissions
+} from '../types/domain.js';
 
 export const WORKSPACE_CAPABILITIES = [
   'read_workspace_data',
@@ -24,6 +30,59 @@ export type WorkspaceCapability = typeof WORKSPACE_CAPABILITIES[number];
 
 export type WorkspacePermissions = Record<WorkspaceCapability, boolean>;
 export type TokenScope = 'read' | WorkspaceCapability;
+
+const WORKSPACE_CAPABILITY_GROUPS: Array<{ key: RoleTemplateCapabilityGroupKey; sortOrder: number }> = [
+  { key: 'workspace', sortOrder: 0 },
+  { key: 'members', sortOrder: 100 },
+  { key: 'targets', sortOrder: 200 },
+  { key: 'operations', sortOrder: 300 },
+  { key: 'settings', sortOrder: 400 }
+];
+
+const workspaceCapabilityGroupOrder = new Map(WORKSPACE_CAPABILITY_GROUPS.map((group) => [group.key, group.sortOrder]));
+
+export const WORKSPACE_CAPABILITY_METADATA: Record<WorkspaceCapability, { group: RoleTemplateCapabilityGroupKey; sortOrder: number }> = {
+  read_workspace_data: { group: 'workspace', sortOrder: 0 },
+  read_audit_log: { group: 'workspace', sortOrder: 10 },
+  delete_workspace: { group: 'workspace', sortOrder: 20 },
+  read_members: { group: 'members', sortOrder: 0 },
+  manage_members: { group: 'members', sortOrder: 10 },
+  manage_targets: { group: 'targets', sortOrder: 0 },
+  read_target_logs: { group: 'targets', sortOrder: 10 },
+  create_sessions: { group: 'operations', sortOrder: 0 },
+  create_read_only_runs: { group: 'operations', sortOrder: 10 },
+  create_read_write_runs: { group: 'operations', sortOrder: 20 },
+  cancel_runs: { group: 'operations', sortOrder: 30 },
+  delete_sessions: { group: 'operations', sortOrder: 40 },
+  manage_mcp: { group: 'settings', sortOrder: 0 },
+  manage_tools: { group: 'settings', sortOrder: 10 },
+  manage_ai_settings: { group: 'settings', sortOrder: 20 },
+  manage_agent_keys: { group: 'settings', sortOrder: 30 },
+  manage_webhooks: { group: 'settings', sortOrder: 40 }
+};
+
+export function groupWorkspaceCapabilities(capabilities: Iterable<keyof DomainWorkspacePermissions>): RoleTemplateCapabilityGroup[] {
+  const grouped = new Map<RoleTemplateCapabilityGroupKey, WorkspaceCapability[]>();
+  for (const capability of capabilities) {
+    const metadata = WORKSPACE_CAPABILITY_METADATA[capability as WorkspaceCapability];
+    if (!metadata) continue;
+    const current = grouped.get(metadata.group) || [];
+    current.push(capability as WorkspaceCapability);
+    grouped.set(metadata.group, current);
+  }
+
+  return [...grouped.entries()]
+    .map(([key, groupCapabilities]) => ({
+      key,
+      sortOrder: workspaceCapabilityGroupOrder.get(key) ?? Number.MAX_SAFE_INTEGER,
+      capabilities: [...new Set(groupCapabilities)].sort((left, right) => {
+        const leftOrder = WORKSPACE_CAPABILITY_METADATA[left]?.sortOrder ?? Number.MAX_SAFE_INTEGER;
+        const rightOrder = WORKSPACE_CAPABILITY_METADATA[right]?.sortOrder ?? Number.MAX_SAFE_INTEGER;
+        return leftOrder - rightOrder || left.localeCompare(right);
+      })
+    }))
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.key.localeCompare(right.key));
+}
 
 export const BUILT_IN_ROLE_KEYS = ['owner', 'admin', 'operator', 'viewer', 'auditor'] as const;
 export type BuiltInRoleKey = typeof BUILT_IN_ROLE_KEYS[number];
@@ -180,22 +239,30 @@ function sortRoleTemplates(templates: RoleTemplate[]): RoleTemplate[] {
   return [...templates].sort((left, right) => left.sortOrder - right.sortOrder || left.displayName.localeCompare(right.displayName));
 }
 
+function withCapabilityGroups(template: RoleTemplate): RoleTemplate {
+  return {
+    ...template,
+    capabilities: [...template.capabilities],
+    capabilityGroups: groupWorkspaceCapabilities(template.capabilities)
+  };
+}
+
 export function configureRoleTemplates(templates: RoleTemplate[]): RoleTemplate[] {
   roleTemplates.clear();
   for (const template of sortRoleTemplates(templates)) {
-    roleTemplates.set(template.key, { ...template, capabilities: [...template.capabilities] });
+    roleTemplates.set(template.key, withCapabilityGroups(template));
   }
   return listConfiguredRoleTemplates();
 }
 
 export function listConfiguredRoleTemplates(): RoleTemplate[] {
-  return [...roleTemplates.values()].map((template) => ({ ...template, capabilities: [...template.capabilities] }));
+  return [...roleTemplates.values()].map(withCapabilityGroups);
 }
 
 export function getConfiguredRoleTemplate(role: Role | null | undefined): RoleTemplate | undefined {
   if (!role) return undefined;
   const template = roleTemplates.get(role);
-  return template ? { ...template, capabilities: [...template.capabilities] } : undefined;
+  return template ? withCapabilityGroups(template) : undefined;
 }
 
 export function isSupportedRole(role: Role | null | undefined): boolean {

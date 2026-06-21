@@ -28,7 +28,7 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
           { in: 'query', name: 'q', required: false, schema: { type: 'string' } },
           { in: 'query', name: 'status', required: false, schema: { type: 'string' } }
         ],
-        responses: { '200': { description: 'Virtual machine summary page payload: { items, nextCursor? }.' } }
+        responses: { '200': { description: 'Virtual machine summary page payload: { items, nextCursor? }. Items include latestSnapshot.{targetId,workspaceId,timestamp} and summary.{inventoryCount,findingCount,criticalFindingCount,serviceCount,processCount,listenerCount,logCount}.' } }
       },
       post: {
         tags: ['workspaces'],
@@ -69,7 +69,7 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
         summary: 'Get virtual machine details and latest snapshot summary',
         security: [{ userSession: [] }],
         parameters: [workspaceParam, vmParam],
-        responses: { '200': { description: 'VM details with latestSnapshot timestamp and summary counts.' } }
+        responses: { '200': { description: 'VM details with latestSnapshot.{targetId,workspaceId,timestamp} and summary.{inventoryCount,findingCount,criticalFindingCount,serviceCount,processCount,listenerCount,logCount}.' } }
       },
       patch: {
         tags: ['workspaces'],
