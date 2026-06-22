@@ -8,14 +8,23 @@ import {
   EXAMPLE_WORKSPACE_ID
 } from '../../constants/dev-defaults.js';
 
+const externalUserHeader = {
+  in: 'header',
+  name: 'x-acornops-external-user-id',
+  required: false,
+  schema: { type: 'string', minLength: 1, maxLength: 128 },
+  description: 'Required only for external integration service-token requests. Must identify a linked external integration user.'
+};
+
 export function buildSessionRunPaths(): Record<string, unknown> {
   return {
       '/api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions': {
         get: {
           tags: ['sessions'],
           summary: 'List troubleshooting sessions for target',
-          security: [{ userSession: [] }],
+          security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
           parameters: [
+            externalUserHeader,
             { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
             { in: 'path', name: 'targetId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_TARGET_ID } },
             { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, example: 20 } },
@@ -28,8 +37,10 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         post: {
           tags: ['sessions'],
           summary: 'Create troubleshooting session for target',
-          security: [{ userSession: [] }],
+          description: 'External integration callers may create sessions only when the linked user role and bot allowlist grant create_sessions.',
+          security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
           parameters: [
+            externalUserHeader,
             { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
             { in: 'path', name: 'targetId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_TARGET_ID } }
           ],
@@ -54,8 +65,9 @@ export function buildSessionRunPaths(): Record<string, unknown> {
           tags: ['sessions'],
           summary: 'List recent target chat activity',
           description: 'Returns recent non-deleted, non-expired troubleshooting sessions with message/run activity for the target. Requires target read access, not chat creation permission.',
-          security: [{ userSession: [] }],
+          security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
           parameters: [
+            externalUserHeader,
             { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
             { in: 'path', name: 'targetId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_TARGET_ID } },
             { in: 'query', name: 'windowSeconds', required: false, schema: { type: 'integer', minimum: 60, maximum: 3600, default: 300 } }
@@ -71,8 +83,9 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         get: {
           tags: ['sessions'],
           summary: 'List troubleshooting sessions for cluster',
-          security: [{ userSession: [] }],
+          security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
           parameters: [
+            externalUserHeader,
             { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
             { in: 'path', name: 'clusterId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_CLUSTER_ID } },
             { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, example: 20 } },
@@ -85,8 +98,10 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         post: {
           tags: ['sessions'],
           summary: 'Create troubleshooting session for cluster',
-          security: [{ userSession: [] }],
+          description: 'External integration callers may create sessions only when the linked user role and bot allowlist grant create_sessions.',
+          security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
           parameters: [
+            externalUserHeader,
             { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
             { in: 'path', name: 'clusterId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_CLUSTER_ID } }
           ],
@@ -110,8 +125,11 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         get: {
           tags: ['sessions'],
           summary: 'Get session metadata',
-          security: [{ userSession: [] }],
-          parameters: [{ in: 'path', name: 'sessionId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_SESSION_ID } }],
+          security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
+          parameters: [
+            externalUserHeader,
+            { in: 'path', name: 'sessionId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_SESSION_ID } }
+          ],
           responses: { '200': { description: 'Session details.' } }
         },
         delete: {
@@ -126,8 +144,9 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         get: {
           tags: ['sessions'],
           summary: 'List session messages',
-          security: [{ userSession: [] }],
+          security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
           parameters: [
+            externalUserHeader,
             { in: 'path', name: 'sessionId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_SESSION_ID } },
             { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 200, default: 100 } },
             { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } }
@@ -137,8 +156,12 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         post: {
           tags: ['sessions'],
           summary: 'Append user message and trigger run dispatch',
-          security: [{ userSession: [] }],
-          parameters: [{ in: 'path', name: 'sessionId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_SESSION_ID } }],
+          description: 'External integration callers may append messages only to sessions owned by the linked AcornOps user and may trigger read-only troubleshooting runs only.',
+          security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
+          parameters: [
+            externalUserHeader,
+            { in: 'path', name: 'sessionId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_SESSION_ID } }
+          ],
           requestBody: {
             required: true,
             content: {
@@ -171,8 +194,11 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         get: {
           tags: ['runs'],
           summary: 'Get run state',
-          security: [{ userSession: [] }],
-          parameters: [{ in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } }],
+          security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
+          parameters: [
+            externalUserHeader,
+            { in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } }
+          ],
           responses: { '200': { description: 'Run details.' } }
         }
       },
@@ -180,9 +206,12 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         get: {
           tags: ['runs'],
           summary: 'List write-tool approvals for a run',
-          description: 'Returns pending and decided write-tool approvals. Approval cards in browser or bot channels are decision surfaces only; the execution runtime still enforces approval before write execution.',
-          security: [{ userSession: [] }],
-          parameters: [{ in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } }],
+          description: 'Returns pending and decided write-tool approvals for visibility. External integration callers may read approval state but cannot decide approvals.',
+          security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
+          parameters: [
+            externalUserHeader,
+            { in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } }
+          ],
           responses: { '200': { description: 'Run tool approval list.' } }
         }
       },
@@ -329,8 +358,11 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         get: {
           tags: ['runs'],
           summary: 'Server-Sent Events stream for run events',
-          security: [{ userSession: [] }],
-          parameters: [{ in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } }],
+          security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
+          parameters: [
+            externalUserHeader,
+            { in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } }
+          ],
           responses: { '200': { description: 'SSE event stream.' } }
         }
       },
@@ -395,8 +427,11 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         get: {
           tags: ['runs'],
           summary: 'List run events replay',
-          security: [{ userSession: [] }],
-          parameters: [{ in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } }],
+          security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
+          parameters: [
+            externalUserHeader,
+            { in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } }
+          ],
           responses: { '200': { description: 'Run events list.' } }
         }
       },

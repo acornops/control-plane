@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
-import { authenticatedHandler, requireUser } from '../src/auth/middleware.js';
+import { authenticatedHandler, requireActor } from '../src/auth/middleware.js';
 import { config } from '../src/config.js';
 import { redis } from '../src/infra/redis.js';
+
+const requireUserActor = requireActor(['user']);
 
 function createResponse() {
   return {
@@ -19,7 +21,7 @@ function createResponse() {
   };
 }
 
-describe('requireUser middleware', () => {
+describe("requireActor(['user']) middleware", () => {
   afterEach(() => mock.restoreAll());
 
   it('sets req.auth for a valid session cookie', async () => {
@@ -45,7 +47,7 @@ describe('requireUser middleware', () => {
     const res = createResponse();
     let nextCalled = false;
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
       nextCalled = true;
     });
@@ -90,7 +92,7 @@ describe('requireUser middleware', () => {
     };
     const res = createResponse();
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
     });
 
@@ -112,7 +114,7 @@ describe('requireUser middleware', () => {
     const res = createResponse();
     let nextCalled = false;
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
       nextCalled = true;
     });
@@ -129,7 +131,7 @@ describe('requireUser middleware', () => {
     const res = createResponse();
     let nextCalled = false;
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
       nextCalled = true;
     });
@@ -168,7 +170,7 @@ describe('requireUser middleware', () => {
     };
     const res = createResponse();
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
     });
 
@@ -204,7 +206,7 @@ describe('requireUser middleware', () => {
     };
     const res = createResponse();
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
     });
 
@@ -235,7 +237,7 @@ describe('requireUser middleware', () => {
     };
     const res = createResponse();
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
     });
 
@@ -266,7 +268,7 @@ describe('requireUser middleware', () => {
     };
     const res = createResponse();
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
     });
 
@@ -288,7 +290,7 @@ describe('requireUser middleware', () => {
     };
     const res = createResponse();
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
     });
 
@@ -312,7 +314,7 @@ describe('requireUser middleware', () => {
     };
     const res = createResponse();
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
     });
 
@@ -328,7 +330,7 @@ describe('requireUser middleware', () => {
     const res = createResponse();
     let nextCalled = false;
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
       nextCalled = true;
     });

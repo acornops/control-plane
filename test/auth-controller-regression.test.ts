@@ -15,6 +15,7 @@ import type { TargetAgentRegistration, RunContinuation } from '../src/types/doma
 import {
   callController,
   createApproval,
+  createExternalIntegrationRequest,
   createMessage,
   createRequest,
   createRun,
@@ -44,6 +45,41 @@ describe('controller authorization regressions', () => {
       createRequest({ workspaceId: 'workspace-1', clusterId: 'cluster-1' }, { title: 'Session' })
     );
     assert.equal(allowed.statusCode, 201);
+  });
+
+  it('allows external integration credentials to create read-only assistant runs without write access', async () => {
+    installWorkspace('operator');
+    repo.addSession = async () => createSessionRecord();
+    const createdSession = await callController(
+      createSession,
+      createExternalIntegrationRequest({ workspaceId: 'workspace-1', clusterId: 'cluster-1' }, { title: 'Session' })
+    );
+    assert.equal(createdSession.statusCode, 201);
+
+    repo.getSession = async () => createSessionRecord();
+    repo.createRunFromUserMessage = async (_input) => ({
+      message: createMessage(),
+      run: createRun({ toolAccessMode: 'read_only' }),
+      idempotent: true
+    });
+    mock.method(globalThis, 'fetch', async (input) => {
+      if (isWorkspaceAiCredentialStatusRequest(input)) {
+        return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
+
+    const readOnlyRun = await callController(
+      postMessage,
+      createExternalIntegrationRequest({ sessionId: 'session-1' }, { content: 'diagnose', toolAccessMode: 'read_only' })
+    );
+    assert.equal(readOnlyRun.statusCode, 202);
+
+    const readWriteRun = await callController(
+      postMessage,
+      createExternalIntegrationRequest({ sessionId: 'session-1' }, { content: 'change it', toolAccessMode: 'read_write' })
+    );
+    assert.equal(readWriteRun.statusCode, 403);
   });
 
   it('does not fail completed session creation when nontransactional audit logging fails', async () => {

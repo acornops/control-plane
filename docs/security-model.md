@@ -6,7 +6,7 @@
 - Password self-service signup requires AcornOps email verification unless an operator explicitly enables unverified signup for a private deployment.
 - Password reset tokens prove mailbox possession; a successful reset verifies a pending password-backed account email and revokes existing browser sessions.
 - Internal execution callbacks use `ORCH_SERVICE_TOKEN`.
-- external integration account links use `EXTERNAL_INTEGRATION_SERVICE_TOKEN` for the external integration client. AcornOps exposes link and resolve endpoints for external user ids in the configured single-server external integration deployment, but only an authenticated browser session may complete and bind an external identity to an AcornOps user. Phase-1 linked external integration requests may also list workspace shells through `GET /api/v1/workspaces` by sending the service token with `x-acornops-external-user-id`; this creates an `external_integration` auth credential, not a browser session.
+- External integration account links use `EXTERNAL_INTEGRATION_SERVICE_TOKEN` for the external integration client. AcornOps exposes link and resolve endpoints for external user ids in the configured single-server external integration deployment, but only an authenticated browser session may complete and bind an external identity to an AcornOps user. Phase-1 linked external integration requests may also read workspace and target operational summaries, create read-only troubleshooting sessions, and post read-only assistant messages by sending the service token with `x-acornops-external-user-id`; this creates an `external_integration` auth credential, not a browser session.
 - Admin control-plane operations use `/admin/v1` with admin bearer tokens only.
   Browser session cookies, CSRF tokens, service tokens, run-scoped JWTs, and
   target agent keys are never accepted on admin endpoints.
@@ -44,9 +44,15 @@
   `admin:workspace:write`, `admin:member:write`, `admin:run:write`,
   `admin:agent-key:rotate`, and `admin:*`. These scopes are separate from
   workspace roles and never establish a browser user session.
-- External integration credentials are default-deny for workspace capabilities.
-  In phase 1 they are accepted only by the workspace list route and return
-  workspace shell summaries with operational and member usage redacted.
+- External integration credentials are default-deny except for
+  `read_workspace_data`, `create_sessions`, and `create_read_only_runs`,
+  intersected with the linked user's workspace role. In phase 1 they are
+  accepted only by workspace summary/list, Kubernetes and VM overview/list,
+  snapshot resource/finding/investigation reads, read-only session/message
+  routes, and run observation routes. Operational target data and read-only
+  assistant conversations are visible; member, audit, logs, read-write runs,
+  approval decisions, cancellation, deletion, settings, and management
+  capabilities remain denied.
 - Direct public agent tool calls are not exposed by the control plane; troubleshooting tool execution must use run-scoped gateway authorization.
 
 ## Admin Audit

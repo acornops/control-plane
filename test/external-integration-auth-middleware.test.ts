@@ -3,11 +3,13 @@ import { afterEach, describe, it, mock } from 'node:test';
 import {
   EXTERNAL_CHAT_INTEGRATION_ID,
   EXTERNAL_INTEGRATION_USER_ID_HEADER,
-  requireUserOrExternalIntegration
+  requireActor
 } from '../src/auth/middleware.js';
 import { config } from '../src/config.js';
 import { redis } from '../src/infra/redis.js';
 import { repo } from '../src/store/repository.js';
+
+const requireCombinedActor = requireActor(['user', 'externalIntegration']);
 
 function createResponse() {
   return {
@@ -36,10 +38,10 @@ function createExternalIntegrationRequest(input: { token?: string; externalUserI
   } as { cookies: Record<string, string>; auth?: unknown; header(name: string): string | undefined };
 }
 
-describe('requireUserOrExternalIntegration middleware', () => {
+describe("requireActor(['user', 'externalIntegration']) middleware", () => {
   afterEach(() => mock.restoreAll());
 
-  it('keeps browser sessions on the session credential path', async () => {
+  it('keeps browser sessions on the session credential path when both credentials are present', async () => {
     mock.method(redis, 'get', async () => JSON.stringify({
       id: 'session-1',
       userId: 'user-1',
@@ -49,15 +51,24 @@ describe('requireUserOrExternalIntegration middleware', () => {
       idleExpiresAt: Date.now() + 60_000
     }));
     mock.method(redis, 'setex', async () => 'OK');
+    mock.method(repo, 'resolveExternalIntegrationUserLink', async () => {
+      throw new Error('external integration lookup should not run when a session is present');
+    });
 
     const req = {
       cookies: { [config.SESSION_COOKIE_NAME]: 'session-1' },
-      header: () => undefined
+      header: (name: string) => {
+        const headers = new Map<string, string>([
+          ['authorization', `Bearer ${config.EXTERNAL_INTEGRATION_SERVICE_TOKEN}`],
+          [EXTERNAL_INTEGRATION_USER_ID_HEADER, 'slack-user-1']
+        ]);
+        return headers.get(name.toLowerCase());
+      }
     } as { cookies: Record<string, string>; auth?: unknown; header(name: string): string | undefined };
     const res = createResponse();
     let nextCalled = false;
 
-    await requireUserOrExternalIntegration(req as never, res as never, (err?: unknown) => {
+    await requireCombinedActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
       nextCalled = true;
     });
@@ -91,7 +102,7 @@ describe('requireUserOrExternalIntegration middleware', () => {
     const res = createResponse();
     let nextCalled = false;
 
-    await requireUserOrExternalIntegration(req as never, res as never, (err?: unknown) => {
+    await requireCombinedActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
       nextCalled = true;
     });
@@ -112,7 +123,7 @@ describe('requireUserOrExternalIntegration middleware', () => {
     const res = createResponse();
     let nextCalled = false;
 
-    await requireUserOrExternalIntegration(req as never, res as never, (err?: unknown) => {
+    await requireCombinedActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
       nextCalled = true;
     });
@@ -136,7 +147,7 @@ describe('requireUserOrExternalIntegration middleware', () => {
     const res = createResponse();
     let nextCalled = false;
 
-    await requireUserOrExternalIntegration(req as never, res as never, (err?: unknown) => {
+    await requireCombinedActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
       nextCalled = true;
     });
@@ -162,7 +173,7 @@ describe('requireUserOrExternalIntegration middleware', () => {
     const res = createResponse();
     let nextCalled = false;
 
-    await requireUserOrExternalIntegration(req as never, res as never, (err?: unknown) => {
+    await requireCombinedActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
       nextCalled = true;
     });
@@ -173,6 +184,27 @@ describe('requireUserOrExternalIntegration middleware', () => {
       error: {
         code: 'UNAUTHORIZED',
         message: 'Linked external integration account required',
+        retryable: false
+      }
+    });
+  });
+
+  it('returns a useful message for external-integration-only actor policy without a service token', async () => {
+    const req = createExternalIntegrationRequest({ externalUserId: 'slack-user-1' });
+    const res = createResponse();
+    let nextCalled = false;
+
+    await requireActor(['externalIntegration'])(req as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+      nextCalled = true;
+    });
+
+    assert.equal(nextCalled, false);
+    assert.equal(res.statusCode, 401);
+    assert.deepEqual(res.body, {
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Linked external integration required',
         retryable: false
       }
     });

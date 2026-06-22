@@ -196,16 +196,31 @@ describe('workspace authorization helpers', () => {
     }
   });
 
-  it('defaults external integration effective permissions to no workspace capabilities', () => {
+  it('limits external integration effective permissions to bot-allowed reads and read-only troubleshooting', () => {
     const req = createExternalIntegrationRequest();
-    const emptyPermissions = getEffectiveWorkspacePermissions(req as never, 'owner');
+    const permissions = getEffectiveWorkspacePermissions(req as never, 'owner');
+    const botAllowedCapabilities = new Set(['read_workspace_data', 'create_sessions', 'create_read_only_runs']);
 
-    for (const capability of Object.keys(emptyPermissions) as Array<keyof typeof emptyPermissions>) {
-      assert.equal(emptyPermissions[capability], false, capability);
+    for (const capability of Object.keys(permissions) as Array<keyof typeof permissions>) {
+      assert.equal(permissions[capability], botAllowedCapabilities.has(capability), capability);
     }
   });
 
-  it('denies workspace capabilities to external integration credentials even for owner memberships', async () => {
+  it('intersects external integration permissions with the linked user workspace role', () => {
+    const req = createExternalIntegrationRequest();
+    const auditorPermissions = getEffectiveWorkspacePermissions(req as never, 'auditor');
+
+    for (const capability of Object.keys(auditorPermissions) as Array<keyof typeof auditorPermissions>) {
+      assert.equal(auditorPermissions[capability], false, capability);
+    }
+
+    const viewerPermissions = getEffectiveWorkspacePermissions(req as never, 'viewer');
+    for (const capability of Object.keys(viewerPermissions) as Array<keyof typeof viewerPermissions>) {
+      assert.equal(viewerPermissions[capability], capability === 'read_workspace_data', capability);
+    }
+  });
+
+  it('denies privileged workspace capabilities to external integration credentials even for owner memberships', async () => {
     repo.getWorkspaceRole = async () => 'owner';
     const req = createExternalIntegrationRequest();
     const res = createResponse();
@@ -213,7 +228,13 @@ describe('workspace authorization helpers', () => {
     const authz = await getWorkspaceAuthorization(req as never, 'workspace-1');
     assert.equal(authz?.role, 'owner');
     assert.equal(authz?.can('delete_workspace'), false);
-    assert.equal(authz?.can('read_workspace_data'), false);
+    assert.equal(authz?.can('read_workspace_data'), true);
+    assert.equal(authz?.can('read_members'), false);
+    assert.equal(authz?.can('create_sessions'), true);
+    assert.equal(authz?.can('create_read_only_runs'), true);
+    assert.equal(authz?.can('create_read_write_runs'), false);
+    assert.equal(authz?.can('read_target_logs'), false);
+    assert.equal(authz?.can('cancel_runs'), false);
 
     const mutationAuthz = await requireWorkspaceCapability(
       req as never,

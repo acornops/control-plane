@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 import { listWorkspaceInvestigations } from '../src/controllers/workspaces-controller.js';
 import {
+  listClusterFindings,
   listClusterResources,
   listClusters
 } from '../src/controllers/workspaces/kubernetes-cluster-controller.js';
@@ -13,6 +14,7 @@ const originalGetWorkspaceRole = repo.getWorkspaceRole;
 const originalGetCluster = repo.getCluster;
 const originalGetClusterSnapshot = repo.getClusterSnapshot;
 const originalListClusters = repo.listClusters;
+const originalListClusterSnapshotFindings = repo.listClusterSnapshotFindings;
 const originalListClusterSnapshotResources = repo.listClusterSnapshotResources;
 const originalListClusterSnapshotSummaries = repo.listClusterSnapshotSummaries;
 const originalListWorkspaceSnapshotFindings = repo.listWorkspaceSnapshotFindings;
@@ -22,6 +24,7 @@ afterEach(() => {
   repo.getCluster = originalGetCluster;
   repo.getClusterSnapshot = originalGetClusterSnapshot;
   repo.listClusters = originalListClusters;
+  repo.listClusterSnapshotFindings = originalListClusterSnapshotFindings;
   repo.listClusterSnapshotResources = originalListClusterSnapshotResources;
   repo.listClusterSnapshotSummaries = originalListClusterSnapshotSummaries;
   repo.listWorkspaceSnapshotFindings = originalListWorkspaceSnapshotFindings;
@@ -32,6 +35,24 @@ function createRequest(query: Record<string, string | undefined> = {}) {
     auth: {
       userId: 'user-1',
       credential: { type: 'session' as const, sessionId: 'session-1' }
+    },
+    params: {
+      workspaceId: 'workspace-1',
+      clusterId: 'cluster-1'
+    },
+    query
+  };
+}
+
+function createExternalIntegrationRequest(query: Record<string, string | undefined> = {}) {
+  return {
+    auth: {
+      userId: 'user-1',
+      credential: {
+        type: 'external_integration' as const,
+        integrationId: 'external-chat',
+        externalUserId: 'external-user-1'
+      }
     },
     params: {
       workspaceId: 'workspace-1',
@@ -193,6 +214,165 @@ describe('normalized snapshot controller reads', () => {
 
     assert.equal(res.statusCode, 200);
     assert.equal((res.body as { items: Array<{ summary: { resourceCount: number } }> }).items[0].summary.resourceCount, 7);
+  });
+
+  it('allows external integration credentials to list clusters through workspace data reads', async () => {
+    repo.getWorkspaceRole = async () => 'owner';
+    repo.listClusters = async () => ({
+      items: [createCluster()],
+      nextCursor: undefined
+    });
+    repo.listClusterSnapshotSummaries = async () => new Map([
+      [
+        'cluster-1',
+        {
+          latestSnapshot: '2026-06-01T00:00:00.000Z',
+          summary: {
+            resourceCount: 3,
+            findingCount: 1,
+            criticalFindingCount: 0,
+            namespaceCount: 1,
+            nodeCount: 1,
+            resourceFamilyCounts: {
+              workloads: 2,
+              network: 1,
+              storage: 0,
+              cluster: 0
+            },
+            resourceKindCounts: {
+              Pod: 2,
+              Service: 1
+            }
+          }
+        }
+      ]
+    ]);
+    const res = createResponse();
+
+    await listClusters(createExternalIntegrationRequest() as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual((res.body as { items: Array<{ id: string; summary: { resourceCount: number } }> }).items, [
+      {
+        ...createCluster(),
+        latestSnapshot: '2026-06-01T00:00:00.000Z',
+        summary: {
+          resourceCount: 3,
+          findingCount: 1,
+          criticalFindingCount: 0,
+          namespaceCount: 1,
+          nodeCount: 1,
+          resourceFamilyCounts: {
+            workloads: 2,
+            network: 1,
+            storage: 0,
+            cluster: 0
+          },
+          resourceKindCounts: {
+            Pod: 2,
+            Service: 1
+          }
+        }
+      }
+    ]);
+  });
+
+  it('allows external integration credentials to read cluster resources and findings', async () => {
+    repo.getWorkspaceRole = async () => 'owner';
+    repo.getCluster = async () => createCluster();
+    repo.listClusterSnapshotResources = async (clusterId) => ({
+      items: [
+        {
+          id: 'pod-1',
+          family: 'workloads',
+          kind: 'Pod',
+          name: 'pod-1',
+          namespace: 'default',
+          status: 'Running',
+          clusterId,
+          clusterName: 'cluster-1',
+          item: {}
+        }
+      ],
+      nextCursor: undefined
+    });
+    repo.listClusterSnapshotFindings = async () => ({
+      items: [
+        {
+          id: 'finding-1',
+          severity: 'warning',
+          title: 'Pod unhealthy',
+          message: 'Pod is unhealthy.',
+          timestamp: Date.parse('2026-06-01T00:00:00.000Z'),
+          clusterId: 'cluster-1',
+          clusterName: 'cluster-1',
+          namespace: 'default',
+          resourceKind: 'Pod',
+          resourceName: 'pod-1'
+        }
+      ],
+      nextCursor: undefined
+    });
+
+    const resources = createResponse();
+    await listClusterResources(createExternalIntegrationRequest() as never, resources as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    const findings = createResponse();
+    await listClusterFindings(createExternalIntegrationRequest() as never, findings as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.equal(resources.statusCode, 200);
+    assert.equal((resources.body as { items: Array<{ id: string }> }).items[0].id, 'pod-1');
+    assert.equal(findings.statusCode, 200);
+    assert.equal((findings.body as { items: Array<{ id: string }> }).items[0].id, 'finding-1');
+  });
+
+  it('allows external integration credentials to list workspace investigations', async () => {
+    repo.getWorkspaceRole = async () => 'owner';
+    repo.listWorkspaceSnapshotFindings = async () => ({
+      items: [
+        {
+          id: 'finding-1',
+          severity: 'critical',
+          title: 'Pod unhealthy',
+          message: 'Pod is unhealthy.',
+          timestamp: Date.parse('2026-06-01T00:00:00.000Z'),
+          clusterId: 'cluster-1',
+          clusterName: 'cluster-1'
+        }
+      ],
+      nextCursor: undefined
+    });
+    const res = createResponse();
+
+    await listWorkspaceInvestigations(createExternalIntegrationRequest() as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal((res.body as { items: Array<{ id: string }> }).items[0].id, 'finding-1');
+  });
+
+  it('rejects external integration cluster lists when the linked role cannot read workspace data', async () => {
+    repo.getWorkspaceRole = async () => 'auditor';
+    repo.listClusters = async () => {
+      throw new Error('cluster list should not run without workspace data access');
+    };
+    const res = createResponse();
+
+    await listClusters(createExternalIntegrationRequest() as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.equal(res.statusCode, 403);
+    assert.deepEqual(res.body, {
+      error: { code: 'FORBIDDEN', message: 'No access to workspace data', retryable: false }
+    });
   });
 
   it('rejects resource cursors with mismatched filter signatures before repository reads', async () => {

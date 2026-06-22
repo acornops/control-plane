@@ -115,9 +115,25 @@ export function createRequest(params: Record<string, string>, body: Record<strin
   };
 }
 
+export function createExternalIntegrationRequest(params: Record<string, string>, body: Record<string, unknown> = {}) {
+  return {
+    params,
+    body,
+    query: {},
+    auth: {
+      userId: 'user-1',
+      credential: {
+        type: 'external_integration' as const,
+        integrationId: 'external-chat',
+        externalUserId: 'external-user-1'
+      }
+    }
+  };
+}
+
 export async function callController(
   handler: (req: never, res: never, next: (err?: unknown) => void) => Promise<void>,
-  req: ReturnType<typeof createRequest>
+  req: ReturnType<typeof createRequest> | ReturnType<typeof createExternalIntegrationRequest>
 ) {
   const res = createResponse();
   await handler(req as never, res as never, (err?: unknown) => {

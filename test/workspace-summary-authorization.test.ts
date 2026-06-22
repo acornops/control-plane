@@ -6,6 +6,7 @@ import type { WorkspaceSummary } from '../src/types/domain.js';
 
 const originalListWorkspacesForUser = repo.listWorkspacesForUser;
 const originalGetWorkspaceSummaryForUser = repo.getWorkspaceSummaryForUser;
+const externalIntegrationOwnerCapabilities = new Set(['read_workspace_data', 'create_sessions', 'create_read_only_runs']);
 
 afterEach(() => {
   repo.listWorkspacesForUser = originalListWorkspacesForUser;
@@ -123,7 +124,7 @@ describe('workspace summary authorization', () => {
     });
   });
 
-  it('redacts workspace summary counts and permissions for external integration list requests', async () => {
+  it('returns operational workspace summary fields for external integration list requests', async () => {
     repo.listWorkspacesForUser = async () => ({
       items: [
         createWorkspaceSummary({
@@ -149,6 +150,65 @@ describe('workspace summary authorization', () => {
     assert.equal(res.statusCode, 200);
     assert.equal(item.id, 'workspace-1');
     assert.equal(item.currentUserRole, 'owner');
+    assert.equal(item.clusterCount, 4);
+    assert.equal(item.memberCount, 0);
+    assert.equal(item.quota.members.used, 0);
+    assert.equal(item.quota.kubernetesClusters.used, 4);
+    assert.equal(item.quota.virtualMachines.used, 3);
+    for (const capability of Object.keys(item.permissions) as Array<keyof typeof item.permissions>) {
+      assert.equal(item.permissions[capability], externalIntegrationOwnerCapabilities.has(capability), capability);
+    }
+  });
+
+  it('allows external integration direct workspace summary reads with bot-scoped permissions', async () => {
+    repo.getWorkspaceSummaryForUser = async () => createWorkspaceSummary({
+      currentUserRole: 'owner',
+      clusterCount: 2,
+      memberCount: 5,
+      quota: {
+        members: { used: 5, limit: 100 },
+        kubernetesClusters: { used: 2, limit: 10 },
+        virtualMachines: { used: 1, limit: 10 }
+      }
+    });
+    const res = createResponse();
+
+    await getWorkspace(createExternalIntegrationRequest({ workspaceId: 'workspace-1' }) as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    const item = res.body as WorkspaceSummary;
+    assert.equal(res.statusCode, 200);
+    assert.equal(item.id, 'workspace-1');
+    assert.equal(item.clusterCount, 2);
+    assert.equal(item.memberCount, 0);
+    assert.equal(item.quota.members.used, 0);
+    assert.equal(item.quota.kubernetesClusters.used, 2);
+    assert.equal(item.quota.virtualMachines.used, 1);
+    for (const capability of Object.keys(item.permissions) as Array<keyof typeof item.permissions>) {
+      assert.equal(item.permissions[capability], externalIntegrationOwnerCapabilities.has(capability), capability);
+    }
+  });
+
+  it('redacts external integration workspace summaries when the linked role cannot read workspace data', async () => {
+    repo.getWorkspaceSummaryForUser = async () => createWorkspaceSummary({
+      currentUserRole: 'auditor',
+      clusterCount: 2,
+      memberCount: 5,
+      quota: {
+        members: { used: 5, limit: 100 },
+        kubernetesClusters: { used: 2, limit: 10 },
+        virtualMachines: { used: 1, limit: 10 }
+      }
+    });
+    const res = createResponse();
+
+    await getWorkspace(createExternalIntegrationRequest({ workspaceId: 'workspace-1' }) as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    const item = res.body as WorkspaceSummary;
+    assert.equal(res.statusCode, 200);
     assert.equal(item.clusterCount, 0);
     assert.equal(item.memberCount, 0);
     assert.equal(item.quota.members.used, 0);
