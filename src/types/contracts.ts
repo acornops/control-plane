@@ -68,8 +68,8 @@ export const runCommitSchema = z.object({
     reasoning_tokens: z.number().int().nonnegative().optional()
   }),
   timing: z.object({
-    started_at: z.string().datetime(),
-    ended_at: z.string().datetime()
+    started_at: z.string().datetime({ offset: true }),
+    ended_at: z.string().datetime({ offset: true })
   })
 });
 
