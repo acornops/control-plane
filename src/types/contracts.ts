@@ -65,7 +65,10 @@ export const runCommitSchema = z.object({
     input_tokens: z.number().int().nonnegative(),
     output_tokens: z.number().int().nonnegative(),
     tool_calls: z.number().int().nonnegative().default(0),
-    reasoning_tokens: z.number().int().nonnegative().optional()
+    reasoning_tokens: z.preprocess(
+      (value) => (value === null ? undefined : value),
+      z.number().int().nonnegative().optional()
+    )
   }),
   timing: z.object({
     started_at: z.string().datetime({ offset: true }),
