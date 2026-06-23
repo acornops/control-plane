@@ -12,12 +12,66 @@ interface VmRow extends TargetRow {
   metadata: Record<string, unknown>;
 }
 
+interface SnapshotSummaryDbRow {
+  target_id: string;
+  workspace_id: string;
+  snapshot_ts: Date | string;
+  inventory_count: number | string;
+  finding_count: number | string;
+  critical_finding_count: number | string;
+  summary: Record<string, unknown> | null;
+}
+
+export interface VirtualMachineSnapshotSummary {
+  inventoryCount: number;
+  findingCount: number;
+  criticalFindingCount: number;
+  serviceCount: number;
+  processCount: number;
+  listenerCount: number;
+  logCount: number;
+}
+
+export interface VirtualMachineSnapshotSummaryRecord {
+  latestSnapshot: {
+    targetId: string;
+    workspaceId: string;
+    timestamp: string;
+  };
+  summary: VirtualMachineSnapshotSummary;
+}
+
 function text(value: unknown, fallback = ''): string {
   return typeof value === 'string' && value.trim() ? value : fallback;
 }
 
 function stringList(value: unknown, fallback: string[]): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0) : fallback;
+}
+
+function numberFromSummary(summary: Record<string, unknown>, key: string): number {
+  const value = summary[key];
+  return typeof value === 'number' ? value : 0;
+}
+
+function mapVirtualMachineSnapshotSummaryRecord(row: SnapshotSummaryDbRow): VirtualMachineSnapshotSummaryRecord {
+  const summary = row.summary || {};
+  return {
+    latestSnapshot: {
+      targetId: row.target_id,
+      workspaceId: row.workspace_id,
+      timestamp: toIso(row.snapshot_ts)!
+    },
+    summary: {
+      inventoryCount: Number(row.inventory_count),
+      findingCount: Number(row.finding_count),
+      criticalFindingCount: Number(row.critical_finding_count),
+      serviceCount: numberFromSummary(summary, 'serviceCount'),
+      processCount: numberFromSummary(summary, 'processCount'),
+      listenerCount: numberFromSummary(summary, 'listenerCount'),
+      logCount: numberFromSummary(summary, 'logCount')
+    }
+  };
 }
 
 function mapVm(row: VmRow): VirtualMachineTarget {
@@ -52,7 +106,7 @@ export async function addVirtualMachine(
     await assertWorkspaceTargetQuota(client, workspaceId, VIRTUAL_MACHINE_TARGET_TYPE);
     await client.query(
       `INSERT INTO targets (id, workspace_id, target_type, name, status, metadata, created_at, updated_at)
-       VALUES ($1, $2, 'virtual_machine', $3, 'offline', $4::jsonb, $5, $6)`,
+       VALUES ($1, $2, 'virtual_machine', $3, 'unknown', $4::jsonb, $5, $6)`,
       [id, workspaceId, input.name, JSON.stringify(metadata), now, now]
     );
   });
@@ -76,7 +130,9 @@ export async function listVirtualMachines(
   const clauses = ['workspace_id = $1', "target_type = 'virtual_machine'"];
   if (options.status) {
     params.push(options.status);
-    clauses.push(`status = $${params.length}`);
+    clauses.push(options.status === 'offline'
+      ? `(status = $${params.length} OR status = 'unknown')`
+      : `status = $${params.length}`);
   }
   if (options.q) {
     params.push(`%${options.q.toLowerCase()}%`);
@@ -263,6 +319,32 @@ export async function getVirtualMachineSnapshot(vmId: string): Promise<VirtualMa
   if (!result.rowCount) return null;
   const row = result.rows[0];
   return { targetId: row.target_id, workspaceId: row.workspace_id, timestamp: toIso(row.snapshot_ts)!, data: row.data || {} };
+}
+
+export async function getVirtualMachineSnapshotSummary(vmId: string): Promise<VirtualMachineSnapshotSummaryRecord | null> {
+  const result = await db.query<SnapshotSummaryDbRow>(
+    `SELECT s.target_id, s.workspace_id, s.snapshot_ts, s.inventory_count, s.finding_count,
+       s.critical_finding_count, s.summary
+     FROM target_snapshot_summaries s
+     JOIN targets t ON t.id = s.target_id AND t.target_type = 'virtual_machine'
+     WHERE s.target_id = $1`,
+    [vmId]
+  );
+  if (!result.rowCount) return null;
+  return mapVirtualMachineSnapshotSummaryRecord(result.rows[0]);
+}
+
+export async function listVirtualMachineSnapshotSummaries(vmIds: string[]): Promise<Map<string, VirtualMachineSnapshotSummaryRecord>> {
+  if (vmIds.length === 0) return new Map();
+  const result = await db.query<SnapshotSummaryDbRow>(
+    `SELECT s.target_id, s.workspace_id, s.snapshot_ts, s.inventory_count, s.finding_count,
+       s.critical_finding_count, s.summary
+     FROM target_snapshot_summaries s
+     JOIN targets t ON t.id = s.target_id AND t.target_type = 'virtual_machine'
+     WHERE s.target_id = ANY($1::text[])`,
+    [vmIds]
+  );
+  return new Map(result.rows.map((row) => [row.target_id, mapVirtualMachineSnapshotSummaryRecord(row)]));
 }
 
 export async function listVirtualMachineSnapshotHistory(vmId: string, options: { since?: string; limit?: number } = {}): Promise<VirtualMachineSnapshot[]> {

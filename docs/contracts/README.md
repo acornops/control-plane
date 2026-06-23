@@ -223,9 +223,9 @@ Workspace membership responses are server-owned and include:
 - `roleTemplate?`
 - `source`
 
-`GET /api/v1/workspaces/{workspaceId}/roles` returns the deployment-supported role template catalog for the workspace. The catalog is deployment-wide, read-only, and includes `key`, `displayName`, `description`, `kind`, `capabilities`, `protected`, and `sortOrder`. Workspace summaries may include `currentUserRoleTemplate`; memberships and invitations may include `roleTemplate`. Clients must use these fields for labels and role selection instead of duplicating role/capability logic.
+`GET /api/v1/workspaces/{workspaceId}/roles` returns the deployment-supported role template catalog for the workspace. The catalog is deployment-wide, read-only, and includes `key`, `displayName`, `description`, `kind`, `capabilities`, `capabilityGroups[].{key,capabilities,sortOrder}`, `protected`, and `sortOrder`. Workspace summaries may include `currentUserRoleTemplate`; memberships and invitations may include `roleTemplate`. Clients must use these fields for labels and role selection instead of duplicating role/capability logic.
 
-`GET /api/v1/workspaces/{workspaceId}/ai-settings` returns the workspace AI assistant default provider/model, deployment-allowed providers/models, reasoning summary mode/effort policy, derived `reasoningSummariesEnabled`, and per-provider configured status to workspace members. It never returns API key values, internal secret names, or reasoning summary text. `PATCH /ai-settings` updates `{defaultProvider,defaultModel,reasoningSummaryMode,reasoningEffort}` and requires `permissions.manage_ai_settings`. `PUT /ai-provider-credentials/{provider}` accepts write-only `{apiKey}` to save or rotate a workspace provider credential and validates deployment provider policy. `DELETE /ai-provider-credentials/{provider}` removes a supported provider credential even if that provider is no longer deployment-allowed, so stale secrets can be cleaned up after policy changes. AI settings and credential mutations require `permissions.manage_ai_settings` and write workspace audit events. Assistant run creation resolves provider/model and reasoning settings from workspace AI settings, stores them on the run snapshot, and rejects before dispatch when the selected provider/model is not deployment-allowed or the selected provider has no workspace credential.
+`GET /api/v1/workspaces/{workspaceId}/ai-settings` returns the workspace AI assistant default provider/model, deployment-allowed providers/models, reasoning summary mode/effort policy, derived `reasoningSummariesEnabled`, and per-provider configured status to workspace members. New and unset workspace AI settings default `reasoningSummaryMode` to `auto` when deployment policy allows reasoning summaries; admins can still set `off`. It never returns API key values, internal secret names, or reasoning summary text. `PATCH /ai-settings` updates `{defaultProvider,defaultModel,reasoningSummaryMode,reasoningEffort}` and requires `permissions.manage_ai_settings`. `PUT /ai-provider-credentials/{provider}` accepts write-only `{apiKey}` to save or rotate a workspace provider credential and validates deployment provider policy. `DELETE /ai-provider-credentials/{provider}` removes a supported provider credential even if that provider is no longer deployment-allowed, so stale secrets can be cleaned up after policy changes. AI settings and credential mutations require `permissions.manage_ai_settings` and write workspace audit events. Assistant run creation resolves provider/model and reasoning settings from workspace AI settings, stores them on the run snapshot, and rejects before dispatch when the selected provider/model is not deployment-allowed or the selected provider has no workspace credential.
 
 Owners can manage all member roles. Other roles with `permissions.manage_members` can directly assign, update, or remove non-protected members. `owner` is always present, protected, and required; the built-in `auditor` role is protected when enabled. A non-owner assigning or modifying a protected role returns `PROTECTED_ROLE_REQUIRES_OWNER`. Membership and invitation roles must exist in the deployment-supported catalog or the API returns `ROLE_NOT_SUPPORTED`. Any role update or removal that would leave a workspace with no owner must return `LAST_OWNER` and must not mutate membership.
 
@@ -259,6 +259,8 @@ Kubernetes cluster updates accept `name`, `namespaceInclude`, and `namespaceExcl
 
 `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}` returns cluster metadata, `writeConfirmationPolicy`, `latestSnapshot.{clusterId,workspaceId,timestamp}`, and `summary.{resourceCount,findingCount,criticalFindingCount,namespaceCount,nodeCount,resourceFamilyCounts,resourceKindCounts}`. It must not return full `latestSnapshot.data` to the browser.
 
+`GET /api/v1/workspaces/{workspaceId}/virtual-machines` and `GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}` return VM metadata, `latestSnapshot.{targetId,workspaceId,timestamp}`, and `summary.{inventoryCount,findingCount,criticalFindingCount,serviceCount,processCount,listenerCount,logCount}`. They must not return full `latestSnapshot.data` to the browser.
+
 Snapshot-derived management-console data is exposed through bounded list APIs:
 
 - `GET /api/v1/workspaces/{workspaceId}/investigations`
@@ -291,7 +293,7 @@ The management console depends on these catalog fields:
 - `permissions.editableRoles`
 - `servers[].{id,name,url,type,enabled,isSystem,canDelete,canEditConnection,authType,connectionStatus,lastDiscoveryAt,lastDiscoveryError}`
 - `servers[].toolCounts.{total,enabledConfigured,enabledEffective,writeConfigured,writeEffective}`
-- `GET /mcp/servers/{serverId}/tools` returns paged tool rows with `{name,description,capability,version,source,enabledConfigured,enabledEffective,effectiveDisabledReason}`
+- `GET /mcp/servers/{serverId}/tools` returns paged tool rows with `{name,description,capability,version,source,enabledConfigured,enabledEffective,effectiveDisabledReason}`. `enabledEffective` includes target runtime availability; write tools on read-only agents return `effectiveDisabledReason=agent_write_disabled`.
 
 Mutation policy exposed to the management console:
 
@@ -305,6 +307,7 @@ Mutation policy exposed to the management console:
 - `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity`
+- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity/stream`
 - `POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/sessions`
 - `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/sessions`
 - `DELETE /api/v1/sessions/{sessionId}`
@@ -335,6 +338,8 @@ Session listing response must remain cursor-based:
 - Run details and approval replay payloads include `targetId` and `targetType`. Approval payloads may include `summary`, a human-readable sentence for approval UI copy. Kubernetes payloads also include `clusterId`; non-Kubernetes targets must not receive a synthetic cluster alias.
 
 Recent target chat activity uses `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity?windowSeconds=300`. It requires target read access, not `create_sessions`. The server clamps optional `windowSeconds` from 60 to 3600 seconds and defaults to `TARGET_CHAT_RECENT_ACTIVITY_WINDOW_SECONDS=300`. The response includes `targetId`, `targetType`, `targetName`, `windowSeconds`, `generatedAt`, and `recentActivity[]`. Each activity row includes `sessionId`, `title`, `createdBy`, optional `createdByUser.{id,displayName}`, `lastActivityAt`, optional latest run metadata, optional active run metadata, `hasActiveRun`, `hasRecentWriteCapableRun`, and optional `latestToolAccessMode`.
+
+Target chat activity streaming uses `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity/stream`. It requires the same target read access as the activity summary endpoint. The stream sends SSE frames with `event: chat_activity`, `id: <activityEventId>`, and a JSON payload containing `{id,workspaceId,targetId,targetType,sessionId,runId?,messageId?,approvalId?,type,payload,createdAt}`. Clients may resume missed events with `Last-Event-ID` or `?after=<activityEventId>`; connections without a resume cursor are live-only and should fetch recent activity or sessions for initial state. Activity event types are `message.created`, `run.created`, `run.status_changed`, `assistant_message.committed`, `approval.requested`, `approval.decided`, `approval.expired`, and `session.deleted`. Activity events identify changed resources and safe approval metadata only; chat message bodies remain fetched through `GET /api/v1/sessions/{sessionId}/messages`.
 
 `POST /api/v1/sessions/{sessionId}/messages` accepts:
 
@@ -377,6 +382,7 @@ Current event types emitted by execution-engine and forwarded by control plane:
 - `run_completed`
 
 The management console deduplicates on `seq`, so the control plane must preserve sequence numbers exactly.
+Run SSE is a long-lived detail stream and may continue sending heartbeats after terminal run events. Clients must treat `run_completed`, `run_failed`, and `run_cancelled` as terminal signals and reconcile through run/session APIs instead of waiting for the SSE request to close.
 Cancellation is terminal. Once cancellation is accepted for a run, the control
 plane must persist and replay `run_cancelled` as the terminal event and must
 ignore later non-terminal execution events such as token deltas, progress,
@@ -569,7 +575,7 @@ Bootstrap response contract:
 - `policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}`
 - `context.{endpoint,max_context_tokens}`
 - `llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}`
-- `tools.{tool_registry_version,allowed_tools,tool_specs,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}`
+- `tools.{tool_registry_version,allowed_tools,tool_specs,write_unavailable_reason?,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}`. `write_unavailable_reason` is informational context for assistant wording when configured write tools are filtered out by a read-only run or read-only agent; `allowed_tools` and the run JWT remain authoritative.
 - `routing`
 - `tracing`
 

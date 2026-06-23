@@ -3,6 +3,7 @@ import { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { config } from '../config.js';
 import { cancelRunInExecutionEngine, dispatchRunToExecutionEngine } from '../services/execution-engine-client.js';
+import { recordApprovalActivity } from '../services/target-chat-activity-events.js';
 import { webhooks } from '../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { logger } from '../logger.js';
@@ -217,6 +218,7 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
     }
     redispatchWaitingRunAfterApproval(run);
     if (decided.status === 'expired') {
+      await recordApprovalActivity(decided, 'approval.expired', run.sessionId, run.messageId);
       res.status(409).json({
         error: {
           code: 'APPROVAL_EXPIRED',
@@ -227,6 +229,7 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
       });
       return;
     }
+    await recordApprovalActivity(decided, 'approval.decided', run.sessionId, run.messageId);
     webhooks.emit({
       type: 'run.tool_approval_decided.v1',
       workspaceId: run.workspaceId,

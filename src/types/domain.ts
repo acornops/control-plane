@@ -116,6 +116,13 @@ export interface WorkspacePermissions {
 }
 
 export type RoleTemplateKind = 'system' | 'custom';
+export type RoleTemplateCapabilityGroupKey = 'workspace' | 'members' | 'targets' | 'operations' | 'settings';
+
+export interface RoleTemplateCapabilityGroup {
+  key: RoleTemplateCapabilityGroupKey;
+  capabilities: Array<keyof WorkspacePermissions>;
+  sortOrder: number;
+}
 
 export interface RoleTemplate {
   key: Role;
@@ -123,6 +130,7 @@ export interface RoleTemplate {
   description: string;
   kind: RoleTemplateKind;
   capabilities: Array<keyof WorkspacePermissions>;
+  capabilityGroups?: RoleTemplateCapabilityGroup[];
   protected: boolean;
   sortOrder: number;
   createdAt?: string;
@@ -356,6 +364,30 @@ export interface TargetChatActivity {
   windowSeconds: number;
   generatedAt: string;
   recentActivity: RecentTargetChatActivity[];
+}
+
+export type TargetChatActivityEventType =
+  | 'message.created'
+  | 'run.created'
+  | 'run.status_changed'
+  | 'assistant_message.committed'
+  | 'approval.requested'
+  | 'approval.decided'
+  | 'approval.expired'
+  | 'session.deleted';
+
+export interface TargetChatActivityEvent {
+  id: string;
+  workspaceId: string;
+  targetId: string;
+  targetType: TargetType;
+  sessionId: string;
+  runId?: string;
+  messageId?: string;
+  approvalId?: string;
+  type: TargetChatActivityEventType;
+  payload: Record<string, unknown>;
+  createdAt: string;
 }
 
 export interface Message {

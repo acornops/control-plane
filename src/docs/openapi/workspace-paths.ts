@@ -159,7 +159,7 @@ export function buildWorkspacePaths(): Record<string, unknown> {
           ],
           responses: {
             '200': {
-              description: 'Deployment-supported role catalog: { items: RoleTemplate[] }. Role templates include key, displayName, description, kind, capabilities, protected, and sortOrder.'
+              description: 'Deployment-supported role catalog: { items: RoleTemplate[] }. Role templates include key, displayName, description, kind, capabilities, capabilityGroups[].{key,capabilities,sortOrder}, protected, and sortOrder.'
             },
             '403': { description: 'No workspace read access.' }
           }
@@ -205,7 +205,7 @@ export function buildWorkspacePaths(): Record<string, unknown> {
                   properties: {
                     defaultProvider: llmProviderSchema,
                     defaultModel: { type: 'string', example: 'gpt-5.5' },
-                    reasoningSummaryMode: { type: 'string', enum: ['off', 'auto', 'concise', 'detailed'], default: 'off' },
+                    reasoningSummaryMode: { type: 'string', enum: ['off', 'auto', 'concise', 'detailed'], default: 'auto' },
                     reasoningEffort: { type: 'string', enum: ['default', 'low', 'medium', 'high'], default: 'default' }
                   }
                 }

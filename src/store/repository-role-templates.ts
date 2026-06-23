@@ -1,5 +1,5 @@
 import { PoolClient } from 'pg';
-import { WorkspaceCapability } from '../auth/authorization.js';
+import { groupWorkspaceCapabilities, WorkspaceCapability } from '../auth/authorization.js';
 import { RoleTemplate, RoleTemplateKind } from '../types/domain.js';
 import { db } from '../infra/db.js';
 import { toIso } from './repository-mappers.js';
@@ -18,12 +18,14 @@ interface RoleTemplateRow {
 }
 
 function mapRoleTemplate(row: RoleTemplateRow): RoleTemplate {
+  const capabilities = Array.isArray(row.capabilities) ? row.capabilities : [];
   return {
     key: row.key,
     displayName: row.display_name,
     description: row.description,
     kind: row.kind,
-    capabilities: Array.isArray(row.capabilities) ? row.capabilities : [],
+    capabilities,
+    capabilityGroups: groupWorkspaceCapabilities(capabilities),
     protected: row.protected,
     sortOrder: row.sort_order,
     createdAt: toIso(row.created_at),

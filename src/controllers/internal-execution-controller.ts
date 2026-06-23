@@ -8,6 +8,7 @@ import { isModelAllowedForProvider } from '../services/llm-policy.js';
 import { syncTargetBuiltInTools } from '../services/target-built-in-tool-sync.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
 import { publishRunEvents } from '../services/control-plane-coordination.js';
+import { recordTargetChatActivityEvent } from '../services/target-chat-activity-events.js';
 import { sanitizeToolInputSchema, sanitizeToolText } from '../services/tool-metadata.js';
 import { gatewayTokenService } from '../services/token-service.js';
 import { emitRunStatusTransition } from '../services/webhooks.js';
@@ -145,6 +146,7 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
 
     let allowedToolNames: string[] = [];
     let allowedToolSpecs: Array<{ name: string; description: string; input_schema: Record<string, unknown>; capability: 'read' | 'write' }> = [];
+    let hasConfiguredWriteTool = false;
     try {
       const [tools, overrides] = await Promise.all([
         resolveTargetToolsForRun(run.workspaceId, targetId, target.targetType, run.id),
@@ -157,6 +159,7 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
             : tool.enabled;
           if (!effectiveEnabled) return false;
           const capability = normalizeToolCapability(tool);
+          if (capability === 'write') hasConfiguredWriteTool = true;
           if (capability === 'write' && !targetSupportsWrite) return false;
           if (capability === 'write' && !runAllowsWrite) return false;
           return true;
@@ -266,6 +269,13 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
         tool_registry_version: 'trv_1',
         allowed_tools: allowedToolNames,
         tool_specs: allowedToolSpecs,
+        write_unavailable_reason: hasConfiguredWriteTool
+          ? !runAllowsWrite
+            ? 'run_read_only'
+            : !targetSupportsWrite
+              ? 'agent_write_disabled'
+              : null
+          : null,
         confirmation_required_for_write: runAllowsWrite
           ? await resolveWriteConfirmationRequired(target.targetType, targetId)
           : false,
@@ -461,12 +471,30 @@ export async function commitRun(req: Request, res: Response, next: NextFunction)
     });
     emitRunStatusTransition(run, updatedRun);
 
+    const commitAssistantFinalMessage = async (content: string) => {
+      const message = await repo.upsertAssistantFinalMessage(run.sessionId, run.id, content);
+      await recordTargetChatActivityEvent({
+        workspaceId: run.workspaceId,
+        targetId: run.targetId,
+        targetType: run.targetType,
+        sessionId: run.sessionId,
+        runId: run.id,
+        messageId: message.id,
+        type: 'assistant_message.committed',
+        payload: {
+          status: req.body.status,
+          contentLength: content.length,
+          committedAt: new Date().toISOString()
+        }
+      });
+    };
+
     const committedContent = String(assistantMessage?.content || '').trim();
     if (committedContent) {
-      await repo.upsertAssistantFinalMessage(run.sessionId, run.id, committedContent);
+      await commitAssistantFinalMessage(committedContent);
     } else if (req.body.status === 'failed' || req.body.status === 'cancelled') {
       const failureMessage = buildTerminalFailureMessage(req.body.status, updatedRun?.errorMessage || run.errorMessage);
-      await repo.upsertAssistantFinalMessage(run.sessionId, run.id, failureMessage);
+      await commitAssistantFinalMessage(failureMessage);
     }
 
     res.status(200).json({ status: 'ok' });

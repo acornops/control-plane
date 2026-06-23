@@ -536,14 +536,14 @@ export async function getWorkspaceRole(userId: string, workspaceId: string): Pro
     if (!result.rowCount) return null;
     return normalizeRole(result.rows[0].role);
   }
-export async function ensureDefaultUser(): Promise<User> {
-    return upsertUser('dev@acornops.local', 'Dev User');
-  }
-export async function ensureDevelopmentAccessForUser(userId: string): Promise<void> {
-    await ensureDevelopmentWorkspaceAndTargets(userId);
-  }
+export const ensureDefaultUser = (): Promise<User> => upsertUser('dev@acornops.local', 'Dev User');
+export const ensureDefaultOperatorUser = (): Promise<User> => upsertUser('operator@acornops.local', 'Dev Operator');
+export const ensureDevelopmentAccessForUser = (userId: string): Promise<void> => ensureDevelopmentWorkspaceAndTargets(userId);
 
 export async function ensureDevelopmentSeed(seedAgentKey?: string, seedVmAgentKey?: string): Promise<void> {
     const user = await ensureDefaultUser();
-    await ensureDevelopmentWorkspaceAndTargets(user.id, seedAgentKey, seedVmAgentKey);
+    const operator = await ensureDefaultOperatorUser();
+    await ensureDevelopmentWorkspaceAndTargets(user.id, seedAgentKey, seedVmAgentKey, [
+      { userId: operator.id, role: 'operator' }
+    ], true);
   }

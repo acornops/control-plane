@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it, mock } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import {
   bootstrap,
   commitRun,
@@ -8,6 +8,7 @@ import {
   summarizeRunEventCounts
 } from '../src/controllers/internal-execution-controller.js';
 import { agentGateway } from '../src/agent/ws-server.js';
+import { webhooks, type WebhookEventInput } from '../src/services/webhooks.js';
 import { repo } from '../src/store/repository.js';
 import { runtime } from '../src/store/runtime.js';
 import type { RunEvent } from '../src/types/domain.js';
@@ -26,12 +27,49 @@ import {
 const originalAppendRunEvents = repo.appendRunEvents;
 const originalUpdateRun = repo.updateRun;
 const originalUpsertAssistantFinalMessage = repo.upsertAssistantFinalMessage;
+const originalWebhookEmit = webhooks.emit;
+
+beforeEach(() => {
+  webhooks.emit = (_event: WebhookEventInput) => undefined;
+  repo.insertWorkspaceAuditEvent = async (event) => ({
+    id: 'audit-event-1',
+    workspaceId: event.workspaceId,
+    category: event.category,
+    eventType: event.eventType,
+    actor: {
+      type: event.actorType || (event.actorUserId ? 'user' : 'system'),
+      ...(event.actorUserId ? { userId: event.actorUserId } : {})
+    },
+    object: {
+      type: event.objectType,
+      ...(event.objectId ? { id: event.objectId } : {}),
+      ...(event.objectName ? { name: event.objectName } : {})
+    },
+    summary: event.summary,
+    metadata: event.metadata ?? {},
+    occurredAt: '2026-05-24T00:00:00.000Z'
+  });
+  repo.insertTargetChatActivityEvent = async (event) => ({
+    id: 'activity-event-1',
+    workspaceId: event.workspaceId,
+    targetId: event.targetId,
+    targetType: event.targetType,
+    sessionId: event.sessionId,
+    ...(event.runId ? { runId: event.runId } : {}),
+    ...(event.messageId ? { messageId: event.messageId } : {}),
+    ...(event.approvalId ? { approvalId: event.approvalId } : {}),
+    type: event.type,
+    payload: event.payload ?? {},
+    createdAt: '2026-05-24T00:00:00.000Z'
+  });
+});
 
 afterEach(() => {
   restoreControllerRegressionState();
   repo.appendRunEvents = originalAppendRunEvents;
   repo.updateRun = originalUpdateRun;
   repo.upsertAssistantFinalMessage = originalUpsertAssistantFinalMessage;
+  webhooks.emit = originalWebhookEmit;
   runtime.clearRunEvents('run-1');
 });
 
@@ -44,6 +82,44 @@ function createRunEvent(type: string, seq: number, payload: Record<string, unkno
     type,
     payload
   };
+}
+
+const VM_BOOTSTRAP_TOOLS = [
+  {
+    name: 'restart_service',
+    mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
+    timeout_ms: 10000,
+    description: 'Restart a VM service',
+    capability: 'write',
+    version: 'v1',
+    source: 'builtin',
+    input_schema: { type: 'object' },
+    enabled: true
+  },
+  {
+    name: 'get_logs',
+    mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
+    timeout_ms: 10000,
+    description: 'Read VM logs',
+    capability: 'read',
+    version: 'v1',
+    source: 'builtin',
+    input_schema: { type: 'object' },
+    enabled: true
+  }
+];
+
+function mockVmBootstrapToolFetch(): void {
+  mock.method(globalThis, 'fetch', async (input) => {
+    const url = String(input);
+    if (url.includes('/api/v1/internal/mcp/tools?')) {
+      return new Response(JSON.stringify(VM_BOOTSTRAP_TOOLS), { status: 200 });
+    }
+    if (isWorkspaceAiCredentialStatusRequest(input)) {
+      return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
+    }
+    return new Response('unexpected request', { status: 500 });
+  });
 }
 
 describe('internal execution bootstrap audit metadata', () => {
@@ -81,45 +157,61 @@ describe('internal execution bootstrap audit metadata', () => {
     });
     repo.getWorkspaceAiSettings = async () => null;
     repo.listTargetToolOverrides = async () => ({});
-    mock.method(globalThis, 'fetch', async (input) => {
-      const url = String(input);
-      if (url.includes('/api/v1/internal/mcp/tools?')) {
-        return new Response(JSON.stringify([
-          {
-            name: 'restart_service',
-            mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
-            timeout_ms: 10000,
-            description: 'Restart a VM service',
-            capability: 'write',
-            version: 'v1',
-            source: 'builtin',
-            input_schema: { type: 'object' },
-            enabled: true
-          },
-          {
-            name: 'get_logs',
-            mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
-            timeout_ms: 10000,
-            description: 'Read VM logs',
-            capability: 'read',
-            version: 'v1',
-            source: 'builtin',
-            input_schema: { type: 'object' },
-            enabled: true
-          }
-        ]), { status: 200 });
-      }
-      if (isWorkspaceAiCredentialStatusRequest(input)) {
-        return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
-      }
-      return new Response('unexpected request', { status: 500 });
-    });
+    mockVmBootstrapToolFetch();
 
     const response = await callController(bootstrap, createRequest({ runId: 'run-1' }));
     const allowedTools = (response.body as { tools: { allowed_tools: string[] } }).tools.allowed_tools;
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(allowedTools, ['get_logs', 'restart_service']);
+  });
+
+  it('reports read-only run mode when configured write tools are filtered from bootstrap', async () => {
+    repo.getRun = async () => createRun({ targetId: 'vm-1', targetType: 'virtual_machine', toolAccessMode: 'read_only' });
+    repo.getTarget = async () => createTarget({ id: 'vm-1', targetType: 'virtual_machine', name: 'vm' });
+    repo.getSession = async () => createSessionRecord({ targetId: 'vm-1', targetType: 'virtual_machine', clusterId: undefined });
+    repo.getTargetAgentRegistration = async () => ({
+      targetId: 'vm-1',
+      targetType: 'virtual_machine',
+      workspaceId: 'workspace-1',
+      agentKeyHash: 'hash',
+      keyVersion: 1,
+      capabilities: ['read', 'write']
+    });
+    repo.getWorkspaceAiSettings = async () => null;
+    repo.listTargetToolOverrides = async () => ({});
+    mockVmBootstrapToolFetch();
+
+    const response = await callController(bootstrap, createRequest({ runId: 'run-1' }));
+    const tools = (response.body as { tools: { allowed_tools: string[]; write_unavailable_reason: string | null } }).tools;
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(tools.allowed_tools, ['get_logs']);
+    assert.equal(tools.write_unavailable_reason, 'run_read_only');
+  });
+
+  it('reports read-only agent mode when configured write tools are filtered from bootstrap', async () => {
+    repo.getRun = async () => createRun({ targetId: 'vm-1', targetType: 'virtual_machine', toolAccessMode: 'read_write' });
+    repo.getTarget = async () => createTarget({ id: 'vm-1', targetType: 'virtual_machine', name: 'vm' });
+    repo.getSession = async () => createSessionRecord({ targetId: 'vm-1', targetType: 'virtual_machine', clusterId: undefined });
+    repo.getTargetAgentRegistration = async () => ({
+      targetId: 'vm-1',
+      targetType: 'virtual_machine',
+      workspaceId: 'workspace-1',
+      agentKeyHash: 'hash',
+      keyVersion: 1,
+      capabilities: ['read']
+    });
+    repo.getWorkspaceAiSettings = async () => null;
+    repo.listTargetToolOverrides = async () => ({});
+    mockVmBootstrapToolFetch();
+
+    const response = await callController(bootstrap, createRequest({ runId: 'run-1' }));
+    const tools = (response.body as { tools: { allowed_tools: string[]; write_unavailable_reason: string | null } }).tools;
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(tools.allowed_tools, ['get_logs']);
+    assert.equal(tools.write_unavailable_reason, 'agent_write_disabled');
   });
 
   it('bootstraps with the run provider/model snapshot even when workspace defaults changed later', async () => {

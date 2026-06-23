@@ -73,6 +73,8 @@ describe('workspace AI settings controller', () => {
     assert.equal(response.statusCode, 200);
     const body = response.body as Record<string, unknown>;
     assert.equal(body.defaultProvider, 'openai');
+    assert.equal(body.reasoningSummaryMode, 'auto');
+    assert.equal(body.reasoningSummariesEnabled, true);
     assert.deepEqual(body.allowedProviders, ['openai', 'anthropic', 'gemini']);
     assert(Array.isArray(body.providers));
     assert(!JSON.stringify(body).includes('apiKey'));
@@ -396,7 +398,7 @@ describe('workspace AI settings controller', () => {
     );
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(persisted, { defaultProvider: 'openai', defaultModel: 'gpt-5.5', reasoningSummaryMode: 'off', reasoningEffort: 'default' });
+    assert.deepEqual(persisted, { defaultProvider: 'openai', defaultModel: 'gpt-5.5', reasoningSummaryMode: 'auto', reasoningEffort: 'default' });
   });
 
   it('rejects default model changes that do not match the selected provider', async () => {

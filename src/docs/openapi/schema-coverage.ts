@@ -25,7 +25,13 @@ function addSuccessResponseSchema(method: string, path: string, operation: Opera
     if (!statusCode.startsWith('2')) continue;
     if (response.content) continue;
     if (statusCode === '204') continue;
-    if (method === 'get' && path === '/api/v1/runs/{runId}/stream') {
+    if (
+      method === 'get' &&
+      (
+        path === '/api/v1/runs/{runId}/stream' ||
+        path === '/api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity/stream'
+      )
+    ) {
       response.content = streamContent();
       continue;
     }

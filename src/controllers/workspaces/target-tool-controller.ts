@@ -67,13 +67,14 @@ export async function listTargetToolsCatalog(
     if (!access) {
       return;
     }
-    const [tools, servers, overrides] = await Promise.all([
+    const [tools, servers, overrides, agentRegistration] = await Promise.all([
       listTargetMcpTools(workspaceId, targetId, access.target.targetType, {
         includeServerDisabled: true,
         includeDisabled: true
       }),
       listGatewayTargetMcpServers(workspaceId, targetId, access.target.targetType),
-      repo.listTargetToolOverrides(targetId)
+      repo.listTargetToolOverrides(targetId),
+      repo.getTargetAgentRegistration(targetId)
     ]);
     const catalog = composeTargetToolsCatalog({
       workspaceId,
@@ -82,7 +83,8 @@ export async function listTargetToolsCatalog(
       canEdit: access.authz.can('manage_tools') && access.authz.can('manage_mcp'),
       tools,
       servers,
-      overrides
+      overrides,
+      targetSupportsWrite: Boolean(agentRegistration?.capabilities?.includes('write'))
     });
     const q = normalizeSearchQuery(req.query.q);
     const signature = makeQuerySignature({ q });
@@ -142,13 +144,14 @@ export async function listTargetMcpServerTools(req: AuthenticatedRequest, res: R
       return;
     }
 
-    const [tools, servers, overrides] = await Promise.all([
+    const [tools, servers, overrides, agentRegistration] = await Promise.all([
       listTargetMcpTools(workspaceId, targetId, access.target.targetType, {
         includeServerDisabled: true,
         includeDisabled: true
       }),
       listGatewayTargetMcpServers(workspaceId, targetId, access.target.targetType),
-      repo.listTargetToolOverrides(targetId)
+      repo.listTargetToolOverrides(targetId),
+      repo.getTargetAgentRegistration(targetId)
     ]);
     const catalog = composeTargetToolsCatalog({
       workspaceId,
@@ -157,7 +160,8 @@ export async function listTargetMcpServerTools(req: AuthenticatedRequest, res: R
       canEdit: access.authz.can('manage_tools') && access.authz.can('manage_mcp'),
       tools,
       servers,
-      overrides
+      overrides,
+      targetSupportsWrite: Boolean(agentRegistration?.capabilities?.includes('write'))
     });
     const server = catalog.servers.find((item) => item.id === serverId);
     if (!server) {

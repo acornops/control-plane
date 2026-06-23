@@ -140,14 +140,28 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
     WorkspacePage: pageOf('Workspace'),
     WorkspaceRoleTemplate: {
       type: 'object',
-      required: ['key', 'displayName', 'kind', 'capabilities', 'protected', 'sortOrder'],
+      required: ['key', 'displayName', 'kind', 'capabilities', 'capabilityGroups', 'protected', 'sortOrder'],
       properties: {
         key: { type: 'string' },
         displayName: { type: 'string' },
         description: { type: 'string' },
-        kind: { type: 'string', enum: ['built_in', 'custom'] },
+        kind: { type: 'string', enum: ['system', 'custom'] },
         capabilities: stringArray,
+        capabilityGroups: {
+          type: 'array',
+          items: schemaRef('WorkspaceRoleCapabilityGroup')
+        },
         protected: { type: 'boolean' },
+        sortOrder: { type: 'integer' }
+      },
+      additionalProperties: true
+    },
+    WorkspaceRoleCapabilityGroup: {
+      type: 'object',
+      required: ['key', 'capabilities', 'sortOrder'],
+      properties: {
+        key: { type: 'string', enum: ['workspace', 'members', 'targets', 'operations', 'settings'] },
+        capabilities: stringArray,
         sortOrder: { type: 'integer' }
       },
       additionalProperties: true

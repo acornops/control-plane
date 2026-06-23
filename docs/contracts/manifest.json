@@ -85,6 +85,7 @@
         "POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions",
         "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions",
         "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity",
+        "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity/stream",
         "POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/sessions",
         "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/sessions",
         "DELETE /api/v1/sessions/{sessionId}",
@@ -153,9 +154,21 @@
         "run_cancelled",
         "run_completed"
       ],
+      "targetChatActivityEventTypes": [
+        "message.created",
+        "run.created",
+        "run.status_changed",
+        "assistant_message.committed",
+        "approval.requested",
+        "approval.decided",
+        "approval.expired",
+        "session.deleted"
+      ],
       "snapshotFields": [
         "latestSnapshot.{clusterId,workspaceId,timestamp}",
         "summary.{resourceCount,findingCount,criticalFindingCount,namespaceCount,nodeCount,resourceFamilyCounts,resourceKindCounts}",
+        "virtualMachine.latestSnapshot.{targetId,workspaceId,timestamp}",
+        "virtualMachine.summary.{inventoryCount,findingCount,criticalFindingCount,serviceCount,processCount,listenerCount,logCount}",
         "GET /api/v1/workspaces/{workspaceId}/investigations",
         "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/resources",
         "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/findings"
@@ -190,7 +203,7 @@
           "providers[].{provider,configured,enabled}",
           "no API key values, secret names, or reasoning summary text"
         ],
-        "roleTemplate": ["key", "displayName", "description", "kind", "capabilities", "protected", "sortOrder"],
+        "roleTemplate": ["key", "displayName", "description", "kind", "capabilities", "capabilityGroups[].{key,capabilities,sortOrder}", "protected", "sortOrder"],
         "membership": ["role", "roleTemplate?"],
         "invitation": ["role", "roleTemplate?"],
         "auditEvent": ["id", "workspaceId", "category", "eventType", "operation", "actor", "object", "summary", "metadata", "occurredAt"],
@@ -297,7 +310,7 @@
         "policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}",
         "context.{endpoint,max_context_tokens}",
         "llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}",
-        "tools.{tool_registry_version,allowed_tools,tool_specs,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}",
+        "tools.{tool_registry_version,allowed_tools,tool_specs,write_unavailable_reason?,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}",
         "routing",
         "tracing"
       ],
@@ -392,6 +405,7 @@
       "builtinBridge": {
         "serverName": "acornops-cluster-agent",
         "serverUrl": "http://control-plane:8081/internal/v1/mcp",
+        "egressException": "Allowed internal HTTP only for configured builtin server registrations with source=builtin tools, auth type none, and no public headers",
         "authHeader": "Authorization: Bearer <run-scoped-jwt>",
         "scopeSource": "run-scoped-jwt-claims",
         "callPath": "POST /internal/v1/mcp/tools/call"

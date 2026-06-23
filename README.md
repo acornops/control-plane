@@ -187,8 +187,10 @@ Development seeding is enabled in compose (`SEED_DEVELOPMENT_DATA=true`) to prov
 
 - workspace: `4b930d98-add9-4924-ab26-3c16d96ec373` (`Demo Workspace`)
 - cluster: `5b006e4c-509c-458a-9f02-5aafbdc01ade` (`Demo Cluster`)
+- owner user: `dev@acornops.local / devpass`
+- operator user: `operator@acornops.local / devpass`
 
-The seeded demo workspace is owned by the deterministic local dev user only. Normal OIDC or password users do not receive seeded workspace membership on signup or login; they start with no workspaces until they create one or a workspace role with member-management capability adds them.
+The seeded demo workspace grants `owner` to the deterministic local dev user and `operator` to the deterministic local operator user. Normal OIDC or password users do not receive seeded workspace membership on signup or login; they start with no workspaces until they create one or a workspace role with member-management capability adds them.
 
 Set it to `false` for strict production-like empty boot. Production startup rejects `SEED_DEVELOPMENT_DATA=true` so demo data cannot be enabled accidentally in a deployed environment.
 
@@ -213,7 +215,8 @@ In multi-replica deployments, Redis records the pod that owns each agent WebSock
 Dex is the default provider for local testing:
 
 - Issuer: `http://localhost:5556/dex`
-- Test login: `dev@acornops.local / devpass`
+- Test owner login: `dev@acornops.local / devpass`
+- Test operator login: `operator@acornops.local / devpass`
 - Persistence: `dex-data` Docker volume (`sqlite3` backend)
 
 Keycloak is available for local parity validation:
@@ -222,7 +225,8 @@ Keycloak is available for local parity validation:
 - Realm import: `deploy/keycloak/realm-acornops.json`
 - Admin console: `http://localhost:8082/admin`
 - Admin credentials: `admin / admin`
-- Test user in realm: `dev@acornops.local / devpass`
+- Test owner login in realm: `dev@acornops.local / devpass`
+- Test operator login in realm: `operator@acornops.local / devpass`
 
 Generic OIDC provider support:
 

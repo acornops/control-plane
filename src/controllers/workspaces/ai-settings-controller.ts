@@ -36,11 +36,25 @@ function effectiveSettings(settings: WorkspaceAiSettings | null): WorkspaceAiSet
     workspaceId: settings?.workspaceId || '',
     defaultProvider: settings?.defaultProvider || defaultProvider(),
     defaultModel: settings?.defaultModel || defaultModel(),
-    reasoningSummaryMode: settings?.reasoningSummaryMode || 'off',
+    reasoningSummaryMode: settings?.reasoningSummaryMode || 'auto',
     reasoningEffort: settings?.reasoningEffort || 'default',
     createdAt: settings?.createdAt,
     updatedAt: settings?.updatedAt
   };
+}
+
+function defaultReasoningSummaryMode(existingMode?: ReasoningSummaryMode): ReasoningSummaryMode {
+  const allowedModes = parseAllowedReasoningSummaryModes();
+  if (!config.LLM_REASONING_SUMMARIES_ENABLED) {
+    return 'off';
+  }
+  if (existingMode && allowedModes.includes(existingMode)) {
+    return existingMode;
+  }
+  if (allowedModes.includes('auto')) {
+    return 'auto';
+  }
+  return 'off';
 }
 
 async function buildAiSettingsResponse(workspaceId: string) {
@@ -169,12 +183,14 @@ export async function updateWorkspaceAiSettings(req: AuthenticatedRequest, res: 
     if (!(await validateProviderEnabled(res, workspaceId, req.body.defaultProvider))) {
       return;
     }
-    const reasoningSummaryMode = (req.body.reasoningSummaryMode || 'off') as ReasoningSummaryMode;
+    const previous = await repo.getWorkspaceAiSettings(workspaceId);
+    const reasoningSummaryMode = (
+      req.body.reasoningSummaryMode || defaultReasoningSummaryMode(previous?.reasoningSummaryMode)
+    ) as ReasoningSummaryMode;
     const reasoningEffort = (req.body.reasoningEffort || 'default') as ReasoningEffort;
     if (!validateReasoningSettings(res, reasoningSummaryMode, reasoningEffort)) {
       return;
     }
-    const previous = await repo.getWorkspaceAiSettings(workspaceId);
     await repo.upsertWorkspaceAiSettings(workspaceId, {
       defaultProvider: req.body.defaultProvider,
       defaultModel: req.body.defaultModel,

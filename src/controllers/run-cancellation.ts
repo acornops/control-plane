@@ -1,5 +1,6 @@
 import { logger } from '../logger.js';
 import { publishRunEvents } from '../services/control-plane-coordination.js';
+import { recordApprovalActivity } from '../services/target-chat-activity-events.js';
 import { emitRunStatusTransition } from '../services/webhooks.js';
 import { repo } from '../store/repository.js';
 import { runtime } from '../store/runtime.js';
@@ -57,7 +58,10 @@ export async function terminalizeRunCancellation(run: Run): Promise<Run | null> 
   if (run.status === 'waiting_for_approval') {
     const continuation = await repo.getRunContinuation(run.id);
     if (continuation) {
-      await repo.expireRunToolApproval(continuation.approvalId);
+      const expiredApproval = await repo.expireRunToolApproval(continuation.approvalId);
+      if (expiredApproval?.status === 'expired') {
+        await recordApprovalActivity(expiredApproval, 'approval.expired', run.sessionId, run.messageId);
+      }
       await repo.deleteRunContinuation(run.id);
     }
   }
