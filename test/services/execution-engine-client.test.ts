@@ -4,9 +4,11 @@ import { config } from '../../src/config.js';
 import { logger } from '../../src/logger.js';
 import {
   cancelRunInExecutionEngine,
-  dispatchRunToExecutionEngine
+  dispatchRunToExecutionEngine,
+  dispatchWorkflowRunToExecutionEngine
 } from '../../src/services/execution-engine-client.js';
 import type { Run } from '../../src/types/domain.js';
+import type { WorkflowRunRecord } from '../../src/store/repository-workflows.js';
 
 const mutableConfig = config as typeof config & {
   EXECUTION_ENGINE_BASE_URL: string;
@@ -30,6 +32,48 @@ function createRun(overrides: Partial<Run> = {}): Run {
     toolAccessMode: 'read_only',
     status: 'queued',
     requestedAt: '2026-05-25T00:00:00.000Z',
+    ...overrides
+  };
+}
+
+function createWorkflowRun(overrides: Partial<WorkflowRunRecord> = {}): WorkflowRunRecord {
+  return {
+    id: 'workflow-run-1',
+    workflowRunId: 'workflow-execution-1',
+    workspaceId: 'ws-1',
+    workflowId: 'workspace-tool-exposure-audit',
+    workflowSessionId: 'workflow-session-1',
+    workflowStepId: 'inventory-scope',
+    messageId: 'workflow-message-1',
+    createdBy: 'user-1',
+    status: 'queued',
+    compiledAccessScope: {
+      workflowId: 'workspace-tool-exposure-audit',
+      workspaceId: 'ws-1',
+      workflowVersion: 1,
+      actor: { userId: 'user-1', role: 'operator' },
+      mode: 'read_only',
+      requiredPermissions: ['read_workspace_data', 'create_read_only_runs'],
+      grantedCapabilities: ['read_workspace_data', 'create_read_only_runs'],
+      mcpServers: ['audit-log'],
+      tools: ['audit.events.search'],
+      toolOperations: { 'audit.events.search': 'read' },
+      enabledSkills: ['acornops-security-baseline'],
+      contextGrants: ['audit_events'],
+      approvalGates: [],
+      jwtClaims: {
+        scope: { type: 'workspace' },
+        workflow_id: 'workspace-tool-exposure-audit',
+        workflow_version: 1,
+        permissions: {
+          allowed_tools: ['audit.events.search'],
+          allowed_tool_operations: { 'audit.events.search': 'read' },
+          context_grants: ['audit_events']
+        }
+      }
+    },
+    requestedAt: '2026-05-25T00:00:00.000Z',
+    createdAt: '2026-05-25T00:00:00.000Z',
     ...overrides
   };
 }
@@ -76,6 +120,47 @@ describe('execution engine client', () => {
       target_type: 'kubernetes',
       session_id: 'session-1',
       message_id: 'message-1',
+      requested_at: '2026-05-25T00:00:00.000Z'
+    });
+  });
+
+  it('dispatches workflow runs as workspace-scoped execution requests', async () => {
+    mutableConfig.EXECUTION_ENGINE_BASE_URL = 'https://engine.example.com';
+    mutableConfig.EXECUTION_ENGINE_DISPATCH_TOKEN = 'dispatch-token';
+
+    let fetchCall:
+      | {
+          url: string;
+          init?: RequestInit;
+        }
+      | undefined;
+    mock.method(globalThis, 'fetch', async (input, init) => {
+      fetchCall = {
+        url: input instanceof URL ? input.toString() : String(input),
+        init
+      };
+      return new Response(null, { status: 202 });
+    });
+
+    await dispatchWorkflowRunToExecutionEngine(createWorkflowRun());
+
+    assert.ok(fetchCall);
+    assert.equal(fetchCall.url, 'https://engine.example.com/api/v1/runs');
+    assert.equal(fetchCall.init?.method, 'POST');
+    const headers = new Headers(fetchCall.init?.headers);
+    assert.equal(headers.get('content-type'), 'application/json');
+    assert.equal(headers.get('authorization'), 'Bearer dispatch-token');
+    assert.deepEqual(JSON.parse(String(fetchCall.init?.body)), {
+      contract_version: 1,
+      scope_type: 'workspace',
+      run_id: 'workflow-run-1',
+      workspace_id: 'ws-1',
+      session_id: 'workflow-session-1',
+      message_id: 'workflow-message-1',
+      workflow_id: 'workspace-tool-exposure-audit',
+      workflow_run_id: 'workflow-execution-1',
+      workflow_session_id: 'workflow-session-1',
+      workflow_step_id: 'inventory-scope',
       requested_at: '2026-05-25T00:00:00.000Z'
     });
   });

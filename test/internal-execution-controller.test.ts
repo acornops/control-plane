@@ -9,7 +9,17 @@ import {
 } from '../src/controllers/internal-execution-controller.js';
 import { agentGateway } from '../src/agent/ws-server.js';
 import { webhooks, type WebhookEventInput } from '../src/services/webhooks.js';
+import { gatewayTokenService } from '../src/services/token-service.js';
+import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
+import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { repo } from '../src/store/repository.js';
+import {
+  createWorkflowRun,
+  createWorkflowSession,
+  createWorkflowUserMessage,
+  getWorkflowDefinition,
+  resetWorkflowRepositoryForTests
+} from '../src/store/repository-workflows.js';
 import { runtime } from '../src/store/runtime.js';
 import type { RunEvent } from '../src/types/domain.js';
 import {
@@ -71,6 +81,7 @@ afterEach(() => {
   repo.upsertAssistantFinalMessage = originalUpsertAssistantFinalMessage;
   webhooks.emit = originalWebhookEmit;
   runtime.clearRunEvents('run-1');
+  resetWorkflowRepositoryForTests();
 });
 
 function createRunEvent(type: string, seq: number, payload: Record<string, unknown> = {}): RunEvent {
@@ -307,6 +318,84 @@ describe('internal execution bootstrap audit metadata', () => {
     assert.equal(response.statusCode, 200);
     assert.deepEqual(tools.allowed_tools, []);
     assert.deepEqual(tools.tool_specs, []);
+  });
+
+  it('bootstraps workflow runs with workspace scope and compiled grants', async () => {
+    const workflow = getWorkflowDefinition('workspace-1', 'cluster-triage');
+    assert.ok(workflow);
+    const compiledAccessScope = compileWorkflowAccessScope({
+      workflow,
+      actor: {
+        userId: 'user-1',
+        role: 'operator',
+        permissions: getWorkspacePermissions('operator')
+      },
+      approvedContextGrants: ['workspace_metadata', 'target_inventory']
+    });
+    const session = createWorkflowSession({
+      workflow,
+      createdBy: 'user-1',
+      compiledAccessScope
+    });
+    const message = createWorkflowUserMessage({
+      session,
+      content: 'Triage the primary cluster.',
+      inputs: { clusterId: 'cluster-primary', severity: 'high' }
+    });
+    const run = createWorkflowRun({
+      session,
+      message,
+      workflowStepId: 'collect-cluster-signals',
+      llmProvider: 'gemini',
+      llmModel: 'gemini-2.0-flash',
+      llmReasoningSummaryMode: 'off',
+      llmReasoningEffort: 'default'
+    });
+
+    repo.getWorkspaceAiSettings = async () => null;
+    mock.method(globalThis, 'fetch', async (input) => {
+      if (isWorkspaceAiCredentialStatusRequest(input)) {
+        return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
+
+    const response = await callController(bootstrap, createRequest({ runId: run.id }));
+    const body = response.body as {
+      scope: {
+        type: string;
+        workflow_id: string;
+        workflow_run_id: string;
+        workflow_session_id: string;
+        target_id?: string;
+      };
+      context: { endpoint: string };
+      routing: { target_scoped: boolean; workflow_scoped: boolean };
+      tools: { allowed_tools: string[]; gateway: { token: string } };
+    };
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(body.scope.type, 'workspace');
+    assert.equal(body.scope.workflow_id, 'cluster-triage');
+    assert.equal(body.scope.workflow_run_id, run.workflowRunId);
+    assert.equal(body.scope.workflow_session_id, session.id);
+    assert.equal(body.scope.target_id, undefined);
+    assert.equal(body.context.endpoint, `/internal/v1/workflow-sessions/${session.id}/context`);
+    assert.equal(body.routing.target_scoped, false);
+    assert.equal(body.routing.workflow_scoped, true);
+    assert.deepEqual(body.tools.allowed_tools, [
+      'events.search',
+      'inventory.resources.list',
+      'logs.summarize',
+      'metrics.query'
+    ]);
+
+    const claims = await gatewayTokenService.verifyRunScopeToken(body.tools.gateway.token);
+    assert.equal(claims.scopeType, 'workspace');
+    assert.equal(claims.workflowId, 'cluster-triage');
+    assert.equal(claims.workflowRunId, run.workflowRunId);
+    assert.equal(claims.workflowSessionId, session.id);
+    assert.deepEqual(claims.contextGrants, ['target_inventory', 'workspace_metadata']);
   });
 
   it('maps workspace AI credential status failures during bootstrap', async () => {

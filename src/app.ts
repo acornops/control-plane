@@ -17,6 +17,7 @@ import { internalExecutionRouter } from './routes/internal-execution.js';
 import { runsRouter } from './routes/runs.js';
 import { sessionsRouter } from './routes/sessions.js';
 import { workspacesRouter } from './routes/workspaces.js';
+import { workflowsRouter } from './routes/workflows.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import { QuotaExceededError } from './store/repository-quotas.js';
 
@@ -103,6 +104,7 @@ export function createApp() {
   app.use('/api/v1', webhooksRouter);
   app.use('/api/v1', sessionsRouter);
   app.use('/api/v1', runsRouter);
+  app.use('/api/v1', workflowsRouter);
   if (config.CONTROL_PLANE_ADMIN_API_ENABLED) {
     app.use('/admin/v1', adminRouter);
   }

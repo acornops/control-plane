@@ -83,6 +83,71 @@ describe('gateway token service', () => {
     assert.deepEqual(claims.allowedModels, ['gpt-4.1-mini']);
   });
 
+  it('signs and verifies workflow run-scope tokens without a synthetic target', async () => {
+    const token = await gatewayTokenService.signRunScopeToken({
+      runId: 'run-workflow',
+      workspaceId: 'ws-workflow',
+      scopeType: 'workspace',
+      workflowId: 'workflow-1',
+      workflowRunId: 'workflow-run-1',
+      workflowSessionId: 'workflow-session-1',
+      workflowStepId: 'inventory',
+      sessionId: 'workflow-session-1',
+      allowedProviders: ['openai'],
+      allowedTools: ['mcp.tools.list', 'audit.events.search'],
+      allowedToolOperations: {
+        'mcp.tools.list': 'read',
+        'audit.events.search': 'read'
+      },
+      contextGrants: ['audit_events', 'workspace_metadata'],
+      maxOutputTokens: 1024,
+      allowedModels: ['gpt-4.1-mini']
+    } as never);
+    const jwks = await gatewayTokenService.getJwks();
+    const verification = await jwtVerify(
+      token,
+      createLocalJWKSet(jwks as JSONWebKeySet),
+      {
+        issuer: config.GATEWAY_TOKEN_ISSUER,
+        audience: config.GATEWAY_TOKEN_AUDIENCE
+      }
+    );
+
+    assert.equal(verification.payload.sub, 'run:run-workflow');
+    assert.equal(verification.payload.run_id, 'run-workflow');
+    assert.equal(verification.payload.workspace_id, 'ws-workflow');
+    assert.equal(verification.payload.target_id, undefined);
+    assert.equal(verification.payload.target_type, undefined);
+    assert.equal(verification.payload.session_id, 'workflow-session-1');
+    assert.deepEqual(verification.payload.scope, { type: 'workspace' });
+    assert.equal(verification.payload.workflow_id, 'workflow-1');
+    assert.equal(verification.payload.workflow_run_id, 'workflow-run-1');
+    assert.equal(verification.payload.workflow_session_id, 'workflow-session-1');
+    assert.equal(verification.payload.workflow_step_id, 'inventory');
+    assert.deepEqual(verification.payload.permissions, {
+      allowed_providers: ['openai'],
+      allowed_tools: ['mcp.tools.list', 'audit.events.search'],
+      allowed_tool_operations: {
+        'mcp.tools.list': 'read',
+        'audit.events.search': 'read'
+      },
+      context_grants: ['audit_events', 'workspace_metadata'],
+      max_output_tokens: 1024,
+      allowed_models: ['gpt-4.1-mini']
+    });
+
+    const claims = await gatewayTokenService.verifyRunScopeToken(token);
+
+    assert.equal(claims.scopeType, 'workspace');
+    assert.equal(claims.workflowId, 'workflow-1');
+    assert.equal(claims.workflowRunId, 'workflow-run-1');
+    assert.equal(claims.workflowSessionId, 'workflow-session-1');
+    assert.equal(claims.workflowStepId, 'inventory');
+    assert.equal(claims.targetId, undefined);
+    assert.equal(claims.targetType, undefined);
+    assert.deepEqual(claims.contextGrants, ['audit_events', 'workspace_metadata']);
+  });
+
   it('rejects tokens whose subject does not match the run id claim', async () => {
     const active = generateKeyPairSync('rsa', { modulusLength: 2048, publicExponent: 0x10001 });
     const activePrivatePem = active.privateKey.export({ format: 'pem', type: 'pkcs8' }).toString();

@@ -375,6 +375,42 @@ ignore later non-terminal execution events such as token deltas, progress,
 assistant completion, or run completion. SSE clients must not receive
 post-terminal assistant content.
 
+### Workspace workflow APIs
+
+Workflows are workspace-scoped automation resources, not synthetic targets. Existing target session and run behavior remains target-scoped.
+
+Implemented management-console routes:
+
+- `GET /api/v1/workspaces/{workspaceId}/workflows`
+- `GET /api/v1/workflows/{workflowId}`
+- `PATCH /api/v1/workflows/{workflowId}`
+- `GET /api/v1/workflows/{workflowId}/sessions`
+- `POST /api/v1/workflows/{workflowId}/sessions`
+- `POST /api/v1/workflow-sessions/{sessionId}/messages`
+
+Workflow create and delete authoring routes are reserved and return `501 NOT_IMPLEMENTED` until full workflow authoring ships:
+
+- `POST /api/v1/workspaces/{workspaceId}/workflows`
+- `DELETE /api/v1/workflows/{workflowId}`
+
+`PATCH /api/v1/workflows/{workflowId}` updates server-owned workflow category, policy approval requirements, and per-step MCP servers, tools, context grants, and approval gates. The route requires workspace `manage_mcp`, records `workflow.scope_updated.v1`, and affects only future session compilation.
+
+Workflow definitions should contain `workflow.{id,workspaceId,name,description,status,category,createdBy,updatedAt}`, typed launch `inputs[]`, ordered `steps[]`, `policy.{mode,maxRuntime,approvalRequirements,retention}`, and `presentation.{icon,launchCopy,defaultStarterPrompt}`. Each step declares required inputs, enabled skills, allowed MCP servers/tools, context grants, and approval gates. Creating a workflow session freezes the definition into a run snapshot so later edits do not alter in-flight runs.
+
+Workflow execution scope must be server-compiled:
+
+- `scope.type = "workspace"`
+- `workflow_id`, `workflow_run_id`, `workflow_session_id`, and current step id are included in run-scoped JWTs for workspace workflow runs.
+- Control-plane dispatches workflow runs to execution-engine with `scope_type = "workspace"` and without synthetic `target_id` or `target_type` fields.
+- Execution bootstrap for workflow runs returns `routing.target_scoped = false`, `routing.workflow_scoped = true`, and context endpoint `GET /internal/v1/workflow-sessions/{workflowSessionId}/context`.
+- `targetRef` is optional and only present when a workflow step explicitly targets a Kubernetes cluster, VM, or future target type.
+- Allowed tools, allowed tool operations, context grants, selected chat-history grants, and read-only/read-write mode are enforced by control plane, execution-engine, and llm-gateway contracts, not by management-console visibility.
+
+Workflow chat history is separate from target chat history. Workflow access to target or workflow chat history requires explicit configured grants, and selected-chat grants must be stored as references rather than copied transcript secrets.
+Workflow session listing responses include workflow run records so management-console can review run history and output through public APIs. Existing `/api/v1/runs/{runId}`, `/events`, `/approvals`, `/stream`, and `/cancel` routes accept workflow run ids while preserving target-run behavior for Kubernetes and VM sessions.
+Workflow approval gates are exposed through `GET /api/v1/runs/{runId}/approvals` using workflow approval resources with `toolName = "workflow.approval_gate"`, workflow identifiers, status, summary, decision, and expiry metadata. `POST /api/v1/runs/{runId}/approvals/{approvalId}/decision` accepts the same decision body as target approvals, requires `create_read_write_runs`, records `workflow.approval_decided.v1`, and dispatches the workflow run only after all gates are approved.
+Workflow built-in MCP tool calls arrive through `POST /internal/v1/mcp/tools/call` with a workflow run-scoped JWT. Control-plane must match the JWT to the persisted workflow run, enforce the server-compiled tool list and tool operations from the frozen workflow access scope, execute only workflow bridge tools, and audit with `source = "workflow_mcp_bridge"`.
+
 ### Webhook APIs
 
 Webhook management is backend/API-only. Webhooks are best-effort: the control plane records each attempted delivery in `webhook_history`, but it does not guarantee retry or eventual delivery.
@@ -557,7 +593,7 @@ Execution-engine must send `Authorization: Bearer <ORCH_SERVICE_TOKEN>` to:
 Bootstrap response contract:
 
 - `contract_version`
-- `scope.{workspace_id,target_id,target_type,session_id,run_id,user_id}`
+- `scope.{type,workspace_id,target_id?,target_type?,workflow_id?,workflow_run_id?,workflow_session_id?,workflow_step_id?,session_id,run_id,user_id}`. Target runs require `target_id` and `target_type`; workspace workflow runs require `workflow_id`, `workflow_run_id`, and `workflow_session_id` and may omit target binding.
 - `policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}`
 - `context.{endpoint,max_context_tokens}`
 - `llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}`
@@ -589,7 +625,7 @@ Durable approval interrupt contract:
 
 - `POST /internal/v1/runs/{runId}/approvals` creates the pending approval and stores a `run_continuations` row containing the resumable ReAct state and pending tool call. The request may include `summary`, a deterministic, human-readable sentence for approval UI copy.
 - Continuations must not store gateway tokens or other credentials. Resume always calls bootstrap again and revalidates tool allow-list and capability.
-- `GET /internal/v1/runs/{runId}/continuation` returns the stored continuation plus current approval state after approval, rejection, or expiry.
+- `GET /internal/v1/runs/{runId}/continuation` returns the stored continuation plus current approval state after approval, rejection, or expiry. Target approvals include target identifiers; workspace workflow approvals include workflow identifiers and do not require target fields.
 - `POST /execution-started` claims the approved write for at-most-once execution. If a prior attempt was already executing, the control plane returns `execution_status=unknown`, and execution-engine must fail closed without retrying the write.
 - `POST /execution-finished` persists the original write result immediately after the tool call returns.
 - `DELETE /internal/v1/runs/{runId}/continuation` consumes continuation after the resumed loop incorporates the result.
