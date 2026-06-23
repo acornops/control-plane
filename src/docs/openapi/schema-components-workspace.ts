@@ -53,11 +53,55 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
         expiresAt: dateTime
       }
     },
+    ExternalIntegrationLinkSummary: {
+      type: 'object',
+      required: ['id', 'integrationClientId', 'provider', 'clientDisplayName', 'externalUserId', 'linkedAt', 'lastAuthenticatedAt', 'expiresAt'],
+      properties: {
+        id: { type: 'string' },
+        integrationClientId: { type: 'string' },
+        provider: { type: 'string' },
+        clientDisplayName: { type: 'string' },
+        externalUserId: { type: 'string' },
+        externalDisplayName: { type: 'string' },
+        linkedAt: dateTime,
+        lastAuthenticatedAt: dateTime,
+        expiresAt: dateTime
+      }
+    },
+    ExternalIntegrationLinkPreview: {
+      type: 'object',
+      required: ['integrationClientId', 'provider', 'clientDisplayName', 'externalUserId', 'expiresAt', 'signedInUser'],
+      properties: {
+        integrationClientId: { type: 'string' },
+        provider: { type: 'string' },
+        clientDisplayName: { type: 'string' },
+        externalUserId: { type: 'string' },
+        externalDisplayName: { type: 'string' },
+        expiresAt: dateTime,
+        signedInUser: userSchema
+      }
+    },
     ExternalIntegrationLinkCompletion: {
       type: 'object',
       required: ['status'],
       properties: {
-        status: { type: 'string', enum: ['linked'] }
+        status: { type: 'string', enum: ['linked'] },
+        link: schemaRef('ExternalIntegrationLinkSummary')
+      }
+    },
+    ExternalIntegrationLinkList: {
+      type: 'object',
+      required: ['links'],
+      properties: {
+        links: { type: 'array', items: schemaRef('ExternalIntegrationLinkSummary') }
+      }
+    },
+    ExternalIntegrationLinkRevocation: {
+      type: 'object',
+      required: ['status', 'link'],
+      properties: {
+        status: { type: 'string', enum: ['revoked'] },
+        link: schemaRef('ExternalIntegrationLinkSummary')
       }
     },
     ExternalIntegrationLinkResolution: {
@@ -85,8 +129,13 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
             },
             link: {
               type: 'object',
-              required: ['linkedAt', 'lastAuthenticatedAt', 'expiresAt'],
+              required: ['integrationClientId', 'provider', 'clientDisplayName', 'externalUserId', 'linkedAt', 'lastAuthenticatedAt', 'expiresAt'],
               properties: {
+                integrationClientId: { type: 'string' },
+                provider: { type: 'string' },
+                clientDisplayName: { type: 'string' },
+                externalUserId: { type: 'string' },
+                externalDisplayName: { type: 'string' },
                 linkedAt: dateTime,
                 lastAuthenticatedAt: dateTime,
                 expiresAt: dateTime

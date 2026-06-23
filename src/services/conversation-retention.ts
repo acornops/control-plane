@@ -4,12 +4,13 @@ import { repo } from '../store/repository.js';
 
 const PURGE_BATCH_SIZE = 500;
 
-type RetentionTaskName = 'conversations' | 'webhook_history' | 'workspace_audit_events';
+type RetentionTaskName = 'conversations' | 'webhook_history' | 'workspace_audit_events' | 'external_integration_link_tokens';
 
 interface RetentionSweepTasks {
   conversations: () => Promise<number>;
   webhookHistory: () => Promise<number>;
   workspaceAuditEvents: () => Promise<number>;
+  externalIntegrationLinkTokens: () => Promise<number>;
 }
 
 /**
@@ -45,11 +46,13 @@ async function runRetentionTask(name: RetentionTaskName, task: () => Promise<num
 export async function runControlPlaneRetentionSweep(tasks: RetentionSweepTasks = {
   conversations: purgeExpiredConversations,
   webhookHistory: purgeOldWebhookHistory,
-  workspaceAuditEvents: purgeOldWorkspaceAuditEvents
+  workspaceAuditEvents: purgeOldWorkspaceAuditEvents,
+  externalIntegrationLinkTokens: purgeOldExternalIntegrationLinkTokens
 }): Promise<void> {
   await runRetentionTask('conversations', tasks.conversations);
   await runRetentionTask('webhook_history', tasks.webhookHistory);
   await runRetentionTask('workspace_audit_events', tasks.workspaceAuditEvents);
+  await runRetentionTask('external_integration_link_tokens', tasks.externalIntegrationLinkTokens);
 }
 
 export async function purgeOldWebhookHistory(): Promise<number> {
@@ -81,6 +84,23 @@ export async function purgeOldWorkspaceAuditEvents(): Promise<number> {
 
   if (purgedTotal > 0) {
     logger.info({ purgedTotal }, 'Purged old workspace audit events');
+  }
+
+  return purgedTotal;
+}
+
+export async function purgeOldExternalIntegrationLinkTokens(): Promise<number> {
+  let purgedTotal = 0;
+  while (true) {
+    const purged = await repo.purgeOldExternalIntegrationLinkTokens(config.EXTERNAL_INTEGRATION_LINK_TOKEN_RETENTION_DAYS, PURGE_BATCH_SIZE);
+    purgedTotal += purged;
+    if (purged < PURGE_BATCH_SIZE) {
+      break;
+    }
+  }
+
+  if (purgedTotal > 0) {
+    logger.info({ purgedTotal }, 'Purged old external integration link tokens');
   }
 
   return purgedTotal;

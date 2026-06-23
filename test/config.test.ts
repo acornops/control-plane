@@ -26,7 +26,12 @@ function productionEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     CSRF_SECRET: 'csrf_secret_0123456789abcdef0123456789',
     OIDC_REDIRECT_URI: 'https://ops.example.com/api/v1/auth/oidc/callback',
     ORCH_SERVICE_TOKEN: 'orch_service_token_0123456789abcdef012345',
-    EXTERNAL_INTEGRATION_SERVICE_TOKEN: 'external_integration_token_0123456789abcdef',
+    EXTERNAL_INTEGRATION_CLIENTS_JSON: JSON.stringify([{
+      id: 'mattermost-bot',
+      provider: 'mattermost',
+      displayName: 'Mattermost Bot',
+      sha256: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+    }]),
     EXECUTION_ENGINE_DISPATCH_TOKEN: 'dispatch_token_0123456789abcdef012345',
     EMAIL_DELIVERY_MODE: 'smtp',
     EMAIL_PUBLIC_BASE_URL: 'https://ops.example.com',
@@ -92,7 +97,12 @@ describe('parseAppConfig production validation', () => {
             OIDC_CLIENT_SECRET: 'replace-me',
             CSRF_SECRET: 'dev_csrf_secret_change_me_32_bytes_minimum',
             ORCH_SERVICE_TOKEN: 'dev_orchestrator_token',
-            EXTERNAL_INTEGRATION_SERVICE_TOKEN: 'dev_external_integration_service_token',
+            EXTERNAL_INTEGRATION_CLIENTS_JSON: JSON.stringify([{
+              id: 'example-client',
+              provider: 'example',
+              displayName: 'Example client',
+              sha256: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+            }]),
             EXECUTION_ENGINE_DISPATCH_TOKEN: 'change-me',
             DATABASE_URL: 'postgresql://acornops:acornops@cp-postgres:5432/acornops_control_plane',
             LLM_GATEWAY_ADMIN_TOKEN: 'replace-me',
@@ -108,7 +118,7 @@ describe('parseAppConfig production validation', () => {
         assert.ok(errors.OIDC_CLIENT_SECRET?.length);
         assert.ok(errors.CSRF_SECRET?.length);
         assert.ok(errors.ORCH_SERVICE_TOKEN?.length);
-        assert.ok(errors.EXTERNAL_INTEGRATION_SERVICE_TOKEN?.length);
+        assert.ok(errors.EXTERNAL_INTEGRATION_CLIENTS_JSON?.length);
         assert.ok(errors.EXECUTION_ENGINE_DISPATCH_TOKEN?.length);
         assert.ok(errors.DATABASE_URL?.length);
         assert.ok(errors.LLM_GATEWAY_ADMIN_TOKEN?.length);
@@ -126,7 +136,7 @@ describe('parseAppConfig production validation', () => {
 
     assert.equal(config.NODE_ENV, 'development');
     assert.equal(config.ORCH_SERVICE_TOKEN, 'dev_orchestrator_token');
-    assert.equal(config.EXTERNAL_INTEGRATION_SERVICE_TOKEN, 'dev_external_integration_service_token');
+    assert.equal(config.EXTERNAL_INTEGRATION_CLIENTS[0].id, 'dev-client');
     assert.equal(config.CONTROL_PLANE_AGENT_SNAPSHOT_INTERVAL_SECONDS, 60);
     assert.equal(config.MANAGEMENT_CONSOLE_BASE_URL, 'http://localhost:3000');
     assert.equal(config.CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED, false);

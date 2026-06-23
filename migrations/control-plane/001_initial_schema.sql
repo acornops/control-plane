@@ -54,7 +54,11 @@ CREATE TABLE IF NOT EXISTS user_federated_identities (
 CREATE TABLE IF NOT EXISTS external_integration_link_tokens (
   id TEXT PRIMARY KEY,
   token_hash TEXT UNIQUE NOT NULL,
+  integration_client_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  client_display_name TEXT NOT NULL,
   external_user_id TEXT NOT NULL,
+  external_display_name TEXT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ NOT NULL,
   consumed_at TIMESTAMPTZ NULL,
@@ -63,13 +67,17 @@ CREATE TABLE IF NOT EXISTS external_integration_link_tokens (
 
 CREATE TABLE IF NOT EXISTS external_integration_user_links (
   id TEXT PRIMARY KEY,
+  integration_client_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  client_display_name TEXT NOT NULL,
   external_user_id TEXT NOT NULL,
+  external_display_name TEXT NULL,
   acornops_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_authenticated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ NOT NULL,
   revoked_at TIMESTAMPTZ NULL,
-  UNIQUE (external_user_id)
+  UNIQUE (integration_client_id, provider, external_user_id)
 );
 
 CREATE TABLE IF NOT EXISTS workspaces (
@@ -448,6 +456,35 @@ CREATE TABLE IF NOT EXISTS workspace_audit_events (
     CHECK (jsonb_typeof(metadata) = 'object')
 );
 
+CREATE TABLE IF NOT EXISTS account_audit_events (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NULL REFERENCES users(id) ON DELETE SET NULL,
+  category TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  operation TEXT NOT NULL,
+  actor_type TEXT NOT NULL,
+  actor_user_id TEXT NULL REFERENCES users(id) ON DELETE SET NULL,
+  actor_token_id TEXT NULL,
+  object_type TEXT NOT NULL,
+  object_id TEXT NULL,
+  object_name TEXT NULL,
+  summary TEXT NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT account_audit_events_operation_check
+    CHECK (operation IN ('read', 'write')),
+  CONSTRAINT account_audit_events_actor_type_check
+    CHECK (actor_type IN ('user', 'system', 'external_integration')),
+  CONSTRAINT account_audit_events_user_actor_check
+    CHECK (
+      (actor_type = 'user' AND actor_user_id IS NOT NULL AND actor_token_id IS NULL) OR
+      (actor_type = 'external_integration' AND actor_token_id IS NOT NULL) OR
+      (actor_type = 'system')
+    ),
+  CONSTRAINT account_audit_events_metadata_object_check
+    CHECK (jsonb_typeof(metadata) = 'object')
+);
+
 CREATE TABLE IF NOT EXISTS admin_audit_events (
   id TEXT PRIMARY KEY,
   admin_token_id TEXT NULL,
@@ -556,7 +593,7 @@ CREATE INDEX IF NOT EXISTS idx_user_federated_identities_last_login
   ON user_federated_identities (last_login_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_external_integration_link_tokens_identity
-  ON external_integration_link_tokens (external_user_id);
+  ON external_integration_link_tokens (integration_client_id, provider, external_user_id);
 
 CREATE INDEX IF NOT EXISTS idx_external_integration_link_tokens_expires_at
   ON external_integration_link_tokens (expires_at);
@@ -565,8 +602,11 @@ CREATE INDEX IF NOT EXISTS idx_external_integration_user_links_user_id
   ON external_integration_user_links (acornops_user_id);
 
 CREATE INDEX IF NOT EXISTS idx_external_integration_user_links_active
-  ON external_integration_user_links (external_user_id, expires_at)
+  ON external_integration_user_links (integration_client_id, provider, external_user_id, expires_at)
   WHERE revoked_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_external_integration_user_links_user_active
+  ON external_integration_user_links (acornops_user_id, revoked_at, expires_at);
 
 CREATE INDEX IF NOT EXISTS idx_workspaces_created_id
   ON workspaces (created_at ASC, id ASC);
@@ -717,6 +757,15 @@ CREATE INDEX IF NOT EXISTS idx_workspace_audit_events_workspace_category
 
 CREATE INDEX IF NOT EXISTS idx_workspace_audit_events_occurred
   ON workspace_audit_events (occurred_at ASC, id ASC);
+
+CREATE INDEX IF NOT EXISTS idx_account_audit_events_user_occurred
+  ON account_audit_events (user_id, occurred_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_account_audit_events_type
+  ON account_audit_events (event_type, occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_account_audit_events_occurred
+  ON account_audit_events (occurred_at ASC, id ASC);
 
 CREATE INDEX IF NOT EXISTS admin_audit_events_occurred_at_idx
   ON admin_audit_events (occurred_at DESC, id DESC);

@@ -10,8 +10,14 @@ import {
   type WorkspacePlanDefinition
 } from './config-admin.js';
 import { httpsInternalUrlConfigIssues, httpsUrlProductionIssues, oidcIssuerProductionIssues } from './config-url-policy.js';
+import {
+  parseExternalIntegrationClientDescriptors,
+  type ExternalIntegrationClientDescriptor
+} from './config-external-integrations.js';
 export { ADMIN_SCOPE_VALUES, parseAdminTokenDescriptors, parseWorkspacePlansConfig } from './config-admin.js';
 export type { AdminScope, AdminTokenDescriptor, WorkspacePlanDefinition } from './config-admin.js';
+export { parseExternalIntegrationClientDescriptors } from './config-external-integrations.js';
+export type { ExternalIntegrationClientDescriptor } from './config-external-integrations.js';
 
 const PLACEHOLDER_VALUES = new Set([
   'change-me',
@@ -241,9 +247,10 @@ const envSchema = z.object({
   SMTP_SECURE: envBoolean(false),
   SMTP_REQUIRE_TLS: envBoolean(true),
   ORCH_SERVICE_TOKEN: z.string().default('dev_orchestrator_token'),
-  EXTERNAL_INTEGRATION_SERVICE_TOKEN: z.string().default('dev_external_integration_service_token'),
+  EXTERNAL_INTEGRATION_CLIENTS_JSON: z.string().default('[{"id":"dev-client","provider":"external","displayName":"Development external integration","sha256":"c900e895f6e7b6358dcfc3c6e0cc24d275f3c413256911756c5150dd9f9fe222"}]'),
   EXTERNAL_INTEGRATION_LINK_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(600),
   EXTERNAL_INTEGRATION_LINK_TTL_SECONDS: z.coerce.number().int().min(86400).max(31536000).default(2592000),
+  EXTERNAL_INTEGRATION_LINK_TOKEN_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   EXECUTION_ENGINE_BASE_URL: z.string().url().default('http://localhost:8080'),
   EXECUTION_ENGINE_DISPATCH_TOKEN: z.string().default('dev_execution_engine_dispatch_token'),
   EXECUTION_ENGINE_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
@@ -311,10 +318,16 @@ const envSchema = z.object({
   WEBHOOK_SECRET_KEY_ID: z.string().default('default')
 }).superRefine((value, ctx) => {
   let adminDescriptors: AdminTokenDescriptor[] = [];
+  let externalIntegrationClients: ExternalIntegrationClientDescriptor[] = [];
   try {
     adminDescriptors = parseAdminTokenDescriptors(value.CONTROL_PLANE_ADMIN_TOKENS_JSON, value.NODE_ENV);
   } catch (err) {
     addConfigIssue(ctx, 'CONTROL_PLANE_ADMIN_TOKENS_JSON', err instanceof Error ? err.message : 'Invalid admin token configuration');
+  }
+  try {
+    externalIntegrationClients = parseExternalIntegrationClientDescriptors(value.EXTERNAL_INTEGRATION_CLIENTS_JSON, value.NODE_ENV);
+  } catch (err) {
+    addConfigIssue(ctx, 'EXTERNAL_INTEGRATION_CLIENTS_JSON', err instanceof Error ? err.message : 'Invalid external integration client configuration');
   }
   if (value.CONTROL_PLANE_ADMIN_API_ENABLED && adminDescriptors.filter((descriptor) => descriptor.enabled).length === 0) {
     addConfigIssue(
@@ -395,8 +408,8 @@ const envSchema = z.object({
   if (isUnsafeSecretValue(value.ORCH_SERVICE_TOKEN)) {
     addProductionIssue(ctx, 'ORCH_SERVICE_TOKEN', 'ORCH_SERVICE_TOKEN must be a generated production token');
   }
-  if (isUnsafeSecretValue(value.EXTERNAL_INTEGRATION_SERVICE_TOKEN)) {
-    addProductionIssue(ctx, 'EXTERNAL_INTEGRATION_SERVICE_TOKEN', 'EXTERNAL_INTEGRATION_SERVICE_TOKEN must be a generated production token');
+  if (externalIntegrationClients.filter((descriptor) => descriptor.enabled).length === 0) {
+    addProductionIssue(ctx, 'EXTERNAL_INTEGRATION_CLIENTS_JSON', 'EXTERNAL_INTEGRATION_CLIENTS_JSON must include at least one enabled production client');
   }
   if (isUnsafeSecretValue(value.EXECUTION_ENGINE_DISPATCH_TOKEN)) {
     addProductionIssue(
@@ -509,6 +522,7 @@ const envSchema = z.object({
   ...value,
   WORKSPACE_ROLE_TEMPLATES: configureWorkspaceRoleTemplates(value.WORKSPACE_ROLES_CONFIG_JSON),
   ADMIN_TOKEN_DESCRIPTORS: parseAdminTokenDescriptors(value.CONTROL_PLANE_ADMIN_TOKENS_JSON, value.NODE_ENV),
+  EXTERNAL_INTEGRATION_CLIENTS: parseExternalIntegrationClientDescriptors(value.EXTERNAL_INTEGRATION_CLIENTS_JSON, value.NODE_ENV),
   WORKSPACE_PLANS: parseWorkspacePlansConfig(value.WORKSPACE_PLANS_CONFIG_JSON),
   SESSION_MAX_AGE_SECONDS: value.SESSION_MAX_AGE_SECONDS ?? value.SESSION_TTL_SECONDS ?? 604800,
   PASSWORD_SIGNUP_ENABLED: value.PASSWORD_SIGNUP_ENABLED ?? value.NODE_ENV !== 'production',

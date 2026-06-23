@@ -73,10 +73,10 @@ export function buildOpenApiDocument(baseUrl: string, sessionCookieName: string)
           scheme: 'bearer',
           bearerFormat: 'opaque'
         },
-        externalIntegrationServiceToken: {
+        externalIntegrationClientToken: {
           type: 'http',
           scheme: 'bearer',
-          bearerFormat: 'opaque external integration service token'
+          bearerFormat: 'opaque external integration client token'
         },
         gatewayRunToken: {
           type: 'http',

@@ -112,7 +112,7 @@ resulting effective limit are rejected before mutation.
 - Password change entrypoint for authenticated password-backed users: `POST /api/v1/auth/password/change`.
 - Current auth-methods entrypoint: `GET /api/v1/auth/methods`.
 - Explicit SSO linking entrypoint for authenticated password-backed users: `POST /api/v1/auth/oidc/link/start`.
-- External integration account link browser completion entrypoint: `POST /api/v1/auth/chat/integration/link/complete`.
+- External integration account link browser completion entrypoint: `POST /api/v1/auth/external-integrations/link/complete`.
 - Logout entrypoint: `POST /api/v1/auth/logout`.
 - Current-user endpoint: `GET /api/v1/me`.
 - Dev-only shortcut outside production: `POST /api/v1/auth/dev-login`.
@@ -130,16 +130,19 @@ resulting effective limit are rejected before mutation.
 
 ### External integration account link integration contract
 
-- External integration clients use `Authorization: Bearer <EXTERNAL_INTEGRATION_SERVICE_TOKEN>`. This token is only valid for the external integration account link endpoints and is not a browser session, admin token, run token, or orchestrator service token.
-- Create link endpoint: `POST /api/v1/auth/chat/integration/link`.
-- Resolve link endpoint: `POST /api/v1/auth/chat/integration/resolve`.
-- Browser link completion endpoint: `POST /api/v1/auth/chat/integration/link/complete` with a session cookie and body `{ token }`.
-- `POST /api/v1/auth/chat/integration/link` accepts `{ externalUserId }`, validates it as a bounded string, stores a short-lived hashed link token with that external user identity, and returns `{ linkUrl, expiresAt }`.
-- `linkUrl` points at the management console route `/integrations/external-chat/link?token=<external-chat-link-token>`. The console shows the normal login page when no browser session exists, preserving the token for password or OIDC sign-in. After either login method establishes a normal browser session, the console shows an AcornOps approval screen that tells the user they are linking the signed-in account to the external integration. The console calls the completion endpoint only after the user clicks approve.
+- External integration clients use `Authorization: Bearer <external integration client token>`. Client tokens are registered in `EXTERNAL_INTEGRATION_CLIENTS_JSON` as SHA-256 hash descriptors and are valid only for external integration account-link endpoints and explicitly enabled linked-account external integration endpoints; they are not browser sessions, admin tokens, run tokens, or orchestrator service tokens.
+- Create link endpoint: `POST /api/v1/auth/external-integrations/link`.
+- Resolve link endpoint: `POST /api/v1/auth/external-integrations/resolve`.
+- Browser link preview endpoint: `POST /api/v1/auth/external-integrations/link/preview` with a session cookie and body `{ token }`.
+- Browser link completion endpoint: `POST /api/v1/auth/external-integrations/link/complete` with a session cookie and body `{ token }`.
+- `POST /api/v1/auth/external-integrations/link` accepts `{ externalUserId, externalDisplayName? }`, validates bounded strings, stores a short-lived hashed link token with the authenticated client identity, and returns `{ linkUrl, expiresAt }`.
+- `linkUrl` points at the management console route `/integrations/external/link?token=<external-integration-link-token>`. The console shows the normal login page when no browser session exists, preserving the token for password or OIDC sign-in. After either login method establishes a normal browser session, the console previews the provider, registered client display name, external account metadata, and signed-in AcornOps user. The console calls the completion endpoint only after the user clicks approve.
 - OIDC sign-in from the external chat link route uses an AcornOps-controlled OIDC state purpose of `integration_link` for routing/observability. The OIDC callback still only establishes the browser session and redirects back to the console route; it does not complete the external integration link.
-- After browser authentication and explicit approval succeed, AcornOps upserts the durable external identity link `{ externalUserId, acornopsUserId, linkedAt, lastAuthenticatedAt, expiresAt, revokedAt }` and consumes the short-lived link token. `lastAuthenticatedAt` is set on the initial link and updated when the external user reauthenticates through a fresh link.
-- `POST /api/v1/auth/chat/integration/resolve` accepts `{ externalUserId }` for subsequent integration requests and returns either `{ status: "unlinked" }` or `{ status: "linked", user, link }`, where `link` includes required `linkedAt`, `lastAuthenticatedAt`, and `expiresAt`.
+- After browser authentication and explicit approval succeed, AcornOps upserts the durable external identity link `{ integrationClientId, provider, externalUserId, acornopsUserId, linkedAt, lastAuthenticatedAt, expiresAt, revokedAt }` and consumes the short-lived link token. `lastAuthenticatedAt` is set on the initial link and updated when the external user reauthenticates through a fresh link.
+- `POST /api/v1/auth/external-integrations/resolve` accepts `{ externalUserId }` for subsequent integration requests and returns either `{ status: "unlinked" }` or `{ status: "linked", user, link }`, where `link` includes required `integrationClientId`, `provider`, `clientDisplayName`, `externalUserId`, `linkedAt`, `lastAuthenticatedAt`, and `expiresAt`.
 - Browser cookies, OIDC access tokens, ID tokens, refresh tokens, and raw link tokens are never returned to external integration clients. Link tokens are stored only as hashes.
+- Phase-1 linked external integration bot reads use `Authorization: Bearer <external integration client token>` and `x-acornops-external-user-id: <externalUserId>`. The control plane derives `integrationClientId` and `provider` from the token, resolves the scoped linked AcornOps user, assigns an `external_integration` auth credential, and grants only `read_workspace_data`, `create_sessions`, and `create_read_only_runs`, intersected with that user's workspace role. Eligible routes are workspace summary/list, workspace investigations, Kubernetes and VM list/overview/resource/finding reads, read-only session/message creation and reads, and run observation (`GET /api/v1/runs/{runId}`, events, stream, and approvals list). Operational workspace counts, operational quota usage, target summaries, findings, resources, and read-only assistant conversations are visible; member usage and all member, audit, log, read-write run, approval-decision, cancellation, deletion, settings, and management capabilities remain denied.
+- Implementor-facing endpoint details live in [external-integration-bot-endpoints.md](external-integration-bot-endpoints.md).
 
 ### Workspace, target, and cluster APIs consumed by management console
 
