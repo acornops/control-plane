@@ -26,7 +26,10 @@ export function buildWorkspacePaths(): Record<string, unknown> {
             { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } },
             { in: 'query', name: 'q', required: false, schema: { type: 'string' } }
           ],
-          responses: { '200': { description: 'Workspace page payload: { items, nextCursor? }. Workspace items include plan.{key,name} and quota.{members,kubernetesClusters,virtualMachines}.{used,limit}; operational quota usage is redacted to 0 when permissions.read_workspace_data is false, and member usage requires permissions.read_members.' } }
+          responses: {
+            '200': { description: 'Workspace page payload: { items, nextCursor? }. Workspace items include plan.{key,name} and quota.{members,kubernetesClusters,virtualMachines}.{used,limit}; operational quota usage is redacted to 0 when permissions.read_workspace_data is false, and member usage requires permissions.read_members.' },
+            '401': { description: 'Missing browser session.' }
+          }
         },
         post: {
           tags: ['workspaces'],

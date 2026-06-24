@@ -130,7 +130,9 @@ export function buildSessionRunPaths(): Record<string, unknown> {
           tags: ['sessions'],
           summary: 'Get session metadata',
           security: [{ userSession: [] }],
-          parameters: [{ in: 'path', name: 'sessionId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_SESSION_ID } }],
+          parameters: [
+            { in: 'path', name: 'sessionId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_SESSION_ID } }
+          ],
           responses: { '200': { description: 'Session details.' } }
         },
         delete: {
@@ -157,7 +159,9 @@ export function buildSessionRunPaths(): Record<string, unknown> {
           tags: ['sessions'],
           summary: 'Append user message and trigger run dispatch',
           security: [{ userSession: [] }],
-          parameters: [{ in: 'path', name: 'sessionId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_SESSION_ID } }],
+          parameters: [
+            { in: 'path', name: 'sessionId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_SESSION_ID } }
+          ],
           requestBody: {
             required: true,
             content: {
@@ -191,7 +195,9 @@ export function buildSessionRunPaths(): Record<string, unknown> {
           tags: ['runs'],
           summary: 'Get run state',
           security: [{ userSession: [] }],
-          parameters: [{ in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } }],
+          parameters: [
+            { in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } }
+          ],
           responses: { '200': { description: 'Run details.' } }
         }
       },
@@ -199,9 +205,11 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         get: {
           tags: ['runs'],
           summary: 'List write-tool approvals for a run',
-          description: 'Returns pending and decided write-tool approvals. Approval cards in browser or bot channels are decision surfaces only; the execution runtime still enforces approval before write execution.',
+          description: 'Returns pending and decided write-tool approvals for visibility.',
           security: [{ userSession: [] }],
-          parameters: [{ in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } }],
+          parameters: [
+            { in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } }
+          ],
           responses: { '200': { description: 'Run tool approval list.' } }
         }
       },
@@ -349,7 +357,9 @@ export function buildSessionRunPaths(): Record<string, unknown> {
           tags: ['runs'],
           summary: 'Server-Sent Events stream for run events',
           security: [{ userSession: [] }],
-          parameters: [{ in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } }],
+          parameters: [
+            { in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } }
+          ],
           responses: { '200': { description: 'SSE event stream.' } }
         }
       },
@@ -415,7 +425,9 @@ export function buildSessionRunPaths(): Record<string, unknown> {
           tags: ['runs'],
           summary: 'List run events replay',
           security: [{ userSession: [] }],
-          parameters: [{ in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } }],
+          parameters: [
+            { in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } }
+          ],
           responses: { '200': { description: 'Run events list.' } }
         }
       },

@@ -2,23 +2,21 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 import { listWorkspaceInvestigations } from '../src/controllers/workspaces-controller.js';
 import {
+  listClusterFindings,
   listClusterResources,
   listClusters
 } from '../src/controllers/workspaces/kubernetes-cluster-controller.js';
-import { listVirtualMachines } from '../src/controllers/workspaces/virtual-machine-controller.js';
 import { repo } from '../src/store/repository.js';
-import type { Cluster, VirtualMachineTarget } from '../src/types/domain.js';
+import type { Cluster } from '../src/types/domain.js';
 import { encodeCursor } from '../src/utils/pagination.js';
 
 const originalGetWorkspaceRole = repo.getWorkspaceRole;
 const originalGetCluster = repo.getCluster;
 const originalGetClusterSnapshot = repo.getClusterSnapshot;
 const originalListClusters = repo.listClusters;
+const originalListClusterSnapshotFindings = repo.listClusterSnapshotFindings;
 const originalListClusterSnapshotResources = repo.listClusterSnapshotResources;
 const originalListClusterSnapshotSummaries = repo.listClusterSnapshotSummaries;
-const originalGetVirtualMachineSnapshot = repo.getVirtualMachineSnapshot;
-const originalListVirtualMachines = repo.listVirtualMachines;
-const originalListVirtualMachineSnapshotSummaries = repo.listVirtualMachineSnapshotSummaries;
 const originalListWorkspaceSnapshotFindings = repo.listWorkspaceSnapshotFindings;
 
 afterEach(() => {
@@ -26,11 +24,9 @@ afterEach(() => {
   repo.getCluster = originalGetCluster;
   repo.getClusterSnapshot = originalGetClusterSnapshot;
   repo.listClusters = originalListClusters;
+  repo.listClusterSnapshotFindings = originalListClusterSnapshotFindings;
   repo.listClusterSnapshotResources = originalListClusterSnapshotResources;
   repo.listClusterSnapshotSummaries = originalListClusterSnapshotSummaries;
-  repo.getVirtualMachineSnapshot = originalGetVirtualMachineSnapshot;
-  repo.listVirtualMachines = originalListVirtualMachines;
-  repo.listVirtualMachineSnapshotSummaries = originalListVirtualMachineSnapshotSummaries;
   repo.listWorkspaceSnapshotFindings = originalListWorkspaceSnapshotFindings;
 });
 
@@ -76,21 +72,6 @@ function createCluster(id = 'cluster-1'): Cluster {
       overrideRequired: null,
       source: 'deployment_default'
     },
-    createdAt: '2026-05-10T00:00:00.000Z',
-    updatedAt: '2026-05-10T00:00:00.000Z'
-  };
-}
-
-function createVirtualMachine(): VirtualMachineTarget {
-  return {
-    id: 'vm-1',
-    workspaceId: 'workspace-1',
-    name: 'vm-1',
-    status: 'online',
-    hostname: 'vm-1.local',
-    osFamily: 'linux',
-    serviceManager: 'systemd',
-    allowedLogSources: ['journald', 'syslog'],
     createdAt: '2026-05-10T00:00:00.000Z',
     updatedAt: '2026-05-10T00:00:00.000Z'
   };
@@ -215,46 +196,6 @@ describe('normalized snapshot controller reads', () => {
 
     assert.equal(res.statusCode, 200);
     assert.equal((res.body as { items: Array<{ summary: { resourceCount: number } }> }).items[0].summary.resourceCount, 7);
-  });
-
-  it('uses normalized summaries for virtual machine list payloads', async () => {
-    repo.getWorkspaceRole = async () => 'viewer';
-    repo.getVirtualMachineSnapshot = async () => {
-      throw new Error('VM list should not read raw snapshots');
-    };
-    repo.listVirtualMachines = async () => ({
-      items: [createVirtualMachine()],
-      nextCursor: undefined
-    });
-    repo.listVirtualMachineSnapshotSummaries = async () => new Map([
-      [
-        'vm-1',
-        {
-          latestSnapshot: {
-            targetId: 'vm-1',
-            workspaceId: 'workspace-1',
-            timestamp: '2026-05-10T00:00:00.000Z'
-          },
-          summary: {
-            inventoryCount: 11,
-            findingCount: 2,
-            criticalFindingCount: 1,
-            serviceCount: 3,
-            processCount: 42,
-            listenerCount: 4,
-            logCount: 9
-          }
-        }
-      ]
-    ]);
-    const res = createResponse();
-
-    await listVirtualMachines(createRequest() as never, res as never, (err?: unknown) => {
-      if (err) throw err;
-    });
-
-    assert.equal(res.statusCode, 200);
-    assert.equal((res.body as { items: Array<{ summary: { processCount: number } }> }).items[0].summary.processCount, 42);
   });
 
   it('rejects resource cursors with mismatched filter signatures before repository reads', async () => {

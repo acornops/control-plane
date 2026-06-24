@@ -1,6 +1,7 @@
 import { NextFunction, Request, RequestHandler, Response } from 'express';
-import { config } from '../config.js';
+import { config, type ExternalIntegrationClientDescriptor } from '../config.js';
 import { gatewayTokenService } from '../services/token-service.js';
+import { hashToken } from '../utils/crypto.js';
 import { constantTimeEqual } from '../utils/tokens.js';
 import { getSessionUser } from './session.js';
 
@@ -18,6 +19,7 @@ declare global {
   namespace Express {
     interface Request {
       auth?: AuthContext;
+      externalIntegrationClient?: ExternalIntegrationClientDescriptor;
     }
   }
 }
@@ -45,28 +47,47 @@ export function authenticatedHandler(handler: AuthenticatedRouteHandler): Reques
   };
 }
 
+function rejectUnauthorized(res: Response, message: string): void {
+  res.status(401).json({ error: { code: 'UNAUTHORIZED', message, retryable: false } });
+}
+
+async function authenticateUser(req: Request): Promise<AuthContext | null> {
+  const session = await getSessionUser(req);
+  if (!session) {
+    return null;
+  }
+  return {
+    userId: session.userId,
+    credential: { type: 'session', sessionId: session.sessionId }
+  };
+}
+
+function bearerToken(req: Request): string {
+  const auth = req.header('authorization');
+  return auth?.startsWith('Bearer ') ? auth.slice('Bearer '.length) : '';
+}
+
 export async function requireUser(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const session = await getSessionUser(req);
-    if (!session) {
-      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'User session required', retryable: false } });
+    const auth = await authenticateUser(req);
+    if (!auth) {
+      rejectUnauthorized(res, 'User session required');
       return;
     }
-    req.auth = {
-      userId: session.userId,
-      credential: { type: 'session', sessionId: session.sessionId }
-    };
+    req.auth = auth;
     next();
   } catch (err) {
     next(err);
   }
 }
 
+function bearerTokenMatches(req: Request, expectedToken: string): boolean {
+  return constantTimeEqual(bearerToken(req), expectedToken);
+}
+
 function requireBearerToken(req: Request, res: Response, next: NextFunction, expectedToken: string): void {
-  const auth = req.header('authorization');
-  const token = auth?.startsWith('Bearer ') ? auth.slice('Bearer '.length) : '';
-  if (!constantTimeEqual(token, expectedToken)) {
-    res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Service token required', retryable: false } });
+  if (!bearerTokenMatches(req, expectedToken)) {
+    rejectUnauthorized(res, 'Service token required');
     return;
   }
   next();
@@ -74,6 +95,25 @@ function requireBearerToken(req: Request, res: Response, next: NextFunction, exp
 
 export function requireServiceToken(req: Request, res: Response, next: NextFunction): void {
   requireBearerToken(req, res, next, config.ORCH_SERVICE_TOKEN);
+}
+
+function externalIntegrationClientFromBearer(req: Request): ExternalIntegrationClientDescriptor | null {
+  const token = bearerToken(req);
+  if (!token) return null;
+  const digest = hashToken(token);
+  return config.EXTERNAL_INTEGRATION_CLIENTS.find((client) => (
+    client.enabled && constantTimeEqual(digest, client.sha256)
+  )) || null;
+}
+
+export function requireExternalIntegrationClient(req: Request, res: Response, next: NextFunction): void {
+  const client = externalIntegrationClientFromBearer(req);
+  if (!client) {
+    rejectUnauthorized(res, 'External integration client token required');
+    return;
+  }
+  req.externalIntegrationClient = client;
+  next();
 }
 
 export async function requireGatewayRunToken(req: Request, res: Response, next: NextFunction): Promise<void> {

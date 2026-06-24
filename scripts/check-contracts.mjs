@@ -65,6 +65,7 @@ const internalExecutionBootstrap = read('src/controllers/internal-execution-boot
 const internalMcpBridgeController = read('src/controllers/internal-mcp-bridge-controller.ts');
 const openApi = [read('src/docs/openapi.ts'), readTree('src/docs/openapi')].join('\n');
 const managementConsoleContract = manifest.counterparts?.['management-console'];
+const externalIntegrationClientContract = manifest.counterparts?.['external-integration-client'];
 const executionEngineContract = manifest.counterparts?.['execution-engine'];
 const llmGatewayContract = manifest.counterparts?.['llm-gateway'];
 const agentContract = manifest.counterparts?.['k8s-agent'];
@@ -87,7 +88,11 @@ for (const heading of [
 }
 
 function openApiPath(contractPath) {
-  return contractPath.replace(/^[A-Z]+ /, '').replace(/\?run_id=<runId>$/, '').replace(/\?return_to=<management-console-url>$/, '');
+  return contractPath
+    .replace(/^[A-Z]+ /, '')
+    .replace(/\?run_id=<runId>$/, '')
+    .replace(/\?return_to=<management-console-url>$/, '')
+    .replace(/\?token=<external-integration-link-token>$/, '');
 }
 
 for (const [docPath, routeNeedle, source, label] of [
@@ -97,6 +102,10 @@ for (const [docPath, routeNeedle, source, label] of [
   ['`POST /api/v1/auth/password/login`', "authRouter.post('/auth/password/login'", authRoutes, 'Password login route'],
   ['`POST /api/v1/auth/password/signup`', "authRouter.post('/auth/password/signup'", authRoutes, 'Password signup route'],
   ['`POST /api/v1/auth/logout`', "authRouter.post('/auth/logout'", authRoutes, 'Logout route'],
+  ['`POST /api/v1/auth/external-integrations/link`', "authRouter.post('/auth/external-integrations/link'", authRoutes, 'ExternalIntegration link create route'],
+  ['`POST /api/v1/auth/external-integrations/resolve`', "authRouter.post('/auth/external-integrations/resolve'", authRoutes, 'ExternalIntegration link resolve route'],
+  ['`POST /api/v1/auth/external-integrations/link/preview`', "authRouter.post('/auth/external-integrations/link/preview'", authRoutes, 'ExternalIntegration browser link preview route'],
+  ['`POST /api/v1/auth/external-integrations/link/complete`', "authRouter.post('/auth/external-integrations/link/complete'", authRoutes, 'ExternalIntegration browser link completion route'],
   ['`GET /api/v1/me`', "authRouter.get('/me'", authRoutes, 'Current-user route'],
   ['`POST /api/v1/auth/dev-login`', "authRouter.post('/auth/dev-login'", authRoutes, 'Dev-login route'],
   ['`GET /api/v1/workspaces`', "workspacesRouter.get('/workspaces'", workspaceRoutes, 'List workspaces route'],
@@ -213,6 +222,7 @@ for (const contractPath of [
   ...managementConsoleContract.toolingPaths,
   ...managementConsoleContract.chatRunPaths,
   ...managementConsoleContract.webhookPaths,
+  ...externalIntegrationClientContract.authPaths,
   ...executionEngineContract.controlPlanePaths,
   llmGatewayContract.jwksPath,
   llmGatewayContract.builtinBridge.callPath

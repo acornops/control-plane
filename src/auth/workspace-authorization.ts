@@ -22,7 +22,6 @@ export function getEffectiveWorkspacePermissions(
   _req: AuthenticatedRequest,
   role: Role | null | undefined
 ): WorkspacePermissions {
-  // Future PAT support should intersect role permissions with credential scopes here.
   return getWorkspacePermissions(role);
 }
 

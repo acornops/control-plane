@@ -112,6 +112,7 @@ resulting effective limit are rejected before mutation.
 - Password change entrypoint for authenticated password-backed users: `POST /api/v1/auth/password/change`.
 - Current auth-methods entrypoint: `GET /api/v1/auth/methods`.
 - Explicit SSO linking entrypoint for authenticated password-backed users: `POST /api/v1/auth/oidc/link/start`.
+- External integration account link browser completion entrypoint: `POST /api/v1/auth/external-integrations/link/complete`.
 - Logout entrypoint: `POST /api/v1/auth/logout`.
 - Current-user endpoint: `GET /api/v1/me`.
 - Dev-only shortcut outside production: `POST /api/v1/auth/dev-login`.
@@ -126,6 +127,20 @@ resulting effective limit are rejected before mutation.
 - `POST /api/v1/auth/password/reset` accepts `{ token, password }`; valid single-use tokens update the password hash, verify the account email, consume outstanding reset and verification tokens for that user/email, revoke browser sessions, and return `{ status: "ok" }` without creating a new session. Invalid or consumed tokens return `PASSWORD_RESET_TOKEN_INVALID`; expired tokens return `PASSWORD_RESET_TOKEN_EXPIRED`; policy failures return `PASSWORD_POLICY_VIOLATION`.
 - Verification and reset tokens are bearer secrets, are stored only as hashes, and must only be sent over HTTPS outside local development.
 - Workspace invitation acceptance returns `EMAIL_VERIFICATION_REQUIRED` when the signed-in password account email matches the invite but is still pending verification.
+
+### External integration account link integration contract
+
+- External integration clients use `Authorization: Bearer <external integration client token>`. Client tokens are registered in `EXTERNAL_INTEGRATION_CLIENTS_JSON` as SHA-256 hash descriptors and are valid only for external integration account-link endpoints; they are not browser sessions, admin tokens, run tokens, or orchestrator service tokens.
+- Create link endpoint: `POST /api/v1/auth/external-integrations/link`.
+- Resolve link endpoint: `POST /api/v1/auth/external-integrations/resolve`.
+- Browser link preview endpoint: `POST /api/v1/auth/external-integrations/link/preview` with a session cookie and body `{ token }`.
+- Browser link completion endpoint: `POST /api/v1/auth/external-integrations/link/complete` with a session cookie and body `{ token }`.
+- `POST /api/v1/auth/external-integrations/link` accepts `{ externalUserId, externalDisplayName? }`, validates bounded strings, stores a short-lived hashed link token with the authenticated client identity, and returns `{ linkUrl, expiresAt }`.
+- `linkUrl` points at the management console route `/integrations/external/link?token=<external-integration-link-token>`. The console shows the normal login page when no browser session exists, preserving the token for password or OIDC sign-in. After either login method establishes a normal browser session, the console previews the provider, registered client display name, external account metadata, and signed-in AcornOps user. The console calls the completion endpoint only after the user clicks approve.
+- OIDC sign-in from the external chat link route uses an AcornOps-controlled OIDC state purpose of `integration_link` for routing/observability. The OIDC callback still only establishes the browser session and redirects back to the console route; it does not complete the external integration link.
+- After browser authentication and explicit approval succeed, AcornOps upserts the durable external identity link `{ integrationClientId, provider, externalUserId, acornopsUserId, linkedAt, lastAuthenticatedAt, expiresAt, revokedAt }` and consumes the short-lived link token. `lastAuthenticatedAt` is set on the initial link and updated when the external user reauthenticates through a fresh link.
+- `POST /api/v1/auth/external-integrations/resolve` accepts `{ externalUserId }` for subsequent integration requests and returns either `{ status: "unlinked" }` or `{ status: "linked", user, link }`, where `link` includes required `integrationClientId`, `provider`, `clientDisplayName`, `externalUserId`, `linkedAt`, `lastAuthenticatedAt`, and `expiresAt`.
+- Browser cookies, OIDC access tokens, ID tokens, refresh tokens, and raw link tokens are never returned to external integration clients. Link tokens are stored only as hashes.
 
 ### Workspace, target, and cluster APIs consumed by management console
 
@@ -597,7 +612,7 @@ Bootstrap response contract:
 - `policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}`
 - `context.{endpoint,max_context_tokens}`
 - `llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}`
-- `tools.{tool_registry_version,allowed_tools,tool_specs,write_unavailable_reason?,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}`. `write_unavailable_reason` is informational context for assistant wording when configured write tools are filtered out by a read-only run or read-only agent; `allowed_tools` and the run JWT remain authoritative.
+- `tools.{tool_registry_version,allowed_tools,tool_specs,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}`
 - `routing`
 - `tracing`
 

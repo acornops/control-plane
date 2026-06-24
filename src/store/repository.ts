@@ -175,6 +175,18 @@ import {
   listRoleTemplates as listRoleTemplatesRecord,
   syncRoleTemplates as syncRoleTemplatesRecord
 } from './repository-role-templates.js';
+import {
+  completeExternalIntegrationLinkToken as completeExternalIntegrationLinkTokenRecord,
+  createExternalIntegrationLinkToken as createExternalIntegrationLinkTokenRecord,
+  getExternalIntegrationLinkTokenUser as getExternalIntegrationLinkTokenUserRecord,
+  externalIntegrationLinkTokenIsPending as externalIntegrationLinkTokenIsPendingRecord,
+  listExternalIntegrationUserLinks as listExternalIntegrationUserLinksRecord,
+  previewExternalIntegrationLinkToken as previewExternalIntegrationLinkTokenRecord,
+  purgeOldExternalIntegrationLinkTokens as purgeOldExternalIntegrationLinkTokensRecord,
+  revokeExternalIntegrationUserLink as revokeExternalIntegrationUserLinkRecord,
+  resolveExternalIntegrationUserLink as resolveExternalIntegrationUserLinkRecord
+} from './repository-external-integration-links.js';
+import { insertAccountAuditEvent as insertAccountAuditEventRecord } from './repository-account-audit.js';
 import { getUserQuotaForUser as getUserQuotaForUserRecord } from './repository-quotas.js';
 
 export class Repository {
@@ -219,6 +231,26 @@ export class Repository {
   linkFederatedIdentity = linkFederatedIdentityRecord;
 
   resolveOidcLogin = resolveOidcLoginRecord;
+
+  createExternalIntegrationLinkToken = createExternalIntegrationLinkTokenRecord;
+
+  completeExternalIntegrationLinkToken = completeExternalIntegrationLinkTokenRecord;
+
+  getExternalIntegrationLinkTokenUser = getExternalIntegrationLinkTokenUserRecord;
+
+  externalIntegrationLinkTokenIsPending = externalIntegrationLinkTokenIsPendingRecord;
+
+  previewExternalIntegrationLinkToken = previewExternalIntegrationLinkTokenRecord;
+
+  resolveExternalIntegrationUserLink = resolveExternalIntegrationUserLinkRecord;
+
+  listExternalIntegrationUserLinks = listExternalIntegrationUserLinksRecord;
+
+  revokeExternalIntegrationUserLink = revokeExternalIntegrationUserLinkRecord;
+
+  purgeOldExternalIntegrationLinkTokens = purgeOldExternalIntegrationLinkTokensRecord;
+
+  insertAccountAuditEvent = insertAccountAuditEventRecord;
 
   addWorkspace = addWorkspaceRecord;
 

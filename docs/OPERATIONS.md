@@ -14,10 +14,13 @@
 - `DATABASE_URL`
 - `REDIS_URL`
 - `CONTROL_PLANE_BASE_URL`
+- `MANAGEMENT_CONSOLE_BASE_URL`
 - `CORS_ORIGIN`
 - `OIDC_HTTP_TIMEOUT_MS` (default `10000`)
 - `OIDC_CLIENT_SECRET`
 - `ORCH_SERVICE_TOKEN`
+- `EXTERNAL_INTEGRATION_CLIENTS_JSON`
+- `EXTERNAL_INTEGRATION_LINK_TOKEN_RETENTION_DAYS` (default `30`)
 - `EXECUTION_ENGINE_DISPATCH_TOKEN`
 - `LLM_GATEWAY_ADMIN_TOKEN`
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`
@@ -25,6 +28,14 @@
 For multi-pod deployments, set a unique `CONTROL_PLANE_INSTANCE_ID` per pod.
 The platform Helm chart sets it from the Kubernetes pod name. Production also
 enables `CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED=true` by default.
+`MANAGEMENT_CONSOLE_BASE_URL` is used for user-facing external integration account link
+URLs returned by the integration endpoint and must be the public HTTPS console
+origin in production.
+
+`EXTERNAL_INTEGRATION_CLIENTS_JSON` contains enabled integration client
+descriptors, not raw tokens. Generate a raw bearer token for each installed
+integration client out of band, store only its lowercase SHA-256 hash in the
+descriptor, and deliver the raw token through the operator secret channel.
 
 ## Admin API
 

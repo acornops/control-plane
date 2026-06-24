@@ -10,8 +10,14 @@ import {
   type WorkspacePlanDefinition
 } from './config-admin.js';
 import { httpsInternalUrlConfigIssues, httpsUrlProductionIssues, oidcIssuerProductionIssues } from './config-url-policy.js';
+import {
+  parseExternalIntegrationClientDescriptors,
+  type ExternalIntegrationClientDescriptor
+} from './config-external-integrations.js';
 export { ADMIN_SCOPE_VALUES, parseAdminTokenDescriptors, parseWorkspacePlansConfig } from './config-admin.js';
 export type { AdminScope, AdminTokenDescriptor, WorkspacePlanDefinition } from './config-admin.js';
+export { parseExternalIntegrationClientDescriptors } from './config-external-integrations.js';
+export type { ExternalIntegrationClientDescriptor } from './config-external-integrations.js';
 
 const PLACEHOLDER_VALUES = new Set([
   'change-me',
@@ -22,6 +28,7 @@ const PLACEHOLDER_VALUES = new Set([
   'dev_csrf_secret_change_me_32_bytes_minimum',
   'dev_orchestrator_token',
   'dev_execution_engine_dispatch_token',
+  'dev_external_integration_service_token',
   'acornops-control-plane-secret',
   'acornops'
 ]);
@@ -154,12 +161,9 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   ENABLE_API_DOCS: envBoolean(false),
   TRUST_PROXY: trustProxyFromEnv,
-
   CONTROL_PLANE_BASE_URL: z.string().url().default('http://localhost:8081'),
-  CONTROL_PLANE_INSTANCE_ID: z.preprocess(
-    emptyStringToUndefined,
-    z.string().min(1).default(process.env.HOSTNAME || randomUUID())
-  ),
+  CONTROL_PLANE_INSTANCE_ID: z.preprocess(emptyStringToUndefined, z.string().min(1).default(process.env.HOSTNAME || randomUUID())),
+  MANAGEMENT_CONSOLE_BASE_URL: z.string().url().default('http://localhost:3000'),
   CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS: z.coerce.number().int().positive().default(90),
   CONTROL_PLANE_AGENT_SNAPSHOT_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(60),
   CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED: optionalEnvBoolean(),
@@ -199,18 +203,9 @@ const envSchema = z.object({
   SEED_DEVELOPMENT_DATA: envBoolean(true),
   SEED_AGENT_KEY: z.string().optional(),
   SEED_VM_AGENT_KEY: z.string().optional(),
-  AGENT_HELM_RELEASE_NAME: z.preprocess(
-    emptyStringToUndefined,
-    z.string().min(1).default('acornops-agent')
-  ),
-  AGENT_HELM_CHART_REF: z.preprocess(
-    emptyStringToUndefined,
-    z.string().min(1).default('oci://ghcr.io/acornops/charts/acornops-k8s-agent')
-  ),
-  AGENT_HELM_NAMESPACE: z.preprocess(
-    emptyStringToUndefined,
-    z.string().min(1).default('acornops')
-  ),
+  AGENT_HELM_RELEASE_NAME: z.preprocess(emptyStringToUndefined, z.string().min(1).default('acornops-agent')),
+  AGENT_HELM_CHART_REF: z.preprocess(emptyStringToUndefined, z.string().min(1).default('oci://ghcr.io/acornops/charts/acornops-k8s-agent')),
+  AGENT_HELM_NAMESPACE: z.preprocess(emptyStringToUndefined, z.string().min(1).default('acornops')),
 
   OIDC_PROVIDER_NAME: z.string().default('oidc'),
   OIDC_ISSUER_URL: z.string().url().default('http://localhost:8080/realms/acornops'),
@@ -245,15 +240,17 @@ const envSchema = z.object({
   EMAIL_DELIVERY_MODE: z.enum(['smtp', 'log', 'disabled']).default('log'),
   EMAIL_DELIVERY_ALLOW_LOG_IN_PRODUCTION: envBoolean(false),
   EMAIL_FROM: z.string().default('AcornOps <noreply@localhost>'),
-  EMAIL_PUBLIC_BASE_URL: z.string().url().default('http://localhost:3000'),
-  SMTP_HOST: optionalStringFromEnv,
+  EMAIL_PUBLIC_BASE_URL: z.string().url().default('http://localhost:3000'), SMTP_HOST: optionalStringFromEnv,
   SMTP_PORT: z.coerce.number().int().positive().default(587),
   SMTP_USERNAME: optionalStringFromEnv,
   SMTP_PASSWORD: optionalStringFromEnv,
   SMTP_SECURE: envBoolean(false),
   SMTP_REQUIRE_TLS: envBoolean(true),
-
   ORCH_SERVICE_TOKEN: z.string().default('dev_orchestrator_token'),
+  EXTERNAL_INTEGRATION_CLIENTS_JSON: z.string().default('[{"id":"dev-client","provider":"external","displayName":"Development external integration","sha256":"c900e895f6e7b6358dcfc3c6e0cc24d275f3c413256911756c5150dd9f9fe222"}]'),
+  EXTERNAL_INTEGRATION_LINK_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(600),
+  EXTERNAL_INTEGRATION_LINK_TTL_SECONDS: z.coerce.number().int().min(86400).max(31536000).default(2592000),
+  EXTERNAL_INTEGRATION_LINK_TOKEN_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   EXECUTION_ENGINE_BASE_URL: z.string().url().default('http://localhost:8080'),
   EXECUTION_ENGINE_DISPATCH_TOKEN: z.string().default('dev_execution_engine_dispatch_token'),
   EXECUTION_ENGINE_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
@@ -321,10 +318,16 @@ const envSchema = z.object({
   WEBHOOK_SECRET_KEY_ID: z.string().default('default')
 }).superRefine((value, ctx) => {
   let adminDescriptors: AdminTokenDescriptor[] = [];
+  let externalIntegrationClients: ExternalIntegrationClientDescriptor[] = [];
   try {
     adminDescriptors = parseAdminTokenDescriptors(value.CONTROL_PLANE_ADMIN_TOKENS_JSON, value.NODE_ENV);
   } catch (err) {
     addConfigIssue(ctx, 'CONTROL_PLANE_ADMIN_TOKENS_JSON', err instanceof Error ? err.message : 'Invalid admin token configuration');
+  }
+  try {
+    externalIntegrationClients = parseExternalIntegrationClientDescriptors(value.EXTERNAL_INTEGRATION_CLIENTS_JSON, value.NODE_ENV);
+  } catch (err) {
+    addConfigIssue(ctx, 'EXTERNAL_INTEGRATION_CLIENTS_JSON', err instanceof Error ? err.message : 'Invalid external integration client configuration');
   }
   if (value.CONTROL_PLANE_ADMIN_API_ENABLED && adminDescriptors.filter((descriptor) => descriptor.enabled).length === 0) {
     addConfigIssue(
@@ -370,6 +373,9 @@ const envSchema = z.object({
   for (const issue of httpsUrlProductionIssues('CONTROL_PLANE_BASE_URL', value.CONTROL_PLANE_BASE_URL)) {
     addProductionIssue(ctx, issue.field, issue.message);
   }
+  for (const issue of httpsUrlProductionIssues('MANAGEMENT_CONSOLE_BASE_URL', value.MANAGEMENT_CONSOLE_BASE_URL)) {
+    addProductionIssue(ctx, issue.field, issue.message);
+  }
   for (const issue of httpsUrlProductionIssues('OIDC_REDIRECT_URI', value.OIDC_REDIRECT_URI)) {
     addProductionIssue(ctx, issue.field, issue.message);
   }
@@ -401,6 +407,9 @@ const envSchema = z.object({
   }
   if (isUnsafeSecretValue(value.ORCH_SERVICE_TOKEN)) {
     addProductionIssue(ctx, 'ORCH_SERVICE_TOKEN', 'ORCH_SERVICE_TOKEN must be a generated production token');
+  }
+  if (externalIntegrationClients.filter((descriptor) => descriptor.enabled).length === 0) {
+    addProductionIssue(ctx, 'EXTERNAL_INTEGRATION_CLIENTS_JSON', 'EXTERNAL_INTEGRATION_CLIENTS_JSON must include at least one enabled production client');
   }
   if (isUnsafeSecretValue(value.EXECUTION_ENGINE_DISPATCH_TOKEN)) {
     addProductionIssue(
@@ -513,6 +522,7 @@ const envSchema = z.object({
   ...value,
   WORKSPACE_ROLE_TEMPLATES: configureWorkspaceRoleTemplates(value.WORKSPACE_ROLES_CONFIG_JSON),
   ADMIN_TOKEN_DESCRIPTORS: parseAdminTokenDescriptors(value.CONTROL_PLANE_ADMIN_TOKENS_JSON, value.NODE_ENV),
+  EXTERNAL_INTEGRATION_CLIENTS: parseExternalIntegrationClientDescriptors(value.EXTERNAL_INTEGRATION_CLIENTS_JSON, value.NODE_ENV),
   WORKSPACE_PLANS: parseWorkspacePlansConfig(value.WORKSPACE_PLANS_CONFIG_JSON),
   SESSION_MAX_AGE_SECONDS: value.SESSION_MAX_AGE_SECONDS ?? value.SESSION_TTL_SECONDS ?? 604800,
   PASSWORD_SIGNUP_ENABLED: value.PASSWORD_SIGNUP_ENABLED ?? value.NODE_ENV !== 'production',

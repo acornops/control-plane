@@ -1,4 +1,5 @@
 import { EXAMPLE_TRACE_ID } from '../../constants/dev-defaults.js';
+import { buildAuthChatPaths } from './auth-chat-paths.js';
 
 export function buildAuthPaths(exampleReturnTo: string, exampleRedirectUri: string): Record<string, unknown> {
   return {
@@ -373,6 +374,7 @@ export function buildAuthPaths(exampleReturnTo: string, exampleRedirectUri: stri
           }
         }
       },
+      ...buildAuthChatPaths(),
       '/api/v1/auth/dev-login': {
         post: {
           tags: ['auth'],

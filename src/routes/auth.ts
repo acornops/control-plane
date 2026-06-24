@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { config } from '../config.js';
-import { authenticatedHandler, requireUser } from '../auth/middleware.js';
+import { authenticatedHandler, requireExternalIntegrationClient, requireUser } from '../auth/middleware.js';
 import * as authController from '../controllers/auth-controller.js';
 import * as emailVerificationController from '../controllers/email-verification-controller.js';
+import * as externalIntegrationLinkController from '../controllers/external-integration-link-controller.js';
 import * as passwordResetController from '../controllers/password-reset-controller.js';
 
 export const authRouter = Router();
@@ -13,6 +14,13 @@ authRouter.get('/auth/csrf', authController.csrfToken);
 authRouter.get('/auth/oidc/login', authController.oidcLogin);
 authRouter.get('/auth/oidc/callback', authController.oidcCallback);
 authRouter.post('/auth/oidc/link/start', requireUser, authed(authController.oidcLinkStart));
+authRouter.post('/auth/external-integrations/link/preview', requireUser, authed(externalIntegrationLinkController.previewExternalIntegrationLinkRequest));
+authRouter.post('/auth/external-integrations/link/complete', requireUser, authed(externalIntegrationLinkController.completeExternalIntegrationLinkRequest));
+authRouter.get('/auth/external-integrations/links', requireUser, authed(externalIntegrationLinkController.listExternalIntegrationLinks));
+authRouter.post('/auth/external-integrations/links/unlink', requireUser, authed(externalIntegrationLinkController.unlinkExternalIntegrationLink));
+authRouter.post('/auth/external-integrations/link', requireExternalIntegrationClient, externalIntegrationLinkController.createExternalIntegrationLinkRequest);
+authRouter.post('/auth/external-integrations/resolve', requireExternalIntegrationClient, externalIntegrationLinkController.resolveExternalIntegrationLink);
+authRouter.post('/auth/external-integrations/revoke', requireExternalIntegrationClient, externalIntegrationLinkController.revokeExternalIntegrationLink);
 authRouter.post('/auth/password/login', authController.passwordLogin);
 authRouter.post('/auth/password/signup', authController.passwordSignup);
 authRouter.post('/auth/password/verify-email', emailVerificationController.verifyPasswordEmail);

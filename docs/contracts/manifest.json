@@ -17,6 +17,8 @@
         "POST /api/v1/auth/password/reset",
         "POST /api/v1/auth/password/change",
         "POST /api/v1/auth/oidc/link/start",
+        "POST /api/v1/auth/external-integrations/link/preview",
+        "POST /api/v1/auth/external-integrations/link/complete",
         "GET /api/v1/auth/methods",
         "POST /api/v1/auth/logout",
         "GET /api/v1/me",
@@ -285,6 +287,20 @@
       "responseCachePolicy": "All /admin/v1 responses set Cache-Control: no-store",
       "secretReturnPolicy": "No admin response returns secrets except one-time agent-key rotation, returned once"
     },
+    "external-integration-client": {
+      "auth": "Authorization: Bearer <external integration client token>; token hashes configured through EXTERNAL_INTEGRATION_CLIENTS_JSON",
+      "authPaths": [
+        "POST /api/v1/auth/external-integrations/link",
+        "POST /api/v1/auth/external-integrations/resolve",
+        "POST /api/v1/auth/external-integrations/revoke"
+      ],
+      "identityRequestFields": ["externalUserId", "externalDisplayName"],
+      "createResponseFields": ["linkUrl", "expiresAt"],
+      "resolveStatusValues": ["linked", "unlinked"],
+      "linkedResponseFields": ["status", "user.{id,displayName,email}", "link.{integrationClientId,provider,clientDisplayName,externalUserId,linkedAt,lastAuthenticatedAt,expiresAt}"],
+      "completionProof": "Only an authenticated AcornOps browser session with explicit user approval can complete the link through POST /api/v1/auth/external-integrations/link/complete after previewing safe metadata from POST /api/v1/auth/external-integrations/link/preview; OIDC and password flows only establish the session before the console approval screen.",
+      "secretReturnPolicy": "Never returns browser cookies, OIDC access tokens, ID tokens, refresh tokens, or raw link tokens to external integration clients. Link tokens are stored only as hashes."
+    },
     "execution-engine": {
       "dispatchPaths": ["POST /api/v1/runs", "POST /api/v1/runs/{run_id}/cancel"],
       "dispatchAuth": "Authorization: Bearer <EXECUTION_ENGINE_DISPATCH_TOKEN>",
@@ -307,7 +323,7 @@
         "policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}",
         "context.{endpoint,max_context_tokens}",
         "llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}",
-        "tools.{tool_registry_version,allowed_tools,tool_specs,write_unavailable_reason?,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}",
+        "tools.{tool_registry_version,allowed_tools,tool_specs,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}",
         "routing",
         "tracing"
       ],
@@ -403,7 +419,6 @@
       "builtinBridge": {
         "serverName": "acornops-cluster-agent",
         "serverUrl": "http://control-plane:8081/internal/v1/mcp",
-        "egressException": "Allowed internal HTTP only for configured builtin server registrations with source=builtin tools, auth type none, and no public headers",
         "authHeader": "Authorization: Bearer <run-scoped-jwt>",
         "scopeSource": "run-scoped-jwt-claims",
         "callPath": "POST /internal/v1/mcp/tools/call"

@@ -107,4 +107,5 @@ describe('workspace summary authorization', () => {
       error: { code: 'NOT_FOUND', message: 'Workspace not found', retryable: false }
     });
   });
+
 });
