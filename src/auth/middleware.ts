@@ -1,33 +1,19 @@
 import { NextFunction, Request, RequestHandler, Response } from 'express';
 import { config, type ExternalIntegrationClientDescriptor } from '../config.js';
 import { gatewayTokenService } from '../services/token-service.js';
-import { repo } from '../store/repository.js';
 import { hashToken } from '../utils/crypto.js';
 import { constantTimeEqual } from '../utils/tokens.js';
 import { getSessionUser } from './session.js';
 
-export const EXTERNAL_INTEGRATION_USER_ID_HEADER = 'x-acornops-external-user-id';
-
-export type AuthCredential =
-  | {
-      type: 'session';
-      sessionId: string;
-    }
-  | {
-      type: 'external_integration';
-      integrationClientId: string;
-      provider: string;
-      externalUserId: string;
-    };
+export type AuthCredential = {
+  type: 'session';
+  sessionId: string;
+};
 
 export interface AuthContext {
   userId: string;
   credential: AuthCredential;
 }
-
-export const ACTOR_KINDS = ['user', 'externalIntegration'] as const;
-export type ActorKind = typeof ACTOR_KINDS[number];
-type ActorRequirement = readonly [ActorKind, ...ActorKind[]];
 
 declare global {
   namespace Express {
@@ -128,92 +114,6 @@ export function requireExternalIntegrationClient(req: Request, res: Response, ne
   }
   req.externalIntegrationClient = client;
   next();
-}
-
-function externalUserIdFromHeader(req: Request): string | null {
-  const raw = req.header(EXTERNAL_INTEGRATION_USER_ID_HEADER);
-  const externalUserId = typeof raw === 'string' ? raw.trim() : '';
-  return externalUserId.length > 0 && externalUserId.length <= 128 ? externalUserId : null;
-}
-
-type ActorAuthenticationResult =
-  | {
-      auth: AuthContext;
-    }
-  | {
-      auth: null;
-      message?: string;
-    };
-
-async function authenticateExternalIntegration(req: Request): Promise<ActorAuthenticationResult> {
-  const client = externalIntegrationClientFromBearer(req);
-  if (!client) {
-    return { auth: null };
-  }
-
-  const externalUserId = externalUserIdFromHeader(req);
-  if (!externalUserId) {
-    return { auth: null, message: 'Linked external integration user id required' };
-  }
-
-  const resolution = await repo.resolveExternalIntegrationUserLink({
-    integrationClientId: client.id,
-    provider: client.provider,
-    externalUserId
-  });
-  if (!resolution) {
-    return { auth: null, message: 'Linked external integration account required' };
-  }
-
-  return {
-    auth: {
-      userId: resolution.user.id,
-      credential: {
-        type: 'external_integration',
-        integrationClientId: client.id,
-        provider: client.provider,
-        externalUserId
-      }
-    }
-  };
-}
-
-async function authenticateActor(req: Request, actor: ActorKind): Promise<ActorAuthenticationResult> {
-  if (actor === 'user') {
-    return { auth: await authenticateUser(req) };
-  }
-  return authenticateExternalIntegration(req);
-}
-
-function actorRequirementMessage(allowedActors: ActorRequirement): string {
-  const allowed = new Set<ActorKind>(allowedActors);
-  if (allowed.size === 1 && allowed.has('user')) {
-    return 'User session required';
-  }
-  if (allowed.size === 1 && allowed.has('externalIntegration')) {
-    return 'Linked external integration required';
-  }
-  return 'User session or linked external integration required';
-}
-
-export function requireActor(allowedActors: ActorRequirement): RequestHandler {
-  return async (req, res, next): Promise<void> => {
-    try {
-      let failureMessage: string | undefined;
-      for (const actor of allowedActors) {
-        const result = await authenticateActor(req, actor);
-        if (result.auth) {
-          req.auth = result.auth;
-          next();
-          return;
-        }
-        failureMessage = result.message ?? failureMessage;
-      }
-      rejectUnauthorized(res, failureMessage ?? actorRequirementMessage(allowedActors));
-    } catch (err) {
-      next(err);
-    }
-  };
 }
 
 export async function requireGatewayRunToken(req: Request, res: Response, next: NextFunction): Promise<void> {

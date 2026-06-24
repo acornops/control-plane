@@ -288,34 +288,6 @@
       "resolveStatusValues": ["linked", "unlinked"],
       "linkedResponseFields": ["status", "user.{id,displayName,email}", "link.{integrationClientId,provider,clientDisplayName,externalUserId,linkedAt,lastAuthenticatedAt,expiresAt}"],
       "completionProof": "Only an authenticated AcornOps browser session with explicit user approval can complete the link through POST /api/v1/auth/external-integrations/link/complete after previewing safe metadata from POST /api/v1/auth/external-integrations/link/preview; OIDC and password flows only establish the session before the console approval screen.",
-      "linkedBotAuth": "Authorization: Bearer <external integration client token> plus x-acornops-external-user-id: <externalUserId>",
-      "linkedBotCapabilities": ["read_workspace_data", "create_sessions", "create_read_only_runs"],
-      "linkedBotPaths": [
-        "GET /api/v1/workspaces",
-        "GET /api/v1/workspaces/{workspaceId}",
-        "GET /api/v1/workspaces/{workspaceId}/investigations",
-        "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters",
-        "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}",
-        "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/resources",
-        "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/findings",
-        "GET /api/v1/workspaces/{workspaceId}/virtual-machines",
-        "GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}",
-        "GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/resources",
-        "GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/findings",
-        "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/sessions",
-        "POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/sessions",
-        "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions",
-        "POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions",
-        "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity",
-        "GET /api/v1/sessions/{sessionId}",
-        "GET /api/v1/sessions/{sessionId}/messages",
-        "POST /api/v1/sessions/{sessionId}/messages",
-        "GET /api/v1/runs/{runId}",
-        "GET /api/v1/runs/{runId}/events",
-        "GET /api/v1/runs/{runId}/stream",
-        "GET /api/v1/runs/{runId}/approvals"
-      ],
-      "linkedBotDeniedCapabilities": ["read_members", "read_audit_log", "manage_targets", "read_target_logs", "create_read_write_runs", "cancel_runs", "delete_sessions"],
       "secretReturnPolicy": "Never returns browser cookies, OIDC access tokens, ID tokens, refresh tokens, or raw link tokens to external integration clients. Link tokens are stored only as hashes."
     },
     "execution-engine": {
@@ -340,7 +312,7 @@
         "policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}",
         "context.{endpoint,max_context_tokens}",
         "llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}",
-        "tools.{tool_registry_version,allowed_tools,tool_specs,write_unavailable_reason?,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}",
+        "tools.{tool_registry_version,allowed_tools,tool_specs,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}",
         "routing",
         "tracing"
       ],
@@ -435,7 +407,6 @@
       "builtinBridge": {
         "serverName": "acornops-cluster-agent",
         "serverUrl": "http://control-plane:8081/internal/v1/mcp",
-        "egressException": "Allowed internal HTTP only for configured builtin server registrations with source=builtin tools, auth type none, and no public headers",
         "authHeader": "Authorization: Bearer <run-scoped-jwt>",
         "scopeSource": "run-scoped-jwt-claims",
         "callPath": "POST /internal/v1/mcp/tools/call"

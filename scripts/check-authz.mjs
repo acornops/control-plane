@@ -301,9 +301,7 @@ for (const routeFile of listFiles('src/routes').filter((file) => file.endsWith('
     const args = splitTopLevelArgs(call);
     args.forEach((arg, index) => {
       if (!arg.includes('authed(')) return;
-      const hasEarlierRequireUser = args.slice(0, index).some((candidate) => (
-        /\brequireUser\b/.test(candidate) || /requireActor\(\s*\[\s*['"]user['"]\s*\]\s*\)/.test(candidate)
-      ));
+      const hasEarlierRequireUser = args.slice(0, index).some((candidate) => /\brequireUser\b/.test(candidate));
       assert(hasEarlierRequireUser, `${routeFile} has authed(...) route handler without earlier requireUser`);
     });
   }

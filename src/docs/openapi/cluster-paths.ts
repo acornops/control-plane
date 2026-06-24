@@ -1,14 +1,6 @@
 import { EXAMPLE_CLUSTER_ID, EXAMPLE_WORKSPACE_ID } from '../../constants/dev-defaults.js';
 import { buildClusterMetricPaths } from './cluster-metric-paths.js';
 
-const externalUserHeader = {
-  in: 'header',
-  name: 'x-acornops-external-user-id',
-  required: false,
-  schema: { type: 'string', minLength: 1, maxLength: 128 },
-  description: 'Required only for external integration service-token requests. Must identify a linked external integration user.'
-};
-
 export function buildClusterPaths(): Record<string, unknown> {
   return {
       '/api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/tools/catalog': {
@@ -40,10 +32,8 @@ export function buildClusterPaths(): Record<string, unknown> {
         get: {
           tags: ['workspaces'],
           summary: 'List clusters in a workspace',
-          description: 'Browser callers use the session cookie. Phase-1 external integration callers may use the external integration service token plus x-acornops-external-user-id for a linked external user with bot-scoped read_workspace_data.',
-          security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+          security: [{ userSession: [] }],
           parameters: [
-            externalUserHeader,
             {
               in: 'path',
               name: 'workspaceId',
@@ -109,10 +99,8 @@ export function buildClusterPaths(): Record<string, unknown> {
         get: {
           tags: ['workspaces'],
           summary: 'Get cluster details and latest snapshot summary',
-          description: 'Browser callers use the session cookie. External integration callers may use the external integration service token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
-          security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+          security: [{ userSession: [] }],
           parameters: [
-            externalUserHeader,
             { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
             { in: 'path', name: 'clusterId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_CLUSTER_ID } }
           ],
@@ -181,10 +169,8 @@ export function buildClusterPaths(): Record<string, unknown> {
         get: {
           tags: ['workspaces'],
           summary: 'List snapshot-derived cluster resources',
-          description: 'Browser callers use the session cookie. External integration callers may use the external integration service token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
-          security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+          security: [{ userSession: [] }],
           parameters: [
-            externalUserHeader,
             { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
             { in: 'path', name: 'clusterId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_CLUSTER_ID } },
             { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 200, default: 100 } },
@@ -202,10 +188,8 @@ export function buildClusterPaths(): Record<string, unknown> {
         get: {
           tags: ['workspaces'],
           summary: 'List snapshot-derived cluster findings',
-          description: 'Browser callers use the session cookie. External integration callers may use the external integration service token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
-          security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+          security: [{ userSession: [] }],
           parameters: [
-            externalUserHeader,
             { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
             { in: 'path', name: 'clusterId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_CLUSTER_ID } },
             { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },

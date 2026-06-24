@@ -130,7 +130,7 @@ resulting effective limit are rejected before mutation.
 
 ### External integration account link integration contract
 
-- External integration clients use `Authorization: Bearer <external integration client token>`. Client tokens are registered in `EXTERNAL_INTEGRATION_CLIENTS_JSON` as SHA-256 hash descriptors and are valid only for external integration account-link endpoints and explicitly enabled linked-account external integration endpoints; they are not browser sessions, admin tokens, run tokens, or orchestrator service tokens.
+- External integration clients use `Authorization: Bearer <external integration client token>`. Client tokens are registered in `EXTERNAL_INTEGRATION_CLIENTS_JSON` as SHA-256 hash descriptors and are valid only for external integration account-link endpoints; they are not browser sessions, admin tokens, run tokens, or orchestrator service tokens.
 - Create link endpoint: `POST /api/v1/auth/external-integrations/link`.
 - Resolve link endpoint: `POST /api/v1/auth/external-integrations/resolve`.
 - Browser link preview endpoint: `POST /api/v1/auth/external-integrations/link/preview` with a session cookie and body `{ token }`.
@@ -141,8 +141,6 @@ resulting effective limit are rejected before mutation.
 - After browser authentication and explicit approval succeed, AcornOps upserts the durable external identity link `{ integrationClientId, provider, externalUserId, acornopsUserId, linkedAt, lastAuthenticatedAt, expiresAt, revokedAt }` and consumes the short-lived link token. `lastAuthenticatedAt` is set on the initial link and updated when the external user reauthenticates through a fresh link.
 - `POST /api/v1/auth/external-integrations/resolve` accepts `{ externalUserId }` for subsequent integration requests and returns either `{ status: "unlinked" }` or `{ status: "linked", user, link }`, where `link` includes required `integrationClientId`, `provider`, `clientDisplayName`, `externalUserId`, `linkedAt`, `lastAuthenticatedAt`, and `expiresAt`.
 - Browser cookies, OIDC access tokens, ID tokens, refresh tokens, and raw link tokens are never returned to external integration clients. Link tokens are stored only as hashes.
-- Phase-1 linked external integration bot reads use `Authorization: Bearer <external integration client token>` and `x-acornops-external-user-id: <externalUserId>`. The control plane derives `integrationClientId` and `provider` from the token, resolves the scoped linked AcornOps user, assigns an `external_integration` auth credential, and grants only `read_workspace_data`, `create_sessions`, and `create_read_only_runs`, intersected with that user's workspace role. Eligible routes are workspace summary/list, workspace investigations, Kubernetes and VM list/overview/resource/finding reads, read-only session/message creation and reads, and run observation (`GET /api/v1/runs/{runId}`, events, stream, and approvals list). Operational workspace counts, operational quota usage, target summaries, findings, resources, and read-only assistant conversations are visible; member usage and all member, audit, log, read-write run, approval-decision, cancellation, deletion, settings, and management capabilities remain denied.
-- Implementor-facing endpoint details live in [external-integration-bot-endpoints.md](external-integration-bot-endpoints.md).
 
 ### Workspace, target, and cluster APIs consumed by management console
 
@@ -578,7 +576,7 @@ Bootstrap response contract:
 - `policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}`
 - `context.{endpoint,max_context_tokens}`
 - `llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}`
-- `tools.{tool_registry_version,allowed_tools,tool_specs,write_unavailable_reason?,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}`. `write_unavailable_reason` is informational context for assistant wording when configured write tools are filtered out by a read-only run or read-only agent; `allowed_tools` and the run JWT remain authoritative.
+- `tools.{tool_registry_version,allowed_tools,tool_specs,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}`
 - `routing`
 - `tracing`
 

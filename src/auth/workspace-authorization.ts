@@ -10,12 +10,6 @@ import { AuthenticatedRequest } from './middleware.js';
 import { repo } from '../store/repository.js';
 import { KubernetesCluster, Role, TargetSummary } from '../types/domain.js';
 
-const EXTERNAL_INTEGRATION_CAPABILITIES = new Set<WorkspaceCapability>([
-  'read_workspace_data',
-  'create_sessions',
-  'create_read_only_runs'
-]);
-
 export interface WorkspaceAuthorization {
   userId: string;
   workspaceId: string;
@@ -25,18 +19,10 @@ export interface WorkspaceAuthorization {
 }
 
 export function getEffectiveWorkspacePermissions(
-  req: AuthenticatedRequest,
+  _req: AuthenticatedRequest,
   role: Role | null | undefined
 ): WorkspacePermissions {
-  const rolePermissions = getWorkspacePermissions(role);
-  if (req.auth.credential?.type !== 'external_integration') {
-    return rolePermissions;
-  }
-  const permissions = { ...rolePermissions };
-  for (const capability of Object.keys(permissions) as WorkspaceCapability[]) {
-    permissions[capability] = permissions[capability] && EXTERNAL_INTEGRATION_CAPABILITIES.has(capability);
-  }
-  return permissions;
+  return getWorkspacePermissions(role);
 }
 
 export async function getWorkspaceAuthorization(
