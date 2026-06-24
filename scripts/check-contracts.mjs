@@ -61,7 +61,7 @@ const toolSync = [
   read('src/services/kubernetes-cluster-tool-sync.ts'),
   read('src/services/virtual-machine-tool-sync.ts')
 ].join('\n');
-const internalController = read('src/controllers/internal-execution-controller.ts');
+const internalExecutionBootstrap = read('src/controllers/internal-execution-bootstrap.ts');
 const internalMcpBridgeController = read('src/controllers/internal-mcp-bridge-controller.ts');
 const openApi = [read('src/docs/openapi.ts'), readTree('src/docs/openapi')].join('\n');
 const managementConsoleContract = manifest.counterparts?.['management-console'];
@@ -327,7 +327,7 @@ for (const guardNeedle of [
   "capability === 'write' && !targetSupportsWrite",
   "capability === 'write' && !runAllowsWrite"
 ]) {
-  expectIncludes(internalController, guardNeedle, 'Write-tool gate implementation');
+  expectIncludes(internalExecutionBootstrap, guardNeedle, 'Write-tool gate implementation');
 }
 
 if (failures.length > 0) {

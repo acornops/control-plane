@@ -490,10 +490,17 @@ export async function streamRun(req: AuthenticatedRequest, res: Response, next: 
     runtime.runStreams.on(`run:${run.id}`, listener);
 
     try {
-      const existing = workflowRun ? (workflowRun.events || runtime.getRunEvents(workflowRun.id)) as RunEvent[] : await getReplayRunEvents(run.id);
-      for (const event of existing) {
-        lastReplayedSeq = Math.max(lastReplayedSeq, event.seq);
-        writeSseRunEvent(res, event);
+      const replayExistingEvents = (existing: RunEvent[]) => {
+        for (const event of existing) {
+          lastReplayedSeq = Math.max(lastReplayedSeq, event.seq);
+          writeSseRunEvent(res, event);
+        }
+      };
+      if (workflowRun) {
+        replayExistingEvents((workflowRun.events || runtime.getRunEvents(workflowRun.id)) as RunEvent[]);
+      } else {
+        const existing = await getReplayRunEvents(run.id);
+        replayExistingEvents(existing);
       }
 
       replaying = false;
