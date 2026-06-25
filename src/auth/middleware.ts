@@ -26,6 +26,11 @@ export interface AuthContext {
 export const ACTOR_KINDS = ['user', 'externalIntegration'] as const;
 export type ActorKind = typeof ACTOR_KINDS[number];
 type ActorRequirement = readonly [ActorKind, ...ActorKind[]];
+export type ExternalIntegrationActorMode = 'linked' | 'client';
+
+export interface RequireActorOptions {
+  externalIntegrationMode?: ExternalIntegrationActorMode;
+}
 
 declare global {
   namespace Express {
@@ -104,16 +109,6 @@ function externalIntegrationClientFromBearer(req: Request): ExternalIntegrationC
   )) || null;
 }
 
-export function requireExternalIntegrationClient(req: Request, res: Response, next: NextFunction): void {
-  const client = externalIntegrationClientFromBearer(req);
-  if (!client) {
-    rejectUnauthorized(res, 'External integration client token required');
-    return;
-  }
-  req.externalIntegrationClient = client;
-  next();
-}
-
 function externalUserIdFromHeader(req: Request): string | null {
   const raw = req.header(EXTERNAL_INTEGRATION_USER_ID_HEADER);
   const externalUserId = typeof raw === 'string' ? raw.trim() : '';
@@ -122,22 +117,28 @@ function externalUserIdFromHeader(req: Request): string | null {
 
 type ActorAuthenticationResult =
   | {
-      auth: AuthContext;
+      authenticated: true;
+      auth?: AuthContext;
     }
   | {
-      auth: null;
+      authenticated: false;
       message?: string;
     };
 
-async function authenticateExternalIntegration(req: Request): Promise<ActorAuthenticationResult> {
+async function authenticateExternalIntegration(req: Request, mode: ExternalIntegrationActorMode): Promise<ActorAuthenticationResult> {
   const client = externalIntegrationClientFromBearer(req);
   if (!client) {
-    return { auth: null };
+    return { authenticated: false };
+  }
+  req.externalIntegrationClient = client;
+
+  if (mode === 'client') {
+    return { authenticated: true };
   }
 
   const externalUserId = externalUserIdFromHeader(req);
   if (!externalUserId) {
-    return { auth: null, message: 'Linked external integration user id required' };
+    return { authenticated: false, message: 'Linked external integration user id required' };
   }
 
   const resolution = await repo.resolveExternalIntegrationUserLink({
@@ -146,11 +147,11 @@ async function authenticateExternalIntegration(req: Request): Promise<ActorAuthe
     externalUserId
   });
   if (!resolution) {
-    return { auth: null, message: 'Linked external integration account required' };
+    return { authenticated: false, message: 'Linked external integration account required' };
   }
 
-  req.externalIntegrationClient = client;
   return {
+    authenticated: true,
     auth: {
       userId: resolution.user.id,
       credential: {
@@ -162,38 +163,46 @@ async function authenticateExternalIntegration(req: Request): Promise<ActorAuthe
   };
 }
 
-async function authenticateActor(req: Request, actor: ActorKind): Promise<ActorAuthenticationResult> {
+async function authenticateActor(req: Request, actor: ActorKind, options: RequireActorOptions): Promise<ActorAuthenticationResult> {
   if (actor === 'user') {
-    return { auth: await authenticateUser(req) };
+    const auth = await authenticateUser(req);
+    return auth ? { authenticated: true, auth } : { authenticated: false };
   }
-  return authenticateExternalIntegration(req);
+  return authenticateExternalIntegration(req, options.externalIntegrationMode ?? 'linked');
 }
 
-function actorRequirementMessage(allowedActors: ActorRequirement): string {
+function actorRequirementMessage(allowedActors: ActorRequirement, options: RequireActorOptions): string {
   const allowed = new Set<ActorKind>(allowedActors);
   if (allowed.size === 1 && allowed.has('user')) {
     return 'User session required';
   }
   if (allowed.size === 1 && allowed.has('externalIntegration')) {
+    if (options.externalIntegrationMode === 'client') {
+      return 'External integration client token required';
+    }
     return 'Linked external integration required';
   }
   return 'User session or linked external integration required';
 }
 
-export function requireActor(allowedActors: ActorRequirement): RequestHandler {
+export function requireActor(allowedActors: ActorRequirement): RequestHandler;
+export function requireActor(allowedActors: ActorRequirement, options: RequireActorOptions): RequestHandler;
+export function requireActor(allowedActors: ActorRequirement, options: RequireActorOptions = {}): RequestHandler {
   return async (req, res, next): Promise<void> => {
     try {
       let failureMessage: string | undefined;
       for (const actor of allowedActors) {
-        const result = await authenticateActor(req, actor);
-        if (result.auth) {
-          req.auth = result.auth;
+        const result = await authenticateActor(req, actor, options);
+        if (result.authenticated) {
+          if (result.auth) {
+            req.auth = result.auth;
+          }
           next();
           return;
         }
         failureMessage = result.message ?? failureMessage;
       }
-      rejectUnauthorized(res, failureMessage ?? actorRequirementMessage(allowedActors));
+      rejectUnauthorized(res, failureMessage ?? actorRequirementMessage(allowedActors, options));
     } catch (err) {
       next(err);
     }

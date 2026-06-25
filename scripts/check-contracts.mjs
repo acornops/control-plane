@@ -35,7 +35,13 @@ function expectIncludes(content, needle, message) {
 const readme = read('README.md');
 const doc = read('docs/contracts/README.md');
 const manifest = JSON.parse(read('docs/contracts/manifest.json'));
-const authRoutes = read('src/routes/auth.ts');
+const rawAuthRoutes = read('src/routes/auth.ts');
+const compactAuthRoutes = rawAuthRoutes
+  .replaceAll("authRouter.get(\n  '", "authRouter.get('")
+  .replaceAll("authRouter.post(\n  '", "authRouter.post('")
+  .replaceAll("authRouter.patch(\n  '", "authRouter.patch('")
+  .replaceAll("authRouter.delete(\n  '", "authRouter.delete('");
+const authRoutes = `${rawAuthRoutes}\n${compactAuthRoutes}`;
 const authController = read('src/controllers/auth-controller.ts');
 const workspaceRouteSources = [read('src/routes/workspaces.ts'), readTree('src/routes/workspaces')].join('\n');
 const expandedWorkspaceRoutes = workspaceRouteSources

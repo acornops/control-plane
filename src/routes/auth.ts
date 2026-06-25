@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { config } from '../config.js';
-import { authenticatedHandler, requireActor, requireExternalIntegrationClient } from '../auth/middleware.js';
+import { authenticatedHandler, requireActor } from '../auth/middleware.js';
 import * as authController from '../controllers/auth-controller.js';
 import * as emailVerificationController from '../controllers/email-verification-controller.js';
 import * as externalIntegrationLinkController from '../controllers/external-integration-link-controller.js';
@@ -18,9 +18,21 @@ authRouter.post('/auth/external-integrations/link/preview', requireActor(['user'
 authRouter.post('/auth/external-integrations/link/complete', requireActor(['user']), authed(externalIntegrationLinkController.completeExternalIntegrationLinkRequest));
 authRouter.get('/auth/external-integrations/links', requireActor(['user']), authed(externalIntegrationLinkController.listExternalIntegrationLinks));
 authRouter.post('/auth/external-integrations/links/unlink', requireActor(['user']), authed(externalIntegrationLinkController.unlinkExternalIntegrationLink));
-authRouter.post('/auth/external-integrations/link', requireExternalIntegrationClient, externalIntegrationLinkController.createExternalIntegrationLinkRequest);
-authRouter.post('/auth/external-integrations/resolve', requireExternalIntegrationClient, externalIntegrationLinkController.resolveExternalIntegrationLink);
-authRouter.post('/auth/external-integrations/revoke', requireExternalIntegrationClient, externalIntegrationLinkController.revokeExternalIntegrationLink);
+authRouter.post(
+  '/auth/external-integrations/link',
+  requireActor(['externalIntegration'], { externalIntegrationMode: 'client' }),
+  externalIntegrationLinkController.createExternalIntegrationLinkRequest
+);
+authRouter.post(
+  '/auth/external-integrations/resolve',
+  requireActor(['externalIntegration'], { externalIntegrationMode: 'client' }),
+  externalIntegrationLinkController.resolveExternalIntegrationLink
+);
+authRouter.post(
+  '/auth/external-integrations/revoke',
+  requireActor(['externalIntegration'], { externalIntegrationMode: 'client' }),
+  externalIntegrationLinkController.revokeExternalIntegrationLink
+);
 authRouter.post('/auth/password/login', authController.passwordLogin);
 authRouter.post('/auth/password/signup', authController.passwordSignup);
 authRouter.post('/auth/password/verify-email', emailVerificationController.verifyPasswordEmail);
