@@ -104,6 +104,7 @@ export interface WorkspacePermissions {
   manage_targets: boolean;
   manage_mcp: boolean;
   manage_tools: boolean;
+  manage_skills: boolean;
   manage_ai_settings: boolean;
   manage_agent_keys: boolean;
   manage_webhooks: boolean;
@@ -170,6 +171,17 @@ export interface TargetSummary {
   createdAt: string;
   updatedAt: string;
 }
+export type {
+  TargetSkillBundleStats,
+  TargetSkillDetail,
+  TargetSkillFile,
+  TargetSkillSource,
+  TargetSkillSourceType,
+  TargetSkillsCatalog,
+  TargetSkillSummary,
+  TargetSkillSyncStatus,
+  TargetSkillValidationStatus
+} from './target-skills.js';
 
 export interface WorkspaceMembership {
   workspaceId: string;

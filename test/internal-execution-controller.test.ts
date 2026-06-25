@@ -69,6 +69,7 @@ beforeEach(() => {
     payload: event.payload ?? {},
     createdAt: '2026-05-24T00:00:00.000Z'
   });
+  repo.listEnabledValidTargetSkills = async () => [];
 });
 
 afterEach(() => {

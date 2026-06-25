@@ -80,6 +80,13 @@
         "PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}",
         "DELETE /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}",
         "POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/test-connection",
+        "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills",
+        "POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills",
+        "POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/import",
+        "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}",
+        "PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}",
+        "DELETE /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}",
+        "POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}/reimport",
         "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/tools/catalog"
       ],
       "chatRunPaths": [
@@ -190,7 +197,9 @@
         "permissions.editableRoles",
         "servers[].{id,name,url,type,enabled,isSystem,canDelete,canEditConnection,authType,publicHeaders,connectionStatus,lastDiscoveryAt,lastDiscoveryError}",
         "servers[].toolCounts.{total,enabledConfigured,enabledEffective,writeConfigured,writeEffective}",
-        "serverTools.items[].{name,description,capability,version,source,enabledConfigured,enabledEffective,effectiveDisabledReason}"
+        "serverTools.items[].{name,description,capability,version,source,enabledConfigured,enabledEffective,effectiveDisabledReason}",
+        "targetSkills.items[].{id,name,description,enabled,validationStatus,validationErrors,bundleStats.{fileCount,totalBytes},source.{type,repoUrl?,ref?,subpath?,commitSha?,syncStatus},createdAt,updatedAt}",
+        "targetSkillDetail.files[].{path,content,sizeBytes}"
       ],
       "requestFields": {
         "patchCluster": ["name?", "namespaceInclude?", "namespaceExclude?", "writeConfirmationRequiredOverride?"],
@@ -323,7 +332,8 @@
         "policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}",
         "context.{endpoint,max_context_tokens}",
         "llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}",
-        "tools.{tool_registry_version,allowed_tools,tool_specs,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}",
+        "tools.{tool_registry_version,allowed_tools,tool_specs,write_unavailable_reason?,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}",
+        "skills?.{registry_version,entries[].{id,name,description,files[].{path,content}}}",
         "routing",
         "tracing"
       ],
@@ -419,6 +429,7 @@
       "builtinBridge": {
         "serverName": "acornops-cluster-agent",
         "serverUrl": "http://control-plane:8081/internal/v1/mcp",
+        "egressException": "Allowed internal HTTP only for configured builtin server registrations with source=builtin tools, auth type none, and no public headers",
         "authHeader": "Authorization: Bearer <run-scoped-jwt>",
         "scopeSource": "run-scoped-jwt-claims",
         "callPath": "POST /internal/v1/mcp/tools/call"

@@ -311,6 +311,16 @@ export {
 } from './workspaces/target-tool-controller.js';
 
 export {
+  createTargetSkillForTarget,
+  deleteTargetSkillForTarget,
+  getTargetSkillForTarget,
+  importTargetSkillForTarget,
+  listTargetSkills,
+  reimportTargetSkillForTarget,
+  updateTargetSkillForTarget
+} from './workspaces/target-skills-controller.js';
+
+export {
   getTarget,
   listTargets
 } from './workspaces/target-controller.js';

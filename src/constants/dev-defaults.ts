@@ -11,4 +11,5 @@ export const EXAMPLE_SESSION_ID = '6e30d188-7e4f-4cce-a368-40b34004d725';
 export const EXAMPLE_MESSAGE_ID = 'b2859262-6d49-48c6-b765-6a06d76f3590';
 export const EXAMPLE_RUN_ID = '5e709a9c-2481-4baa-aec2-ca193c50167d';
 export const EXAMPLE_MCP_SERVER_ID = '42573ae4-0a1f-4488-ae1f-e6bd3fd2469b';
+export const EXAMPLE_TARGET_SKILL_ID = '5d33c08a-2a12-4f48-bf42-1c9f956f5aa3';
 export const EXAMPLE_TRACE_ID = '2ff4ac8b-0d2d-4cdf-be57-637789c97058';

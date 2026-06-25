@@ -86,6 +86,16 @@ import {
   setTargetToolOverride as setTargetToolOverrideRecord
 } from './repository-target-tools.js';
 import {
+  countEnabledTargetSkills as countEnabledTargetSkillsRecord,
+  createTargetSkill as createTargetSkillRecord,
+  deleteTargetSkill as deleteTargetSkillRecord,
+  getTargetSkill as getTargetSkillRecord,
+  listEnabledValidTargetSkills as listEnabledValidTargetSkillsRecord,
+  listTargetSkills as listTargetSkillsRecord,
+  updateTargetSkill as updateTargetSkillRecord,
+  updateTargetSkillEnabled as updateTargetSkillEnabledRecord
+} from './repository-target-skills.js';
+import {
   getClusterSnapshotSummary as getClusterSnapshotSummaryRecord,
   listClusterSnapshotFindings as listClusterSnapshotFindingsRecord,
   listClusterSnapshotResources as listClusterSnapshotResourcesRecord,
@@ -413,6 +423,22 @@ export class Repository {
   listTargetToolOverrides = listTargetToolOverridesRecord;
 
   setTargetToolOverride = setTargetToolOverrideRecord;
+
+  listTargetSkills = listTargetSkillsRecord;
+
+  getTargetSkill = getTargetSkillRecord;
+
+  createTargetSkill = createTargetSkillRecord;
+
+  updateTargetSkill = updateTargetSkillRecord;
+
+  updateTargetSkillEnabled = updateTargetSkillEnabledRecord;
+
+  deleteTargetSkill = deleteTargetSkillRecord;
+
+  countEnabledTargetSkills = countEnabledTargetSkillsRecord;
+
+  listEnabledValidTargetSkills = listEnabledValidTargetSkillsRecord;
 
   createWebhookSubscription = createWebhookSubscriptionRecord;
 

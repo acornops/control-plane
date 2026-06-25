@@ -53,11 +53,21 @@ Important local and production variables:
 - `EXTERNAL_INTEGRATION_LINK_TOKEN_TTL_SECONDS`
 - `EXTERNAL_INTEGRATION_LINK_TTL_SECONDS`
 - `EXTERNAL_INTEGRATION_LINK_TOKEN_RETENTION_DAYS`
+- `GITHUB_IMPORT_TOKEN` (optional; authenticates public GitHub skill imports to avoid low unauthenticated API rate limits)
 - `EXECUTION_ENGINE_BASE_URL`
 - `EXECUTION_ENGINE_DISPATCH_TOKEN`
 - `LLM_GATEWAY_URL`
 - `LLM_GATEWAY_ADMIN_TOKEN`
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`
+
+GitHub skill imports use the GitHub REST API when available. Set
+`GITHUB_IMPORT_TOKEN` to avoid GitHub's low unauthenticated API rate limit.
+Imports accept either a bare public repository URL with optional `ref` and
+`subpath`, or a GitHub folder URL such as
+`https://github.com/openai/skills/tree/main/skills/.curated/cli-creator`. When
+the API rate limit is exhausted, public imports fall back to downloading a
+repository archive for the requested ref, or `main`/`master` when no ref is
+provided.
 
 ## Validation
 

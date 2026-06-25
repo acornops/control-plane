@@ -127,6 +127,7 @@ const workspaceControllerPath = 'src/controllers/workspaces-controller.ts';
 const clusterControllerPath = 'src/controllers/workspaces/kubernetes-cluster-controller.ts';
 const membersControllerPath = 'src/controllers/workspaces/members-controller.ts';
 const mcpControllerPath = 'src/controllers/workspaces/kubernetes-cluster-mcp-controller.ts';
+const targetSkillsControllerPath = 'src/controllers/workspaces/target-skills-controller.ts';
 const sessionControllerPath = 'src/controllers/sessions-controller.ts';
 const runControllerPath = 'src/controllers/runs-controller.ts';
 const webhooksControllerPath = 'src/controllers/webhooks-controller.ts';
@@ -141,6 +142,7 @@ const workspaceScopedControllerPaths = [
   clusterControllerPath,
   membersControllerPath,
   mcpControllerPath,
+  targetSkillsControllerPath,
   sessionControllerPath,
   runControllerPath,
   webhooksControllerPath
@@ -221,6 +223,7 @@ for (const capability of [
   'manage_targets',
   'manage_mcp',
   'manage_tools',
+  'manage_skills',
   'manage_agent_keys',
   'manage_webhooks',
   'create_sessions',
@@ -239,7 +242,7 @@ for (const role of ['owner', 'admin', 'operator', 'viewer', 'auditor']) {
   assert(matrixDoc.toLowerCase().includes(role), `authorization doc missing ${role}`);
 }
 
-for (const adminCapability of ['manage_targets', 'manage_mcp', 'manage_tools', 'manage_agent_keys', 'manage_webhooks']) {
+for (const adminCapability of ['manage_targets', 'manage_mcp', 'manage_tools', 'manage_skills', 'manage_agent_keys', 'manage_webhooks']) {
   assert(authorization.includes(`${adminCapability}: true`), `owner/admin capability missing ${adminCapability}`);
   assert(workspaceScopedControllers.includes(adminCapability), `workspace controller missing ${adminCapability} guard`);
 }

@@ -43,6 +43,7 @@ const originals = {
   listMatchingWebhookSubscriptions: repo.listMatchingWebhookSubscriptions,
   listTargetToolOverrides: repo.listTargetToolOverrides,
   setTargetToolOverride: repo.setTargetToolOverride,
+  listEnabledValidTargetSkills: repo.listEnabledValidTargetSkills,
   createWebhookSubscription: repo.createWebhookSubscription,
   updateWebhookSubscription: repo.updateWebhookSubscription,
   deleteWebhookSubscription: repo.deleteWebhookSubscription,
@@ -81,6 +82,7 @@ export function restoreControllerRegressionState(): void {
   repo.listMatchingWebhookSubscriptions = originals.listMatchingWebhookSubscriptions;
   repo.listTargetToolOverrides = originals.listTargetToolOverrides;
   repo.setTargetToolOverride = originals.setTargetToolOverride;
+  repo.listEnabledValidTargetSkills = originals.listEnabledValidTargetSkills;
   repo.createWebhookSubscription = originals.createWebhookSubscription;
   repo.updateWebhookSubscription = originals.updateWebhookSubscription;
   repo.deleteWebhookSubscription = originals.deleteWebhookSubscription;
@@ -173,6 +175,7 @@ export function installWorkspace(role: Role | null): void {
     createdAt: '2026-05-24T00:00:00.000Z'
   });
   repo.getWorkspaceAiSettings = async () => null;
+  repo.listEnabledValidTargetSkills = async () => [];
 }
 
 export function createWorkspaceAiCredentialStatusResponse(workspaceId = 'workspace-1') {

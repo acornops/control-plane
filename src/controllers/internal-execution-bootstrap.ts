@@ -219,6 +219,7 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
     let allowedToolNames: string[] = [];
     let allowedToolSpecs: Array<{ name: string; description: string; input_schema: Record<string, unknown>; capability: 'read' | 'write' }> = [];
     let hasConfiguredWriteTool = false;
+    const targetSkills = await repo.listEnabledValidTargetSkills(targetId);
     try {
       const [tools, overrides] = await Promise.all([
         resolveTargetToolsForRun(run.workspaceId, targetId, target.targetType, run.id),
@@ -357,6 +358,23 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
           token
         }
       },
+      ...(targetSkills.length > 0 ? {
+        skills: {
+          registry_version: 'sv_1',
+          entries: targetSkills.map((skill) => ({
+            id: skill.id,
+            name: skill.name,
+            description: skill.description,
+            files: skill.files
+              .slice()
+              .sort((left, right) => left.path.localeCompare(right.path))
+              .map((file) => ({
+                path: file.path,
+                content: file.content
+              }))
+          }))
+        }
+      } : {}),
       routing: {
         target_scoped: true
       },
@@ -376,4 +394,3 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
     next(err);
   }
 }
-

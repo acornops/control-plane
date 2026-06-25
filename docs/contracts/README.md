@@ -197,6 +197,7 @@ Workspace responses expose server-owned authorization fields:
 - `permissions.manage_targets`
 - `permissions.manage_mcp`
 - `permissions.manage_tools`
+- `permissions.manage_skills`
 - `permissions.manage_ai_settings`
 - `permissions.manage_agent_keys`
 - `permissions.manage_webhooks`
@@ -285,6 +286,13 @@ VM host snapshots are persisted through the same target snapshot history and mat
 - `DELETE /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}`
 - `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/test-connection`
 - `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/tools/catalog`
+- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills`
+- `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills`
+- `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/import`
+- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}`
+- `PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}`
+- `DELETE /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}`
+- `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}/reimport`
 
 Remote MCP server management is target-scoped. Kubernetes clusters and virtual machines both use the target MCP surface. Kubernetes and VM built-in tools are synchronized from each connected agent and remain capability-tagged. Write-tool availability is driven by the advertised tool capability, target agent capabilities, user permissions, and the requested run `toolAccessMode`; the current VM v1 agent catalog happens to advertise only read tools.
 
@@ -302,6 +310,28 @@ Mutation policy exposed to the management console:
 - Public remote MCP server creation is discovery-first: callers provide connection details and optional non-secret `publicHeaders`, and tool mappings are discovered through the server's `tools/list` endpoint.
 - Newly discovered external MCP tools remain disabled until an authorized workspace role reviews and enables them with an explicit capability.
 - Roles without both management capabilities are read-only for tool and MCP configuration.
+
+### Target troubleshooting skills
+
+Target skills are Markdown-only troubleshooting context bundles attached directly to one target. They are available for Kubernetes clusters and virtual machines through the shared target route surface and apply only to target troubleshooting chat runs. Skills never add tools, never bypass MCP permissions, never change write approval policy, and never execute scripts.
+
+The management console depends on these target skill fields:
+
+- `permissions.canEdit`
+- `permissions.editableRoles`
+- `items[].{id,name,description,enabled,validationStatus,validationErrors,bundleStats.{fileCount,totalBytes},source.{type,repoUrl?,ref?,subpath?,commitSha?,syncStatus},createdAt,updatedAt}`
+- `detail.files[].{path,content,sizeBytes}`
+
+Mutation policy and runtime contract:
+
+- Roles with `permissions.manage_skills` may create, import, edit, reimport, delete, enable, and disable target skills.
+- Skill bundles accept root `SKILL.md` plus optional user-defined relative Markdown files; non-Markdown files, scripts, binaries, symlinks, executable assets, and unsafe path segments are rejected.
+- `SKILL.md` is authoritative for `name` and `description` through required frontmatter fields.
+- Manual skill creation enables valid bundles automatically and stores invalid bundles disabled.
+- Imported skills support public GitHub HTTPS repositories or GitHub `tree/{ref}/{subpath}` folder URLs and are stored as local snapshots. REST API imports include `source.commitSha`; archive fallback imports may omit it when GitHub API rate limits prevent SHA resolution.
+- Reimport is explicit. Imported skills with local edits require confirmation before overwrite and return `source.syncStatus=modified` until reimported.
+- Invalid skills may be stored disabled, but only valid skills may be enabled. Each target may have at most `10` enabled skills.
+- Run bootstrap may include optional `skills.{registry_version,entries[].{id,name,description,files[].{path,content}}}` for target troubleshooting runs only. Workflow runs remain unchanged.
 
 ### Chat and run APIs
 

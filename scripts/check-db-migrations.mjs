@@ -31,7 +31,10 @@ assert(dbSource.includes('assertDatabaseMigrationsCurrent'), 'startup must verif
 
 const files = migrationFiles();
 assert.deepEqual(files, [
-  '001_initial_schema.sql'
+  '001_initial_schema.sql',
+  '002_target_skills.sql',
+  '003_target_skill_user_defined_markdown_paths.sql',
+  '004_target_skill_archive_fallback_metadata.sql'
 ]);
 for (const file of files) {
   assert(/^\d{3,}_[a-z0-9_]+\.sql$/.test(file), `invalid migration filename ${file}`);
@@ -211,6 +214,54 @@ assert(initial.includes('idx_workspace_memberships_workspace_role'), 'initial mi
 assert(!initial.includes('workspace_memberships_role_check'), 'workspace memberships must not use enum-style role constraints');
 assert(!initial.includes('workspace_invitations_role_check'), 'workspace invitations must not use enum-style role constraints');
 assert(!initial.includes("CHECK (role IN ('owner', 'admin', 'operator', 'viewer"), 'workspace invitations role must not be enum constrained');
+
+const targetSkills = read('migrations/control-plane/002_target_skills.sql');
+for (const table of ['target_skills', 'target_skill_files']) {
+  assert(targetSkills.includes(`CREATE TABLE IF NOT EXISTS ${table}`), `target skills migration must create ${table}`);
+}
+for (const needle of [
+  "source_type TEXT NOT NULL CHECK (source_type IN ('manual', 'git_import'))",
+  "validation_status TEXT NOT NULL CHECK (validation_status IN ('valid', 'invalid'))",
+  "sync_status TEXT NOT NULL CHECK (sync_status IN ('not_applicable', 'current', 'modified'))",
+  "file_count INTEGER NOT NULL CHECK (file_count >= 1 AND file_count <= 16)",
+  "total_bytes INTEGER NOT NULL CHECK (total_bytes >= 0 AND total_bytes <= 131072)",
+  'target_skills_target_scope_unique',
+  'target_skills_source_metadata_check',
+  "size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0 AND size_bytes <= 32768)",
+  'target_skill_files_path_check',
+  'idx_target_skills_target_updated',
+  'idx_target_skills_target_enabled_valid',
+  'idx_target_skill_files_skill_path'
+]) {
+  assert(targetSkills.includes(needle), `target skills migration missing ${needle}`);
+}
+const targetSkillUserDefinedPaths = read('migrations/control-plane/003_target_skill_user_defined_markdown_paths.sql');
+for (const needle of [
+  'ALTER TABLE target_skill_files',
+  'DROP CONSTRAINT IF EXISTS target_skill_files_path_check',
+  'ADD CONSTRAINT target_skill_files_path_check CHECK',
+  "path LIKE '%.md'",
+  "path NOT LIKE '/%'",
+  "path NOT LIKE '%/../%'",
+  "path NOT LIKE '%/./%'"
+]) {
+  assert(targetSkillUserDefinedPaths.includes(needle), `target skill path migration missing ${needle}`);
+}
+const targetSkillArchiveFallbackMetadata = read('migrations/control-plane/004_target_skill_archive_fallback_metadata.sql');
+for (const needle of [
+  'DROP CONSTRAINT IF EXISTS target_skills_source_metadata_check',
+  'ADD CONSTRAINT target_skills_source_metadata_check CHECK',
+  "source_type = 'git_import'",
+  'source_repo_url IS NOT NULL',
+  'source_ref IS NOT NULL',
+  "sync_status IN ('current', 'modified')"
+]) {
+  assert(targetSkillArchiveFallbackMetadata.includes(needle), `target skill archive fallback migration missing ${needle}`);
+}
+assert(
+  !targetSkillArchiveFallbackMetadata.includes('source_commit_sha IS NOT NULL'),
+  'archive fallback metadata migration must allow GitHub imports without source_commit_sha'
+);
 
 const packageJson = JSON.parse(read('package.json'));
 assert(packageJson.scripts['db:migrate'], 'package must expose db:migrate');
