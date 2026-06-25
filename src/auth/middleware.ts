@@ -1,13 +1,12 @@
 import { NextFunction, Request, RequestHandler, Response } from 'express';
-import { config } from '../config.js';
+import { config, type ExternalIntegrationClientDescriptor } from '../config.js';
 import { gatewayTokenService } from '../services/token-service.js';
 import { repo } from '../store/repository.js';
+import { hashToken } from '../utils/crypto.js';
 import { constantTimeEqual } from '../utils/tokens.js';
 import { getSessionUser } from './session.js';
 
 export const EXTERNAL_INTEGRATION_USER_ID_HEADER = 'x-acornops-external-user-id';
-export const EXTERNAL_CHAT_INTEGRATION_ID = 'external-chat';
-
 export type AuthCredential =
   | {
       type: 'session';
@@ -32,6 +31,7 @@ declare global {
   namespace Express {
     interface Request {
       auth?: AuthContext;
+      externalIntegrationClient?: ExternalIntegrationClientDescriptor;
     }
   }
 }
@@ -95,8 +95,23 @@ export function requireServiceToken(req: Request, res: Response, next: NextFunct
   requireBearerToken(req, res, next, config.ORCH_SERVICE_TOKEN);
 }
 
-export function requireExternalIntegrationServiceToken(req: Request, res: Response, next: NextFunction): void {
-  requireBearerToken(req, res, next, config.EXTERNAL_INTEGRATION_SERVICE_TOKEN);
+function externalIntegrationClientFromBearer(req: Request): ExternalIntegrationClientDescriptor | null {
+  const token = bearerToken(req);
+  if (!token) return null;
+  const digest = hashToken(token);
+  return config.EXTERNAL_INTEGRATION_CLIENTS.find((client) => (
+    client.enabled && constantTimeEqual(digest, client.sha256)
+  )) || null;
+}
+
+export function requireExternalIntegrationClient(req: Request, res: Response, next: NextFunction): void {
+  const client = externalIntegrationClientFromBearer(req);
+  if (!client) {
+    rejectUnauthorized(res, 'External integration client token required');
+    return;
+  }
+  req.externalIntegrationClient = client;
+  next();
 }
 
 function externalUserIdFromHeader(req: Request): string | null {
@@ -115,7 +130,8 @@ type ActorAuthenticationResult =
     };
 
 async function authenticateExternalIntegration(req: Request): Promise<ActorAuthenticationResult> {
-  if (!bearerTokenMatches(req, config.EXTERNAL_INTEGRATION_SERVICE_TOKEN)) {
+  const client = externalIntegrationClientFromBearer(req);
+  if (!client) {
     return { auth: null };
   }
 
@@ -124,17 +140,22 @@ async function authenticateExternalIntegration(req: Request): Promise<ActorAuthe
     return { auth: null, message: 'Linked external integration user id required' };
   }
 
-  const resolution = await repo.resolveExternalIntegrationUserLink({ externalUserId });
+  const resolution = await repo.resolveExternalIntegrationUserLink({
+    integrationClientId: client.id,
+    provider: client.provider,
+    externalUserId
+  });
   if (!resolution) {
     return { auth: null, message: 'Linked external integration account required' };
   }
 
+  req.externalIntegrationClient = client;
   return {
     auth: {
       userId: resolution.user.id,
       credential: {
         type: 'external_integration',
-        integrationId: EXTERNAL_CHAT_INTEGRATION_ID,
+        integrationId: client.id,
         externalUserId
       }
     }

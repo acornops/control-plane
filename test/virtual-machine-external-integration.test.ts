@@ -8,24 +8,27 @@ import {
 } from '../src/controllers/workspaces/virtual-machine-controller.js';
 import { repo } from '../src/store/repository.js';
 import type { TargetFindingInput, TargetInventoryItemInput } from '../src/store/repository-target-inventory.js';
-import type { TargetSummary, VirtualMachineSnapshot, VirtualMachineTarget } from '../src/types/domain.js';
+import type { VirtualMachineSnapshotSummaryRecord } from '../src/store/repository-virtual-machines.js';
+import type { TargetSummary, VirtualMachineTarget } from '../src/types/domain.js';
 
 const originalGetTarget = repo.getTarget;
 const originalGetVirtualMachine = repo.getVirtualMachine;
-const originalGetVirtualMachineSnapshot = repo.getVirtualMachineSnapshot;
+const originalGetVirtualMachineSnapshotSummary = repo.getVirtualMachineSnapshotSummary;
 const originalGetWorkspaceRole = repo.getWorkspaceRole;
 const originalListVirtualMachineFindings = repo.listVirtualMachineFindings;
 const originalListVirtualMachineInventory = repo.listVirtualMachineInventory;
 const originalListVirtualMachines = repo.listVirtualMachines;
+const originalListVirtualMachineSnapshotSummaries = repo.listVirtualMachineSnapshotSummaries;
 
 afterEach(() => {
   repo.getTarget = originalGetTarget;
   repo.getVirtualMachine = originalGetVirtualMachine;
-  repo.getVirtualMachineSnapshot = originalGetVirtualMachineSnapshot;
+  repo.getVirtualMachineSnapshotSummary = originalGetVirtualMachineSnapshotSummary;
   repo.getWorkspaceRole = originalGetWorkspaceRole;
   repo.listVirtualMachineFindings = originalListVirtualMachineFindings;
   repo.listVirtualMachineInventory = originalListVirtualMachineInventory;
   repo.listVirtualMachines = originalListVirtualMachines;
+  repo.listVirtualMachineSnapshotSummaries = originalListVirtualMachineSnapshotSummaries;
 });
 
 function createExternalIntegrationRequest(query: Record<string, string | undefined> = {}) {
@@ -89,19 +92,34 @@ function createTarget(): TargetSummary {
   };
 }
 
+function createSnapshotSummary(): VirtualMachineSnapshotSummaryRecord {
+  return {
+    latestSnapshot: {
+      targetId: 'vm-1',
+      workspaceId: 'workspace-1',
+      timestamp: '2026-06-01T00:01:00.000Z'
+    },
+    summary: {
+      inventoryCount: 1,
+      findingCount: 1,
+      criticalFindingCount: 0,
+      serviceCount: 1,
+      processCount: 0,
+      listenerCount: 0,
+      logCount: 0
+    }
+  };
+}
+
 describe('external integration virtual machine reads', () => {
   it('allows external integration credentials to read VM list, overview, inventory, and findings', async () => {
     const vm = createVm();
     repo.getWorkspaceRole = async () => 'owner';
     repo.getTarget = async () => createTarget();
     repo.getVirtualMachine = async () => vm;
-    repo.getVirtualMachineSnapshot = async (): Promise<VirtualMachineSnapshot> => ({
-      targetId: 'vm-1',
-      workspaceId: 'workspace-1',
-      timestamp: '2026-06-01T00:01:00.000Z',
-      data: {}
-    });
+    repo.getVirtualMachineSnapshotSummary = async () => createSnapshotSummary();
     repo.listVirtualMachines = async () => ({ items: [vm], nextCursor: undefined });
+    repo.listVirtualMachineSnapshotSummaries = async () => new Map([['vm-1', createSnapshotSummary()]]);
     repo.listVirtualMachineInventory = async (): Promise<TargetInventoryItemInput[]> => [
       {
         targetId: 'vm-1',

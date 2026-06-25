@@ -21,6 +21,7 @@
 - Preserve durable write-approval behavior: approval creation stores continuation and `waiting_for_approval` atomically, and decisions resume through backend redispatch.
 - Keep browser-facing snapshot resource, finding, investigation, and summary shapes explicit in contracts; raw snapshot history remains internal storage for metrics history and diagnostics.
 - Run event replay must read persisted `run_events` before live SSE fanout when persistence is enabled.
+- Target chat activity streams must replay persisted `chat_activity_events` before live SSE fanout when clients reconnect with `Last-Event-ID` or `?after=...`; fresh connects are live-only and should use recent activity/session reads for initial state.
 - Multi-pod deployments must keep unique `CONTROL_PLANE_INSTANCE_ID` values and a shared `REDIS_URL`.
 
 ## Recovery Expectations
@@ -30,5 +31,6 @@
 - Capture new failure patterns in contract docs or structural checks.
 - When behavior is degraded but recoverable, prefer explicit errors over silent fallback.
 - Production defaults persist run events in Postgres. Retention follows conversation retention because run events cascade with deleted runs and sessions.
+- Browser-facing target chat activity events are persisted in Postgres with durable resource IDs so session deletion remains replayable. They cascade with target deletion.
 - The internal run event cursor is the source of truth for resumed execution sequencing; it returns the latest replayable sequence from persisted events or the local runtime replay buffer when persistence is disabled for development.
 - Write approvals are backend-enforced before tool execution. Frontend and bot cards only submit decisions; control plane enforces user permission and execution-engine resumes from Postgres continuation with fresh bootstrap credentials.

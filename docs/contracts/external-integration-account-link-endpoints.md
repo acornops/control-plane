@@ -1,39 +1,40 @@
 # External integration account link endpoints
 
-This document defines the AcornOps-owned HTTP contract for external integration account
-linking. External integration client-side command handling, message rendering, event handling,
-and retry behavior belong outside AcornOps.
+This document defines the AcornOps-owned HTTP contract for external integration
+account linking. External integration client-side command handling, message
+rendering, event handling, and retry behavior belong outside AcornOps.
 
-## Integration Configuration
+## Integration configuration
 
 External integration clients call the control-plane API with:
 
 - `ACORNOPS_API_BASE_URL`, for example `https://api.acornops.dev`.
-- `EXTERNAL_INTEGRATION_SERVICE_TOKEN`, matching the control-plane
-  `EXTERNAL_INTEGRATION_SERVICE_TOKEN`.
+- A raw external integration client token issued out of band by the operator.
 - An external user id supplied as `externalUserId`.
 
-The integration token is valid only for the external integration account-link endpoints.
-It is not a browser session, admin token, run token, or orchestrator service
-token.
+The control plane receives registered clients from `EXTERNAL_INTEGRATION_CLIENTS_JSON`.
+The JSON contains installed-client descriptors with `id`, `provider`,
+`displayName`, `sha256`, and optional `enabled`. Store only SHA-256 token hashes
+in the descriptor. Do not store raw client tokens in config, docs, logs, or API
+responses.
 
-## Create Link
+The installed client id is the identity boundary. AcornOps scopes durable links
+by `(integrationClientId, provider, externalUserId)`.
+
+## Create link
 
 Creates a short-lived AcornOps link for an external user id.
 
-Request:
-
 ```http
-POST {ACORNOPS_API_BASE_URL}/api/v1/auth/chat/integration/link
-Authorization: Bearer {EXTERNAL_INTEGRATION_SERVICE_TOKEN}
+POST {ACORNOPS_API_BASE_URL}/api/v1/auth/external-integrations/link
+Authorization: Bearer {external-integration-client-token}
 Content-Type: application/json
 ```
 
-Body:
-
 ```json
 {
-  "externalUserId": "external-user-id"
+  "externalUserId": "external-user-id",
+  "externalDisplayName": "User Name"
 }
 ```
 
@@ -41,36 +42,43 @@ Successful response:
 
 ```json
 {
-  "linkUrl": "https://console.acornops.dev/integrations/external-chat/link?token=intlink_...",
+  "linkUrl": "https://console.acornops.dev/integrations/external/link?token=intlink_...",
   "expiresAt": "2026-06-09T00:00:00.000Z"
 }
 ```
 
-AcornOps returns a management-console URL in `linkUrl`. External integrations
-should treat the URL and embedded token as short-lived bearer secrets and avoid
-logging them in normal logs.
+Creating a new link for the same scoped identity supersedes only previous
+unconsumed, unexpired link tokens for that same client/provider/user tuple.
 
-Creating a new link for the same `externalUserId` supersedes any previous
-unconsumed, unexpired link token for that external user. External
-integrations should present the newest returned `linkUrl` to the user.
-
-## Browser Handoff
+## Browser handoff
 
 When the user opens `linkUrl`, the browser lands on the management console route
-`/integrations/external-chat/link?token=<external-chat-link-token>`. The console
+`/integrations/external/link?token=<external-integration-link-token>`. The console
 shows the normal login page when no browser session exists, preserving the token
 while the user chooses password or OIDC sign-in.
 
 After an existing session, password sign-in, or OIDC sign-in establishes a
-browser session, the management console shows an AcornOps approval screen that
-tells the user they are linking the signed-in account to the external integration. The durable
-link is completed only after the user clicks approve:
+browser session, the management console previews safe consent metadata:
 
 ```http
-POST {ACORNOPS_API_BASE_URL}/api/v1/auth/chat/integration/link/complete
+POST {ACORNOPS_API_BASE_URL}/api/v1/auth/external-integrations/link/preview
 ```
 
-Request:
+```json
+{
+  "token": "intlink_..."
+}
+```
+
+The preview response returns provider, registered client display name, external
+account metadata, expiry, and the signed-in AcornOps user. It never returns raw
+link tokens, browser cookies, OIDC tokens, or client tokens.
+
+The durable link is completed only after the user clicks approve:
+
+```http
+POST {ACORNOPS_API_BASE_URL}/api/v1/auth/external-integrations/link/complete
+```
 
 ```json
 {
@@ -86,19 +94,16 @@ Successful completion response:
 }
 ```
 
-## Resolve Link
+## Resolve link
 
-Resolves whether an external user id is durably linked to an AcornOps user.
-
-Request:
+Resolves whether the authenticated integration client has linked an external user
+id to an AcornOps user.
 
 ```http
-POST {ACORNOPS_API_BASE_URL}/api/v1/auth/chat/integration/resolve
-Authorization: Bearer {EXTERNAL_INTEGRATION_SERVICE_TOKEN}
+POST {ACORNOPS_API_BASE_URL}/api/v1/auth/external-integrations/resolve
+Authorization: Bearer {external-integration-client-token}
 Content-Type: application/json
 ```
-
-Body:
 
 ```json
 {
@@ -106,43 +111,38 @@ Body:
 }
 ```
 
-Linked response:
+Linked responses include `integrationClientId`, `provider`, `clientDisplayName`,
+`externalUserId`, `linkedAt`, `lastAuthenticatedAt`, and `expiresAt`. Unlinked
+responses return `{ "status": "unlinked" }`.
+
+## Revoke and unlink
+
+Integration clients can revoke their own scoped links:
+
+```http
+POST {ACORNOPS_API_BASE_URL}/api/v1/auth/external-integrations/revoke
+Authorization: Bearer {external-integration-client-token}
+Content-Type: application/json
+```
 
 ```json
 {
-  "status": "linked",
-  "user": {
-    "id": "acornops-user-id",
-    "email": "user@example.com",
-    "displayName": "User Name"
-  },
-  "link": {
-    "linkedAt": "2026-06-09T00:00:00.000Z",
-    "lastAuthenticatedAt": "2026-06-09T00:00:00.000Z",
-    "expiresAt": "2026-07-09T00:00:00.000Z"
-  }
+  "externalUserId": "external-user-id"
 }
 ```
 
-The linked response always includes `linkedAt`, `lastAuthenticatedAt`, and
-`expiresAt`.
+Signed-in users can list and unlink their own active links with:
 
-Unlinked response:
+- `GET /api/v1/auth/external-integrations/links`
+- `POST /api/v1/auth/external-integrations/links/unlink`
 
-```json
-{
-  "status": "unlinked"
-}
-```
+Revocation sets `revoked_at`; durable rows are not deleted.
 
-## Security Rules
+## Security rules
 
-- AcornOps accepts only the `externalUserId` value supplied to the link or
-  resolve endpoint. It does not accept AcornOps user ids from the integration
-  client.
-- Browser cookies, OIDC access tokens, ID tokens, refresh tokens, and raw link
-  tokens are never returned to external integration clients.
+- AcornOps derives `integrationClientId` and `provider` only from the bearer token.
+- Link and resolve bodies must not accept client identity fields.
+- Browser cookies, OIDC access tokens, ID tokens, refresh tokens, raw client
+  tokens, and raw link tokens are never returned to external integration clients.
 - Link tokens are stored only as hashes and are consumed when linking succeeds.
 - Superseded link tokens are invalidated and must not complete account linking.
-- This contract is scoped to a single external integration client where external user
-  ids are unique across teams.

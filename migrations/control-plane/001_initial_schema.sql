@@ -54,7 +54,11 @@ CREATE TABLE IF NOT EXISTS user_federated_identities (
 CREATE TABLE IF NOT EXISTS external_integration_link_tokens (
   id TEXT PRIMARY KEY,
   token_hash TEXT UNIQUE NOT NULL,
+  integration_client_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  client_display_name TEXT NOT NULL,
   external_user_id TEXT NOT NULL,
+  external_display_name TEXT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ NOT NULL,
   consumed_at TIMESTAMPTZ NULL,
@@ -63,13 +67,17 @@ CREATE TABLE IF NOT EXISTS external_integration_link_tokens (
 
 CREATE TABLE IF NOT EXISTS external_integration_user_links (
   id TEXT PRIMARY KEY,
+  integration_client_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  client_display_name TEXT NOT NULL,
   external_user_id TEXT NOT NULL,
+  external_display_name TEXT NULL,
   acornops_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_authenticated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ NOT NULL,
   revoked_at TIMESTAMPTZ NULL,
-  UNIQUE (external_user_id)
+  UNIQUE (integration_client_id, provider, external_user_id)
 );
 
 CREATE TABLE IF NOT EXISTS workspaces (
@@ -92,7 +100,7 @@ CREATE TABLE IF NOT EXISTS workspace_ai_settings (
   workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
   default_provider TEXT NOT NULL CHECK (default_provider IN ('openai', 'anthropic', 'gemini')),
   default_model TEXT NOT NULL,
-  reasoning_summary_mode TEXT NOT NULL DEFAULT 'off'
+  reasoning_summary_mode TEXT NOT NULL DEFAULT 'auto'
     CHECK (reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed')),
   reasoning_effort TEXT NOT NULL DEFAULT 'default'
     CHECK (reasoning_effort IN ('default', 'low', 'medium', 'high')),
@@ -292,7 +300,7 @@ CREATE TABLE IF NOT EXISTS runs (
   message_id TEXT NOT NULL,
   llm_provider TEXT NOT NULL DEFAULT 'openai' CHECK (llm_provider IN ('openai', 'anthropic', 'gemini')),
   llm_model TEXT NOT NULL DEFAULT 'gpt-5.5',
-  llm_reasoning_summary_mode TEXT NOT NULL DEFAULT 'off'
+  llm_reasoning_summary_mode TEXT NOT NULL DEFAULT 'auto'
     CHECK (llm_reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed')),
   llm_reasoning_effort TEXT NOT NULL DEFAULT 'default'
     CHECK (llm_reasoning_effort IN ('default', 'low', 'medium', 'high')),
@@ -341,6 +349,7 @@ CREATE TABLE IF NOT EXISTS run_tool_approvals (
   requested_by TEXT NULL,
   decided_by TEXT NULL,
   decision TEXT NULL,
+  summary TEXT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   decided_at TIMESTAMPTZ NULL,
   expires_at TIMESTAMPTZ NOT NULL
@@ -353,6 +362,35 @@ CREATE TABLE IF NOT EXISTS run_continuations (
   state JSONB NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS chat_activity_events (
+  id BIGSERIAL PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  target_type TEXT NOT NULL CHECK (target_type IN ('kubernetes', 'virtual_machine')),
+  session_id TEXT NOT NULL,
+  run_id TEXT NULL,
+  message_id TEXT NULL,
+  approval_id TEXT NULL,
+  type TEXT NOT NULL CHECK (
+    type IN (
+      'message.created',
+      'run.created',
+      'run.status_changed',
+      'assistant_message.committed',
+      'approval.requested',
+      'approval.decided',
+      'approval.expired',
+      'session.deleted'
+    )
+  ),
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT fk_chat_activity_events_workspace_target
+    FOREIGN KEY (workspace_id, target_id)
+    REFERENCES targets(workspace_id, id)
+    ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS webhook_subscriptions (
@@ -415,6 +453,35 @@ CREATE TABLE IF NOT EXISTS workspace_audit_events (
       OR (actor_type = 'admin_token' AND actor_user_id IS NULL AND actor_token_id IS NOT NULL)
     ),
   CONSTRAINT workspace_audit_events_metadata_object_check
+    CHECK (jsonb_typeof(metadata) = 'object')
+);
+
+CREATE TABLE IF NOT EXISTS account_audit_events (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NULL REFERENCES users(id) ON DELETE SET NULL,
+  category TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  operation TEXT NOT NULL,
+  actor_type TEXT NOT NULL,
+  actor_user_id TEXT NULL REFERENCES users(id) ON DELETE SET NULL,
+  actor_token_id TEXT NULL,
+  object_type TEXT NOT NULL,
+  object_id TEXT NULL,
+  object_name TEXT NULL,
+  summary TEXT NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT account_audit_events_operation_check
+    CHECK (operation IN ('read', 'write')),
+  CONSTRAINT account_audit_events_actor_type_check
+    CHECK (actor_type IN ('user', 'system', 'external_integration')),
+  CONSTRAINT account_audit_events_user_actor_check
+    CHECK (
+      (actor_type = 'user' AND actor_user_id IS NOT NULL AND actor_token_id IS NULL) OR
+      (actor_type = 'external_integration' AND actor_token_id IS NOT NULL) OR
+      (actor_type = 'system')
+    ),
+  CONSTRAINT account_audit_events_metadata_object_check
     CHECK (jsonb_typeof(metadata) = 'object')
 );
 
@@ -526,7 +593,7 @@ CREATE INDEX IF NOT EXISTS idx_user_federated_identities_last_login
   ON user_federated_identities (last_login_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_external_integration_link_tokens_identity
-  ON external_integration_link_tokens (external_user_id);
+  ON external_integration_link_tokens (integration_client_id, provider, external_user_id);
 
 CREATE INDEX IF NOT EXISTS idx_external_integration_link_tokens_expires_at
   ON external_integration_link_tokens (expires_at);
@@ -535,8 +602,11 @@ CREATE INDEX IF NOT EXISTS idx_external_integration_user_links_user_id
   ON external_integration_user_links (acornops_user_id);
 
 CREATE INDEX IF NOT EXISTS idx_external_integration_user_links_active
-  ON external_integration_user_links (external_user_id, expires_at)
+  ON external_integration_user_links (integration_client_id, provider, external_user_id, expires_at)
   WHERE revoked_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_external_integration_user_links_user_active
+  ON external_integration_user_links (acornops_user_id, revoked_at, expires_at);
 
 CREATE INDEX IF NOT EXISTS idx_workspaces_created_id
   ON workspaces (created_at ASC, id ASC);
@@ -610,6 +680,12 @@ CREATE INDEX IF NOT EXISTS idx_run_tool_approvals_run_status
 CREATE INDEX IF NOT EXISTS idx_run_continuations_approval
   ON run_continuations (approval_id);
 
+CREATE INDEX IF NOT EXISTS idx_chat_activity_events_target_replay
+  ON chat_activity_events (workspace_id, target_id, id);
+
+CREATE INDEX IF NOT EXISTS idx_chat_activity_events_session
+  ON chat_activity_events (session_id, id);
+
 CREATE INDEX IF NOT EXISTS idx_target_tool_overrides_target
   ON target_tool_overrides (target_id);
 
@@ -681,6 +757,15 @@ CREATE INDEX IF NOT EXISTS idx_workspace_audit_events_workspace_category
 
 CREATE INDEX IF NOT EXISTS idx_workspace_audit_events_occurred
   ON workspace_audit_events (occurred_at ASC, id ASC);
+
+CREATE INDEX IF NOT EXISTS idx_account_audit_events_user_occurred
+  ON account_audit_events (user_id, occurred_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_account_audit_events_type
+  ON account_audit_events (event_type, occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_account_audit_events_occurred
+  ON account_audit_events (occurred_at ASC, id ASC);
 
 CREATE INDEX IF NOT EXISTS admin_audit_events_occurred_at_idx
   ON admin_audit_events (occurred_at DESC, id DESC);

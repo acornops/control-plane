@@ -6,6 +6,7 @@ import { KUBERNETES_TARGET_TYPE, type Run, type WebhookSubscription } from '../t
 import type { WebhookEventType } from '../types/contracts.js';
 import { decryptWebhookSecret, signWebhookPayload } from '../utils/crypto.js';
 import { webhookDeliveryClient } from './webhook-delivery.js';
+import { recordRunStatusChangedActivity } from './target-chat-activity-events.js';
 import { recordWorkspaceAuditEvent } from './workspace-audit.js';
 
 interface WebhookSubject {
@@ -228,6 +229,8 @@ export function emitRunStatusTransition(previous: Run, next: Run | null): void {
   if (!next) {
     return;
   }
+
+  void recordRunStatusChangedActivity(previous, next);
 
   if (previous.status !== 'running' && next.status === 'running' && !previous.startedAt) {
     webhooks.emit({

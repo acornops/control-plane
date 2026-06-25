@@ -6,7 +6,8 @@
 - Password self-service signup requires AcornOps email verification unless an operator explicitly enables unverified signup for a private deployment.
 - Password reset tokens prove mailbox possession; a successful reset verifies a pending password-backed account email and revokes existing browser sessions.
 - Internal execution callbacks use `ORCH_SERVICE_TOKEN`.
-- External integration account links use `EXTERNAL_INTEGRATION_SERVICE_TOKEN` for the external integration client. AcornOps exposes link and resolve endpoints for external user ids in the configured single-server external integration deployment, but only an authenticated browser session may complete and bind an external identity to an AcornOps user. Phase-1 linked external integration requests may also read workspace and target operational summaries, create read-only troubleshooting sessions, and post read-only assistant messages by sending the service token with `x-acornops-external-user-id`; this creates an `external_integration` auth credential, not a browser session.
+- External integration account links use bearer tokens for installed integration clients configured in `EXTERNAL_INTEGRATION_CLIENTS_JSON`. AcornOps derives the integration client from the bearer token hash and scopes external identities by `(integration_client_id, provider, external_user_id)`; request bodies never choose the client or provider. Only an authenticated browser session may complete and bind an external identity to an AcornOps user. External integration client bearer tokens are accepted only on the account-link lifecycle endpoints.
+- Phase-1 linked external integration requests may also read workspace and target operational summaries, create read-only troubleshooting sessions, and post read-only assistant messages by sending a registered external integration client token with `x-acornops-external-user-id`; this creates an `external_integration` auth credential, not a browser session.
 - Admin control-plane operations use `/admin/v1` with admin bearer tokens only.
   Browser session cookies, CSRF tokens, service tokens, run-scoped JWTs, and
   target agent keys are never accepted on admin endpoints.
@@ -24,6 +25,7 @@
 - Keep JWKS issuer and audience settings aligned with downstream consumers.
 - Treat run-scoped gateway JWTs as bearer secrets; builtin MCP bridge scope must come from JWT claims, not caller-supplied headers.
 - Treat external integration `intlink_` link tokens as short-lived bearer secrets. Store them only as hashes, invalidate older pending tokens when a new token is issued for the same external user, never log them, and never return browser cookies or OIDC provider tokens to external integration clients.
+- Treat raw external integration client tokens as operator secrets. Commit only descriptor examples with SHA-256 hashes, never raw client tokens, and never return raw client tokens in API responses or audit metadata.
 - Treat MCP `publicHeaders` as visible non-secret metadata only; credential-like, hop-by-hop, and platform routing headers must be rejected before forwarding to the gateway.
 
 ## High-Risk Changes

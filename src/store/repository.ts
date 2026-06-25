@@ -68,7 +68,9 @@ import {
   getVirtualMachineSnapshot as getVirtualMachineSnapshotRecord,
   listVirtualMachineFindings as listVirtualMachineFindingsRecord,
   listVirtualMachineInventory as listVirtualMachineInventoryRecord,
+  getVirtualMachineSnapshotSummary as getVirtualMachineSnapshotSummaryRecord,
   listVirtualMachineSnapshotHistory as listVirtualMachineSnapshotHistoryRecord,
+  listVirtualMachineSnapshotSummaries as listVirtualMachineSnapshotSummariesRecord,
   listVirtualMachines as listVirtualMachinesRecord,
   updateVirtualMachine as updateVirtualMachineRecord,
   upsertVirtualMachineSnapshot as upsertVirtualMachineSnapshotRecord
@@ -109,7 +111,11 @@ import {
   updateRun as updateRunRecord,
   upsertAssistantFinalMessage as upsertAssistantFinalMessageRecord
 } from './repository-sessions.js';
-import { listRecentTargetChatActivity as listRecentTargetChatActivityRecord } from './repository-chat-activity.js';
+import {
+  insertTargetChatActivityEvent as insertTargetChatActivityEventRecord,
+  listRecentTargetChatActivity as listRecentTargetChatActivityRecord,
+  listTargetChatActivityEvents as listTargetChatActivityEventsRecord
+} from './repository-chat-activity.js';
 import {
   createRunToolApproval as createRunToolApprovalRecord,
   decideRunToolApproval as decideRunToolApprovalRecord,
@@ -174,8 +180,13 @@ import {
   createExternalIntegrationLinkToken as createExternalIntegrationLinkTokenRecord,
   getExternalIntegrationLinkTokenUser as getExternalIntegrationLinkTokenUserRecord,
   externalIntegrationLinkTokenIsPending as externalIntegrationLinkTokenIsPendingRecord,
+  listExternalIntegrationUserLinks as listExternalIntegrationUserLinksRecord,
+  previewExternalIntegrationLinkToken as previewExternalIntegrationLinkTokenRecord,
+  purgeOldExternalIntegrationLinkTokens as purgeOldExternalIntegrationLinkTokensRecord,
+  revokeExternalIntegrationUserLink as revokeExternalIntegrationUserLinkRecord,
   resolveExternalIntegrationUserLink as resolveExternalIntegrationUserLinkRecord
 } from './repository-external-integration-links.js';
+import { insertAccountAuditEvent as insertAccountAuditEventRecord } from './repository-account-audit.js';
 import { getUserQuotaForUser as getUserQuotaForUserRecord } from './repository-quotas.js';
 
 export class Repository {
@@ -229,7 +240,17 @@ export class Repository {
 
   externalIntegrationLinkTokenIsPending = externalIntegrationLinkTokenIsPendingRecord;
 
+  previewExternalIntegrationLinkToken = previewExternalIntegrationLinkTokenRecord;
+
   resolveExternalIntegrationUserLink = resolveExternalIntegrationUserLinkRecord;
+
+  listExternalIntegrationUserLinks = listExternalIntegrationUserLinksRecord;
+
+  revokeExternalIntegrationUserLink = revokeExternalIntegrationUserLinkRecord;
+
+  purgeOldExternalIntegrationLinkTokens = purgeOldExternalIntegrationLinkTokensRecord;
+
+  insertAccountAuditEvent = insertAccountAuditEventRecord;
 
   addWorkspace = addWorkspaceRecord;
 
@@ -305,6 +326,10 @@ export class Repository {
 
   listRecentTargetChatActivity = listRecentTargetChatActivityRecord;
 
+  insertTargetChatActivityEvent = insertTargetChatActivityEventRecord;
+
+  listTargetChatActivityEvents = listTargetChatActivityEventsRecord;
+
   getSession = getSessionRecord;
 
   deleteSession = deleteSessionRecord;
@@ -374,6 +399,10 @@ export class Repository {
   upsertVirtualMachineSnapshot = upsertVirtualMachineSnapshotRecord;
 
   getVirtualMachineSnapshot = getVirtualMachineSnapshotRecord;
+
+  getVirtualMachineSnapshotSummary = getVirtualMachineSnapshotSummaryRecord;
+
+  listVirtualMachineSnapshotSummaries = listVirtualMachineSnapshotSummariesRecord;
 
   listVirtualMachineSnapshotHistory = listVirtualMachineSnapshotHistoryRecord;
 

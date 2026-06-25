@@ -44,9 +44,13 @@ describe('conversation retention service', () => {
       workspaceAuditEvents: async () => {
         calls.push('workspace_audit_events');
         return 0;
+      },
+      externalIntegrationLinkTokens: async () => {
+        calls.push('external_integration_link_tokens');
+        return 0;
       }
     });
 
-    assert.deepEqual(calls, ['conversations', 'webhook_history', 'workspace_audit_events']);
+    assert.deepEqual(calls, ['conversations', 'webhook_history', 'workspace_audit_events', 'external_integration_link_tokens']);
   });
 });

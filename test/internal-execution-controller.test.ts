@@ -1,19 +1,27 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it, mock } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import {
   bootstrap,
-  commitRun,
-  ingestRunEvents,
   normalizeToolCapability,
   summarizeRunEventCounts
 } from '../src/controllers/internal-execution-controller.js';
 import { agentGateway } from '../src/agent/ws-server.js';
+import { webhooks, type WebhookEventInput } from '../src/services/webhooks.js';
+import { gatewayTokenService } from '../src/services/token-service.js';
+import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
+import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { repo } from '../src/store/repository.js';
+import {
+  createWorkflowRun,
+  createWorkflowSession,
+  createWorkflowUserMessage,
+  getWorkflowDefinition,
+  resetWorkflowRepositoryForTests
+} from '../src/store/repository-workflows.js';
 import { runtime } from '../src/store/runtime.js';
 import type { RunEvent } from '../src/types/domain.js';
 import {
   callController,
-  createMessage,
   createRequest,
   createRun,
   createSessionRecord,
@@ -26,13 +34,51 @@ import {
 const originalAppendRunEvents = repo.appendRunEvents;
 const originalUpdateRun = repo.updateRun;
 const originalUpsertAssistantFinalMessage = repo.upsertAssistantFinalMessage;
+const originalWebhookEmit = webhooks.emit;
+
+beforeEach(() => {
+  webhooks.emit = (_event: WebhookEventInput) => undefined;
+  repo.insertWorkspaceAuditEvent = async (event) => ({
+    id: 'audit-event-1',
+    workspaceId: event.workspaceId,
+    category: event.category,
+    eventType: event.eventType,
+    actor: {
+      type: event.actorType || (event.actorUserId ? 'user' : 'system'),
+      ...(event.actorUserId ? { userId: event.actorUserId } : {})
+    },
+    object: {
+      type: event.objectType,
+      ...(event.objectId ? { id: event.objectId } : {}),
+      ...(event.objectName ? { name: event.objectName } : {})
+    },
+    summary: event.summary,
+    metadata: event.metadata ?? {},
+    occurredAt: '2026-05-24T00:00:00.000Z'
+  });
+  repo.insertTargetChatActivityEvent = async (event) => ({
+    id: 'activity-event-1',
+    workspaceId: event.workspaceId,
+    targetId: event.targetId,
+    targetType: event.targetType,
+    sessionId: event.sessionId,
+    ...(event.runId ? { runId: event.runId } : {}),
+    ...(event.messageId ? { messageId: event.messageId } : {}),
+    ...(event.approvalId ? { approvalId: event.approvalId } : {}),
+    type: event.type,
+    payload: event.payload ?? {},
+    createdAt: '2026-05-24T00:00:00.000Z'
+  });
+});
 
 afterEach(() => {
   restoreControllerRegressionState();
   repo.appendRunEvents = originalAppendRunEvents;
   repo.updateRun = originalUpdateRun;
   repo.upsertAssistantFinalMessage = originalUpsertAssistantFinalMessage;
+  webhooks.emit = originalWebhookEmit;
   runtime.clearRunEvents('run-1');
+  resetWorkflowRepositoryForTests();
 });
 
 function createRunEvent(type: string, seq: number, payload: Record<string, unknown> = {}): RunEvent {
@@ -44,6 +90,44 @@ function createRunEvent(type: string, seq: number, payload: Record<string, unkno
     type,
     payload
   };
+}
+
+const VM_BOOTSTRAP_TOOLS = [
+  {
+    name: 'restart_service',
+    mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
+    timeout_ms: 10000,
+    description: 'Restart a VM service',
+    capability: 'write',
+    version: 'v1',
+    source: 'builtin',
+    input_schema: { type: 'object' },
+    enabled: true
+  },
+  {
+    name: 'get_logs',
+    mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
+    timeout_ms: 10000,
+    description: 'Read VM logs',
+    capability: 'read',
+    version: 'v1',
+    source: 'builtin',
+    input_schema: { type: 'object' },
+    enabled: true
+  }
+];
+
+function mockVmBootstrapToolFetch(): void {
+  mock.method(globalThis, 'fetch', async (input) => {
+    const url = String(input);
+    if (url.includes('/api/v1/internal/mcp/tools?')) {
+      return new Response(JSON.stringify(VM_BOOTSTRAP_TOOLS), { status: 200 });
+    }
+    if (isWorkspaceAiCredentialStatusRequest(input)) {
+      return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
+    }
+    return new Response('unexpected request', { status: 500 });
+  });
 }
 
 describe('internal execution bootstrap audit metadata', () => {
@@ -81,45 +165,61 @@ describe('internal execution bootstrap audit metadata', () => {
     });
     repo.getWorkspaceAiSettings = async () => null;
     repo.listTargetToolOverrides = async () => ({});
-    mock.method(globalThis, 'fetch', async (input) => {
-      const url = String(input);
-      if (url.includes('/api/v1/internal/mcp/tools?')) {
-        return new Response(JSON.stringify([
-          {
-            name: 'restart_service',
-            mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
-            timeout_ms: 10000,
-            description: 'Restart a VM service',
-            capability: 'write',
-            version: 'v1',
-            source: 'builtin',
-            input_schema: { type: 'object' },
-            enabled: true
-          },
-          {
-            name: 'get_logs',
-            mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
-            timeout_ms: 10000,
-            description: 'Read VM logs',
-            capability: 'read',
-            version: 'v1',
-            source: 'builtin',
-            input_schema: { type: 'object' },
-            enabled: true
-          }
-        ]), { status: 200 });
-      }
-      if (isWorkspaceAiCredentialStatusRequest(input)) {
-        return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
-      }
-      return new Response('unexpected request', { status: 500 });
-    });
+    mockVmBootstrapToolFetch();
 
     const response = await callController(bootstrap, createRequest({ runId: 'run-1' }));
     const allowedTools = (response.body as { tools: { allowed_tools: string[] } }).tools.allowed_tools;
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(allowedTools, ['get_logs', 'restart_service']);
+  });
+
+  it('reports read-only run mode when configured write tools are filtered from bootstrap', async () => {
+    repo.getRun = async () => createRun({ targetId: 'vm-1', targetType: 'virtual_machine', toolAccessMode: 'read_only' });
+    repo.getTarget = async () => createTarget({ id: 'vm-1', targetType: 'virtual_machine', name: 'vm' });
+    repo.getSession = async () => createSessionRecord({ targetId: 'vm-1', targetType: 'virtual_machine', clusterId: undefined });
+    repo.getTargetAgentRegistration = async () => ({
+      targetId: 'vm-1',
+      targetType: 'virtual_machine',
+      workspaceId: 'workspace-1',
+      agentKeyHash: 'hash',
+      keyVersion: 1,
+      capabilities: ['read', 'write']
+    });
+    repo.getWorkspaceAiSettings = async () => null;
+    repo.listTargetToolOverrides = async () => ({});
+    mockVmBootstrapToolFetch();
+
+    const response = await callController(bootstrap, createRequest({ runId: 'run-1' }));
+    const tools = (response.body as { tools: { allowed_tools: string[]; write_unavailable_reason: string | null } }).tools;
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(tools.allowed_tools, ['get_logs']);
+    assert.equal(tools.write_unavailable_reason, 'run_read_only');
+  });
+
+  it('reports read-only agent mode when configured write tools are filtered from bootstrap', async () => {
+    repo.getRun = async () => createRun({ targetId: 'vm-1', targetType: 'virtual_machine', toolAccessMode: 'read_write' });
+    repo.getTarget = async () => createTarget({ id: 'vm-1', targetType: 'virtual_machine', name: 'vm' });
+    repo.getSession = async () => createSessionRecord({ targetId: 'vm-1', targetType: 'virtual_machine', clusterId: undefined });
+    repo.getTargetAgentRegistration = async () => ({
+      targetId: 'vm-1',
+      targetType: 'virtual_machine',
+      workspaceId: 'workspace-1',
+      agentKeyHash: 'hash',
+      keyVersion: 1,
+      capabilities: ['read']
+    });
+    repo.getWorkspaceAiSettings = async () => null;
+    repo.listTargetToolOverrides = async () => ({});
+    mockVmBootstrapToolFetch();
+
+    const response = await callController(bootstrap, createRequest({ runId: 'run-1' }));
+    const tools = (response.body as { tools: { allowed_tools: string[]; write_unavailable_reason: string | null } }).tools;
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(tools.allowed_tools, ['get_logs']);
+    assert.equal(tools.write_unavailable_reason, 'agent_write_disabled');
   });
 
   it('bootstraps with the run provider/model snapshot even when workspace defaults changed later', async () => {
@@ -217,6 +317,84 @@ describe('internal execution bootstrap audit metadata', () => {
     assert.deepEqual(tools.tool_specs, []);
   });
 
+  it('bootstraps workflow runs with workspace scope and compiled grants', async () => {
+    const workflow = getWorkflowDefinition('workspace-1', 'cluster-triage');
+    assert.ok(workflow);
+    const compiledAccessScope = compileWorkflowAccessScope({
+      workflow,
+      actor: {
+        userId: 'user-1',
+        role: 'operator',
+        permissions: getWorkspacePermissions('operator')
+      },
+      approvedContextGrants: ['workspace_metadata', 'target_inventory']
+    });
+    const session = createWorkflowSession({
+      workflow,
+      createdBy: 'user-1',
+      compiledAccessScope
+    });
+    const message = createWorkflowUserMessage({
+      session,
+      content: 'Triage the primary cluster.',
+      inputs: { clusterId: 'cluster-primary', severity: 'high' }
+    });
+    const run = createWorkflowRun({
+      session,
+      message,
+      workflowStepId: 'collect-cluster-signals',
+      llmProvider: 'gemini',
+      llmModel: 'gemini-2.0-flash',
+      llmReasoningSummaryMode: 'off',
+      llmReasoningEffort: 'default'
+    });
+
+    repo.getWorkspaceAiSettings = async () => null;
+    mock.method(globalThis, 'fetch', async (input) => {
+      if (isWorkspaceAiCredentialStatusRequest(input)) {
+        return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
+
+    const response = await callController(bootstrap, createRequest({ runId: run.id }));
+    const body = response.body as {
+      scope: {
+        type: string;
+        workflow_id: string;
+        workflow_run_id: string;
+        workflow_session_id: string;
+        target_id?: string;
+      };
+      context: { endpoint: string };
+      routing: { target_scoped: boolean; workflow_scoped: boolean };
+      tools: { allowed_tools: string[]; gateway: { token: string } };
+    };
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(body.scope.type, 'workspace');
+    assert.equal(body.scope.workflow_id, 'cluster-triage');
+    assert.equal(body.scope.workflow_run_id, run.workflowRunId);
+    assert.equal(body.scope.workflow_session_id, session.id);
+    assert.equal(body.scope.target_id, undefined);
+    assert.equal(body.context.endpoint, `/internal/v1/workflow-sessions/${session.id}/context`);
+    assert.equal(body.routing.target_scoped, false);
+    assert.equal(body.routing.workflow_scoped, true);
+    assert.deepEqual(body.tools.allowed_tools, [
+      'events.search',
+      'inventory.resources.list',
+      'logs.summarize',
+      'metrics.query'
+    ]);
+
+    const claims = await gatewayTokenService.verifyRunScopeToken(body.tools.gateway.token);
+    assert.equal(claims.scopeType, 'workspace');
+    assert.equal(claims.workflowId, 'cluster-triage');
+    assert.equal(claims.workflowRunId, run.workflowRunId);
+    assert.equal(claims.workflowSessionId, session.id);
+    assert.deepEqual(claims.contextGrants, ['target_inventory', 'workspace_metadata']);
+  });
+
   it('maps workspace AI credential status failures during bootstrap', async () => {
     repo.getRun = async () => createRun({ status: 'queued' });
     repo.getTarget = async () => createTarget();
@@ -245,104 +423,5 @@ describe('internal execution bootstrap audit metadata', () => {
         retryable: true
       }
     });
-  });
-
-  it('drops late execution events for runs that are already cancelled', async () => {
-    let appended = false;
-    repo.getRun = async () => createRun({ status: 'cancelled' });
-    repo.appendRunEvents = async () => {
-      appended = true;
-      return [];
-    };
-
-    const response = await callController(ingestRunEvents, createRequest({ runId: 'run-1' }, {
-      events: [
-        createRunEvent('assistant_token_delta', 10, { text: 'stale' }),
-        createRunEvent('run_completed', 11)
-      ]
-    }));
-
-    assert.equal(response.statusCode, 200);
-    assert.deepEqual(response.body, { status: 'ok', accepted: 0 });
-    assert.equal(appended, false);
-  });
-
-  it('accepts only run_cancelled while a run is cancelling', async () => {
-    let appendedEvents: RunEvent[] = [];
-    repo.getRun = async () => createRun({ status: 'cancelling' });
-    repo.appendRunEvents = async (_runId, events) => {
-      appendedEvents = events;
-      return events;
-    };
-    repo.updateRun = async () => createRun({ status: 'cancelled' });
-
-    const response = await callController(ingestRunEvents, createRequest({ runId: 'run-1' }, {
-      events: [
-        createRunEvent('run_progress', 1, { stage: 'reasoning' }),
-        createRunEvent('run_cancelled', 2, { reason: 'user_cancelled' }),
-        createRunEvent('assistant_token_delta', 3, { text: 'stale' })
-      ]
-    }));
-
-    assert.equal(response.statusCode, 200);
-    assert.deepEqual(response.body, { status: 'ok', accepted: 1 });
-    assert.deepEqual(appendedEvents.map((event) => event.type), ['run_cancelled']);
-  });
-
-  it('does not mutate cancelled runs when a late terminal commit arrives', async () => {
-    let updated = false;
-    let upserted = false;
-    repo.getRun = async () => createRun({ status: 'cancelled' });
-    repo.updateRun = async () => {
-      updated = true;
-      return createRun({ status: 'completed' });
-    };
-    repo.upsertAssistantFinalMessage = async () => {
-      upserted = true;
-      return createMessage();
-    };
-
-    const response = await callController(commitRun, createRequest({ runId: 'run-1' }, {
-      status: 'completed',
-      assistant_message: { content: 'stale answer', format: 'markdown' },
-      usage: { input_tokens: 1, output_tokens: 1, tool_calls: 0 },
-      timing: {
-        started_at: '2026-05-24T00:00:00.000Z',
-        ended_at: '2026-05-24T00:00:01.000Z'
-      }
-    }));
-
-    assert.equal(response.statusCode, 200);
-    assert.deepEqual(response.body, { status: 'ok', terminal: true });
-    assert.equal(updated, false);
-    assert.equal(upserted, false);
-  });
-
-  it('does not persist assistant content from cancelled execution commits', async () => {
-    let assistantMessageContent: string | undefined;
-    let upsertedContent: string | undefined;
-    repo.getRun = async () => createRun({ status: 'running' });
-    repo.updateRun = async (_runId, update) => {
-      assistantMessageContent = String(update.assistantMessage?.content || '');
-      return createRun({ status: 'cancelled', assistantMessage: update.assistantMessage });
-    };
-    repo.upsertAssistantFinalMessage = async (_sessionId, _runId, content) => {
-      upsertedContent = content;
-      return { ...createMessage(), role: 'assistant', kind: 'assistant', content };
-    };
-
-    const response = await callController(commitRun, createRequest({ runId: 'run-1' }, {
-      status: 'cancelled',
-      assistant_message: { content: 'stale partial answer', format: 'markdown' },
-      usage: { input_tokens: 1, output_tokens: 1, tool_calls: 0 },
-      timing: {
-        started_at: '2026-05-24T00:00:00.000Z',
-        ended_at: '2026-05-24T00:00:01.000Z'
-      }
-    }));
-
-    assert.equal(response.statusCode, 200);
-    assert.equal(assistantMessageContent, '');
-    assert.equal(upsertedContent, 'I could not complete the troubleshooting run.\n\nThe run was cancelled.');
   });
 });

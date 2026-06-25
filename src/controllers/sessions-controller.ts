@@ -10,6 +10,7 @@ import { config } from '../config.js';
 import { dispatchRunToExecutionEngine } from '../services/execution-engine-client.js';
 import { isModelAllowedForProvider } from '../services/llm-policy.js';
 import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
+import { recordTargetChatActivityEvent } from '../services/target-chat-activity-events.js';
 import { emitRunStatusTransition, webhooks } from '../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
@@ -207,40 +208,6 @@ export async function listSessions(req: AuthenticatedRequest, res: Response, nex
   }
 }
 
-export async function getTargetChatActivity(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const workspaceId = toSingleParam(req.params.workspaceId);
-    const targetAccess = await requireSessionTargetAccess(req, res, workspaceId);
-    if (!targetAccess) {
-      return;
-    }
-
-    const target = await repo.getTarget(workspaceId, targetAccess.targetId);
-    if (!target) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Target not found', retryable: false } });
-      return;
-    }
-
-    const windowSecondsParam = toSingleParam(req.query.windowSeconds as string | string[] | undefined);
-    const requestedWindowSeconds = windowSecondsParam ? Number(windowSecondsParam) : NaN;
-    const windowSeconds = Number.isFinite(requestedWindowSeconds)
-      ? Math.max(60, Math.min(3600, Math.floor(requestedWindowSeconds)))
-      : config.TARGET_CHAT_RECENT_ACTIVITY_WINDOW_SECONDS;
-    const recentActivity = await repo.listRecentTargetChatActivity(workspaceId, target.id, windowSeconds);
-
-    res.status(200).json({
-      targetId: target.id,
-      targetType: target.targetType,
-      targetName: target.name,
-      windowSeconds,
-      generatedAt: new Date().toISOString(),
-      recentActivity
-    });
-  } catch (err) {
-    next(err);
-  }
-}
-
 export async function getSession(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const sessionId = toSingleParam(req.params.sessionId);
@@ -323,6 +290,17 @@ export async function deleteSession(req: AuthenticatedRequest, res: Response, ne
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Session not found', retryable: false } });
       return;
     }
+    await recordTargetChatActivityEvent({
+      workspaceId: session.workspaceId,
+      targetId: session.targetId,
+      targetType: target.targetType,
+      sessionId: session.id,
+      type: 'session.deleted',
+      payload: {
+        deletedBy: req.auth.userId,
+        deletedAt: new Date().toISOString()
+      }
+    });
 
     webhooks.emit({
       type: 'session.deleted.v1',
@@ -497,6 +475,35 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
         data: {
           sessionId: session.id,
           messageId: created.message.id,
+          status: created.run.status,
+          toolAccessMode: created.run.toolAccessMode,
+          requestedAt: created.run.requestedAt
+        }
+      });
+      await recordTargetChatActivityEvent({
+        workspaceId: session.workspaceId,
+        targetId: target.targetId,
+        targetType: target.targetType,
+        sessionId: session.id,
+        runId: created.run.id,
+        messageId: created.message.id,
+        type: 'message.created',
+        payload: {
+          role: created.message.role,
+          kind: created.message.kind,
+          clientMessageId: created.message.clientMessageId || null,
+          createdAt: created.message.createdAt
+        }
+      });
+      await recordTargetChatActivityEvent({
+        workspaceId: session.workspaceId,
+        targetId: target.targetId,
+        targetType: target.targetType,
+        sessionId: session.id,
+        runId: created.run.id,
+        messageId: created.message.id,
+        type: 'run.created',
+        payload: {
           status: created.run.status,
           toolAccessMode: created.run.toolAccessMode,
           requestedAt: created.run.requestedAt

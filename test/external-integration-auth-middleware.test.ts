@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import {
-  EXTERNAL_CHAT_INTEGRATION_ID,
   EXTERNAL_INTEGRATION_USER_ID_HEADER,
   requireActor
 } from '../src/auth/middleware.js';
@@ -10,6 +9,8 @@ import { redis } from '../src/infra/redis.js';
 import { repo } from '../src/store/repository.js';
 
 const requireCombinedActor = requireActor(['user', 'externalIntegration']);
+const DEV_EXTERNAL_INTEGRATION_CLIENT = config.EXTERNAL_INTEGRATION_CLIENTS[0];
+const DEV_EXTERNAL_INTEGRATION_TOKEN = 'dev_external_integration_client_token';
 
 function createResponse() {
   return {
@@ -59,7 +60,7 @@ describe("requireActor(['user', 'externalIntegration']) middleware", () => {
       cookies: { [config.SESSION_COOKIE_NAME]: 'session-1' },
       header: (name: string) => {
         const headers = new Map<string, string>([
-          ['authorization', `Bearer ${config.EXTERNAL_INTEGRATION_SERVICE_TOKEN}`],
+          ['authorization', `Bearer ${DEV_EXTERNAL_INTEGRATION_TOKEN}`],
           [EXTERNAL_INTEGRATION_USER_ID_HEADER, 'slack-user-1']
         ]);
         return headers.get(name.toLowerCase());
@@ -89,6 +90,10 @@ describe("requireActor(['user', 'externalIntegration']) middleware", () => {
         displayName: 'User'
       },
       link: {
+        integrationClientId: DEV_EXTERNAL_INTEGRATION_CLIENT.id,
+        provider: DEV_EXTERNAL_INTEGRATION_CLIENT.provider,
+        clientDisplayName: DEV_EXTERNAL_INTEGRATION_CLIENT.displayName,
+        externalUserId: 'slack-user-1',
         linkedAt: '2026-06-01T00:00:00.000Z',
         lastAuthenticatedAt: '2026-06-01T00:00:00.000Z',
         expiresAt: '2026-07-01T00:00:00.000Z'
@@ -96,7 +101,7 @@ describe("requireActor(['user', 'externalIntegration']) middleware", () => {
     }));
 
     const req = createExternalIntegrationRequest({
-      token: config.EXTERNAL_INTEGRATION_SERVICE_TOKEN,
+      token: DEV_EXTERNAL_INTEGRATION_TOKEN,
       externalUserId: 'slack-user-1'
     });
     const res = createResponse();
@@ -112,13 +117,13 @@ describe("requireActor(['user', 'externalIntegration']) middleware", () => {
       userId: 'user-1',
       credential: {
         type: 'external_integration',
-        integrationId: EXTERNAL_CHAT_INTEGRATION_ID,
+        integrationId: DEV_EXTERNAL_INTEGRATION_CLIENT.id,
         externalUserId: 'slack-user-1'
       }
     });
   });
 
-  it('rejects external integration requests without the service token', async () => {
+  it('rejects external integration requests without the client token', async () => {
     const req = createExternalIntegrationRequest({ externalUserId: 'slack-user-1' });
     const res = createResponse();
     let nextCalled = false;
@@ -141,7 +146,7 @@ describe("requireActor(['user', 'externalIntegration']) middleware", () => {
 
   it('rejects external integration requests without a bounded external user id header', async () => {
     const req = createExternalIntegrationRequest({
-      token: config.EXTERNAL_INTEGRATION_SERVICE_TOKEN,
+      token: DEV_EXTERNAL_INTEGRATION_TOKEN,
       externalUserId: ' '.repeat(4)
     });
     const res = createResponse();
@@ -167,7 +172,7 @@ describe("requireActor(['user', 'externalIntegration']) middleware", () => {
     mock.method(repo, 'resolveExternalIntegrationUserLink', async () => null);
 
     const req = createExternalIntegrationRequest({
-      token: config.EXTERNAL_INTEGRATION_SERVICE_TOKEN,
+      token: DEV_EXTERNAL_INTEGRATION_TOKEN,
       externalUserId: 'slack-user-1'
     });
     const res = createResponse();
@@ -189,7 +194,7 @@ describe("requireActor(['user', 'externalIntegration']) middleware", () => {
     });
   });
 
-  it('returns a useful message for external-integration-only actor policy without a service token', async () => {
+  it('returns a useful message for external-integration-only actor policy without a client token', async () => {
     const req = createExternalIntegrationRequest({ externalUserId: 'slack-user-1' });
     const res = createResponse();
     let nextCalled = false;

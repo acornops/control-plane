@@ -12,12 +12,12 @@ account.
 The bot needs:
 
 - `ACORNOPS_API_BASE_URL`, for example `https://api.acornops.dev`.
-- `EXTERNAL_INTEGRATION_SERVICE_TOKEN`, matching the control-plane
-  `EXTERNAL_INTEGRATION_SERVICE_TOKEN`.
+- An external integration client token registered through the control-plane
+  `EXTERNAL_INTEGRATION_CLIENTS_JSON` token hash descriptors.
 - A stable external user id, sent as `externalUserId` during linking and as
   `x-acornops-external-user-id` during bot API calls.
 
-The service token is not a browser session, admin token, run token, or
+The client token is not a browser session, admin token, run token, or
 orchestrator service token.
 
 ## Authentication
@@ -25,7 +25,7 @@ orchestrator service token.
 For linked-account bot calls, send both headers:
 
 ```http
-Authorization: Bearer {EXTERNAL_INTEGRATION_SERVICE_TOKEN}
+Authorization: Bearer {EXTERNAL_INTEGRATION_CLIENT_TOKEN}
 x-acornops-external-user-id: {externalUserId}
 ```
 
@@ -41,8 +41,8 @@ Before calling operational endpoints, the bot should resolve whether the user is
 linked:
 
 ```http
-POST {ACORNOPS_API_BASE_URL}/api/v1/auth/chat/integration/resolve
-Authorization: Bearer {EXTERNAL_INTEGRATION_SERVICE_TOKEN}
+POST {ACORNOPS_API_BASE_URL}/api/v1/auth/external-integrations/resolve
+Authorization: Bearer {EXTERNAL_INTEGRATION_CLIENT_TOKEN}
 Content-Type: application/json
 ```
 
@@ -81,8 +81,8 @@ Unlinked response:
 To create a link URL for an unlinked user:
 
 ```http
-POST {ACORNOPS_API_BASE_URL}/api/v1/auth/chat/integration/link
-Authorization: Bearer {EXTERNAL_INTEGRATION_SERVICE_TOKEN}
+POST {ACORNOPS_API_BASE_URL}/api/v1/auth/external-integrations/link
+Authorization: Bearer {EXTERNAL_INTEGRATION_CLIENT_TOKEN}
 Content-Type: application/json
 ```
 
@@ -96,7 +96,7 @@ Response:
 
 ```json
 {
-  "linkUrl": "https://console.acornops.dev/integrations/external-chat/link?token=intlink_...",
+  "linkUrl": "https://console.acornops.dev/integrations/external/link?token=intlink_...",
   "expiresAt": "2026-06-09T00:00:00.000Z"
 }
 ```
@@ -167,7 +167,7 @@ Common statuses:
 - `202` assistant run accepted.
 - `400` invalid payload, invalid cursor, unsupported target, or AI provider
   configuration issue.
-- `401` missing/invalid service token or unlinked external user id.
+- `401` missing/invalid client token or unlinked external user id.
 - `403` linked user or bot allowlist does not permit the action.
 - `404` object not found or not accessible.
 
@@ -176,7 +176,7 @@ Common statuses:
 All endpoints below require:
 
 ```http
-Authorization: Bearer {EXTERNAL_INTEGRATION_SERVICE_TOKEN}
+Authorization: Bearer {EXTERNAL_INTEGRATION_CLIENT_TOKEN}
 x-acornops-external-user-id: {externalUserId}
 ```
 
@@ -465,7 +465,7 @@ Create a Kubernetes cluster session:
 
 ```http
 POST {ACORNOPS_API_BASE_URL}/api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/sessions
-Authorization: Bearer {EXTERNAL_INTEGRATION_SERVICE_TOKEN}
+Authorization: Bearer {EXTERNAL_INTEGRATION_CLIENT_TOKEN}
 x-acornops-external-user-id: {externalUserId}
 Content-Type: application/json
 ```
@@ -480,7 +480,7 @@ Create a VM session:
 
 ```http
 POST {ACORNOPS_API_BASE_URL}/api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions
-Authorization: Bearer {EXTERNAL_INTEGRATION_SERVICE_TOKEN}
+Authorization: Bearer {EXTERNAL_INTEGRATION_CLIENT_TOKEN}
 x-acornops-external-user-id: {externalUserId}
 Content-Type: application/json
 ```
@@ -554,7 +554,7 @@ Post a user message and trigger a read-only assistant run:
 
 ```http
 POST {ACORNOPS_API_BASE_URL}/api/v1/sessions/{sessionId}/messages
-Authorization: Bearer {EXTERNAL_INTEGRATION_SERVICE_TOKEN}
+Authorization: Bearer {EXTERNAL_INTEGRATION_CLIENT_TOKEN}
 x-acornops-external-user-id: {externalUserId}
 Content-Type: application/json
 ```
@@ -698,6 +698,6 @@ and AcornOps will reject the external integration credential.
    `clientMessageId`.
 7. Poll `GET /api/v1/runs/{runId}` and `GET /api/v1/sessions/{sessionId}/messages`,
    or consume `GET /api/v1/runs/{runId}/stream`.
-8. Never log service tokens, link URLs, link tokens, run stream payloads that may
+8. Never log client tokens, link URLs, link tokens, run stream payloads that may
    contain sensitive operational data, or user prompts unless the deployment's
    logging policy explicitly permits it.

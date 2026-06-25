@@ -45,6 +45,7 @@ internalExecutionRouter.delete(
   internalApprovalController.consumeRunContinuation
 );
 internalExecutionRouter.get('/sessions/:sessionId/context', requireServiceToken, internalExecutionController.getSessionContext);
+internalExecutionRouter.get('/workflow-sessions/:sessionId/context', requireServiceToken, internalExecutionController.getWorkflowSessionContext);
 internalExecutionRouter.post(
   '/runs/:runId/events',
   requireServiceToken,

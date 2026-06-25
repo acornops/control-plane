@@ -4,13 +4,13 @@
 
 Implement the control-plane producer contract for external integration account linking:
 
-- `POST /api/v1/auth/chat/integration/link`
-- `POST /api/v1/auth/chat/integration/link/complete`
-- `POST /api/v1/auth/chat/integration/resolve`
+- `POST /api/v1/auth/external-integrations/link`
+- `POST /api/v1/auth/external-integrations/link/complete`
+- `POST /api/v1/auth/external-integrations/resolve`
 
 ## Constraints
 
-- external integration clients authenticate with `EXTERNAL_INTEGRATION_SERVICE_TOKEN`.
+- External integration clients authenticate with `external-integration-client-token`.
 - The external integration may resolve a durable external identity link, but it must not assert an AcornOps user.
 - Only an authenticated AcornOps browser session may complete the link through the external integration browser completion endpoint.
 - External integration clients must never receive browser cookies, OIDC access tokens, ID tokens, or refresh tokens.
@@ -20,7 +20,7 @@ Implement the control-plane producer contract for external integration account l
 
 - Store pending external integration link tokens in `external_integration_link_tokens` with the external user id, token hash, expiry, and consumption timestamp.
 - Store durable account links in `external_integration_user_links` with the external user id, AcornOps user id, linked timestamp, last authenticated timestamp, expiry, and revocation timestamp.
-- Return a management-console URL at `/integrations/external-chat/link?token=<external-chat-link-token>` so browser login remains user mediated.
+- Return a management-console URL at `/integrations/external/link?token=<external-integration-link-token>` so browser login remains user mediated.
 - Keep OIDC and password login as session-establishment flows; classify external-integration-originated OIDC state as `integration_link`, then complete external integration linking afterward through the shared authenticated browser completion endpoint.
 
 ## Validation Log

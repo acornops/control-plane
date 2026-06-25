@@ -467,7 +467,7 @@ export function mapRun(row: RunRow): Run {
     messageId: row.message_id,
     llmProvider: row.llm_provider,
     llmModel: row.llm_model,
-    llmReasoningSummaryMode: row.llm_reasoning_summary_mode || 'off',
+    llmReasoningSummaryMode: row.llm_reasoning_summary_mode || 'auto',
     llmReasoningEffort: row.llm_reasoning_effort || 'default',
     toolAccessMode: row.tool_access_mode || 'read_only',
     status: row.status,

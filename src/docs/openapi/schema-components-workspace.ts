@@ -53,11 +53,55 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
         expiresAt: dateTime
       }
     },
+    ExternalIntegrationLinkSummary: {
+      type: 'object',
+      required: ['id', 'integrationClientId', 'provider', 'clientDisplayName', 'externalUserId', 'linkedAt', 'lastAuthenticatedAt', 'expiresAt'],
+      properties: {
+        id: { type: 'string' },
+        integrationClientId: { type: 'string' },
+        provider: { type: 'string' },
+        clientDisplayName: { type: 'string' },
+        externalUserId: { type: 'string' },
+        externalDisplayName: { type: 'string' },
+        linkedAt: dateTime,
+        lastAuthenticatedAt: dateTime,
+        expiresAt: dateTime
+      }
+    },
+    ExternalIntegrationLinkPreview: {
+      type: 'object',
+      required: ['integrationClientId', 'provider', 'clientDisplayName', 'externalUserId', 'expiresAt', 'signedInUser'],
+      properties: {
+        integrationClientId: { type: 'string' },
+        provider: { type: 'string' },
+        clientDisplayName: { type: 'string' },
+        externalUserId: { type: 'string' },
+        externalDisplayName: { type: 'string' },
+        expiresAt: dateTime,
+        signedInUser: userSchema
+      }
+    },
     ExternalIntegrationLinkCompletion: {
       type: 'object',
       required: ['status'],
       properties: {
-        status: { type: 'string', enum: ['linked'] }
+        status: { type: 'string', enum: ['linked'] },
+        link: schemaRef('ExternalIntegrationLinkSummary')
+      }
+    },
+    ExternalIntegrationLinkList: {
+      type: 'object',
+      required: ['links'],
+      properties: {
+        links: { type: 'array', items: schemaRef('ExternalIntegrationLinkSummary') }
+      }
+    },
+    ExternalIntegrationLinkRevocation: {
+      type: 'object',
+      required: ['status', 'link'],
+      properties: {
+        status: { type: 'string', enum: ['revoked'] },
+        link: schemaRef('ExternalIntegrationLinkSummary')
       }
     },
     ExternalIntegrationLinkResolution: {
@@ -85,8 +129,13 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
             },
             link: {
               type: 'object',
-              required: ['linkedAt', 'lastAuthenticatedAt', 'expiresAt'],
+              required: ['integrationClientId', 'provider', 'clientDisplayName', 'externalUserId', 'linkedAt', 'lastAuthenticatedAt', 'expiresAt'],
               properties: {
+                integrationClientId: { type: 'string' },
+                provider: { type: 'string' },
+                clientDisplayName: { type: 'string' },
+                externalUserId: { type: 'string' },
+                externalDisplayName: { type: 'string' },
                 linkedAt: dateTime,
                 lastAuthenticatedAt: dateTime,
                 expiresAt: dateTime
@@ -140,14 +189,28 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
     WorkspacePage: pageOf('Workspace'),
     WorkspaceRoleTemplate: {
       type: 'object',
-      required: ['key', 'displayName', 'kind', 'capabilities', 'protected', 'sortOrder'],
+      required: ['key', 'displayName', 'kind', 'capabilities', 'capabilityGroups', 'protected', 'sortOrder'],
       properties: {
         key: { type: 'string' },
         displayName: { type: 'string' },
         description: { type: 'string' },
-        kind: { type: 'string', enum: ['built_in', 'custom'] },
+        kind: { type: 'string', enum: ['system', 'custom'] },
         capabilities: stringArray,
+        capabilityGroups: {
+          type: 'array',
+          items: schemaRef('WorkspaceRoleCapabilityGroup')
+        },
         protected: { type: 'boolean' },
+        sortOrder: { type: 'integer' }
+      },
+      additionalProperties: true
+    },
+    WorkspaceRoleCapabilityGroup: {
+      type: 'object',
+      required: ['key', 'capabilities', 'sortOrder'],
+      properties: {
+        key: { type: 'string', enum: ['workspace', 'members', 'targets', 'operations', 'settings'] },
+        capabilities: stringArray,
         sortOrder: { type: 'integer' }
       },
       additionalProperties: true

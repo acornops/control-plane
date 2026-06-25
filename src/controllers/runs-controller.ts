@@ -2,11 +2,20 @@ import { NextFunction, Response } from 'express';
 import { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { config } from '../config.js';
-import { cancelRunInExecutionEngine, dispatchRunToExecutionEngine } from '../services/execution-engine-client.js';
+import { cancelRunInExecutionEngine, dispatchRunToExecutionEngine, dispatchWorkflowRunToExecutionEngine } from '../services/execution-engine-client.js';
+import { recordApprovalActivity } from '../services/target-chat-activity-events.js';
 import { webhooks } from '../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { logger } from '../logger.js';
 import { repo } from '../store/repository.js';
+import {
+  appendWorkflowRunEvents,
+  decideWorkflowRunApproval,
+  getWorkflowRunApproval,
+  getWorkflowRun,
+  listWorkflowRunApprovals,
+  updateWorkflowRun
+} from '../store/repository-workflows.js';
 import { runtime } from '../store/runtime.js';
 import { KUBERNETES_TARGET_TYPE, Run, RunEvent } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
@@ -41,9 +50,47 @@ function redispatchWaitingRunAfterApproval(run: Run): void {
   });
 }
 
+function dispatchWorkflowRunAfterApprovals(runId: string): void {
+  queueMicrotask(async () => {
+    const run = getWorkflowRun(runId);
+    if (!run || run.status !== 'waiting_for_approval') return;
+    const approvals = listWorkflowRunApprovals(run.id);
+    if (approvals.some((approval) => approval.status === 'pending')) return;
+    if (approvals.some((approval) => approval.status === 'rejected' || approval.status === 'expired')) {
+      updateWorkflowRun(run.id, {
+        status: 'failed',
+        errorCode: 'WORKFLOW_APPROVAL_NOT_GRANTED',
+        errorMessage: 'Workflow approval gate was not granted.',
+        endedAt: new Date().toISOString()
+      });
+      return;
+    }
+    const dispatching = updateWorkflowRun(run.id, { status: 'dispatching' }) || run;
+    try {
+      await dispatchWorkflowRunToExecutionEngine(dispatching);
+      updateWorkflowRun(run.id, { status: 'running', startedAt: new Date().toISOString() });
+    } catch (err) {
+      updateWorkflowRun(run.id, {
+        status: 'failed',
+        errorCode: 'DISPATCH_FAILED',
+        errorMessage: err instanceof Error ? err.message : 'Unknown dispatch failure',
+        endedAt: new Date().toISOString()
+      });
+    }
+  });
+}
+
 export async function getRun(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
+    const workflowRun = getWorkflowRun(runId);
+    if (workflowRun) {
+      if (!(await requireWorkspaceDataRead(req, res, workflowRun.workspaceId, 'No access to run'))) {
+        return;
+      }
+      res.status(200).json(workflowRun);
+      return;
+    }
     const run = await repo.getRun(runId);
     if (!run) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Run not found', retryable: false } });
@@ -63,6 +110,60 @@ export async function getRun(req: AuthenticatedRequest, res: Response, next: Nex
 export async function cancelRun(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
+    const workflowRun = getWorkflowRun(runId);
+    if (workflowRun) {
+      const authz = await requireWorkspaceDataRead(req, res, workflowRun.workspaceId, 'No access to run');
+      if (!authz) {
+        return;
+      }
+      if (!authz.can('cancel_runs')) {
+        res.status(403).json({
+          error: {
+            code: 'FORBIDDEN',
+            message: 'Only workspace roles with run cancellation capability can cancel workflow runs',
+            retryable: false
+          }
+        });
+        return;
+      }
+      if (!isRunTerminalStatus(workflowRun.status)) {
+        const endedAt = new Date().toISOString();
+        updateWorkflowRun(workflowRun.id, { status: 'cancelled', endedAt });
+        const accepted = appendWorkflowRunEvents(workflowRun.id, [
+          {
+            schema_version: 1,
+            run_id: workflowRun.id,
+            seq: (workflowRun.events?.length || 0) + 1,
+            ts: endedAt,
+            type: 'run_cancelled',
+            payload: { reason: 'user_cancelled' }
+          }
+        ]);
+        for (const event of runtime.appendRunEvents(workflowRun.id, accepted)) {
+          runtime.runStreams.emit(`run:${workflowRun.id}`, { event });
+        }
+        await recordWorkspaceAuditEvent({
+          workspaceId: workflowRun.workspaceId,
+          category: 'run',
+          eventType: 'workflow.run_cancel_requested.v1',
+          operation: 'write',
+          actorUserId: req.auth.userId,
+          objectType: 'workflow_run',
+          objectId: workflowRun.id,
+          objectName: workflowRun.workflowId,
+          summary: 'Workflow run cancellation requested',
+          metadata: {
+            workflowId: workflowRun.workflowId,
+            workflowRunId: workflowRun.workflowRunId,
+            workflowSessionId: workflowRun.workflowSessionId,
+            previousStatus: workflowRun.status
+          }
+        });
+        await cancelRunInExecutionEngine(workflowRun.id).catch(() => undefined);
+      }
+      res.status(202).json({ status: 'accepted' });
+      return;
+    }
     const run = await repo.getRun(runId);
     if (!run) {
       res.status(202).json({ status: 'accepted' });
@@ -128,6 +229,14 @@ export async function cancelRun(req: AuthenticatedRequest, res: Response, next: 
 export async function listRunEvents(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
+    const workflowRun = getWorkflowRun(runId);
+    if (workflowRun) {
+      if (!(await requireWorkspaceDataRead(req, res, workflowRun.workspaceId, 'No access to run'))) {
+        return;
+      }
+      res.status(200).json(workflowRun.events || runtime.getRunEvents(workflowRun.id));
+      return;
+    }
     const run = await repo.getRun(runId);
     if (!run) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Run not found', retryable: false } });
@@ -148,6 +257,14 @@ export async function listRunEvents(req: AuthenticatedRequest, res: Response, ne
 export async function listRunApprovals(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
+    const workflowRun = getWorkflowRun(runId);
+    if (workflowRun) {
+      if (!(await requireWorkspaceDataRead(req, res, workflowRun.workspaceId, 'No access to run'))) {
+        return;
+      }
+      res.status(200).json(listWorkflowRunApprovals(workflowRun.id));
+      return;
+    }
     const run = await repo.getRun(runId);
     if (!run) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Run not found', retryable: false } });
@@ -166,6 +283,71 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
   try {
     const runId = toSingleParam(req.params.runId);
     const approvalId = toSingleParam(req.params.approvalId);
+    const workflowRun = getWorkflowRun(runId);
+    if (workflowRun) {
+      const authz = await requireWorkspaceDataRead(req, res, workflowRun.workspaceId, 'No access to run');
+      if (!authz) {
+        return;
+      }
+      const approval = getWorkflowRunApproval(approvalId);
+      if (!approval || approval.runId !== workflowRun.id) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Approval not found', retryable: false } });
+        return;
+      }
+      if (!authz.can('create_read_write_runs')) {
+        res.status(403).json({
+          error: {
+            code: 'FORBIDDEN',
+            message: 'Only workspace roles with read-write run capability can decide workflow approval gates',
+            retryable: false
+          }
+        });
+        return;
+      }
+      if (approval.status !== 'pending') {
+        if (approval.decision === req.body.decision) {
+          res.status(200).json(approval);
+          return;
+        }
+        res.status(409).json({
+          error: {
+            code: 'APPROVAL_ALREADY_DECIDED',
+            message: `Approval is already ${approval.status}`,
+            retryable: false
+          },
+          approval
+        });
+        return;
+      }
+
+      const decided = decideWorkflowRunApproval(approval.id, req.body.decision, req.auth.userId);
+      if (!decided) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Approval not found', retryable: false } });
+        return;
+      }
+      await recordWorkspaceAuditEvent({
+        workspaceId: workflowRun.workspaceId,
+        category: 'approval',
+        eventType: 'workflow.approval_decided.v1',
+        operation: 'write',
+        actorUserId: req.auth.userId,
+        objectType: 'workflow_approval',
+        objectId: decided.id,
+        objectName: decided.toolName,
+        summary: 'Workflow approval gate decided',
+        metadata: {
+          workflowId: workflowRun.workflowId,
+          workflowRunId: workflowRun.workflowRunId,
+          workflowSessionId: workflowRun.workflowSessionId,
+          workflowStepId: workflowRun.workflowStepId || null,
+          decision: decided.decision || decided.status,
+          status: decided.status
+        }
+      });
+      dispatchWorkflowRunAfterApprovals(workflowRun.id);
+      res.status(200).json(decided);
+      return;
+    }
     const run = await repo.getRun(runId);
     if (!run) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Run not found', retryable: false } });
@@ -217,6 +399,7 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
     }
     redispatchWaitingRunAfterApproval(run);
     if (decided.status === 'expired') {
+      await recordApprovalActivity(decided, 'approval.expired', run.sessionId, run.messageId);
       res.status(409).json({
         error: {
           code: 'APPROVAL_EXPIRED',
@@ -227,6 +410,7 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
       });
       return;
     }
+    await recordApprovalActivity(decided, 'approval.decided', run.sessionId, run.messageId);
     webhooks.emit({
       type: 'run.tool_approval_decided.v1',
       workspaceId: run.workspaceId,
@@ -268,7 +452,8 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
 export async function streamRun(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
-    const run = await repo.getRun(runId);
+    const workflowRun = getWorkflowRun(runId);
+    const run = workflowRun || await repo.getRun(runId);
     if (!run) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Run not found', retryable: false } });
       return;
@@ -305,10 +490,17 @@ export async function streamRun(req: AuthenticatedRequest, res: Response, next: 
     runtime.runStreams.on(`run:${run.id}`, listener);
 
     try {
-      const existing = await getReplayRunEvents(run.id);
-      for (const event of existing) {
-        lastReplayedSeq = Math.max(lastReplayedSeq, event.seq);
-        writeSseRunEvent(res, event);
+      const replayExistingEvents = (existing: RunEvent[]) => {
+        for (const event of existing) {
+          lastReplayedSeq = Math.max(lastReplayedSeq, event.seq);
+          writeSseRunEvent(res, event);
+        }
+      };
+      if (workflowRun) {
+        replayExistingEvents((workflowRun.events || runtime.getRunEvents(workflowRun.id)) as RunEvent[]);
+      } else {
+        const existing = await getReplayRunEvents(run.id);
+        replayExistingEvents(existing);
       }
 
       replaying = false;

@@ -11,10 +11,12 @@ import { createInternalApp } from './internal-app.js';
 import { logger } from './logger.js';
 import {
   registerRunEventHandler,
+  registerTargetChatActivityEventHandler,
   startControlPlaneCoordination,
   stopControlPlaneCoordination,
   withRedisLease
 } from './services/control-plane-coordination.js';
+import { emitTargetChatActivityEvent } from './services/target-chat-activity-events.js';
 import { expireAndResumeTimedOutApprovals } from './services/approval-timeouts.js';
 import { syncTargetBuiltInTools } from './services/target-built-in-tool-sync.js';
 import { runControlPlaneRetentionSweep } from './services/conversation-retention.js';
@@ -30,6 +32,11 @@ async function main(): Promise<void> {
   registerRunEventHandler(({ runId, events }) => {
     for (const event of events) {
       runtime.runStreams.emit(`run:${runId}`, { event });
+    }
+  });
+  registerTargetChatActivityEventHandler(({ events }) => {
+    for (const event of events) {
+      emitTargetChatActivityEvent(event);
     }
   });
   await startControlPlaneCoordination();

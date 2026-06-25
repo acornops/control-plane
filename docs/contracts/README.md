@@ -112,7 +112,7 @@ resulting effective limit are rejected before mutation.
 - Password change entrypoint for authenticated password-backed users: `POST /api/v1/auth/password/change`.
 - Current auth-methods entrypoint: `GET /api/v1/auth/methods`.
 - Explicit SSO linking entrypoint for authenticated password-backed users: `POST /api/v1/auth/oidc/link/start`.
-- External integration account link browser completion entrypoint: `POST /api/v1/auth/chat/integration/link/complete`.
+- External integration account link browser completion entrypoint: `POST /api/v1/auth/external-integrations/link/complete`.
 - Logout entrypoint: `POST /api/v1/auth/logout`.
 - Current-user endpoint: `GET /api/v1/me`.
 - Dev-only shortcut outside production: `POST /api/v1/auth/dev-login`.
@@ -130,17 +130,18 @@ resulting effective limit are rejected before mutation.
 
 ### External integration account link integration contract
 
-- External integration clients use `Authorization: Bearer <EXTERNAL_INTEGRATION_SERVICE_TOKEN>`. This token is valid only for external integration account link endpoints and explicitly enabled linked-account external integration endpoints; it is not a browser session, admin token, run token, or orchestrator service token.
-- Create link endpoint: `POST /api/v1/auth/chat/integration/link`.
-- Resolve link endpoint: `POST /api/v1/auth/chat/integration/resolve`.
-- Browser link completion endpoint: `POST /api/v1/auth/chat/integration/link/complete` with a session cookie and body `{ token }`.
-- `POST /api/v1/auth/chat/integration/link` accepts `{ externalUserId }`, validates it as a bounded string, stores a short-lived hashed link token with that external user identity, and returns `{ linkUrl, expiresAt }`.
-- `linkUrl` points at the management console route `/integrations/external-chat/link?token=<external-chat-link-token>`. The console shows the normal login page when no browser session exists, preserving the token for password or OIDC sign-in. After either login method establishes a normal browser session, the console shows an AcornOps approval screen that tells the user they are linking the signed-in account to the external integration. The console calls the completion endpoint only after the user clicks approve.
+- External integration clients use `Authorization: Bearer <external integration client token>`. Client tokens are registered in `EXTERNAL_INTEGRATION_CLIENTS_JSON` as SHA-256 hash descriptors and are valid only for external integration account-link endpoints; they are not browser sessions, admin tokens, run tokens, or orchestrator service tokens.
+- Create link endpoint: `POST /api/v1/auth/external-integrations/link`.
+- Resolve link endpoint: `POST /api/v1/auth/external-integrations/resolve`.
+- Browser link preview endpoint: `POST /api/v1/auth/external-integrations/link/preview` with a session cookie and body `{ token }`.
+- Browser link completion endpoint: `POST /api/v1/auth/external-integrations/link/complete` with a session cookie and body `{ token }`.
+- `POST /api/v1/auth/external-integrations/link` accepts `{ externalUserId, externalDisplayName? }`, validates bounded strings, stores a short-lived hashed link token with the authenticated client identity, and returns `{ linkUrl, expiresAt }`.
+- `linkUrl` points at the management console route `/integrations/external/link?token=<external-integration-link-token>`. The console shows the normal login page when no browser session exists, preserving the token for password or OIDC sign-in. After either login method establishes a normal browser session, the console previews the provider, registered client display name, external account metadata, and signed-in AcornOps user. The console calls the completion endpoint only after the user clicks approve.
 - OIDC sign-in from the external chat link route uses an AcornOps-controlled OIDC state purpose of `integration_link` for routing/observability. The OIDC callback still only establishes the browser session and redirects back to the console route; it does not complete the external integration link.
-- After browser authentication and explicit approval succeed, AcornOps upserts the durable external identity link `{ externalUserId, acornopsUserId, linkedAt, lastAuthenticatedAt, expiresAt, revokedAt }` and consumes the short-lived link token. `lastAuthenticatedAt` is set on the initial link and updated when the external user reauthenticates through a fresh link.
-- `POST /api/v1/auth/chat/integration/resolve` accepts `{ externalUserId }` for subsequent integration requests and returns either `{ status: "unlinked" }` or `{ status: "linked", user, link }`, where `link` includes required `linkedAt`, `lastAuthenticatedAt`, and `expiresAt`.
+- After browser authentication and explicit approval succeed, AcornOps upserts the durable external identity link `{ integrationClientId, provider, externalUserId, acornopsUserId, linkedAt, lastAuthenticatedAt, expiresAt, revokedAt }` and consumes the short-lived link token. `lastAuthenticatedAt` is set on the initial link and updated when the external user reauthenticates through a fresh link.
+- `POST /api/v1/auth/external-integrations/resolve` accepts `{ externalUserId }` for subsequent integration requests and returns either `{ status: "unlinked" }` or `{ status: "linked", user, link }`, where `link` includes required `integrationClientId`, `provider`, `clientDisplayName`, `externalUserId`, `linkedAt`, `lastAuthenticatedAt`, and `expiresAt`.
 - Browser cookies, OIDC access tokens, ID tokens, refresh tokens, and raw link tokens are never returned to external integration clients. Link tokens are stored only as hashes.
-- Phase-1 linked external integration bot reads use `Authorization: Bearer <EXTERNAL_INTEGRATION_SERVICE_TOKEN>` and `x-acornops-external-user-id: <externalUserId>`. The control plane resolves the linked AcornOps user, assigns an `external_integration` auth credential, and grants only `read_workspace_data`, `create_sessions`, and `create_read_only_runs`, intersected with that user's workspace role. Eligible routes are workspace summary/list, workspace investigations, Kubernetes and VM list/overview/resource/finding reads, read-only session/message creation and reads, and run observation (`GET /api/v1/runs/{runId}`, events, stream, and approvals list). Operational workspace counts, operational quota usage, target summaries, findings, resources, and read-only assistant conversations are visible; member usage and all member, audit, log, read-write run, approval-decision, cancellation, deletion, settings, and management capabilities remain denied.
+- Phase-1 linked external integration bot reads use `Authorization: Bearer <external integration client token>` and `x-acornops-external-user-id: <externalUserId>`. The control plane resolves the linked AcornOps user, assigns an `external_integration` auth credential, and grants only `read_workspace_data`, `create_sessions`, and `create_read_only_runs`, intersected with that user's workspace role. Eligible routes are workspace summary/list, workspace investigations, Kubernetes and VM list/overview/resource/finding reads, read-only session/message creation and reads, and run observation (`GET /api/v1/runs/{runId}`, events, stream, and approvals list). Operational workspace counts, operational quota usage, target summaries, findings, resources, and read-only assistant conversations are visible; member usage and all member, audit, log, read-write run, approval-decision, cancellation, deletion, settings, and management capabilities remain denied.
 - Implementor-facing endpoint details live in [external-integration-bot-endpoints.md](external-integration-bot-endpoints.md).
 
 ### Workspace, target, and cluster APIs consumed by management console
@@ -225,9 +226,9 @@ Workspace membership responses are server-owned and include:
 - `roleTemplate?`
 - `source`
 
-`GET /api/v1/workspaces/{workspaceId}/roles` returns the deployment-supported role template catalog for the workspace. The catalog is deployment-wide, read-only, and includes `key`, `displayName`, `description`, `kind`, `capabilities`, `protected`, and `sortOrder`. Workspace summaries may include `currentUserRoleTemplate`; memberships and invitations may include `roleTemplate`. Clients must use these fields for labels and role selection instead of duplicating role/capability logic.
+`GET /api/v1/workspaces/{workspaceId}/roles` returns the deployment-supported role template catalog for the workspace. The catalog is deployment-wide, read-only, and includes `key`, `displayName`, `description`, `kind`, `capabilities`, `capabilityGroups[].{key,capabilities,sortOrder}`, `protected`, and `sortOrder`. Workspace summaries may include `currentUserRoleTemplate`; memberships and invitations may include `roleTemplate`. Clients must use these fields for labels and role selection instead of duplicating role/capability logic.
 
-`GET /api/v1/workspaces/{workspaceId}/ai-settings` returns the workspace AI assistant default provider/model, deployment-allowed providers/models, reasoning summary mode/effort policy, derived `reasoningSummariesEnabled`, and per-provider configured status to workspace members. It never returns API key values, internal secret names, or reasoning summary text. `PATCH /ai-settings` updates `{defaultProvider,defaultModel,reasoningSummaryMode,reasoningEffort}` and requires `permissions.manage_ai_settings`. `PUT /ai-provider-credentials/{provider}` accepts write-only `{apiKey}` to save or rotate a workspace provider credential and validates deployment provider policy. `DELETE /ai-provider-credentials/{provider}` removes a supported provider credential even if that provider is no longer deployment-allowed, so stale secrets can be cleaned up after policy changes. AI settings and credential mutations require `permissions.manage_ai_settings` and write workspace audit events. Assistant run creation resolves provider/model and reasoning settings from workspace AI settings, stores them on the run snapshot, and rejects before dispatch when the selected provider/model is not deployment-allowed or the selected provider has no workspace credential.
+`GET /api/v1/workspaces/{workspaceId}/ai-settings` returns the workspace AI assistant default provider/model, deployment-allowed providers/models, reasoning summary mode/effort policy, derived `reasoningSummariesEnabled`, and per-provider configured status to workspace members. New and unset workspace AI settings default `reasoningSummaryMode` to `auto` when deployment policy allows reasoning summaries; admins can still set `off`. It never returns API key values, internal secret names, or reasoning summary text. `PATCH /ai-settings` updates `{defaultProvider,defaultModel,reasoningSummaryMode,reasoningEffort}` and requires `permissions.manage_ai_settings`. `PUT /ai-provider-credentials/{provider}` accepts write-only `{apiKey}` to save or rotate a workspace provider credential and validates deployment provider policy. `DELETE /ai-provider-credentials/{provider}` removes a supported provider credential even if that provider is no longer deployment-allowed, so stale secrets can be cleaned up after policy changes. AI settings and credential mutations require `permissions.manage_ai_settings` and write workspace audit events. Assistant run creation resolves provider/model and reasoning settings from workspace AI settings, stores them on the run snapshot, and rejects before dispatch when the selected provider/model is not deployment-allowed or the selected provider has no workspace credential.
 
 Owners can manage all member roles. Other roles with `permissions.manage_members` can directly assign, update, or remove non-protected members. `owner` is always present, protected, and required; the built-in `auditor` role is protected when enabled. A non-owner assigning or modifying a protected role returns `PROTECTED_ROLE_REQUIRES_OWNER`. Membership and invitation roles must exist in the deployment-supported catalog or the API returns `ROLE_NOT_SUPPORTED`. Any role update or removal that would leave a workspace with no owner must return `LAST_OWNER` and must not mutate membership.
 
@@ -261,6 +262,8 @@ Kubernetes cluster updates accept `name`, `namespaceInclude`, and `namespaceExcl
 
 `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}` returns cluster metadata, `writeConfirmationPolicy`, `latestSnapshot.{clusterId,workspaceId,timestamp}`, and `summary.{resourceCount,findingCount,criticalFindingCount,namespaceCount,nodeCount,resourceFamilyCounts,resourceKindCounts}`. It must not return full `latestSnapshot.data` to the browser.
 
+`GET /api/v1/workspaces/{workspaceId}/virtual-machines` and `GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}` return VM metadata, `latestSnapshot.{targetId,workspaceId,timestamp}`, and `summary.{inventoryCount,findingCount,criticalFindingCount,serviceCount,processCount,listenerCount,logCount}`. They must not return full `latestSnapshot.data` to the browser.
+
 Snapshot-derived management-console data is exposed through bounded list APIs:
 
 - `GET /api/v1/workspaces/{workspaceId}/investigations`
@@ -293,7 +296,7 @@ The management console depends on these catalog fields:
 - `permissions.editableRoles`
 - `servers[].{id,name,url,type,enabled,isSystem,canDelete,canEditConnection,authType,connectionStatus,lastDiscoveryAt,lastDiscoveryError}`
 - `servers[].toolCounts.{total,enabledConfigured,enabledEffective,writeConfigured,writeEffective}`
-- `GET /mcp/servers/{serverId}/tools` returns paged tool rows with `{name,description,capability,version,source,enabledConfigured,enabledEffective,effectiveDisabledReason}`
+- `GET /mcp/servers/{serverId}/tools` returns paged tool rows with `{name,description,capability,version,source,enabledConfigured,enabledEffective,effectiveDisabledReason}`. `enabledEffective` includes target runtime availability; write tools on read-only agents return `effectiveDisabledReason=agent_write_disabled`.
 
 Mutation policy exposed to the management console:
 
@@ -307,6 +310,7 @@ Mutation policy exposed to the management console:
 - `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity`
+- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity/stream`
 - `POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/sessions`
 - `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/sessions`
 - `DELETE /api/v1/sessions/{sessionId}`
@@ -337,6 +341,8 @@ Session listing response must remain cursor-based:
 - Run details and approval replay payloads include `targetId` and `targetType`. Approval payloads may include `summary`, a human-readable sentence for approval UI copy. Kubernetes payloads also include `clusterId`; non-Kubernetes targets must not receive a synthetic cluster alias.
 
 Recent target chat activity uses `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity?windowSeconds=300`. It requires target read access, not `create_sessions`. The server clamps optional `windowSeconds` from 60 to 3600 seconds and defaults to `TARGET_CHAT_RECENT_ACTIVITY_WINDOW_SECONDS=300`. The response includes `targetId`, `targetType`, `targetName`, `windowSeconds`, `generatedAt`, and `recentActivity[]`. Each activity row includes `sessionId`, `title`, `createdBy`, optional `createdByUser.{id,displayName}`, `lastActivityAt`, optional latest run metadata, optional active run metadata, `hasActiveRun`, `hasRecentWriteCapableRun`, and optional `latestToolAccessMode`.
+
+Target chat activity streaming uses `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity/stream`. It requires the same target read access as the activity summary endpoint. The stream sends SSE frames with `event: chat_activity`, `id: <activityEventId>`, and a JSON payload containing `{id,workspaceId,targetId,targetType,sessionId,runId?,messageId?,approvalId?,type,payload,createdAt}`. Clients may resume missed events with `Last-Event-ID` or `?after=<activityEventId>`; connections without a resume cursor are live-only and should fetch recent activity or sessions for initial state. Activity event types are `message.created`, `run.created`, `run.status_changed`, `assistant_message.committed`, `approval.requested`, `approval.decided`, `approval.expired`, and `session.deleted`. Activity events identify changed resources and safe approval metadata only; chat message bodies remain fetched through `GET /api/v1/sessions/{sessionId}/messages`.
 
 `POST /api/v1/sessions/{sessionId}/messages` accepts:
 
@@ -379,11 +385,48 @@ Current event types emitted by execution-engine and forwarded by control plane:
 - `run_completed`
 
 The management console deduplicates on `seq`, so the control plane must preserve sequence numbers exactly.
+Run SSE is a long-lived detail stream and may continue sending heartbeats after terminal run events. Clients must treat `run_completed`, `run_failed`, and `run_cancelled` as terminal signals and reconcile through run/session APIs instead of waiting for the SSE request to close.
 Cancellation is terminal. Once cancellation is accepted for a run, the control
 plane must persist and replay `run_cancelled` as the terminal event and must
 ignore later non-terminal execution events such as token deltas, progress,
 assistant completion, or run completion. SSE clients must not receive
 post-terminal assistant content.
+
+### Workspace workflow APIs
+
+Workflows are workspace-scoped automation resources, not synthetic targets. Existing target session and run behavior remains target-scoped.
+
+Implemented management-console routes:
+
+- `GET /api/v1/workspaces/{workspaceId}/workflows`
+- `GET /api/v1/workflows/{workflowId}`
+- `PATCH /api/v1/workflows/{workflowId}`
+- `GET /api/v1/workflows/{workflowId}/sessions`
+- `POST /api/v1/workflows/{workflowId}/sessions`
+- `POST /api/v1/workflow-sessions/{sessionId}/messages`
+
+Workflow create and delete authoring routes are reserved and return `501 NOT_IMPLEMENTED` until full workflow authoring ships:
+
+- `POST /api/v1/workspaces/{workspaceId}/workflows`
+- `DELETE /api/v1/workflows/{workflowId}`
+
+`PATCH /api/v1/workflows/{workflowId}` updates server-owned workflow category, policy approval requirements, and per-step MCP servers, tools, context grants, and approval gates. The route requires workspace `manage_mcp`, records `workflow.scope_updated.v1`, and affects only future session compilation.
+
+Workflow definitions should contain `workflow.{id,workspaceId,name,description,status,category,createdBy,updatedAt}`, typed launch `inputs[]`, ordered `steps[]`, `policy.{mode,maxRuntime,approvalRequirements,retention}`, and `presentation.{icon,launchCopy,defaultStarterPrompt}`. Each step declares required inputs, enabled skills, allowed MCP servers/tools, context grants, and approval gates. Creating a workflow session freezes the definition into a run snapshot so later edits do not alter in-flight runs.
+
+Workflow execution scope must be server-compiled:
+
+- `scope.type = "workspace"`
+- `workflow_id`, `workflow_run_id`, `workflow_session_id`, and current step id are included in run-scoped JWTs for workspace workflow runs.
+- Control-plane dispatches workflow runs to execution-engine with `scope_type = "workspace"` and without synthetic `target_id` or `target_type` fields.
+- Execution bootstrap for workflow runs returns `routing.target_scoped = false`, `routing.workflow_scoped = true`, and context endpoint `GET /internal/v1/workflow-sessions/{workflowSessionId}/context`.
+- `targetRef` is optional and only present when a workflow step explicitly targets a Kubernetes cluster, VM, or future target type.
+- Allowed tools, allowed tool operations, context grants, selected chat-history grants, and read-only/read-write mode are enforced by control plane, execution-engine, and llm-gateway contracts, not by management-console visibility.
+
+Workflow chat history is separate from target chat history. Workflow access to target or workflow chat history requires explicit configured grants, and selected-chat grants must be stored as references rather than copied transcript secrets.
+Workflow session listing responses include workflow run records so management-console can review run history and output through public APIs. Existing `/api/v1/runs/{runId}`, `/events`, `/approvals`, `/stream`, and `/cancel` routes accept workflow run ids while preserving target-run behavior for Kubernetes and VM sessions.
+Workflow approval gates are exposed through `GET /api/v1/runs/{runId}/approvals` using workflow approval resources with `toolName = "workflow.approval_gate"`, workflow identifiers, status, summary, decision, and expiry metadata. `POST /api/v1/runs/{runId}/approvals/{approvalId}/decision` accepts the same decision body as target approvals, requires `create_read_write_runs`, records `workflow.approval_decided.v1`, and dispatches the workflow run only after all gates are approved.
+Workflow built-in MCP tool calls arrive through `POST /internal/v1/mcp/tools/call` with a workflow run-scoped JWT. Control-plane must match the JWT to the persisted workflow run, enforce the server-compiled tool list and tool operations from the frozen workflow access scope, execute only workflow bridge tools, and audit with `source = "workflow_mcp_bridge"`.
 
 ### Webhook APIs
 
@@ -567,7 +610,7 @@ Execution-engine must send `Authorization: Bearer <ORCH_SERVICE_TOKEN>` to:
 Bootstrap response contract:
 
 - `contract_version`
-- `scope.{workspace_id,target_id,target_type,session_id,run_id,user_id}`
+- `scope.{type,workspace_id,target_id?,target_type?,workflow_id?,workflow_run_id?,workflow_session_id?,workflow_step_id?,session_id,run_id,user_id}`. Target runs require `target_id` and `target_type`; workspace workflow runs require `workflow_id`, `workflow_run_id`, and `workflow_session_id` and may omit target binding.
 - `policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}`
 - `context.{endpoint,max_context_tokens}`
 - `llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}`
@@ -599,7 +642,7 @@ Durable approval interrupt contract:
 
 - `POST /internal/v1/runs/{runId}/approvals` creates the pending approval and stores a `run_continuations` row containing the resumable ReAct state and pending tool call. The request may include `summary`, a deterministic, human-readable sentence for approval UI copy.
 - Continuations must not store gateway tokens or other credentials. Resume always calls bootstrap again and revalidates tool allow-list and capability.
-- `GET /internal/v1/runs/{runId}/continuation` returns the stored continuation plus current approval state after approval, rejection, or expiry.
+- `GET /internal/v1/runs/{runId}/continuation` returns the stored continuation plus current approval state after approval, rejection, or expiry. Target approvals include target identifiers; workspace workflow approvals include workflow identifiers and do not require target fields.
 - `POST /execution-started` claims the approved write for at-most-once execution. If a prior attempt was already executing, the control plane returns `execution_status=unknown`, and execution-engine must fail closed without retrying the write.
 - `POST /execution-finished` persists the original write result immediately after the tool call returns.
 - `DELETE /internal/v1/runs/{runId}/continuation` consumes continuation after the resumed loop incorporates the result.

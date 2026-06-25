@@ -19,7 +19,9 @@ const originals = {
   listTargets: repo.listTargets,
   addSession: repo.addSession,
   listRecentTargetChatActivity: repo.listRecentTargetChatActivity,
+  listTargetChatActivityEvents: repo.listTargetChatActivityEvents,
   getSession: repo.getSession,
+  deleteSession: repo.deleteSession,
   getWorkspaceAiSettings: repo.getWorkspaceAiSettings,
   upsertWorkspaceAiSettings: repo.upsertWorkspaceAiSettings,
   findRunByClientMessageId: repo.findRunByClientMessageId,
@@ -31,6 +33,7 @@ const originals = {
   getRunContinuation: repo.getRunContinuation,
   appendRunEvents: repo.appendRunEvents,
   getLatestRunEventSeq: repo.getLatestRunEventSeq,
+  insertTargetChatActivityEvent: repo.insertTargetChatActivityEvent,
   expireRunToolApproval: repo.expireRunToolApproval,
   deleteRunContinuation: repo.deleteRunContinuation,
   updateRun: repo.updateRun,
@@ -54,7 +57,9 @@ export function restoreControllerRegressionState(): void {
   repo.listTargets = originals.listTargets;
   repo.addSession = originals.addSession;
   repo.listRecentTargetChatActivity = originals.listRecentTargetChatActivity;
+  repo.listTargetChatActivityEvents = originals.listTargetChatActivityEvents;
   repo.getSession = originals.getSession;
+  repo.deleteSession = originals.deleteSession;
   repo.getWorkspaceAiSettings = originals.getWorkspaceAiSettings;
   repo.upsertWorkspaceAiSettings = originals.upsertWorkspaceAiSettings;
   repo.findRunByClientMessageId = originals.findRunByClientMessageId;
@@ -66,6 +71,7 @@ export function restoreControllerRegressionState(): void {
   repo.getRunContinuation = originals.getRunContinuation;
   repo.appendRunEvents = originals.appendRunEvents;
   repo.getLatestRunEventSeq = originals.getLatestRunEventSeq;
+  repo.insertTargetChatActivityEvent = originals.insertTargetChatActivityEvent;
   repo.expireRunToolApproval = originals.expireRunToolApproval;
   repo.deleteRunContinuation = originals.deleteRunContinuation;
   repo.updateRun = originals.updateRun;
@@ -168,6 +174,19 @@ export function installWorkspace(role: Role | null): void {
     summary: event.summary,
     metadata: event.metadata ?? {},
     occurredAt: '2026-05-24T00:00:00.000Z'
+  });
+  repo.insertTargetChatActivityEvent = async (event) => ({
+    id: 'activity-event-1',
+    workspaceId: event.workspaceId,
+    targetId: event.targetId,
+    targetType: event.targetType,
+    sessionId: event.sessionId,
+    ...(event.runId ? { runId: event.runId } : {}),
+    ...(event.messageId ? { messageId: event.messageId } : {}),
+    ...(event.approvalId ? { approvalId: event.approvalId } : {}),
+    type: event.type,
+    payload: event.payload ?? {},
+    createdAt: '2026-05-24T00:00:00.000Z'
   });
   repo.getWorkspaceAiSettings = async () => null;
 }

@@ -3,11 +3,11 @@ import { createLocalJWKSet, exportJWK, jwtVerify, SignJWT, type JSONWebKeySet, t
 import { type AppConfig, config } from '../config.js';
 import { isTargetType, type TargetType, type WorkspaceAuditOperation } from '../types/domain.js';
 
-export interface RunScopeClaims {
+export type RunScopeType = 'target' | 'workspace';
+
+interface BaseRunScopeClaims {
   runId: string;
   workspaceId: string;
-  targetId: string;
-  targetType: TargetType;
   sessionId: string;
   allowedProviders: string[];
   allowedTools: string[];
@@ -16,9 +16,36 @@ export interface RunScopeClaims {
   allowedModels?: string[];
 }
 
-export interface VerifiedRunScopeClaims extends RunScopeClaims {
+export interface TargetRunScopeClaims extends BaseRunScopeClaims {
+  scopeType?: 'target';
+  targetId: string;
+  targetType: TargetType;
+}
+
+export interface WorkflowRunScopeClaims extends BaseRunScopeClaims {
+  scopeType: 'workspace';
+  workflowId: string;
+  workflowRunId: string;
+  workflowSessionId: string;
+  workflowStepId?: string;
+  contextGrants?: string[];
+  targetId?: string;
+  targetType?: TargetType;
+}
+
+export type RunScopeClaims = TargetRunScopeClaims | WorkflowRunScopeClaims;
+
+export interface VerifiedRunScopeClaims extends BaseRunScopeClaims {
   subject: string;
   tokenId?: string;
+  scopeType: RunScopeType;
+  targetId?: string;
+  targetType?: TargetType;
+  workflowId?: string;
+  workflowRunId?: string;
+  workflowSessionId?: string;
+  workflowStepId?: string;
+  contextGrants: string[];
 }
 
 interface KeyMaterial {
@@ -97,6 +124,17 @@ function stringArrayClaim(value: unknown, key: string): string[] {
   return value;
 }
 
+function optionalStringClaim(payload: JWTPayload, key: string): string | undefined {
+  const value = payload[key];
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`Gateway token claim ${key} must be a non-empty string when present`);
+  }
+  return value;
+}
+
 function toolOperationMapClaim(value: unknown): Record<string, WorkspaceAuditOperation> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
@@ -119,10 +157,11 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
   if (subject !== `run:${runId}`) {
     throw new Error('Gateway token subject must match run_id');
   }
-  const targetType = stringClaim(payload, 'target_type');
-  if (!isTargetType(targetType)) {
-    throw new Error('Gateway token claim target_type is unsupported');
-  }
+  const rawScope = payload.scope;
+  const scopeType: RunScopeType =
+    rawScope && typeof rawScope === 'object' && !Array.isArray(rawScope) && (rawScope as { type?: unknown }).type === 'workspace'
+      ? 'workspace'
+      : 'target';
   const permissions = payload.permissions;
   if (!permissions || typeof permissions !== 'object' || Array.isArray(permissions)) {
     throw new Error('Gateway token permissions must be an object');
@@ -133,19 +172,47 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
     throw new Error('Gateway token permission max_output_tokens must be a number or null');
   }
 
-  return {
+  const baseClaims = {
     subject,
     tokenId: typeof payload.jti === 'string' ? payload.jti : undefined,
     runId,
+    scopeType,
     workspaceId: stringClaim(payload, 'workspace_id'),
-    targetId: stringClaim(payload, 'target_id'),
-    targetType,
     sessionId: stringClaim(payload, 'session_id'),
     allowedProviders: stringArrayClaim(permissionObject.allowed_providers, 'allowed_providers'),
     allowedTools: stringArrayClaim(permissionObject.allowed_tools, 'allowed_tools'),
     allowedToolOperations: toolOperationMapClaim(permissionObject.allowed_tool_operations),
     allowedModels: stringArrayClaim(permissionObject.allowed_models, 'allowed_models'),
-    maxOutputTokens: typeof maxOutputTokens === 'number' ? maxOutputTokens : undefined
+    maxOutputTokens: typeof maxOutputTokens === 'number' ? maxOutputTokens : undefined,
+    contextGrants: permissionObject.context_grants === undefined
+      ? []
+      : stringArrayClaim(permissionObject.context_grants, 'context_grants')
+  };
+
+  if (scopeType === 'workspace') {
+    const targetType = optionalStringClaim(payload, 'target_type');
+    if (targetType !== undefined && !isTargetType(targetType)) {
+      throw new Error('Gateway token claim target_type is unsupported');
+    }
+    return {
+      ...baseClaims,
+      workflowId: stringClaim(payload, 'workflow_id'),
+      workflowRunId: stringClaim(payload, 'workflow_run_id'),
+      workflowSessionId: stringClaim(payload, 'workflow_session_id'),
+      workflowStepId: optionalStringClaim(payload, 'workflow_step_id'),
+      targetId: optionalStringClaim(payload, 'target_id'),
+      targetType
+    };
+  }
+
+  const targetType = stringClaim(payload, 'target_type');
+  if (!isTargetType(targetType)) {
+    throw new Error('Gateway token claim target_type is unsupported');
+  }
+  return {
+    ...baseClaims,
+    targetId: stringClaim(payload, 'target_id'),
+    targetType
   };
 }
 
@@ -164,6 +231,17 @@ export class GatewayTokenService {
     const now = Math.floor(Date.now() / 1000);
     const exp = now + this.appConfig.GATEWAY_TOKEN_TTL_SECONDS;
 
+    const permissionPayload: Record<string, unknown> = {
+      allowed_providers: input.allowedProviders,
+      allowed_tools: input.allowedTools,
+      allowed_tool_operations: input.allowedToolOperations || {},
+      max_output_tokens: input.maxOutputTokens ?? null,
+      allowed_models: input.allowedModels || []
+    };
+    if (input.scopeType === 'workspace') {
+      permissionPayload.context_grants = input.contextGrants || [];
+    }
+
     const payload: JWTPayload = {
       iss: this.appConfig.GATEWAY_TOKEN_ISSUER,
       aud: this.appConfig.GATEWAY_TOKEN_AUDIENCE,
@@ -173,17 +251,28 @@ export class GatewayTokenService {
       jti: randomUUID(),
       run_id: input.runId,
       workspace_id: input.workspaceId,
-      target_id: input.targetId,
-      target_type: input.targetType,
       session_id: input.sessionId,
-      permissions: {
-        allowed_providers: input.allowedProviders,
-        allowed_tools: input.allowedTools,
-        allowed_tool_operations: input.allowedToolOperations || {},
-        max_output_tokens: input.maxOutputTokens ?? null,
-        allowed_models: input.allowedModels || []
-      }
+      permissions: permissionPayload
     };
+
+    if (input.scopeType === 'workspace') {
+      payload.scope = { type: 'workspace' };
+      payload.workflow_id = input.workflowId;
+      payload.workflow_run_id = input.workflowRunId;
+      payload.workflow_session_id = input.workflowSessionId;
+      if (input.workflowStepId) {
+        payload.workflow_step_id = input.workflowStepId;
+      }
+      if (input.targetId) {
+        payload.target_id = input.targetId;
+      }
+      if (input.targetType) {
+        payload.target_type = input.targetType;
+      }
+    } else {
+      payload.target_id = input.targetId;
+      payload.target_type = input.targetType;
+    }
 
     return new SignJWT(payload)
       .setProtectedHeader({ alg: 'RS256', typ: 'JWT', kid: this.appConfig.GATEWAY_SIGNING_KID })

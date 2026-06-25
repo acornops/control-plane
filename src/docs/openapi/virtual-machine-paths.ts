@@ -19,7 +19,7 @@ const externalUserHeader = {
   name: 'x-acornops-external-user-id',
   required: false,
   schema: { type: 'string', minLength: 1, maxLength: 128 },
-  description: 'Required only for external integration service-token requests. Must identify a linked external integration user.'
+  description: 'Required only for external integration client-token requests. Must identify a linked external integration user.'
 };
 
 export function buildVirtualMachinePaths(): Record<string, unknown> {
@@ -28,8 +28,8 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
       get: {
         tags: ['workspaces'],
         summary: 'List virtual machines in a workspace',
-        description: 'Browser callers use the session cookie. External integration callers may use the external integration service token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
-        security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
+        description: 'Browser callers use the session cookie. External integration callers may use the external integration client token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
+        security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
         parameters: [
           externalUserHeader,
           workspaceParam,
@@ -38,7 +38,7 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
           { in: 'query', name: 'q', required: false, schema: { type: 'string' } },
           { in: 'query', name: 'status', required: false, schema: { type: 'string' } }
         ],
-        responses: { '200': { description: 'Virtual machine summary page payload: { items, nextCursor? }.' } }
+        responses: { '200': { description: 'Virtual machine summary page payload: { items, nextCursor? }. Items include latestSnapshot.{targetId,workspaceId,timestamp} and summary.{inventoryCount,findingCount,criticalFindingCount,serviceCount,processCount,listenerCount,logCount}.' } }
       },
       post: {
         tags: ['workspaces'],
@@ -77,10 +77,10 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
       get: {
         tags: ['workspaces'],
         summary: 'Get virtual machine details and latest snapshot summary',
-        description: 'Browser callers use the session cookie. External integration callers may use the external integration service token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
-        security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
+        description: 'Browser callers use the session cookie. External integration callers may use the external integration client token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
+        security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
         parameters: [externalUserHeader, workspaceParam, vmParam],
-        responses: { '200': { description: 'VM details with latestSnapshot timestamp and summary counts.' } }
+        responses: { '200': { description: 'VM details with latestSnapshot.{targetId,workspaceId,timestamp} and summary.{inventoryCount,findingCount,criticalFindingCount,serviceCount,processCount,listenerCount,logCount}.' } }
       },
       patch: {
         tags: ['workspaces'],
@@ -129,8 +129,8 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
       get: {
         tags: ['workspaces'],
         summary: 'List snapshot-derived VM inventory items',
-        description: 'Browser callers use the session cookie. External integration callers may use the external integration service token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
-        security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
+        description: 'Browser callers use the session cookie. External integration callers may use the external integration client token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
+        security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
         parameters: [externalUserHeader, workspaceParam, vmParam],
         responses: { '200': { description: 'VM inventory page payload: { items, nextCursor? }.' } }
       }
@@ -139,8 +139,8 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
       get: {
         tags: ['workspaces'],
         summary: 'List snapshot-derived VM findings',
-        description: 'Browser callers use the session cookie. External integration callers may use the external integration service token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
-        security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
+        description: 'Browser callers use the session cookie. External integration callers may use the external integration client token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
+        security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
         parameters: [externalUserHeader, workspaceParam, vmParam],
         responses: { '200': { description: 'VM findings page payload: { items, nextCursor? }.' } }
       }

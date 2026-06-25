@@ -19,7 +19,7 @@ const externalUserHeader = {
   name: 'x-acornops-external-user-id',
   required: false,
   schema: { type: 'string', minLength: 1, maxLength: 128 },
-  description: 'Required only for external integration service-token requests. Must identify a linked external integration user.'
+  description: 'Required only for external integration client-token requests. Must identify a linked external integration user.'
 };
 
 export function buildWorkspacePaths(): Record<string, unknown> {
@@ -28,8 +28,8 @@ export function buildWorkspacePaths(): Record<string, unknown> {
         get: {
           tags: ['workspaces'],
           summary: 'List workspaces available to current user',
-          description: 'Browser callers use the session cookie. Phase-1 external integration callers may use the external integration service token plus x-acornops-external-user-id for a linked external user; external integration workspace summaries are scoped to read_workspace_data only.',
-          security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
+          description: 'Browser callers use the session cookie. Phase-1 external integration callers may use the external integration client token plus x-acornops-external-user-id for a linked external user; external integration workspace summaries are scoped to read_workspace_data only.',
+          security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
             externalUserHeader,
             { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
@@ -68,8 +68,8 @@ export function buildWorkspacePaths(): Record<string, unknown> {
         get: {
           tags: ['workspaces'],
           summary: 'Get a workspace summary available to current user',
-          description: 'Browser callers use the session cookie. Phase-1 external integration callers may use the external integration service token plus x-acornops-external-user-id for a linked external user; external integration workspace summaries are scoped to read_workspace_data only.',
-          security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
+          description: 'Browser callers use the session cookie. Phase-1 external integration callers may use the external integration client token plus x-acornops-external-user-id for a linked external user; external integration workspace summaries are scoped to read_workspace_data only.',
+          security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
             externalUserHeader,
             {
@@ -174,7 +174,7 @@ export function buildWorkspacePaths(): Record<string, unknown> {
           ],
           responses: {
             '200': {
-              description: 'Deployment-supported role catalog: { items: RoleTemplate[] }. Role templates include key, displayName, description, kind, capabilities, protected, and sortOrder.'
+              description: 'Deployment-supported role catalog: { items: RoleTemplate[] }. Role templates include key, displayName, description, kind, capabilities, capabilityGroups[].{key,capabilities,sortOrder}, protected, and sortOrder.'
             },
             '403': { description: 'No workspace read access.' }
           }
@@ -220,7 +220,7 @@ export function buildWorkspacePaths(): Record<string, unknown> {
                   properties: {
                     defaultProvider: llmProviderSchema,
                     defaultModel: { type: 'string', example: 'gpt-5.5' },
-                    reasoningSummaryMode: { type: 'string', enum: ['off', 'auto', 'concise', 'detailed'], default: 'off' },
+                    reasoningSummaryMode: { type: 'string', enum: ['off', 'auto', 'concise', 'detailed'], default: 'auto' },
                     reasoningEffort: { type: 'string', enum: ['default', 'low', 'medium', 'high'], default: 'default' }
                   }
                 }
@@ -411,8 +411,8 @@ export function buildWorkspacePaths(): Record<string, unknown> {
         get: {
           tags: ['workspaces'],
           summary: 'List snapshot-derived investigations for a workspace',
-          description: 'Browser callers use the session cookie. External integration callers may use the external integration service token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
-          security: [{ userSession: [] }, { externalIntegrationServiceToken: [] }],
+          description: 'Browser callers use the session cookie. External integration callers may use the external integration client token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
+          security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
             externalUserHeader,
             { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },

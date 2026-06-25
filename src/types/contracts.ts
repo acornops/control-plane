@@ -65,11 +65,14 @@ export const runCommitSchema = z.object({
     input_tokens: z.number().int().nonnegative(),
     output_tokens: z.number().int().nonnegative(),
     tool_calls: z.number().int().nonnegative().default(0),
-    reasoning_tokens: z.number().int().nonnegative().optional()
+    reasoning_tokens: z.preprocess(
+      (value) => (value === null ? undefined : value),
+      z.number().int().nonnegative().optional()
+    )
   }),
   timing: z.object({
-    started_at: z.string().datetime(),
-    ended_at: z.string().datetime()
+    started_at: z.string().datetime({ offset: true }),
+    ended_at: z.string().datetime({ offset: true })
   })
 });
 
@@ -108,7 +111,7 @@ export const reasoningEffortSchema = z.enum(['default', 'low', 'medium', 'high']
 export const updateWorkspaceAiSettingsSchema = z.object({
   defaultProvider: llmProviderSchema,
   defaultModel: z.string().trim().min(1).max(160),
-  reasoningSummaryMode: reasoningSummaryModeSchema.optional().default('off'),
+  reasoningSummaryMode: reasoningSummaryModeSchema.optional(),
   reasoningEffort: reasoningEffortSchema.optional().default('default')
 }).strict();
 
