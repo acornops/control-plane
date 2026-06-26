@@ -389,7 +389,7 @@ describe('external integration link contract', () => {
   });
 
   it('requires a registered external integration client token', async () => {
-    const requireClientActor = requireActor(['externalIntegration'], { externalIntegrationMode: 'client' });
+    const requireClientActor = requireActor(['externalIntegrationClient']);
     const deniedRes = createResponse();
     let nextCalled = false;
     await requireClientActor(

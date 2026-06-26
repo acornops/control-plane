@@ -175,6 +175,7 @@ assert(authMiddleware.includes('export type ActorKind'), 'auth middleware must e
 assert(authMiddleware.includes("export function requireActor(allowedActors: ActorRequirement): RequestHandler"), 'auth middleware must expose requireActor');
 assert(!authMiddleware.includes('export const requireUser'), 'auth middleware must not export requireUser alias');
 assert(!authMiddleware.includes('export const requireExternalIntegration'), 'auth middleware must not export requireExternalIntegration alias');
+assert(!authMiddleware.includes('export function requireExternalIntegrationClient'), 'auth middleware must not export direct external integration client middleware');
 assert(!authMiddleware.includes('export const requireUserOrExternalIntegration'), 'auth middleware must not export requireUserOrExternalIntegration alias');
 assert(!listFiles('src').filter((file) => file.endsWith('.ts')).some((file) => read(file).includes('authUserId')), 'authUserId must not remain in src');
 
@@ -308,6 +309,10 @@ const routeFiles = listFiles('src/routes').filter((file) => file.endsWith('.ts')
 for (const routeFile of routeFiles) {
   const source = read(routeFile);
   assert(!/\brequireUser\b/.test(source), `${routeFile} must use requireActor(['user']) instead of requireUser`);
+  assert(
+    !/\brequireExternalIntegrationClient\b/.test(source),
+    `${routeFile} must use requireActor(['externalIntegrationClient']) instead of requireExternalIntegrationClient`
+  );
   assert(
     !/\brequireUserOrExternalIntegration\b/.test(source),
     `${routeFile} must use requireActor(['user', 'externalIntegration']) instead of requireUserOrExternalIntegration`

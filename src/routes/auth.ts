@@ -8,6 +8,7 @@ import * as passwordResetController from '../controllers/password-reset-controll
 
 export const authRouter = Router();
 const authed = authenticatedHandler;
+const requireExternalIntegrationClientActor = requireActor(['externalIntegrationClient']);
 
 authRouter.get('/auth/config', authController.authConfig);
 authRouter.get('/auth/csrf', authController.csrfToken);
@@ -18,21 +19,9 @@ authRouter.post('/auth/external-integrations/link/preview', requireActor(['user'
 authRouter.post('/auth/external-integrations/link/complete', requireActor(['user']), authed(externalIntegrationLinkController.completeExternalIntegrationLinkRequest));
 authRouter.get('/auth/external-integrations/links', requireActor(['user']), authed(externalIntegrationLinkController.listExternalIntegrationLinks));
 authRouter.post('/auth/external-integrations/links/unlink', requireActor(['user']), authed(externalIntegrationLinkController.unlinkExternalIntegrationLink));
-authRouter.post(
-  '/auth/external-integrations/link',
-  requireActor(['externalIntegration'], { externalIntegrationMode: 'client' }),
-  externalIntegrationLinkController.createExternalIntegrationLinkRequest
-);
-authRouter.post(
-  '/auth/external-integrations/resolve',
-  requireActor(['externalIntegration'], { externalIntegrationMode: 'client' }),
-  externalIntegrationLinkController.resolveExternalIntegrationLink
-);
-authRouter.post(
-  '/auth/external-integrations/revoke',
-  requireActor(['externalIntegration'], { externalIntegrationMode: 'client' }),
-  externalIntegrationLinkController.revokeExternalIntegrationLink
-);
+authRouter.post('/auth/external-integrations/link', requireExternalIntegrationClientActor, externalIntegrationLinkController.createExternalIntegrationLinkRequest);
+authRouter.post('/auth/external-integrations/resolve', requireExternalIntegrationClientActor, externalIntegrationLinkController.resolveExternalIntegrationLink);
+authRouter.post('/auth/external-integrations/revoke', requireExternalIntegrationClientActor, externalIntegrationLinkController.revokeExternalIntegrationLink);
 authRouter.post('/auth/password/login', authController.passwordLogin);
 authRouter.post('/auth/password/signup', authController.passwordSignup);
 authRouter.post('/auth/password/verify-email', emailVerificationController.verifyPasswordEmail);
