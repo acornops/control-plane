@@ -305,6 +305,8 @@
         "GET /api/v1/workspaces",
         "GET /api/v1/workspaces/{workspaceId}",
         "GET /api/v1/workspaces/{workspaceId}/investigations",
+        "GET /api/v1/workspaces/{workspaceId}/targets",
+        "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}",
         "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters",
         "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}",
         "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/resources",

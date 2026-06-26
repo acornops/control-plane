@@ -7,7 +7,7 @@ import { validateBody } from '../../utils/http.js';
 const authed = authenticatedHandler;
 
 export function registerTargetRoutes(router: Router): void {
-  router.get('/workspaces/:workspaceId/targets', requireActor(['user']), authed(workspacesController.listTargets));
+  router.get('/workspaces/:workspaceId/targets', requireActor(['user', 'externalIntegration']), authed(workspacesController.listTargets));
   router.get(
     '/workspaces/:workspaceId/targets/:targetId/tools/catalog',
     requireActor(['user']),
@@ -46,5 +46,5 @@ export function registerTargetRoutes(router: Router): void {
     authed(workspacesController.testTargetMcpServerConnectionForTarget)
   );
   router.patch('/workspaces/:workspaceId/targets/:targetId/tools/:toolName', requireActor(['user']), authed(workspacesController.updateTargetToolSettings));
-  router.get('/workspaces/:workspaceId/targets/:targetId', requireActor(['user']), authed(workspacesController.getTarget));
+  router.get('/workspaces/:workspaceId/targets/:targetId', requireActor(['user', 'externalIntegration']), authed(workspacesController.getTarget));
 }

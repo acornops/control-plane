@@ -1,14 +1,24 @@
 import { EXAMPLE_MCP_SERVER_ID, EXAMPLE_TARGET_ID, EXAMPLE_WORKSPACE_ID } from '../../constants/dev-defaults.js';
 import { TARGET_TYPES } from '../../types/domain.js';
 
+const externalUserHeader = {
+  in: 'header',
+  name: 'x-acornops-external-user-id',
+  required: false,
+  schema: { type: 'string', minLength: 1, maxLength: 128 },
+  description: 'Required only for external integration client-token requests. Must identify a linked external integration user.'
+};
+
 export function buildTargetPaths(exampleServerUrl: string): Record<string, unknown> {
   return {
     '/api/v1/workspaces/{workspaceId}/targets': {
       get: {
         tags: ['workspaces'],
         summary: 'List targets in a workspace',
-        security: [{ userSession: [] }],
+        description: 'Browser callers use the session cookie. External integration callers may use the external integration client token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
+        security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
         parameters: [
+          externalUserHeader,
           { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
           { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
           { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } },
@@ -25,8 +35,10 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
       get: {
         tags: ['workspaces'],
         summary: 'Get target summary',
-        security: [{ userSession: [] }],
+        description: 'Browser callers use the session cookie. External integration callers may use the external integration client token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
+        security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
         parameters: [
+          externalUserHeader,
           { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
           { in: 'path', name: 'targetId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_TARGET_ID } }
         ],

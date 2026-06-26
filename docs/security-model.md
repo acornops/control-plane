@@ -49,12 +49,12 @@
 - External integration credentials are default-deny except for
   `read_workspace_data`, `create_sessions`, and `create_read_only_runs`,
   intersected with the linked user's workspace role. In phase 1 they are
-  accepted only by workspace summary/list, Kubernetes and VM overview/list,
-  snapshot resource/finding/investigation reads, read-only session/message
-  routes, and run observation routes. Operational target data and read-only
-  assistant conversations are visible; member, audit, logs, read-write runs,
-  approval decisions, cancellation, deletion, settings, and management
-  capabilities remain denied.
+  accepted only by workspace summary/list, generic target summary/list,
+  Kubernetes and VM overview/list, snapshot resource/finding/investigation
+  reads, read-only session/message routes, and run observation routes.
+  Operational target data and read-only assistant conversations are visible;
+  member, audit, logs, read-write runs, approval decisions, cancellation,
+  deletion, settings, and management capabilities remain denied.
 - Direct public agent tool calls are not exposed by the control plane; troubleshooting tool execution must use run-scoped gateway authorization.
 
 ## Admin Audit

@@ -32,13 +32,13 @@ x-acornops-external-user-id: {externalUserId}
 `x-acornops-external-user-id` must be the same stable external user id that was
 linked through the account-link flow.
 
-If the external user is not linked, AcornOps returns `401`. The bot should then
-start or repeat the account-link flow.
+If the external user is not linked, AcornOps returns `401`. A caller can use the
+account-link flow below to create a link URL.
 
 ## Account Link Flow
 
-Before calling operational endpoints, the bot should resolve whether the user is
-linked:
+Callers can resolve whether an external user is linked before calling
+operational endpoints:
 
 ```http
 POST {ACORNOPS_API_BASE_URL}/api/v1/auth/external-integrations/resolve
@@ -221,6 +221,68 @@ Workspace summary items include:
 
 For bot calls, `memberCount` and `quota.members.used` are redacted because the
 bot does not have `read_members`.
+
+### Example Adapter Command Mapping
+
+AcornOps does not parse chat commands. The external bot adapter owns command
+parsing, list numbering, selected workspace, selected target, current session,
+latest run, and any per-chat state.
+
+The examples below are non-normative. They show how an adapter could map a
+simple chat command set onto the AcornOps endpoints in this document:
+
+- `status`: call the account link resolve endpoint and report whether the
+  external user is linked.
+- `workspaces`: call workspace discovery endpoints.
+- `workspace` and `workspace N`: show or select a workspace from adapter state.
+- `targets`: list generic Kubernetes and VM targets in the current workspace.
+- `target` and `target N`: show or select the current generic target.
+- `clusters`, `cluster N`, `vms`, and `vm N`: optional shortcuts that can keep
+  using the Kubernetes- and VM-specific endpoints.
+- `resources`, `findings`, `sessions`, `session`, and `messages`: use the
+  selected target or session and the endpoints below.
+- `ask <question>`: create or reuse a read-only session, post a message, follow
+  the returned run, and render the final assistant reply.
+- `watch`: follow the latest run known to the adapter for the chat context.
+- `run <runId>`: fetch run state, run events, and related session messages.
+
+List endpoints are cursor-paged. An adapter that wants to avoid user-facing
+pagination can auto-page internally with an implementation-defined cap and
+render one combined response. The API does not provide an unbounded `all`
+response.
+
+### Target Discovery
+
+List generic targets in a workspace:
+
+```http
+GET {ACORNOPS_API_BASE_URL}/api/v1/workspaces/{workspaceId}/targets?limit=50&cursor={cursor}&q={search}&targetType=kubernetes
+```
+
+Get one target summary:
+
+```http
+GET {ACORNOPS_API_BASE_URL}/api/v1/workspaces/{workspaceId}/targets/{targetId}
+```
+
+Representative target:
+
+```json
+{
+  "id": "target-id",
+  "workspaceId": "workspace-id",
+  "targetType": "virtual_machine",
+  "name": "payments-vm-01",
+  "status": "online",
+  "metadata": {},
+  "createdAt": "2026-06-01T00:00:00.000Z",
+  "updatedAt": "2026-06-01T00:00:00.000Z"
+}
+```
+
+The `targetType` filter is optional and currently accepts `kubernetes` or
+`virtual_machine`. Invalid values return `400 VALIDATION_ERROR` instead of
+widening the query.
 
 ### Workspace Investigations
 
@@ -476,7 +538,7 @@ Content-Type: application/json
 }
 ```
 
-Create a VM session:
+Create a target-scoped session for a selected target:
 
 ```http
 POST {ACORNOPS_API_BASE_URL}/api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions
@@ -487,7 +549,7 @@ Content-Type: application/json
 
 ```json
 {
-  "title": "Investigate VM service health"
+  "title": "Investigate target health"
 }
 ```
 
@@ -511,6 +573,8 @@ Session response:
 ```
 
 For VM sessions, `targetType` is `virtual_machine` and `clusterId` is omitted.
+For Kubernetes target-scoped sessions, `targetType` is `kubernetes` and
+`clusterId` matches `targetId`.
 
 List sessions for a Kubernetes cluster:
 
@@ -642,6 +706,42 @@ The bot may display approval state, but it must not attempt to decide approvals.
 The approval decision endpoint requires a browser user session and is not allowed
 for external integration credentials.
 
+### Example Run-Following Flow
+
+An adapter that wants a user command such as `ask <question>` to include the
+final assistant reply can combine the session, message, run stream, and message
+list endpoints:
+
+1. Resolve the selected workspace and selected target from adapter state.
+2. Create a target-scoped session when there is no current session for the chat
+   context:
+
+   ```http
+   POST {ACORNOPS_API_BASE_URL}/api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions
+   ```
+
+3. Post the question with read-only tool access:
+
+   ```http
+   POST {ACORNOPS_API_BASE_URL}/api/v1/sessions/{sessionId}/messages
+   ```
+
+   Use `toolAccessMode: "read_only"` and a stable `clientMessageId`.
+
+4. Use the returned `run_id` as the run to observe.
+5. Prefer `GET /api/v1/runs/{runId}/stream` for live progress. Treat
+   `run_completed`, `run_failed`, and `run_cancelled` as terminal signals.
+6. If SSE is unavailable, poll `GET /api/v1/runs/{runId}` and optionally read
+   `GET /api/v1/runs/{runId}/events` for progress.
+7. Once the run is terminal, call
+   `GET /api/v1/sessions/{sessionId}/messages` and render the newest assistant
+   message for that run/session.
+
+An adapter can use the same run-following sequence for a command such as
+`watch`. A command such as `run <runId>` can call `GET /api/v1/runs/{runId}`,
+`GET /api/v1/runs/{runId}/events`, and, when the run response includes
+`sessionId`, `GET /api/v1/sessions/{sessionId}/messages`.
+
 ## Recent Target Chat Activity
 
 The bot can read recent chat activity for a target:
@@ -685,19 +785,22 @@ credentials:
 These routes require browser sessions, admin tokens, or internal service tokens,
 and AcornOps will reject the external integration credential.
 
-## Recommended Bot Behavior
+## Example Integration Sequence
+
+One possible integration sequence is:
 
 1. Resolve link status for the external user.
 2. If unlinked, create a link URL and ask the user to complete browser linking.
 3. List workspaces and ask the user to choose when needed.
-4. Use workspace, cluster, VM, resource, finding, and investigation reads to
-   gather context.
+4. Use workspace, target, cluster, VM, resource, finding, and investigation
+   reads to gather context.
 5. For assistant interactions, create a target session if one does not already
    exist for the conversation context.
 6. Post messages with `toolAccessMode: "read_only"` and a stable
    `clientMessageId`.
-7. Poll `GET /api/v1/runs/{runId}` and `GET /api/v1/sessions/{sessionId}/messages`,
-   or consume `GET /api/v1/runs/{runId}/stream`.
-8. Never log client tokens, link URLs, link tokens, run stream payloads that may
-   contain sensitive operational data, or user prompts unless the deployment's
-   logging policy explicitly permits it.
+7. Prefer `GET /api/v1/runs/{runId}/stream`, fall back to
+   `GET /api/v1/runs/{runId}` and `GET /api/v1/runs/{runId}/events`, then fetch
+   `GET /api/v1/sessions/{sessionId}/messages` for the final assistant reply.
+8. Apply the deployment logging policy. Do not log client tokens, link URLs,
+   link tokens, run stream payloads that may contain sensitive operational data,
+   or user prompts unless that policy explicitly permits it.
