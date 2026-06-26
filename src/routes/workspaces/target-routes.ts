@@ -7,7 +7,9 @@ import {
   importTargetSkillSchema,
   reimportTargetSkillSchema,
   updateMcpServerSchema,
-  updateTargetSkillSchema
+  updateTargetMcpServerToolSchema,
+  updateTargetSkillSchema,
+  updateTargetToolSchema
 } from '../../types/contracts.js';
 import { validateBody } from '../../utils/http.js';
 
@@ -16,9 +18,14 @@ const authed = authenticatedHandler;
 export function registerTargetRoutes(router: Router): void {
   router.get('/workspaces/:workspaceId/targets', requireUser, authed(workspacesController.listTargets));
   router.get(
-    '/workspaces/:workspaceId/targets/:targetId/tools/catalog',
+    '/workspaces/:workspaceId/targets/:targetId/mcp/catalog',
     requireUser,
-    authed(workspacesController.listTargetToolsCatalog)
+    authed(workspacesController.listTargetMcpCatalog)
+  );
+  router.get(
+    '/workspaces/:workspaceId/targets/:targetId/tools',
+    requireUser,
+    authed(workspacesController.listTargetTools)
   );
   router.get(
     '/workspaces/:workspaceId/targets/:targetId/mcp/servers',
@@ -92,8 +99,15 @@ export function registerTargetRoutes(router: Router): void {
     authed(workspacesController.testTargetMcpServerConnectionForTarget)
   );
   router.patch(
-    '/workspaces/:workspaceId/targets/:targetId/tools/:toolName',
+    '/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/tools/:toolName',
     requireUser,
+    validateBody(updateTargetMcpServerToolSchema),
+    authed(workspacesController.updateTargetMcpServerToolSettings)
+  );
+  router.patch(
+    '/workspaces/:workspaceId/targets/:targetId/tools/:toolId',
+    requireUser,
+    validateBody(updateTargetToolSchema),
     authed(workspacesController.updateTargetToolSettings)
   );
   router.get('/workspaces/:workspaceId/targets/:targetId', requireUser, authed(workspacesController.getTarget));

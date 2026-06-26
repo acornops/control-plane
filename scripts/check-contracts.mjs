@@ -137,8 +137,10 @@ for (const [docPath, routeNeedle, source, label] of [
   ['`DELETE /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}`', "workspacesRouter.delete('/workspaces/:workspaceId/kubernetes-clusters/:clusterId'", workspaceRoutes, 'Delete cluster route'],
   ['`POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/rotate-agent-key`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/rotate-agent-key'", workspaceRoutes, 'Rotate agent-key route'],
   ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/pods/{namespace}/{podName}/logs`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/pods/:namespace/:podName/logs'", workspaceRoutes, 'Pod logs route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/tools/catalog`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/tools/catalog'", workspaceRoutes, 'Tools catalog route'],
-  ['`PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolName}`', "'/workspaces/:workspaceId/targets/:targetId/tools/:toolName'", workspaceRoutes, 'Target tool patch route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/catalog`', "'/workspaces/:workspaceId/targets/:targetId/mcp/catalog'", workspaceRoutes, 'Target MCP catalog route'],
+  ['`PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools/{toolName}`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/tools/:toolName'", workspaceRoutes, 'Target MCP tool patch route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools`', "'/workspaces/:workspaceId/targets/:targetId/tools'", workspaceRoutes, 'Target tools route'],
+  ['`PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolId}`', "'/workspaces/:workspaceId/targets/:targetId/tools/:toolId'", workspaceRoutes, 'Target tool settings patch route'],
   ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`', "workspacesRouter.get('/workspaces/:workspaceId/targets/:targetId/mcp/servers'", workspaceRoutes, 'List target MCP servers route'],
   ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/tools'", workspaceRoutes, 'List target MCP server tools route'],
   ['`POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers'", workspaceRoutes, 'Create target MCP server route'],
@@ -310,8 +312,9 @@ expectIncludes(configSource, 'WORKSPACE_AUDIT_LOGGING_MODE', 'Workspace audit lo
 expectIncludes(configSource, 'WORKSPACE_AUDIT_RETENTION_DAYS', 'Workspace audit retention config');
 
 for (const contractToken of [
-  'Roles with both `permissions.manage_tools` and `permissions.manage_mcp` may mutate tool settings and MCP server configuration.',
-  'Roles without both management capabilities are read-only for tool and MCP configuration.',
+  'Roles with `permissions.manage_mcp` may mutate MCP server configuration.',
+  'Roles with `permissions.manage_tools` may mutate MCP per-tool enablement and built-in tool settings.',
+  'Roles without the relevant management capability are read-only for that configuration surface.',
   '{ items, nextCursor? }',
   'sessionPolicy.allowedTools',
   'sessionPolicy.writeEnabled',

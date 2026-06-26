@@ -219,7 +219,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: true
     },
-    ToolCatalog: {
+    McpCatalog: {
       type: 'object',
       properties: {
         permissions: jsonObject,
@@ -228,12 +228,36 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: true
     },
-    ToolSetting: {
+    TargetToolCatalog: {
       type: 'object',
       properties: {
-        name: { type: 'string' },
+        workspaceId: uuid,
+        targetId: uuid,
+        targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] },
+        permissions: jsonObject,
+        items: { type: 'array', items: schemaRef('TargetTool') }
+      },
+      additionalProperties: true
+    },
+    TargetTool: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', enum: ['web_search'] },
+        label: { type: 'string' },
+        description: { type: 'string' },
         enabled: { type: 'boolean' },
-        capability: { type: 'string', enum: ['read', 'write'] }
+        capability: { type: 'string', enum: ['read', 'write'] },
+        runtimeKind: { type: 'string', enum: ['provider_native'] },
+        visibility: {
+          type: 'object',
+          properties: {
+            appearsInAssistantToolList: { type: 'boolean' },
+            appearsInRunEnabledTools: { type: 'boolean' },
+            appearsInToolCalls: { type: 'boolean' }
+          },
+          additionalProperties: true
+        },
+        config: jsonObject
       },
       additionalProperties: true
     },
@@ -246,6 +270,10 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         url: { type: 'string', format: 'uri' },
         type: { type: 'string' },
         enabled: { type: 'boolean' },
+        isSystem: { type: 'boolean' },
+        canDelete: { type: 'boolean' },
+        canEditConnection: { type: 'boolean' },
+        canToggle: { type: 'boolean' },
         authType: { type: 'string', enum: ['none', 'bearer_token', 'custom_header'] },
         publicHeaders: { type: 'object', additionalProperties: { type: 'string' } },
         connectionStatus: { type: 'string' },

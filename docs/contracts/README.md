@@ -275,17 +275,18 @@ Paged resource, finding, and investigation APIs return `{ items, nextCursor? }`,
 
 VM host snapshots are persisted through the same target snapshot history and materialized into target inventory/finding tables. Browser-facing VM resource and finding APIs return `{ items, nextCursor? }`; VM metrics return bounded history points; VM logs are read live through the connected VM agent with `permissions.read_target_logs` authorization and return bounded entries only.
 
-### Tool catalog and MCP management APIs
+### MCP management, skills, and tools APIs
 
-- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/catalog`
-- `PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolName}`
+- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/catalog`
+- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools`
+- `PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolId}`
+- `PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools/{toolName}`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools`
 - `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`
 - `PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}`
 - `DELETE /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}`
 - `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/test-connection`
-- `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/tools/catalog`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills`
 - `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills`
 - `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/import`
@@ -294,22 +295,31 @@ VM host snapshots are persisted through the same target snapshot history and mat
 - `DELETE /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}`
 - `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}/reimport`
 
-Remote MCP server management is target-scoped. Kubernetes clusters and virtual machines both use the target MCP surface. Kubernetes and VM built-in tools are synchronized from each connected agent and remain capability-tagged. Write-tool availability is driven by the advertised tool capability, target agent capabilities, user permissions, and the requested run `toolAccessMode`; the current VM v1 agent catalog happens to advertise only read tools.
+Built-in tools and MCP-discovered tools use distinct target-scoped APIs. Kubernetes clusters and virtual machines both use the target MCP, Skills, and Tools surfaces. The Tools catalog shows only AcornOps built-in tools such as `web_search`; MCP-discovered tools remain in the MCP catalog and paged MCP server tool APIs. Built-in tool rows include runtime metadata so built-in capabilities can be listed as available without implying that they always emit standard function tool-call events. Kubernetes and VM agent tools are synchronized from each connected agent and remain capability-tagged. Write-tool availability is driven by the advertised tool capability, target agent capabilities, user permissions, and the requested run `toolAccessMode`; the current VM v1 agent catalog happens to advertise only read tools.
 
-The management console depends on these catalog fields:
+The management console depends on these MCP catalog fields:
 
-- `permissions.canEdit`
+- `permissions.canEdit` for MCP server configuration
 - `permissions.editableRoles`
-- `servers[].{id,name,url,type,enabled,isSystem,canDelete,canEditConnection,authType,connectionStatus,lastDiscoveryAt,lastDiscoveryError}`
+- `servers[].{id,name,url,type,enabled,isSystem,canDelete,canEditConnection,canToggle,authType,connectionStatus,lastDiscoveryAt,lastDiscoveryError}`
 - `servers[].toolCounts.{total,enabledConfigured,enabledEffective,writeConfigured,writeEffective}`
 - `GET /mcp/servers/{serverId}/tools` returns paged tool rows with `{name,description,capability,version,source,enabledConfigured,enabledEffective,effectiveDisabledReason}`. `enabledEffective` includes target runtime availability; write tools on read-only agents return `effectiveDisabledReason=agent_write_disabled`.
+- MCP tool toggles are patched through `/mcp/servers/{serverId}/tools/{toolName}` with `{enabled, capability?}`.
+
+The management console depends on these built-in Tools catalog fields:
+
+- `permissions.canEdit`
+- `items[].{id,label,enabled,description,capability,runtimeKind,visibility,config}`
+- `web_search.config.domainFilters.{allowedDomains,blockedDomains}`
+- Built-in tool settings are patched through `/tools/{toolId}` with `{enabled, config?}`.
 
 Mutation policy exposed to the management console:
 
-- Roles with both `permissions.manage_tools` and `permissions.manage_mcp` may mutate tool settings and MCP server configuration. Catalog `permissions.editableRoles` is derived from the deployment role templates for display only; `permissions.canEdit` is the authoritative per-user decision.
+- Roles with `permissions.manage_mcp` may mutate MCP server configuration.
+- Roles with `permissions.manage_tools` may mutate MCP per-tool enablement and built-in tool settings. Catalog `permissions.editableRoles` is derived from the deployment role templates for display only; `permissions.canEdit` is the authoritative per-user decision.
 - Public remote MCP server creation is discovery-first: callers provide connection details and optional non-secret `publicHeaders`, and tool mappings are discovered through the server's `tools/list` endpoint.
 - Newly discovered external MCP tools remain disabled until an authorized workspace role reviews and enables them with an explicit capability.
-- Roles without both management capabilities are read-only for tool and MCP configuration.
+- Roles without the relevant management capability are read-only for that configuration surface.
 
 ### Target troubleshooting skills
 
@@ -642,7 +652,7 @@ Bootstrap response contract:
 - `policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}`
 - `context.{endpoint,max_context_tokens}`
 - `llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}`
-- `tools.{tool_registry_version,allowed_tools,tool_specs,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}`
+- `tools.{tool_registry_version,allowed_tools,native_tools,tool_specs,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}`
 - `routing`
 - `tracing`
 

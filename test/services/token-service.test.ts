@@ -43,6 +43,7 @@ describe('gateway token service', () => {
     assert.deepEqual(verification.payload.permissions, {
       allowed_providers: ['anthropic', 'gemini'],
       allowed_tools: ['get_resource', 'get_resource_logs'],
+      allowed_native_tools: [],
       allowed_tool_operations: {
         get_resource: 'read',
         get_resource_logs: 'read'
@@ -62,6 +63,15 @@ describe('gateway token service', () => {
       sessionId: 'session-verify',
       allowedProviders: ['openai'],
       allowedTools: ['get_pods'],
+      allowedNativeTools: [{
+        id: 'web_search',
+        config: {
+          domainFilters: {
+            allowedDomains: ['docs.example.com'],
+            blockedDomains: ['internal.example.com']
+          }
+        }
+      }],
       allowedToolOperations: { get_pods: 'read' },
       maxOutputTokens: 1024,
       allowedModels: ['gpt-4.1-mini']
@@ -78,6 +88,15 @@ describe('gateway token service', () => {
     assert.equal(claims.sessionId, 'session-verify');
     assert.deepEqual(claims.allowedProviders, ['openai']);
     assert.deepEqual(claims.allowedTools, ['get_pods']);
+    assert.deepEqual(claims.allowedNativeTools, [{
+      id: 'web_search',
+      config: {
+        domainFilters: {
+          allowedDomains: ['docs.example.com'],
+          blockedDomains: ['internal.example.com']
+        }
+      }
+    }]);
     assert.deepEqual(claims.allowedToolOperations, { get_pods: 'read' });
     assert.equal(claims.maxOutputTokens, 1024);
     assert.deepEqual(claims.allowedModels, ['gpt-4.1-mini']);
@@ -127,6 +146,7 @@ describe('gateway token service', () => {
     assert.deepEqual(verification.payload.permissions, {
       allowed_providers: ['openai'],
       allowed_tools: ['mcp.tools.list', 'audit.events.search'],
+      allowed_native_tools: [],
       allowed_tool_operations: {
         'mcp.tools.list': 'read',
         'audit.events.search': 'read'
@@ -218,6 +238,7 @@ describe('gateway token service', () => {
     assert.deepEqual(verification.payload.permissions, {
       allowed_providers: ['openai'],
       allowed_tools: ['list_resources'],
+      allowed_native_tools: [],
       allowed_tool_operations: {},
       max_output_tokens: null,
       allowed_models: []

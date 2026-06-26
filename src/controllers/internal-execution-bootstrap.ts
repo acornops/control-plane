@@ -15,6 +15,7 @@ import { toSingleParam } from '../utils/params.js';
 import { mapGatewayError } from './workspaces/common.js';
 
 const AI_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
+const WEB_SEARCH_TOOL_ID = 'web_search';
 
 export function normalizeToolCapability(tool: Pick<McpToolConfig, 'capability'>): 'read' | 'write' {
   return tool.capability === 'read' ? 'read' : 'write';
@@ -106,6 +107,7 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
   const maxOutputTokens = config.LLM_MAX_OUTPUT_TOKENS;
   const allowedToolOperations = run.compiledAccessScope.toolOperations;
   const allowedToolNames = run.compiledAccessScope.tools;
+  const allowedNativeTools: Array<{ id: string; config: Record<string, unknown> }> = [];
   const allowedToolSpecs = allowedToolNames.map((toolName) => ({
     name: toolName,
     description: `Execute workflow-granted tool "${toolName}".`,
@@ -124,6 +126,7 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     workflowStepId: run.workflowStepId,
     allowedProviders,
     allowedTools: allowedToolNames,
+    allowedNativeTools,
     allowedToolOperations,
     contextGrants: run.compiledAccessScope.contextGrants,
     maxOutputTokens,
@@ -170,6 +173,7 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     tools: {
       tool_registry_version: 'trv_1',
       allowed_tools: allowedToolNames,
+      native_tools: allowedNativeTools,
       tool_specs: allowedToolSpecs,
       write_unavailable_reason: null,
       confirmation_required_for_write: run.compiledAccessScope.approvalGates.length > 0,
@@ -287,6 +291,26 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
       return;
     }
     const maxOutputTokens = config.LLM_MAX_OUTPUT_TOKENS;
+    let allowedNativeTools: Array<{ id: string; config: Record<string, unknown> }> = [];
+    try {
+      allowedNativeTools = (await repo.listEnabledTargetToolSettings(targetId))
+        .filter((tool) => tool.toolId === WEB_SEARCH_TOOL_ID)
+        .map((tool) => ({
+          id: tool.toolId,
+          config: tool.config
+        }));
+    } catch (err) {
+      logger.warn(
+        {
+          runId: run.id,
+          workspaceId: run.workspaceId,
+          targetId,
+          targetType: target.targetType,
+          err
+        },
+        'Failed resolving run native tools; continuing with no native tool permissions'
+      );
+    }
     const allowedToolOperations = Object.fromEntries(
       allowedToolSpecs.map((tool) => [tool.name, tool.capability])
     );
@@ -299,6 +323,7 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
       sessionId: run.sessionId,
       allowedProviders,
       allowedTools: allowedToolNames,
+      allowedNativeTools,
       allowedToolOperations,
       maxOutputTokens,
       allowedModels
@@ -341,6 +366,7 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
       tools: {
         tool_registry_version: 'trv_1',
         allowed_tools: allowedToolNames,
+        native_tools: allowedNativeTools,
         tool_specs: allowedToolSpecs,
         write_unavailable_reason: hasConfiguredWriteTool
           ? !runAllowsWrite

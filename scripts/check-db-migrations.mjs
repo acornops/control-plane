@@ -34,7 +34,8 @@ assert.deepEqual(files, [
   '001_initial_schema.sql',
   '002_target_skills.sql',
   '003_target_skill_user_defined_markdown_paths.sql',
-  '004_target_skill_archive_fallback_metadata.sql'
+  '004_target_skill_archive_fallback_metadata.sql',
+  '005_target_tool_settings.sql'
 ]);
 for (const file of files) {
   assert(/^\d{3,}_[a-z0-9_]+\.sql$/.test(file), `invalid migration filename ${file}`);
@@ -66,6 +67,7 @@ for (const table of [
   'target_findings',
   'target_snapshot_summaries',
   'target_tool_overrides',
+  'target_tool_settings',
   'sessions',
   'messages',
   'runs',

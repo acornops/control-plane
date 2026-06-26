@@ -437,6 +437,21 @@ export const updateMcpServerSchema = z.object({
   validateMcpAuthConfig(input.auth, ctx);
 });
 
+export const updateTargetMcpServerToolSchema = z.object({
+  enabled: z.boolean(),
+  capability: z.enum(['read', 'write']).optional()
+}).strict();
+
+export const updateTargetToolSchema = z.object({
+  enabled: z.boolean(),
+  config: z.object({
+    domainFilters: z.object({
+      allowedDomains: z.array(z.string()).optional(),
+      blockedDomains: z.array(z.string()).optional()
+    }).strict().optional()
+  }).strict().optional()
+}).strict();
+
 const targetSkillFileSchema = z.object({
   path: z.string().trim().min(1).max(512),
   content: z.string().max(32768)

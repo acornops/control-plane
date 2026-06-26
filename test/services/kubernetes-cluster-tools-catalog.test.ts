@@ -44,6 +44,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       isSystem: true,
       canDelete: false,
       canEditConnection: false,
+      canToggle: true,
       authType: 'none',
       publicHeaders: {},
       connectionStatus: 'unknown',
@@ -195,6 +196,9 @@ describe('composeKubernetesClusterToolsCatalog', () => {
     const syntheticServer = catalog.servers.find((server) => server.name === 'remote-mcp-server');
     assert.ok(syntheticServer);
     assert.equal(syntheticServer.url, 'tool://orphan-tool');
+    assert.equal(syntheticServer.canDelete, false);
+    assert.equal(syntheticServer.canEditConnection, false);
+    assert.equal(syntheticServer.canToggle, false);
     assert.equal(syntheticServer.connectionStatus, 'unknown');
     assert.deepEqual(syntheticServer.tools, [
       {

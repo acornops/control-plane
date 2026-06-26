@@ -126,14 +126,16 @@ const workspaceRoutes = read('src/routes/workspaces.ts');
 const workspaceControllerPath = 'src/controllers/workspaces-controller.ts';
 const clusterControllerPath = 'src/controllers/workspaces/kubernetes-cluster-controller.ts';
 const membersControllerPath = 'src/controllers/workspaces/members-controller.ts';
-const mcpControllerPath = 'src/controllers/workspaces/kubernetes-cluster-mcp-controller.ts';
+const targetToolControllerPath = 'src/controllers/workspaces/target-tool-controller.ts';
+const targetNativeToolControllerPath = 'src/controllers/workspaces/target-native-tool-controller.ts';
 const targetSkillsControllerPath = 'src/controllers/workspaces/target-skills-controller.ts';
 const sessionControllerPath = 'src/controllers/sessions-controller.ts';
 const runControllerPath = 'src/controllers/runs-controller.ts';
 const webhooksControllerPath = 'src/controllers/webhooks-controller.ts';
 const workspaceController = read(workspaceControllerPath);
 const clusterController = read(clusterControllerPath);
-const mcpController = read(mcpControllerPath);
+const targetToolController = read(targetToolControllerPath);
+const targetNativeToolController = read(targetNativeToolControllerPath);
 const sessionController = read('src/controllers/sessions-controller.ts');
 const runController = read('src/controllers/runs-controller.ts');
 const webhooksController = read(webhooksControllerPath);
@@ -141,7 +143,8 @@ const workspaceScopedControllerPaths = [
   workspaceControllerPath,
   clusterControllerPath,
   membersControllerPath,
-  mcpControllerPath,
+  targetToolControllerPath,
+  targetNativeToolControllerPath,
   targetSkillsControllerPath,
   sessionControllerPath,
   runControllerPath,
@@ -275,7 +278,8 @@ assert(runController.includes('create_read_write_runs'), 'approval decisions mus
 assert(clusterController.includes("'read_target_logs'"), 'pod log endpoint must be read_target_logs capability-gated');
 assert(webhooksController.includes("'manage_webhooks'"), 'webhook mutations must be manage_webhooks capability-gated');
 assert(!webhooksController.includes('canManageWebhooks'), 'webhook mutations must not use local role-specific authorization helpers');
-assert(mcpController.includes("canEdit: access.authz.can('manage_tools') && access.authz.can('manage_mcp')"), 'tool catalog editability must use effective authz');
+assert(targetToolController.includes("canEdit: access.authz.can('manage_mcp')"), 'MCP catalog editability must use MCP management authz');
+assert(targetNativeToolController.includes("canEdit: access.authz.can('manage_tools')"), 'built-in tools editability must use tool management authz');
 assert(!read('src/services/kubernetes-cluster-tools-catalog.ts').includes('role: string | null'), 'tool catalog composer must not recompute editability from role');
 assert(workspaceController.includes('withEffectiveWorkspacePermissions'), 'workspace responses must serialize effective permissions');
 assert(

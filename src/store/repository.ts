@@ -82,8 +82,12 @@ import {
   upsertTargetAgentRegistration as upsertTargetAgentRegistrationRecord
 } from './repository-target-agent-registrations.js';
 import {
+  getTargetToolSetting as getTargetToolSettingRecord,
+  listEnabledTargetToolSettings as listEnabledTargetToolSettingsRecord,
+  listTargetToolSettings as listTargetToolSettingsRecord,
   listTargetToolOverrides as listTargetToolOverridesRecord,
-  setTargetToolOverride as setTargetToolOverrideRecord
+  setTargetToolOverride as setTargetToolOverrideRecord,
+  upsertTargetToolSetting as upsertTargetToolSettingRecord
 } from './repository-target-tools.js';
 import {
   countEnabledTargetSkills as countEnabledTargetSkillsRecord,
@@ -423,6 +427,14 @@ export class Repository {
   listTargetToolOverrides = listTargetToolOverridesRecord;
 
   setTargetToolOverride = setTargetToolOverrideRecord;
+
+  listTargetToolSettings = listTargetToolSettingsRecord;
+
+  getTargetToolSetting = getTargetToolSettingRecord;
+
+  listEnabledTargetToolSettings = listEnabledTargetToolSettingsRecord;
+
+  upsertTargetToolSetting = upsertTargetToolSettingRecord;
 
   listTargetSkills = listTargetSkillsRecord;
 

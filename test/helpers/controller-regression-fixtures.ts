@@ -43,6 +43,9 @@ const originals = {
   listMatchingWebhookSubscriptions: repo.listMatchingWebhookSubscriptions,
   listTargetToolOverrides: repo.listTargetToolOverrides,
   setTargetToolOverride: repo.setTargetToolOverride,
+  getTargetToolSetting: repo.getTargetToolSetting,
+  listEnabledTargetToolSettings: repo.listEnabledTargetToolSettings,
+  upsertTargetToolSetting: repo.upsertTargetToolSetting,
   listEnabledValidTargetSkills: repo.listEnabledValidTargetSkills,
   createWebhookSubscription: repo.createWebhookSubscription,
   updateWebhookSubscription: repo.updateWebhookSubscription,
@@ -82,6 +85,9 @@ export function restoreControllerRegressionState(): void {
   repo.listMatchingWebhookSubscriptions = originals.listMatchingWebhookSubscriptions;
   repo.listTargetToolOverrides = originals.listTargetToolOverrides;
   repo.setTargetToolOverride = originals.setTargetToolOverride;
+  repo.getTargetToolSetting = originals.getTargetToolSetting;
+  repo.listEnabledTargetToolSettings = originals.listEnabledTargetToolSettings;
+  repo.upsertTargetToolSetting = originals.upsertTargetToolSetting;
   repo.listEnabledValidTargetSkills = originals.listEnabledValidTargetSkills;
   repo.createWebhookSubscription = originals.createWebhookSubscription;
   repo.updateWebhookSubscription = originals.updateWebhookSubscription;

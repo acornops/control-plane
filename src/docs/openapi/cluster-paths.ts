@@ -3,31 +3,6 @@ import { buildClusterMetricPaths } from './cluster-metric-paths.js';
 
 export function buildClusterPaths(): Record<string, unknown> {
   return {
-      '/api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/tools/catalog': {
-        get: {
-          tags: ['workspaces'],
-          summary: 'List cluster tools grouped by server with configured/effective state',
-          security: [{ userSession: [] }],
-          parameters: [
-            {
-              in: 'path',
-              name: 'workspaceId',
-              required: true,
-              schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID }
-            },
-            {
-              in: 'path',
-              name: 'clusterId',
-              required: true,
-              schema: { type: 'string', format: 'uuid', example: EXAMPLE_CLUSTER_ID }
-            },
-            { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
-            { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } },
-            { in: 'query', name: 'q', required: false, schema: { type: 'string' } }
-          ],
-          responses: { '200': { description: 'Cluster tool catalog grouped by paged server summaries.' } }
-        }
-      },
       '/api/v1/workspaces/{workspaceId}/kubernetes-clusters': {
         get: {
           tags: ['workspaces'],

@@ -262,6 +262,15 @@ CREATE TABLE IF NOT EXISTS target_tool_overrides (
   PRIMARY KEY (target_id, tool_name)
 );
 
+CREATE TABLE IF NOT EXISTS target_tool_settings (
+  target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+  tool_id TEXT NOT NULL,
+  enabled BOOLEAN NOT NULL,
+  config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (target_id, tool_id)
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL,
@@ -688,6 +697,9 @@ CREATE INDEX IF NOT EXISTS idx_chat_activity_events_session
 
 CREATE INDEX IF NOT EXISTS idx_target_tool_overrides_target
   ON target_tool_overrides (target_id);
+
+CREATE INDEX IF NOT EXISTS idx_target_tool_settings_target
+  ON target_tool_settings (target_id);
 
 CREATE INDEX IF NOT EXISTS idx_target_snapshot_history_target_ts
   ON target_snapshot_history (target_id, snapshot_ts DESC);

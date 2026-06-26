@@ -72,8 +72,10 @@
         "GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/logs"
       ],
       "toolingPaths": [
-        "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/catalog",
-        "PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolName}",
+        "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/catalog",
+        "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools",
+        "PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolId}",
+        "PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools/{toolName}",
         "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers",
         "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools",
         "POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers",
@@ -86,8 +88,7 @@
         "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}",
         "PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}",
         "DELETE /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}",
-        "POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}/reimport",
-        "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/tools/catalog"
+        "POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}/reimport"
       ],
       "chatRunPaths": [
         "POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions",
@@ -195,7 +196,7 @@
       "catalogFields": [
         "permissions.canEdit",
         "permissions.editableRoles",
-        "servers[].{id,name,url,type,enabled,isSystem,canDelete,canEditConnection,authType,publicHeaders,connectionStatus,lastDiscoveryAt,lastDiscoveryError}",
+        "servers[].{id,name,url,type,enabled,isSystem,canDelete,canEditConnection,canToggle,authType,publicHeaders,connectionStatus,lastDiscoveryAt,lastDiscoveryError}",
         "servers[].toolCounts.{total,enabledConfigured,enabledEffective,writeConfigured,writeEffective}",
         "serverTools.items[].{name,description,capability,version,source,enabledConfigured,enabledEffective,effectiveDisabledReason}",
         "targetSkills.items[].{id,name,description,enabled,validationStatus,validationErrors,bundleStats.{fileCount,totalBytes},source.{type,repoUrl?,ref?,subpath?,commitSha?,syncStatus},createdAt,updatedAt}",
@@ -332,7 +333,7 @@
         "policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}",
         "context.{endpoint,max_context_tokens}",
         "llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}",
-        "tools.{tool_registry_version,allowed_tools,tool_specs,write_unavailable_reason?,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}",
+        "tools.{tool_registry_version,allowed_tools,native_tools,tool_specs,write_unavailable_reason?,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}",
         "skills?.{registry_version,entries[].{id,name,description,files[].{path,content}}}",
         "routing",
         "tracing"

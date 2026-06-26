@@ -5,12 +5,18 @@ import { isTargetType, type TargetType, type WorkspaceAuditOperation } from '../
 
 export type RunScopeType = 'target' | 'workspace';
 
+export interface NativeToolPermission {
+  id: string;
+  config: Record<string, unknown>;
+}
+
 interface BaseRunScopeClaims {
   runId: string;
   workspaceId: string;
   sessionId: string;
   allowedProviders: string[];
   allowedTools: string[];
+  allowedNativeTools?: NativeToolPermission[];
   allowedToolOperations?: Record<string, WorkspaceAuditOperation>;
   maxOutputTokens?: number;
   allowedModels?: string[];
@@ -39,6 +45,7 @@ export interface VerifiedRunScopeClaims extends BaseRunScopeClaims {
   subject: string;
   tokenId?: string;
   scopeType: RunScopeType;
+  allowedNativeTools: NativeToolPermission[];
   targetId?: string;
   targetType?: TargetType;
   workflowId?: string;
@@ -151,6 +158,31 @@ function toolOperationMapClaim(value: unknown): Record<string, WorkspaceAuditOpe
   return operations;
 }
 
+function nativeToolPermissionsClaim(value: unknown): NativeToolPermission[] {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new Error('Gateway token permission allowed_native_tools must be an array');
+  }
+  return value.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error('Gateway token permission allowed_native_tools entries must be objects');
+    }
+    const item = entry as Record<string, unknown>;
+    if (typeof item.id !== 'string' || item.id.trim().length === 0) {
+      throw new Error('Gateway token permission allowed_native_tools entries require id');
+    }
+    if (item.config !== undefined && (!item.config || typeof item.config !== 'object' || Array.isArray(item.config))) {
+      throw new Error('Gateway token permission allowed_native_tools config must be an object');
+    }
+    return {
+      id: item.id,
+      config: (item.config as Record<string, unknown> | undefined) || {}
+    };
+  });
+}
+
 function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
   const runId = stringClaim(payload, 'run_id');
   const subject = stringClaim(payload, 'sub');
@@ -181,6 +213,7 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
     sessionId: stringClaim(payload, 'session_id'),
     allowedProviders: stringArrayClaim(permissionObject.allowed_providers, 'allowed_providers'),
     allowedTools: stringArrayClaim(permissionObject.allowed_tools, 'allowed_tools'),
+    allowedNativeTools: nativeToolPermissionsClaim(permissionObject.allowed_native_tools),
     allowedToolOperations: toolOperationMapClaim(permissionObject.allowed_tool_operations),
     allowedModels: stringArrayClaim(permissionObject.allowed_models, 'allowed_models'),
     maxOutputTokens: typeof maxOutputTokens === 'number' ? maxOutputTokens : undefined,
@@ -234,6 +267,7 @@ export class GatewayTokenService {
     const permissionPayload: Record<string, unknown> = {
       allowed_providers: input.allowedProviders,
       allowed_tools: input.allowedTools,
+      allowed_native_tools: input.allowedNativeTools || [],
       allowed_tool_operations: input.allowedToolOperations || {},
       max_output_tokens: input.maxOutputTokens ?? null,
       allowed_models: input.allowedModels || []

@@ -296,19 +296,20 @@ export {
 } from './workspaces/members-controller.js';
 
 export {
-  listKubernetesClusterToolsCatalog
-} from './workspaces/kubernetes-cluster-mcp-controller.js';
-
-export {
   createTargetMcpServerForTarget,
   deleteTargetMcpServerForTarget,
+  listTargetMcpCatalog,
   listTargetMcpServerTools,
   listTargetMcpServers,
-  listTargetToolsCatalog,
   testTargetMcpServerConnectionForTarget,
-  updateTargetMcpServerForTarget,
-  updateTargetToolSettings
+  updateTargetMcpServerToolSettings,
+  updateTargetMcpServerForTarget
 } from './workspaces/target-tool-controller.js';
+
+export {
+  listTargetTools,
+  updateTargetToolSettings
+} from './workspaces/target-native-tool-controller.js';
 
 export {
   createTargetSkillForTarget,

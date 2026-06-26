@@ -111,3 +111,26 @@ export async function recordToolCatalogAudit(
     metadata: { targetId, targetType, enabled, capability }
   });
 }
+
+export async function recordNativeToolSettingAudit(
+  workspaceId: string,
+  targetId: string,
+  targetType: TargetType,
+  actorUserId: string,
+  toolId: string,
+  enabled: boolean,
+  config: Record<string, unknown>
+): Promise<void> {
+  await recordWorkspaceAuditEvent({
+    workspaceId,
+    category: 'tool',
+    eventType: 'tool.catalog.changed.v1',
+    operation: 'write',
+    actorUserId,
+    objectType: 'tool',
+    objectId: toolId,
+    objectName: toolId,
+    summary: 'Built-in tool setting changed',
+    metadata: { targetId, targetType, enabled, config }
+  });
+}

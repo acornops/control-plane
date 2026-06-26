@@ -1,5 +1,6 @@
 import { EXAMPLE_MCP_SERVER_ID, EXAMPLE_TARGET_ID, EXAMPLE_TARGET_SKILL_ID, EXAMPLE_WORKSPACE_ID } from '../../constants/dev-defaults.js';
 import { TARGET_TYPES } from '../../types/domain.js';
+import { buildTargetToolPaths } from './target-tool-paths.js';
 
 export function buildTargetPaths(exampleServerUrl: string): Record<string, unknown> {
   const targetSkillSourceSchema = {
@@ -136,10 +137,10 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
         responses: { '200': { description: 'Target summary.' } }
       }
     },
-    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/catalog': {
+    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/catalog': {
       get: {
         tags: ['workspaces'],
-        summary: 'List target tools grouped by server with configured/effective state',
+        summary: 'List target MCP tools grouped by server with configured/effective state',
         security: [{ userSession: [] }],
         parameters: [
           { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
@@ -149,11 +150,12 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
           { in: 'query', name: 'q', required: false, schema: { type: 'string' } }
         ],
         responses: {
-          '200': { description: 'Target tool catalog grouped by paged server summaries.' },
-          '400': { description: 'Unsupported target type for tool catalog in this release.' }
+          '200': { description: 'Target MCP catalog grouped by paged server summaries.' },
+          '400': { description: 'Unsupported target type for MCP catalog in this release.' }
         }
       }
     },
+    ...buildTargetToolPaths(),
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers': {
       get: {
         tags: ['workspaces'],
@@ -326,6 +328,43 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
         responses: { '200': { description: 'MCP server tool page payload: { items, nextCursor? }.' } }
       }
     },
+    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools/{toolName}': {
+      patch: {
+        tags: ['workspaces'],
+        summary: 'Enable or disable an MCP-discovered target tool',
+        security: [{ userSession: [] }],
+        parameters: [
+          { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
+          { in: 'path', name: 'targetId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_TARGET_ID } },
+          { in: 'path', name: 'serverId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_MCP_SERVER_ID } },
+          { in: 'path', name: 'toolName', required: true, schema: { type: 'string', example: 'github.search_repositories' } }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['enabled'],
+                properties: {
+                  enabled: { type: 'boolean', example: true },
+                  capability: {
+                    type: 'string',
+                    enum: ['read', 'write'],
+                    description: 'Required when enabling a discovered external MCP tool.'
+                  }
+                },
+                example: { enabled: true, capability: 'read' }
+              }
+            }
+          }
+        },
+        responses: {
+          '200': { description: 'MCP tool setting updated.' },
+          '404': { description: 'MCP server or tool not found.' }
+        }
+      }
+    },
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/skills': {
       get: {
         tags: ['workspaces'],
@@ -486,42 +525,6 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
           }
         },
         responses: { '200': jsonResponse('Target skill reimported.', targetSkillDetailSchema) }
-      }
-    },
-    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolName}': {
-      patch: {
-        tags: ['workspaces'],
-        summary: 'Enable or disable a discovered target tool',
-        security: [{ userSession: [] }],
-        parameters: [
-          { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
-          { in: 'path', name: 'targetId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_TARGET_ID } },
-          { in: 'path', name: 'toolName', required: true, schema: { type: 'string', example: 'github.search_repositories' } }
-        ],
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                required: ['enabled'],
-                properties: {
-                  enabled: { type: 'boolean', example: true },
-                  capability: {
-                    type: 'string',
-                    enum: ['read', 'write'],
-                    description: 'Required when enabling a discovered external MCP tool.'
-                  }
-                },
-                example: { enabled: true, capability: 'read' }
-              }
-            }
-          }
-        },
-        responses: {
-          '200': { description: 'Tool setting updated.' },
-          '404': { description: 'Tool not found.' }
-        }
       }
     }
   };
