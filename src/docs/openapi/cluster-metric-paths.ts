@@ -15,7 +15,7 @@ export function buildClusterMetricPaths(): Record<string, unknown> {
     '/api/v1/workspaces/{workspaceId}/kubernetes-clusters/metrics/history': {
       get: {
         tags: ['workspaces'],
-        summary: 'List append-only telemetry history for multiple clusters',
+        summary: 'List compact telemetry history for multiple clusters',
         security: [{ userSession: [] }],
         parameters: [
           { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
@@ -56,7 +56,7 @@ export function buildClusterMetricPaths(): Record<string, unknown> {
     '/api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/metrics/history': {
       get: {
         tags: ['workspaces'],
-        summary: 'List append-only cluster telemetry history',
+        summary: 'List compact cluster telemetry history',
         security: [{ userSession: [] }],
         parameters: [
           { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
@@ -66,7 +66,7 @@ export function buildClusterMetricPaths(): Record<string, unknown> {
         ],
         responses: {
           '200': {
-            description: 'Cluster CPU and memory history derived from append-only snapshots.',
+            description: 'Cluster CPU and memory history derived from compact metric samples.',
             content: {
               'application/json': {
                 schema: {

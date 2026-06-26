@@ -162,7 +162,7 @@ flowchart TD
 
 ## Module Boundaries
 
-- `routes/workspaces/workspace-routes.ts` registers workspace, member, invitation, and workspace investigation routes.
+- `routes/workspaces/workspace-routes.ts` registers workspace, member, invitation, and workspace issue routes.
 - `routes/workspaces/target-routes.ts` registers shared target summary and target-scoped read routes.
 - `routes/workspaces/kubernetes-cluster-routes.ts` registers Kubernetes-specific lifecycle, inventory, pod-log, tool, MCP, and agent-key routes.
 - `routes/workspaces/virtual-machine-routes.ts` registers VM-specific lifecycle, inventory, metrics, logs, and agent-key routes.

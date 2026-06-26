@@ -123,7 +123,10 @@ for (const [docPath, routeNeedle, source, label] of [
   ['`PATCH /api/v1/workspaces/{workspaceId}/members/{userId}`', "workspacesRouter.patch(\n  '/workspaces/:workspaceId/members/:userId'", workspaceRoutes, 'Update workspace member route'],
   ['`DELETE /api/v1/workspaces/{workspaceId}/members/{userId}`', "workspacesRouter.delete(\n  '/workspaces/:workspaceId/members/:userId'", workspaceRoutes, 'Delete workspace member route'],
   ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters`', "workspacesRouter.get('/workspaces/:workspaceId/kubernetes-clusters'", workspaceRoutes, 'List clusters route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/investigations`', "workspacesRouter.get('/workspaces/:workspaceId/investigations'", workspaceRoutes, 'List investigations route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/issues`', "workspacesRouter.get('/workspaces/:workspaceId/issues'", workspaceRoutes, 'List issues route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/issues/{issueId}`', "workspacesRouter.get('/workspaces/:workspaceId/issues/:issueId'", workspaceRoutes, 'Get issue route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/issues/{issueId}/observations`', "'/workspaces/:workspaceId/issues/:issueId/observations'", workspaceRoutes, 'List issue observations route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/issues`', "workspacesRouter.get('/workspaces/:workspaceId/targets/:targetId/issues'", workspaceRoutes, 'List target issues route'],
   ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}`', "workspacesRouter.get('/workspaces/:workspaceId/kubernetes-clusters/:clusterId'", workspaceRoutes, 'Get cluster route'],
   ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/resources`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/resources'", workspaceRoutes, 'List cluster resources route'],
   ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/findings`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/findings'", workspaceRoutes, 'List cluster findings route'],
@@ -310,6 +313,7 @@ expectIncludes(doc, '`operation` is `read` or `write`', 'Workspace audit operati
 expectIncludes(openApi, 'operation=read|write', 'Workspace audit operation OpenAPI doc');
 expectIncludes(configSource, 'WORKSPACE_AUDIT_LOGGING_MODE', 'Workspace audit logging mode config');
 expectIncludes(configSource, 'WORKSPACE_AUDIT_RETENTION_DAYS', 'Workspace audit retention config');
+expectIncludes(configSource, 'TARGET_METRIC_HISTORY_RETENTION_DAYS', 'Target metric history retention config');
 
 for (const contractToken of [
   'Roles with `permissions.manage_mcp` may mutate MCP server configuration.',

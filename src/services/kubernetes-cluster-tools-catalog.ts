@@ -236,9 +236,13 @@ export function composeTargetToolsCatalog(params: {
       canToggle: !isPlaceholder,
       authType: server.auth_type,
       publicHeaders: server.public_headers ?? {},
-      connectionStatus: server.connection_status === 'ok' || server.connection_status === 'error' ? server.connection_status : 'unknown',
-      lastDiscoveryAt: server.last_discovery_at ?? null,
-      lastDiscoveryError: server.last_discovery_error ?? null,
+      connectionStatus: isBuiltin
+        ? 'ok'
+        : server.connection_status === 'ok' || server.connection_status === 'error'
+          ? server.connection_status
+          : 'unknown',
+      lastDiscoveryAt: isBuiltin ? null : server.last_discovery_at ?? null,
+      lastDiscoveryError: isBuiltin ? null : server.last_discovery_error ?? null,
       toolCounts: summarizeToolCounts(toolRows),
       tools: toolRows.map((tool) => ({
         name: tool.name,

@@ -343,13 +343,14 @@ export async function getVirtualMachineMetricsHistory(req: AuthenticatedRequest,
     const windowMs = parseMetricWindowMs(req.query.window);
     const limit = parseMetricLimit(req.query.limit);
     const since = new Date(Date.now() - windowMs).toISOString();
-    const snapshots = await repo.listVirtualMachineSnapshotHistory(vmId, { since, limit });
-    const points = snapshots.map((snapshot) => ({
-      timestamp: snapshot.timestamp,
-      loadAverage: (snapshot.data.metrics as { loadAverage?: unknown } | undefined)?.loadAverage || [],
-      memory: (snapshot.data.metrics as { memory?: unknown } | undefined)?.memory || null,
-      disks: (snapshot.data.metrics as { disks?: unknown } | undefined)?.disks || []
-    }));
+    const points = (await repo.listTargetMetricHistory(vmId, { targetType: 'virtual_machine', since, limit }))
+      .filter((point) => point.workspaceId === workspaceId)
+      .map((point) => ({
+        timestamp: point.timestamp,
+        loadAverage: Array.isArray(point.metrics.loadAverage) ? point.metrics.loadAverage : [],
+        memory: point.metrics.memory || null,
+        disks: Array.isArray(point.metrics.disks) ? point.metrics.disks : []
+      }));
     res.status(200).json({ workspaceId, targetId: vmId, windowMs, points });
   } catch (err) {
     next(err);

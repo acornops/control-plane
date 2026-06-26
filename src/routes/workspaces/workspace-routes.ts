@@ -78,5 +78,11 @@ export function registerWorkspaceRoutes(router: Router): void {
     requireUser,
     authed(workspacesController.deleteWorkspaceMember)
   );
-  router.get('/workspaces/:workspaceId/investigations', requireUser, authed(workspacesController.listWorkspaceInvestigations));
+  router.get('/workspaces/:workspaceId/issues', requireUser, authed(workspacesController.listWorkspaceIssues));
+  router.get('/workspaces/:workspaceId/issues/:issueId', requireUser, authed(workspacesController.getTargetIssue));
+  router.get(
+    '/workspaces/:workspaceId/issues/:issueId/observations',
+    requireUser,
+    authed(workspacesController.listTargetIssueObservations)
+  );
 }

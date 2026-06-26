@@ -263,17 +263,20 @@ Kubernetes cluster updates accept `name`, `namespaceInclude`, and `namespaceExcl
 
 `GET /api/v1/workspaces/{workspaceId}/virtual-machines` and `GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}` return VM metadata, `latestSnapshot.{targetId,workspaceId,timestamp}`, and `summary.{inventoryCount,findingCount,criticalFindingCount,serviceCount,processCount,listenerCount,logCount}`. They must not return full `latestSnapshot.data` to the browser.
 
-Snapshot-derived management-console data is exposed through bounded list APIs:
+Durable issue and snapshot-derived management-console data is exposed through bounded list APIs:
 
-- `GET /api/v1/workspaces/{workspaceId}/investigations`
+- `GET /api/v1/workspaces/{workspaceId}/issues`
+- `GET /api/v1/workspaces/{workspaceId}/issues/{issueId}`
+- `GET /api/v1/workspaces/{workspaceId}/issues/{issueId}/observations`
+- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/issues`
 - `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/resources`
 - `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/findings`
 - `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/metrics/history`
 - `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/metrics/history`
 
-Paged resource, finding, and investigation APIs return `{ items, nextCursor? }`, accept `limit`, `cursor`, and `q` where search is supported, and apply exact filters before pagination. Cursor reuse with different query/filter state returns `400`. The control plane persists the raw agent snapshot append-only, then materializes latest resources, findings, and summary counts at ingest for browser-facing list APIs. Metrics history endpoints continue to read append-only snapshot history.
+Paged resource, finding, and issue APIs return `{ items, nextCursor? }`, accept `limit`, `cursor`, and `q` where search is supported, and apply exact filters before pagination. Cursor reuse with different query/filter state returns `400`. The control plane persists only the latest raw agent snapshot, then materializes latest resources, latest findings, durable issues, summary counts, and compact metric samples at ingest for browser-facing APIs.
 
-VM host snapshots are persisted through the same target snapshot history and materialized into target inventory/finding tables. Browser-facing VM resource and finding APIs return `{ items, nextCursor? }`; VM metrics return bounded history points; VM logs are read live through the connected VM agent with `permissions.read_target_logs` authorization and return bounded entries only.
+VM host snapshots retain only the latest raw target snapshot, then materialize inventory, findings, durable issues, summaries, and compact metric samples at ingest. Browser-facing VM resource and finding APIs return `{ items, nextCursor? }`; VM metrics return bounded history points from compact metric history; VM logs are read live through the connected VM agent with `permissions.read_target_logs` authorization and return bounded entries only.
 
 ### MCP management, skills, and tools APIs
 

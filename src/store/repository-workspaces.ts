@@ -338,7 +338,7 @@ export async function deleteWorkspace(workspaceId: string): Promise<boolean> {
     await client.query('DELETE FROM target_findings WHERE workspace_id = $1', [workspaceId]);
     await client.query('DELETE FROM target_snapshot_summaries WHERE workspace_id = $1', [workspaceId]);
     await client.query('DELETE FROM target_snapshots WHERE workspace_id = $1', [workspaceId]);
-    await client.query('DELETE FROM target_snapshot_history WHERE workspace_id = $1', [workspaceId]);
+    await client.query('DELETE FROM target_metric_history WHERE workspace_id = $1', [workspaceId]);
     await client.query('DELETE FROM workspace_ai_settings WHERE workspace_id = $1', [workspaceId]);
     await client.query('DELETE FROM webhook_subscriptions WHERE workspace_id = $1', [workspaceId]);
     await client.query('DELETE FROM workspace_memberships WHERE workspace_id = $1', [workspaceId]);

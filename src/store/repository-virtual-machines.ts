@@ -1,15 +1,31 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../infra/db.js';
+import { deriveVirtualMachineIssueObservations } from '../services/target-issue-derivation.js';
+import { summarizeVirtualMachineSnapshotMetrics } from '../services/target-metric-samples.js';
 import { VirtualMachineSnapshot, VirtualMachineTarget, VIRTUAL_MACHINE_TARGET_TYPE } from '../types/domain.js';
 import { PagedResult, encodeCursor, pageWithCursor } from '../utils/pagination.js';
 import { TargetFindingInput, TargetInventoryItemInput } from './repository-target-inventory.js';
 import { replaceTargetInventorySnapshot } from './repository-target-inventory.js';
 import { TargetRow, toIso } from './repository-mappers.js';
 import { withTransaction } from './repository-transaction.js';
+import { reconcileTargetIssues } from './repository-target-issues.js';
 import { assertWorkspaceTargetQuota } from './repository-quotas.js';
+import { upsertTargetMetricSample } from './repository-target-metrics.js';
 
 interface VmRow extends TargetRow {
   metadata: Record<string, unknown>;
+}
+
+interface PreviousSnapshotRow {
+  snapshot_ts: Date | string;
+}
+
+function isNewerSnapshot(currentTimestamp: string, previousTimestamp: string): boolean {
+  const currentTime = Date.parse(currentTimestamp);
+  const previousTime = Date.parse(previousTimestamp);
+  return Number.isFinite(currentTime) && Number.isFinite(previousTime)
+    ? currentTime > previousTime
+    : currentTimestamp > previousTimestamp;
 }
 
 interface SnapshotSummaryDbRow {
@@ -201,6 +217,13 @@ function findingRank(severity: string): number {
   return 2;
 }
 
+function normalizeFindingSeverity(value: unknown): 'critical' | 'warning' | 'info' {
+  const severity = text(value, 'info').toLowerCase();
+  if (severity === 'critical') return 'critical';
+  if (severity === 'warning') return 'warning';
+  return 'info';
+}
+
 function buildSearchText(fields: unknown[]): string {
   return fields.map((field) => String(field || '').toLowerCase()).join(' ');
 }
@@ -242,7 +265,7 @@ function deriveVmInventory(vm: VirtualMachineTarget, snapshot: VirtualMachineSna
   for (const log of array(data.logs).slice(-100)) push('logs', 'log_entry', `${text(log.source, 'log')}:${text(log.timestamp, snapshot.timestamp)}`, null, log, text(log.unit) || null);
 
   const findings = array(data.findings).map((finding): TargetFindingInput => {
-    const severity = text(finding.severity, 'info');
+    const severity = normalizeFindingSeverity(finding.severity);
     const id = text(finding.id) || `${text(finding.objectKind, 'host')}:${text(finding.objectName, vm.name)}:${text(finding.reason, 'finding')}`;
     return {
       targetId: vm.id,
@@ -287,19 +310,31 @@ export async function upsertVirtualMachineSnapshot(snapshot: VirtualMachineSnaps
     const vm = await getVirtualMachine(snapshot.targetId);
     if (!vm) throw new Error(`Cannot upsert snapshot for missing VM ${snapshot.targetId}`);
     const canonicalSnapshot = { ...snapshot, workspaceId: vm.workspaceId };
+    const previousSnapshotResult = await client.query<PreviousSnapshotRow>(
+      `SELECT snapshot_ts
+       FROM target_snapshots
+       WHERE target_id = $1`,
+      [vm.id]
+    );
+    const previousTimestamp = previousSnapshotResult.rows.length > 0
+      ? toIso(previousSnapshotResult.rows[0].snapshot_ts)
+      : undefined;
+    if (previousTimestamp && !isNewerSnapshot(canonicalSnapshot.timestamp, previousTimestamp)) return;
     const derived = deriveVmInventory(vm, canonicalSnapshot);
     await client.query(
       `INSERT INTO target_snapshots (target_id, workspace_id, snapshot_ts, data)
        VALUES ($1, $2, $3, $4::jsonb)
        ON CONFLICT (target_id) DO UPDATE
-       SET workspace_id = EXCLUDED.workspace_id, snapshot_ts = EXCLUDED.snapshot_ts, data = EXCLUDED.data`,
+      SET workspace_id = EXCLUDED.workspace_id, snapshot_ts = EXCLUDED.snapshot_ts, data = EXCLUDED.data`,
       [vm.id, vm.workspaceId, canonicalSnapshot.timestamp, JSON.stringify(canonicalSnapshot.data)]
     );
-    await client.query(
-      `INSERT INTO target_snapshot_history (id, target_id, workspace_id, snapshot_ts, data)
-       VALUES ($1, $2, $3, $4, $5::jsonb)`,
-      [randomUUID(), vm.id, vm.workspaceId, canonicalSnapshot.timestamp, JSON.stringify(canonicalSnapshot.data)]
-    );
+    await upsertTargetMetricSample(client, {
+      targetId: vm.id,
+      workspaceId: vm.workspaceId,
+      targetType: 'virtual_machine',
+      timestamp: canonicalSnapshot.timestamp,
+      metrics: summarizeVirtualMachineSnapshotMetrics(canonicalSnapshot)
+    });
     await replaceTargetInventorySnapshot(client, {
       targetId: vm.id,
       resources: derived.resources,
@@ -310,6 +345,11 @@ export async function upsertVirtualMachineSnapshot(snapshot: VirtualMachineSnaps
         snapshotTs: canonicalSnapshot.timestamp,
         ...derived.summary
       }
+    });
+    await reconcileTargetIssues(client, {
+      targetId: vm.id,
+      snapshotTs: canonicalSnapshot.timestamp,
+      observations: deriveVirtualMachineIssueObservations(vm, canonicalSnapshot)
     });
   });
 }
@@ -345,30 +385,6 @@ export async function listVirtualMachineSnapshotSummaries(vmIds: string[]): Prom
     [vmIds]
   );
   return new Map(result.rows.map((row) => [row.target_id, mapVirtualMachineSnapshotSummaryRecord(row)]));
-}
-
-export async function listVirtualMachineSnapshotHistory(vmId: string, options: { since?: string; limit?: number } = {}): Promise<VirtualMachineSnapshot[]> {
-  const params: Array<string | number> = [vmId];
-  let where = 'target_id = $1';
-  if (options.since) {
-    params.push(options.since);
-    where += ` AND snapshot_ts >= $${params.length}`;
-  }
-  params.push(options.limit ?? 100);
-  const result = await db.query(
-    `SELECT target_id, workspace_id, snapshot_ts, data
-     FROM target_snapshot_history
-     WHERE ${where}
-     ORDER BY snapshot_ts DESC
-     LIMIT $${params.length}`,
-    params
-  );
-  return result.rows.reverse().map((row) => ({
-    targetId: row.target_id,
-    workspaceId: row.workspace_id,
-    timestamp: toIso(row.snapshot_ts)!,
-    data: row.data || {}
-  }));
 }
 
 export async function listVirtualMachineInventory(vmId: string): Promise<TargetInventoryItemInput[]> {

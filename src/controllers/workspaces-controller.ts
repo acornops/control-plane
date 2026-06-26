@@ -4,7 +4,6 @@ import { getConfiguredRoleTemplate, isSupportedRole } from '../auth/authorizatio
 import {
   getEffectiveWorkspacePermissions,
   requireWorkspaceCapability,
-  requireWorkspaceDataRead,
   requireWorkspaceRead
 } from '../auth/workspace-authorization.js';
 import {
@@ -163,44 +162,6 @@ export async function createWorkspace(req: AuthenticatedRequest, res: Response, 
   }
 }
 
-export async function listWorkspaceInvestigations(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const workspaceId = toSingleParam(req.params.workspaceId);
-    if (!(await requireWorkspaceDataRead(req, res, workspaceId))) {
-      return;
-    }
-
-    const q = normalizeSearchQuery(req.query.q);
-    const filters = {
-      q,
-      severity: toSingleParam(req.query.severity as string | string[] | undefined),
-      clusterId: toSingleParam(req.query.clusterId as string | string[] | undefined),
-      namespace: toSingleParam(req.query.namespace as string | string[] | undefined)
-    };
-    const signature = makeQuerySignature(filters);
-    const cursor = decodeCursor<{ severityRank: number; findingTs: string; findingId: string; signature: string }>(
-      req.query.cursor,
-      signature
-    );
-    const page = await repo.listWorkspaceSnapshotFindings(workspaceId, {
-      limit: parseBoundedLimit(req.query.limit),
-      cursor,
-      q,
-      severity: filters.severity,
-      clusterId: filters.clusterId,
-      namespace: filters.namespace,
-      signature
-    });
-    res.status(200).json(page);
-  } catch (err) {
-    if (err instanceof CursorMismatchError) {
-      res.status(400).json({ error: { code: 'INVALID_CURSOR', message: err.message, retryable: false } });
-      return;
-    }
-    next(err);
-  }
-}
-
 export async function deleteWorkspace(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
@@ -325,6 +286,13 @@ export {
   getTarget,
   listTargets
 } from './workspaces/target-controller.js';
+
+export {
+  getTargetIssue,
+  listTargetIssueObservations,
+  listTargetIssues,
+  listWorkspaceIssues
+} from './workspaces/target-issue-controller.js';
 
 export {
   getCluster,

@@ -1,5 +1,6 @@
 import { db } from '../infra/db.js';
-import { deriveSnapshotRows } from '../services/snapshot-derived-data.js';
+import { deriveSnapshotRows, listSnapshotFindings } from '../services/snapshot-derived-data.js';
+import { deriveKubernetesIssueObservations } from '../services/target-issue-derivation.js';
 import type {
   ResourceFamily,
   SnapshotClusterSummary,
@@ -12,6 +13,7 @@ import { encodeCursor, pageWithCursor, PagedResult } from '../utils/pagination.j
 import { toIso } from './repository-mappers.js';
 import { replaceTargetInventorySnapshot } from './repository-target-inventory.js';
 import type { TargetFindingInput, TargetInventoryItemInput } from './repository-target-inventory.js';
+import { reconcileTargetIssues } from './repository-target-issues.js';
 
 interface ResourcePageCursor {
   sortKey: string;
@@ -198,9 +200,11 @@ function mapTargetFindings(rows: ReturnType<typeof deriveSnapshotRows>['findings
 export async function replaceClusterSnapshotDerivedRows(
   client: Parameters<typeof replaceTargetInventorySnapshot>[0],
   cluster: KubernetesCluster,
-  snapshot: ClusterSnapshot
+  snapshot: ClusterSnapshot,
+  previousSnapshot?: ClusterSnapshot | null
 ): Promise<void> {
   const derived = deriveSnapshotRows(cluster, snapshot);
+  const findings = listSnapshotFindings(cluster, snapshot);
   await replaceTargetInventorySnapshot(client, {
     targetId: snapshot.clusterId,
     resources: mapTargetInventoryItems(derived.resources),
@@ -219,6 +223,11 @@ export async function replaceClusterSnapshotDerivedRows(
         resourceKindCounts: derived.summary.resourceKindCounts
       }
     }
+  });
+  await reconcileTargetIssues(client, {
+    targetId: snapshot.clusterId,
+    snapshotTs: snapshot.timestamp,
+    observations: deriveKubernetesIssueObservations(cluster, snapshot, findings, previousSnapshot)
   });
 }
 

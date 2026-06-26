@@ -184,7 +184,6 @@ const envSchema = z.object({
   CONTROL_PLANE_ADMIN_AUTH_FAILURE_WINDOW_SECONDS: z.coerce.number().int().positive().default(300),
   CONTROL_PLANE_ADMIN_AUTH_FAILURE_MAX_ATTEMPTS: z.coerce.number().int().positive().default(20),
   CORS_ORIGIN: z.string().default('*'),
-
   SESSION_COOKIE_NAME: z.string().default('acornops_cp_session'),
   SESSION_TTL_SECONDS: optionalPositiveIntFromEnv,
   SESSION_MAX_AGE_SECONDS: optionalPositiveIntFromEnv,
@@ -194,6 +193,7 @@ const envSchema = z.object({
   CSRF_SECRET: z.string().default('dev_csrf_secret_change_me_32_bytes_minimum'),
   CONVERSATION_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   CONVERSATION_RETENTION_JOB_INTERVAL_SECONDS: z.coerce.number().int().positive().default(3600),
+  TARGET_METRIC_HISTORY_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   WORKSPACE_AUDIT_LOGGING_MODE: workspaceAuditLoggingModeFromEnv,
   WORKSPACE_AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
   TARGET_CHAT_RECENT_ACTIVITY_WINDOW_SECONDS: z.coerce.number().int().min(60).max(3600).default(300),

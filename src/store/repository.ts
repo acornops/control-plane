@@ -56,7 +56,6 @@ import {
   deleteCluster as deleteClusterRecord,
   getCluster as getClusterRecord,
   getClusterSnapshot as getClusterSnapshotRecord,
-  listClusterSnapshotHistory as listClusterSnapshotHistoryRecord,
   listClusters as listClustersRecord,
   updateCluster as updateClusterRecord,
   upsertClusterSnapshot as upsertClusterSnapshotRecord
@@ -69,7 +68,6 @@ import {
   listVirtualMachineFindings as listVirtualMachineFindingsRecord,
   listVirtualMachineInventory as listVirtualMachineInventoryRecord,
   getVirtualMachineSnapshotSummary as getVirtualMachineSnapshotSummaryRecord,
-  listVirtualMachineSnapshotHistory as listVirtualMachineSnapshotHistoryRecord,
   listVirtualMachineSnapshotSummaries as listVirtualMachineSnapshotSummariesRecord,
   listVirtualMachines as listVirtualMachinesRecord,
   updateVirtualMachine as updateVirtualMachineRecord,
@@ -106,6 +104,12 @@ import {
   listClusterSnapshotSummaries as listClusterSnapshotSummariesRecord,
   listWorkspaceSnapshotFindings as listWorkspaceSnapshotFindingsRecord
 } from './repository-kubernetes-inventory.js';
+import {
+  getTargetIssue as getTargetIssueRecord,
+  listTargetIssueObservations as listTargetIssueObservationsRecord,
+  listTargetIssues as listTargetIssuesRecord,
+  listWorkspaceIssues as listWorkspaceIssuesRecord
+} from './repository-target-issues.js';
 import {
   addMessage as addMessageRecord,
   addRun as addRunRecord,
@@ -200,6 +204,10 @@ import {
   revokeExternalIntegrationUserLink as revokeExternalIntegrationUserLinkRecord,
   resolveExternalIntegrationUserLink as resolveExternalIntegrationUserLinkRecord
 } from './repository-external-integration-links.js';
+import {
+  listTargetMetricHistory as listTargetMetricHistoryRecord,
+  purgeOldTargetMetricHistory as purgeOldTargetMetricHistoryRecord
+} from './repository-target-metrics.js';
 import { insertAccountAuditEvent as insertAccountAuditEventRecord } from './repository-account-audit.js';
 import { getUserQuotaForUser as getUserQuotaForUserRecord } from './repository-quotas.js';
 
@@ -408,7 +416,17 @@ export class Repository {
 
   listWorkspaceSnapshotFindings = listWorkspaceSnapshotFindingsRecord;
 
-  listClusterSnapshotHistory = listClusterSnapshotHistoryRecord;
+  listWorkspaceIssues = listWorkspaceIssuesRecord;
+
+  listTargetIssues = listTargetIssuesRecord;
+
+  getTargetIssue = getTargetIssueRecord;
+
+  listTargetIssueObservations = listTargetIssueObservationsRecord;
+
+  listTargetMetricHistory = listTargetMetricHistoryRecord;
+
+  purgeOldTargetMetricHistory = purgeOldTargetMetricHistoryRecord;
 
   upsertVirtualMachineSnapshot = upsertVirtualMachineSnapshotRecord;
 
@@ -417,8 +435,6 @@ export class Repository {
   getVirtualMachineSnapshotSummary = getVirtualMachineSnapshotSummaryRecord;
 
   listVirtualMachineSnapshotSummaries = listVirtualMachineSnapshotSummariesRecord;
-
-  listVirtualMachineSnapshotHistory = listVirtualMachineSnapshotHistoryRecord;
 
   listVirtualMachineInventory = listVirtualMachineInventoryRecord;
 

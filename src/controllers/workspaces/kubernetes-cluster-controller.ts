@@ -21,9 +21,22 @@ import {
   parseBoundedIntQuery,
   parseMetricLimit,
   parseMetricWindowMs,
-  parseOptionalPositiveIntQuery,
-  summarizeSnapshotMetrics
+  parseOptionalPositiveIntQuery
 } from './kubernetes-cluster-request-utils.js';
+
+function mapClusterMetricPoint(point: { timestamp: string; metrics: Record<string, unknown> }): {
+  timestamp: string;
+  cpuCores: number | null;
+  memoryBytes: number | null;
+} {
+  const cpuCores = typeof point.metrics.cpuCores === 'number' ? point.metrics.cpuCores : Number.NaN;
+  const memoryBytes = typeof point.metrics.memoryBytes === 'number' ? point.metrics.memoryBytes : Number.NaN;
+  return {
+    timestamp: point.timestamp,
+    cpuCores: Number.isFinite(cpuCores) ? cpuCores : null,
+    memoryBytes: Number.isFinite(memoryBytes) ? memoryBytes : null
+  };
+}
 
 export async function registerCluster(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -133,13 +146,12 @@ export async function getWorkspaceClusterMetricsHistory(
       if (!cluster || cluster.workspaceId !== workspaceId) {
         continue;
       }
-      const snapshots = await repo.listClusterSnapshotHistory(clusterId, { since, limit });
+      const points = await repo.listTargetMetricHistory(clusterId, { targetType: 'kubernetes', since, limit });
       items.push({
         clusterId,
-        points: snapshots
-          .filter((snapshot) => snapshot.workspaceId === workspaceId)
-          .map(summarizeSnapshotMetrics)
-          .filter((point): point is NonNullable<typeof point> => point !== null)
+        points: points
+          .filter((point) => point.workspaceId === workspaceId)
+          .map(mapClusterMetricPoint)
       });
     }
 
@@ -168,11 +180,9 @@ export async function getClusterMetricsHistory(
     const windowMs = parseMetricWindowMs(req.query.window);
     const limit = parseMetricLimit(req.query.limit);
     const since = new Date(Date.now() - windowMs).toISOString();
-    const snapshots = await repo.listClusterSnapshotHistory(clusterId, { since, limit });
-    const points = snapshots
-      .filter((snapshot) => snapshot.workspaceId === workspaceId)
-      .map(summarizeSnapshotMetrics)
-      .filter((point): point is NonNullable<typeof point> => point !== null);
+    const points = (await repo.listTargetMetricHistory(clusterId, { targetType: 'kubernetes', since, limit }))
+      .filter((point) => point.workspaceId === workspaceId)
+      .map(mapClusterMetricPoint);
 
     res.status(200).json({
       workspaceId,

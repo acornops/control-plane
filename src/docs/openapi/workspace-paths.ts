@@ -395,21 +395,52 @@ export function buildWorkspacePaths(): Record<string, unknown> {
           }
         }
       },
-      '/api/v1/workspaces/{workspaceId}/investigations': {
+      '/api/v1/workspaces/{workspaceId}/issues': {
         get: {
           tags: ['workspaces'],
-          summary: 'List snapshot-derived investigations for a workspace',
+          summary: 'List durable operational issues for a workspace',
           security: [{ userSession: [] }],
           parameters: [
             { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
             { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
             { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } },
             { in: 'query', name: 'q', required: false, schema: { type: 'string' } },
+            { in: 'query', name: 'status', required: false, schema: { type: 'string', enum: ['active', 'recovering', 'resolved', 'all'] } },
             { in: 'query', name: 'severity', required: false, schema: { type: 'string', enum: ['critical', 'warning', 'info'] } },
-            { in: 'query', name: 'clusterId', required: false, schema: { type: 'string', format: 'uuid', example: EXAMPLE_CLUSTER_ID } },
+            { in: 'query', name: 'targetType', required: false, schema: { type: 'string', enum: ['kubernetes', 'virtual_machine'] } },
+            { in: 'query', name: 'targetId', required: false, schema: { type: 'string', format: 'uuid', example: EXAMPLE_CLUSTER_ID } },
             { in: 'query', name: 'namespace', required: false, schema: { type: 'string', example: 'default' } }
           ],
-          responses: { '200': { description: 'Investigation page payload: { items, nextCursor? }.' } }
+          responses: { '200': { description: 'Issue page payload: { items, nextCursor? }.' } }
+        }
+      },
+      '/api/v1/workspaces/{workspaceId}/issues/{issueId}': {
+        get: {
+          tags: ['workspaces'],
+          summary: 'Get a durable operational issue',
+          security: [{ userSession: [] }],
+          parameters: [
+            { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
+            { in: 'path', name: 'issueId', required: true, schema: { type: 'string', format: 'uuid' } }
+          ],
+          responses: { '200': { description: 'Issue payload.' }, '404': { description: 'Issue not found.' } }
+        }
+      },
+      '/api/v1/workspaces/{workspaceId}/issues/{issueId}/observations': {
+        get: {
+          tags: ['workspaces'],
+          summary: 'List observations for a durable operational issue',
+          security: [{ userSession: [] }],
+          parameters: [
+            { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
+            { in: 'path', name: 'issueId', required: true, schema: { type: 'string', format: 'uuid' } },
+            { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
+            { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } }
+          ],
+          responses: {
+            '200': { description: 'Issue observation page payload: { items, nextCursor? }.' },
+            '404': { description: 'Issue not found.' }
+          }
         }
       },
       '/api/v1/workspaces/{workspaceId}/members/{userId}': {

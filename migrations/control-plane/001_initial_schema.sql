@@ -194,15 +194,6 @@ CREATE TABLE IF NOT EXISTS target_snapshots (
   data JSONB NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS target_snapshot_history (
-  id TEXT PRIMARY KEY,
-  target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
-  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  snapshot_ts TIMESTAMPTZ NOT NULL,
-  data JSONB NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
 CREATE TABLE IF NOT EXISTS target_inventory_items (
   target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -228,7 +219,7 @@ CREATE TABLE IF NOT EXISTS target_findings (
   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   snapshot_ts TIMESTAMPTZ NOT NULL,
   finding_id TEXT NOT NULL,
-  severity TEXT NOT NULL,
+  severity TEXT NOT NULL CHECK (severity IN ('critical', 'warning', 'info')),
   severity_rank INTEGER NOT NULL,
   scope_kind TEXT NULL,
   scope_name TEXT NULL,
@@ -252,6 +243,64 @@ CREATE TABLE IF NOT EXISTS target_snapshot_summaries (
   critical_finding_count INTEGER NOT NULL,
   summary JSONB NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS target_issues (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+  target_type TEXT NOT NULL CHECK (target_type IN ('kubernetes', 'virtual_machine')),
+  fingerprint TEXT NOT NULL,
+  issue_type TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('active', 'recovering', 'resolved')),
+  severity TEXT NOT NULL CHECK (severity IN ('critical', 'warning', 'info')),
+  severity_rank INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  scope_kind TEXT NULL,
+  scope_name TEXT NULL,
+  object_kind TEXT NULL,
+  object_name TEXT NULL,
+  reason TEXT NULL,
+  first_seen_at TIMESTAMPTZ NOT NULL,
+  last_seen_at TIMESTAMPTZ NOT NULL,
+  last_observed_snapshot_at TIMESTAMPTZ NOT NULL,
+  resolved_at TIMESTAMPTZ NULL,
+  occurrence_count INTEGER NOT NULL DEFAULT 1,
+  reopened_count INTEGER NOT NULL DEFAULT 0,
+  clean_snapshot_count INTEGER NOT NULL DEFAULT 0,
+  latest_evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
+  search_text TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (target_id, fingerprint)
+);
+
+CREATE TABLE IF NOT EXISTS target_issue_observations (
+  id TEXT PRIMARY KEY,
+  issue_id TEXT NOT NULL REFERENCES target_issues(id) ON DELETE CASCADE,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+  target_type TEXT NOT NULL CHECK (target_type IN ('kubernetes', 'virtual_machine')),
+  snapshot_ts TIMESTAMPTZ NOT NULL,
+  finding_id TEXT NULL,
+  severity TEXT NOT NULL CHECK (severity IN ('critical', 'warning', 'info')),
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  reason TEXT NULL,
+  evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS target_metric_history (
+  target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  target_type TEXT NOT NULL CHECK (target_type IN ('kubernetes', 'virtual_machine')),
+  sample_ts TIMESTAMPTZ NOT NULL,
+  metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (target_id, sample_ts)
 );
 
 CREATE TABLE IF NOT EXISTS target_tool_overrides (
@@ -526,12 +575,6 @@ ALTER TABLE target_snapshots
   REFERENCES targets(workspace_id, id)
   ON DELETE CASCADE;
 
-ALTER TABLE target_snapshot_history
-  ADD CONSTRAINT fk_target_snapshot_history_workspace_target
-  FOREIGN KEY (workspace_id, target_id)
-  REFERENCES targets(workspace_id, id)
-  ON DELETE CASCADE;
-
 ALTER TABLE target_inventory_items
   ADD CONSTRAINT fk_target_inventory_items_workspace_target
   FOREIGN KEY (workspace_id, target_id)
@@ -546,6 +589,24 @@ ALTER TABLE target_findings
 
 ALTER TABLE target_snapshot_summaries
   ADD CONSTRAINT fk_target_snapshot_summaries_workspace_target
+  FOREIGN KEY (workspace_id, target_id)
+  REFERENCES targets(workspace_id, id)
+  ON DELETE CASCADE;
+
+ALTER TABLE target_issues
+  ADD CONSTRAINT fk_target_issues_workspace_target
+  FOREIGN KEY (workspace_id, target_id)
+  REFERENCES targets(workspace_id, id)
+  ON DELETE CASCADE;
+
+ALTER TABLE target_issue_observations
+  ADD CONSTRAINT fk_target_issue_observations_workspace_target
+  FOREIGN KEY (workspace_id, target_id)
+  REFERENCES targets(workspace_id, id)
+  ON DELETE CASCADE;
+
+ALTER TABLE target_metric_history
+  ADD CONSTRAINT fk_target_metric_history_workspace_target
   FOREIGN KEY (workspace_id, target_id)
   REFERENCES targets(workspace_id, id)
   ON DELETE CASCADE;
@@ -701,12 +762,6 @@ CREATE INDEX IF NOT EXISTS idx_target_tool_overrides_target
 CREATE INDEX IF NOT EXISTS idx_target_tool_settings_target
   ON target_tool_settings (target_id);
 
-CREATE INDEX IF NOT EXISTS idx_target_snapshot_history_target_ts
-  ON target_snapshot_history (target_id, snapshot_ts DESC);
-
-CREATE INDEX IF NOT EXISTS idx_target_snapshot_history_workspace_target_ts
-  ON target_snapshot_history (workspace_id, target_id, snapshot_ts DESC);
-
 CREATE INDEX IF NOT EXISTS idx_inventory_items_target_sort
   ON target_inventory_items (target_id, sort_key);
 
@@ -742,6 +797,27 @@ CREATE INDEX IF NOT EXISTS idx_target_findings_search_trgm
 
 CREATE INDEX IF NOT EXISTS idx_snapshot_summaries_workspace_target
   ON target_snapshot_summaries (workspace_id, target_id);
+
+CREATE INDEX IF NOT EXISTS idx_target_issues_workspace_order
+  ON target_issues (workspace_id, status, severity_rank, last_seen_at DESC, id);
+
+CREATE INDEX IF NOT EXISTS idx_target_issues_workspace_target_order
+  ON target_issues (workspace_id, target_id, status, severity_rank, last_seen_at DESC, id);
+
+CREATE INDEX IF NOT EXISTS idx_target_issues_workspace_scope_order
+  ON target_issues (workspace_id, scope_name, status, severity_rank, last_seen_at DESC, id);
+
+CREATE INDEX IF NOT EXISTS idx_target_issues_search_trgm
+  ON target_issues USING gin (search_text gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_target_issue_observations_issue_ts
+  ON target_issue_observations (issue_id, snapshot_ts DESC, id);
+
+CREATE INDEX IF NOT EXISTS idx_target_metric_history_target_ts
+  ON target_metric_history (target_id, sample_ts DESC);
+
+CREATE INDEX IF NOT EXISTS idx_target_metric_history_workspace_target_ts
+  ON target_metric_history (workspace_id, target_id, sample_ts DESC);
 
 CREATE INDEX IF NOT EXISTS idx_webhook_subscriptions_workspace_enabled
   ON webhook_subscriptions (workspace_id, enabled);

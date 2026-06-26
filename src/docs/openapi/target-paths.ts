@@ -137,6 +137,24 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
         responses: { '200': { description: 'Target summary.' } }
       }
     },
+    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/issues': {
+      get: {
+        tags: ['workspaces'],
+        summary: 'List durable operational issues for a target',
+        security: [{ userSession: [] }],
+        parameters: [
+          { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
+          { in: 'path', name: 'targetId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_TARGET_ID } },
+          { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
+          { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } },
+          { in: 'query', name: 'q', required: false, schema: { type: 'string' } },
+          { in: 'query', name: 'status', required: false, schema: { type: 'string', enum: ['active', 'recovering', 'resolved', 'all'] } },
+          { in: 'query', name: 'severity', required: false, schema: { type: 'string', enum: ['critical', 'warning', 'info'] } },
+          { in: 'query', name: 'namespace', required: false, schema: { type: 'string', example: 'default' } }
+        ],
+        responses: { '200': { description: 'Issue page payload: { items, nextCursor? }.' } }
+      }
+    },
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/catalog': {
       get: {
         tags: ['workspaces'],

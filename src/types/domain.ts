@@ -318,6 +318,13 @@ export interface VirtualMachineSnapshot {
   data: Record<string, unknown>;
 }
 
+export type {
+  TargetIssue,
+  TargetIssueObservation,
+  TargetIssueSeverity,
+  TargetIssueStatus
+} from './target-issues.js';
+
 export interface TargetAgentRegistration {
   targetId: string;
   targetType: TargetType;

@@ -47,7 +47,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       canToggle: true,
       authType: 'none',
       publicHeaders: {},
-      connectionStatus: 'unknown',
+      connectionStatus: 'ok',
       lastDiscoveryAt: null,
       lastDiscoveryError: null,
       toolCounts: {
@@ -70,6 +70,49 @@ describe('composeKubernetesClusterToolsCatalog', () => {
         }
       ]
     });
+  });
+
+  it('hides stale gateway discovery failures for the builtin managed server', () => {
+    const catalog = composeKubernetesClusterToolsCatalog({
+      workspaceId: 'ws-1',
+      clusterId: 'cluster-1',
+      canEdit: true,
+      tools: [
+        {
+          name: 'list_pods',
+          mcp_server_url: config.BUILTIN_MCP_SERVER_URL,
+          timeout_ms: 5000,
+          description: 'List pods',
+          capability: 'read',
+          version: 'v1',
+          source: 'builtin',
+          enabled: true
+        }
+      ],
+      servers: [
+        {
+          id: 'builtin-server',
+          workspace_id: 'ws-1',
+          target_id: 'cluster-1',
+          target_type: 'kubernetes',
+          server_name: config.BUILTIN_MCP_SERVER_NAME,
+          server_url: config.BUILTIN_MCP_SERVER_URL,
+          enabled: true,
+          auth_type: 'none',
+          connection_status: 'error',
+          last_discovery_at: '2026-06-27T00:00:00.000Z',
+          last_discovery_error: 'Failed to connect to MCP server',
+          tools: []
+        }
+      ],
+      overrides: {},
+      targetSupportsWrite: true
+    });
+
+    assert.equal(catalog.servers[0]?.type, 'builtin');
+    assert.equal(catalog.servers[0]?.connectionStatus, 'ok');
+    assert.equal(catalog.servers[0]?.lastDiscoveryAt, null);
+    assert.equal(catalog.servers[0]?.lastDiscoveryError, null);
   });
 
   it('normalizes tool metadata, applies overrides, and marks server-disabled tools ineffective', () => {

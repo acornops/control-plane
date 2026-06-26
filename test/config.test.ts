@@ -146,7 +146,7 @@ describe('parseAppConfig production validation', () => {
     assert.equal(config.SESSION_IDLE_TIMEOUT_SECONDS, 86400);
     assert.equal(config.TARGET_CHAT_RECENT_ACTIVITY_WINDOW_SECONDS, 300);
     assert.equal(config.WORKSPACE_AUDIT_LOGGING_MODE, 'read_write');
-    assert.equal(config.WORKSPACE_AUDIT_RETENTION_DAYS, 365);
+    assert.deepEqual([config.WORKSPACE_AUDIT_RETENTION_DAYS, config.TARGET_METRIC_HISTORY_RETENTION_DAYS], [365, 30]);
     assert.deepEqual(config.WORKSPACE_ROLE_TEMPLATES.map((role) => role.key), ['owner', 'admin', 'operator', 'viewer', 'auditor']);
     assert.deepEqual(nullConfig.WORKSPACE_ROLE_TEMPLATES.map((role) => role.key), ['owner', 'admin', 'operator', 'viewer', 'auditor']);
     assert.equal(config.INTERNAL_TRANSPORT_TLS_ENABLED, false);
@@ -236,10 +236,12 @@ describe('parseAppConfig production validation', () => {
     for (const mode of ['read_write', 'write_only', 'disabled']) {
       const config = parseAppConfig({
         WORKSPACE_AUDIT_LOGGING_MODE: mode,
-        WORKSPACE_AUDIT_RETENTION_DAYS: '90'
+        WORKSPACE_AUDIT_RETENTION_DAYS: '90',
+        TARGET_METRIC_HISTORY_RETENTION_DAYS: '14'
       });
       assert.equal(config.WORKSPACE_AUDIT_LOGGING_MODE, mode);
       assert.equal(config.WORKSPACE_AUDIT_RETENTION_DAYS, 90);
+      assert.equal(config.TARGET_METRIC_HISTORY_RETENTION_DAYS, 14);
     }
   });
 
@@ -253,6 +255,10 @@ describe('parseAppConfig production validation', () => {
       assert.throws(
         () => parseAppConfig({ WORKSPACE_AUDIT_RETENTION_DAYS: value }),
         (error) => Boolean(fieldErrors(error).WORKSPACE_AUDIT_RETENTION_DAYS?.length)
+      );
+      assert.throws(
+        () => parseAppConfig({ TARGET_METRIC_HISTORY_RETENTION_DAYS: value }),
+        (error) => Boolean(fieldErrors(error).TARGET_METRIC_HISTORY_RETENTION_DAYS?.length)
       );
     }
   });

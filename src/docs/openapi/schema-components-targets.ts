@@ -79,8 +79,10 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
     InventoryPage: pageOf('InventoryItem'),
     Finding: { type: 'object', additionalProperties: true },
     FindingPage: pageOf('Finding'),
-    Investigation: { type: 'object', additionalProperties: true },
-    InvestigationPage: pageOf('Investigation'),
+    Issue: { type: 'object', additionalProperties: true },
+    IssuePage: pageOf('Issue'),
+    IssueObservation: { type: 'object', additionalProperties: true },
+    IssueObservationPage: pageOf('IssueObservation'),
     PodLogs: {
       type: 'object',
       required: ['name', 'namespace', 'logs', 'fetchedAt'],
