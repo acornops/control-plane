@@ -241,6 +241,7 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
         'allowedReasoningEfforts',
         'reasoningSummariesEnabled',
         'allowedProviders',
+        'allowedProviderModels',
         'allowedModels',
         'providers'
       ],
@@ -249,11 +250,21 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
         defaultProvider: { type: 'string', enum: ['openai', 'anthropic', 'gemini'] },
         defaultModel: { type: 'string' },
         reasoningSummaryMode: { type: 'string', enum: ['off', 'auto', 'concise', 'detailed'] },
-        reasoningEffort: { type: 'string', enum: ['default', 'low', 'medium', 'high'] },
+        reasoningEffort: { type: 'string', enum: ['off', 'low', 'medium', 'high'] },
         allowedReasoningSummaryModes: { type: 'array', items: { type: 'string', enum: ['off', 'auto', 'concise', 'detailed'] } },
-        allowedReasoningEfforts: { type: 'array', items: { type: 'string', enum: ['default', 'low', 'medium', 'high'] } },
+        allowedReasoningEfforts: { type: 'array', items: { type: 'string', enum: ['off', 'low', 'medium', 'high'] } },
         reasoningSummariesEnabled: { type: 'boolean' },
         allowedProviders: { type: 'array', items: { type: 'string', enum: ['openai', 'anthropic', 'gemini'] } },
+        allowedProviderModels: {
+          type: 'object',
+          required: ['openai', 'anthropic', 'gemini'],
+          properties: {
+            openai: stringArray,
+            anthropic: stringArray,
+            gemini: stringArray
+          },
+          additionalProperties: false
+        },
         allowedModels: stringArray,
         providers: { type: 'array', items: schemaRef('WorkspaceAiProviderStatus') }
       },

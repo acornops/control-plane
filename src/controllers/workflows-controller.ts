@@ -444,7 +444,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Workspace AI model is not allowed', retryable: false } });
       return;
     }
-    if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, llmSettings.allowedModels)) {
+    if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, llmSettings.allowedProviderModels)) {
       res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Workspace AI model is not available for the selected provider', retryable: false } });
       return;
     }

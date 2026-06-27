@@ -215,8 +215,8 @@ export function buildWorkspacePaths(): Record<string, unknown> {
                     },
                     reasoningEffort: {
                       type: 'string',
-                      enum: ['default', 'low', 'medium', 'high'],
-                      description: 'Omit to preserve the existing allowed effort, or use default for first-time settings.'
+                      enum: ['off', 'low', 'medium', 'high'],
+                      description: 'Omit to preserve the existing allowed effort, or use low for first-time settings.'
                     }
                   }
                 }

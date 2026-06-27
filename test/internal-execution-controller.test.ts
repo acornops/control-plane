@@ -347,7 +347,7 @@ describe('internal execution bootstrap audit metadata', () => {
       llmProvider: 'gemini',
       llmModel: 'gemini-2.0-flash',
       llmReasoningSummaryMode: 'off',
-      llmReasoningEffort: 'default'
+      llmReasoningEffort: 'off'
     });
 
     repo.getWorkspaceAiSettings = async () => null;

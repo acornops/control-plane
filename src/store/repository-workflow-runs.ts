@@ -38,7 +38,7 @@ export interface WorkflowRunRecord {
   llmProvider?: 'openai' | 'anthropic' | 'gemini';
   llmModel?: string;
   llmReasoningSummaryMode?: 'off' | 'auto' | 'concise' | 'detailed';
-  llmReasoningEffort?: 'default' | 'low' | 'medium' | 'high';
+  llmReasoningEffort?: 'off' | 'low' | 'medium' | 'high';
   requestedAt: string;
   startedAt?: string;
   endedAt?: string;

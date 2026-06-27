@@ -178,7 +178,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
                       properties: {
                         provider: { type: 'string', enum: ['openai', 'anthropic', 'gemini'], example: 'openai', description: 'Must be supplied together with model.' },
                         model: { type: 'string', example: 'gpt-5-nano', description: 'Required when provider is supplied.' },
-                        reasoningEffort: { type: 'string', enum: ['default', 'low', 'medium', 'high'], example: 'high' }
+                        reasoningEffort: { type: 'string', enum: ['off', 'low', 'medium', 'high'], example: 'high' }
                       },
                       description: 'Optional per-message runtime override. Omit to use workspace defaults.'
                     }

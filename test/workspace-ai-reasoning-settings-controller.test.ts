@@ -53,7 +53,7 @@ describe('workspace AI reasoning settings validation', () => {
     try {
       const response = await patchAiSettings({
         reasoningSummaryMode: 'detailed',
-        reasoningEffort: 'default'
+        reasoningEffort: 'off'
       });
 
       assert.equal(response.statusCode, 400);
@@ -68,7 +68,7 @@ describe('workspace AI reasoning settings validation', () => {
     installWorkspace('admin');
     installAiCredentialGateway();
     const previousAllowedEfforts = config.LLM_ALLOWED_REASONING_EFFORTS;
-    config.LLM_ALLOWED_REASONING_EFFORTS = 'default,low';
+    config.LLM_ALLOWED_REASONING_EFFORTS = 'low';
     let attemptedPersist = false;
     repo.upsertWorkspaceAiSettings = async () => {
       attemptedPersist = true;
@@ -101,7 +101,7 @@ describe('workspace AI reasoning settings validation', () => {
     try {
       const response = await patchAiSettings({
         reasoningSummaryMode: 'auto',
-        reasoningEffort: 'default'
+        reasoningEffort: 'off'
       });
 
       assert.equal(response.statusCode, 400);
@@ -112,7 +112,7 @@ describe('workspace AI reasoning settings validation', () => {
     }
   });
 
-  it('falls back to off for omitted reasoning mode when summaries are disabled', async () => {
+  it('falls back to off for omitted reasoning summary mode when summaries are disabled', async () => {
     installWorkspace('admin');
     installAiCredentialGateway();
     const previousSummariesEnabled = config.LLM_REASONING_SUMMARIES_ENABLED;
@@ -130,14 +130,14 @@ describe('workspace AI reasoning settings validation', () => {
         defaultProvider: 'openai',
         defaultModel: 'gpt-5.5',
         reasoningSummaryMode: 'off',
-        reasoningEffort: 'default'
+        reasoningEffort: 'low'
       });
     } finally {
       config.LLM_REASONING_SUMMARIES_ENABLED = previousSummariesEnabled;
     }
   });
 
-  it('preserves an existing allowed reasoning mode when auto is disallowed and input is omitted', async () => {
+  it('preserves existing allowed reasoning summary mode and effort when input is omitted', async () => {
     installWorkspace('admin');
     installAiCredentialGateway();
     const previousAllowedModes = config.LLM_ALLOWED_REASONING_SUMMARY_MODES;
@@ -147,7 +147,7 @@ describe('workspace AI reasoning settings validation', () => {
       defaultProvider: 'openai',
       defaultModel: 'gpt-5.5',
       reasoningSummaryMode: 'concise',
-      reasoningEffort: 'default'
+      reasoningEffort: 'off'
     });
     repo.upsertWorkspaceAiSettings = async (_workspaceId, settings) => {
       persisted = settings;
@@ -162,7 +162,7 @@ describe('workspace AI reasoning settings validation', () => {
         defaultProvider: 'openai',
         defaultModel: 'gpt-5.5',
         reasoningSummaryMode: 'concise',
-        reasoningEffort: 'default'
+        reasoningEffort: 'off'
       });
     } finally {
       config.LLM_ALLOWED_REASONING_SUMMARY_MODES = previousAllowedModes;
@@ -178,7 +178,7 @@ describe('workspace AI reasoning settings validation', () => {
       defaultProvider: 'openai',
       defaultModel: 'gpt-5.5',
       reasoningSummaryMode: 'off',
-      reasoningEffort: 'default'
+      reasoningEffort: 'off'
     });
     repo.upsertWorkspaceAiSettings = async (_workspaceId, settings) => {
       persisted = settings;
@@ -191,7 +191,7 @@ describe('workspace AI reasoning settings validation', () => {
       defaultProvider: 'openai',
       defaultModel: 'gpt-5.5',
       reasoningSummaryMode: 'off',
-      reasoningEffort: 'default'
+      reasoningEffort: 'off'
     });
   });
 
@@ -221,7 +221,7 @@ describe('workspace AI reasoning settings validation', () => {
     });
   });
 
-  it('falls back to default when an omitted existing reasoning effort is no longer allowed', async () => {
+  it('falls back to low when an omitted existing reasoning effort is no longer allowed', async () => {
     installWorkspace('admin');
     installAiCredentialGateway();
     const previousAllowedEfforts = config.LLM_ALLOWED_REASONING_EFFORTS;
@@ -238,7 +238,7 @@ describe('workspace AI reasoning settings validation', () => {
     };
 
     try {
-      config.LLM_ALLOWED_REASONING_EFFORTS = 'default,low';
+      config.LLM_ALLOWED_REASONING_EFFORTS = 'low';
       const response = await patchAiSettings({});
 
       assert.equal(response.statusCode, 200);
@@ -246,7 +246,7 @@ describe('workspace AI reasoning settings validation', () => {
         defaultProvider: 'openai',
         defaultModel: 'gpt-5.5',
         reasoningSummaryMode: 'auto',
-        reasoningEffort: 'default'
+        reasoningEffort: 'low'
       });
     } finally {
       config.LLM_ALLOWED_REASONING_EFFORTS = previousAllowedEfforts;

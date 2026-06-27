@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { accessSync, constants } from 'node:fs';
 import { z } from 'zod';
 import { configureWorkspaceRoleTemplates } from './auth/role-template-config.js';
-import { validateLlmPolicyConfig } from './config-llm-policy.js';
+import { DEFAULT_LLM_ALLOWED_PROVIDER_MODELS, validateLlmPolicyConfig } from './config-llm-policy.js';
 import {
   parseAdminTokenDescriptors,
   parseWorkspacePlansConfig,
@@ -273,11 +273,12 @@ const envSchema = z.object({
   LLM_DEFAULT_PROVIDER: z.enum(['openai', 'anthropic', 'gemini']).default('openai'),
   LLM_DEFAULT_MODEL: z.string().default('gpt-5.5'),
   LLM_ALLOWED_PROVIDERS: z.string().default('openai,anthropic,gemini'),
-  LLM_ALLOWED_MODELS: z.string().default('gpt-5.5,gpt-5.4,gpt-5.4-mini,gpt-5.4-nano,gpt-5,gpt-5-mini,gpt-5-nano,claude-3-5-sonnet-latest,gemini-2.0-flash'),
+  LLM_ALLOWED_PROVIDER_MODELS: z.string().default(DEFAULT_LLM_ALLOWED_PROVIDER_MODELS),
+  LLM_ALLOWED_MODELS: z.string().default(''),
   LLM_MAX_OUTPUT_TOKENS: optionalPositiveIntFromEnv,
   LLM_REASONING_SUMMARIES_ENABLED: envBoolean(true),
   LLM_ALLOWED_REASONING_SUMMARY_MODES: z.string().default('off,auto,concise,detailed'),
-  LLM_ALLOWED_REASONING_EFFORTS: z.string().default('default,low,medium,high'),
+  LLM_ALLOWED_REASONING_EFFORTS: z.string().default('off,low,medium,high'),
   AGENT_SYSTEM_INSTRUCTION: z.preprocess(
     emptyStringToUndefined,
     z.string().min(1).default(DEFAULT_AGENT_SYSTEM_INSTRUCTION)

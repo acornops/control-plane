@@ -95,7 +95,7 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Workspace AI model is not allowed', retryable: false } });
     return;
   }
-  if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, allowedModels)) {
+  if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, llmSettings.allowedProviderModels)) {
     res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Workspace AI model is not available for the selected provider', retryable: false } });
     return;
   }
@@ -282,7 +282,7 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
       res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Workspace AI model is not allowed', retryable: false } });
       return;
     }
-    if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, allowedModels)) {
+    if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, llmSettings.allowedProviderModels)) {
       res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Workspace AI model is not available for the selected provider', retryable: false } });
       return;
     }

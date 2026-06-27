@@ -90,6 +90,10 @@ describe('workspace AI settings controller', () => {
     assert.equal(body.reasoningSummaryMode, 'auto');
     assert.equal(body.reasoningSummariesEnabled, true);
     assert.deepEqual(body.allowedProviders, ['openai', 'anthropic', 'gemini']);
+    assert.deepEqual(Object.keys(body.allowedProviderModels as Record<string, unknown>), ['openai', 'anthropic', 'gemini']);
+    assert((body.allowedProviderModels as Record<string, string[]>).openai.includes('gpt-5.5'));
+    assert((body.allowedProviderModels as Record<string, string[]>).anthropic.includes('claude-sonnet-4-6'));
+    assert((body.allowedProviderModels as Record<string, string[]>).gemini.includes('gemini-2.5-flash'));
     assert(Array.isArray(body.providers));
     assert(!JSON.stringify(body).includes('apiKey'));
     assert(!JSON.stringify(body).includes('secret'));
@@ -377,7 +381,7 @@ describe('workspace AI settings controller', () => {
       defaultProvider: 'openai',
       defaultModel: 'gpt-5.5',
       reasoningSummaryMode: 'auto',
-      reasoningEffort: 'default'
+      reasoningEffort: 'off'
     });
     repo.getSession = async () => createSessionRecord();
     repo.findRunByClientMessageId = async () => null;
@@ -507,7 +511,7 @@ describe('workspace AI settings controller', () => {
 
   it('rejects per-message reasoning effort overrides excluded by deployment policy', async () => {
     const previousAllowedEfforts = config.LLM_ALLOWED_REASONING_EFFORTS;
-    config.LLM_ALLOWED_REASONING_EFFORTS = 'default,low';
+    config.LLM_ALLOWED_REASONING_EFFORTS = 'low';
     try {
       installWorkspace('admin');
       installAiCredentialGateway();
@@ -614,7 +618,7 @@ describe('workspace AI settings controller', () => {
     );
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(persisted, { defaultProvider: 'openai', defaultModel: 'gpt-5.5', reasoningSummaryMode: 'auto', reasoningEffort: 'default' });
+    assert.deepEqual(persisted, { defaultProvider: 'openai', defaultModel: 'gpt-5.5', reasoningSummaryMode: 'auto', reasoningEffort: 'low' });
   });
 
   it('rejects default model changes that do not match the selected provider', async () => {

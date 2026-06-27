@@ -107,7 +107,7 @@ export const updateWorkspaceMemberSchema = z.object({
 
 export const llmProviderSchema = z.enum(['openai', 'anthropic', 'gemini']);
 export const reasoningSummaryModeSchema = z.enum(['off', 'auto', 'concise', 'detailed']);
-export const reasoningEffortSchema = z.enum(['default', 'low', 'medium', 'high']);
+export const reasoningEffortSchema = z.enum(['off', 'low', 'medium', 'high']);
 
 export const updateWorkspaceAiSettingsSchema = z.object({
   defaultProvider: llmProviderSchema,

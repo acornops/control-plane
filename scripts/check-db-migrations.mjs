@@ -96,7 +96,7 @@ for (const needle of [
   "reasoning_summary_mode TEXT NOT NULL DEFAULT 'auto'",
   "CHECK (reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed'))",
   'reasoning_effort TEXT NOT NULL DEFAULT',
-  "CHECK (reasoning_effort IN ('default', 'low', 'medium', 'high'))",
+  "CHECK (reasoning_effort IN ('off', 'low', 'medium', 'high'))",
   'source TEXT NOT NULL DEFAULT',
   "kind TEXT NOT NULL CHECK (kind IN ('system', 'custom'))",
   'capabilities JSONB NOT NULL',

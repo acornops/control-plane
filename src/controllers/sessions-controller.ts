@@ -504,7 +504,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       });
       return;
     }
-    if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, llmSettings.allowedModels)) {
+    if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, llmSettings.allowedProviderModels)) {
       res.status(400).json({
         error: {
           code: 'MODEL_NOT_ALLOWED',

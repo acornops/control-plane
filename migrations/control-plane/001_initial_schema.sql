@@ -102,8 +102,8 @@ CREATE TABLE IF NOT EXISTS workspace_ai_settings (
   default_model TEXT NOT NULL,
   reasoning_summary_mode TEXT NOT NULL DEFAULT 'auto'
     CHECK (reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed')),
-  reasoning_effort TEXT NOT NULL DEFAULT 'default'
-    CHECK (reasoning_effort IN ('default', 'low', 'medium', 'high')),
+  reasoning_effort TEXT NOT NULL DEFAULT 'low'
+    CHECK (reasoning_effort IN ('off', 'low', 'medium', 'high')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -360,8 +360,8 @@ CREATE TABLE IF NOT EXISTS runs (
   llm_model TEXT NOT NULL DEFAULT 'gpt-5.5',
   llm_reasoning_summary_mode TEXT NOT NULL DEFAULT 'auto'
     CHECK (llm_reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed')),
-  llm_reasoning_effort TEXT NOT NULL DEFAULT 'default'
-    CHECK (llm_reasoning_effort IN ('default', 'low', 'medium', 'high')),
+  llm_reasoning_effort TEXT NOT NULL DEFAULT 'low'
+    CHECK (llm_reasoning_effort IN ('off', 'low', 'medium', 'high')),
   tool_access_mode TEXT NOT NULL DEFAULT 'read_only',
   status TEXT NOT NULL,
   requested_at TIMESTAMPTZ NOT NULL,
