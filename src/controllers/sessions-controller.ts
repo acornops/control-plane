@@ -8,7 +8,11 @@ import {
 } from '../auth/workspace-authorization.js';
 import { config } from '../config.js';
 import { dispatchRunToExecutionEngine } from '../services/execution-engine-client.js';
-import { isModelAllowedForProvider } from '../services/llm-policy.js';
+import {
+  isModelAllowedForProvider,
+  isSupportedLlmProvider,
+  parseAllowedReasoningEfforts
+} from '../services/llm-policy.js';
 import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
 import { recordTargetChatActivityEvent } from '../services/target-chat-activity-events.js';
 import { emitRunStatusTransition, webhooks } from '../services/webhooks.js';
@@ -16,7 +20,15 @@ import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
 import { repo } from '../store/repository.js';
 import { runtime } from '../store/runtime.js';
-import { ChatSession, KUBERNETES_TARGET_TYPE, Run, TargetType, VIRTUAL_MACHINE_TARGET_TYPE } from '../types/domain.js';
+import {
+  ChatSession,
+  KUBERNETES_TARGET_TYPE,
+  LlmProvider,
+  ReasoningEffort,
+  Run,
+  TargetType,
+  VIRTUAL_MACHINE_TARGET_TYPE
+} from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
 import {
   CursorMismatchError,
@@ -67,6 +79,79 @@ function enqueueRunDispatch(run: Run): void {
       }
     }
   });
+}
+
+interface RequestedLlmSelection {
+  provider?: LlmProvider;
+  model?: string;
+  reasoningEffort?: ReasoningEffort;
+}
+
+function rejectInvalidLlmSelection(res: Response, message: string): boolean {
+  res.status(400).json({
+    error: {
+      code: 'INVALID_LLM_SELECTION',
+      message,
+      retryable: false
+    }
+  });
+  return false;
+}
+
+function parseRequestedLlmSelection(req: AuthenticatedRequest, res: Response): RequestedLlmSelection | null {
+  const raw = req.body.llm;
+  if (raw === undefined || raw === null) {
+    return {};
+  }
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    rejectInvalidLlmSelection(res, 'llm must be an object when provided');
+    return null;
+  }
+
+  const input = raw as Record<string, unknown>;
+  const selection: RequestedLlmSelection = {};
+  if (input.provider !== undefined) {
+    if (typeof input.provider !== 'string' || !isSupportedLlmProvider(input.provider)) {
+      res.status(400).json({
+        error: {
+          code: 'PROVIDER_NOT_ALLOWED',
+          message: 'Selected provider is not supported',
+          retryable: false
+        }
+      });
+      return null;
+    }
+    selection.provider = input.provider;
+  }
+  if (input.model !== undefined) {
+    if (typeof input.model !== 'string' || !input.model.trim()) {
+      rejectInvalidLlmSelection(res, 'llm.model must be a non-empty string');
+      return null;
+    }
+    if (!selection.provider) {
+      rejectInvalidLlmSelection(res, 'llm.provider is required when llm.model is provided');
+      return null;
+    }
+    selection.model = input.model.trim();
+  }
+  if (selection.provider && !selection.model) {
+    rejectInvalidLlmSelection(res, 'llm.model is required when llm.provider is provided');
+    return null;
+  }
+  if (input.reasoningEffort !== undefined) {
+    if (typeof input.reasoningEffort !== 'string' || !parseAllowedReasoningEfforts().includes(input.reasoningEffort as ReasoningEffort)) {
+      res.status(400).json({
+        error: {
+          code: 'REASONING_EFFORT_NOT_ALLOWED',
+          message: 'Selected reasoning effort is not allowed by this deployment',
+          retryable: false
+        }
+      });
+      return null;
+    }
+    selection.reasoningEffort = input.reasoningEffort as ReasoningEffort;
+  }
+  return selection;
 }
 
 async function requireSessionTargetAccess(
@@ -394,7 +479,11 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
         return;
       }
     }
-    const llmSettings = await resolveWorkspaceLlmSettings(session.workspaceId);
+    const requestedLlm = parseRequestedLlmSelection(req, res);
+    if (requestedLlm === null) {
+      return;
+    }
+    const llmSettings = await resolveWorkspaceLlmSettings(session.workspaceId, requestedLlm);
     if (!llmSettings.allowedProviders.includes(llmSettings.provider)) {
       res.status(400).json({
         error: {

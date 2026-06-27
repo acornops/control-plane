@@ -31,8 +31,8 @@ export function effectiveAllowedProviders(credentials: ProviderCredentialStatus[
 export async function resolveWorkspaceLlmSettings(
   workspaceId: string,
   runSnapshot?: {
-    provider: LlmProvider;
-    model: string;
+    provider?: LlmProvider;
+    model?: string;
     reasoningSummaryMode?: ReasoningSummaryMode;
     reasoningEffort?: ReasoningEffort;
   }

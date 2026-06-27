@@ -194,4 +194,62 @@ describe('workspace AI reasoning settings validation', () => {
       reasoningEffort: 'default'
     });
   });
+
+  it('preserves an existing allowed reasoning effort when input is omitted', async () => {
+    installWorkspace('admin');
+    installAiCredentialGateway();
+    let persisted: Parameters<typeof repo.upsertWorkspaceAiSettings>[1] | undefined;
+    repo.getWorkspaceAiSettings = async () => ({
+      workspaceId: 'workspace-1',
+      defaultProvider: 'openai',
+      defaultModel: 'gpt-5.5',
+      reasoningSummaryMode: 'auto',
+      reasoningEffort: 'high'
+    });
+    repo.upsertWorkspaceAiSettings = async (_workspaceId, settings) => {
+      persisted = settings;
+    };
+
+    const response = await patchAiSettings({});
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(persisted, {
+      defaultProvider: 'openai',
+      defaultModel: 'gpt-5.5',
+      reasoningSummaryMode: 'auto',
+      reasoningEffort: 'high'
+    });
+  });
+
+  it('falls back to default when an omitted existing reasoning effort is no longer allowed', async () => {
+    installWorkspace('admin');
+    installAiCredentialGateway();
+    const previousAllowedEfforts = config.LLM_ALLOWED_REASONING_EFFORTS;
+    let persisted: Parameters<typeof repo.upsertWorkspaceAiSettings>[1] | undefined;
+    repo.getWorkspaceAiSettings = async () => ({
+      workspaceId: 'workspace-1',
+      defaultProvider: 'openai',
+      defaultModel: 'gpt-5.5',
+      reasoningSummaryMode: 'auto',
+      reasoningEffort: 'high'
+    });
+    repo.upsertWorkspaceAiSettings = async (_workspaceId, settings) => {
+      persisted = settings;
+    };
+
+    try {
+      config.LLM_ALLOWED_REASONING_EFFORTS = 'default,low';
+      const response = await patchAiSettings({});
+
+      assert.equal(response.statusCode, 200);
+      assert.deepEqual(persisted, {
+        defaultProvider: 'openai',
+        defaultModel: 'gpt-5.5',
+        reasoningSummaryMode: 'auto',
+        reasoningEffort: 'default'
+      });
+    } finally {
+      config.LLM_ALLOWED_REASONING_EFFORTS = previousAllowedEfforts;
+    }
+  });
 });

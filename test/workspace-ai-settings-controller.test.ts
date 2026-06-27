@@ -10,7 +10,8 @@ import {
   upsertWorkspaceAiProviderCredential
 } from '../src/controllers/workspaces/ai-settings-controller.js';
 import { repo } from '../src/store/repository.js';
-import type { LlmProvider } from '../src/types/domain.js';
+import { postMessageSchema } from '../src/types/contracts.js';
+import type { LlmProvider, ReasoningEffort } from '../src/types/domain.js';
 import {
   callController,
   createMessage,
@@ -61,6 +62,19 @@ function installFailingAiCredentialGateway() {
 }
 
 describe('workspace AI settings controller', () => {
+  it('leaves semantic llm validation to the session controller after request body validation', () => {
+    const parsed = postMessageSchema.safeParse({
+      content: 'diagnose',
+      toolAccessMode: 'read_write',
+      llm: { reasoningEffort: 'extra_high' }
+    });
+
+    assert.equal(parsed.success, true);
+    if (!parsed.success) assert.fail('expected malformed llm selection to pass body shape validation');
+    assert.deepEqual(parsed.data.llm, { reasoningEffort: 'extra_high' });
+    assert.equal(postMessageSchema.safeParse({ content: '' }).success, false);
+  });
+
   it('returns safe workspace AI settings without credential values or secret names', async () => {
     installWorkspace('viewer');
     installAiCredentialGateway();
@@ -353,6 +367,208 @@ describe('workspace AI settings controller', () => {
     assert.equal(response.statusCode, 202);
     assert.equal(createdRunInput?.llmProvider, 'openai');
     assert.equal(createdRunInput?.llmModel, 'gpt-5.5');
+  });
+
+  it('freezes per-message provider, model, and reasoning effort overrides on newly created runs', async () => {
+    installWorkspace('admin');
+    installAiCredentialGateway();
+    repo.getWorkspaceAiSettings = async () => ({
+      workspaceId: 'workspace-1',
+      defaultProvider: 'openai',
+      defaultModel: 'gpt-5.5',
+      reasoningSummaryMode: 'auto',
+      reasoningEffort: 'default'
+    });
+    repo.getSession = async () => createSessionRecord();
+    repo.findRunByClientMessageId = async () => null;
+    let createdRunInput: {
+      llmProvider?: LlmProvider;
+      llmModel?: string;
+      llmReasoningEffort?: ReasoningEffort;
+    } | undefined;
+    repo.createRunFromUserMessage = async (input) => {
+      createdRunInput = input;
+      return {
+        message: createMessage(),
+        run: createRun({
+          llmProvider: input.llmProvider,
+          llmModel: input.llmModel,
+          llmReasoningEffort: input.llmReasoningEffort
+        }),
+        idempotent: true
+      };
+    };
+
+    const response = await callController(
+      postMessage,
+      createRequest(
+        { sessionId: 'session-1' },
+        {
+          content: 'diagnose',
+          toolAccessMode: 'read_write',
+          llm: {
+            provider: 'gemini',
+            model: 'gemini-2.0-flash',
+            reasoningEffort: 'high'
+          }
+        }
+      )
+    );
+
+    assert.equal(response.statusCode, 202);
+    assert.equal(createdRunInput?.llmProvider, 'gemini');
+    assert.equal(createdRunInput?.llmModel, 'gemini-2.0-flash');
+    assert.equal(createdRunInput?.llmReasoningEffort, 'high');
+  });
+
+  it('rejects per-message model overrides that omit provider', async () => {
+    installWorkspace('admin');
+    installAiCredentialGateway();
+    repo.getSession = async () => createSessionRecord();
+    repo.findRunByClientMessageId = async () => null;
+    let attemptedRunCreate = false;
+    repo.createRunFromUserMessage = async () => {
+      attemptedRunCreate = true;
+      return {
+        message: createMessage(),
+        run: createRun(),
+        idempotent: true
+      };
+    };
+
+    const response = await callController(
+      postMessage,
+      createRequest(
+        { sessionId: 'session-1' },
+        { content: 'diagnose', toolAccessMode: 'read_write', llm: { model: 'gpt-5.5' } }
+      )
+    );
+
+    assert.equal(response.statusCode, 400);
+    assert.equal((response.body as { error: { code: string } }).error.code, 'INVALID_LLM_SELECTION');
+    assert.equal(attemptedRunCreate, false);
+  });
+
+  it('rejects per-message provider overrides that omit model', async () => {
+    installWorkspace('admin');
+    installAiCredentialGateway();
+    repo.getSession = async () => createSessionRecord();
+    repo.findRunByClientMessageId = async () => null;
+    let attemptedRunCreate = false;
+    repo.createRunFromUserMessage = async () => {
+      attemptedRunCreate = true;
+      return {
+        message: createMessage(),
+        run: createRun(),
+        idempotent: true
+      };
+    };
+
+    const response = await callController(
+      postMessage,
+      createRequest(
+        { sessionId: 'session-1' },
+        { content: 'diagnose', toolAccessMode: 'read_write', llm: { provider: 'gemini' } }
+      )
+    );
+
+    assert.equal(response.statusCode, 400);
+    assert.equal((response.body as { error: { code: string } }).error.code, 'INVALID_LLM_SELECTION');
+    assert.equal(attemptedRunCreate, false);
+  });
+
+  it('rejects per-message reasoning effort overrides that deployment policy does not allow', async () => {
+    installWorkspace('admin');
+    installAiCredentialGateway();
+    repo.getSession = async () => createSessionRecord();
+    repo.findRunByClientMessageId = async () => null;
+    let attemptedRunCreate = false;
+    repo.createRunFromUserMessage = async () => {
+      attemptedRunCreate = true;
+      return {
+        message: createMessage(),
+        run: createRun(),
+        idempotent: true
+      };
+    };
+
+    const response = await callController(
+      postMessage,
+      createRequest(
+        { sessionId: 'session-1' },
+        { content: 'diagnose', toolAccessMode: 'read_write', llm: { reasoningEffort: 'extra_high' } }
+      )
+    );
+
+    assert.equal(response.statusCode, 400);
+    assert.equal((response.body as { error: { code: string } }).error.code, 'REASONING_EFFORT_NOT_ALLOWED');
+    assert.equal(attemptedRunCreate, false);
+  });
+
+  it('rejects per-message reasoning effort overrides excluded by deployment policy', async () => {
+    const previousAllowedEfforts = config.LLM_ALLOWED_REASONING_EFFORTS;
+    config.LLM_ALLOWED_REASONING_EFFORTS = 'default,low';
+    try {
+      installWorkspace('admin');
+      installAiCredentialGateway();
+      repo.getSession = async () => createSessionRecord();
+      repo.findRunByClientMessageId = async () => null;
+      let attemptedRunCreate = false;
+      repo.createRunFromUserMessage = async () => {
+        attemptedRunCreate = true;
+        return {
+          message: createMessage(),
+          run: createRun(),
+          idempotent: true
+        };
+      };
+
+      const response = await callController(
+        postMessage,
+        createRequest(
+          { sessionId: 'session-1' },
+          { content: 'diagnose', toolAccessMode: 'read_write', llm: { reasoningEffort: 'high' } }
+        )
+      );
+
+      assert.equal(response.statusCode, 400);
+      assert.equal((response.body as { error: { code: string } }).error.code, 'REASONING_EFFORT_NOT_ALLOWED');
+      assert.equal(attemptedRunCreate, false);
+    } finally {
+      config.LLM_ALLOWED_REASONING_EFFORTS = previousAllowedEfforts;
+    }
+  });
+
+  it('keeps accepted client message retries idempotent even if the llm override is malformed', async () => {
+    installWorkspace('admin');
+    installAiCredentialGateway();
+    repo.getSession = async () => createSessionRecord();
+    repo.findRunByClientMessageId = async () => ({
+      message: createMessage({ id: 'existing-message', clientMessageId: 'retry-message', runId: 'existing-run' }),
+      run: createRun({ id: 'existing-run' }),
+      idempotent: true
+    });
+    let attemptedRunCreate = false;
+    repo.createRunFromUserMessage = async () => {
+      attemptedRunCreate = true;
+      return {
+        message: createMessage(),
+        run: createRun(),
+        idempotent: false
+      };
+    };
+
+    const response = await callController(
+      postMessage,
+      createRequest(
+        { sessionId: 'session-1' },
+        { content: 'diagnose', toolAccessMode: 'read_write', clientMessageId: 'retry-message', llm: { model: 'gpt-5.5' } }
+      )
+    );
+
+    assert.equal(response.statusCode, 202);
+    assert.deepEqual(response.body, { message_id: 'existing-message', run_id: 'existing-run' });
+    assert.equal(attemptedRunCreate, false);
   });
 
   it('rejects run creation before dispatch when the selected provider is disabled', async () => {

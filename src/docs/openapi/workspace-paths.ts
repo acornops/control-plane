@@ -188,7 +188,7 @@ export function buildWorkspacePaths(): Record<string, unknown> {
         },
         patch: {
           tags: ['workspaces'],
-          summary: 'Update workspace default AI provider, model, and reasoning summary settings',
+          summary: 'Update workspace default AI provider, model, reasoning summary, and reasoning effort settings',
           security: [{ userSession: [] }],
           parameters: [
             {
@@ -208,8 +208,16 @@ export function buildWorkspacePaths(): Record<string, unknown> {
                   properties: {
                     defaultProvider: llmProviderSchema,
                     defaultModel: { type: 'string', example: 'gpt-5.5' },
-                    reasoningSummaryMode: { type: 'string', enum: ['off', 'auto', 'concise', 'detailed'], default: 'auto' },
-                    reasoningEffort: { type: 'string', enum: ['default', 'low', 'medium', 'high'], default: 'default' }
+                    reasoningSummaryMode: {
+                      type: 'string',
+                      enum: ['off', 'auto', 'concise', 'detailed'],
+                      description: 'Omit to preserve the existing allowed mode, or use the deployment default for first-time settings.'
+                    },
+                    reasoningEffort: {
+                      type: 'string',
+                      enum: ['default', 'low', 'medium', 'high'],
+                      description: 'Omit to preserve the existing allowed effort, or use default for first-time settings.'
+                    }
                   }
                 }
               }

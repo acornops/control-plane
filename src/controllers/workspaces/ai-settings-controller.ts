@@ -57,6 +57,14 @@ function defaultReasoningSummaryMode(existingMode?: ReasoningSummaryMode): Reaso
   return 'off';
 }
 
+function defaultReasoningEffort(existingEffort?: ReasoningEffort): ReasoningEffort {
+  const allowedEfforts = parseAllowedReasoningEfforts();
+  if (existingEffort && allowedEfforts.includes(existingEffort)) {
+    return existingEffort;
+  }
+  return 'default';
+}
+
 async function buildAiSettingsResponse(workspaceId: string) {
   const [settings, credentials] = await Promise.all([
     repo.getWorkspaceAiSettings(workspaceId),
@@ -187,7 +195,9 @@ export async function updateWorkspaceAiSettings(req: AuthenticatedRequest, res: 
     const reasoningSummaryMode = (
       req.body.reasoningSummaryMode || defaultReasoningSummaryMode(previous?.reasoningSummaryMode)
     ) as ReasoningSummaryMode;
-    const reasoningEffort = (req.body.reasoningEffort || 'default') as ReasoningEffort;
+    const reasoningEffort = (
+      req.body.reasoningEffort || defaultReasoningEffort(previous?.reasoningEffort)
+    ) as ReasoningEffort;
     if (!validateReasoningSettings(res, reasoningSummaryMode, reasoningEffort)) {
       return;
     }
