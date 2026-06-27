@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import {
   bootstrap,
-  normalizeToolCapability,
   summarizeRunEventCounts
 } from '../src/controllers/internal-execution-controller.js';
+import { normalizeToolCapability } from '../src/services/target-run-tool-resolution.js';
 import { agentGateway } from '../src/agent/ws-server.js';
 import { webhooks, type WebhookEventInput } from '../src/services/webhooks.js';
 import { gatewayTokenService } from '../src/services/token-service.js';
@@ -70,6 +70,7 @@ beforeEach(() => {
     createdAt: '2026-05-24T00:00:00.000Z'
   });
   repo.listEnabledValidTargetSkills = async () => [];
+  repo.listEnabledTargetToolSettings = async () => [];
 });
 
 afterEach(() => {

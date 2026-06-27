@@ -29,6 +29,11 @@ export function registerTargetRoutes(router: Router): void {
     authed(workspacesController.listTargetTools)
   );
   router.get(
+    '/workspaces/:workspaceId/targets/:targetId/assistant/tool-preview',
+    requireUser,
+    authed(workspacesController.getTargetAssistantToolPreview)
+  );
+  router.get(
     '/workspaces/:workspaceId/targets/:targetId/mcp/servers',
     requireUser,
     authed(workspacesController.listTargetMcpServers)

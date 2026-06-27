@@ -25,7 +25,7 @@ import {
   summarizeRunEventCounts
 } from './internal-execution-events.js';
 
-export { bootstrap, normalizeToolCapability } from './internal-execution-bootstrap.js';
+export { bootstrap } from './internal-execution-bootstrap.js';
 export { summarizeRunEventCounts } from './internal-execution-events.js';
 
 export async function getSessionContext(req: Request, res: Response, next: NextFunction): Promise<void> {

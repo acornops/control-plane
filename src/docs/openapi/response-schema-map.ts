@@ -56,6 +56,7 @@ export function schemaForOperation(method: string, path: string, statusCode: str
     'GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/issues': 'IssuePage',
     'GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/catalog': 'McpCatalog',
     'GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools': 'TargetToolCatalog',
+    'GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/assistant/tool-preview': 'TargetAssistantToolPreview',
     'PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolId}': 'TargetTool',
     'GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers': 'McpServerList',
     'POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers': 'McpServer',

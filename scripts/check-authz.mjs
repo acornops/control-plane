@@ -130,6 +130,7 @@ const targetToolControllerPath = 'src/controllers/workspaces/target-tool-control
 const targetNativeToolControllerPath = 'src/controllers/workspaces/target-native-tool-controller.ts';
 const targetSkillsControllerPath = 'src/controllers/workspaces/target-skills-controller.ts';
 const sessionControllerPath = 'src/controllers/sessions-controller.ts';
+const runToolAccessModePath = 'src/services/run-tool-access-mode.ts';
 const runControllerPath = 'src/controllers/runs-controller.ts';
 const webhooksControllerPath = 'src/controllers/webhooks-controller.ts';
 const workspaceController = read(workspaceControllerPath);
@@ -137,6 +138,7 @@ const clusterController = read(clusterControllerPath);
 const targetToolController = read(targetToolControllerPath);
 const targetNativeToolController = read(targetNativeToolControllerPath);
 const sessionController = read('src/controllers/sessions-controller.ts');
+const runToolAccessMode = read(runToolAccessModePath);
 const runController = read('src/controllers/runs-controller.ts');
 const webhooksController = read(webhooksControllerPath);
 const workspaceScopedControllerPaths = [
@@ -261,8 +263,11 @@ assert(!openApi.includes('agent/tools/call'), 'direct agent tool-call route must
 assert(!workspaceController.includes('direct_agent_tool'), 'direct agent tool-call audit source should not be reachable');
 
 assert(sessionController.includes('create_sessions'), 'session creation must be capability-gated');
-assert(sessionController.includes('create_read_write_runs'), 'read-write run requests must be capability-gated');
-assert(sessionController.includes("toolAccessMode === 'read_write'"), 'postMessage must branch on read-write tool access');
+assert(
+  sessionController.includes('capabilityForToolAccessMode') && runToolAccessMode.includes('create_read_write_runs'),
+  'read-write run requests must be capability-gated'
+);
+assert(runToolAccessMode.includes("toolAccessMode === 'read_write'"), 'run access mode helper must branch on read-write tool access');
 const getSessionStart = sessionController.indexOf('export async function getSession');
 const listMessagesStart = sessionController.indexOf('export async function listMessages');
 const deleteSessionStart = sessionController.indexOf('export async function deleteSession');

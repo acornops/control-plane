@@ -282,6 +282,7 @@ VM host snapshots retain only the latest raw target snapshot, then materialize i
 
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/catalog`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools`
+- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/assistant/tool-preview?toolAccessMode=read_only|read_write`
 - `PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolId}`
 - `PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools/{toolName}`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`
@@ -299,6 +300,8 @@ VM host snapshots retain only the latest raw target snapshot, then materialize i
 - `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}/reimport`
 
 Built-in tools and MCP-discovered tools use distinct target-scoped APIs. Kubernetes clusters and virtual machines both use the target MCP, Skills, and Tools surfaces. The Tools catalog shows only AcornOps built-in tools such as `web_search`; MCP-discovered tools remain in the MCP catalog and paged MCP server tool APIs. Built-in tool rows include runtime metadata so built-in capabilities can be listed as available without implying that they always emit standard function tool-call events. Kubernetes and VM agent tools are synchronized from each connected agent and remain capability-tagged. Write-tool availability is driven by the advertised tool capability, target agent capabilities, user permissions, and the requested run `toolAccessMode`; the current VM v1 agent catalog happens to advertise only read tools.
+
+`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/assistant/tool-preview` requires target read access and the run-creation capability matching the explicit `toolAccessMode` query. It returns an informational preview of the tools a target assistant run would be allowed to use, including summary counts, write unavailability reason, approval policy, and display-safe tool items only. It must not return MCP input schemas or hidden disabled tool inventories; internal execution bootstrap remains the enforcement authority.
 
 The management console depends on these MCP catalog fields:
 

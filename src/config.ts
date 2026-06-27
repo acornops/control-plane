@@ -534,7 +534,6 @@ const envSchema = z.object({
 }));
 
 export type AppConfig = z.infer<typeof envSchema>;
-
 export function parseAppConfig(env: NodeJS.ProcessEnv): AppConfig {
   return envSchema.parse(env);
 }
