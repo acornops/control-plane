@@ -131,7 +131,6 @@ for (const [docPath, routeNeedle, source, label] of [
   ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/issues`', "workspacesRouter.get('/workspaces/:workspaceId/targets/:targetId/issues'", workspaceRoutes, 'List target issues route'],
   ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}`', "workspacesRouter.get('/workspaces/:workspaceId/kubernetes-clusters/:clusterId'", workspaceRoutes, 'Get cluster route'],
   ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/resources`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/resources'", workspaceRoutes, 'List cluster resources route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/findings`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/findings'", workspaceRoutes, 'List cluster findings route'],
   [
     '`POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters`',
     "workspacesRouter.post(\n  '/workspaces/:workspaceId/kubernetes-clusters'",

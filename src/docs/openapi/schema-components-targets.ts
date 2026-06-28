@@ -77,10 +77,21 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
     },
     InventoryItem: { type: 'object', additionalProperties: true },
     InventoryPage: pageOf('InventoryItem'),
-    Finding: { type: 'object', additionalProperties: true },
-    FindingPage: pageOf('Finding'),
     Issue: { type: 'object', additionalProperties: true },
     IssuePage: pageOf('Issue'),
+    TargetIssueSummary: {
+      type: 'object',
+      required: ['total', 'active', 'recovering', 'critical', 'warning', 'info'],
+      properties: {
+        total: { type: 'integer', minimum: 0 },
+        active: { type: 'integer', minimum: 0 },
+        recovering: { type: 'integer', minimum: 0 },
+        critical: { type: 'integer', minimum: 0 },
+        warning: { type: 'integer', minimum: 0 },
+        info: { type: 'integer', minimum: 0 }
+      },
+      additionalProperties: false
+    },
     IssueObservation: { type: 'object', additionalProperties: true },
     IssueObservationPage: pageOf('IssueObservation'),
     PodLogs: {

@@ -48,3 +48,12 @@ export interface TargetIssueObservation {
   evidence: Record<string, unknown>;
   createdAt: string;
 }
+
+export interface TargetIssueSummary {
+  total: number;
+  active: number;
+  recovering: number;
+  critical: number;
+  warning: number;
+  info: number;
+}

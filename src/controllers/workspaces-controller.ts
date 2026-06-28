@@ -293,6 +293,7 @@ export {
 
 export {
   getTargetIssue,
+  getTargetIssueSummary,
   listTargetIssueObservations,
   listTargetIssues,
   listWorkspaceIssues
@@ -303,7 +304,6 @@ export {
   getClusterMetricsHistory,
   getWorkspaceClusterMetricsHistory,
   getPodLogs,
-  listClusterFindings,
   listClusterResources,
   listClusters,
   registerCluster,
@@ -320,7 +320,6 @@ export {
   getVirtualMachine,
   getVirtualMachineLogs,
   getVirtualMachineMetricsHistory,
-  listVirtualMachineFindings,
   listVirtualMachineInventory,
   listVirtualMachines,
   registerVirtualMachine,

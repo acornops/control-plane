@@ -180,7 +180,6 @@ resulting effective limit are rejected before mutation.
 - `DELETE /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}`
 - `POST /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/rotate-agent-key`
 - `GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/resources`
-- `GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/findings`
 - `GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/metrics/history`
 - `GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/logs`
 
@@ -263,20 +262,20 @@ Kubernetes cluster updates accept `name`, `namespaceInclude`, and `namespaceExcl
 
 `GET /api/v1/workspaces/{workspaceId}/virtual-machines` and `GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}` return VM metadata, `latestSnapshot.{targetId,workspaceId,timestamp}`, and `summary.{inventoryCount,findingCount,criticalFindingCount,serviceCount,processCount,listenerCount,logCount}`. They must not return full `latestSnapshot.data` to the browser.
 
-Durable issue and snapshot-derived management-console data is exposed through bounded list APIs:
+Durable issue and snapshot-derived management-console data is exposed through bounded list and summary APIs:
 
 - `GET /api/v1/workspaces/{workspaceId}/issues`
 - `GET /api/v1/workspaces/{workspaceId}/issues/{issueId}`
 - `GET /api/v1/workspaces/{workspaceId}/issues/{issueId}/observations`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/issues`
+- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/issues/summary`
 - `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/resources`
-- `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/findings`
 - `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/metrics/history`
 - `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/metrics/history`
 
-Paged resource, finding, and issue APIs return `{ items, nextCursor? }`, accept `limit`, `cursor`, and `q` where search is supported, and apply exact filters before pagination. Cursor reuse with different query/filter state returns `400`. The control plane persists only the latest raw agent snapshot, then materializes latest resources, latest findings, durable issues, summary counts, and compact metric samples at ingest for browser-facing APIs.
+Paged resource and issue APIs return `{ items, nextCursor? }`, accept `limit`, `cursor`, and `q` where search is supported, and apply exact filters before pagination. Cursor reuse with different query/filter state returns `400`. Target issue summaries return exact active plus recovering counts by status and severity from durable issues, excluding resolved issues, and are the canonical source for overview navigation badges. The control plane persists only the latest raw agent snapshot, then materializes latest resources, internal findings, durable issues, summary counts, and compact metric samples at ingest for browser-facing APIs.
 
-VM host snapshots retain only the latest raw target snapshot, then materialize inventory, findings, durable issues, summaries, and compact metric samples at ingest. Browser-facing VM resource and finding APIs return `{ items, nextCursor? }`; VM metrics return bounded history points from compact metric history; VM logs are read live through the connected VM agent with `permissions.read_target_logs` authorization and return bounded entries only.
+VM host snapshots retain only the latest raw target snapshot, then materialize inventory, internal findings, durable issues, summaries, and compact metric samples at ingest. Browser-facing VM resource APIs return `{ items, nextCursor? }`; VM metrics return bounded history points from compact metric history; VM logs are read live through the connected VM agent with `permissions.read_target_logs` authorization and return bounded entries only.
 
 ### MCP management, skills, and tools APIs
 

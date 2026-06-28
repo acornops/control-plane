@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { db } from '../infra/db.js';
-import { TargetIssue, TargetIssueObservation, TargetIssueSeverity, TargetIssueStatus, TargetType } from '../types/domain.js';
+import { TargetIssue, TargetIssueObservation, TargetIssueSeverity, TargetIssueStatus, TargetIssueSummary, TargetType } from '../types/domain.js';
 import { containsSearchText, encodeCursor, pageWithCursor, PagedResult } from '../utils/pagination.js';
 import { severityRank } from '../services/snapshot-derived-data.js';
 import { TargetIssueObservationInput } from '../services/target-issue-derivation.js';
@@ -53,6 +53,15 @@ interface TargetIssueObservationDbRow {
   reason: string | null;
   evidence: Record<string, unknown> | null;
   created_at: Date | string;
+}
+
+interface TargetIssueSummaryDbRow {
+  total: number | string;
+  active: number | string;
+  recovering: number | string;
+  critical: number | string;
+  warning: number | string;
+  info: number | string;
 }
 
 interface IssuePageCursor {
@@ -421,6 +430,32 @@ export async function listTargetIssues(
     ...options,
     targetId
   });
+}
+
+export async function summarizeTargetIssues(workspaceId: string, targetId: string): Promise<TargetIssueSummary> {
+  const result = await db.query<TargetIssueSummaryDbRow>(
+    `SELECT
+       COUNT(*)::int AS total,
+       COUNT(*) FILTER (WHERE status = 'active')::int AS active,
+       COUNT(*) FILTER (WHERE status = 'recovering')::int AS recovering,
+       COUNT(*) FILTER (WHERE severity = 'critical')::int AS critical,
+       COUNT(*) FILTER (WHERE severity = 'warning')::int AS warning,
+       COUNT(*) FILTER (WHERE severity = 'info')::int AS info
+     FROM target_issues
+     WHERE workspace_id = $1
+       AND target_id = $2
+       AND status IN ('active', 'recovering')`,
+    [workspaceId, targetId]
+  );
+  const row = result.rows[0];
+  return {
+    total: Number(row?.total || 0),
+    active: Number(row?.active || 0),
+    recovering: Number(row?.recovering || 0),
+    critical: Number(row?.critical || 0),
+    warning: Number(row?.warning || 0),
+    info: Number(row?.info || 0)
+  };
 }
 
 export async function getTargetIssue(workspaceId: string, issueId: string): Promise<TargetIssue | null> {

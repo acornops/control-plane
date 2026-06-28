@@ -4,7 +4,8 @@ import { db } from '../src/infra/db.js';
 import { deriveVirtualMachineIssueObservations } from '../src/services/target-issue-derivation.js';
 import {
   listWorkspaceIssues,
-  reconcileTargetIssues
+  reconcileTargetIssues,
+  summarizeTargetIssues
 } from '../src/store/repository-target-issues.js';
 import { decodeCursor } from '../src/utils/pagination.js';
 import type { VirtualMachineSnapshot, VirtualMachineTarget } from '../src/types/domain.js';
@@ -304,6 +305,42 @@ describe('target issue reconciliation', () => {
       severityRank: 0,
       lastSeenAt: '2026-05-10T00:00:00.000Z',
       issueId: 'issue-1'
+    });
+  });
+
+  it('summarizes active target issues with one aggregate query and excludes resolved rows', async () => {
+    mock.method(db, 'query', async (sql: string, params: unknown[]) => {
+      assert.match(sql, /COUNT\(\*\)::int AS total/);
+      assert.match(sql, /COUNT\(\*\) FILTER \(WHERE status = 'active'\)::int AS active/);
+      assert.match(sql, /COUNT\(\*\) FILTER \(WHERE status = 'recovering'\)::int AS recovering/);
+      assert.match(sql, /COUNT\(\*\) FILTER \(WHERE severity = 'critical'\)::int AS critical/);
+      assert.match(sql, /FROM target_issues/);
+      assert.match(sql, /workspace_id = \$1/);
+      assert.match(sql, /target_id = \$2/);
+      assert.match(sql, /status IN \('active', 'recovering'\)/);
+      assert.deepEqual(params, ['workspace-1', 'cluster-1']);
+      return {
+        rowCount: 1,
+        rows: [
+          {
+            total: '4',
+            active: '3',
+            recovering: '1',
+            critical: '2',
+            warning: '1',
+            info: '1'
+          }
+        ]
+      };
+    });
+
+    assert.deepEqual(await summarizeTargetIssues('workspace-1', 'cluster-1'), {
+      total: 4,
+      active: 3,
+      recovering: 1,
+      critical: 2,
+      warning: 1,
+      info: 1
     });
   });
 });

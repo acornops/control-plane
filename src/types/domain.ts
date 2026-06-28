@@ -321,6 +321,7 @@ export interface VirtualMachineSnapshot {
 export type {
   TargetIssue,
   TargetIssueObservation,
+  TargetIssueSummary,
   TargetIssueSeverity,
   TargetIssueStatus
 } from './target-issues.js';

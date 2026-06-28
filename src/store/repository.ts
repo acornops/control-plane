@@ -65,7 +65,6 @@ import {
   deleteVirtualMachine as deleteVirtualMachineRecord,
   getVirtualMachine as getVirtualMachineRecord,
   getVirtualMachineSnapshot as getVirtualMachineSnapshotRecord,
-  listVirtualMachineFindings as listVirtualMachineFindingsRecord,
   listVirtualMachineInventory as listVirtualMachineInventoryRecord,
   getVirtualMachineSnapshotSummary as getVirtualMachineSnapshotSummaryRecord,
   listVirtualMachineSnapshotSummaries as listVirtualMachineSnapshotSummariesRecord,
@@ -101,16 +100,15 @@ import {
 import * as runSkillSnapshots from './repository-run-skill-snapshots.js';
 import {
   getClusterSnapshotSummary as getClusterSnapshotSummaryRecord,
-  listClusterSnapshotFindings as listClusterSnapshotFindingsRecord,
   listClusterSnapshotResources as listClusterSnapshotResourcesRecord,
-  listClusterSnapshotSummaries as listClusterSnapshotSummariesRecord,
-  listWorkspaceSnapshotFindings as listWorkspaceSnapshotFindingsRecord
+  listClusterSnapshotSummaries as listClusterSnapshotSummariesRecord
 } from './repository-kubernetes-inventory.js';
 import {
   getTargetIssue as getTargetIssueRecord,
   listTargetIssueObservations as listTargetIssueObservationsRecord,
   listTargetIssues as listTargetIssuesRecord,
-  listWorkspaceIssues as listWorkspaceIssuesRecord
+  listWorkspaceIssues as listWorkspaceIssuesRecord,
+  summarizeTargetIssues as summarizeTargetIssuesRecord
 } from './repository-target-issues.js';
 import {
   addMessage as addMessageRecord,
@@ -411,16 +409,10 @@ export class Repository {
 
   listClusterSnapshotResources = listClusterSnapshotResourcesRecord;
 
-  listClusterSnapshotFindings = listClusterSnapshotFindingsRecord;
-
-  listWorkspaceSnapshotFindings = listWorkspaceSnapshotFindingsRecord;
-
   listWorkspaceIssues = listWorkspaceIssuesRecord;
-
   listTargetIssues = listTargetIssuesRecord;
-
+  summarizeTargetIssues = summarizeTargetIssuesRecord;
   getTargetIssue = getTargetIssueRecord;
-
   listTargetIssueObservations = listTargetIssueObservationsRecord;
 
   listTargetMetricHistory = listTargetMetricHistoryRecord;
@@ -436,8 +428,6 @@ export class Repository {
   listVirtualMachineSnapshotSummaries = listVirtualMachineSnapshotSummariesRecord;
 
   listVirtualMachineInventory = listVirtualMachineInventoryRecord;
-
-  listVirtualMachineFindings = listVirtualMachineFindingsRecord;
 
   listTargetToolOverrides = listTargetToolOverridesRecord;
 

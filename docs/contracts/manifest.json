@@ -51,9 +51,9 @@
         "GET /api/v1/workspaces/{workspaceId}/issues/{issueId}",
         "GET /api/v1/workspaces/{workspaceId}/issues/{issueId}/observations",
         "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/issues",
+        "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/issues/summary",
         "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}",
         "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/resources",
-        "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/findings",
         "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/metrics/history",
         "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/metrics/history",
         "POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters",
@@ -70,7 +70,6 @@
         "DELETE /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}",
         "POST /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/rotate-agent-key",
         "GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/resources",
-        "GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/findings",
         "GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/metrics/history",
         "GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/logs"
       ],
@@ -201,8 +200,8 @@
         "GET /api/v1/workspaces/{workspaceId}/issues/{issueId}",
         "GET /api/v1/workspaces/{workspaceId}/issues/{issueId}/observations",
         "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/issues",
-        "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/resources",
-        "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/findings"
+        "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/issues/summary",
+        "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/resources"
       ],
       "catalogFields": [
         "permissions.canEdit",

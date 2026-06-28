@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 import {
+  getTargetIssueSummary,
   listTargetIssueObservations,
   listWorkspaceIssues
 } from '../src/controllers/workspaces-controller.js';
 import {
-  listClusterFindings,
   listClusterResources,
   listClusters
 } from '../src/controllers/workspaces/kubernetes-cluster-controller.js';
@@ -17,11 +17,10 @@ const originalGetWorkspaceRole = repo.getWorkspaceRole;
 const originalGetCluster = repo.getCluster;
 const originalGetClusterSnapshot = repo.getClusterSnapshot;
 const originalListClusters = repo.listClusters;
-const originalListClusterSnapshotFindings = repo.listClusterSnapshotFindings;
 const originalListClusterSnapshotResources = repo.listClusterSnapshotResources;
 const originalListClusterSnapshotSummaries = repo.listClusterSnapshotSummaries;
-const originalListWorkspaceSnapshotFindings = repo.listWorkspaceSnapshotFindings;
 const originalListWorkspaceIssues = repo.listWorkspaceIssues;
+const originalSummarizeTargetIssues = repo.summarizeTargetIssues;
 const originalGetTargetIssue = repo.getTargetIssue;
 const originalListTargetIssueObservations = repo.listTargetIssueObservations;
 
@@ -30,11 +29,10 @@ afterEach(() => {
   repo.getCluster = originalGetCluster;
   repo.getClusterSnapshot = originalGetClusterSnapshot;
   repo.listClusters = originalListClusters;
-  repo.listClusterSnapshotFindings = originalListClusterSnapshotFindings;
   repo.listClusterSnapshotResources = originalListClusterSnapshotResources;
   repo.listClusterSnapshotSummaries = originalListClusterSnapshotSummaries;
-  repo.listWorkspaceSnapshotFindings = originalListWorkspaceSnapshotFindings;
   repo.listWorkspaceIssues = originalListWorkspaceIssues;
+  repo.summarizeTargetIssues = originalSummarizeTargetIssues;
   repo.getTargetIssue = originalGetTargetIssue;
   repo.listTargetIssueObservations = originalListTargetIssueObservations;
 });
@@ -48,6 +46,7 @@ function createRequest(query: Record<string, string | undefined> = {}) {
     params: {
       workspaceId: 'workspace-1',
       clusterId: 'cluster-1',
+      targetId: 'cluster-1',
       issueId: 'issue-1'
     },
     query
@@ -176,6 +175,44 @@ describe('normalized snapshot controller reads', () => {
 
     assert.equal(res.statusCode, 200);
     assert.deepEqual((res.body as { items: Array<{ id: string }> }).items.map((item) => item.id), ['issue-1']);
+  });
+
+  it('returns target issue summary through durable issue rows', async () => {
+    repo.getWorkspaceRole = async () => 'viewer';
+    repo.getClusterSnapshot = async () => {
+      throw new Error('target issue summary should not read raw snapshots');
+    };
+    repo.summarizeTargetIssues = async (workspaceId, targetId) => {
+      assert.equal(workspaceId, 'workspace-1');
+      assert.equal(targetId, 'cluster-1');
+      return {
+        total: 3,
+        active: 2,
+        recovering: 1,
+        critical: 1,
+        warning: 2,
+        info: 0
+      };
+    };
+    const res = createResponse();
+
+    await getTargetIssueSummary(
+      createRequest() as never,
+      res as never,
+      (err?: unknown) => {
+        if (err) throw err;
+      }
+    );
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.body, {
+      total: 3,
+      active: 2,
+      recovering: 1,
+      critical: 1,
+      warning: 2,
+      info: 0
+    });
   });
 
   it('returns not found for missing issue observation history', async () => {

@@ -159,23 +159,6 @@ export function buildClusterPaths(): Record<string, unknown> {
           responses: { '200': { description: 'Cluster resource page payload: { items, nextCursor? }.' } }
         }
       },
-      '/api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/findings': {
-        get: {
-          tags: ['workspaces'],
-          summary: 'List snapshot-derived cluster findings',
-          security: [{ userSession: [] }],
-          parameters: [
-            { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
-            { in: 'path', name: 'clusterId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_CLUSTER_ID } },
-            { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
-            { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } },
-            { in: 'query', name: 'q', required: false, schema: { type: 'string' } },
-            { in: 'query', name: 'severity', required: false, schema: { type: 'string', enum: ['critical', 'warning', 'info'] } },
-            { in: 'query', name: 'namespace', required: false, schema: { type: 'string' } }
-          ],
-          responses: { '200': { description: 'Cluster finding page payload: { items, nextCursor? }.' } }
-        }
-      },
       ...buildClusterMetricPaths(),
       '/api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/pods/{namespace}/{podName}/logs': {
         get: {

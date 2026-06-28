@@ -123,15 +123,6 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
         responses: { '200': { description: 'VM inventory page payload: { items, nextCursor? }.' } }
       }
     },
-    '/api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/findings': {
-      get: {
-        tags: ['workspaces'],
-        summary: 'List snapshot-derived VM findings',
-        security: [{ userSession: [] }],
-        parameters: [workspaceParam, vmParam],
-        responses: { '200': { description: 'VM findings page payload: { items, nextCursor? }.' } }
-      }
-    },
     '/api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/metrics/history': {
       get: {
         tags: ['workspaces'],
