@@ -14,7 +14,7 @@ import {
   installWorkspace,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
-import { getTargetAssistantToolPreview } from '../src/controllers/workspaces/target-assistant-preview-controller.js';
+import { getTargetAssistantCapabilitiesPreview } from '../src/controllers/workspaces/target-assistant-preview-controller.js';
 
 const BASE_TOOLS: McpToolConfig[] = [
   {
@@ -64,6 +64,8 @@ function installResolverRepoStubs(capabilities: string[] = ['read', 'write']): v
   });
   repo.listTargetToolOverrides = async () => ({});
   repo.listEnabledTargetToolSettings = async () => [];
+  repo.listEnabledValidTargetSkills = async () => [];
+  repo.listEnabledValidTargetSkillSummaries = async () => [];
   repo.listMatchingWebhookSubscriptions = async () => [];
 }
 
@@ -169,6 +171,27 @@ describe('target run tool resolution', () => {
     assert.equal(result.summary.excludedWrite, 0);
   });
 
+  it('excludes reserved internal tool names from run allow-lists and previews', async () => {
+    installResolverRepoStubs(['read', 'write']);
+    mockToolList([
+      BASE_TOOLS[1],
+      { ...BASE_TOOLS[1], name: '_acornops_load_skill' },
+      { ...BASE_TOOLS[1], name: '_acornops_custom_internal' }
+    ]);
+
+    const result = await resolveTargetRunTools({
+      workspaceId: 'workspace-1',
+      targetId: 'target-1',
+      targetType: 'virtual_machine',
+      toolAccessMode: 'read_only',
+      runId: 'run-1'
+    });
+
+    assert.deepEqual(result.allowedToolNames, ['get_logs']);
+    assert.deepEqual(result.allowedToolSpecs.map((tool) => tool.name), ['get_logs']);
+    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['get_logs']);
+  });
+
   it('filters write tools when the agent does not advertise write capability', async () => {
     installResolverRepoStubs(['read']);
     mockToolList(BASE_TOOLS);
@@ -261,11 +284,11 @@ describe('target run tool resolution', () => {
   });
 });
 
-describe('target assistant tool preview controller', () => {
+describe('target assistant capabilities preview controller', () => {
   it('enforces write run permission for read-write previews', async () => {
     installWorkspace('viewer');
     const response = await callController(
-      getTargetAssistantToolPreview,
+      getTargetAssistantCapabilitiesPreview,
       Object.assign(createRequest({ workspaceId: 'workspace-1', targetId: 'target-1' }), {
         query: { toolAccessMode: 'read_write' }
       })
@@ -279,7 +302,7 @@ describe('target assistant tool preview controller', () => {
     repo.getTarget = async () => createTarget({ id: 'target-1', name: 'vm', targetType: 'virtual_machine' });
 
     const response = await callController(
-      getTargetAssistantToolPreview,
+      getTargetAssistantCapabilitiesPreview,
       createRequest({ workspaceId: 'workspace-1', targetId: 'target-1' })
     );
 
@@ -294,24 +317,55 @@ describe('target assistant tool preview controller', () => {
     repo.listEnabledTargetToolSettings = async () => [
       { targetId: 'target-1', toolId: 'web_search', enabled: true, config: {} }
     ];
+    repo.listEnabledValidTargetSkills = async () => {
+      throw new Error('capabilities preview must not load full skill files');
+    };
+    repo.listEnabledValidTargetSkillSummaries = async () => [
+      {
+        id: 'skill-1',
+        workspaceId: 'workspace-1',
+        targetId: 'target-1',
+        targetType: 'virtual_machine',
+        name: 'CNPG triage',
+        description: 'Use when investigating CloudNativePG failover.',
+        enabled: true,
+        source: { type: 'manual', syncStatus: 'not_applicable' },
+        bundleStats: { fileCount: 1, totalBytes: 15 },
+        validationStatus: 'valid',
+        validationErrors: [],
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ];
     mockToolList(BASE_TOOLS);
     const req = Object.assign(createRequest({ workspaceId: 'workspace-1', targetId: 'target-1' }), {
       query: { toolAccessMode: 'read_only' }
     });
 
-    const response = await callController(getTargetAssistantToolPreview, req);
+    const response = await callController(getTargetAssistantCapabilitiesPreview, req);
     const body = response.body as {
       toolAccessMode: string;
-      summary: { totalAllowed: number; excludedWrite: number };
-      items: Array<{ id: string; runtimeKind: string; input_schema?: unknown }>;
+      toolSummary: { totalAllowed: number; writeAllowed: number };
+      skillSummary: { totalAvailable: number };
+      tools: Array<{ id: string; runtimeKind: string; input_schema?: unknown }>;
+      skills: Array<{ id: string; name: string; description: string; source: string }>;
     };
 
     assert.equal(response.statusCode, 200);
     assert.equal(body.toolAccessMode, 'read_only');
-    assert.equal(body.summary.totalAllowed, 2);
-    assert.equal(body.summary.excludedWrite, 1);
-    assert.deepEqual(body.items.map((item) => item.id), ['get_logs', 'web_search']);
-    assert.equal(body.items.some((item) => Object.prototype.hasOwnProperty.call(item, 'input_schema')), false);
+    assert.equal(body.toolSummary.totalAllowed, 2);
+    assert.equal(body.toolSummary.writeAllowed, 0);
+    assert.equal(body.skillSummary.totalAvailable, 1);
+    assert.deepEqual(body.tools.map((item) => item.id), ['get_logs', 'web_search']);
+    assert.equal(body.tools.some((item) => Object.prototype.hasOwnProperty.call(item, 'input_schema')), false);
+    assert.deepEqual(body.skills, [
+      {
+        id: 'skill-1',
+        name: 'CNPG triage',
+        description: 'Use when investigating CloudNativePG failover.',
+        source: 'manual'
+      }
+    ]);
   });
 
   it('rejects unsupported target types before resolving tools', async () => {
@@ -319,7 +373,7 @@ describe('target assistant tool preview controller', () => {
     repo.getTarget = async () => createTarget({ id: 'target-1', name: 'db', targetType: 'database' as never });
 
     const response = await callController(
-      getTargetAssistantToolPreview,
+      getTargetAssistantCapabilitiesPreview,
       createRequest({ workspaceId: 'workspace-1', targetId: 'target-1' })
     );
 

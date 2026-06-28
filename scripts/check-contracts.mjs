@@ -93,6 +93,7 @@ function openApiPath(contractPath) {
     .replace(/^[A-Z]+ /, '')
     .replace(/\?run_id=<runId>$/, '')
     .replace(/\?return_to=<management-console-url>$/, '')
+    .replace(/\?toolAccessMode=read_only\|read_write$/, '')
     .replace(/\?token=<external-integration-link-token>$/, '');
 }
 
@@ -144,7 +145,7 @@ for (const [docPath, routeNeedle, source, label] of [
   ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/catalog`', "'/workspaces/:workspaceId/targets/:targetId/mcp/catalog'", workspaceRoutes, 'Target MCP catalog route'],
   ['`PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools/{toolName}`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/tools/:toolName'", workspaceRoutes, 'Target MCP tool patch route'],
   ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools`', "'/workspaces/:workspaceId/targets/:targetId/tools'", workspaceRoutes, 'Target tools route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/assistant/tool-preview?toolAccessMode=read_only|read_write`', "'/workspaces/:workspaceId/targets/:targetId/assistant/tool-preview'", workspaceRoutes, 'Target assistant tool preview route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/assistant/capabilities-preview?toolAccessMode=read_only|read_write`', "'/workspaces/:workspaceId/targets/:targetId/assistant/capabilities-preview'", workspaceRoutes, 'Target assistant capabilities preview route'],
   ['`PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolId}`', "'/workspaces/:workspaceId/targets/:targetId/tools/:toolId'", workspaceRoutes, 'Target tool settings patch route'],
   ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`', "workspacesRouter.get('/workspaces/:workspaceId/targets/:targetId/mcp/servers'", workspaceRoutes, 'List target MCP servers route'],
   ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/tools'", workspaceRoutes, 'List target MCP server tools route'],

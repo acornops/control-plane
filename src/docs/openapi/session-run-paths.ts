@@ -386,6 +386,19 @@ export function buildSessionRunPaths(): Record<string, unknown> {
           responses: { '200': { description: 'Execution snapshot returned.' } }
         }
       },
+      '/internal/v1/runs/{runId}/skills/{skillRef}': {
+        get: {
+          tags: ['internal'],
+          summary: 'Internal: load frozen skill snapshot for run',
+          description: 'Returns frozen Markdown skill files for execution-engine skill context loading. This endpoint is service-token only and is not exposed to browser clients.',
+          security: [{ serviceToken: [] }],
+          parameters: [
+            { in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } },
+            { in: 'path', name: 'skillRef', required: true, schema: { type: 'string', example: 'skill_1' } }
+          ],
+          responses: { '200': { description: 'Frozen skill snapshot returned.' }, '404': { description: 'Run skill snapshot not found.' } }
+        }
+      },
       '/internal/v1/sessions/{sessionId}/context': {
         get: {
           tags: ['internal'],

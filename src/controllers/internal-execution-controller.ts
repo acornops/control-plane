@@ -28,6 +28,35 @@ import {
 export { bootstrap } from './internal-execution-bootstrap.js';
 export { summarizeRunEventCounts } from './internal-execution-events.js';
 
+export async function getRunSkillSnapshot(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const runId = toSingleParam(req.params.runId);
+    const skillRef = toSingleParam(req.params.skillRef);
+    const snapshot = await repo.getRunSkillSnapshot(runId, skillRef);
+    if (!snapshot) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Skill snapshot not found for run', retryable: false } });
+      return;
+    }
+    res.status(200).json({
+      skill_ref: snapshot.ref,
+      skill_id: snapshot.skillId,
+      name: snapshot.name,
+      description: snapshot.description,
+      source: snapshot.source,
+      content_hash: snapshot.contentHash,
+      file_count: snapshot.fileCount,
+      total_bytes: snapshot.totalBytes,
+      files: snapshot.files.map((file) => ({
+        path: file.path,
+        content: file.content,
+        size_bytes: file.sizeBytes
+      }))
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getSessionContext(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const sessionId = toSingleParam(req.params.sessionId);

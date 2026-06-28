@@ -159,7 +159,7 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
     }
     const targetId = target.id;
     const session = await repo.getSession(run.sessionId);
-    const targetSkills = await repo.listEnabledValidTargetSkills(targetId);
+    const targetSkills = await repo.getRunSkillCatalog(run.id);
 
     const llmSettings = await resolveWorkspaceLlmSettings(run.workspaceId, {
       provider: run.llmProvider,
@@ -257,19 +257,16 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
       },
       ...(targetSkills.length > 0 ? {
         skills: {
-          registry_version: 'sv_1',
+          contract_version: 2,
           entries: targetSkills.map((skill) => ({
-            id: skill.id,
+            ref: skill.ref,
+            skill_id: skill.skillId,
             name: skill.name,
             description: skill.description,
-            files: skill.files
-              .slice()
-              .sort((left, right) => left.path.localeCompare(right.path))
-              .map((file) => ({
-                path: file.path,
-                content: file.content
-              }))
-          }))
+            file_count: skill.fileCount,
+            total_bytes: skill.totalBytes
+          })),
+          load_endpoint: `/internal/v1/runs/${run.id}/skills/{skill_ref}`
         }
       } : {}),
       routing: {

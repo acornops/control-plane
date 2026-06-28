@@ -15,6 +15,7 @@ import {
 } from './repository-mappers.js';
 import { withTransaction } from './repository-transaction.js';
 import { PagedResult, encodeCursor, pageWithCursor } from '../utils/pagination.js';
+import { createRunSkillSnapshotInTransaction } from './repository-run-skill-snapshots.js';
 
 const runSelect = `
   SELECT r.*, t.target_type
@@ -235,6 +236,7 @@ export async function createRunFromUserMessage(params: {
     sessionId: string;
     workspaceId: string;
     targetId: string;
+    targetType: Run['targetType'];
     content: string;
     toolAccessMode: Run['toolAccessMode'];
     llmProvider: Run['llmProvider'];
@@ -338,6 +340,13 @@ export async function createRunFromUserMessage(params: {
           JSON.stringify(null)
         ]
       );
+
+      await createRunSkillSnapshotInTransaction(client, {
+        runId,
+        workspaceId: params.workspaceId,
+        targetId: params.targetId,
+        targetType: params.targetType
+      });
 
       await client.query(
         `UPDATE sessions

@@ -282,7 +282,7 @@ VM host snapshots retain only the latest raw target snapshot, then materialize i
 
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/catalog`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools`
-- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/assistant/tool-preview?toolAccessMode=read_only|read_write`
+- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/assistant/capabilities-preview?toolAccessMode=read_only|read_write`
 - `PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolId}`
 - `PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools/{toolName}`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`
@@ -301,7 +301,7 @@ VM host snapshots retain only the latest raw target snapshot, then materialize i
 
 Built-in tools and MCP-discovered tools use distinct target-scoped APIs. Kubernetes clusters and virtual machines both use the target MCP, Skills, and Tools surfaces. The Tools catalog shows only AcornOps built-in tools such as `web_search`; MCP-discovered tools remain in the MCP catalog and paged MCP server tool APIs. Built-in tool rows include runtime metadata so built-in capabilities can be listed as available without implying that they always emit standard function tool-call events. Kubernetes and VM agent tools are synchronized from each connected agent and remain capability-tagged. Write-tool availability is driven by the advertised tool capability, target agent capabilities, user permissions, and the requested run `toolAccessMode`; the current VM v1 agent catalog happens to advertise only read tools.
 
-`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/assistant/tool-preview` requires target read access and the run-creation capability matching the explicit `toolAccessMode` query. It returns an informational preview of the tools a target assistant run would be allowed to use, including summary counts, write unavailability reason, approval policy, and display-safe tool items only. It must not return MCP input schemas or hidden disabled tool inventories; internal execution bootstrap remains the enforcement authority.
+`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/assistant/capabilities-preview` requires target read access and the run-creation capability matching the explicit `toolAccessMode` query. It returns an informational preview of the tools a target assistant run would be allowed to use plus enabled valid skills that are assistant-visible for the next run. It includes summary counts, write unavailability reason, approval policy, display-safe tool items, and skill names/descriptions only. It must not return MCP input schemas, hidden disabled tool inventories, or full skill files; internal execution bootstrap and the hidden skill loader remain the enforcement authority.
 
 The management console depends on these MCP catalog fields:
 
@@ -347,7 +347,9 @@ Mutation policy and runtime contract:
 - Imported skills support public GitHub HTTPS repositories or GitHub `tree/{ref}/{subpath}` folder URLs and are stored as local snapshots. REST API imports include `source.commitSha`; archive fallback imports may omit it when GitHub API rate limits prevent SHA resolution.
 - Reimport is explicit. Imported skills with local edits require confirmation before overwrite and return `source.syncStatus=modified` until reimported.
 - Invalid skills may be stored disabled, but only valid skills may be enabled. Each target may have at most `10` enabled skills.
-- Run bootstrap may include optional `skills.{registry_version,entries[].{id,name,description,files[].{path,content}}}` for target troubleshooting runs only. Workflow runs remain unchanged.
+- Run bootstrap may include optional `skills.{contract_version,entries[].{ref,skill_id,name,description,file_count,total_bytes},load_endpoint}` for target troubleshooting runs only. Full skill files are loaded later from the hidden internal skill snapshot endpoint, and workflow runs remain unchanged.
+- Run skill snapshots are frozen when a run is created. Content-addressed skill blobs are retained while referenced by any run snapshot; orphaned blobs are purged by the retention sweep after `SKILL_SNAPSHOT_BLOB_ORPHAN_GRACE_DAYS` days, defaulting to `7`.
+- Tool names beginning with `_acornops_` are reserved for internal assistant pseudo-tools such as the hidden skill loader. They must not appear in assistant run tool allow-lists, public capability previews, or synchronized built-in target tools.
 
 ### Chat and run APIs
 
@@ -417,6 +419,10 @@ Current event types emitted by execution-engine and forwarded by control plane:
 - `assistant_reasoning_summary_delta`
 - `assistant_reasoning_summary_completed`
 - `assistant_reasoning_summary_unavailable`
+- `skill_catalog_available`
+- `skill_context_load_started`
+- `skill_context_loaded`
+- `skill_context_load_failed`
 - `tool_call_started`
 - `tool_call_completed`
 - `tool_approval_requested` with optional `payload.summary`
@@ -641,6 +647,7 @@ Expected dispatch semantics:
 Execution-engine must send `Authorization: Bearer <ORCH_SERVICE_TOKEN>` to:
 
 - `POST /internal/v1/runs/{runId}/bootstrap`
+- `GET /internal/v1/runs/{runId}/skills/{skillRef}`
 - `POST /internal/v1/runs/{runId}/approvals`
 - `GET /internal/v1/runs/{runId}/continuation`
 - `POST /internal/v1/runs/{runId}/approvals/{approvalId}/execution-started`
@@ -658,7 +665,8 @@ Bootstrap response contract:
 - `policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}`
 - `context.{endpoint,max_context_tokens}`
 - `llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}`
-- `tools.{tool_registry_version,allowed_tools,native_tools,tool_specs,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}`
+- `tools.{tool_registry_version,allowed_tools,native_tools,tool_specs,write_unavailable_reason?,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}`
+- `skills?.{contract_version,entries[].{ref,skill_id,name,description,file_count,total_bytes},load_endpoint}`
 - `routing`
 - `tracing`
 

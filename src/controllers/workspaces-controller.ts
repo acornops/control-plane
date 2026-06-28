@@ -283,7 +283,7 @@ export {
 } from './workspaces/target-skills-controller.js';
 
 export {
-  getTargetAssistantToolPreview
+  getTargetAssistantCapabilitiesPreview
 } from './workspaces/target-assistant-preview-controller.js';
 
 export {

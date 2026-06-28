@@ -85,7 +85,7 @@ describe('workspace AI settings run creation', () => {
     });
     repo.getSession = async () => createSessionRecord();
     repo.findRunByClientMessageId = async () => null;
-    let createdRunInput: { llmProvider?: LlmProvider; llmModel?: string } | undefined;
+    let createdRunInput: { llmProvider?: LlmProvider; llmModel?: string; targetType?: string } | undefined;
     repo.createRunFromUserMessage = async (input) => {
       createdRunInput = input;
       return {
@@ -103,6 +103,7 @@ describe('workspace AI settings run creation', () => {
     assert.equal(response.statusCode, 202);
     assert.equal(createdRunInput?.llmProvider, 'openai');
     assert.equal(createdRunInput?.llmModel, 'gpt-5.5');
+    assert.equal(createdRunInput?.targetType, 'kubernetes');
   });
 
   it('freezes per-message provider, model, and reasoning effort overrides on newly created runs', async () => {

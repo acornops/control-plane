@@ -8,6 +8,7 @@ import {
   listTargetMcpTools,
   updateTargetMcpServer
 } from './mcp-registry-client.js';
+import { isReservedInternalToolName } from './internal-tool-names.js';
 import { webhooks } from './webhooks.js';
 
 export interface BuiltInToolSyncResult {
@@ -54,20 +55,26 @@ export async function syncTargetBuiltInTools(
       (server) => server.server_name === config.BUILTIN_MCP_SERVER_NAME || server.server_url === config.BUILTIN_MCP_SERVER_URL
     );
 
-    const builtinTools = discoveredTools.map((tool) => ({
-      name: tool.name,
-      timeoutMs: tool.timeout_ms || config.AGENT_TOOL_DEFAULT_TIMEOUT_MS,
-      description: tool.description,
-      capability: normalizeCapability(tool.capability),
-      version: typeof tool.version === 'string' && tool.version.length > 0 ? tool.version : 'v1',
-      source: 'builtin' as const,
-      inputSchema: tool.input_schema && typeof tool.input_schema === 'object' ? tool.input_schema : undefined,
-      enabled: true
-    }));
+    const builtinTools = discoveredTools
+      .filter((tool) => {
+        if (!isReservedInternalToolName(tool.name)) return true;
+        logger.warn({ workspaceId, targetId, targetType, toolName: tool.name }, 'Skipping reserved internal built-in tool name during sync');
+        return false;
+      })
+      .map((tool) => ({
+        name: tool.name,
+        timeoutMs: tool.timeout_ms || config.AGENT_TOOL_DEFAULT_TIMEOUT_MS,
+        description: tool.description,
+        capability: normalizeCapability(tool.capability),
+        version: typeof tool.version === 'string' && tool.version.length > 0 ? tool.version : 'v1',
+        source: 'builtin' as const,
+        inputSchema: tool.input_schema && typeof tool.input_schema === 'object' ? tool.input_schema : undefined,
+        enabled: true
+      }));
 
     const existingTools = await listTargetMcpTools(workspaceId, targetId, targetType);
     const existingBuiltinNames = new Set(existingTools.filter((tool) => tool.source === 'builtin').map((tool) => tool.name));
-    const discoveredNames = new Set(discoveredTools.map((tool) => tool.name));
+    const discoveredNames = new Set(builtinTools.map((tool) => tool.name));
     const removeTools = [...existingBuiltinNames].filter((name) => !discoveredNames.has(name));
 
     if (!existing) {

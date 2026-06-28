@@ -444,6 +444,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       sessionId: session.id,
       workspaceId: session.workspaceId,
       targetId: target.targetId,
+      targetType: target.targetType,
       content: req.body.content,
       toolAccessMode,
       llmProvider: llmSettings.provider,
@@ -452,7 +453,6 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       llmReasoningEffort: llmSettings.reasoning.effort,
       clientMessageId: req.body.clientMessageId
     });
-
     if (!created.idempotent) {
       webhooks.emit({
         type: 'message.received.v1',
@@ -532,7 +532,6 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       });
       enqueueRunDispatch(created.run);
     }
-
     res.status(202).json({ message_id: created.message.id, run_id: created.run.id });
   } catch (err) {
     if (err instanceof LlmGatewayHttpError) {

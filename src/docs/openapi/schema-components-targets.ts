@@ -241,31 +241,33 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: true
     },
-    TargetAssistantToolPreview: {
+    TargetAssistantCapabilitiesPreview: {
       type: 'object',
       properties: {
         workspaceId: uuid,
         targetId: uuid,
         targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] },
         toolAccessMode: { type: 'string', enum: ['read_only', 'read_write'] },
-        targetSupportsWrite: { type: 'boolean' },
         confirmationRequiredForWrite: { type: 'boolean' },
-        approvalTimeoutSeconds: { type: 'integer' },
         writeUnavailableReason: { type: 'string', enum: ['run_read_only', 'agent_write_disabled'], nullable: true },
-        summary: {
+        toolSummary: {
           type: 'object',
           properties: {
             totalAllowed: { type: 'integer' },
-            functionAllowed: { type: 'integer' },
-            nativeAllowed: { type: 'integer' },
             readAllowed: { type: 'integer' },
             writeAllowed: { type: 'integer' },
-            configuredWrite: { type: 'integer' },
-            excludedWrite: { type: 'integer' }
+            nativeAllowed: { type: 'integer' }
           },
           additionalProperties: true
         },
-        items: {
+        skillSummary: {
+          type: 'object',
+          properties: {
+            totalAvailable: { type: 'integer' }
+          },
+          additionalProperties: true
+        },
+        tools: {
           type: 'array',
           items: {
             type: 'object',
@@ -277,6 +279,19 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
               capability: { type: 'string', enum: ['read', 'write'] },
               runtimeKind: { type: 'string', enum: ['function', 'provider_native'] },
               source: { type: 'string', enum: ['builtin', 'mcp', 'provider_native'] }
+            },
+            additionalProperties: true
+          }
+        },
+        skills: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              description: { type: 'string' },
+              source: { type: 'string', enum: ['manual', 'git_import'] }
             },
             additionalProperties: true
           }

@@ -17,6 +17,7 @@ import { validateBody } from '../utils/http.js';
 export const internalExecutionRouter = Router();
 
 internalExecutionRouter.post('/runs/:runId/bootstrap', requireServiceToken, internalExecutionController.bootstrap);
+internalExecutionRouter.get('/runs/:runId/skills/:skillRef', requireServiceToken, internalExecutionController.getRunSkillSnapshot);
 internalExecutionRouter.post(
   '/runs/:runId/approvals',
   requireServiceToken,

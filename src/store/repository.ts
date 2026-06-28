@@ -92,11 +92,13 @@ import {
   createTargetSkill as createTargetSkillRecord,
   deleteTargetSkill as deleteTargetSkillRecord,
   getTargetSkill as getTargetSkillRecord,
+  listEnabledValidTargetSkillSummaries as listEnabledValidTargetSkillSummariesRecord,
   listEnabledValidTargetSkills as listEnabledValidTargetSkillsRecord,
   listTargetSkills as listTargetSkillsRecord,
   updateTargetSkill as updateTargetSkillRecord,
   updateTargetSkillEnabled as updateTargetSkillEnabledRecord
 } from './repository-target-skills.js';
+import * as runSkillSnapshots from './repository-run-skill-snapshots.js';
 import {
   getClusterSnapshotSummary as getClusterSnapshotSummaryRecord,
   listClusterSnapshotFindings as listClusterSnapshotFindingsRecord,
@@ -157,10 +159,7 @@ import {
   purgeOldWebhookHistory as purgeOldWebhookHistoryRecord,
   updateWebhookSubscription as updateWebhookSubscriptionRecord
 } from './repository-webhooks.js';
-import {
-  getTarget as getTargetRecord,
-  listTargets as listTargetsRecord
-} from './repository-targets.js';
+import { getTarget as getTargetRecord, listTargets as listTargetsRecord } from './repository-targets.js';
 import {
   insertWorkspaceAuditEvent as insertWorkspaceAuditEventRecord,
   listWorkspaceAuditEvents as listWorkspaceAuditEventsRecord,
@@ -467,6 +466,11 @@ export class Repository {
   countEnabledTargetSkills = countEnabledTargetSkillsRecord;
 
   listEnabledValidTargetSkills = listEnabledValidTargetSkillsRecord;
+  listEnabledValidTargetSkillSummaries = listEnabledValidTargetSkillSummariesRecord;
+  createRunSkillSnapshot = runSkillSnapshots.createRunSkillSnapshot;
+  getRunSkillCatalog = runSkillSnapshots.getRunSkillCatalog;
+  getRunSkillSnapshot = runSkillSnapshots.getRunSkillSnapshot;
+  purgeOrphanedSkillSnapshotBlobs = runSkillSnapshots.purgeOrphanedSkillSnapshotBlobs;
 
   createWebhookSubscription = createWebhookSubscriptionRecord;
 
@@ -539,7 +543,6 @@ export class Repository {
   ensureDevelopmentAccessForUser = ensureDevelopmentAccessForUserRecord;
 
   ensureDevelopmentSeed = ensureDevelopmentSeedRecord;
-
 }
 
 export const repo = new Repository();

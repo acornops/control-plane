@@ -2,6 +2,7 @@ import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { listTargetMcpTools, McpToolConfig } from './mcp-registry-client.js';
 import { syncTargetBuiltInTools } from './target-built-in-tool-sync.js';
+import { isReservedInternalToolName } from './internal-tool-names.js';
 import { sanitizeToolInputSchema, sanitizeToolText } from './tool-metadata.js';
 import { repo } from '../store/repository.js';
 import { KUBERNETES_TARGET_TYPE, TargetType, ToolAccessMode } from '../types/domain.js';
@@ -157,6 +158,11 @@ export async function resolveTargetRunTools(params: {
       repo.listTargetToolOverrides(targetId)
     ]);
     const enabledTools = tools
+      .filter((tool) => {
+        if (!isReservedInternalToolName(tool.name)) return true;
+        logger.warn({ workspaceId, targetId, targetType, runId, toolName: tool.name }, 'Skipping reserved internal tool name in run tool resolution');
+        return false;
+      })
       .filter((tool) => {
         const effectiveEnabled = Object.prototype.hasOwnProperty.call(overrides, tool.name)
           ? overrides[tool.name]

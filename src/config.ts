@@ -31,7 +31,6 @@ const PLACEHOLDER_VALUES = new Set([
   'acornops-control-plane-secret',
   'acornops'
 ]);
-
 function emptyStringToUndefined(value: unknown): unknown {
   if (typeof value === 'string' && value.trim() === '') {
     return undefined;
@@ -193,6 +192,7 @@ const envSchema = z.object({
   CSRF_SECRET: z.string().default('dev_csrf_secret_change_me_32_bytes_minimum'),
   CONVERSATION_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   CONVERSATION_RETENTION_JOB_INTERVAL_SECONDS: z.coerce.number().int().positive().default(3600),
+  SKILL_SNAPSHOT_BLOB_ORPHAN_GRACE_DAYS: z.coerce.number().int().positive().default(7),
   TARGET_METRIC_HISTORY_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   WORKSPACE_AUDIT_LOGGING_MODE: workspaceAuditLoggingModeFromEnv,
   WORKSPACE_AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
