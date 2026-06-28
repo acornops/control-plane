@@ -111,6 +111,9 @@ describe('gateway token service', () => {
       workflowRunId: 'workflow-run-1',
       workflowSessionId: 'workflow-session-1',
       workflowStepId: 'inventory',
+      agentId: 'agent-cluster-triage',
+      agentVersion: 7,
+      triggerId: 'trigger-manual-1',
       sessionId: 'workflow-session-1',
       allowedProviders: ['openai'],
       allowedTools: ['mcp.tools.list', 'audit.events.search'],
@@ -143,6 +146,9 @@ describe('gateway token service', () => {
     assert.equal(verification.payload.workflow_run_id, 'workflow-run-1');
     assert.equal(verification.payload.workflow_session_id, 'workflow-session-1');
     assert.equal(verification.payload.workflow_step_id, 'inventory');
+    assert.equal(verification.payload.agent_id, 'agent-cluster-triage');
+    assert.equal(verification.payload.agent_version, 7);
+    assert.equal(verification.payload.trigger_id, 'trigger-manual-1');
     assert.deepEqual(verification.payload.permissions, {
       allowed_providers: ['openai'],
       allowed_tools: ['mcp.tools.list', 'audit.events.search'],
@@ -163,6 +169,9 @@ describe('gateway token service', () => {
     assert.equal(claims.workflowRunId, 'workflow-run-1');
     assert.equal(claims.workflowSessionId, 'workflow-session-1');
     assert.equal(claims.workflowStepId, 'inventory');
+    assert.equal(claims.agentId, 'agent-cluster-triage');
+    assert.equal(claims.agentVersion, 7);
+    assert.equal(claims.triggerId, 'trigger-manual-1');
     assert.equal(claims.targetId, undefined);
     assert.equal(claims.targetType, undefined);
     assert.deepEqual(claims.contextGrants, ['audit_events', 'workspace_metadata']);

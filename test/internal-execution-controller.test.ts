@@ -19,6 +19,7 @@ import {
   resetWorkflowRepositoryForTests
 } from '../src/store/repository-workflows.js';
 import { runtime } from '../src/store/runtime.js';
+import { listAgentDefinitions } from '../src/store/repository-agents.js';
 import type { RunEvent } from '../src/types/domain.js';
 import {
   callController,
@@ -323,6 +324,7 @@ describe('internal execution bootstrap audit metadata', () => {
     assert.ok(workflow);
     const compiledAccessScope = compileWorkflowAccessScope({
       workflow,
+      agents: listAgentDefinitions(workflow.workspaceId),
       actor: {
         userId: 'user-1',
         role: 'operator',

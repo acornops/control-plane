@@ -3,6 +3,7 @@ import { logger } from '../logger.js';
 import { WorkflowRunRecord } from '../store/repository-workflows.js';
 import { Run } from '../types/domain.js';
 import { internalFetch } from './internal-http-client.js';
+import { workflowRunAgentClaims } from './workflow-run-agent-claims.js';
 
 export async function dispatchRunToExecutionEngine(run: Run): Promise<void> {
   const payload = {
@@ -43,6 +44,7 @@ export async function dispatchRunToExecutionEngine(run: Run): Promise<void> {
 }
 
 export async function dispatchWorkflowRunToExecutionEngine(run: WorkflowRunRecord): Promise<void> {
+  const agentClaims = workflowRunAgentClaims(run);
   const payload = {
     contract_version: 1,
     scope_type: 'workspace',
@@ -54,6 +56,9 @@ export async function dispatchWorkflowRunToExecutionEngine(run: WorkflowRunRecor
     workflow_run_id: run.workflowRunId,
     workflow_session_id: run.workflowSessionId,
     ...(run.workflowStepId ? { workflow_step_id: run.workflowStepId } : {}),
+    ...(agentClaims.agentId ? { agent_id: agentClaims.agentId } : {}),
+    ...(agentClaims.agentVersion ? { agent_version: agentClaims.agentVersion } : {}),
+    ...(agentClaims.triggerId ? { trigger_id: agentClaims.triggerId } : {}),
     requested_at: run.requestedAt
   };
 

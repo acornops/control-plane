@@ -34,6 +34,9 @@ export interface WorkflowRunScopeClaims extends BaseRunScopeClaims {
   workflowRunId: string;
   workflowSessionId: string;
   workflowStepId?: string;
+  agentId?: string;
+  agentVersion?: number;
+  triggerId?: string;
   contextGrants?: string[];
   targetId?: string;
   targetType?: TargetType;
@@ -52,6 +55,9 @@ export interface VerifiedRunScopeClaims extends BaseRunScopeClaims {
   workflowRunId?: string;
   workflowSessionId?: string;
   workflowStepId?: string;
+  agentId?: string;
+  agentVersion?: number;
+  triggerId?: string;
   contextGrants: string[];
 }
 
@@ -138,6 +144,17 @@ function optionalStringClaim(payload: JWTPayload, key: string): string | undefin
   }
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw new Error(`Gateway token claim ${key} must be a non-empty string when present`);
+  }
+  return value;
+}
+
+function optionalNumberClaim(payload: JWTPayload, key: string): number | undefined {
+  const value = payload[key];
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Gateway token claim ${key} must be a finite number when present`);
   }
   return value;
 }
@@ -233,6 +250,9 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
       workflowRunId: stringClaim(payload, 'workflow_run_id'),
       workflowSessionId: stringClaim(payload, 'workflow_session_id'),
       workflowStepId: optionalStringClaim(payload, 'workflow_step_id'),
+      agentId: optionalStringClaim(payload, 'agent_id'),
+      agentVersion: optionalNumberClaim(payload, 'agent_version'),
+      triggerId: optionalStringClaim(payload, 'trigger_id'),
       targetId: optionalStringClaim(payload, 'target_id'),
       targetType
     };
@@ -296,6 +316,15 @@ export class GatewayTokenService {
       payload.workflow_session_id = input.workflowSessionId;
       if (input.workflowStepId) {
         payload.workflow_step_id = input.workflowStepId;
+      }
+      if (input.agentId) {
+        payload.agent_id = input.agentId;
+      }
+      if (typeof input.agentVersion === 'number') {
+        payload.agent_version = input.agentVersion;
+      }
+      if (input.triggerId) {
+        payload.trigger_id = input.triggerId;
       }
       if (input.targetId) {
         payload.target_id = input.targetId;

@@ -8,6 +8,7 @@ import { syncTargetBuiltInTools } from '../services/target-built-in-tool-sync.js
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
 import { sanitizeToolInputSchema, sanitizeToolText } from '../services/tool-metadata.js';
 import { gatewayTokenService } from '../services/token-service.js';
+import { workflowRunAgentClaims } from '../services/workflow-run-agent-claims.js';
 import { repo } from '../store/repository.js';
 import { getWorkflowRun, getWorkflowSession, WorkflowRunRecord } from '../store/repository-workflows.js';
 import { KUBERNETES_TARGET_TYPE, TargetType } from '../types/domain.js';
@@ -107,6 +108,7 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
   const maxOutputTokens = config.LLM_MAX_OUTPUT_TOKENS;
   const allowedToolOperations = run.compiledAccessScope.toolOperations;
   const allowedToolNames = run.compiledAccessScope.tools;
+  const agentClaims = workflowRunAgentClaims(run);
   const allowedNativeTools: Array<{ id: string; config: Record<string, unknown> }> = [];
   const allowedToolSpecs = allowedToolNames.map((toolName) => ({
     name: toolName,
@@ -124,6 +126,9 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     workflowRunId: run.workflowRunId,
     workflowSessionId: run.workflowSessionId,
     workflowStepId: run.workflowStepId,
+    agentId: agentClaims.agentId,
+    agentVersion: agentClaims.agentVersion,
+    triggerId: agentClaims.triggerId,
     allowedProviders,
     allowedTools: allowedToolNames,
     allowedNativeTools,
@@ -144,7 +149,10 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
       workflow_id: run.workflowId,
       workflow_run_id: run.workflowRunId,
       workflow_session_id: run.workflowSessionId,
-      ...(run.workflowStepId ? { workflow_step_id: run.workflowStepId } : {})
+      ...(run.workflowStepId ? { workflow_step_id: run.workflowStepId } : {}),
+      ...(agentClaims.agentId ? { agent_id: agentClaims.agentId } : {}),
+      ...(agentClaims.agentVersion ? { agent_version: agentClaims.agentVersion } : {}),
+      ...(agentClaims.triggerId ? { trigger_id: agentClaims.triggerId } : {})
     },
     policy: {
       max_runtime_ms: config.AGENT_MAX_RUNTIME_MS,
