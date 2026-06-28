@@ -1,12 +1,16 @@
 import { Router } from 'express';
 import { authenticatedHandler, requireUser } from '../auth/middleware.js';
 import * as workflowsController from '../controllers/workflows-controller.js';
+import * as workflowSchedulesController from '../controllers/workflow-schedules-controller.js';
 
 export const workflowsRouter = Router();
 const authed = authenticatedHandler;
 
 workflowsRouter.get('/workspaces/:workspaceId/workflows', requireUser, authed(workflowsController.listWorkflows));
 workflowsRouter.post('/workspaces/:workspaceId/workflows', requireUser, authed(workflowsController.createWorkflow));
+workflowsRouter.get('/workspaces/:workspaceId/workflow-schedules', requireUser, authed(workflowSchedulesController.listWorkspaceWorkflowSchedules));
+workflowsRouter.post('/workspaces/:workspaceId/workflow-schedules', requireUser, authed(workflowSchedulesController.createWorkflowScheduleForWorkspace));
+workflowsRouter.get('/workspaces/:workspaceId/approvals', requireUser, authed(workflowSchedulesController.listWorkspaceApprovalInbox));
 workflowsRouter.get('/workspaces/:workspaceId/workflow-options', requireUser, authed(workflowsController.listWorkflowOptions));
 workflowsRouter.get('/workspaces/:workspaceId/mcp/servers', requireUser, authed(workflowsController.listWorkflowMcpServersForWorkspace));
 workflowsRouter.post('/workspaces/:workspaceId/mcp/servers', requireUser, authed(workflowsController.createWorkflowMcpServerForWorkspace));
@@ -17,6 +21,8 @@ workflowsRouter.get('/workspaces/:workspaceId/mcp/servers/:serverId/tools', requ
 workflowsRouter.get('/workflows/:workflowId', requireUser, authed(workflowsController.getWorkflow));
 workflowsRouter.patch('/workflows/:workflowId', requireUser, authed(workflowsController.updateWorkflow));
 workflowsRouter.delete('/workflows/:workflowId', requireUser, authed(workflowsController.deleteWorkflow));
+workflowsRouter.patch('/workflow-schedules/:scheduleId', requireUser, authed(workflowSchedulesController.updateWorkflowSchedule));
+workflowsRouter.delete('/workflow-schedules/:scheduleId', requireUser, authed(workflowSchedulesController.deleteWorkflowSchedule));
 workflowsRouter.get('/workflows/:workflowId/sessions', requireUser, authed(workflowsController.listSessions));
 workflowsRouter.post('/workflows/:workflowId/sessions', requireUser, authed(workflowsController.createSession));
 workflowsRouter.post('/workflow-sessions/:sessionId/messages', requireUser, authed(workflowsController.postMessage));

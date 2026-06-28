@@ -119,6 +119,36 @@ export async function listRunToolApprovals(runId: string): Promise<RunToolApprov
   return result.rows.map(mapRunToolApproval);
 }
 
+export async function listWorkspaceRunToolApprovals(params: {
+  workspaceId: string;
+  status?: 'pending' | 'decided' | 'all';
+  limit?: number;
+  cursor?: string;
+}): Promise<RunToolApproval[]> {
+  const status = params.status || 'pending';
+  const limit = Math.max(1, Math.min(100, params.limit || 50));
+  const values: unknown[] = [params.workspaceId];
+  const where = ['a.workspace_id = $1'];
+  if (status === 'pending') {
+    where.push("a.status = 'pending'");
+  } else if (status === 'decided') {
+    where.push("a.status <> 'pending'");
+  }
+  if (params.cursor) {
+    values.push(params.cursor);
+    where.push(`a.created_at < $${values.length}::timestamptz`);
+  }
+  values.push(limit);
+  const result = await db.query<RunToolApprovalRow>(
+    `${RUN_TOOL_APPROVAL_SELECT}
+     WHERE ${where.join(' AND ')}
+     ORDER BY a.created_at DESC, a.id DESC
+     LIMIT $${values.length}`,
+    values
+  );
+  return result.rows.map(mapRunToolApproval);
+}
+
 export async function getRunContinuation(runId: string): Promise<RunContinuation | null> {
   const result = await db.query<RunContinuationRow>('SELECT * FROM run_continuations WHERE run_id = $1', [runId]);
   if (!result.rowCount) return null;

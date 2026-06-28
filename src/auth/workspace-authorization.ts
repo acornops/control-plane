@@ -34,8 +34,17 @@ export async function getWorkspaceAuthorization(
     return null;
   }
   const permissions = getEffectiveWorkspacePermissions(req, role);
+  return createWorkspaceAuthorization(req.auth.userId, workspaceId, role, permissions);
+}
+
+function createWorkspaceAuthorization(
+  userId: string,
+  workspaceId: string,
+  role: Role,
+  permissions: WorkspacePermissions
+): WorkspaceAuthorization {
   return {
-    userId: req.auth.userId,
+    userId,
     workspaceId,
     role,
     permissions,
@@ -43,6 +52,17 @@ export async function getWorkspaceAuthorization(
       return hasWorkspaceCapability(role, capability) && permissions[capability];
     }
   };
+}
+
+export async function getWorkspaceAuthorizationForUser(
+  userId: string,
+  workspaceId: string
+): Promise<WorkspaceAuthorization | null> {
+  const role = await repo.getWorkspaceRole(userId, workspaceId);
+  if (!role || !isSupportedRole(role)) {
+    return null;
+  }
+  return createWorkspaceAuthorization(userId, workspaceId, role, getWorkspacePermissions(role));
 }
 
 export async function requireWorkspaceRead(

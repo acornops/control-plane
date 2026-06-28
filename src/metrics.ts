@@ -14,6 +14,8 @@ function metricLine(name: string, labels: Record<string, string>, value: number)
 const adminAuthFailures = new Map<string, number>();
 const adminRequests = new Map<string, number>();
 const runEventIngestCounts = new Map<string, number>();
+const workflowSchedulerCounts = new Map<string, number>();
+const approvalInboxQueries = new Map<string, number>();
 let adminMutations = 0;
 let adminAuditWriteFailures = 0;
 
@@ -39,6 +41,14 @@ export function incrementAdminAuditWriteFailures(): void {
 
 export function incrementRunEventsIngested(eventType: string, count = 1): void {
   runEventIngestCounts.set(eventType, (runEventIngestCounts.get(eventType) || 0) + count);
+}
+
+export function incrementWorkflowSchedulerEvent(event: string, count = 1): void {
+  workflowSchedulerCounts.set(event, (workflowSchedulerCounts.get(event) || 0) + count);
+}
+
+export function incrementApprovalInboxQuery(status: string): void {
+  increment(approvalInboxQueries, status);
 }
 
 export function renderControlPlaneMetrics(): string {
@@ -87,6 +97,16 @@ export function renderControlPlaneMetrics(): string {
     '# TYPE control_plane_run_events_ingested_total counter',
     ...Array.from(runEventIngestCounts.entries()).map(([eventType, value]) =>
       metricLine('control_plane_run_events_ingested_total', { ...serviceLabels, event_type: eventType }, value)
+    ),
+    '# HELP control_plane_workflow_scheduler_events_total Workflow scheduler outcomes by event.',
+    '# TYPE control_plane_workflow_scheduler_events_total counter',
+    ...Array.from(workflowSchedulerCounts.entries()).map(([event, value]) =>
+      metricLine('control_plane_workflow_scheduler_events_total', { ...serviceLabels, event }, value)
+    ),
+    '# HELP control_plane_approval_inbox_queries_total Workspace approval inbox queries by status filter.',
+    '# TYPE control_plane_approval_inbox_queries_total counter',
+    ...Array.from(approvalInboxQueries.entries()).map(([status, value]) =>
+      metricLine('control_plane_approval_inbox_queries_total', { ...serviceLabels, status }, value)
     )
   ];
   return `${lines.join('\n')}\n`;

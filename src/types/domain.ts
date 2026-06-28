@@ -105,6 +105,8 @@ export interface WorkspacePermissions {
   manage_mcp: boolean;
   manage_tools: boolean;
   manage_skills: boolean;
+  manage_workflows: boolean;
+  manage_agents: boolean;
   manage_ai_settings: boolean;
   manage_agent_keys: boolean;
   manage_webhooks: boolean;

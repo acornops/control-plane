@@ -1,8 +1,5 @@
 import {
   createPasswordUser as createPasswordUserRecord,
-  ensureDefaultUser as ensureDefaultUserRecord,
-  ensureDevelopmentAccessForUser as ensureDevelopmentAccessForUserRecord,
-  ensureDevelopmentSeed as ensureDevelopmentSeedRecord,
   getAuthMethodsForUser as getAuthMethodsForUserRecord,
   getFederatedIdentityByProviderSubject as getFederatedIdentityByProviderSubjectRecord,
   getPasswordCredentialByIdentifier as getPasswordCredentialByIdentifierRecord,
@@ -20,6 +17,7 @@ import {
   userHasWorkspaceAccess as userHasWorkspaceAccessRecord,
   addWorkspace as addWorkspaceRecord
 } from './repository-users.js';
+import * as repositoryUserSeed from './repository-user-seed.js';
 import {
   consumeEmailVerificationToken as consumeEmailVerificationTokenRecord,
   invalidateEmailVerificationToken as invalidateEmailVerificationTokenRecord,
@@ -142,6 +140,7 @@ import {
   expireRunToolApproval as expireRunToolApprovalRecord,
   getRunContinuation as getRunContinuationRecord,
   getRunToolApproval as getRunToolApprovalRecord,
+  listWorkspaceRunToolApprovals as listWorkspaceRunToolApprovalsRecord,
   listRunToolApprovals as listRunToolApprovalsRecord,
   markRunToolApprovalExecutionFinished as markRunToolApprovalExecutionFinishedRecord,
   markRunToolApprovalExecutionStarted as markRunToolApprovalExecutionStartedRecord
@@ -388,6 +387,8 @@ export class Repository {
 
   listRunToolApprovals = listRunToolApprovalsRecord;
 
+  listWorkspaceRunToolApprovals = listWorkspaceRunToolApprovalsRecord;
+
   getRunContinuation = getRunContinuationRecord;
 
   deleteRunContinuation = deleteRunContinuationRecord;
@@ -534,11 +535,11 @@ export class Repository {
 
   getRoleTemplate = getRoleTemplateRecord;
 
-  ensureDefaultUser = ensureDefaultUserRecord;
+  ensureDefaultUser = repositoryUserSeed.ensureDefaultUser;
 
-  ensureDevelopmentAccessForUser = ensureDevelopmentAccessForUserRecord;
+  ensureDevelopmentAccessForUser = repositoryUserSeed.ensureDevelopmentAccessForUser;
 
-  ensureDevelopmentSeed = ensureDevelopmentSeedRecord;
+  ensureDevelopmentSeed = repositoryUserSeed.ensureDevelopmentSeed;
 
 }
 
