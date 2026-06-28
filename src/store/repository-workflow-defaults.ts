@@ -28,6 +28,7 @@ export function defaultWorkflowDefinitions(workspaceId: string): WorkflowDefinit
           id: 'collect-cluster-signals',
           title: 'Collect cluster signals',
           requiredInputs: [],
+          assignedAgentIds: ['agent-cluster-triage'],
           targetBinding: { type: 'selected_cluster', targetType: 'kubernetes', inputName: 'clusterId' },
           enabledSkills: ['acornops-observability', 'acornops-target-boundary-design'],
           allowedMcpServers: ['acornops-cluster-agent'],
@@ -64,6 +65,7 @@ export function defaultWorkflowDefinitions(workspaceId: string): WorkflowDefinit
           id: 'inspect-repository-state',
           title: 'Inspect repository state',
           requiredInputs: [],
+          assignedAgentIds: ['agent-release-coordinator'],
           enabledSkills: ['acornops-cross-repo-change'],
           allowedMcpServers: ['github'],
           allowedTools: ['github.repositories.read', 'github.branches.list', 'github.prs.list'],
@@ -74,6 +76,7 @@ export function defaultWorkflowDefinitions(workspaceId: string): WorkflowDefinit
           id: 'prepare-git-change',
           title: 'Prepare Git change',
           requiredInputs: [],
+          assignedAgentIds: ['agent-release-coordinator'],
           enabledSkills: ['acornops-open-pr'],
           allowedMcpServers: ['github'],
           allowedTools: ['github.branches.create', 'github.prs.create'],
@@ -110,6 +113,7 @@ export function defaultWorkflowDefinitions(workspaceId: string): WorkflowDefinit
           id: 'generate-incident-report',
           title: 'Generate incident report',
           requiredInputs: [],
+          assignedAgentIds: ['agent-incident-reporter'],
           enabledSkills: ['acornops-observability'],
           allowedMcpServers: ['workspace-chat', 'artifact-writer'],
           allowedTools: ['chat.sessions.read_selected', 'reports.pdf.generate'],
@@ -122,5 +126,4 @@ export function defaultWorkflowDefinitions(workspaceId: string): WorkflowDefinit
     }
   ];
 }
-
 

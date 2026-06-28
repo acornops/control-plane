@@ -58,6 +58,7 @@ export interface WorkflowStepDefinition {
   id: string;
   title: string;
   requiredInputs: string[];
+  assignedAgentIds?: string[];
   targetBinding?: WorkflowTargetBinding;
   enabledSkills: string[];
   allowedMcpServers: string[];
@@ -111,6 +112,7 @@ export interface WorkflowOptionsCatalog {
   mcpServers: WorkflowOption[];
   mcpTools: WorkflowOption[];
   skills: WorkflowOption[];
+  agents: WorkflowOption[];
   chatSessions: WorkflowOption[];
   outputFormats: WorkflowOption[];
   approvalPolicies: WorkflowOption[];
@@ -128,6 +130,9 @@ export interface WorkflowJwtClaimPreview {
   scope: { type: 'workspace' };
   workflow_id: string;
   workflow_version: number;
+  agent_id?: string;
+  agent_version?: number;
+  trigger_id?: string;
   permissions: {
     allowed_tools: string[];
     allowed_tool_operations: Record<string, WorkspaceAuditOperation>;
@@ -152,5 +157,80 @@ export interface CompiledWorkflowAccessScope {
   enabledSkills: string[];
   contextGrants: string[];
   approvalGates: string[];
+  agentAssignments?: Array<{
+    stepId: string;
+    agentIds: string[];
+    agentVersions: Record<string, number>;
+  }>;
   jwtClaims: WorkflowJwtClaimPreview;
+}
+
+export type WorkflowScheduleStatus = 'enabled' | 'paused';
+export type WorkflowScheduleLastStatus = 'dispatched' | 'failed' | 'auto_paused' | 'skipped';
+
+export interface WorkflowScheduleActorMetadata {
+  userId: string;
+  displayName?: string;
+}
+
+export interface WorkflowScheduleRecord {
+  id: string;
+  workspaceId: string;
+  workflowId: string;
+  workflowVersion: number;
+  name: string;
+  status: WorkflowScheduleStatus;
+  cron: string;
+  timezone: string;
+  inputDefaults: Record<string, unknown>;
+  approvedContextGrants: string[];
+  createdBy: WorkflowScheduleActorMetadata;
+  updatedBy: WorkflowScheduleActorMetadata;
+  createdAt: string;
+  updatedAt: string;
+  nextRunAt?: string;
+  lastRunAt?: string;
+  lastStatus?: WorkflowScheduleLastStatus;
+  lastError?: string;
+}
+
+export interface WorkflowScheduleInput {
+  workflowId: string;
+  name: string;
+  enabled?: boolean;
+  status?: WorkflowScheduleStatus;
+  cron: string;
+  timezone: string;
+  inputDefaults?: Record<string, unknown>;
+  approvedContextGrants?: string[];
+}
+
+export interface WorkflowSchedulePatch {
+  workspaceId?: string;
+  workflowId?: string;
+  name?: string;
+  enabled?: boolean;
+  status?: WorkflowScheduleStatus;
+  cron?: string;
+  timezone?: string;
+  inputDefaults?: Record<string, unknown>;
+  approvedContextGrants?: string[];
+}
+
+export interface WorkflowApprovalInboxRow {
+  approvalId: string;
+  runId: string;
+  source: 'target_tool' | 'workflow_gate';
+  workflowId?: string;
+  targetId?: string;
+  targetType?: string;
+  summary: string;
+  toolName: string;
+  requestedBy?: string;
+  expiresAt: string;
+  status: 'pending' | 'approved' | 'rejected' | 'expired';
+  decision?: 'approved' | 'rejected';
+  decidedBy?: string;
+  decidedAt?: string;
+  requestedAt: string;
 }

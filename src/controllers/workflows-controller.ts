@@ -30,6 +30,7 @@ import {
   updateWorkflowMcpServer,
   updateWorkflowRun
 } from '../store/repository-workflows.js';
+import { listAgentDefinitions } from '../store/repository-agents.js';
 import type {
   WorkflowCapabilityMode,
   WorkflowCategory,
@@ -147,6 +148,7 @@ function workflowSteps(value: unknown): WorkflowStepDefinition[] | undefined {
         id: typeof entry.id === 'string' ? entry.id.trim() : '',
         title: typeof entry.title === 'string' ? entry.title.trim() : '',
         requiredInputs: stringList(entry.requiredInputs) || [],
+        assignedAgentIds: stringList(entry.assignedAgentIds),
         targetBinding,
         enabledSkills: stringList(entry.enabledSkills) || [],
         allowedMcpServers: stringList(entry.allowedMcpServers) || [],
@@ -211,6 +213,7 @@ function requestWorkflowScopeUpdate(req: AuthenticatedRequest, workflow: Workflo
       id: typeof entry.id === 'string' ? entry.id : '',
       title: typeof entry.title === 'string' ? entry.title.trim() : undefined,
       requiredInputs: stringList(entry.requiredInputs),
+      assignedAgentIds: stringList(entry.assignedAgentIds),
       targetBinding: entry.targetBinding && typeof entry.targetBinding === 'object' && !Array.isArray(entry.targetBinding)
         ? entry.targetBinding as WorkflowStepDefinition['targetBinding']
         : undefined,
@@ -327,6 +330,7 @@ export async function createSession(req: AuthenticatedRequest, res: Response, ne
     try {
       compiledAccessScope = compileWorkflowAccessScope({
         workflow,
+        agents: listAgentDefinitions(workflow.workspaceId),
         actor: {
           userId: req.auth.userId,
           role: authz.role,
@@ -396,7 +400,7 @@ export async function listSessions(req: AuthenticatedRequest, res: Response, nex
     const authz = await requireWorkspaceDataRead(req, res, workflow.workspaceId);
     if (!authz) return;
     res.status(200).json({
-      items: listWorkflowSessions(workflowId).map((session) => ({
+      items: listWorkflowSessions(workspaceId, workflowId).map((session) => ({
         ...session,
         runs: listWorkflowRunsForSession(session.id)
       }))

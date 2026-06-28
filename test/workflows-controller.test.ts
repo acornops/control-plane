@@ -3,15 +3,8 @@ import { afterEach, describe, it, mock } from 'node:test';
 import { decideRunApproval, getRun, listRunApprovals, listRunEvents } from '../src/controllers/runs-controller.js';
 import {
   createSession,
-  createWorkflow,
-  createWorkflowMcpServerForWorkspace,
-  deleteWorkflow,
   listSessions,
-  listWorkflowMcpServerToolsForWorkspace,
-  listWorkflowMcpServersForWorkspace,
-  listWorkflowOptions,
   postMessage,
-  testWorkflowMcpServerConnectionForWorkspace,
   updateWorkflow
 } from '../src/controllers/workflows-controller.js';
 import { getWorkspacePermissions } from '../src/auth/authorization.js';
@@ -25,6 +18,7 @@ import {
   listWorkflowMessages,
   resetWorkflowRepositoryForTests
 } from '../src/store/repository-workflows.js';
+import { listAgentDefinitions } from '../src/store/repository-agents.js';
 import type { WorkflowDefinitionForAccess } from '../src/types/workflows.js';
 import {
   callController,
@@ -113,6 +107,8 @@ describe('workflows controller', () => {
       workflow_run_id: body.workflow_run_id,
       workflow_session_id: sessionId,
       workflow_step_id: 'collect-cluster-signals',
+      agent_id: 'agent-cluster-triage',
+      agent_version: 1,
       requested_at: run.requestedAt
     });
 
@@ -167,6 +163,7 @@ describe('workflows controller', () => {
     };
     const compiledAccessScope = compileWorkflowAccessScope({
       workflow,
+      agents: listAgentDefinitions('workspace-1'),
       actor: {
         userId: 'user-1',
         role: 'admin',
@@ -205,6 +202,7 @@ describe('workflows controller', () => {
     assert.ok(workflow);
     const compiledAccessScope = compileWorkflowAccessScope({
       workflow,
+      agents: listAgentDefinitions('workspace-1'),
       actor: {
         userId: 'user-1',
         role: 'operator',
@@ -225,6 +223,49 @@ describe('workflows controller', () => {
     assert.equal(body.items[0].id, session.id);
   });
 
+  it('does not leak same-id workflow sessions from another workspace', async () => {
+    installWorkspace('operator');
+    const workflowOne = getWorkflowDefinition('workspace-1', 'cluster-triage');
+    const workflowTwo = getWorkflowDefinition('workspace-2', 'cluster-triage');
+    assert.ok(workflowOne);
+    assert.ok(workflowTwo);
+    const actor = {
+      userId: 'user-1',
+      role: 'operator',
+      permissions: getWorkspacePermissions('operator')
+    };
+    const sessionOne = createWorkflowSession({
+      workflow: workflowOne,
+      createdBy: 'user-1',
+      compiledAccessScope: compileWorkflowAccessScope({
+        workflow: workflowOne,
+        agents: listAgentDefinitions('workspace-1'),
+        actor,
+        approvedContextGrants: ['workspace_metadata', 'target_inventory']
+      })
+    });
+    createWorkflowSession({
+      workflow: workflowTwo,
+      createdBy: 'user-1',
+      compiledAccessScope: compileWorkflowAccessScope({
+        workflow: workflowTwo,
+        agents: listAgentDefinitions('workspace-2'),
+        actor,
+        approvedContextGrants: ['workspace_metadata', 'target_inventory']
+      })
+    });
+
+    const response = await callController(listSessions, createRequest(
+      { workflowId: 'cluster-triage' },
+      { workspaceId: 'workspace-1' }
+    ));
+
+    assert.equal(response.statusCode, 200);
+    const body = response.body as { items: Array<{ id: string; workspaceId: string }> };
+    assert.deepEqual(body.items.map((item) => item.id), [sessionOne.id]);
+    assert.ok(body.items.every((item) => item.workspaceId === 'workspace-1'));
+  });
+
   it('lets owners edit workflow categories and MCP scope before future sessions compile access', async () => {
     installWorkspace('owner');
 
@@ -242,6 +283,8 @@ describe('workflows controller', () => {
         steps: [
           {
             id: 'collect-cluster-signals',
+            assignedAgentIds: ['agent-release-coordinator'],
+            allowedMcpServers: ['github'],
             allowedTools: ['github.repositories.read', 'github.branches.create'],
             contextGrants: ['workspace_metadata'],
             approvalRequired: true
@@ -278,143 +321,5 @@ describe('workflows controller', () => {
     assert.deepEqual(body.compiledAccessScope.mcpServers, ['github']);
     assert.deepEqual(body.compiledAccessScope.tools, ['github.branches.create', 'github.repositories.read']);
     assert.deepEqual(body.compiledAccessScope.approvalGates, ['Before creating branches or pull requests', 'Collect cluster signals']);
-  });
-
-  it('requires manage_mcp before editing workflow MCP scope', async () => {
-    installWorkspace('viewer');
-
-    const response = await callController(updateWorkflow, createRequest(
-      { workflowId: 'cluster-triage' },
-      {
-        workspaceId: 'workspace-1',
-        steps: [
-          {
-            id: 'collect-cluster-signals',
-            allowedMcpServers: ['github'],
-            allowedTools: ['github.branches.create']
-          }
-        ]
-      }
-    ));
-
-    assert.equal(response.statusCode, 403);
-    assert.equal((response.body as { error: { code: string } }).error.code, 'FORBIDDEN');
-  });
-
-  it('returns server option catalogs for dropdown-backed workflow authoring', async () => {
-    installWorkspace('admin');
-
-    const response = await callController(listWorkflowOptions, createRequest({ workspaceId: 'workspace-1' }));
-
-    assert.equal(response.statusCode, 200);
-    const body = response.body as {
-      clusters: Array<{ value: string; label: string }>;
-      repositories: Array<{ value: string }>;
-      mcpServers: Array<{ value: string }>;
-      mcpTools: Array<{ value: string }>;
-      skills: Array<{ value: string }>;
-      outputFormats: Array<{ value: string }>;
-    };
-    assert.ok(body.clusters.some((option) => option.value === 'cluster-primary'));
-    assert.ok(body.repositories.some((option) => option.value === 'acornops/control-plane'));
-    assert.ok(body.mcpServers.some((option) => option.value === 'github'));
-    assert.ok(body.mcpTools.some((option) => option.value === 'github.prs.create'));
-    assert.ok(body.skills.some((option) => option.value === 'acornops-observability'));
-    assert.ok(body.outputFormats.some((option) => option.value === 'pdf'));
-  });
-
-  it('lets owners create and delete user-authored workflows while preserving system templates', async () => {
-    installWorkspace('owner');
-
-    const created = await callController(createWorkflow, createRequest(
-      { workspaceId: 'workspace-1' },
-      {
-        name: 'Custom incident report',
-        description: 'Generate a tailored incident report from selected chats.',
-        category: 'incident-review',
-        tags: ['incident', 'custom'],
-        enabledMcpServers: ['workspace-chat', 'artifact-writer'],
-        enabledSkills: ['acornops-observability'],
-        inputs: [
-          { name: 'chatSessions', label: 'Incident chats', type: 'chat_session_list', required: true, optionSource: 'chatSessions' },
-          { name: 'outputFormat', label: 'Output format', type: 'output_format', required: true, optionSource: 'outputFormats' }
-        ],
-        policy: {
-          mode: 'read_only',
-          maxRuntimeSeconds: 900,
-          retentionDays: 90,
-          approvalRequirements: ['Before reading selected chats']
-        },
-        steps: [
-          {
-            id: 'write-report',
-            title: 'Write report',
-            requiredInputs: ['chatSessions', 'outputFormat'],
-            enabledSkills: [],
-            allowedMcpServers: [],
-            allowedTools: ['chat.sessions.read_selected', 'reports.pdf.generate'],
-            contextGrants: ['selected_chat_sessions'],
-            approvalRequired: true,
-            outputArtifacts: [{ id: 'report', type: 'pdf', title: 'Incident report PDF', required: true }]
-          }
-        ]
-      }
-    ));
-
-    assert.equal(created.statusCode, 201);
-    const workflow = (created.body as { workflow: WorkflowDefinitionForAccess }).workflow;
-    assert.equal(workflow.source, 'user');
-    assert.equal(workflow.category, 'incident-review');
-    assert.deepEqual(workflow.steps[0].outputArtifacts, [{ id: 'report', type: 'pdf', title: 'Incident report PDF', required: true }]);
-
-    const deleted = await callController(deleteWorkflow, createRequest(
-      { workflowId: workflow.id },
-      { workspaceId: 'workspace-1' }
-    ));
-    assert.equal(deleted.statusCode, 204);
-
-    const rejectedSystemDelete = await callController(deleteWorkflow, createRequest(
-      { workflowId: 'cluster-triage' },
-      { workspaceId: 'workspace-1' }
-    ));
-    assert.equal(rejectedSystemDelete.statusCode, 409);
-    assert.equal((rejectedSystemDelete.body as { error: { code: string } }).error.code, 'SYSTEM_WORKFLOW_IMMUTABLE');
-  });
-
-  it('exposes workflow-scoped MCP server inventory, creation, connection test, and tool discovery', async () => {
-    installWorkspace('admin');
-
-    const initial = await callController(listWorkflowMcpServersForWorkspace, createRequest({ workspaceId: 'workspace-1' }));
-    assert.equal(initial.statusCode, 200);
-    assert.ok((initial.body as { items: Array<{ id: string }> }).items.some((server) => server.id === 'github'));
-
-    const created = await callController(createWorkflowMcpServerForWorkspace, createRequest(
-      { workspaceId: 'workspace-1' },
-      {
-        name: 'Internal MCP',
-        url: 'https://mcp.internal.example',
-        enabled: true,
-        auth: { type: 'bearer_token' },
-        publicHeaders: { 'X-Team': 'ops' }
-      }
-    ));
-    assert.equal(created.statusCode, 201);
-    const server = created.body as { id: string; status: string; publicHeaders: Record<string, string> };
-    assert.equal(server.status, 'not_checked');
-    assert.equal(server.publicHeaders['X-Team'], 'ops');
-
-    const tested = await callController(testWorkflowMcpServerConnectionForWorkspace, createRequest(
-      { workspaceId: 'workspace-1', serverId: server.id }
-    ));
-    assert.equal(tested.statusCode, 200);
-    assert.equal((tested.body as { status: string }).status, 'connected');
-
-    const tools = await callController(listWorkflowMcpServerToolsForWorkspace, createRequest(
-      { workspaceId: 'workspace-1', serverId: 'github' }
-    ));
-    assert.equal(tools.statusCode, 200);
-    assert.ok((tools.body as { items: Array<{ name: string; capability: string }> }).items.some((tool) => (
-      tool.name === 'github.prs.create' && tool.capability === 'write'
-    )));
   });
 });

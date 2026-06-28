@@ -16,6 +16,8 @@ export const WORKSPACE_CAPABILITIES = [
   'manage_mcp',
   'manage_tools',
   'manage_skills',
+  'manage_workflows',
+  'manage_agents',
   'manage_ai_settings',
   'manage_agent_keys',
   'manage_webhooks',
@@ -58,9 +60,11 @@ export const WORKSPACE_CAPABILITY_METADATA: Record<WorkspaceCapability, { group:
   manage_mcp: { group: 'settings', sortOrder: 0 },
   manage_tools: { group: 'settings', sortOrder: 10 },
   manage_skills: { group: 'settings', sortOrder: 20 },
-  manage_ai_settings: { group: 'settings', sortOrder: 30 },
-  manage_agent_keys: { group: 'settings', sortOrder: 40 },
-  manage_webhooks: { group: 'settings', sortOrder: 50 }
+  manage_workflows: { group: 'settings', sortOrder: 30 },
+  manage_agents: { group: 'settings', sortOrder: 40 },
+  manage_ai_settings: { group: 'settings', sortOrder: 50 },
+  manage_agent_keys: { group: 'settings', sortOrder: 60 },
+  manage_webhooks: { group: 'settings', sortOrder: 70 }
 };
 
 export function groupWorkspaceCapabilities(capabilities: Iterable<keyof DomainWorkspacePermissions>): RoleTemplateCapabilityGroup[] {
@@ -100,6 +104,8 @@ const EMPTY_PERMISSIONS: WorkspacePermissions = {
   manage_mcp: false,
   manage_tools: false,
   manage_skills: false,
+  manage_workflows: false,
+  manage_agents: false,
   manage_ai_settings: false,
   manage_agent_keys: false,
   manage_webhooks: false,
@@ -121,6 +127,8 @@ const READ_ONLY_PERMISSIONS: WorkspacePermissions = {
   manage_mcp: false,
   manage_tools: false,
   manage_skills: false,
+  manage_workflows: false,
+  manage_agents: false,
   manage_ai_settings: false,
   manage_agent_keys: false,
   manage_webhooks: false,
@@ -142,6 +150,8 @@ const OWNER_PERMISSIONS: WorkspacePermissions = {
   manage_mcp: true,
   manage_tools: true,
   manage_skills: true,
+  manage_workflows: true,
+  manage_agents: true,
   manage_ai_settings: true,
   manage_agent_keys: true,
   manage_webhooks: true,

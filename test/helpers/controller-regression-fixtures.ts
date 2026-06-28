@@ -29,6 +29,7 @@ const originals = {
   getRun: repo.getRun,
   createRunToolApproval: repo.createRunToolApproval,
   getRunToolApproval: repo.getRunToolApproval,
+  listWorkspaceRunToolApprovals: repo.listWorkspaceRunToolApprovals,
   decideRunToolApproval: repo.decideRunToolApproval,
   getRunContinuation: repo.getRunContinuation,
   appendRunEvents: repo.appendRunEvents,
@@ -71,6 +72,7 @@ export function restoreControllerRegressionState(): void {
   repo.getRun = originals.getRun;
   repo.createRunToolApproval = originals.createRunToolApproval;
   repo.getRunToolApproval = originals.getRunToolApproval;
+  repo.listWorkspaceRunToolApprovals = originals.listWorkspaceRunToolApprovals;
   repo.decideRunToolApproval = originals.decideRunToolApproval;
   repo.getRunContinuation = originals.getRunContinuation;
   repo.appendRunEvents = originals.appendRunEvents;
