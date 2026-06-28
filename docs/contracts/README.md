@@ -7,7 +7,7 @@ Machine-readable contract data for this repo lives in `docs/contracts/manifest.j
 
 | Counterpart | Direction | Contract surface |
 | --- | --- | --- |
-| Management console | control-plane -> management-console | Browser auth/session flow, workspace APIs, target-core routes, Kubernetes cluster APIs, VM APIs, chat session APIs, run status/event APIs, tool catalog APIs, MCP server management APIs |
+| Management console | control-plane -> management-console | Browser auth/session flow, workspace APIs, target-core routes, Kubernetes cluster APIs, VM APIs, chat session APIs, run status/event APIs, tool catalog APIs, MCP server management APIs, workspace agent APIs |
 | Webhook consumers | control-plane -> external HTTP endpoints | Best-effort business event delivery with HMAC signatures and delivery history |
 | Execution engine | control-plane -> execution-engine | Run dispatch and cancel APIs |
 | Execution engine | execution-engine -> control-plane | Bootstrap, context fetch, run event ingestion, run commit |
@@ -198,6 +198,8 @@ Workspace responses expose server-owned authorization fields:
 - `permissions.manage_mcp`
 - `permissions.manage_tools`
 - `permissions.manage_skills`
+- `permissions.manage_workflows`
+- `permissions.manage_agents`
 - `permissions.manage_ai_settings`
 - `permissions.manage_agent_keys`
 - `permissions.manage_webhooks`
@@ -234,6 +236,30 @@ Owners can manage all member roles. Other roles with `permissions.manage_members
 Workspace invitations are token-backed join links. Creating an invitation returns the raw `token` once; the control plane only stores `token_hash`. Roles with `permissions.manage_members` can list pending invitation metadata and revoke pending invitations. Accepting an invitation requires an authenticated user whose email matches the invite email, then creates the workspace membership.
 
 `GET /api/v1/workspaces/{workspaceId}/audit-log` is cursor-paged and requires `permissions.read_audit_log`. It accepts optional `category`, `eventType`, `actorUserId`, `objectType`, `from`, and `to` filters and returns audit events with `id`, `workspaceId`, `category`, `eventType`, `operation`, `actor`, `object`, `summary`, `metadata`, and `occurredAt`. `operation` is `read` or `write`; deployment-wide audit mode uses it to retain all events, only write events, or no future events. Invalid `category`, blank string filters, invalid date filters, or inverted date ranges return `VALIDATION_ERROR` instead of widening the result set. Audit payloads must not include secrets, raw invite tokens, message bodies, pod log contents, auth headers, or full tool arguments, and metadata is sanitized before persistence. Controller-side lifecycle audit writes are best-effort and log failures so a completed mutation is not reported as failed after side effects have already committed; transaction-bound membership and invitation changes write audit events inside the same database transaction. Retention purges persisted workspace audit events older than `WORKSPACE_AUDIT_RETENTION_DAYS` regardless of `WORKSPACE_AUDIT_LOGGING_MODE`. Tool call audit events record tool identity, source, deployment target, duration, run id when available, and success/failure only. The `auditor` role can read audit logs and members only, not operational workspace data.
+
+### Workspace agent APIs
+
+- `GET /api/v1/workspaces/{workspaceId}/agents`
+- `POST /api/v1/workspaces/{workspaceId}/agents`
+- `GET /api/v1/agents/{agentId}?workspaceId={workspaceId}`
+- `PATCH /api/v1/agents/{agentId}`
+- `POST /api/v1/agents/{agentId}/versions`
+- `POST /api/v1/agents/{agentId}/test`
+- `GET /api/v1/agents/{agentId}/activity`
+- `POST /api/v1/agents/{agentId}/triggers`
+- `PATCH /api/v1/agents/{agentId}/triggers/{triggerId}`
+- `DELETE /api/v1/agents/{agentId}/triggers/{triggerId}`
+
+Agent mutations require `permissions.manage_agents`. Data-read users may list
+and inspect active agents. Agent definitions include stable identity,
+instructions, status, provider type, version, owner, MCP servers, tools,
+skills, context grants, target scope, approval policy, trust policy, triggers,
+and activity summary. External provider agents use restricted trust defaults
+and cannot self-expand tools, MCP servers, skills, context grants, target
+scopes, approval policy, or external data access beyond server-owned catalogs.
+Workflow steps may assign `assignedAgentIds`; runtime scope is the
+intersection of the assigned agents, workflow policy, step narrowing, approved
+context grants, and actor permissions.
 
 Kubernetes cluster registration response must remain:
 
@@ -440,6 +466,17 @@ Workflows are workspace-scoped automation resources, not synthetic targets. Exis
 Implemented management-console routes:
 
 - `GET /api/v1/workspaces/{workspaceId}/workflows`
+- `GET /api/v1/workspaces/{workspaceId}/mcp/servers`
+- `POST /api/v1/workspaces/{workspaceId}/mcp/servers`
+- `PATCH /api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}`
+- `DELETE /api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}`
+- `POST /api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}/test-connection`
+- `GET /api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}/tools`
+- `GET /api/v1/workspaces/{workspaceId}/workflow-schedules`
+- `POST /api/v1/workspaces/{workspaceId}/workflow-schedules`
+- `PATCH /api/v1/workflow-schedules/{scheduleId}`
+- `DELETE /api/v1/workflow-schedules/{scheduleId}`
+- `GET /api/v1/workspaces/{workspaceId}/approvals`
 - `GET /api/v1/workflows/{workflowId}`
 - `PATCH /api/v1/workflows/{workflowId}`
 - `GET /api/v1/workflows/{workflowId}/sessions`
@@ -451,7 +488,13 @@ Workflow create and delete authoring routes are reserved and return `501 NOT_IMP
 - `POST /api/v1/workspaces/{workspaceId}/workflows`
 - `DELETE /api/v1/workflows/{workflowId}`
 
-`PATCH /api/v1/workflows/{workflowId}` updates server-owned workflow category, policy approval requirements, and per-step MCP servers, tools, context grants, and approval gates. The route requires workspace `manage_mcp`, records `workflow.scope_updated.v1`, and affects only future session compilation.
+`PATCH /api/v1/workflows/{workflowId}` updates server-owned workflow category, policy approval requirements, and per-step MCP servers, tools, context grants, and approval gates. The route requires workspace `manage_workflows`, records `workflow.scope_updated.v1`, and affects only future session compilation.
+
+Workflow-scoped MCP server create and update responses are wrapped as `{ server }`; delete returns `204`. MCP server mutations require `manage_mcp`; workflow definition mutations require `manage_workflows`.
+
+Workflow schedules are control-plane-owned automation records. Schedule create, update, pause/resume, and delete require `manage_workflows`; read-only listing requires `read_workspace_data`. Schedule records include workflow id/version, name, enabled or paused status, cron expression, timezone, input defaults, approved context grants, next and last run timestamps, last status/error, and actor metadata. Due times are computed in the stored timezone. Due schedules compile as an explicit workflow runtime subject and are revalidated before dispatch: workflow status, assigned agent status/scope, workspace AI settings, and compiled workflow access must still be valid. Invalid schedules are auto-paused and audited; schedule dispatch audit metadata records `runtimeSubject`, `scheduleId`, `createdBy`, and `dispatchReason`.
+
+`GET /api/v1/workspaces/{workspaceId}/approvals` returns the unified approval inbox for management-console. Rows normalize target write-tool approvals and workflow approval gates into `{approvalId, runId, source, workflowId?, targetId?, summary, toolName, requestedBy, expiresAt, status, decision?}`. Approval decisions continue to use `POST /api/v1/runs/{runId}/approvals/{approvalId}/decision` with the row's `runId`.
 
 Workflow definitions should contain `workflow.{id,workspaceId,name,description,status,category,createdBy,updatedAt}`, typed launch `inputs[]`, ordered `steps[]`, `policy.{mode,maxRuntime,approvalRequirements,retention}`, and `presentation.{icon,launchCopy,defaultStarterPrompt}`. Each step declares required inputs, enabled skills, allowed MCP servers/tools, context grants, and approval gates. Creating a workflow session freezes the definition into a run snapshot so later edits do not alter in-flight runs.
 

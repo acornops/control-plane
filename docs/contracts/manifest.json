@@ -111,8 +111,29 @@
         "POST /api/v1/runs/{runId}/cancel"
       ],
       "plannedWorkflowPaths": [
+        "GET /api/v1/workspaces/{workspaceId}/agents",
+        "POST /api/v1/workspaces/{workspaceId}/agents",
+        "GET /api/v1/agents/{agentId}?workspaceId={workspaceId}",
+        "PATCH /api/v1/agents/{agentId}",
+        "POST /api/v1/agents/{agentId}/versions",
+        "POST /api/v1/agents/{agentId}/test",
+        "GET /api/v1/agents/{agentId}/activity",
+        "POST /api/v1/agents/{agentId}/triggers",
+        "PATCH /api/v1/agents/{agentId}/triggers/{triggerId}",
+        "DELETE /api/v1/agents/{agentId}/triggers/{triggerId}",
         "GET /api/v1/workspaces/{workspaceId}/workflows",
         "POST /api/v1/workspaces/{workspaceId}/workflows",
+        "GET /api/v1/workspaces/{workspaceId}/mcp/servers",
+        "POST /api/v1/workspaces/{workspaceId}/mcp/servers",
+        "PATCH /api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}",
+        "DELETE /api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}",
+        "POST /api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}/test-connection",
+        "GET /api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}/tools",
+        "GET /api/v1/workspaces/{workspaceId}/workflow-schedules",
+        "POST /api/v1/workspaces/{workspaceId}/workflow-schedules",
+        "PATCH /api/v1/workflow-schedules/{scheduleId}",
+        "DELETE /api/v1/workflow-schedules/{scheduleId}",
+        "GET /api/v1/workspaces/{workspaceId}/approvals",
         "GET /api/v1/workflows/{workflowId}",
         "PATCH /api/v1/workflows/{workflowId}",
         "DELETE /api/v1/workflows/{workflowId}",
@@ -251,7 +272,12 @@
         "runApprovals": ["[].targetId", "[].targetType", "[].clusterId?", "[].summary?"],
         "runApprovalDecision": ["targetId", "targetType", "clusterId?", "summary?", "conflict.approval.{targetId,targetType,clusterId?,summary?}"],
         "postMessageAccepted": ["message_id", "run_id"],
-        "runEventFrame": ["schema_version", "run_id", "seq", "ts", "type", "payload"]
+        "runEventFrame": ["schema_version", "run_id", "seq", "ts", "type", "payload"],
+        "agent": ["id", "workspaceId", "name", "description?", "instructions", "status", "source", "providerType", "version", "ownerUserId", "mcpServers[]", "tools[]", "skills[]", "contextGrants[]", "targetScope", "approvalPolicy", "trustPolicy", "triggers[]", "activity"],
+        "workflowAgentAssignments": ["steps[].assignedAgentIds[]", "compiledAccessScope.agentAssignments[]", "jwtClaims.agent_id?", "jwtClaims.agent_version?", "jwtClaims.trigger_id?"],
+        "workflowSchedule": ["id", "workspaceId", "workflowId", "workflowVersion", "name", "status", "cron", "timezone", "inputDefaults", "approvedContextGrants", "nextRunAt?", "lastRunAt?", "lastStatus?", "lastError?", "createdBy", "updatedBy"],
+        "workflowSchedulePage": ["items", "summary.{total,active,paused,approvalGated,nextRunAt?}"],
+        "workspaceApprovalInbox": ["items[].{approvalId,runId,source,workflowId?,targetId?,summary,toolName,requestedBy?,expiresAt,status,decision?,decidedBy?,decidedAt?,requestedAt}", "nextCursor?"]
       }
     },
     "operators": {
@@ -338,7 +364,7 @@
       ],
       "bootstrapFields": [
         "contract_version",
-        "scope.{type,workspace_id,target_id?,target_type?,workflow_id?,workflow_run_id?,workflow_session_id?,workflow_step_id?,session_id,run_id,user_id}",
+        "scope.{type,workspace_id,target_id?,target_type?,workflow_id?,workflow_run_id?,workflow_session_id?,workflow_step_id?,agent_id?,agent_version?,trigger_id?,session_id,run_id,user_id}",
         "policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}",
         "context.{endpoint,max_context_tokens}",
         "llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}",
@@ -435,6 +461,17 @@
         "allowed_native_tools",
         "allowed_tool_operations?",
         "max_output_tokens"
+      ],
+      "runJwtWorkspaceScopeFields": [
+        "scope.type",
+        "workflow_id",
+        "workflow_run_id",
+        "workflow_session_id",
+        "workflow_step_id?",
+        "agent_id?",
+        "agent_version?",
+        "trigger_id?",
+        "permissions.context_grants"
       ],
       "internalTransportSecurity": "HTTP by default; HTTPS/mTLS when Helm internalTransport.tls.enabled=true; admin/run-scoped bearer tokens remain required",
       "builtinBridge": {

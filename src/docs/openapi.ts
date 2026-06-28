@@ -1,4 +1,5 @@
 import { buildAuthPaths } from './openapi/auth-paths.js';
+import { buildAgentPaths } from './openapi/agent-paths.js';
 import { buildAdminPaths } from './openapi/admin-paths.js';
 import { buildClusterPaths } from './openapi/cluster-paths.js';
 import { buildHealthPaths } from './openapi/health-paths.js';
@@ -8,6 +9,7 @@ import { buildTargetPaths } from './openapi/target-paths.js';
 import { buildVirtualMachinePaths } from './openapi/virtual-machine-paths.js';
 import { buildWebhookPaths } from './openapi/webhook-paths.js';
 import { buildWorkspacePaths } from './openapi/workspace-paths.js';
+import { buildWorkflowPaths } from './openapi/workflow-paths.js';
 import { enrichOpenApiDocument, OpenApiLikeDocument } from './openapi/schema-coverage.js';
 
 interface OpenApiDocument {
@@ -46,15 +48,19 @@ export function buildOpenApiDocument(baseUrl: string, sessionCookieName: string)
       { name: 'webhooks', description: 'Best-effort webhook subscription and delivery history endpoints.' },
       { name: 'sessions', description: 'Session and message endpoints.' },
       { name: 'runs', description: 'Run query, cancel, and stream endpoints.' },
+      { name: 'workflows', description: 'Workspace workflow definitions, schedules, sessions, and approval inbox endpoints.' },
+      { name: 'agents', description: 'Workspace-scoped custom agent definitions, triggers, versions, tests, and activity.' },
       { name: 'admin', description: 'Operator-only admin API protected exclusively by admin bearer tokens.' },
       { name: 'internal', description: 'Internal execution endpoints for execution-engine.' }
     ],
     paths: {
       ...buildHealthPaths(),
       ...buildAuthPaths(exampleReturnTo, exampleRedirectUri),
+      ...buildAgentPaths(),
       ...buildWorkspacePaths(),
       ...buildWebhookPaths(),
       ...buildTargetPaths(exampleServerUrl),
+      ...buildWorkflowPaths(),
       ...buildClusterPaths(),
       ...buildVirtualMachinePaths(),
       ...buildSessionRunPaths(),
