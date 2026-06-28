@@ -151,7 +151,7 @@ export interface WorkspaceSummary extends Workspace {
 
 export type LlmProvider = 'openai' | 'anthropic' | 'gemini';
 export type ReasoningSummaryMode = 'off' | 'auto' | 'concise' | 'detailed';
-export type ReasoningEffort = 'default' | 'low' | 'medium' | 'high';
+export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high';
 
 export interface WorkspaceAiSettings {
   workspaceId: string;
@@ -323,6 +323,7 @@ export interface VirtualMachineSnapshot {
 export type {
   TargetIssue,
   TargetIssueObservation,
+  TargetIssueSummary,
   TargetIssueSeverity,
   TargetIssueStatus
 } from './target-issues.js';

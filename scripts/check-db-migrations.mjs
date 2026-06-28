@@ -31,11 +31,7 @@ assert(dbSource.includes('assertDatabaseMigrationsCurrent'), 'startup must verif
 
 const files = migrationFiles();
 assert.deepEqual(files, [
-  '001_initial_schema.sql',
-  '002_target_skills.sql',
-  '003_target_skill_user_defined_markdown_paths.sql',
-  '004_target_skill_archive_fallback_metadata.sql',
-  '005_target_tool_settings.sql'
+  '001_initial_schema.sql'
 ]);
 for (const file of files) {
   assert(/^\d{3,}_[a-z0-9_]+\.sql$/.test(file), `invalid migration filename ${file}`);
@@ -70,10 +66,15 @@ for (const table of [
   'target_metric_history',
   'target_tool_overrides',
   'target_tool_settings',
+  'target_skills',
+  'target_skill_files',
   'sessions',
   'messages',
   'runs',
   'run_events',
+  'run_skill_catalog_snapshots',
+  'skill_snapshot_blobs',
+  'run_skill_snapshots',
   'run_tool_approvals',
   'run_continuations',
   'chat_activity_events',
@@ -96,7 +97,7 @@ for (const needle of [
   "reasoning_summary_mode TEXT NOT NULL DEFAULT 'auto'",
   "CHECK (reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed'))",
   'reasoning_effort TEXT NOT NULL DEFAULT',
-  "CHECK (reasoning_effort IN ('default', 'low', 'medium', 'high'))",
+  "CHECK (reasoning_effort IN ('off', 'low', 'medium', 'high'))",
   'source TEXT NOT NULL DEFAULT',
   "kind TEXT NOT NULL CHECK (kind IN ('system', 'custom'))",
   'capabilities JSONB NOT NULL',
@@ -210,9 +211,13 @@ for (const needle of [
 ]) {
   assert(initial.includes(needle), `initial migration missing ${needle}`);
 }
+const chatActivityTable = initial.slice(
+  initial.indexOf('CREATE TABLE IF NOT EXISTS chat_activity_events'),
+  initial.indexOf('CREATE TABLE IF NOT EXISTS webhook_subscriptions')
+);
 for (const childResource of ['sessions', 'runs', 'messages', 'run_tool_approvals']) {
   assert(
-    !new RegExp(`REFERENCES\\s+${childResource}\\b`, 'i').test(initial.slice(initial.indexOf('CREATE TABLE IF NOT EXISTS chat_activity_events'))),
+    !new RegExp(`REFERENCES\\s+${childResource}\\b`, 'i').test(chatActivityTable),
     `chat_activity_events must keep durable resource ids instead of cascading from ${childResource}`
   );
 }
@@ -233,7 +238,7 @@ assert(!initial.includes('CREATE TABLE IF NOT EXISTS target_snapshot_history'), 
 assert(!initial.includes('fk_target_snapshot_history_workspace_target'), 'squashed baseline must not keep target snapshot history foreign keys');
 assert(!initial.includes('idx_target_snapshot_history_target_ts'), 'squashed baseline must not keep target snapshot history indexes');
 
-const targetSkills = read('migrations/control-plane/002_target_skills.sql');
+const targetSkills = initial;
 for (const table of ['target_skills', 'target_skill_files']) {
   assert(targetSkills.includes(`CREATE TABLE IF NOT EXISTS ${table}`), `target skills migration must create ${table}`);
 }
@@ -247,38 +252,27 @@ for (const needle of [
   'target_skills_source_metadata_check',
   "size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0 AND size_bytes <= 32768)",
   'target_skill_files_path_check',
+  "path LIKE '%.md'",
+  "path NOT LIKE '/%'",
+  "path NOT LIKE '%/../%'",
+  "path NOT LIKE '%/./%'",
   'idx_target_skills_target_updated',
   'idx_target_skills_target_enabled_valid',
   'idx_target_skill_files_skill_path'
 ]) {
   assert(targetSkills.includes(needle), `target skills migration missing ${needle}`);
 }
-const targetSkillUserDefinedPaths = read('migrations/control-plane/003_target_skill_user_defined_markdown_paths.sql');
 for (const needle of [
-  'ALTER TABLE target_skill_files',
-  'DROP CONSTRAINT IF EXISTS target_skill_files_path_check',
-  'ADD CONSTRAINT target_skill_files_path_check CHECK',
-  "path LIKE '%.md'",
-  "path NOT LIKE '/%'",
-  "path NOT LIKE '%/../%'",
-  "path NOT LIKE '%/./%'"
-]) {
-  assert(targetSkillUserDefinedPaths.includes(needle), `target skill path migration missing ${needle}`);
-}
-const targetSkillArchiveFallbackMetadata = read('migrations/control-plane/004_target_skill_archive_fallback_metadata.sql');
-for (const needle of [
-  'DROP CONSTRAINT IF EXISTS target_skills_source_metadata_check',
-  'ADD CONSTRAINT target_skills_source_metadata_check CHECK',
   "source_type = 'git_import'",
   'source_repo_url IS NOT NULL',
   'source_ref IS NOT NULL',
   "sync_status IN ('current', 'modified')"
 ]) {
-  assert(targetSkillArchiveFallbackMetadata.includes(needle), `target skill archive fallback migration missing ${needle}`);
+  assert(targetSkills.includes(needle), `target skills migration missing ${needle}`);
 }
 assert(
-  !targetSkillArchiveFallbackMetadata.includes('source_commit_sha IS NOT NULL'),
-  'archive fallback metadata migration must allow GitHub imports without source_commit_sha'
+  !targetSkills.includes('source_commit_sha IS NOT NULL'),
+  'target skills migration must allow GitHub imports without source_commit_sha'
 );
 
 const packageJson = JSON.parse(read('package.json'));

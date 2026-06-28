@@ -16,6 +16,29 @@ export function buildTargetToolPaths(): Record<string, unknown> {
         }
       }
     },
+    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/assistant/capabilities-preview': {
+      get: {
+        tags: ['workspaces'],
+        summary: 'Preview assistant capabilities available for a target run',
+        description: 'Returns display-safe tools and assistant-visible skills for the requested run tool access mode. Execution bootstrap remains authoritative.',
+        security: [{ userSession: [] }],
+        parameters: [
+          { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
+          { in: 'path', name: 'targetId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_TARGET_ID } },
+          {
+            in: 'query',
+            name: 'toolAccessMode',
+            required: true,
+            schema: { type: 'string', enum: ['read_only', 'read_write'], example: 'read_only' }
+          }
+        ],
+        responses: {
+          '200': { description: 'Assistant capabilities preview for a target run.' },
+          '400': { description: 'Invalid toolAccessMode or unsupported target type.' },
+          '403': { description: 'Missing target access or run creation capability.' }
+        }
+      }
+    },
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolId}': {
       patch: {
         tags: ['workspaces'],

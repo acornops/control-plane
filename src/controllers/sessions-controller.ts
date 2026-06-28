@@ -6,17 +6,28 @@ import {
   requireWorkspaceCapability,
   requireWorkspaceDataRead
 } from '../auth/workspace-authorization.js';
-import { config } from '../config.js';
 import { dispatchRunToExecutionEngine } from '../services/execution-engine-client.js';
 import { isModelAllowedForProvider } from '../services/llm-policy.js';
 import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
+import {
+  capabilityForToolAccessMode,
+  missingToolAccessModeCapabilityMessage,
+  parseToolAccessMode,
+  resolveRunToolAccessMode
+} from '../services/run-tool-access-mode.js';
 import { recordTargetChatActivityEvent } from '../services/target-chat-activity-events.js';
 import { emitRunStatusTransition, webhooks } from '../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
 import { repo } from '../store/repository.js';
 import { runtime } from '../store/runtime.js';
-import { ChatSession, KUBERNETES_TARGET_TYPE, Run, TargetType, VIRTUAL_MACHINE_TARGET_TYPE } from '../types/domain.js';
+import {
+  ChatSession,
+  KUBERNETES_TARGET_TYPE,
+  Run,
+  TargetType,
+  VIRTUAL_MACHINE_TARGET_TYPE
+} from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
 import {
   CursorMismatchError,
@@ -26,6 +37,7 @@ import {
   parseBoundedLimit
 } from '../utils/pagination.js';
 import { mapGatewayError } from './workspaces/common.js';
+import { parseRequestedLlmSelection } from './session-llm-selection.js';
 
 function enqueueRunDispatch(run: Run): void {
   queueMicrotask(async () => {
@@ -359,25 +371,14 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       return;
     }
 
-    const defaultToolAccessMode = config.SEED_DEVELOPMENT_DATA ? 'read_write' : 'read_only';
-    const requestedToolAccessMode =
-      req.body.toolAccessMode === 'read_only' || req.body.toolAccessMode === 'read_write'
-        ? req.body.toolAccessMode
-        : undefined;
-    let toolAccessMode = requestedToolAccessMode || defaultToolAccessMode;
-    if (toolAccessMode === 'read_write' && requestedToolAccessMode === undefined) {
-      if (!authz.can('create_read_write_runs') && authz.can('create_read_only_runs')) {
-        toolAccessMode = 'read_only';
-      }
-    }
-    const runCapability = toolAccessMode === 'read_write' ? 'create_read_write_runs' : 'create_read_only_runs';
+    const requestedToolAccessMode = parseToolAccessMode(req.body.toolAccessMode);
+    const toolAccessMode = resolveRunToolAccessMode(authz, requestedToolAccessMode);
+    const runCapability = capabilityForToolAccessMode(toolAccessMode);
     if (!authz.can(runCapability)) {
       res.status(403).json({
         error: {
           code: 'FORBIDDEN',
-          message: toolAccessMode === 'read_write'
-            ? 'Only workspace roles with read-write run capability can request read-write troubleshooting runs'
-            : 'Only workspace roles with run creation capability can request troubleshooting runs',
+          message: missingToolAccessModeCapabilityMessage(toolAccessMode),
           retryable: false
         }
       });
@@ -394,7 +395,11 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
         return;
       }
     }
-    const llmSettings = await resolveWorkspaceLlmSettings(session.workspaceId);
+    const requestedLlm = parseRequestedLlmSelection(req, res);
+    if (requestedLlm === null) {
+      return;
+    }
+    const llmSettings = await resolveWorkspaceLlmSettings(session.workspaceId, requestedLlm);
     if (!llmSettings.allowedProviders.includes(llmSettings.provider)) {
       res.status(400).json({
         error: {
@@ -415,7 +420,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       });
       return;
     }
-    if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, llmSettings.allowedModels)) {
+    if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, llmSettings.allowedProviderModels)) {
       res.status(400).json({
         error: {
           code: 'MODEL_NOT_ALLOWED',
@@ -439,6 +444,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       sessionId: session.id,
       workspaceId: session.workspaceId,
       targetId: target.targetId,
+      targetType: target.targetType,
       content: req.body.content,
       toolAccessMode,
       llmProvider: llmSettings.provider,
@@ -447,7 +453,6 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       llmReasoningEffort: llmSettings.reasoning.effort,
       clientMessageId: req.body.clientMessageId
     });
-
     if (!created.idempotent) {
       webhooks.emit({
         type: 'message.received.v1',
@@ -527,7 +532,6 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       });
       enqueueRunDispatch(created.run);
     }
-
     res.status(202).json({ message_id: created.message.id, run_id: created.run.id });
   } catch (err) {
     if (err instanceof LlmGatewayHttpError) {

@@ -180,7 +180,6 @@ resulting effective limit are rejected before mutation.
 - `DELETE /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}`
 - `POST /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/rotate-agent-key`
 - `GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/resources`
-- `GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/findings`
 - `GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/metrics/history`
 - `GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/logs`
 
@@ -229,7 +228,7 @@ Workspace membership responses are server-owned and include:
 
 `GET /api/v1/workspaces/{workspaceId}/roles` returns the deployment-supported role template catalog for the workspace. The catalog is deployment-wide, read-only, and includes `key`, `displayName`, `description`, `kind`, `capabilities`, `capabilityGroups[].{key,capabilities,sortOrder}`, `protected`, and `sortOrder`. Workspace summaries may include `currentUserRoleTemplate`; memberships and invitations may include `roleTemplate`. Clients must use these fields for labels and role selection instead of duplicating role/capability logic.
 
-`GET /api/v1/workspaces/{workspaceId}/ai-settings` returns the workspace AI assistant default provider/model, deployment-allowed providers/models, reasoning summary mode/effort policy, derived `reasoningSummariesEnabled`, and per-provider configured status to workspace members. New and unset workspace AI settings default `reasoningSummaryMode` to `auto` when deployment policy allows reasoning summaries; admins can still set `off`. It never returns API key values, internal secret names, or reasoning summary text. `PATCH /ai-settings` updates `{defaultProvider,defaultModel,reasoningSummaryMode,reasoningEffort}` and requires `permissions.manage_ai_settings`. `PUT /ai-provider-credentials/{provider}` accepts write-only `{apiKey}` to save or rotate a workspace provider credential and validates deployment provider policy. `DELETE /ai-provider-credentials/{provider}` removes a supported provider credential even if that provider is no longer deployment-allowed, so stale secrets can be cleaned up after policy changes. AI settings and credential mutations require `permissions.manage_ai_settings` and write workspace audit events. Assistant run creation resolves provider/model and reasoning settings from workspace AI settings, stores them on the run snapshot, and rejects before dispatch when the selected provider/model is not deployment-allowed or the selected provider has no workspace credential.
+`GET /api/v1/workspaces/{workspaceId}/ai-settings` returns the workspace AI assistant default provider/model, deployment-allowed providers/models, reasoning summary mode/effort policy, derived `reasoningSummariesEnabled`, and per-provider configured status to workspace members. New and unset workspace AI settings default `reasoningSummaryMode` to `auto` when deployment policy allows reasoning summaries and `reasoningEffort` to `low`; admins can still set `off` summaries or select `off` reasoning effort when deployment policy allows it. It never returns API key values, internal secret names, or reasoning summary text. `PATCH /ai-settings` updates `{defaultProvider,defaultModel,reasoningSummaryMode,reasoningEffort}` and requires `permissions.manage_ai_settings`. `PUT /ai-provider-credentials/{provider}` accepts write-only `{apiKey}` to save or rotate a workspace provider credential and validates deployment provider policy. `DELETE /ai-provider-credentials/{provider}` removes a supported provider credential even if that provider is no longer deployment-allowed, so stale secrets can be cleaned up after policy changes. AI settings and credential mutations require `permissions.manage_ai_settings` and write workspace audit events. Assistant run creation resolves provider/model and reasoning settings from workspace AI settings, stores them on the run snapshot, and rejects before dispatch when the selected provider/model is not deployment-allowed or the selected provider has no workspace credential.
 
 Owners can manage all member roles. Other roles with `permissions.manage_members` can directly assign, update, or remove non-protected members. `owner` is always present, protected, and required; the built-in `auditor` role is protected when enabled. A non-owner assigning or modifying a protected role returns `PROTECTED_ROLE_REQUIRES_OWNER`. Membership and invitation roles must exist in the deployment-supported catalog or the API returns `ROLE_NOT_SUPPORTED`. Any role update or removal that would leave a workspace with no owner must return `LAST_OWNER` and must not mutate membership.
 
@@ -289,25 +288,26 @@ Kubernetes cluster updates accept `name`, `namespaceInclude`, and `namespaceExcl
 
 `GET /api/v1/workspaces/{workspaceId}/virtual-machines` and `GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}` return VM metadata, `latestSnapshot.{targetId,workspaceId,timestamp}`, and `summary.{inventoryCount,findingCount,criticalFindingCount,serviceCount,processCount,listenerCount,logCount}`. They must not return full `latestSnapshot.data` to the browser.
 
-Durable issue and snapshot-derived management-console data is exposed through bounded list APIs:
+Durable issue and snapshot-derived management-console data is exposed through bounded list and summary APIs:
 
 - `GET /api/v1/workspaces/{workspaceId}/issues`
 - `GET /api/v1/workspaces/{workspaceId}/issues/{issueId}`
 - `GET /api/v1/workspaces/{workspaceId}/issues/{issueId}/observations`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/issues`
+- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/issues/summary`
 - `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/resources`
-- `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/findings`
 - `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/metrics/history`
 - `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/metrics/history`
 
-Paged resource, finding, and issue APIs return `{ items, nextCursor? }`, accept `limit`, `cursor`, and `q` where search is supported, and apply exact filters before pagination. Cursor reuse with different query/filter state returns `400`. The control plane persists only the latest raw agent snapshot, then materializes latest resources, latest findings, durable issues, summary counts, and compact metric samples at ingest for browser-facing APIs.
+Paged resource and issue APIs return `{ items, nextCursor? }`, accept `limit`, `cursor`, and `q` where search is supported, and apply exact filters before pagination. Cursor reuse with different query/filter state returns `400`. Target issue summaries return exact active plus recovering counts by status and severity from durable issues, excluding resolved issues, and are the canonical source for overview navigation badges. The control plane persists only the latest raw agent snapshot, then materializes latest resources, internal findings, durable issues, summary counts, and compact metric samples at ingest for browser-facing APIs.
 
-VM host snapshots retain only the latest raw target snapshot, then materialize inventory, findings, durable issues, summaries, and compact metric samples at ingest. Browser-facing VM resource and finding APIs return `{ items, nextCursor? }`; VM metrics return bounded history points from compact metric history; VM logs are read live through the connected VM agent with `permissions.read_target_logs` authorization and return bounded entries only.
+VM host snapshots retain only the latest raw target snapshot, then materialize inventory, internal findings, durable issues, summaries, and compact metric samples at ingest. Browser-facing VM resource APIs return `{ items, nextCursor? }`; VM metrics return bounded history points from compact metric history; VM logs are read live through the connected VM agent with `permissions.read_target_logs` authorization and return bounded entries only.
 
 ### MCP management, skills, and tools APIs
 
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/catalog`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools`
+- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/assistant/capabilities-preview?toolAccessMode=read_only|read_write`
 - `PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolId}`
 - `PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools/{toolName}`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`
@@ -324,7 +324,9 @@ VM host snapshots retain only the latest raw target snapshot, then materialize i
 - `DELETE /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}`
 - `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}/reimport`
 
-Built-in tools and MCP-discovered tools use distinct target-scoped APIs. Kubernetes clusters and virtual machines both use the target MCP, Skills, and Tools surfaces. The Tools catalog shows only AcornOps built-in tools such as `web_search`; MCP-discovered tools remain in the MCP catalog and paged MCP server tool APIs. Built-in tool rows include runtime metadata so built-in capabilities can be listed as available without implying that they always emit standard function tool-call events. Kubernetes and VM agent tools are synchronized from each connected agent and remain capability-tagged. Write-tool availability is driven by the advertised tool capability, target agent capabilities, user permissions, and the requested run `toolAccessMode`; the current VM v1 agent catalog happens to advertise only read tools.
+Built-in tools and MCP-discovered tools use distinct target-scoped APIs. Kubernetes clusters and virtual machines both use the target MCP, Skills, and Tools surfaces. The Tools catalog shows only AcornOps built-in tools such as `web_search`; MCP-discovered tools remain in the MCP catalog and paged MCP server tool APIs. `web_search` defaults to enabled for targets without an explicit tool setting, and storing `enabled=false` is the target-level opt-out. Built-in tool rows include runtime metadata so built-in capabilities can be listed as available without implying that they always emit standard function tool-call events. Kubernetes and VM agent tools are synchronized from each connected agent and remain capability-tagged. Write-tool availability is driven by the advertised tool capability, target agent capabilities, user permissions, and the requested run `toolAccessMode`; the current VM v1 agent catalog happens to advertise only read tools.
+
+`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/assistant/capabilities-preview` requires target read access and the run-creation capability matching the explicit `toolAccessMode` query. It returns an informational preview of the tools a target assistant run would be allowed to use plus enabled valid skills that are assistant-visible for the next run. It includes summary counts, write unavailability reason, approval policy, display-safe tool items, and skill names/descriptions only. It must not return MCP input schemas, hidden disabled tool inventories, or full skill files; internal execution bootstrap and the hidden skill loader remain the enforcement authority.
 
 The management console depends on these MCP catalog fields:
 
@@ -370,7 +372,9 @@ Mutation policy and runtime contract:
 - Imported skills support public GitHub HTTPS repositories or GitHub `tree/{ref}/{subpath}` folder URLs and are stored as local snapshots. REST API imports include `source.commitSha`; archive fallback imports may omit it when GitHub API rate limits prevent SHA resolution.
 - Reimport is explicit. Imported skills with local edits require confirmation before overwrite and return `source.syncStatus=modified` until reimported.
 - Invalid skills may be stored disabled, but only valid skills may be enabled. Each target may have at most `10` enabled skills.
-- Run bootstrap may include optional `skills.{registry_version,entries[].{id,name,description,files[].{path,content}}}` for target troubleshooting runs only. Workflow runs remain unchanged.
+- Run bootstrap may include optional `skills.{contract_version,entries[].{ref,skill_id,name,description,file_count,total_bytes},load_endpoint}` for target troubleshooting runs only. Full skill files are loaded later from the hidden internal skill snapshot endpoint, and workflow runs remain unchanged.
+- Run skill snapshots are frozen when a run is created. Content-addressed skill blobs are retained while referenced by any run snapshot; orphaned blobs are purged by the retention sweep after `SKILL_SNAPSHOT_BLOB_ORPHAN_GRACE_DAYS` days, defaulting to `7`.
+- Tool names beginning with `_acornops_` are reserved for internal assistant pseudo-tools such as the hidden skill loader. They must not appear in assistant run tool allow-lists, public capability previews, or synchronized built-in target tools.
 
 ### Chat and run APIs
 
@@ -440,6 +444,10 @@ Current event types emitted by execution-engine and forwarded by control plane:
 - `assistant_reasoning_summary_delta`
 - `assistant_reasoning_summary_completed`
 - `assistant_reasoning_summary_unavailable`
+- `skill_catalog_available`
+- `skill_context_load_started`
+- `skill_context_loaded`
+- `skill_context_load_failed`
 - `tool_call_started`
 - `tool_call_completed`
 - `tool_approval_requested` with optional `payload.summary`
@@ -681,6 +689,7 @@ Expected dispatch semantics:
 Execution-engine must send `Authorization: Bearer <ORCH_SERVICE_TOKEN>` to:
 
 - `POST /internal/v1/runs/{runId}/bootstrap`
+- `GET /internal/v1/runs/{runId}/skills/{skillRef}`
 - `POST /internal/v1/runs/{runId}/approvals`
 - `GET /internal/v1/runs/{runId}/continuation`
 - `POST /internal/v1/runs/{runId}/approvals/{approvalId}/execution-started`
@@ -698,7 +707,8 @@ Bootstrap response contract:
 - `policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}`
 - `context.{endpoint,max_context_tokens}`
 - `llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}`
-- `tools.{tool_registry_version,allowed_tools,native_tools,tool_specs,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}`
+- `tools.{tool_registry_version,allowed_tools,native_tools,tool_specs,write_unavailable_reason?,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}`
+- `skills?.{contract_version,entries[].{ref,skill_id,name,description,file_count,total_bytes},load_endpoint}`
 - `routing`
 - `tracing`
 

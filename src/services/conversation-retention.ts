@@ -9,7 +9,8 @@ type RetentionTaskName =
   | 'webhook_history'
   | 'workspace_audit_events'
   | 'external_integration_link_tokens'
-  | 'target_metric_history';
+  | 'target_metric_history'
+  | 'skill_snapshot_blobs';
 
 interface RetentionSweepTasks {
   conversations: () => Promise<number>;
@@ -17,6 +18,7 @@ interface RetentionSweepTasks {
   workspaceAuditEvents: () => Promise<number>;
   externalIntegrationLinkTokens: () => Promise<number>;
   targetMetricHistory: () => Promise<number>;
+  skillSnapshotBlobs: () => Promise<number>;
 }
 
 /**
@@ -54,13 +56,15 @@ export async function runControlPlaneRetentionSweep(tasks: RetentionSweepTasks =
   webhookHistory: purgeOldWebhookHistory,
   workspaceAuditEvents: purgeOldWorkspaceAuditEvents,
   externalIntegrationLinkTokens: purgeOldExternalIntegrationLinkTokens,
-  targetMetricHistory: purgeOldTargetMetricHistory
+  targetMetricHistory: purgeOldTargetMetricHistory,
+  skillSnapshotBlobs: purgeOrphanedSkillSnapshotBlobs
 }): Promise<void> {
   await runRetentionTask('conversations', tasks.conversations);
   await runRetentionTask('webhook_history', tasks.webhookHistory);
   await runRetentionTask('workspace_audit_events', tasks.workspaceAuditEvents);
   await runRetentionTask('external_integration_link_tokens', tasks.externalIntegrationLinkTokens);
   await runRetentionTask('target_metric_history', tasks.targetMetricHistory);
+  await runRetentionTask('skill_snapshot_blobs', tasks.skillSnapshotBlobs);
 }
 
 export async function purgeOldWebhookHistory(): Promise<number> {
@@ -126,6 +130,23 @@ export async function purgeOldTargetMetricHistory(): Promise<number> {
 
   if (purgedTotal > 0) {
     logger.info({ purgedTotal }, 'Purged old target metric history');
+  }
+
+  return purgedTotal;
+}
+
+export async function purgeOrphanedSkillSnapshotBlobs(): Promise<number> {
+  let purgedTotal = 0;
+  while (true) {
+    const purged = await repo.purgeOrphanedSkillSnapshotBlobs(config.SKILL_SNAPSHOT_BLOB_ORPHAN_GRACE_DAYS, PURGE_BATCH_SIZE);
+    purgedTotal += purged;
+    if (purged < PURGE_BATCH_SIZE) {
+      break;
+    }
+  }
+
+  if (purgedTotal > 0) {
+    logger.info({ purgedTotal }, 'Purged orphaned skill snapshot blobs');
   }
 
   return purgedTotal;

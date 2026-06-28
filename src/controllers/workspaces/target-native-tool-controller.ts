@@ -149,7 +149,7 @@ function buildWebSearchItem(setting?: { enabled: boolean; config: Record<string,
   return {
     id: WEB_SEARCH_TOOL_ID,
     label: 'Web Search',
-    enabled: Boolean(setting?.enabled),
+    enabled: setting?.enabled ?? true,
     description: 'Allow assistant runs for this target to search the web through the selected LLM provider.',
     capability: 'read',
     runtimeKind: 'provider_native',

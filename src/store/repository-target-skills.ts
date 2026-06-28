@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { PoolClient } from 'pg';
+import { PoolClient, QueryResult, QueryResultRow } from 'pg';
 import { db } from '../infra/db.js';
 import { TargetSkillDetail, TargetSkillFile, TargetSkillSource, TargetSkillSummary } from '../types/domain.js';
 import { toIso } from './repository-mappers.js';
@@ -34,6 +34,10 @@ interface TargetSkillFileRow {
   path: string;
   content: string;
   size_bytes: number;
+}
+
+interface Queryable {
+  query: <T extends QueryResultRow = QueryResultRow>(text: string, params?: unknown[]) => Promise<QueryResult<T>>;
 }
 
 export interface UpsertTargetSkillInput {
@@ -173,6 +177,10 @@ export async function countEnabledTargetSkills(targetId: string, excludeSkillId?
 }
 
 export async function listEnabledValidTargetSkills(targetId: string): Promise<TargetSkillDetail[]> {
+  return listEnabledValidTargetSkillsInTransaction(db, targetId);
+}
+
+export async function listEnabledValidTargetSkillSummaries(targetId: string): Promise<TargetSkillSummary[]> {
   const result = await db.query<TargetSkillRow>(
     `SELECT s.id,
             s.workspace_id,
@@ -200,13 +208,50 @@ export async function listEnabledValidTargetSkills(targetId: string): Promise<Ta
      WHERE s.target_id = $1
        AND s.enabled = true
        AND s.validation_status = 'valid'
-     ORDER BY s.name ASC, s.id ASC`,
+     ORDER BY lower(s.name) ASC, s.id ASC`,
+    [targetId]
+  );
+  return result.rows.map(mapTargetSkillSummary);
+}
+
+export async function listEnabledValidTargetSkillsInTransaction(
+  queryable: Queryable,
+  targetId: string
+): Promise<TargetSkillDetail[]> {
+  const result = await queryable.query<TargetSkillRow>(
+    `SELECT s.id,
+            s.workspace_id,
+            s.target_id,
+            t.target_type,
+            s.name,
+            s.description,
+            s.source_type,
+            s.enabled,
+            s.validation_status,
+            s.validation_errors,
+            s.file_count,
+            s.total_bytes,
+            s.source_repo_url,
+            s.source_ref,
+            s.source_subpath,
+            s.source_commit_sha,
+            s.sync_status,
+            s.created_by,
+            s.updated_by,
+            s.created_at,
+            s.updated_at
+     FROM target_skills s
+     INNER JOIN targets t ON t.id = s.target_id
+     WHERE s.target_id = $1
+       AND s.enabled = true
+       AND s.validation_status = 'valid'
+     ORDER BY lower(s.name) ASC, s.id ASC`,
     [targetId]
   );
   if (result.rows.length === 0) {
     return [];
   }
-  const fileRows = await db.query<TargetSkillFileRow>(
+  const fileRows = await queryable.query<TargetSkillFileRow>(
     `SELECT skill_id, path, content, size_bytes
      FROM target_skill_files
      WHERE skill_id = ANY($1::text[])

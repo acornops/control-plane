@@ -283,12 +283,17 @@ export {
 } from './workspaces/target-skills-controller.js';
 
 export {
+  getTargetAssistantCapabilitiesPreview
+} from './workspaces/target-assistant-preview-controller.js';
+
+export {
   getTarget,
   listTargets
 } from './workspaces/target-controller.js';
 
 export {
   getTargetIssue,
+  getTargetIssueSummary,
   listTargetIssueObservations,
   listTargetIssues,
   listWorkspaceIssues
@@ -299,7 +304,6 @@ export {
   getClusterMetricsHistory,
   getWorkspaceClusterMetricsHistory,
   getPodLogs,
-  listClusterFindings,
   listClusterResources,
   listClusters,
   registerCluster,
@@ -316,7 +320,6 @@ export {
   getVirtualMachine,
   getVirtualMachineLogs,
   getVirtualMachineMetricsHistory,
-  listVirtualMachineFindings,
   listVirtualMachineInventory,
   listVirtualMachines,
   registerVirtualMachine,

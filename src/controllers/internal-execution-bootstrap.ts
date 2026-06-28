@@ -1,75 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { NextFunction, Request, Response } from 'express';
 import { config } from '../config.js';
-import { logger } from '../logger.js';
-import { listTargetMcpTools, LlmGatewayHttpError, McpToolConfig } from '../services/mcp-registry-client.js';
+import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
 import { isModelAllowedForProvider } from '../services/llm-policy.js';
-import { syncTargetBuiltInTools } from '../services/target-built-in-tool-sync.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
-import { sanitizeToolInputSchema, sanitizeToolText } from '../services/tool-metadata.js';
+import { resolveTargetRunTools } from '../services/target-run-tool-resolution.js';
 import { gatewayTokenService } from '../services/token-service.js';
 import { workflowRunAgentClaims } from '../services/workflow-run-agent-claims.js';
 import { repo } from '../store/repository.js';
 import { getWorkflowRun, getWorkflowSession, WorkflowRunRecord } from '../store/repository-workflows.js';
-import { KUBERNETES_TARGET_TYPE, TargetType } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
 import { mapGatewayError } from './workspaces/common.js';
 
 const AI_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
-const WEB_SEARCH_TOOL_ID = 'web_search';
-
-export function normalizeToolCapability(tool: Pick<McpToolConfig, 'capability'>): 'read' | 'write' {
-  return tool.capability === 'read' ? 'read' : 'write';
-}
-
-async function resolveTargetToolsForRun(workspaceId: string, targetId: string, targetType: TargetType, runId: string): Promise<McpToolConfig[]> {
-  try {
-    const tools = await listTargetMcpTools(workspaceId, targetId, targetType);
-    if (tools.length > 0) {
-      return tools;
-    }
-  } catch (err) {
-    logger.warn({ workspaceId, targetId, targetType, runId, err }, 'Failed listing target tools; attempting resync');
-  }
-
-  const syncResult = await syncTargetBuiltInTools(workspaceId, targetId, targetType);
-  if (!syncResult.ok || syncResult.registeredToolCount === 0) {
-    logger.warn(
-      {
-        workspaceId,
-        targetId,
-        targetType,
-        runId,
-        ok: syncResult.ok,
-        discoveredToolCount: syncResult.discoveredToolCount,
-        registeredToolCount: syncResult.registeredToolCount,
-        error: syncResult.error
-      },
-      'Run bootstrap built-in tool sync did not register target tools'
-    );
-  }
-  try {
-    const tools = await listTargetMcpTools(workspaceId, targetId, targetType);
-    if (tools.length > 0) {
-      return tools;
-    }
-  } catch (err) {
-    logger.warn({ workspaceId, targetId, targetType, runId, err }, 'Failed listing target tools after resync');
-  }
-
-  logger.warn(
-    { workspaceId, targetId, targetType, runId },
-    'No gateway-registered target tools available for run bootstrap'
-  );
-  return [];
-}
-
-async function resolveWriteConfirmationRequired(targetType: TargetType, targetId: string): Promise<boolean> {
-  if (targetType === KUBERNETES_TARGET_TYPE) {
-    return (await repo.getCluster(targetId))?.writeConfirmationPolicy.effectiveRequired ?? config.AGENT_WRITE_CONFIRMATION_REQUIRED;
-  }
-  return config.AGENT_WRITE_CONFIRMATION_REQUIRED;
-}
 
 async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Promise<void> {
   const session = getWorkflowSession(run.workflowSessionId);
@@ -96,7 +39,7 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Workspace AI model is not allowed', retryable: false } });
     return;
   }
-  if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, allowedModels)) {
+  if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, llmSettings.allowedProviderModels)) {
     res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Workspace AI model is not available for the selected provider', retryable: false } });
     return;
   }
@@ -224,55 +167,7 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
     }
     const targetId = target.id;
     const session = await repo.getSession(run.sessionId);
-    const agentRegistration = await repo.getTargetAgentRegistration(targetId);
-    const targetSupportsWrite = Boolean(agentRegistration?.capabilities?.includes('write'));
-    const runAllowsWrite = run.toolAccessMode === 'read_write';
-
-    let allowedToolNames: string[] = [];
-    let allowedToolSpecs: Array<{ name: string; description: string; input_schema: Record<string, unknown>; capability: 'read' | 'write' }> = [];
-    let hasConfiguredWriteTool = false;
-    const targetSkills = await repo.listEnabledValidTargetSkills(targetId);
-    try {
-      const [tools, overrides] = await Promise.all([
-        resolveTargetToolsForRun(run.workspaceId, targetId, target.targetType, run.id),
-        repo.listTargetToolOverrides(targetId)
-      ]);
-      const enabledTools = tools
-        .filter((tool) => {
-          const effectiveEnabled = Object.prototype.hasOwnProperty.call(overrides, tool.name)
-            ? overrides[tool.name]
-            : tool.enabled;
-          if (!effectiveEnabled) return false;
-          const capability = normalizeToolCapability(tool);
-          if (capability === 'write') hasConfiguredWriteTool = true;
-          if (capability === 'write' && !targetSupportsWrite) return false;
-          if (capability === 'write' && !runAllowsWrite) return false;
-          return true;
-        })
-        .sort((left, right) => left.name.localeCompare(right.name));
-
-      allowedToolNames = [...new Set(enabledTools.map((tool) => tool.name))];
-      allowedToolSpecs = enabledTools.map((tool) => ({
-        name: tool.name,
-        description:
-          sanitizeToolText(tool.description)
-          || `Execute tool "${tool.name}" for target diagnostics.`,
-        capability: normalizeToolCapability(tool),
-        input_schema: sanitizeToolInputSchema(tool.input_schema)
-      }));
-    } catch (err) {
-      logger.warn(
-        {
-          runId: run.id,
-          workspaceId: run.workspaceId,
-          targetId,
-          targetType: target.targetType,
-          err
-        },
-        'Failed resolving run tool catalog; continuing with no tool permissions'
-      );
-      allowedToolNames = [];
-    }
+    const targetSkills = await repo.getRunSkillCatalog(run.id);
 
     const llmSettings = await resolveWorkspaceLlmSettings(run.workspaceId, {
       provider: run.llmProvider,
@@ -290,7 +185,7 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
       res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Workspace AI model is not allowed', retryable: false } });
       return;
     }
-    if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, allowedModels)) {
+    if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, llmSettings.allowedProviderModels)) {
       res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Workspace AI model is not available for the selected provider', retryable: false } });
       return;
     }
@@ -299,29 +194,13 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
       return;
     }
     const maxOutputTokens = config.LLM_MAX_OUTPUT_TOKENS;
-    let allowedNativeTools: Array<{ id: string; config: Record<string, unknown> }> = [];
-    try {
-      allowedNativeTools = (await repo.listEnabledTargetToolSettings(targetId))
-        .filter((tool) => tool.toolId === WEB_SEARCH_TOOL_ID)
-        .map((tool) => ({
-          id: tool.toolId,
-          config: tool.config
-        }));
-    } catch (err) {
-      logger.warn(
-        {
-          runId: run.id,
-          workspaceId: run.workspaceId,
-          targetId,
-          targetType: target.targetType,
-          err
-        },
-        'Failed resolving run native tools; continuing with no native tool permissions'
-      );
-    }
-    const allowedToolOperations = Object.fromEntries(
-      allowedToolSpecs.map((tool) => [tool.name, tool.capability])
-    );
+    const toolResolution = await resolveTargetRunTools({
+      workspaceId: run.workspaceId,
+      targetId,
+      targetType: target.targetType,
+      toolAccessMode: run.toolAccessMode,
+      runId: run.id
+    });
 
     const token = await gatewayTokenService.signRunScopeToken({
       runId: run.id,
@@ -330,9 +209,9 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
       targetType: target.targetType,
       sessionId: run.sessionId,
       allowedProviders,
-      allowedTools: allowedToolNames,
-      allowedNativeTools,
-      allowedToolOperations,
+      allowedTools: toolResolution.allowedToolNames,
+      allowedNativeTools: toolResolution.allowedNativeTools,
+      allowedToolOperations: toolResolution.allowedToolOperations,
       maxOutputTokens,
       allowedModels
     });
@@ -373,20 +252,12 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
       },
       tools: {
         tool_registry_version: 'trv_1',
-        allowed_tools: allowedToolNames,
-        native_tools: allowedNativeTools,
-        tool_specs: allowedToolSpecs,
-        write_unavailable_reason: hasConfiguredWriteTool
-          ? !runAllowsWrite
-            ? 'run_read_only'
-            : !targetSupportsWrite
-              ? 'agent_write_disabled'
-              : null
-          : null,
-        confirmation_required_for_write: runAllowsWrite
-          ? await resolveWriteConfirmationRequired(target.targetType, targetId)
-          : false,
-        approval_timeout_seconds: config.AGENT_WRITE_CONFIRMATION_TIMEOUT_SECONDS,
+        allowed_tools: toolResolution.allowedToolNames,
+        native_tools: toolResolution.allowedNativeTools,
+        tool_specs: toolResolution.allowedToolSpecs,
+        write_unavailable_reason: toolResolution.writeUnavailableReason,
+        confirmation_required_for_write: toolResolution.confirmationRequiredForWrite,
+        approval_timeout_seconds: toolResolution.approvalTimeoutSeconds,
         gateway: {
           url: config.LLM_GATEWAY_URL,
           token
@@ -394,19 +265,16 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
       },
       ...(targetSkills.length > 0 ? {
         skills: {
-          registry_version: 'sv_1',
+          contract_version: 2,
           entries: targetSkills.map((skill) => ({
-            id: skill.id,
+            ref: skill.ref,
+            skill_id: skill.skillId,
             name: skill.name,
             description: skill.description,
-            files: skill.files
-              .slice()
-              .sort((left, right) => left.path.localeCompare(right.path))
-              .map((file) => ({
-                path: file.path,
-                content: file.content
-              }))
-          }))
+            file_count: skill.fileCount,
+            total_bytes: skill.totalBytes
+          })),
+          load_endpoint: `/internal/v1/runs/${run.id}/skills/{skill_ref}`
         }
       } : {}),
       routing: {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  purgeOrphanedSkillSnapshotBlobs,
   purgeOldTargetMetricHistory,
   purgeOldWorkspaceAuditEvents,
   runControlPlaneRetentionSweep
@@ -52,6 +53,28 @@ describe('conversation retention service', () => {
     }
   });
 
+  it('purges orphaned skill snapshot blobs in bounded batches', async () => {
+    const originalPurge = repo.purgeOrphanedSkillSnapshotBlobs;
+    const calls: Array<{ retentionDays: number; limit: number }> = [];
+
+    repo.purgeOrphanedSkillSnapshotBlobs = async (retentionDays: number, limit?: number) => {
+      calls.push({ retentionDays, limit: limit ?? 0 });
+      return calls.length === 1 ? 500 : 7;
+    };
+
+    try {
+      const purged = await purgeOrphanedSkillSnapshotBlobs();
+
+      assert.equal(purged, 507);
+      assert.deepEqual(calls, [
+        { retentionDays: 7, limit: 500 },
+        { retentionDays: 7, limit: 500 }
+      ]);
+    } finally {
+      repo.purgeOrphanedSkillSnapshotBlobs = originalPurge;
+    }
+  });
+
   it('continues later retention tasks when one cleanup task fails', async () => {
     const calls: string[] = [];
 
@@ -75,6 +98,10 @@ describe('conversation retention service', () => {
       targetMetricHistory: async () => {
         calls.push('target_metric_history');
         return 0;
+      },
+      skillSnapshotBlobs: async () => {
+        calls.push('skill_snapshot_blobs');
+        return 0;
       }
     });
 
@@ -83,7 +110,8 @@ describe('conversation retention service', () => {
       'webhook_history',
       'workspace_audit_events',
       'external_integration_link_tokens',
-      'target_metric_history'
+      'target_metric_history',
+      'skill_snapshot_blobs'
     ]);
   });
 });

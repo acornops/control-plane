@@ -5,16 +5,19 @@ import {
   defaultModel,
   defaultProvider,
   parseAllowedModels,
+  parseAllowedProviderModels,
   parseAllowedProviders,
   parseAllowedReasoningEfforts,
   parseAllowedReasoningSummaryModes
 } from './llm-policy.js';
 import { config } from '../config.js';
+import { DEFAULT_REASONING_EFFORT, type ProviderModelMap } from '../config-llm-policy.js';
 
 export interface WorkspaceLlmSettingsResolution {
   provider: LlmProvider;
   model: string;
   allowedProviders: LlmProvider[];
+  allowedProviderModels: ProviderModelMap;
   allowedModels: string[];
   credentialConfigured: boolean;
   reasoning: {
@@ -31,8 +34,8 @@ export function effectiveAllowedProviders(credentials: ProviderCredentialStatus[
 export async function resolveWorkspaceLlmSettings(
   workspaceId: string,
   runSnapshot?: {
-    provider: LlmProvider;
-    model: string;
+    provider?: LlmProvider;
+    model?: string;
     reasoningSummaryMode?: ReasoningSummaryMode;
     reasoningEffort?: ReasoningEffort;
   }
@@ -46,18 +49,19 @@ export async function resolveWorkspaceLlmSettings(
   const allowedReasoningSummaryModes = parseAllowedReasoningSummaryModes();
   const allowedReasoningEfforts = parseAllowedReasoningEfforts();
   const selectedSummaryMode = runSnapshot?.reasoningSummaryMode || settings?.reasoningSummaryMode || 'auto';
-  const selectedEffort = runSnapshot?.reasoningEffort || settings?.reasoningEffort || 'default';
+  const selectedEffort = runSnapshot?.reasoningEffort || settings?.reasoningEffort || DEFAULT_REASONING_EFFORT;
   const summaryMode =
     config.LLM_REASONING_SUMMARIES_ENABLED && allowedReasoningSummaryModes.includes(selectedSummaryMode)
       ? selectedSummaryMode
       : 'off';
-  const effort = allowedReasoningEfforts.includes(selectedEffort) ? selectedEffort : 'default';
+  const effort = allowedReasoningEfforts.includes(selectedEffort) ? selectedEffort : DEFAULT_REASONING_EFFORT;
   const credential = credentials.providers.find((entry) => entry.provider === provider);
   const allowedProviders = effectiveAllowedProviders(credentials.providers);
   return {
     provider,
     model,
     allowedProviders,
+    allowedProviderModels: parseAllowedProviderModels(),
     allowedModels: parseAllowedModels(),
     credentialConfigured: Boolean(credential?.configured),
     reasoning: {

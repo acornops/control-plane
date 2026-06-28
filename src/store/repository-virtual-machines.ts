@@ -414,31 +414,3 @@ export async function listVirtualMachineInventory(vmId: string): Promise<TargetI
     item: row.item || {}
   }));
 }
-
-export async function listVirtualMachineFindings(vmId: string): Promise<TargetFindingInput[]> {
-  const result = await db.query(
-    `SELECT target_id, workspace_id, snapshot_ts, finding_id, severity, severity_rank, scope_kind,
-       scope_name, object_kind, object_name, title, message, reason, finding_ts, search_text
-     FROM target_findings
-     WHERE target_id = $1
-     ORDER BY severity_rank ASC, finding_ts DESC, finding_id ASC`,
-    [vmId]
-  );
-  return result.rows.map((row) => ({
-    targetId: row.target_id,
-    workspaceId: row.workspace_id,
-    snapshotTs: toIso(row.snapshot_ts)!,
-    findingId: row.finding_id,
-    severity: row.severity,
-    severityRank: row.severity_rank,
-    scopeKind: row.scope_kind,
-    scopeName: row.scope_name,
-    objectKind: row.object_kind,
-    objectName: row.object_name,
-    title: row.title,
-    message: row.message,
-    reason: row.reason,
-    findingTs: toIso(row.finding_ts)!,
-    searchText: row.search_text
-  }));
-}

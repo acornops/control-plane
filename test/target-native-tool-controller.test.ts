@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
-import { updateTargetToolSettings } from '../src/controllers/workspaces/target-native-tool-controller.js';
+import { listTargetTools, updateTargetToolSettings } from '../src/controllers/workspaces/target-native-tool-controller.js';
 import { webhooks } from '../src/services/webhooks.js';
 import { repo } from '../src/store/repository.js';
 import {
@@ -13,6 +13,40 @@ import {
 afterEach(restoreControllerRegressionState);
 
 describe('target native tool controller', () => {
+  it('lists web search as enabled when the target has no explicit setting', async () => {
+    installWorkspace('operator');
+    repo.getTargetToolSetting = async () => null;
+
+    const response = await callController(
+      listTargetTools,
+      createRequest({ workspaceId: 'workspace-1', targetId: 'cluster-1' })
+    );
+
+    const body = response.body as { items: Array<{ id: string; enabled: boolean; config: Record<string, unknown> }> };
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(body.items, [
+      {
+        id: 'web_search',
+        label: 'Web Search',
+        enabled: true,
+        description: 'Allow assistant runs for this target to search the web through the selected LLM provider.',
+        capability: 'read',
+        runtimeKind: 'provider_native',
+        visibility: {
+          appearsInAssistantToolList: true,
+          appearsInRunEnabledTools: true,
+          appearsInToolCalls: false
+        },
+        config: {
+          domainFilters: {
+            allowedDomains: [],
+            blockedDomains: []
+          }
+        }
+      }
+    ]);
+  });
+
   it('normalizes and persists web search domain filters', async () => {
     installWorkspace('admin');
     let persisted: {

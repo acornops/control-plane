@@ -1,7 +1,7 @@
 import { EXAMPLE_MCP_SERVER_ID, EXAMPLE_TARGET_ID, EXAMPLE_TARGET_SKILL_ID, EXAMPLE_WORKSPACE_ID } from '../../constants/dev-defaults.js';
 import { TARGET_TYPES } from '../../types/domain.js';
+import { buildTargetIssuePaths } from './target-issue-paths.js';
 import { buildTargetToolPaths } from './target-tool-paths.js';
-
 export function buildTargetPaths(exampleServerUrl: string): Record<string, unknown> {
   const targetSkillSourceSchema = {
     type: 'object',
@@ -105,7 +105,6 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
       }
     }
   });
-
   return {
     '/api/v1/workspaces/{workspaceId}/targets': {
       get: {
@@ -155,6 +154,7 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
         responses: { '200': { description: 'Issue page payload: { items, nextCursor? }.' } }
       }
     },
+    ...buildTargetIssuePaths(),
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/catalog': {
       get: {
         tags: ['workspaces'],

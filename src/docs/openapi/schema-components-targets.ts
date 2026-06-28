@@ -77,10 +77,21 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
     },
     InventoryItem: { type: 'object', additionalProperties: true },
     InventoryPage: pageOf('InventoryItem'),
-    Finding: { type: 'object', additionalProperties: true },
-    FindingPage: pageOf('Finding'),
     Issue: { type: 'object', additionalProperties: true },
     IssuePage: pageOf('Issue'),
+    TargetIssueSummary: {
+      type: 'object',
+      required: ['total', 'active', 'recovering', 'critical', 'warning', 'info'],
+      properties: {
+        total: { type: 'integer', minimum: 0 },
+        active: { type: 'integer', minimum: 0 },
+        recovering: { type: 'integer', minimum: 0 },
+        critical: { type: 'integer', minimum: 0 },
+        warning: { type: 'integer', minimum: 0 },
+        info: { type: 'integer', minimum: 0 }
+      },
+      additionalProperties: false
+    },
     IssueObservation: { type: 'object', additionalProperties: true },
     IssueObservationPage: pageOf('IssueObservation'),
     PodLogs: {
@@ -241,13 +252,71 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: true
     },
+    TargetAssistantCapabilitiesPreview: {
+      type: 'object',
+      properties: {
+        workspaceId: uuid,
+        targetId: uuid,
+        targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] },
+        toolAccessMode: { type: 'string', enum: ['read_only', 'read_write'] },
+        confirmationRequiredForWrite: { type: 'boolean' },
+        writeUnavailableReason: { type: 'string', enum: ['run_read_only', 'agent_write_disabled'], nullable: true },
+        toolSummary: {
+          type: 'object',
+          properties: {
+            totalAllowed: { type: 'integer' },
+            readAllowed: { type: 'integer' },
+            writeAllowed: { type: 'integer' },
+            nativeAllowed: { type: 'integer' }
+          },
+          additionalProperties: true
+        },
+        skillSummary: {
+          type: 'object',
+          properties: {
+            totalAvailable: { type: 'integer' }
+          },
+          additionalProperties: true
+        },
+        tools: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              label: { type: 'string' },
+              description: { type: 'string' },
+              capability: { type: 'string', enum: ['read', 'write'] },
+              runtimeKind: { type: 'string', enum: ['function', 'provider_native'] },
+              source: { type: 'string', enum: ['builtin', 'mcp', 'provider_native'] }
+            },
+            additionalProperties: true
+          }
+        },
+        skills: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              description: { type: 'string' },
+              source: { type: 'string', enum: ['manual', 'git_import'] }
+            },
+            additionalProperties: true
+          }
+        }
+      },
+      additionalProperties: true
+    },
     TargetTool: {
       type: 'object',
       properties: {
         id: { type: 'string', enum: ['web_search'] },
         label: { type: 'string' },
         description: { type: 'string' },
-        enabled: { type: 'boolean' },
+        enabled: { type: 'boolean', default: true },
         capability: { type: 'string', enum: ['read', 'write'] },
         runtimeKind: { type: 'string', enum: ['provider_native'] },
         visibility: {

@@ -519,7 +519,6 @@ export async function rotateAgentKey(req: AuthenticatedRequest, res: Response, n
 
 export {
   getCluster,
-  listClusterFindings,
   listClusterResources,
   listClusters
 } from './kubernetes-cluster-snapshot-controller.js';

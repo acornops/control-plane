@@ -172,12 +172,26 @@ export function buildSessionRunPaths(): Record<string, unknown> {
                   properties: {
                     content: { type: 'string', example: 'Pods restarted after rollout, but p95 latency is still elevated. Check likely causes.' },
                     toolAccessMode: { type: 'string', enum: ['read_only', 'read_write'], example: 'read_only' },
-                    clientMessageId: { type: 'string', example: '4f004ae2-4288-4baf-9be4-124d61180f0c-msg-1' }
+                    clientMessageId: { type: 'string', example: '4f004ae2-4288-4baf-9be4-124d61180f0c-msg-1' },
+                    llm: {
+                      type: 'object',
+                      properties: {
+                        provider: { type: 'string', enum: ['openai', 'anthropic', 'gemini'], example: 'openai', description: 'Must be supplied together with model.' },
+                        model: { type: 'string', example: 'gpt-5-nano', description: 'Required when provider is supplied.' },
+                        reasoningEffort: { type: 'string', enum: ['off', 'low', 'medium', 'high'], example: 'high' }
+                      },
+                      description: 'Optional per-message runtime override. Omit to use workspace defaults.'
+                    }
                   },
                   example: {
                     content: 'Pods restarted after rollout, but p95 latency is still elevated. Check likely causes.',
                     toolAccessMode: 'read_only',
-                    clientMessageId: '4f004ae2-4288-4baf-9be4-124d61180f0c-msg-1'
+                    clientMessageId: '4f004ae2-4288-4baf-9be4-124d61180f0c-msg-1',
+                    llm: {
+                      provider: 'openai',
+                      model: 'gpt-5-nano',
+                      reasoningEffort: 'high'
+                    }
                   }
                 }
               }
@@ -185,7 +199,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
           },
           responses: {
             '202': { description: 'Run accepted for processing.' },
-            '400': { description: 'Unsupported target type for troubleshooting runs in this release.' },
+            '400': { description: 'Invalid AI runtime selection, disallowed model/provider, missing provider credential, or unsupported target type.' },
             '403': { description: 'CONVERSATION_OWNER_REQUIRED when the authenticated user did not create the conversation, or FORBIDDEN when the owner lacks run creation permission.' }
           }
         }
@@ -370,6 +384,19 @@ export function buildSessionRunPaths(): Record<string, unknown> {
           security: [{ serviceToken: [] }],
           parameters: [{ in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } }],
           responses: { '200': { description: 'Execution snapshot returned.' } }
+        }
+      },
+      '/internal/v1/runs/{runId}/skills/{skillRef}': {
+        get: {
+          tags: ['internal'],
+          summary: 'Internal: load frozen skill snapshot for run',
+          description: 'Returns frozen Markdown skill files for execution-engine skill context loading. This endpoint is service-token only and is not exposed to browser clients.',
+          security: [{ serviceToken: [] }],
+          parameters: [
+            { in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } },
+            { in: 'path', name: 'skillRef', required: true, schema: { type: 'string', example: 'skill_1' } }
+          ],
+          responses: { '200': { description: 'Frozen skill snapshot returned.' }, '404': { description: 'Run skill snapshot not found.' } }
         }
       },
       '/internal/v1/sessions/{sessionId}/context': {

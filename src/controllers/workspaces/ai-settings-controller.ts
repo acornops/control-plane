@@ -1,6 +1,7 @@
 import { NextFunction, Response } from 'express';
 import { AuthenticatedRequest } from '../../auth/middleware.js';
 import { config } from '../../config.js';
+import { DEFAULT_REASONING_EFFORT } from '../../config-llm-policy.js';
 import {
   requireWorkspaceCapability,
   requireWorkspaceRead
@@ -18,6 +19,7 @@ import {
   isModelAllowedForProvider,
   isSupportedLlmProvider,
   parseAllowedModels,
+  parseAllowedProviderModels,
   parseAllowedProviders,
   SUPPORTED_LLM_PROVIDERS
 } from '../../services/llm-policy.js';
@@ -37,7 +39,7 @@ function effectiveSettings(settings: WorkspaceAiSettings | null): WorkspaceAiSet
     defaultProvider: settings?.defaultProvider || defaultProvider(),
     defaultModel: settings?.defaultModel || defaultModel(),
     reasoningSummaryMode: settings?.reasoningSummaryMode || 'auto',
-    reasoningEffort: settings?.reasoningEffort || 'default',
+    reasoningEffort: settings?.reasoningEffort || DEFAULT_REASONING_EFFORT,
     createdAt: settings?.createdAt,
     updatedAt: settings?.updatedAt
   };
@@ -57,6 +59,16 @@ function defaultReasoningSummaryMode(existingMode?: ReasoningSummaryMode): Reaso
   return 'off';
 }
 
+function defaultReasoningEffort(existingEffort?: ReasoningEffort): ReasoningEffort {
+  const allowedEfforts = parseAllowedReasoningEfforts();
+  if (existingEffort && allowedEfforts.includes(existingEffort)) {
+    return existingEffort;
+  }
+  return allowedEfforts.includes(DEFAULT_REASONING_EFFORT)
+    ? DEFAULT_REASONING_EFFORT
+    : allowedEfforts[0] || DEFAULT_REASONING_EFFORT;
+}
+
 async function buildAiSettingsResponse(workspaceId: string) {
   const [settings, credentials] = await Promise.all([
     repo.getWorkspaceAiSettings(workspaceId),
@@ -64,6 +76,7 @@ async function buildAiSettingsResponse(workspaceId: string) {
   ]);
   const resolved = effectiveSettings(settings);
   const allowedProviders = effectiveAllowedProviders(credentials.providers);
+  const allowedProviderModels = parseAllowedProviderModels();
   const configuredReasoningSummaryModes = parseAllowedReasoningSummaryModes();
   const allowedReasoningSummaryModes = config.LLM_REASONING_SUMMARIES_ENABLED
     ? configuredReasoningSummaryModes
@@ -80,11 +93,12 @@ async function buildAiSettingsResponse(workspaceId: string) {
     reasoningSummaryMode: effectiveReasoningSummaryMode,
     reasoningEffort: allowedReasoningEfforts.includes(resolved.reasoningEffort)
       ? resolved.reasoningEffort
-      : 'default',
+      : DEFAULT_REASONING_EFFORT,
     allowedReasoningSummaryModes,
     allowedReasoningEfforts,
     reasoningSummariesEnabled: config.LLM_REASONING_SUMMARIES_ENABLED && effectiveReasoningSummaryMode !== 'off',
     allowedProviders,
+    allowedProviderModels,
     allowedModels: parseAllowedModels(),
     providers: credentials.providers.map((provider) => ({
       ...provider,
@@ -94,15 +108,17 @@ async function buildAiSettingsResponse(workspaceId: string) {
 }
 
 function validateProviderModel(res: Response, provider: LlmProvider, model: string): boolean {
+  const allowedModels = parseAllowedModels();
+  const allowedProviderModels = parseAllowedProviderModels();
   if (!parseAllowedProviders().includes(provider)) {
     res.status(400).json({ error: { code: 'PROVIDER_NOT_ALLOWED', message: 'Selected provider is not allowed by this deployment', retryable: false } });
     return false;
   }
-  if (!parseAllowedModels().includes(model)) {
+  if (!allowedModels.includes(model)) {
     res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Selected model is not allowed by this deployment', retryable: false } });
     return false;
   }
-  if (!isModelAllowedForProvider(provider, model)) {
+  if (!isModelAllowedForProvider(provider, model, allowedProviderModels)) {
     res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Selected model is not available for the selected provider', retryable: false } });
     return false;
   }
@@ -187,7 +203,9 @@ export async function updateWorkspaceAiSettings(req: AuthenticatedRequest, res: 
     const reasoningSummaryMode = (
       req.body.reasoningSummaryMode || defaultReasoningSummaryMode(previous?.reasoningSummaryMode)
     ) as ReasoningSummaryMode;
-    const reasoningEffort = (req.body.reasoningEffort || 'default') as ReasoningEffort;
+    const reasoningEffort = (
+      req.body.reasoningEffort || defaultReasoningEffort(previous?.reasoningEffort)
+    ) as ReasoningEffort;
     if (!validateReasoningSettings(res, reasoningSummaryMode, reasoningEffort)) {
       return;
     }

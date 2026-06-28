@@ -17,6 +17,7 @@ const authed = authenticatedHandler;
 
 export function registerTargetRoutes(router: Router): void {
   router.get('/workspaces/:workspaceId/targets', requireUser, authed(workspacesController.listTargets));
+  router.get('/workspaces/:workspaceId/targets/:targetId/issues/summary', requireUser, authed(workspacesController.getTargetIssueSummary));
   router.get('/workspaces/:workspaceId/targets/:targetId/issues', requireUser, authed(workspacesController.listTargetIssues));
   router.get(
     '/workspaces/:workspaceId/targets/:targetId/mcp/catalog',
@@ -27,6 +28,11 @@ export function registerTargetRoutes(router: Router): void {
     '/workspaces/:workspaceId/targets/:targetId/tools',
     requireUser,
     authed(workspacesController.listTargetTools)
+  );
+  router.get(
+    '/workspaces/:workspaceId/targets/:targetId/assistant/capabilities-preview',
+    requireUser,
+    authed(workspacesController.getTargetAssistantCapabilitiesPreview)
   );
   router.get(
     '/workspaces/:workspaceId/targets/:targetId/mcp/servers',

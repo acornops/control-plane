@@ -79,7 +79,8 @@ export const runCommitSchema = z.object({
 export const postMessageSchema = z.object({
   content: z.string().min(1),
   toolAccessMode: z.enum(['read_only', 'read_write']).optional(),
-  clientMessageId: z.string().min(1).max(128).optional()
+  clientMessageId: z.string().min(1).max(128).optional(),
+  llm: z.unknown().optional()
 });
 
 export const createWorkspaceSchema = z.object({
@@ -106,13 +107,13 @@ export const updateWorkspaceMemberSchema = z.object({
 
 export const llmProviderSchema = z.enum(['openai', 'anthropic', 'gemini']);
 export const reasoningSummaryModeSchema = z.enum(['off', 'auto', 'concise', 'detailed']);
-export const reasoningEffortSchema = z.enum(['default', 'low', 'medium', 'high']);
+export const reasoningEffortSchema = z.enum(['off', 'low', 'medium', 'high']);
 
 export const updateWorkspaceAiSettingsSchema = z.object({
   defaultProvider: llmProviderSchema,
   defaultModel: z.string().trim().min(1).max(160),
   reasoningSummaryMode: reasoningSummaryModeSchema.optional(),
-  reasoningEffort: reasoningEffortSchema.optional().default('default')
+  reasoningEffort: reasoningEffortSchema.optional()
 }).strict();
 
 export const upsertWorkspaceAiProviderCredentialSchema = z.object({

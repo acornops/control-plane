@@ -130,6 +130,18 @@ export async function listTargetIssues(req: AuthenticatedRequest, res: Response,
   }
 }
 
+export async function getTargetIssueSummary(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const workspaceId = toSingleParam(req.params.workspaceId);
+    const targetId = toSingleParam(req.params.targetId);
+    if (!(await requireWorkspaceDataRead(req, res, workspaceId))) return;
+    const summary = await repo.summarizeTargetIssues(workspaceId, targetId);
+    res.status(200).json(summary);
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getTargetIssue(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);

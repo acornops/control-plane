@@ -62,6 +62,7 @@ const toolSync = [
   read('src/services/virtual-machine-tool-sync.ts')
 ].join('\n');
 const internalExecutionBootstrap = read('src/controllers/internal-execution-bootstrap.ts');
+const targetRunToolResolution = read('src/services/target-run-tool-resolution.ts');
 const internalMcpBridgeController = read('src/controllers/internal-mcp-bridge-controller.ts');
 const openApi = [read('src/docs/openapi.ts'), readTree('src/docs/openapi')].join('\n');
 const managementConsoleContract = manifest.counterparts?.['management-console'];
@@ -92,6 +93,7 @@ function openApiPath(contractPath) {
     .replace(/^[A-Z]+ /, '')
     .replace(/\?run_id=<runId>$/, '')
     .replace(/\?return_to=<management-console-url>$/, '')
+    .replace(/\?toolAccessMode=read_only\|read_write$/, '')
     .replace(/\?token=<external-integration-link-token>$/, '');
 }
 
@@ -129,7 +131,6 @@ for (const [docPath, routeNeedle, source, label] of [
   ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/issues`', "workspacesRouter.get('/workspaces/:workspaceId/targets/:targetId/issues'", workspaceRoutes, 'List target issues route'],
   ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}`', "workspacesRouter.get('/workspaces/:workspaceId/kubernetes-clusters/:clusterId'", workspaceRoutes, 'Get cluster route'],
   ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/resources`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/resources'", workspaceRoutes, 'List cluster resources route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/findings`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/findings'", workspaceRoutes, 'List cluster findings route'],
   [
     '`POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters`',
     "workspacesRouter.post(\n  '/workspaces/:workspaceId/kubernetes-clusters'",
@@ -143,6 +144,7 @@ for (const [docPath, routeNeedle, source, label] of [
   ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/catalog`', "'/workspaces/:workspaceId/targets/:targetId/mcp/catalog'", workspaceRoutes, 'Target MCP catalog route'],
   ['`PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools/{toolName}`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/tools/:toolName'", workspaceRoutes, 'Target MCP tool patch route'],
   ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools`', "'/workspaces/:workspaceId/targets/:targetId/tools'", workspaceRoutes, 'Target tools route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/assistant/capabilities-preview?toolAccessMode=read_only|read_write`', "'/workspaces/:workspaceId/targets/:targetId/assistant/capabilities-preview'", workspaceRoutes, 'Target assistant capabilities preview route'],
   ['`PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolId}`', "'/workspaces/:workspaceId/targets/:targetId/tools/:toolId'", workspaceRoutes, 'Target tool settings patch route'],
   ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`', "workspacesRouter.get('/workspaces/:workspaceId/targets/:targetId/mcp/servers'", workspaceRoutes, 'List target MCP servers route'],
   ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/tools'", workspaceRoutes, 'List target MCP server tools route'],
@@ -351,7 +353,7 @@ for (const guardNeedle of [
   "capability === 'write' && !targetSupportsWrite",
   "capability === 'write' && !runAllowsWrite"
 ]) {
-  expectIncludes(internalExecutionBootstrap, guardNeedle, 'Write-tool gate implementation');
+  expectIncludes(targetRunToolResolution, guardNeedle, 'Write-tool gate implementation');
 }
 
 if (failures.length > 0) {

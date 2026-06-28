@@ -25,11 +25,6 @@ export function registerKubernetesClusterRoutes(router: Router): void {
     authed(workspacesController.listClusterResources)
   );
   router.get(
-    '/workspaces/:workspaceId/kubernetes-clusters/:clusterId/findings',
-    requireUser,
-    authed(workspacesController.listClusterFindings)
-  );
-  router.get(
     '/workspaces/:workspaceId/kubernetes-clusters/:clusterId/metrics/history',
     requireUser,
     authed(workspacesController.getClusterMetricsHistory)

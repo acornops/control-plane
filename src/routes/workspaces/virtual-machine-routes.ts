@@ -24,7 +24,6 @@ export function registerVirtualMachineRoutes(router: Router): void {
   router.delete('/workspaces/:workspaceId/virtual-machines/:vmId', requireUser, authed(workspacesController.deleteVirtualMachine));
   router.post('/workspaces/:workspaceId/virtual-machines/:vmId/rotate-agent-key', requireUser, authed(workspacesController.rotateVirtualMachineAgentKey));
   router.get('/workspaces/:workspaceId/virtual-machines/:vmId/resources', requireUser, authed(workspacesController.listVirtualMachineInventory));
-  router.get('/workspaces/:workspaceId/virtual-machines/:vmId/findings', requireUser, authed(workspacesController.listVirtualMachineFindings));
   router.get('/workspaces/:workspaceId/virtual-machines/:vmId/metrics/history', requireUser, authed(workspacesController.getVirtualMachineMetricsHistory));
   router.get('/workspaces/:workspaceId/virtual-machines/:vmId/logs', requireUser, authed(workspacesController.getVirtualMachineLogs));
 }

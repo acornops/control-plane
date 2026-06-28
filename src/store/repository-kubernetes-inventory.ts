@@ -4,8 +4,6 @@ import { deriveKubernetesIssueObservations } from '../services/target-issue-deri
 import type {
   ResourceFamily,
   SnapshotClusterSummary,
-  SnapshotFindingListItem,
-  SnapshotFindingSeverity,
   SnapshotResourceListItem
 } from '../services/snapshot-derived-data.js';
 import type { KubernetesCluster, ClusterSnapshot } from '../types/domain.js';
@@ -17,12 +15,6 @@ import { reconcileTargetIssues } from './repository-target-issues.js';
 
 interface ResourcePageCursor {
   sortKey: string;
-}
-
-interface FindingPageCursor {
-  severityRank: number;
-  findingTs: string;
-  findingId: string;
 }
 
 interface SnapshotResourceDerivedDbRow {
@@ -37,21 +29,6 @@ interface SnapshotResourceDerivedDbRow {
   cluster_id: string;
   cluster_name: string;
   sort_key: string;
-}
-
-interface SnapshotFindingDerivedDbRow {
-  finding_id: string;
-  severity: SnapshotFindingSeverity;
-  severity_rank: number;
-  title: string;
-  message: string;
-  finding_ts: Date | string;
-  namespace: string | null;
-  object_kind: string | null;
-  object_name: string | null;
-  reason: string | null;
-  cluster_id: string;
-  cluster_name: string;
 }
 
 interface SnapshotSummaryDbRow {
@@ -105,22 +82,6 @@ function mapSnapshotResourceRow(row: SnapshotResourceDerivedDbRow): SnapshotReso
     clusterId: row.cluster_id,
     clusterName: row.cluster_name,
     item: row.item || {}
-  };
-}
-
-function mapSnapshotFindingRow(row: SnapshotFindingDerivedDbRow): SnapshotFindingListItem {
-  return {
-    id: row.finding_id,
-    severity: row.severity,
-    title: row.title,
-    message: row.message,
-    timestamp: Date.parse(toIso(row.finding_ts)!),
-    namespace: row.namespace || undefined,
-    objectKind: row.object_kind || undefined,
-    objectName: row.object_name || undefined,
-    reason: row.reason || undefined,
-    clusterId: row.cluster_id,
-    clusterName: row.cluster_name
   };
 }
 
@@ -315,111 +276,4 @@ export async function listClusterSnapshotResources(
     items: page.items.map(mapSnapshotResourceRow),
     nextCursor: page.nextCursor
   };
-}
-
-function appendFindingFilters(
-  clauses: string[],
-  params: Array<string | number>,
-  options: {
-    q?: string;
-    severity?: string;
-    namespace?: string;
-    clusterId?: string;
-    cursor?: (FindingPageCursor & { signature?: string }) | null;
-  }
-): void {
-  if (options.severity) {
-    params.push(options.severity);
-    clauses.push(`f.severity = $${params.length}`);
-  }
-  if (options.namespace) {
-    params.push(options.namespace);
-    clauses.push(`f.scope_name = $${params.length}`);
-  }
-  if (options.clusterId) {
-    params.push(options.clusterId);
-    clauses.push(`f.target_id = $${params.length}`);
-  }
-  if (options.q) {
-    params.push(likePattern(options.q));
-    clauses.push(`(f.search_text LIKE $${params.length} ESCAPE '\\' OR LOWER(t.name) LIKE $${params.length} ESCAPE '\\')`);
-  }
-  if (options.cursor?.findingTs && options.cursor.findingId && Number.isFinite(Number(options.cursor.severityRank))) {
-    params.push(Number(options.cursor.severityRank), options.cursor.findingTs, options.cursor.findingId);
-    clauses.push(
-      `(f.severity_rank > $${params.length - 2}
-        OR (f.severity_rank = $${params.length - 2} AND f.finding_ts < $${params.length - 1}::timestamptz)
-        OR (f.severity_rank = $${params.length - 2}
-          AND f.finding_ts = $${params.length - 1}::timestamptz
-          AND f.finding_id > $${params.length}))`
-    );
-  }
-}
-
-async function listSnapshotFindingsFromSql(
-  where: string,
-  params: Array<string | number>,
-  limit: number,
-  signature: string
-): Promise<PagedResult<SnapshotFindingListItem>> {
-  params.push(limit + 1);
-  const result = await db.query<SnapshotFindingDerivedDbRow>(
-    `SELECT f.finding_id, f.severity, f.severity_rank, f.title, f.message, f.finding_ts,
-       f.scope_name AS namespace, f.object_kind, f.object_name, f.reason, f.target_id AS cluster_id, t.name AS cluster_name
-     FROM target_findings f
-     JOIN targets t ON t.id = f.target_id AND t.target_type = 'kubernetes'
-     WHERE ${where}
-     ORDER BY f.severity_rank ASC, f.finding_ts DESC, f.finding_id ASC
-     LIMIT $${params.length}`,
-    params
-  );
-  const page = pageWithCursor(result.rows, limit, (row) =>
-    encodeCursor({
-      signature,
-      severityRank: row.severity_rank,
-      findingTs: toIso(row.finding_ts),
-      findingId: row.finding_id
-    })
-  );
-  return {
-    items: page.items.map(mapSnapshotFindingRow),
-    nextCursor: page.nextCursor
-  };
-}
-
-export async function listClusterSnapshotFindings(
-  clusterId: string,
-  options: {
-    limit: number;
-    cursor?: (FindingPageCursor & { signature?: string }) | null;
-    q?: string;
-    severity?: string;
-    namespace?: string;
-    signature?: string;
-  }
-): Promise<PagedResult<SnapshotFindingListItem>> {
-  const limit = Math.max(1, Math.min(100, options.limit));
-  const params: Array<string | number> = [clusterId];
-  const clauses = ['f.target_id = $1'];
-  appendFindingFilters(clauses, params, options);
-  return listSnapshotFindingsFromSql(clauses.join(' AND '), params, limit, options.signature || '');
-}
-
-export async function listWorkspaceSnapshotFindings(
-  workspaceId: string,
-  options: {
-    limit: number;
-    cursor?: (FindingPageCursor & { signature?: string }) | null;
-    q?: string;
-    severity?: string;
-    namespace?: string;
-    clusterId?: string;
-    signature?: string;
-  }
-): Promise<PagedResult<SnapshotFindingListItem>> {
-  const limit = Math.max(1, Math.min(100, options.limit));
-  const params: Array<string | number> = [workspaceId];
-  const clauses = ['f.workspace_id = $1'];
-  appendFindingFilters(clauses, params, options);
-  return listSnapshotFindingsFromSql(clauses.join(' AND '), params, limit, options.signature || '');
 }

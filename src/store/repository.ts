@@ -63,7 +63,6 @@ import {
   deleteVirtualMachine as deleteVirtualMachineRecord,
   getVirtualMachine as getVirtualMachineRecord,
   getVirtualMachineSnapshot as getVirtualMachineSnapshotRecord,
-  listVirtualMachineFindings as listVirtualMachineFindingsRecord,
   listVirtualMachineInventory as listVirtualMachineInventoryRecord,
   getVirtualMachineSnapshotSummary as getVirtualMachineSnapshotSummaryRecord,
   listVirtualMachineSnapshotSummaries as listVirtualMachineSnapshotSummariesRecord,
@@ -90,23 +89,24 @@ import {
   createTargetSkill as createTargetSkillRecord,
   deleteTargetSkill as deleteTargetSkillRecord,
   getTargetSkill as getTargetSkillRecord,
+  listEnabledValidTargetSkillSummaries as listEnabledValidTargetSkillSummariesRecord,
   listEnabledValidTargetSkills as listEnabledValidTargetSkillsRecord,
   listTargetSkills as listTargetSkillsRecord,
   updateTargetSkill as updateTargetSkillRecord,
   updateTargetSkillEnabled as updateTargetSkillEnabledRecord
 } from './repository-target-skills.js';
+import * as runSkillSnapshots from './repository-run-skill-snapshots.js';
 import {
   getClusterSnapshotSummary as getClusterSnapshotSummaryRecord,
-  listClusterSnapshotFindings as listClusterSnapshotFindingsRecord,
   listClusterSnapshotResources as listClusterSnapshotResourcesRecord,
-  listClusterSnapshotSummaries as listClusterSnapshotSummariesRecord,
-  listWorkspaceSnapshotFindings as listWorkspaceSnapshotFindingsRecord
+  listClusterSnapshotSummaries as listClusterSnapshotSummariesRecord
 } from './repository-kubernetes-inventory.js';
 import {
   getTargetIssue as getTargetIssueRecord,
   listTargetIssueObservations as listTargetIssueObservationsRecord,
   listTargetIssues as listTargetIssuesRecord,
-  listWorkspaceIssues as listWorkspaceIssuesRecord
+  listWorkspaceIssues as listWorkspaceIssuesRecord,
+  summarizeTargetIssues as summarizeTargetIssuesRecord
 } from './repository-target-issues.js';
 import {
   addMessage as addMessageRecord,
@@ -156,10 +156,7 @@ import {
   purgeOldWebhookHistory as purgeOldWebhookHistoryRecord,
   updateWebhookSubscription as updateWebhookSubscriptionRecord
 } from './repository-webhooks.js';
-import {
-  getTarget as getTargetRecord,
-  listTargets as listTargetsRecord
-} from './repository-targets.js';
+import { getTarget as getTargetRecord, listTargets as listTargetsRecord } from './repository-targets.js';
 import {
   insertWorkspaceAuditEvent as insertWorkspaceAuditEventRecord,
   listWorkspaceAuditEvents as listWorkspaceAuditEventsRecord,
@@ -413,16 +410,10 @@ export class Repository {
 
   listClusterSnapshotResources = listClusterSnapshotResourcesRecord;
 
-  listClusterSnapshotFindings = listClusterSnapshotFindingsRecord;
-
-  listWorkspaceSnapshotFindings = listWorkspaceSnapshotFindingsRecord;
-
   listWorkspaceIssues = listWorkspaceIssuesRecord;
-
   listTargetIssues = listTargetIssuesRecord;
-
+  summarizeTargetIssues = summarizeTargetIssuesRecord;
   getTargetIssue = getTargetIssueRecord;
-
   listTargetIssueObservations = listTargetIssueObservationsRecord;
 
   listTargetMetricHistory = listTargetMetricHistoryRecord;
@@ -438,8 +429,6 @@ export class Repository {
   listVirtualMachineSnapshotSummaries = listVirtualMachineSnapshotSummariesRecord;
 
   listVirtualMachineInventory = listVirtualMachineInventoryRecord;
-
-  listVirtualMachineFindings = listVirtualMachineFindingsRecord;
 
   listTargetToolOverrides = listTargetToolOverridesRecord;
 
@@ -468,6 +457,11 @@ export class Repository {
   countEnabledTargetSkills = countEnabledTargetSkillsRecord;
 
   listEnabledValidTargetSkills = listEnabledValidTargetSkillsRecord;
+  listEnabledValidTargetSkillSummaries = listEnabledValidTargetSkillSummariesRecord;
+  createRunSkillSnapshot = runSkillSnapshots.createRunSkillSnapshot;
+  getRunSkillCatalog = runSkillSnapshots.getRunSkillCatalog;
+  getRunSkillSnapshot = runSkillSnapshots.getRunSkillSnapshot;
+  purgeOrphanedSkillSnapshotBlobs = runSkillSnapshots.purgeOrphanedSkillSnapshotBlobs;
 
   createWebhookSubscription = createWebhookSubscriptionRecord;
 

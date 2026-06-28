@@ -323,18 +323,6 @@ export async function listVirtualMachineInventory(req: AuthenticatedRequest, res
   }
 }
 
-export async function listVirtualMachineFindings(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const workspaceId = toSingleParam(req.params.workspaceId);
-    const vmId = toSingleParam(req.params.vmId);
-    if (!(await requireVirtualMachineTargetAccess(req, res, workspaceId, vmId))) return;
-    const items = await repo.listVirtualMachineFindings(vmId);
-    res.status(200).json({ items });
-  } catch (err) {
-    next(err);
-  }
-}
-
 export async function getVirtualMachineMetricsHistory(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);

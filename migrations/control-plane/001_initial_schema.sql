@@ -102,8 +102,8 @@ CREATE TABLE IF NOT EXISTS workspace_ai_settings (
   default_model TEXT NOT NULL,
   reasoning_summary_mode TEXT NOT NULL DEFAULT 'auto'
     CHECK (reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed')),
-  reasoning_effort TEXT NOT NULL DEFAULT 'default'
-    CHECK (reasoning_effort IN ('default', 'low', 'medium', 'high')),
+  reasoning_effort TEXT NOT NULL DEFAULT 'low'
+    CHECK (reasoning_effort IN ('off', 'low', 'medium', 'high')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -360,8 +360,8 @@ CREATE TABLE IF NOT EXISTS runs (
   llm_model TEXT NOT NULL DEFAULT 'gpt-5.5',
   llm_reasoning_summary_mode TEXT NOT NULL DEFAULT 'auto'
     CHECK (llm_reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed')),
-  llm_reasoning_effort TEXT NOT NULL DEFAULT 'default'
-    CHECK (llm_reasoning_effort IN ('default', 'low', 'medium', 'high')),
+  llm_reasoning_effort TEXT NOT NULL DEFAULT 'low'
+    CHECK (llm_reasoning_effort IN ('off', 'low', 'medium', 'high')),
   tool_access_mode TEXT NOT NULL DEFAULT 'read_only',
   status TEXT NOT NULL,
   requested_at TIMESTAMPTZ NOT NULL,
@@ -866,3 +866,114 @@ CREATE INDEX IF NOT EXISTS admin_audit_events_token_idx
 
 CREATE INDEX IF NOT EXISTS admin_audit_events_action_idx
   ON admin_audit_events (action, occurred_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS target_skills (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  source_type TEXT NOT NULL CHECK (source_type IN ('manual', 'git_import')),
+  enabled BOOLEAN NOT NULL DEFAULT false,
+  validation_status TEXT NOT NULL CHECK (validation_status IN ('valid', 'invalid')),
+  validation_errors JSONB NOT NULL DEFAULT '[]'::jsonb,
+  file_count INTEGER NOT NULL CHECK (file_count >= 1 AND file_count <= 16),
+  total_bytes INTEGER NOT NULL CHECK (total_bytes >= 0 AND total_bytes <= 131072),
+  source_repo_url TEXT NULL,
+  source_ref TEXT NULL,
+  source_subpath TEXT NULL,
+  source_commit_sha TEXT NULL,
+  sync_status TEXT NOT NULL CHECK (sync_status IN ('not_applicable', 'current', 'modified')),
+  created_by TEXT NULL,
+  updated_by TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT target_skills_target_scope_unique UNIQUE (target_id, id),
+  CONSTRAINT target_skills_source_metadata_check CHECK (
+    (source_type = 'manual'
+      AND source_repo_url IS NULL
+      AND source_ref IS NULL
+      AND source_subpath IS NULL
+      AND source_commit_sha IS NULL
+      AND sync_status = 'not_applicable')
+    OR
+    (source_type = 'git_import'
+      AND source_repo_url IS NOT NULL
+      AND source_ref IS NOT NULL
+      AND sync_status IN ('current', 'modified'))
+  )
+);
+
+CREATE TABLE IF NOT EXISTS target_skill_files (
+  skill_id TEXT NOT NULL REFERENCES target_skills(id) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  content TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0 AND size_bytes <= 32768),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (skill_id, path),
+  CONSTRAINT target_skill_files_path_check CHECK (
+    path = 'SKILL.md'
+    OR (
+      path LIKE '%.md'
+      AND path NOT LIKE '/%'
+      AND path NOT LIKE '%/'
+      AND path NOT LIKE '%//%'
+      AND path NOT LIKE '../%'
+      AND path NOT LIKE '%/../%'
+      AND path NOT LIKE './%'
+      AND path NOT LIKE '%/./%'
+    )
+  )
+);
+
+CREATE TABLE IF NOT EXISTS run_skill_catalog_snapshots (
+  run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+  workspace_id TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  target_type TEXT NOT NULL CHECK (target_type IN ('kubernetes', 'virtual_machine')),
+  skill_count INTEGER NOT NULL CHECK (skill_count >= 0),
+  total_bytes INTEGER NOT NULL CHECK (total_bytes >= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS skill_snapshot_blobs (
+  content_hash TEXT PRIMARY KEY,
+  files JSONB NOT NULL,
+  file_count INTEGER NOT NULL CHECK (file_count >= 0),
+  total_bytes INTEGER NOT NULL CHECK (total_bytes >= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_referenced_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS run_skill_snapshots (
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  skill_ref TEXT NOT NULL,
+  skill_id TEXT NOT NULL,
+  content_hash TEXT NOT NULL REFERENCES skill_snapshot_blobs(content_hash),
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  source JSONB NOT NULL DEFAULT '{}'::jsonb,
+  file_count INTEGER NOT NULL CHECK (file_count >= 0),
+  total_bytes INTEGER NOT NULL CHECK (total_bytes >= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (run_id, skill_ref)
+);
+
+CREATE INDEX IF NOT EXISTS idx_target_skills_target_updated
+  ON target_skills (target_id, updated_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_target_skills_target_enabled_valid
+  ON target_skills (target_id, enabled, validation_status);
+
+CREATE INDEX IF NOT EXISTS idx_target_skill_files_skill_path
+  ON target_skill_files (skill_id, path);
+
+CREATE INDEX IF NOT EXISTS idx_run_skill_snapshots_content_hash
+  ON run_skill_snapshots (content_hash);
+
+CREATE INDEX IF NOT EXISTS idx_run_skill_snapshots_run_skill_id
+  ON run_skill_snapshots (run_id, skill_id);
+
+CREATE INDEX IF NOT EXISTS idx_skill_snapshot_blobs_last_referenced_at
+  ON skill_snapshot_blobs (last_referenced_at);
