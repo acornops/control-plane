@@ -305,7 +305,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         id: { type: 'string', enum: ['web_search'] },
         label: { type: 'string' },
         description: { type: 'string' },
-        enabled: { type: 'boolean' },
+        enabled: { type: 'boolean', default: true },
         capability: { type: 'string', enum: ['read', 'write'] },
         runtimeKind: { type: 'string', enum: ['provider_native'] },
         visibility: {

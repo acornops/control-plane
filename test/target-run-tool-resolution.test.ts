@@ -63,6 +63,7 @@ function installResolverRepoStubs(capabilities: string[] = ['read', 'write']): v
     capabilities
   });
   repo.listTargetToolOverrides = async () => ({});
+  repo.getTargetToolSetting = async () => null;
   repo.listEnabledTargetToolSettings = async () => [];
   repo.listEnabledValidTargetSkills = async () => [];
   repo.listEnabledValidTargetSkillSummaries = async () => [];
@@ -79,9 +80,13 @@ describe('target run tool resolution', () => {
 
   it('filters write tools for read-only runs and includes enabled native read tools', async () => {
     installResolverRepoStubs(['read', 'write']);
-    repo.listEnabledTargetToolSettings = async () => [
-      { targetId: 'target-1', toolId: 'web_search', enabled: true, config: { domainFilters: { allowedDomains: [], blockedDomains: [] } } }
-    ];
+    repo.getTargetToolSetting = async () => ({
+      targetId: 'target-1',
+      toolId: 'web_search',
+      enabled: true,
+      config: { domainFilters: { allowedDomains: [], blockedDomains: [] } },
+      updatedAt: '2026-05-24T00:00:00.000Z'
+    });
     mockToolList(BASE_TOOLS);
 
     const result = await resolveTargetRunTools({
@@ -106,6 +111,49 @@ describe('target run tool resolution', () => {
       configuredWrite: 1,
       excludedWrite: 1
     });
+  });
+
+  it('includes web search by default when no explicit target setting exists', async () => {
+    installResolverRepoStubs(['read', 'write']);
+    mockToolList([]);
+
+    const result = await resolveTargetRunTools({
+      workspaceId: 'workspace-1',
+      targetId: 'target-1',
+      targetType: 'virtual_machine',
+      toolAccessMode: 'read_only',
+      runId: 'run-1'
+    });
+
+    assert.deepEqual(result.allowedNativeTools, [
+      { id: 'web_search', config: { domainFilters: { allowedDomains: [], blockedDomains: [] } } }
+    ]);
+    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['web_search']);
+    assert.equal(result.summary.nativeAllowed, 1);
+  });
+
+  it('excludes web search when the target explicitly disables it', async () => {
+    installResolverRepoStubs(['read', 'write']);
+    repo.getTargetToolSetting = async () => ({
+      targetId: 'target-1',
+      toolId: 'web_search',
+      enabled: false,
+      config: { domainFilters: { allowedDomains: [], blockedDomains: [] } },
+      updatedAt: '2026-05-24T00:00:00.000Z'
+    });
+    mockToolList([]);
+
+    const result = await resolveTargetRunTools({
+      workspaceId: 'workspace-1',
+      targetId: 'target-1',
+      targetType: 'virtual_machine',
+      toolAccessMode: 'read_only',
+      runId: 'run-1'
+    });
+
+    assert.deepEqual(result.allowedNativeTools, []);
+    assert.deepEqual(result.previewItems, []);
+    assert.equal(result.summary.nativeAllowed, 0);
   });
 
   it('includes write tools for write-capable read-write runs and sanitizes bootstrap specs', async () => {
@@ -144,9 +192,13 @@ describe('target run tool resolution', () => {
       disabled_read: false,
       overridden_read: true
     });
-    repo.listEnabledTargetToolSettings = async () => [
-      { targetId: 'target-1', toolId: 'web_search', enabled: true, config: {} }
-    ];
+    repo.getTargetToolSetting = async () => ({
+      targetId: 'target-1',
+      toolId: 'web_search',
+      enabled: true,
+      config: {},
+      updatedAt: '2026-05-24T00:00:00.000Z'
+    });
     mockToolList([
       { ...BASE_TOOLS[0], name: 'z_write' },
       { ...BASE_TOOLS[0], name: 'z_write' },
@@ -189,7 +241,7 @@ describe('target run tool resolution', () => {
 
     assert.deepEqual(result.allowedToolNames, ['get_logs']);
     assert.deepEqual(result.allowedToolSpecs.map((tool) => tool.name), ['get_logs']);
-    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['get_logs']);
+    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['get_logs', 'web_search']);
   });
 
   it('filters write tools when the agent does not advertise write capability', async () => {
@@ -211,7 +263,7 @@ describe('target run tool resolution', () => {
 
   it('continues with function tools when native tool resolution fails', async () => {
     installResolverRepoStubs(['read', 'write']);
-    repo.listEnabledTargetToolSettings = async () => {
+    repo.getTargetToolSetting = async () => {
       throw new Error('native settings unavailable');
     };
     mockToolList(BASE_TOOLS);
@@ -314,9 +366,13 @@ describe('target assistant capabilities preview controller', () => {
     installWorkspace('operator');
     repo.getTarget = async () => createTarget({ id: 'target-1', name: 'vm', targetType: 'virtual_machine' });
     installResolverRepoStubs(['read', 'write']);
-    repo.listEnabledTargetToolSettings = async () => [
-      { targetId: 'target-1', toolId: 'web_search', enabled: true, config: {} }
-    ];
+    repo.getTargetToolSetting = async () => ({
+      targetId: 'target-1',
+      toolId: 'web_search',
+      enabled: true,
+      config: {},
+      updatedAt: '2026-05-24T00:00:00.000Z'
+    });
     repo.listEnabledValidTargetSkills = async () => {
       throw new Error('capabilities preview must not load full skill files');
     };

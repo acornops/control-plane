@@ -71,6 +71,7 @@ beforeEach(() => {
   });
   repo.listEnabledValidTargetSkills = async () => [];
   repo.getRunSkillCatalog = async () => [];
+  repo.getTargetToolSetting = async () => null;
   repo.listEnabledTargetToolSettings = async () => [];
 });
 

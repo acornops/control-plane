@@ -9,6 +9,19 @@ import { KUBERNETES_TARGET_TYPE, TargetType, ToolAccessMode } from '../types/dom
 
 export const WEB_SEARCH_TOOL_ID = 'web_search';
 
+function defaultWebSearchConfig(): Record<string, unknown> {
+  return {
+    domainFilters: {
+      allowedDomains: [],
+      blockedDomains: []
+    }
+  };
+}
+
+function webSearchConfig(config?: Record<string, unknown>): Record<string, unknown> {
+  return config || defaultWebSearchConfig();
+}
+
 export type ToolCapability = 'read' | 'write';
 export type ToolRuntimeKind = 'function' | 'provider_native';
 export type ToolPreviewSource = 'builtin' | 'mcp' | 'provider_native';
@@ -221,12 +234,13 @@ export async function resolveTargetRunTools(params: {
 
   let allowedNativeTools: TargetRunNativeTool[] = [];
   try {
-    allowedNativeTools = (await repo.listEnabledTargetToolSettings(targetId))
-      .filter((tool) => tool.toolId === WEB_SEARCH_TOOL_ID)
-      .map((tool) => ({
-        id: tool.toolId,
-        config: tool.config
-      }));
+    const webSearchSetting = await repo.getTargetToolSetting(targetId, WEB_SEARCH_TOOL_ID);
+    if (webSearchSetting?.enabled ?? true) {
+      allowedNativeTools = [{
+        id: WEB_SEARCH_TOOL_ID,
+        config: webSearchConfig(webSearchSetting?.config)
+      }];
+    }
   } catch (err) {
     logger.warn(
       {

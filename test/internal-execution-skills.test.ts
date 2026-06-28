@@ -26,6 +26,7 @@ describe('internal execution skill snapshots', () => {
     repo.getTargetAgentRegistration = async () => null;
     repo.getWorkspaceAiSettings = async () => null;
     repo.listTargetToolOverrides = async () => ({});
+    repo.getTargetToolSetting = async () => null;
     repo.listEnabledTargetToolSettings = async () => [];
     repo.listEnabledValidTargetSkills = async () => {
       throw new Error('bootstrap must not read live target skills');

@@ -52,6 +52,8 @@ describe('workspace AI settings controller', () => {
     const body = response.body as Record<string, unknown>;
     assert.equal(body.defaultProvider, 'openai');
     assert.equal(body.reasoningSummaryMode, 'auto');
+    assert.equal(body.reasoningEffort, 'low');
+    assert.deepEqual(body.allowedReasoningEfforts, ['off', 'low', 'medium', 'high']);
     assert.equal(body.reasoningSummariesEnabled, true);
     assert.deepEqual(body.allowedProviders, ['openai', 'anthropic', 'gemini']);
     assert.deepEqual(Object.keys(body.allowedProviderModels as Record<string, unknown>), ['openai', 'anthropic', 'gemini']);
