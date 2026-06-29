@@ -242,7 +242,10 @@ Workspace invitations are token-backed join links. Creating an invitation return
 - `POST /api/v1/workspaces/{workspaceId}/agents`
 - `GET /api/v1/agents/{agentId}?workspaceId={workspaceId}`
 - `PATCH /api/v1/agents/{agentId}`
+- `DELETE /api/v1/agents/{agentId}`
+- `GET /api/v1/agents/{agentId}/versions`
 - `POST /api/v1/agents/{agentId}/versions`
+- `POST /api/v1/agents/{agentId}/versions/{versionId}/restore`
 - `POST /api/v1/agents/{agentId}/test`
 - `GET /api/v1/agents/{agentId}/activity`
 - `POST /api/v1/agents/{agentId}/triggers`
@@ -250,10 +253,19 @@ Workspace invitations are token-backed join links. Creating an invitation return
 - `DELETE /api/v1/agents/{agentId}/triggers/{triggerId}`
 
 Agent mutations require `permissions.manage_agents`. Data-read users may list
-and inspect active agents. Agent definitions include stable identity,
+and inspect active agents by default; management views can request
+`includeInactive=true` to include draft and disabled definitions for review or
+reactivation. Agent routes outside the workspace path require `workspaceId` in
+the query string for reads and in the JSON body for mutations. Only unassigned
+custom agents may be deleted; system agents and
+agents referenced by workflow steps return a conflict. Agent definitions include stable identity,
 instructions, status, provider type, version, owner, MCP servers, tools,
 skills, context grants, target scope, approval policy, trust policy, triggers,
-and activity summary. External provider agents use restricted trust defaults
+activity summary, derived `capabilities[]`, and `workflowsUsingAgent[]`.
+`capabilities[]` entries use `{source,providerAgentId?,resourceType,resourceScope,toolId?,operation,requiresApproval}`.
+Agent create, update, delete, version snapshot, restore,
+and trigger mutations emit workspace audit events with agent id, version, status,
+and trigger metadata when applicable. External provider agents use restricted trust defaults
 and cannot self-expand tools, MCP servers, skills, context grants, target
 scopes, approval policy, or external data access beyond server-owned catalogs.
 Workflow steps may assign `assignedAgentIds`; runtime scope is the

@@ -49,6 +49,16 @@ export interface AgentActivitySummary {
   lastStatus?: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 }
 
+export interface AgentCapability {
+  source: 'builtin_tool' | 'mcp_tool' | 'skill' | 'context' | 'target';
+  providerAgentId?: string;
+  resourceType: string;
+  resourceScope: string;
+  toolId?: string;
+  operation: WorkspaceAuditOperation;
+  requiresApproval: boolean;
+}
+
 export interface AgentDefinition {
   id: string;
   workspaceId: string;
@@ -73,6 +83,11 @@ export interface AgentDefinition {
   triggers: AgentTriggerDefinition[];
   activity: AgentActivitySummary;
 }
+
+export type AgentDefinitionResponse = AgentDefinition & {
+  capabilities: AgentCapability[];
+  workflowsUsingAgent: string[];
+};
 
 export interface AgentVersionSnapshot {
   id: string;

@@ -233,6 +233,16 @@ export function getAgentDefinition(workspaceId: string, agentId: string): AgentD
   return agent ? cloneAgent(agent) : null;
 }
 
+export function deleteAgentDefinition(workspaceId: string, agentId: string): boolean {
+  const agents = workspaceAgents(workspaceId);
+  const deleted = agents.delete(agentId);
+  if (deleted) {
+    versionsByAgent.delete(agentId);
+    activityByAgent.delete(agentId);
+  }
+  return deleted;
+}
+
 export function createAgentDefinition(input: CreateAgentDefinitionInput): AgentDefinition {
   const agents = workspaceAgents(input.workspaceId);
   const idBase = `agent-${slug(input.name, 'custom')}`;
@@ -318,7 +328,27 @@ export function createAgentVersionSnapshot(workspaceId: string, agentId: string,
 export function listAgentVersionSnapshots(workspaceId: string, agentId: string): AgentVersionSnapshot[] {
   return (versionsByAgent.get(agentId) || [])
     .filter((version) => version.workspaceId === workspaceId)
+    .slice()
+    .reverse()
     .map(cloneVersion);
+}
+
+export function restoreAgentVersionSnapshot(workspaceId: string, agentId: string, versionId: string): AgentDefinition | null {
+  const agents = workspaceAgents(workspaceId);
+  const current = agents.get(agentId);
+  if (!current) return null;
+  const version = (versionsByAgent.get(agentId) || [])
+    .find((candidate) => candidate.workspaceId === workspaceId && candidate.id === versionId);
+  if (!version) return null;
+  const restored: AgentDefinition = {
+    ...cloneAgent(version.snapshot),
+    id: current.id,
+    workspaceId,
+    version: current.version + 1,
+    updatedAt: nowIso()
+  };
+  agents.set(agentId, restored);
+  return cloneAgent(restored);
 }
 
 export function createAgentTrigger(workspaceId: string, agentId: string, input: CreateAgentTriggerInput): AgentTriggerDefinition | null {

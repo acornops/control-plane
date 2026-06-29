@@ -9,7 +9,10 @@ agentsRouter.get('/workspaces/:workspaceId/agents', requireUser, authed(agentsCo
 agentsRouter.post('/workspaces/:workspaceId/agents', requireUser, authed(agentsController.createAgent));
 agentsRouter.get('/agents/:agentId', requireUser, authed(agentsController.getAgent));
 agentsRouter.patch('/agents/:agentId', requireUser, authed(agentsController.updateAgent));
+agentsRouter.delete('/agents/:agentId', requireUser, authed(agentsController.deleteAgent));
+agentsRouter.get('/agents/:agentId/versions', requireUser, authed(agentsController.listAgentVersions));
 agentsRouter.post('/agents/:agentId/versions', requireUser, authed(agentsController.createAgentVersion));
+agentsRouter.post('/agents/:agentId/versions/:versionId/restore', requireUser, authed(agentsController.restoreAgentVersion));
 agentsRouter.post('/agents/:agentId/test', requireUser, authed(agentsController.testAgent));
 agentsRouter.get('/agents/:agentId/activity', requireUser, authed(agentsController.listAgentActivity));
 agentsRouter.post('/agents/:agentId/triggers', requireUser, authed(agentsController.createAgentTrigger));

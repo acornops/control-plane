@@ -23,10 +23,26 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         targetScope: jsonObject,
         approvalPolicy: jsonObject,
         trustPolicy: jsonObject,
+        capabilities: { type: 'array', items: schemaRef('AgentCapability') },
+        workflowsUsingAgent: stringArray,
         triggers: { type: 'array', items: schemaRef('AgentTrigger') },
         activity: jsonObject,
         createdAt: dateTime,
         updatedAt: dateTime
+      },
+      additionalProperties: true
+    },
+    AgentCapability: {
+      type: 'object',
+      required: ['source', 'resourceType', 'resourceScope', 'operation', 'requiresApproval'],
+      properties: {
+        source: { type: 'string', enum: ['builtin_tool', 'mcp_tool', 'skill', 'context', 'target'] },
+        providerAgentId: { type: 'string' },
+        resourceType: { type: 'string' },
+        resourceScope: { type: 'string' },
+        toolId: { type: 'string' },
+        operation: { type: 'string', enum: ['read', 'write'] },
+        requiresApproval: { type: 'boolean' }
       },
       additionalProperties: true
     },
@@ -39,6 +55,7 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         instructions: { type: 'string' },
         status: { type: 'string', enum: ['active', 'disabled', 'draft'] },
         providerType: { type: 'string', enum: ['internal', 'external'] },
+        ownerUserId: { type: 'string' },
         mcpServers: stringArray,
         tools: stringArray,
         skills: stringArray,
@@ -81,6 +98,20 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: true
     },
+    AgentVersionSnapshot: {
+      type: 'object',
+      required: ['id', 'agentId', 'workspaceId', 'version', 'snapshot', 'createdBy', 'createdAt'],
+      properties: {
+        id: { type: 'string' },
+        agentId: { type: 'string' },
+        workspaceId: { type: 'string' },
+        version: { type: 'integer' },
+        snapshot: schemaRef('AgentDefinition'),
+        createdBy: { type: 'string' },
+        createdAt: dateTime
+      },
+      additionalProperties: true
+    },
     AgentList: {
       type: 'object',
       required: ['items'],
@@ -94,7 +125,12 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
     AgentVersionResponse: {
       type: 'object',
       required: ['version'],
-      properties: { version: jsonObject }
+      properties: { version: schemaRef('AgentVersionSnapshot') }
+    },
+    AgentVersionList: {
+      type: 'object',
+      required: ['items'],
+      properties: { items: { type: 'array', items: schemaRef('AgentVersionSnapshot') } }
     },
     AgentTestResponse: {
       type: 'object',
