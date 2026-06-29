@@ -28,15 +28,17 @@ Postgres is the source of truth.
 ## Retrieval
 
 Retrieval is lexical and deterministic. It does not use embeddings, a vector database, or provider-specific embedding models.
+Direct text matching is intentionally conservative: high-signal identifiers can match alone, while ordinary text terms require multi-term overlap or a phrase-level match to avoid broad one-word memory hits.
 
 The control plane searches only `active` entries for the current target. Ranking combines:
 
 - Postgres full-text rank over title, Markdown body, and evidence summary.
+- Controlled overlap between meaningful query terms and title, Markdown body, or evidence summary.
 - Exact overlap between query terms and entry tags.
 - Exact overlap against normalized signal and scope keys or values.
 - Confidence, observation count, scope specificity, and recency.
 
-If no entries match, no Knowledge Bank context is injected. If entries match, the control plane injects a compact system context block and returns snippet metadata in the run context. The execution engine emits a `knowledge_context_retrieved` run event so run details can show what was retrieved.
+If no entries match, no Knowledge Bank context is injected. If entries match, the control plane injects a compact system context block and returns snippet metadata in the run context. The run context also includes a Knowledge Bank retrieval status so the execution engine can emit a `knowledge_context_retrieved` run event for hits, misses, disabled/skipped retrieval, and retrieval errors.
 
 ## Learning
 

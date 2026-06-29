@@ -754,6 +754,7 @@ Context response contract:
 - `messages[]` with `{role, content}`
 - `summaries[]`
 - `attachments[]`
+- `knowledge_bank.retrieval_status` with `hit`, `miss`, `skipped`, `disabled`, or `error` when Knowledge Bank was evaluated for a run.
 - `knowledge_bank.snippets[]` with retrieved Knowledge Bank entry metadata for run detail transparency.
 
 Event ingestion contract:

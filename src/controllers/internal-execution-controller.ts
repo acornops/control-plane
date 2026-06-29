@@ -43,6 +43,8 @@ function buildKnowledgeBankContextMessage(snippets: Awaited<ReturnType<typeof re
   ].join('\n');
 }
 
+type KnowledgeBankRetrievalStatus = 'disabled' | 'skipped' | 'hit' | 'miss' | 'error';
+
 export async function getRunSkillSnapshot(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
@@ -94,6 +96,7 @@ export async function getSessionContext(req: Request, res: Response, next: NextF
 
     const messagesPage = await repo.listMessages(sessionId);
     let knowledgeSnippets: Awaited<ReturnType<typeof repo.searchKnowledgeBankSnippets>> = [];
+    let knowledgeRetrievalStatus: KnowledgeBankRetrievalStatus = config.KNOWLEDGE_BANK_ENABLED ? 'skipped' : 'disabled';
     if (config.KNOWLEDGE_BANK_ENABLED && run) {
       try {
         const setting = await repo.getTargetToolSetting(session.targetId, KNOWLEDGE_BANK_TOOL_ID);
@@ -107,12 +110,15 @@ export async function getSessionContext(req: Request, res: Response, next: NextF
             limit: toolConfig.retrieval.maxSnippetsPerRetrieval,
             maxSnippetSizeBytes: toolConfig.retrieval.maxSnippetSizeBytes
           });
+          knowledgeRetrievalStatus = knowledgeSnippets.length > 0 ? 'hit' : 'miss';
           incrementKnowledgeBankRetrieval(knowledgeSnippets.length > 0 ? 'hit' : 'miss');
         } else {
+          knowledgeRetrievalStatus = 'skipped';
           incrementKnowledgeBankRetrieval('skipped');
         }
       } catch (err) {
         knowledgeSnippets = [];
+        knowledgeRetrievalStatus = 'error';
         incrementKnowledgeBankRetrieval('error');
         logger.warn({
           err,
@@ -138,6 +144,7 @@ export async function getSessionContext(req: Request, res: Response, next: NextF
       summaries: [],
       attachments: [],
       knowledge_bank: {
+        retrieval_status: knowledgeRetrievalStatus,
         snippets: knowledgeSnippets.map((snippet) => ({
           entry_id: snippet.entryId,
           title: snippet.title,

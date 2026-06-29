@@ -33,6 +33,66 @@ interface KnowledgeBankEntryRow {
   updated_at: Date;
 }
 
+interface ExtractedKnowledgeQueryTerms {
+  terms: string[];
+  strongTerms: string[];
+}
+
+const KNOWLEDGE_QUERY_STOP_WORDS = new Set(`
+  a an the i me my we our ours you your yours
+  is are was were be been being
+  do does did have has had can could should would will
+  what why how when where which who
+  about for from with without into onto over under
+  this that these those there here
+  please show tell check find get got getting know
+  need needs want wants looking look explain
+  knowledge bank memory note notes file files
+`.trim().split(/\s+/));
+
+function normalizeKnowledgeQueryToken(token: string): string {
+  return token
+    .trim()
+    .toLowerCase()
+    .replace(/^['"`([{<]+|['"`\])}>.,!?;:]+$/g, '');
+}
+
+function isStrongKnowledgeQueryToken(rawToken: string, normalized: string): boolean {
+  return normalized.length >= 14 ||
+    /\d/.test(normalized) ||
+    /[_./:-]/.test(rawToken) ||
+    /[a-z][A-Z]/.test(rawToken) ||
+    /^[A-Z0-9_/-]{3,}$/.test(rawToken);
+}
+
+export function extractKnowledgeQueryTerms(query: string): ExtractedKnowledgeQueryTerms {
+  const terms: string[] = [];
+  const strongTerms: string[] = [];
+  const seen = new Set<string>();
+  const rawTokens = query.match(/[A-Za-z0-9][A-Za-z0-9_.:/-]*/g) || [];
+
+  for (const rawToken of rawTokens) {
+    const normalized = normalizeKnowledgeQueryToken(rawToken);
+    if (
+      normalized.length < 3 ||
+      KNOWLEDGE_QUERY_STOP_WORDS.has(normalized) ||
+      seen.has(normalized)
+    ) {
+      continue;
+    }
+    seen.add(normalized);
+    terms.push(normalized);
+    if (isStrongKnowledgeQueryToken(rawToken, normalized)) {
+      strongTerms.push(normalized);
+    }
+    if (terms.length >= 32) {
+      break;
+    }
+  }
+
+  return { terms, strongTerms };
+}
+
 function iso(value: Date | string | null | undefined): string | undefined {
   if (!value) return undefined;
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -229,18 +289,26 @@ export async function searchKnowledgeBankSnippets(
   }
   const limit = Math.max(1, Math.min(8, options.limit));
   const maxBytes = Math.max(512, Math.min(4096, options.maxSnippetSizeBytes));
-  const queryTerms = [
-    ...new Set(trimmed.toLowerCase().split(/[^a-z0-9_.-]+/).filter((term) => term.length >= 2))
-  ].slice(0, 64);
+  const queryTerms = extractKnowledgeQueryTerms(trimmed);
   const result = await db.query<KnowledgeBankEntryRow & {
     rank: string | number;
     tag_overlap: string | number;
     signal_overlap: string | number;
     scope_overlap: string | number;
+    strong_text_term_overlap: string | number;
+    text_term_overlap: string | number;
     scope_specificity: string | number;
   }>(
-    `WITH search AS (
-       SELECT plainto_tsquery('simple', $3) AS query, $5::text[] AS terms
+     `WITH search AS (
+       SELECT plainto_tsquery('simple', $3) AS query,
+         $5::text[] AS terms,
+         $6::text[] AS strong_terms,
+         $7::int AS min_text_term_overlap,
+         (
+           CARDINALITY($6::text[]) > 0
+           OR CARDINALITY($5::text[]) >= $7::int
+           OR (CARDINALITY($5::text[]) > 0 AND POSITION(' ' IN BTRIM($3)) > 0)
+         ) AS allow_direct_text_match
      ),
      entries AS (
        SELECT
@@ -252,42 +320,57 @@ export async function searchKnowledgeBankSnippets(
          AND e.target_id = $2
          AND e.status = 'active'
      )
-     SELECT e.*,
-       ts_rank(e.search_document, search.query) AS rank,
-       (
-         SELECT COUNT(*)::int
-         FROM unnest(e.tags) AS tag
-         WHERE tag = ANY(search.terms)
-       ) AS tag_overlap,
-       (
-         SELECT COUNT(*)::int
-         FROM jsonb_each_text(e.signals) AS signal(key, value)
-         WHERE LOWER(signal.key) = ANY(search.terms)
-            OR LOWER(signal.value) = ANY(search.terms)
-       ) AS signal_overlap,
-       (
-         SELECT COUNT(*)::int
-         FROM jsonb_each_text(e.scope) AS scope(key, value)
-         WHERE LOWER(scope.key) = ANY(search.terms)
-            OR LOWER(scope.value) = ANY(search.terms)
-       ) AS scope_overlap,
-       (
-         SELECT COUNT(*)::int
-         FROM jsonb_object_keys(e.scope) AS scope_key
-       ) AS scope_specificity
-     FROM entries e, search
-     WHERE e.search_document @@ search.query
-        OR e.search_text LIKE '%' || LOWER($3) || '%'
-        OR e.tags && search.terms
+     SELECT scored.*
+     FROM (
+       SELECT e.*,
+         ts_rank(e.search_document, search.query) AS rank,
+         (
+           SELECT COUNT(*)::int
+           FROM unnest(e.tags) AS tag
+           WHERE tag = ANY(search.terms)
+         ) AS tag_overlap,
+         (
+           SELECT COUNT(*)::int
+           FROM jsonb_each_text(e.signals) AS signal(key, value)
+           WHERE LOWER(signal.key) = ANY(search.terms)
+              OR LOWER(signal.value) = ANY(search.terms)
+         ) AS signal_overlap,
+         (
+           SELECT COUNT(*)::int
+           FROM jsonb_each_text(e.scope) AS scope(key, value)
+           WHERE LOWER(scope.key) = ANY(search.terms)
+              OR LOWER(scope.value) = ANY(search.terms)
+         ) AS scope_overlap,
+         (
+           SELECT COUNT(*)::int
+           FROM unnest(search.terms) AS term
+           WHERE POSITION(term IN e.search_text) > 0
+         ) AS text_term_overlap,
+         (
+           SELECT COUNT(*)::int
+           FROM unnest(search.strong_terms) AS term
+           WHERE POSITION(term IN e.search_text) > 0
+         ) AS strong_text_term_overlap,
+         (
+           SELECT COUNT(*)::int
+           FROM jsonb_object_keys(e.scope) AS scope_key
+         ) AS scope_specificity
+       FROM entries e, search
+     ) scored, search
+     WHERE (search.allow_direct_text_match AND scored.search_document @@ search.query)
+        OR (search.allow_direct_text_match AND POSITION(LOWER($3) IN scored.search_text) > 0)
+        OR scored.tags && search.terms
+        OR scored.strong_text_term_overlap > 0
+        OR scored.text_term_overlap >= search.min_text_term_overlap
         OR EXISTS (
           SELECT 1
-          FROM jsonb_each_text(e.signals) AS signal(key, value)
+          FROM jsonb_each_text(scored.signals) AS signal(key, value)
           WHERE LOWER(signal.key) = ANY(search.terms)
              OR LOWER(signal.value) = ANY(search.terms)
         )
         OR EXISTS (
           SELECT 1
-          FROM jsonb_each_text(e.scope) AS scope(key, value)
+          FROM jsonb_each_text(scored.scope) AS scope(key, value)
           WHERE LOWER(scope.key) = ANY(search.terms)
              OR LOWER(scope.value) = ANY(search.terms)
         )
@@ -296,12 +379,14 @@ export async function searchKnowledgeBankSnippets(
        tag_overlap DESC,
        signal_overlap DESC,
        scope_overlap DESC,
-       e.confidence DESC,
-       e.observation_count DESC,
+       strong_text_term_overlap DESC,
+       text_term_overlap DESC,
+       confidence DESC,
+       observation_count DESC,
        scope_specificity DESC,
-       e.updated_at DESC
+       updated_at DESC
      LIMIT $4`,
-    [workspaceId, targetId, trimmed, limit, queryTerms.length > 0 ? queryTerms : [trimmed.toLowerCase()]]
+    [workspaceId, targetId, trimmed, limit, queryTerms.terms, queryTerms.strongTerms, 2]
   );
 
   return result.rows.map((row) => {
@@ -310,6 +395,8 @@ export async function searchKnowledgeBankSnippets(
     const tagOverlap = Number(row.tag_overlap || 0);
     const signalOverlap = Number(row.signal_overlap || 0);
     const scopeOverlap = Number(row.scope_overlap || 0);
+    const strongTextTermOverlap = Number(row.strong_text_term_overlap || 0);
+    const textTermOverlap = Number(row.text_term_overlap || 0);
     const scopeSpecificity = Number(row.scope_specificity || 0);
     return {
       entryId: entry.id,
@@ -323,6 +410,8 @@ export async function searchKnowledgeBankSnippets(
       observationCount: entry.observationCount,
       score: Number(row.rank || 0) +
         (tagOverlap + signalOverlap + scopeOverlap) * 0.2 +
+        strongTextTermOverlap * 0.16 +
+        textTermOverlap * 0.08 +
         entry.confidence +
         Math.min(entry.observationCount, 10) / 20 +
         Math.min(scopeSpecificity, 5) / 100,
