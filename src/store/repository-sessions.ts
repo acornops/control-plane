@@ -16,6 +16,7 @@ import {
 import { withTransaction } from './repository-transaction.js';
 import { PagedResult, encodeCursor, pageWithCursor } from '../utils/pagination.js';
 import { createRunSkillSnapshotInTransaction } from './repository-run-skill-snapshots.js';
+import { scheduleKnowledgeBankCheckpointJobForSessionActivity } from './repository-knowledge-bank-checkpoints.js';
 
 const runSelect = `
   SELECT r.*, t.target_type
@@ -169,6 +170,7 @@ export async function addMessage(
        SELECT * FROM inserted`,
       [id, sessionId, runId || null, role, kind, content, JSON.stringify(null), clientMessageId || null, now, expiresAt]
     );
+    await scheduleKnowledgeBankCheckpointJobForSessionActivity(sessionId, now);
     return mapMessage(result.rows[0]);
   }
 export async function listMessages(
@@ -356,6 +358,7 @@ export async function createRunFromUserMessage(params: {
          WHERE id = $1`,
         [params.sessionId, now, expiresAt]
       );
+      await scheduleKnowledgeBankCheckpointJobForSessionActivity(params.sessionId, now, client);
 
       return {
         message: mapMessage(insertedMessageResult.rows[0] as MessageRow),
@@ -413,6 +416,7 @@ export async function upsertAssistantFinalMessage(sessionId: string, runId: stri
          WHERE id = $1`,
         [sessionId, now, expiresAt]
       );
+      await scheduleKnowledgeBankCheckpointJobForSessionActivity(sessionId, now, client);
       return mapMessage(messageRow);
     });
   }

@@ -13,14 +13,14 @@ Knowledge Bank is a target-scoped built-in assistant tool that improves future t
 - Durable updates never happen inside a live assistant run. Runs can retrieve active snippets and show those snippets in run details.
 - Background learning needs configured AI settings. Missing credentials or disallowed model policy pauses learning but does not break viewing, editing, retrieval, or assistant runs.
 - Target tool listing must stay fast and must not perform live LLM gateway credential checks. The tool readiness shown in the catalog is a local policy/configuration check. The checkpoint worker performs the authoritative credential check when it actually learns.
-- Reset hard-deletes the target's Knowledge Bank entries and checkpoint state. Audit and run history remain intact.
+- Reset hard-deletes the target's Knowledge Bank entries and checkpoint jobs. Audit and run history remain intact.
 
 ## Data Model
 
 Postgres is the source of truth.
 
 - `target_knowledge_entries` stores target-scoped Markdown entries plus structured metadata: status, tags, signals, scope, evidence summary, observation count, confidence, first and last observed timestamps, and normal timestamps.
-- `target_knowledge_checkpoint_state` stores per-session checkpoint watermarks, leases, retry state, and last processing status.
+- `target_knowledge_checkpoint_jobs` stores one durable checkpoint job per workspace, target, and session. Each job records the last observed session activity, due time, processing status, lease, retry state, attempt count, and last error.
 - Entry statuses are `active`, `pending`, and `archived`.
 - Evidence is stored as concise summaries and normalized signals. Source run IDs are intentionally not stored in knowledge entries; audit and run history remain the evidence trail.
 - OKF-style Markdown with YAML frontmatter is the portability and export format.
@@ -42,11 +42,15 @@ If no entries match, no Knowledge Bank context is injected. If entries match, th
 
 The control plane owns checkpoint scheduling and persistence.
 
-- Candidate sessions must be expired past the configured idle delay, have no active run, and have no pending approval.
-- The worker claims a checkpoint lease before processing. If the coarse candidate scan sees the session too early for the target's configured delay, the worker releases the lease with a retry time.
+- Message activity upserts a durable checkpoint job for the session. The job due time is computed from the target's configured idle delay, so the worker does not need to scan all sessions to discover work.
+- A lightweight periodic worker claims only due jobs with `FOR UPDATE SKIP LOCKED`. The existing process-level Redis lease still prevents every control-plane replica from starting the same sweep at once; the database job lease is the durable source of truth. Expired `processing` leases are reclaimable after worker crashes.
+- Claimed jobs must still have no active run and no pending approval. If a run or approval is active, the worker reschedules the job instead of learning from an in-progress conversation.
+- If newer session activity appears after a job was claimed, the worker requeues the latest activity and abandons the stale job before calling the LLM.
+- If target tool settings change the idle delay after a job was enqueued, the worker recomputes eligibility from the current config before learning and reschedules early jobs.
 - The worker resolves the checkpoint model from the target tool config. The default is the workspace default model. A custom provider/model must pass existing AI policy and credential checks.
 - If AI settings are missing or invalid, the checkpoint is skipped with a Knowledge Bank audit event and marked processed for the current session activity. New session activity or admin changes to AI settings, provider credentials, or Knowledge Bank tool settings can make it eligible again.
 - The worker asks the model for a constrained JSON patch, validates the patch, and applies deterministic create, update, archive, or noop operations.
+- After the model returns a patch, the worker renews the database job lease and applies entry mutations plus checkpoint completion in one short transaction. If the lease was lost, expired, or invalidated by newer session activity, the patch is not applied.
 - Pending entries auto-promote to active when repeated evidence reaches `minimumObservationsBeforeGeneralization`.
 - Repeated namespace-specific or host-specific observations are protected by a deterministic generalization layer. If a model proposes a new entry that materially overlaps an existing non-archived entry by tags, normalized signals, and title terms, the worker updates the existing entry instead of creating a duplicate.
 - Generalization preserves shared scope fields and drops conflicting narrow fields such as `namespace`, `pod`, `node`, or `host`. This turns repeated evidence like "registry 401 in namespace A" and "registry 401 in namespace B" into a broader target entry while keeping normalized signals such as `error=401` and `component=image-pull`.

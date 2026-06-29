@@ -369,17 +369,27 @@ CREATE TABLE IF NOT EXISTS sessions (
   deleted_at TIMESTAMPTZ NULL
 );
 
-CREATE TABLE IF NOT EXISTS target_knowledge_checkpoint_state (
+CREATE TABLE IF NOT EXISTS target_knowledge_checkpoint_jobs (
   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-  last_processed_activity_at TIMESTAMPTZ NULL,
+  target_type TEXT NOT NULL,
+  last_activity_at TIMESTAMPTZ NOT NULL,
+  due_at TIMESTAMPTZ NULL,
+  status TEXT NOT NULL DEFAULT 'queued',
   lease_owner TEXT NULL,
   lease_expires_at TIMESTAMPTZ NULL,
-  last_status TEXT NULL,
   last_error TEXT NULL,
   retry_after TIMESTAMPTZ NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT target_knowledge_checkpoint_jobs_status_check
+    CHECK (status IN ('queued', 'processing', 'applied', 'noop', 'skipped', 'failed')),
+  CONSTRAINT target_knowledge_checkpoint_jobs_target_type_check
+    CHECK (target_type IN ('kubernetes', 'virtual_machine')),
+  CONSTRAINT target_knowledge_checkpoint_jobs_attempts_check
+    CHECK (attempts >= 0),
   PRIMARY KEY (workspace_id, target_id, session_id)
 );
 
@@ -824,8 +834,12 @@ CREATE INDEX IF NOT EXISTS idx_target_knowledge_entries_search
 CREATE INDEX IF NOT EXISTS idx_target_knowledge_entries_tags
   ON target_knowledge_entries USING GIN (tags);
 
-CREATE INDEX IF NOT EXISTS idx_target_knowledge_checkpoint_state_retry
-  ON target_knowledge_checkpoint_state (retry_after, lease_expires_at);
+CREATE INDEX IF NOT EXISTS idx_target_knowledge_checkpoint_jobs_due
+  ON target_knowledge_checkpoint_jobs (status, due_at, retry_after, lease_expires_at)
+  WHERE due_at IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_target_knowledge_checkpoint_jobs_target
+  ON target_knowledge_checkpoint_jobs (workspace_id, target_id, updated_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_inventory_items_target_sort
   ON target_inventory_items (target_id, sort_key);

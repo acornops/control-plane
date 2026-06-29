@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { PoolClient } from 'pg';
 import { db } from '../infra/db.js';
 import {
   KnowledgeBankEntry,
@@ -8,6 +9,8 @@ import {
   KnowledgeBankSnippet
 } from '../types/knowledge-bank.js';
 import { TargetType } from '../types/domain.js';
+
+type Queryable = Pick<typeof db, 'query'> | PoolClient;
 
 interface KnowledgeBankEntryRow {
   id: string;
@@ -92,9 +95,10 @@ export async function listKnowledgeBankEntries(
 export async function getKnowledgeBankEntry(
   workspaceId: string,
   targetId: string,
-  entryId: string
+  entryId: string,
+  queryable: Queryable = db
 ): Promise<KnowledgeBankEntry | null> {
-  const result = await db.query(
+  const result = await queryable.query(
     `SELECT *
      FROM target_knowledge_entries
      WHERE workspace_id = $1 AND target_id = $2 AND id = $3`,
@@ -103,9 +107,9 @@ export async function getKnowledgeBankEntry(
   return result.rows[0] ? mapEntry(result.rows[0] as KnowledgeBankEntryRow) : null;
 }
 
-export async function createKnowledgeBankEntry(input: KnowledgeBankEntryInput): Promise<KnowledgeBankEntry> {
+export async function createKnowledgeBankEntry(input: KnowledgeBankEntryInput, queryable: Queryable = db): Promise<KnowledgeBankEntry> {
   const id = randomUUID();
-  const result = await db.query(
+  const result = await queryable.query(
     `INSERT INTO target_knowledge_entries (
        id, workspace_id, target_id, target_type, title, status, body_markdown,
        frontmatter, tags, signals, scope, evidence_summary, observation_count,
@@ -141,9 +145,10 @@ export async function updateKnowledgeBankEntry(
   workspaceId: string,
   targetId: string,
   entryId: string,
-  patch: KnowledgeBankEntryPatch
+  patch: KnowledgeBankEntryPatch,
+  queryable: Queryable = db
 ): Promise<KnowledgeBankEntry | null> {
-  const current = await getKnowledgeBankEntry(workspaceId, targetId, entryId);
+  const current = await getKnowledgeBankEntry(workspaceId, targetId, entryId, queryable);
   if (!current) return null;
   const next = {
     title: patch.title ?? current.title,
@@ -159,7 +164,7 @@ export async function updateKnowledgeBankEntry(
     firstObservedAt: patch.firstObservedAt === undefined ? current.firstObservedAt || null : patch.firstObservedAt,
     lastObservedAt: patch.lastObservedAt === undefined ? current.lastObservedAt || null : patch.lastObservedAt
   };
-  const result = await db.query(
+  const result = await queryable.query(
     `UPDATE target_knowledge_entries
      SET title = $4,
          status = $5,
@@ -203,7 +208,7 @@ export async function resetKnowledgeBank(workspaceId: string, targetId: string):
     [workspaceId, targetId]
   );
   const checkpoints = await db.query(
-    'DELETE FROM target_knowledge_checkpoint_state WHERE workspace_id = $1 AND target_id = $2',
+    'DELETE FROM target_knowledge_checkpoint_jobs WHERE workspace_id = $1 AND target_id = $2',
     [workspaceId, targetId]
   );
   return {
@@ -324,149 +329,4 @@ export async function searchKnowledgeBankSnippets(
       updatedAt: entry.updatedAt
     };
   });
-}
-
-export interface KnowledgeBankCheckpointCandidate {
-  workspaceId: string;
-  targetId: string;
-  targetType: TargetType;
-  sessionId: string;
-  lastMessageAt: string;
-  config: Record<string, unknown>;
-  lastProcessedActivityAt?: string;
-}
-
-interface KnowledgeBankCheckpointCandidateRow {
-  workspace_id: string;
-  target_id: string;
-  target_type: TargetType;
-  session_id: string;
-  last_message_at: Date;
-  config_json: Record<string, unknown> | null;
-  last_processed_activity_at: Date | null;
-}
-
-export async function listKnowledgeBankCheckpointCandidates(limit = 50): Promise<KnowledgeBankCheckpointCandidate[]> {
-  const result = await db.query<KnowledgeBankCheckpointCandidateRow>(
-    `SELECT
-       s.workspace_id,
-       s.target_id,
-       t.target_type,
-       s.id AS session_id,
-       s.last_message_at,
-       setting.config_json,
-       state.last_processed_activity_at
-     FROM sessions s
-     JOIN targets t ON t.id = s.target_id
-     LEFT JOIN target_tool_settings setting
-       ON setting.target_id = s.target_id AND setting.tool_id = 'knowledge_bank'
-     LEFT JOIN target_knowledge_checkpoint_state state
-       ON state.workspace_id = s.workspace_id AND state.target_id = s.target_id AND state.session_id = s.id
-     WHERE s.deleted_at IS NULL
-       AND s.expires_at > NOW()
-       AND s.last_message_at < NOW() - INTERVAL '5 minutes'
-       AND COALESCE(setting.enabled, TRUE) = TRUE
-       AND (state.retry_after IS NULL OR state.retry_after <= NOW())
-       AND (state.lease_expires_at IS NULL OR state.lease_expires_at <= NOW())
-       AND (state.last_processed_activity_at IS NULL OR s.last_message_at > state.last_processed_activity_at)
-       AND NOT EXISTS (
-         SELECT 1
-         FROM runs r
-         WHERE r.session_id = s.id
-           AND r.status IN ('queued', 'dispatching', 'running', 'waiting_for_approval', 'cancelling')
-       )
-       AND NOT EXISTS (
-         SELECT 1
-         FROM run_tool_approvals a
-         JOIN runs r ON r.id = a.run_id
-         WHERE r.session_id = s.id
-           AND a.status = 'pending'
-       )
-     ORDER BY s.last_message_at ASC
-     LIMIT $1`,
-    [Math.max(1, Math.min(200, limit))]
-  );
-  return result.rows.map((row) => ({
-    workspaceId: row.workspace_id,
-    targetId: row.target_id,
-    targetType: row.target_type,
-    sessionId: row.session_id,
-    lastMessageAt: row.last_message_at.toISOString(),
-    config: row.config_json || {},
-    lastProcessedActivityAt: iso(row.last_processed_activity_at)
-  }));
-}
-
-export async function claimKnowledgeBankCheckpoint(
-  candidate: KnowledgeBankCheckpointCandidate,
-  leaseOwner: string,
-  leaseSeconds = 300
-): Promise<boolean> {
-  const result = await db.query(
-    `INSERT INTO target_knowledge_checkpoint_state (
-       workspace_id, target_id, session_id, lease_owner, lease_expires_at, updated_at
-     ) VALUES ($1, $2, $3, $4, NOW() + ($5::int * INTERVAL '1 second'), NOW())
-     ON CONFLICT (workspace_id, target_id, session_id) DO UPDATE
-     SET lease_owner = EXCLUDED.lease_owner,
-         lease_expires_at = EXCLUDED.lease_expires_at,
-         updated_at = NOW()
-     WHERE target_knowledge_checkpoint_state.lease_expires_at IS NULL
-        OR target_knowledge_checkpoint_state.lease_expires_at <= NOW()
-     RETURNING target_id`,
-    [candidate.workspaceId, candidate.targetId, candidate.sessionId, leaseOwner, leaseSeconds]
-  );
-  return (result.rowCount ?? 0) > 0;
-}
-
-export async function finishKnowledgeBankCheckpoint(params: {
-  workspaceId: string;
-  targetId: string;
-  sessionId: string;
-  lastProcessedActivityAt?: string;
-  status: string;
-  error?: string | null;
-  retryAfter?: string | null;
-}): Promise<void> {
-  await db.query(
-    `INSERT INTO target_knowledge_checkpoint_state (
-       workspace_id, target_id, session_id, last_processed_activity_at,
-       lease_owner, lease_expires_at, last_status, last_error, retry_after, updated_at
-     ) VALUES ($1, $2, $3, $4::timestamptz, NULL, NULL, $5, $6, $7::timestamptz, NOW())
-     ON CONFLICT (workspace_id, target_id, session_id) DO UPDATE
-     SET last_processed_activity_at = COALESCE(EXCLUDED.last_processed_activity_at, target_knowledge_checkpoint_state.last_processed_activity_at),
-         lease_owner = NULL,
-         lease_expires_at = NULL,
-         last_status = EXCLUDED.last_status,
-         last_error = EXCLUDED.last_error,
-         retry_after = EXCLUDED.retry_after,
-         updated_at = NOW()`,
-    [
-      params.workspaceId,
-      params.targetId,
-      params.sessionId,
-      params.lastProcessedActivityAt || null,
-      params.status,
-      params.error || null,
-      params.retryAfter || null
-    ]
-  );
-}
-
-export async function requeueKnowledgeBankPausedCheckpoints(workspaceId: string, targetId?: string): Promise<number> {
-  const result = await db.query(
-    `UPDATE target_knowledge_checkpoint_state
-     SET last_processed_activity_at = NULL,
-         lease_owner = NULL,
-         lease_expires_at = NULL,
-         last_status = 'requeued',
-         last_error = NULL,
-         retry_after = NULL,
-         updated_at = NOW()
-     WHERE workspace_id = $1
-       AND ($2::text IS NULL OR target_id = $2)
-       AND last_status = 'skipped'
-       AND last_error = ANY($3::text[])`,
-    [workspaceId, targetId || null, ['ai_settings_missing', 'provider_not_allowed', 'model_not_allowed']]
-  );
-  return result.rowCount ?? 0;
 }

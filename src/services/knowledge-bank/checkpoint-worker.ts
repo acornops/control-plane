@@ -7,6 +7,7 @@ import {
   recordKnowledgeBankCheckpointPatchCount
 } from '../../metrics.js';
 import { repo } from '../../store/repository.js';
+import { withTransaction } from '../../store/repository-transaction.js';
 import { TargetType } from '../../types/domain.js';
 import { KnowledgeBankEntry, KnowledgeBankEntryPatch } from '../../types/knowledge-bank.js';
 import { isModelAllowedForProvider } from '../llm-policy.js';
@@ -151,7 +152,7 @@ function normalizePatch(value: unknown): KnowledgePatch[] {
     : value && typeof value === 'object' && Array.isArray((value as { patches?: unknown }).patches)
       ? (value as { patches: unknown[] }).patches
       : [];
-  return items.flatMap((item) => {
+  return items.slice(0, 8).flatMap((item) => {
     if (!item || typeof item !== 'object') return [];
     const patch = item as KnowledgePatch;
     if (!['create', 'update', 'archive', 'noop'].includes(patch.action)) return [];
@@ -266,20 +267,67 @@ async function streamGatewayJsonPatch(input: {
   }
 }
 
-async function processCandidate(candidate: Awaited<ReturnType<typeof repo.listKnowledgeBankCheckpointCandidates>>[number]): Promise<void> {
-  const toolConfig = normalizeKnowledgeBankConfig(candidate.config);
-  const retryAfterMs = new Date(candidate.lastMessageAt).getTime() +
+function jobKey(job: Awaited<ReturnType<typeof repo.claimDueKnowledgeBankCheckpointJobs>>[number]) {
+  return {
+    workspaceId: job.workspaceId,
+    targetId: job.targetId,
+    sessionId: job.sessionId,
+    lastActivityAt: job.lastActivityAt,
+    leaseOwner: job.leaseOwner
+  };
+}
+
+async function finishJob(
+  job: Awaited<ReturnType<typeof repo.claimDueKnowledgeBankCheckpointJobs>>[number],
+  params: { status: string; error?: string | null; retryAfter?: string | null }
+): Promise<void> {
+  await repo.finishKnowledgeBankCheckpointJob({
+    ...jobKey(job),
+    status: params.status,
+    error: params.error,
+    retryAfter: params.retryAfter
+  });
+}
+
+async function rescheduleJob(
+  job: Awaited<ReturnType<typeof repo.claimDueKnowledgeBankCheckpointJobs>>[number],
+  dueAt: string,
+  error?: string
+): Promise<void> {
+  await repo.rescheduleKnowledgeBankCheckpointJob({
+    ...jobKey(job),
+    dueAt,
+    error
+  });
+}
+
+async function processJob(job: Awaited<ReturnType<typeof repo.claimDueKnowledgeBankCheckpointJobs>>[number]): Promise<void> {
+  const toolConfig = normalizeKnowledgeBankConfig(job.config);
+  if (!job.sessionActive) {
+    await finishJob(job, { status: 'skipped', error: 'session_inactive' });
+    incrementKnowledgeBankCheckpointOutcome('skipped', 'session_inactive');
+    return;
+  }
+  if (!job.toolEnabled) {
+    await finishJob(job, { status: 'skipped', error: 'tool_disabled' });
+    incrementKnowledgeBankCheckpointOutcome('skipped', 'tool_disabled');
+    return;
+  }
+  if (new Date(job.sessionLastMessageAt).getTime() > new Date(job.lastActivityAt).getTime()) {
+    await repo.upsertKnowledgeBankCheckpointJobForSessionActivity(job.sessionId, job.sessionLastMessageAt);
+    incrementKnowledgeBankCheckpointOutcome('skipped', 'stale_activity');
+    return;
+  }
+  const retryAfterMs = new Date(job.lastActivityAt).getTime() +
     toolConfig.learning.idleCheckpointDelayMinutes * 60_000;
   if (Date.now() < retryAfterMs) {
-    await repo.finishKnowledgeBankCheckpoint({
-      workspaceId: candidate.workspaceId,
-      targetId: candidate.targetId,
-      sessionId: candidate.sessionId,
-      status: 'skipped',
-      error: 'idle_delay_pending',
-      retryAfter: new Date(retryAfterMs).toISOString()
-    });
+    await rescheduleJob(job, new Date(retryAfterMs).toISOString(), 'idle_delay_pending');
     incrementKnowledgeBankCheckpointOutcome('skipped', 'idle_delay_pending');
+    return;
+  }
+  if (job.hasActiveRun || job.hasPendingApproval) {
+    await rescheduleJob(job, new Date(Date.now() + 60_000).toISOString(), job.hasActiveRun ? 'run_active' : 'approval_pending');
+    incrementKnowledgeBankCheckpointOutcome('skipped', job.hasActiveRun ? 'run_active' : 'approval_pending');
     return;
   }
   const snapshot = toolConfig.learning.checkpointModel.mode === 'custom'
@@ -290,7 +338,7 @@ async function processCandidate(candidate: Awaited<ReturnType<typeof repo.listKn
         reasoningEffort: 'low' as const
       }
     : { reasoningSummaryMode: 'off' as const, reasoningEffort: 'low' as const };
-  const llmSettings = await resolveWorkspaceLlmSettings(candidate.workspaceId, snapshot);
+  const llmSettings = await resolveWorkspaceLlmSettings(job.workspaceId, snapshot);
   const skipReason = !llmSettings.allowedProviders.includes(llmSettings.provider)
     ? 'provider_not_allowed'
     : !llmSettings.allowedModels.includes(llmSettings.model) || !isModelAllowedForProvider(llmSettings.provider, llmSettings.model, llmSettings.allowedProviderModels)
@@ -299,36 +347,29 @@ async function processCandidate(candidate: Awaited<ReturnType<typeof repo.listKn
         ? 'ai_settings_missing'
         : null;
   if (skipReason) {
-    await repo.finishKnowledgeBankCheckpoint({
-      workspaceId: candidate.workspaceId,
-      targetId: candidate.targetId,
-      sessionId: candidate.sessionId,
-      lastProcessedActivityAt: candidate.lastMessageAt,
-      status: 'skipped',
-      error: skipReason
-    });
+    await finishJob(job, { status: 'skipped', error: skipReason });
     await recordKnowledgeBankAudit({
-      workspaceId: candidate.workspaceId,
-      targetId: candidate.targetId,
-      targetType: candidate.targetType,
+      workspaceId: job.workspaceId,
+      targetId: job.targetId,
+      targetType: job.targetType,
       actorType: 'system',
       eventType: 'knowledge.checkpoint.skipped.v1',
-      objectId: candidate.targetId,
+      objectId: job.targetId,
       summary: 'Knowledge Bank checkpoint skipped',
-      metadata: { reason: skipReason, sessionId: candidate.sessionId }
+      metadata: { reason: skipReason, sessionId: job.sessionId }
     });
     incrementKnowledgeBankCheckpointOutcome('skipped', skipReason);
     return;
   }
 
-  const messages = await repo.listMessages(candidate.sessionId, { limit: 80 });
+  const messages = await repo.listMessages(job.sessionId, { limit: 80 });
   const transcript = messages.items.map((message) => `${message.role}: ${message.content}`).join('\n\n').slice(-24000);
-  const existingEntries = await repo.listKnowledgeBankEntries(candidate.workspaceId, candidate.targetId, { limit: 80 });
+  const existingEntries = await repo.listKnowledgeBankEntries(job.workspaceId, job.targetId, { limit: 80 });
   const patches = await streamGatewayJsonPatch({
-    workspaceId: candidate.workspaceId,
-    targetId: candidate.targetId,
-    targetType: candidate.targetType,
-    sessionId: candidate.sessionId,
+    workspaceId: job.workspaceId,
+    targetId: job.targetId,
+    targetType: job.targetType,
+    sessionId: job.sessionId,
     provider: llmSettings.provider,
     model: llmSettings.model,
     allowedProviders: llmSettings.allowedProviders,
@@ -341,125 +382,140 @@ async function processCandidate(candidate: Awaited<ReturnType<typeof repo.listKn
       evidenceSummary: entry.evidenceSummary
     }))
   });
-
   let applied = 0;
-  for (const patch of patches) {
-    if (patch.action === 'noop') continue;
-    if (patch.action === 'create' && patch.title && patch.bodyMarkdown) {
-      const generalizationTarget = findGeneralizationTarget(patch, existingEntries);
-      if (generalizationTarget) {
-        const updated = await repo.updateKnowledgeBankEntry(
-          candidate.workspaceId,
-          candidate.targetId,
-          generalizationTarget.id,
-          buildGeneralizedUpdate(
-            generalizationTarget,
-            patch,
-            toolConfig.learning.minimumObservationsBeforeGeneralization,
-            candidate.lastMessageAt
-          )
-        );
+  const terminalStatus = await withTransaction(async (client) => {
+    if (!(await repo.renewKnowledgeBankCheckpointJobLeaseIfCurrent(jobKey(job), client))) {
+      return null;
+    }
+
+    for (const patch of patches) {
+      if (patch.action === 'noop') continue;
+      if (patch.action === 'create' && patch.title && patch.bodyMarkdown) {
+        const generalizationTarget = findGeneralizationTarget(patch, existingEntries);
+        if (generalizationTarget) {
+          const updated = await repo.updateKnowledgeBankEntry(
+            job.workspaceId,
+            job.targetId,
+            generalizationTarget.id,
+            buildGeneralizedUpdate(
+              generalizationTarget,
+              patch,
+              toolConfig.learning.minimumObservationsBeforeGeneralization,
+              job.lastActivityAt
+            ),
+            client
+          );
+          if (updated) {
+            applied += 1;
+            const index = existingEntries.findIndex((entry) => entry.id === updated.id);
+            if (index >= 0) existingEntries[index] = updated;
+          }
+        } else {
+          const status = (patch.observationCount || 0) >= toolConfig.learning.minimumObservationsBeforeGeneralization
+            ? 'active'
+            : patch.status || 'pending';
+          const created = await repo.createKnowledgeBankEntry({
+            workspaceId: job.workspaceId,
+            targetId: job.targetId,
+            targetType: job.targetType,
+            title: patch.title,
+            status,
+            bodyMarkdown: patch.bodyMarkdown,
+            tags: patch.tags,
+            evidenceSummary: patch.evidenceSummary,
+            observationCount: patch.observationCount,
+            confidence: patch.confidence,
+            signals: patch.signals,
+            scope: patch.scope,
+            firstObservedAt: job.lastActivityAt,
+            lastObservedAt: job.lastActivityAt
+          }, client);
+          existingEntries.unshift(created);
+          applied += 1;
+        }
+      } else if ((patch.action === 'update' || patch.action === 'archive') && patch.entryId) {
+        const existingEntry = existingEntries.find((entry) => entry.id === patch.entryId);
+        const observationCount = patch.observationCount !== undefined
+          ? Math.max(existingEntry?.observationCount ?? 0, patch.observationCount)
+          : undefined;
+        const confidence = patch.confidence !== undefined
+          ? Math.max(existingEntry?.confidence ?? 0, patch.confidence)
+          : undefined;
+        const nextStatus = patch.action === 'archive'
+          ? 'archived'
+          : (observationCount || 0) >= toolConfig.learning.minimumObservationsBeforeGeneralization
+            ? 'active'
+            : patch.status;
+        const updated = await repo.updateKnowledgeBankEntry(job.workspaceId, job.targetId, patch.entryId, {
+          ...(patch.title ? { title: patch.title } : {}),
+          ...(patch.bodyMarkdown ? { bodyMarkdown: patch.bodyMarkdown } : {}),
+          ...(nextStatus ? { status: nextStatus } : {}),
+          ...(patch.tags ? { tags: patch.tags } : {}),
+          ...(patch.evidenceSummary ? { evidenceSummary: patch.evidenceSummary } : {}),
+          ...(observationCount !== undefined ? { observationCount } : {}),
+          ...(confidence !== undefined ? { confidence } : {}),
+          ...(patch.signals ? { signals: patch.signals } : {}),
+          ...(patch.scope ? { scope: patch.scope } : {}),
+          lastObservedAt: job.lastActivityAt
+        }, client);
         if (updated) {
           applied += 1;
           const index = existingEntries.findIndex((entry) => entry.id === updated.id);
           if (index >= 0) existingEntries[index] = updated;
         }
-      } else {
-        const status = (patch.observationCount || 0) >= toolConfig.learning.minimumObservationsBeforeGeneralization
-          ? 'active'
-          : patch.status || 'pending';
-        const created = await repo.createKnowledgeBankEntry({
-          workspaceId: candidate.workspaceId,
-          targetId: candidate.targetId,
-          targetType: candidate.targetType,
-          title: patch.title,
-          status,
-          bodyMarkdown: patch.bodyMarkdown,
-          tags: patch.tags,
-          evidenceSummary: patch.evidenceSummary,
-          observationCount: patch.observationCount,
-          confidence: patch.confidence,
-          signals: patch.signals,
-          scope: patch.scope,
-          firstObservedAt: candidate.lastMessageAt,
-          lastObservedAt: candidate.lastMessageAt
-        });
-        existingEntries.unshift(created);
-        applied += 1;
-      }
-    } else if ((patch.action === 'update' || patch.action === 'archive') && patch.entryId) {
-      const existingEntry = existingEntries.find((entry) => entry.id === patch.entryId);
-      const observationCount = patch.observationCount !== undefined
-        ? Math.max(existingEntry?.observationCount ?? 0, patch.observationCount)
-        : undefined;
-      const confidence = patch.confidence !== undefined
-        ? Math.max(existingEntry?.confidence ?? 0, patch.confidence)
-        : undefined;
-      const nextStatus = patch.action === 'archive'
-        ? 'archived'
-        : (observationCount || 0) >= toolConfig.learning.minimumObservationsBeforeGeneralization
-          ? 'active'
-          : patch.status;
-      const updated = await repo.updateKnowledgeBankEntry(candidate.workspaceId, candidate.targetId, patch.entryId, {
-        ...(patch.title ? { title: patch.title } : {}),
-        ...(patch.bodyMarkdown ? { bodyMarkdown: patch.bodyMarkdown } : {}),
-        ...(nextStatus ? { status: nextStatus } : {}),
-        ...(patch.tags ? { tags: patch.tags } : {}),
-        ...(patch.evidenceSummary ? { evidenceSummary: patch.evidenceSummary } : {}),
-        ...(observationCount !== undefined ? { observationCount } : {}),
-        ...(confidence !== undefined ? { confidence } : {}),
-        ...(patch.signals ? { signals: patch.signals } : {}),
-        ...(patch.scope ? { scope: patch.scope } : {}),
-        lastObservedAt: candidate.lastMessageAt
-      });
-      if (updated) {
-        applied += 1;
-        const index = existingEntries.findIndex((entry) => entry.id === updated.id);
-        if (index >= 0) existingEntries[index] = updated;
       }
     }
-  }
 
-  await repo.finishKnowledgeBankCheckpoint({
-    workspaceId: candidate.workspaceId,
-    targetId: candidate.targetId,
-    sessionId: candidate.sessionId,
-    lastProcessedActivityAt: candidate.lastMessageAt,
-    status: applied > 0 ? 'applied' : 'noop'
+    const status = applied > 0 ? 'applied' : 'noop';
+    const finished = await repo.finishKnowledgeBankCheckpointJob({
+      ...jobKey(job),
+      status
+    }, client);
+    if (!finished) {
+      throw new Error('Knowledge Bank checkpoint lease expired before finish');
+    }
+    return status;
   });
-  incrementKnowledgeBankCheckpointOutcome(applied > 0 ? 'applied' : 'noop');
-  recordKnowledgeBankCheckpointPatchCount(applied > 0 ? 'applied' : 'noop', applied);
+
+  if (!terminalStatus) {
+    await rescheduleJob(job, new Date(Date.now() + 60_000).toISOString(), 'state_changed');
+    incrementKnowledgeBankCheckpointOutcome('skipped', 'state_changed');
+    return;
+  }
+  incrementKnowledgeBankCheckpointOutcome(terminalStatus);
+  recordKnowledgeBankCheckpointPatchCount(terminalStatus, applied);
   await recordKnowledgeBankAudit({
-    workspaceId: candidate.workspaceId,
-    targetId: candidate.targetId,
-    targetType: candidate.targetType,
+    workspaceId: job.workspaceId,
+    targetId: job.targetId,
+    targetType: job.targetType,
     actorType: 'system',
     eventType: 'knowledge.checkpoint.applied.v1',
-    objectId: candidate.targetId,
+    objectId: job.targetId,
     summary: applied > 0 ? 'Knowledge Bank checkpoint applied' : 'Knowledge Bank checkpoint completed with no changes',
-    metadata: { sessionId: candidate.sessionId, appliedPatchCount: applied }
+    metadata: { sessionId: job.sessionId, appliedPatchCount: applied }
   });
 }
 
 export async function runKnowledgeBankCheckpointSweep(): Promise<void> {
   if (!config.KNOWLEDGE_BANK_ENABLED) return;
   const leaseOwner = `${config.CONTROL_PLANE_INSTANCE_ID}:${randomUUID()}`;
-  const candidates = await repo.listKnowledgeBankCheckpointCandidates(50);
-  for (const candidate of candidates) {
-    const claimed = await repo.claimKnowledgeBankCheckpoint(candidate, leaseOwner);
-    if (!claimed) continue;
+  const claimedKeys = new Set<string>();
+  for (let index = 0; index < 50; index += 1) {
+    const [job] = await repo.claimDueKnowledgeBankCheckpointJobs(1, leaseOwner);
+    if (!job) break;
+    const claimedKey = `${job.workspaceId}:${job.targetId}:${job.sessionId}:${job.lastActivityAt}`;
+    if (claimedKeys.has(claimedKey)) break;
+    claimedKeys.add(claimedKey);
     const startedAt = Date.now();
     let status = 'unknown';
     try {
-      await processCandidate(candidate);
+      await processJob(job);
       status = 'completed';
     } catch (err) {
       status = 'failed';
-      logger.warn({ err, targetId: candidate.targetId, sessionId: candidate.sessionId }, 'Knowledge Bank checkpoint failed');
-      await repo.finishKnowledgeBankCheckpoint({
-        workspaceId: candidate.workspaceId,
-        targetId: candidate.targetId,
-        sessionId: candidate.sessionId,
+      logger.warn({ err, targetId: job.targetId, sessionId: job.sessionId }, 'Knowledge Bank checkpoint failed');
+      await repo.finishKnowledgeBankCheckpointJob({
+        ...jobKey(job),
         status: 'failed',
         error: err instanceof Error ? err.message : 'Knowledge Bank checkpoint failed',
         retryAfter: new Date(Date.now() + 15 * 60_000).toISOString()

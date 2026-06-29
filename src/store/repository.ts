@@ -85,6 +85,7 @@ import {
   upsertTargetToolSetting as upsertTargetToolSettingRecord
 } from './repository-target-tools.js';
 import * as repositoryKnowledgeBank from './repository-knowledge-bank.js';
+import * as repositoryKnowledgeBankCheckpoints from './repository-knowledge-bank-checkpoints.js';
 import {
   countEnabledTargetSkills as countEnabledTargetSkillsRecord,
   createTargetSkill as createTargetSkillRecord,
@@ -443,10 +444,12 @@ export class Repository {
   updateKnowledgeBankEntry = repositoryKnowledgeBank.updateKnowledgeBankEntry;
   resetKnowledgeBank = repositoryKnowledgeBank.resetKnowledgeBank;
   searchKnowledgeBankSnippets = repositoryKnowledgeBank.searchKnowledgeBankSnippets;
-  listKnowledgeBankCheckpointCandidates = repositoryKnowledgeBank.listKnowledgeBankCheckpointCandidates;
-  claimKnowledgeBankCheckpoint = repositoryKnowledgeBank.claimKnowledgeBankCheckpoint;
-  finishKnowledgeBankCheckpoint = repositoryKnowledgeBank.finishKnowledgeBankCheckpoint;
-  requeueKnowledgeBankPausedCheckpoints = repositoryKnowledgeBank.requeueKnowledgeBankPausedCheckpoints;
+  upsertKnowledgeBankCheckpointJobForSessionActivity = repositoryKnowledgeBankCheckpoints.upsertKnowledgeBankCheckpointJobForSessionActivity;
+  claimDueKnowledgeBankCheckpointJobs = repositoryKnowledgeBankCheckpoints.claimDueKnowledgeBankCheckpointJobs;
+  rescheduleKnowledgeBankCheckpointJob = repositoryKnowledgeBankCheckpoints.rescheduleKnowledgeBankCheckpointJob;
+  finishKnowledgeBankCheckpointJob = repositoryKnowledgeBankCheckpoints.finishKnowledgeBankCheckpointJob;
+  renewKnowledgeBankCheckpointJobLeaseIfCurrent = repositoryKnowledgeBankCheckpoints.renewKnowledgeBankCheckpointJobLeaseIfCurrent;
+  requeueKnowledgeBankPausedCheckpoints = repositoryKnowledgeBankCheckpoints.requeueKnowledgeBankPausedCheckpoints;
 
   listTargetSkills = listTargetSkillsRecord;
 

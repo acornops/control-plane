@@ -198,7 +198,7 @@ export function buildTargetToolPaths(): Record<string, unknown> {
         security: [{ userSession: [] }],
         parameters: targetParameters,
         responses: {
-          '200': { description: 'Deleted Knowledge Bank entries and checkpoint state for the target.' },
+          '200': { description: 'Deleted Knowledge Bank entries and checkpoint jobs for the target.' },
           '403': { description: 'Missing manage_knowledge_bank permission.' }
         }
       }

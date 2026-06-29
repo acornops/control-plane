@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
+import { db } from '../src/infra/db.js';
 import { runKnowledgeBankCheckpointSweep } from '../src/services/knowledge-bank/checkpoint-worker.js';
 import { repo } from '../src/store/repository.js';
 
@@ -7,24 +8,99 @@ afterEach(() => {
   mock.restoreAll();
 });
 
-describe('Knowledge Bank checkpoint worker', () => {
-  it('releases the checkpoint lease until the configured idle delay has elapsed', async () => {
-    const finishedCheckpoints: unknown[] = [];
-    const lastMessageAt = new Date(Date.now() - 10 * 60_000).toISOString();
-    const candidate = {
-      workspaceId: 'workspace-1',
-      targetId: 'cluster-1',
-      targetType: 'kubernetes' as const,
-      sessionId: 'session-1',
-      lastMessageAt,
-      config: {}
-    };
+function checkpointJob(lastActivityAt: string, overrides: Record<string, unknown> = {}) {
+  return {
+    workspaceId: 'workspace-1',
+    targetId: 'cluster-1',
+    targetType: 'kubernetes' as const,
+    sessionId: 'session-1',
+    lastActivityAt,
+    leaseOwner: 'lease-1',
+    config: {},
+    toolEnabled: true,
+    sessionActive: true,
+    sessionLastMessageAt: lastActivityAt,
+    hasActiveRun: false,
+    hasPendingApproval: false,
+    ...overrides
+  };
+}
 
-    mock.method(repo, 'listKnowledgeBankCheckpointCandidates', async () => [candidate]);
-    mock.method(repo, 'claimKnowledgeBankCheckpoint', async () => true);
-    mock.method(repo, 'finishKnowledgeBankCheckpoint', async (params) => {
-      finishedCheckpoints.push(params);
+function mockSingleClaim(job: ReturnType<typeof checkpointJob>): void {
+  let claimed = false;
+  mock.method(repo, 'claimDueKnowledgeBankCheckpointJobs', async (limit) => {
+    assert.equal(limit, 1);
+    if (claimed) return [];
+    claimed = true;
+    return [job];
+  });
+}
+
+function mockAuditSink(): void {
+  mock.method(repo, 'insertWorkspaceAuditEvent', async (event) => ({
+    id: 'audit-1',
+    workspaceId: event.workspaceId,
+    category: event.category,
+    eventType: event.eventType,
+    actor: { type: event.actorType || 'system' },
+    object: { type: event.objectType, id: event.objectId },
+    summary: event.summary,
+    metadata: event.metadata || {},
+    occurredAt: '2026-06-29T01:00:00.000Z'
+  }));
+}
+
+function mockRepositoryTransaction(): void {
+  const client = {
+    query: async (sql: string) => {
+      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+        return { rowCount: null, rows: [] };
+      }
+      throw new Error(`Unexpected transaction query: ${sql}`);
+    },
+    release: () => undefined
+  };
+  mock.method(db, 'connect', async () => client);
+}
+
+function mockConfiguredGatewayResponse(patchPayload: unknown): void {
+  mock.method(globalThis, 'fetch', async (input) => {
+    const url = String(input);
+    if (url.includes('/api/v1/internal/llm/provider-credentials?')) {
+      return new Response(JSON.stringify({
+        workspace_id: 'workspace-1',
+        providers: [
+          { provider: 'openai', enabled: true, configured: true },
+          { provider: 'anthropic', enabled: true, configured: false },
+          { provider: 'gemini', enabled: true, configured: false }
+        ]
+      }), { status: 200 });
+    }
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(`${JSON.stringify({
+          type: 'delta',
+          text: JSON.stringify(patchPayload)
+        })}`));
+        controller.close();
+      }
     });
+    return new Response(stream, { status: 200 });
+  });
+}
+
+describe('Knowledge Bank checkpoint worker', () => {
+  it('reschedules a due job until the configured idle delay has elapsed', async () => {
+    const rescheduledJobs: unknown[] = [];
+    const lastActivityAt = new Date(Date.now() - 10 * 60_000).toISOString();
+    const job = checkpointJob(lastActivityAt);
+
+    mockSingleClaim(job);
+    mock.method(repo, 'rescheduleKnowledgeBankCheckpointJob', async (params) => {
+      rescheduledJobs.push(params);
+      return true;
+    });
+    const finishJob = mock.method(repo, 'finishKnowledgeBankCheckpointJob', async () => true);
     const listMessages = mock.method(repo, 'listMessages', async () => {
       throw new Error('messages should not be fetched before idle delay');
     });
@@ -32,49 +108,80 @@ describe('Knowledge Bank checkpoint worker', () => {
     await runKnowledgeBankCheckpointSweep();
 
     assert.equal(listMessages.mock.callCount(), 0);
-    assert.equal(finishedCheckpoints.length, 1);
-    assert.deepEqual(finishedCheckpoints[0], {
+    assert.equal(finishJob.mock.callCount(), 0);
+    assert.deepEqual(rescheduledJobs, [{
       workspaceId: 'workspace-1',
       targetId: 'cluster-1',
       sessionId: 'session-1',
-      status: 'skipped',
-      error: 'idle_delay_pending',
-      retryAfter: new Date(new Date(lastMessageAt).getTime() + 30 * 60_000).toISOString()
+      lastActivityAt,
+      leaseOwner: 'lease-1',
+      dueAt: new Date(new Date(lastActivityAt).getTime() + 30 * 60_000).toISOString(),
+      error: 'idle_delay_pending'
+    }]);
+  });
+
+  it('requeues stale jobs when newer session activity exists', async () => {
+    const staleActivityAt = new Date(Date.now() - 45 * 60_000).toISOString();
+    const newerActivityAt = new Date(Date.now() - 5 * 60_000).toISOString();
+    const upserts: unknown[] = [];
+    const job = checkpointJob(staleActivityAt, { sessionLastMessageAt: newerActivityAt });
+
+    mockSingleClaim(job);
+    mock.method(repo, 'upsertKnowledgeBankCheckpointJobForSessionActivity', async (sessionId, activityAt) => {
+      upserts.push({ sessionId, activityAt });
     });
+    const finishJob = mock.method(repo, 'finishKnowledgeBankCheckpointJob', async () => true);
+    const rescheduleJob = mock.method(repo, 'rescheduleKnowledgeBankCheckpointJob', async () => true);
+    const listMessages = mock.method(repo, 'listMessages', async () => {
+      throw new Error('messages should not be fetched for stale jobs');
+    });
+
+    await runKnowledgeBankCheckpointSweep();
+
+    assert.equal(listMessages.mock.callCount(), 0);
+    assert.equal(finishJob.mock.callCount(), 0);
+    assert.equal(rescheduleJob.mock.callCount(), 0);
+    assert.deepEqual(upserts, [{ sessionId: 'session-1', activityAt: newerActivityAt }]);
+  });
+
+  it('defers jobs while a run or approval is active', async () => {
+    const rescheduledJobs: unknown[] = [];
+    const lastActivityAt = new Date(Date.now() - 45 * 60_000).toISOString();
+    const job = checkpointJob(lastActivityAt, { hasActiveRun: true });
+
+    mockSingleClaim(job);
+    mock.method(repo, 'rescheduleKnowledgeBankCheckpointJob', async (params) => {
+      rescheduledJobs.push(params);
+      return true;
+    });
+    const listMessages = mock.method(repo, 'listMessages', async () => {
+      throw new Error('messages should not be fetched while a run is active');
+    });
+
+    await runKnowledgeBankCheckpointSweep();
+
+    assert.equal(listMessages.mock.callCount(), 0);
+    assert.equal(rescheduledJobs.length, 1);
+    assert.equal((rescheduledJobs[0] as { error: string }).error, 'run_active');
+    assert.equal((rescheduledJobs[0] as { lastActivityAt: string }).lastActivityAt, lastActivityAt);
+    assert.equal((rescheduledJobs[0] as { leaseOwner: string }).leaseOwner, 'lease-1');
   });
 
   it('marks AI settings skips as processed for unchanged sessions', async () => {
-    const finishedCheckpoints: unknown[] = [];
-    const lastMessageAt = new Date(Date.now() - 45 * 60_000).toISOString();
-    const candidate = {
-      workspaceId: 'workspace-1',
-      targetId: 'cluster-1',
-      targetType: 'kubernetes' as const,
-      sessionId: 'session-1',
-      lastMessageAt,
-      config: {}
-    };
+    const finishedJobs: unknown[] = [];
+    const lastActivityAt = new Date(Date.now() - 45 * 60_000).toISOString();
+    const job = checkpointJob(lastActivityAt);
 
-    mock.method(repo, 'listKnowledgeBankCheckpointCandidates', async () => [candidate]);
-    mock.method(repo, 'claimKnowledgeBankCheckpoint', async () => true);
-    mock.method(repo, 'finishKnowledgeBankCheckpoint', async (params) => {
-      finishedCheckpoints.push(params);
+    mockSingleClaim(job);
+    mock.method(repo, 'finishKnowledgeBankCheckpointJob', async (params) => {
+      finishedJobs.push(params);
+      return true;
     });
     mock.method(repo, 'getWorkspaceAiSettings', async () => null);
     const listMessages = mock.method(repo, 'listMessages', async () => {
       throw new Error('messages should not be fetched when learning is paused');
     });
-    mock.method(repo, 'insertWorkspaceAuditEvent', async (event) => ({
-      id: 'audit-1',
-      workspaceId: event.workspaceId,
-      category: event.category,
-      eventType: event.eventType,
-      actor: { type: event.actorType || 'system' },
-      object: { type: event.objectType, id: event.objectId },
-      summary: event.summary,
-      metadata: event.metadata || {},
-      occurredAt: '2026-06-29T01:00:00.000Z'
-    }));
+    mockAuditSink();
     mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({
       workspace_id: 'workspace-1',
       providers: [
@@ -87,24 +194,21 @@ describe('Knowledge Bank checkpoint worker', () => {
     await runKnowledgeBankCheckpointSweep();
 
     assert.equal(listMessages.mock.callCount(), 0);
-    assert.deepEqual(finishedCheckpoints[0], {
+    assert.deepEqual(finishedJobs, [{
       workspaceId: 'workspace-1',
       targetId: 'cluster-1',
       sessionId: 'session-1',
-      lastProcessedActivityAt: lastMessageAt,
+      lastActivityAt,
+      leaseOwner: 'lease-1',
       status: 'skipped',
-      error: 'ai_settings_missing'
-    });
+      error: 'ai_settings_missing',
+      retryAfter: undefined
+    }]);
   });
 
   it('generalizes repeated namespace-specific patches into an existing entry', async () => {
-    const lastMessageAt = new Date(Date.now() - 45 * 60_000).toISOString();
-    const candidate = {
-      workspaceId: 'workspace-1',
-      targetId: 'cluster-1',
-      targetType: 'kubernetes' as const,
-      sessionId: 'session-1',
-      lastMessageAt,
+    const lastActivityAt = new Date(Date.now() - 45 * 60_000).toISOString();
+    const job = checkpointJob(lastActivityAt, {
       config: {
         learning: {
           idleCheckpointDelayMinutes: 30,
@@ -116,7 +220,7 @@ describe('Knowledge Bank checkpoint worker', () => {
           maxSnippetSizeBytes: 1536
         }
       }
-    };
+    });
     const existingEntry = {
       id: 'entry-1',
       workspaceId: 'workspace-1',
@@ -139,9 +243,10 @@ describe('Knowledge Bank checkpoint worker', () => {
     };
     const updates: unknown[] = [];
 
-    mock.method(repo, 'listKnowledgeBankCheckpointCandidates', async () => [candidate]);
-    mock.method(repo, 'claimKnowledgeBankCheckpoint', async () => true);
-    mock.method(repo, 'finishKnowledgeBankCheckpoint', async () => undefined);
+    mockSingleClaim(job);
+    mockRepositoryTransaction();
+    mock.method(repo, 'finishKnowledgeBankCheckpointJob', async () => true);
+    mock.method(repo, 'renewKnowledgeBankCheckpointJobLeaseIfCurrent', async () => true);
     mock.method(repo, 'getWorkspaceAiSettings', async () => null);
     mock.method(repo, 'listMessages', async () => ({
       items: [
@@ -162,52 +267,19 @@ describe('Knowledge Bank checkpoint worker', () => {
         updatedAt: '2026-06-29T01:00:00.000Z'
       };
     });
-    mock.method(repo, 'insertWorkspaceAuditEvent', async (event) => ({
-      id: 'audit-1',
-      workspaceId: event.workspaceId,
-      category: event.category,
-      eventType: event.eventType,
-      actor: { type: event.actorType || 'system' },
-      object: { type: event.objectType, id: event.objectId },
-      summary: event.summary,
-      metadata: event.metadata || {},
-      occurredAt: '2026-06-29T01:00:00.000Z'
-    }));
-    mock.method(globalThis, 'fetch', async (input) => {
-      const url = String(input);
-      if (url.includes('/api/v1/internal/llm/provider-credentials?')) {
-        return new Response(JSON.stringify({
-          workspace_id: 'workspace-1',
-          providers: [
-            { provider: 'openai', enabled: true, configured: true },
-            { provider: 'anthropic', enabled: true, configured: false },
-            { provider: 'gemini', enabled: true, configured: false }
-          ]
-        }), { status: 200 });
-      }
-      const patchPayload = {
-        patches: [{
-          action: 'create',
-          title: 'Registry auth failures across namespaces',
-          bodyMarkdown: 'Refresh the image pull secret for affected namespaces.',
-          tags: ['registry', '401'],
-          signals: { error: '401', component: 'image-pull' },
-          scope: { namespace: 'invoices' },
-          evidenceSummary: 'Pods in invoices also hit registry 401 responses.',
-          observationCount: 1,
-          confidence: 0.8
-        }]
-      };
-      const stream = new ReadableStream({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode(`${JSON.stringify({
-            type: 'delta',
-            text: JSON.stringify(patchPayload)
-          })}`));
-          controller.close();
-        }
-      });
-      return new Response(stream, { status: 200 });
+    mockAuditSink();
+    mockConfiguredGatewayResponse({
+      patches: [{
+        action: 'create',
+        title: 'Registry auth failures across namespaces',
+        bodyMarkdown: 'Refresh the image pull secret for affected namespaces.',
+        tags: ['registry', '401'],
+        signals: { error: '401', component: 'image-pull' },
+        scope: { namespace: 'invoices' },
+        evidenceSummary: 'Pods in invoices also hit registry 401 responses.',
+        observationCount: 1,
+        confidence: 0.8
+      }]
     });
 
     await runKnowledgeBankCheckpointSweep();
@@ -225,21 +297,14 @@ describe('Knowledge Bank checkpoint worker', () => {
         confidence: 0.8,
         signals: { error: '401', component: 'image-pull' },
         scope: {},
-        lastObservedAt: lastMessageAt
+        lastObservedAt: lastActivityAt
       }
     });
   });
 
   it('does not demote active entries when an update patch omits status', async () => {
-    const lastMessageAt = new Date(Date.now() - 45 * 60_000).toISOString();
-    const candidate = {
-      workspaceId: 'workspace-1',
-      targetId: 'cluster-1',
-      targetType: 'kubernetes' as const,
-      sessionId: 'session-1',
-      lastMessageAt,
-      config: {}
-    };
+    const lastActivityAt = new Date(Date.now() - 45 * 60_000).toISOString();
+    const job = checkpointJob(lastActivityAt);
     const existingEntry = {
       id: 'entry-1',
       workspaceId: 'workspace-1',
@@ -262,9 +327,10 @@ describe('Knowledge Bank checkpoint worker', () => {
     };
     const updates: unknown[] = [];
 
-    mock.method(repo, 'listKnowledgeBankCheckpointCandidates', async () => [candidate]);
-    mock.method(repo, 'claimKnowledgeBankCheckpoint', async () => true);
-    mock.method(repo, 'finishKnowledgeBankCheckpoint', async () => undefined);
+    mockSingleClaim(job);
+    mockRepositoryTransaction();
+    mock.method(repo, 'finishKnowledgeBankCheckpointJob', async () => true);
+    mock.method(repo, 'renewKnowledgeBankCheckpointJobLeaseIfCurrent', async () => true);
     mock.method(repo, 'getWorkspaceAiSettings', async () => null);
     mock.method(repo, 'listMessages', async () => ({
       items: [
@@ -282,47 +348,14 @@ describe('Knowledge Bank checkpoint worker', () => {
         updatedAt: '2026-06-29T01:00:00.000Z'
       };
     });
-    mock.method(repo, 'insertWorkspaceAuditEvent', async (event) => ({
-      id: 'audit-1',
-      workspaceId: event.workspaceId,
-      category: event.category,
-      eventType: event.eventType,
-      actor: { type: event.actorType || 'system' },
-      object: { type: event.objectType, id: event.objectId },
-      summary: event.summary,
-      metadata: event.metadata || {},
-      occurredAt: '2026-06-29T01:00:00.000Z'
-    }));
-    mock.method(globalThis, 'fetch', async (input) => {
-      const url = String(input);
-      if (url.includes('/api/v1/internal/llm/provider-credentials?')) {
-        return new Response(JSON.stringify({
-          workspace_id: 'workspace-1',
-          providers: [
-            { provider: 'openai', enabled: true, configured: true },
-            { provider: 'anthropic', enabled: true, configured: false },
-            { provider: 'gemini', enabled: true, configured: false }
-          ]
-        }), { status: 200 });
-      }
-      const patchPayload = {
-        patches: [{
-          action: 'update',
-          entryId: 'entry-1',
-          evidenceSummary: 'A second namespace was fixed by refreshing imagePullSecret.',
-          confidence: 0.85
-        }]
-      };
-      const stream = new ReadableStream({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode(`${JSON.stringify({
-            type: 'delta',
-            text: JSON.stringify(patchPayload)
-          })}`));
-          controller.close();
-        }
-      });
-      return new Response(stream, { status: 200 });
+    mockAuditSink();
+    mockConfiguredGatewayResponse({
+      patches: [{
+        action: 'update',
+        entryId: 'entry-1',
+        evidenceSummary: 'A second namespace was fixed by refreshing imagePullSecret.',
+        confidence: 0.85
+      }]
     });
 
     await runKnowledgeBankCheckpointSweep();
@@ -334,8 +367,57 @@ describe('Knowledge Bank checkpoint worker', () => {
       patch: {
         evidenceSummary: 'A second namespace was fixed by refreshing imagePullSecret.',
         confidence: 0.85,
-        lastObservedAt: lastMessageAt
+        lastObservedAt: lastActivityAt
       }
     });
+  });
+
+  it('does not apply patches when the checkpoint lease cannot be renewed after model work', async () => {
+    const lastActivityAt = new Date(Date.now() - 45 * 60_000).toISOString();
+    const job = checkpointJob(lastActivityAt);
+    const rescheduledJobs: unknown[] = [];
+    const createEntry = mock.method(repo, 'createKnowledgeBankEntry', async () => {
+      throw new Error('stale checkpoint workers must not write knowledge entries');
+    });
+    const updateEntry = mock.method(repo, 'updateKnowledgeBankEntry', async () => {
+      throw new Error('stale checkpoint workers must not update knowledge entries');
+    });
+
+    mockSingleClaim(job);
+    mockRepositoryTransaction();
+    mock.method(repo, 'rescheduleKnowledgeBankCheckpointJob', async (params) => {
+      rescheduledJobs.push(params);
+      return false;
+    });
+    mock.method(repo, 'finishKnowledgeBankCheckpointJob', async () => true);
+    mock.method(repo, 'renewKnowledgeBankCheckpointJobLeaseIfCurrent', async () => false);
+    mock.method(repo, 'getWorkspaceAiSettings', async () => null);
+    mock.method(repo, 'listMessages', async () => ({
+      items: [
+        { role: 'user', content: 'Pods in namespace invoices are failing with registry 401 errors.' },
+        { role: 'assistant', content: 'Refreshing the imagePullSecret fixed the invoices namespace.' }
+      ]
+    }));
+    mock.method(repo, 'listKnowledgeBankEntries', async () => []);
+    mockConfiguredGatewayResponse({
+      patches: [{
+        action: 'create',
+        title: 'Registry auth failures across namespaces',
+        bodyMarkdown: 'Refresh the image pull secret for affected namespaces.',
+        tags: ['registry', '401'],
+        signals: { error: '401', component: 'image-pull' },
+        evidenceSummary: 'Pods hit registry 401 responses.',
+        observationCount: 3,
+        confidence: 0.8
+      }]
+    });
+
+    await runKnowledgeBankCheckpointSweep();
+
+    assert.equal(createEntry.mock.callCount(), 0);
+    assert.equal(updateEntry.mock.callCount(), 0);
+    assert.equal(rescheduledJobs.length, 1);
+    assert.equal((rescheduledJobs[0] as { error: string }).error, 'state_changed');
+    assert.equal((rescheduledJobs[0] as { leaseOwner: string }).leaseOwner, 'lease-1');
   });
 });
