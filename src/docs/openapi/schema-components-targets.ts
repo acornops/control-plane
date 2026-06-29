@@ -313,12 +313,12 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
     TargetTool: {
       type: 'object',
       properties: {
-        id: { type: 'string', enum: ['web_search'] },
+        id: { type: 'string', enum: ['web_search', 'knowledge_bank'] },
         label: { type: 'string' },
         description: { type: 'string' },
         enabled: { type: 'boolean', default: true },
         capability: { type: 'string', enum: ['read', 'write'] },
-        runtimeKind: { type: 'string', enum: ['provider_native'] },
+        runtimeKind: { type: 'string', enum: ['provider_native', 'function'] },
         visibility: {
           type: 'object',
           properties: {
@@ -328,7 +328,66 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
           },
           additionalProperties: true
         },
+        permissions: jsonObject,
+        readiness: jsonObject,
         config: jsonObject
+      },
+      additionalProperties: true
+    },
+    KnowledgeBankEntry: {
+      type: 'object',
+      required: ['id', 'workspaceId', 'targetId', 'targetType', 'title', 'status', 'bodyMarkdown'],
+      properties: {
+        id: uuid,
+        workspaceId: uuid,
+        targetId: uuid,
+        targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] },
+        title: { type: 'string' },
+        status: { type: 'string', enum: ['active', 'pending', 'archived'] },
+        bodyMarkdown: { type: 'string' },
+        frontmatter: jsonObject,
+        tags: stringArray,
+        signals: jsonObject,
+        scope: jsonObject,
+        evidenceSummary: { type: 'string' },
+        observationCount: { type: 'integer', minimum: 0 },
+        confidence: { type: 'number', minimum: 0, maximum: 1 },
+        firstObservedAt: dateTime,
+        lastObservedAt: dateTime,
+        createdAt: dateTime,
+        updatedAt: dateTime
+      },
+      additionalProperties: true
+    },
+    KnowledgeBankCatalog: {
+      type: 'object',
+      required: ['workspaceId', 'targetId', 'targetType', 'permissions', 'items'],
+      properties: {
+        workspaceId: uuid,
+        targetId: uuid,
+        targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] },
+        permissions: jsonObject,
+        items: { type: 'array', items: schemaRef('KnowledgeBankEntry') }
+      },
+      additionalProperties: true
+    },
+    KnowledgeBankResetResult: {
+      type: 'object',
+      required: ['status', 'deletedEntries', 'deletedCheckpoints'],
+      properties: {
+        status: { type: 'string', enum: ['ok'] },
+        deletedEntries: { type: 'integer', minimum: 0 },
+        deletedCheckpoints: { type: 'integer', minimum: 0 }
+      },
+      additionalProperties: true
+    },
+    KnowledgeBankActivity: {
+      type: 'object',
+      required: ['workspaceId', 'targetId', 'items'],
+      properties: {
+        workspaceId: uuid,
+        targetId: uuid,
+        items: { type: 'array', items: schemaRef('WorkspaceAuditEvent') }
       },
       additionalProperties: true
     },

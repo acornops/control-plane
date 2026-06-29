@@ -84,6 +84,7 @@ import {
   setTargetToolOverride as setTargetToolOverrideRecord,
   upsertTargetToolSetting as upsertTargetToolSettingRecord
 } from './repository-target-tools.js';
+import * as repositoryKnowledgeBank from './repository-knowledge-bank.js';
 import {
   countEnabledTargetSkills as countEnabledTargetSkillsRecord,
   createTargetSkill as createTargetSkillRecord,
@@ -431,16 +432,21 @@ export class Repository {
   listVirtualMachineInventory = listVirtualMachineInventoryRecord;
 
   listTargetToolOverrides = listTargetToolOverridesRecord;
-
   setTargetToolOverride = setTargetToolOverrideRecord;
-
   listTargetToolSettings = listTargetToolSettingsRecord;
-
   getTargetToolSetting = getTargetToolSettingRecord;
-
   listEnabledTargetToolSettings = listEnabledTargetToolSettingsRecord;
-
   upsertTargetToolSetting = upsertTargetToolSettingRecord;
+  listKnowledgeBankEntries = repositoryKnowledgeBank.listKnowledgeBankEntries;
+  getKnowledgeBankEntry = repositoryKnowledgeBank.getKnowledgeBankEntry;
+  createKnowledgeBankEntry = repositoryKnowledgeBank.createKnowledgeBankEntry;
+  updateKnowledgeBankEntry = repositoryKnowledgeBank.updateKnowledgeBankEntry;
+  resetKnowledgeBank = repositoryKnowledgeBank.resetKnowledgeBank;
+  searchKnowledgeBankSnippets = repositoryKnowledgeBank.searchKnowledgeBankSnippets;
+  listKnowledgeBankCheckpointCandidates = repositoryKnowledgeBank.listKnowledgeBankCheckpointCandidates;
+  claimKnowledgeBankCheckpoint = repositoryKnowledgeBank.claimKnowledgeBankCheckpoint;
+  finishKnowledgeBankCheckpoint = repositoryKnowledgeBank.finishKnowledgeBankCheckpoint;
+  requeueKnowledgeBankPausedCheckpoints = repositoryKnowledgeBank.requeueKnowledgeBankPausedCheckpoints;
 
   listTargetSkills = listTargetSkillsRecord;
 

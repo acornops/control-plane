@@ -273,6 +273,17 @@ export {
 } from './workspaces/target-native-tool-controller.js';
 
 export {
+  archiveKnowledgeBankEntry,
+  createKnowledgeBankEntry,
+  exportKnowledgeBank,
+  listKnowledgeBankActivity,
+  listKnowledgeBankEntries,
+  promoteKnowledgeBankEntry,
+  resetKnowledgeBank,
+  updateKnowledgeBankEntry
+} from './workspaces/knowledge-bank-controller.js';
+
+export {
   createTargetSkillForTarget,
   deleteTargetSkillForTarget,
   getTargetSkillForTarget,

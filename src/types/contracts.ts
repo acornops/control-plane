@@ -445,13 +445,10 @@ export const updateTargetMcpServerToolSchema = z.object({
 
 export const updateTargetToolSchema = z.object({
   enabled: z.boolean(),
-  config: z.object({
-    domainFilters: z.object({
-      allowedDomains: z.array(z.string()).optional(),
-      blockedDomains: z.array(z.string()).optional()
-    }).strict().optional()
-  }).strict().optional()
+  config: z.record(z.unknown()).optional()
 }).strict();
+
+export { createKnowledgeBankEntrySchema, updateKnowledgeBankEntrySchema } from './knowledge-bank-contracts.js';
 
 const targetSkillFileSchema = z.object({
   path: z.string().trim().min(1).max(512),

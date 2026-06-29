@@ -320,6 +320,41 @@ CREATE TABLE IF NOT EXISTS target_tool_settings (
   PRIMARY KEY (target_id, tool_id)
 );
 
+CREATE TABLE IF NOT EXISTS target_knowledge_entries (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+  target_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  body_markdown TEXT NOT NULL,
+  frontmatter JSONB NOT NULL DEFAULT '{}'::jsonb,
+  tags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  signals JSONB NOT NULL DEFAULT '{}'::jsonb,
+  scope JSONB NOT NULL DEFAULT '{}'::jsonb,
+  evidence_summary TEXT NOT NULL DEFAULT '',
+  observation_count INTEGER NOT NULL DEFAULT 0,
+  confidence NUMERIC(4, 3) NOT NULL DEFAULT 0,
+  first_observed_at TIMESTAMPTZ NULL,
+  last_observed_at TIMESTAMPTZ NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT target_knowledge_entries_status_check
+    CHECK (status IN ('active', 'pending', 'archived')),
+  CONSTRAINT target_knowledge_entries_target_type_check
+    CHECK (target_type IN ('kubernetes', 'virtual_machine')),
+  CONSTRAINT target_knowledge_entries_confidence_check
+    CHECK (confidence >= 0 AND confidence <= 1),
+  CONSTRAINT target_knowledge_entries_observation_count_check
+    CHECK (observation_count >= 0),
+  CONSTRAINT target_knowledge_entries_frontmatter_object_check
+    CHECK (jsonb_typeof(frontmatter) = 'object'),
+  CONSTRAINT target_knowledge_entries_signals_object_check
+    CHECK (jsonb_typeof(signals) = 'object'),
+  CONSTRAINT target_knowledge_entries_scope_object_check
+    CHECK (jsonb_typeof(scope) = 'object')
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL,
@@ -332,6 +367,20 @@ CREATE TABLE IF NOT EXISTS sessions (
   last_message_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '30 days'),
   deleted_at TIMESTAMPTZ NULL
+);
+
+CREATE TABLE IF NOT EXISTS target_knowledge_checkpoint_state (
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  last_processed_activity_at TIMESTAMPTZ NULL,
+  lease_owner TEXT NULL,
+  lease_expires_at TIMESTAMPTZ NULL,
+  last_status TEXT NULL,
+  last_error TEXT NULL,
+  retry_after TIMESTAMPTZ NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (workspace_id, target_id, session_id)
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -499,7 +548,7 @@ CREATE TABLE IF NOT EXISTS workspace_audit_events (
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT workspace_audit_events_category_check
-    CHECK (category IN ('membership', 'workspace', 'target', 'session', 'run', 'approval', 'mcp', 'tool')),
+    CHECK (category IN ('membership', 'workspace', 'target', 'session', 'run', 'approval', 'mcp', 'tool', 'knowledge')),
   CONSTRAINT workspace_audit_events_operation_check
     CHECK (operation IN ('read', 'write')),
   CONSTRAINT workspace_audit_events_actor_type_check
@@ -761,6 +810,22 @@ CREATE INDEX IF NOT EXISTS idx_target_tool_overrides_target
 
 CREATE INDEX IF NOT EXISTS idx_target_tool_settings_target
   ON target_tool_settings (target_id);
+
+CREATE INDEX IF NOT EXISTS idx_target_knowledge_entries_target_status
+  ON target_knowledge_entries (target_id, status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_target_knowledge_entries_workspace_target
+  ON target_knowledge_entries (workspace_id, target_id, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_target_knowledge_entries_search
+  ON target_knowledge_entries
+  USING GIN (to_tsvector('simple', title || ' ' || body_markdown || ' ' || evidence_summary));
+
+CREATE INDEX IF NOT EXISTS idx_target_knowledge_entries_tags
+  ON target_knowledge_entries USING GIN (tags);
+
+CREATE INDEX IF NOT EXISTS idx_target_knowledge_checkpoint_state_retry
+  ON target_knowledge_checkpoint_state (retry_after, lease_expires_at);
 
 CREATE INDEX IF NOT EXISTS idx_inventory_items_target_sort
   ON target_inventory_items (target_id, sort_key);

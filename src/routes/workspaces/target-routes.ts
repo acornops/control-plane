@@ -3,9 +3,11 @@ import { authenticatedHandler, requireUser } from '../../auth/middleware.js';
 import * as workspacesController from '../../controllers/workspaces-controller.js';
 import {
   createMcpServerSchema,
+  createKnowledgeBankEntrySchema,
   createTargetSkillSchema,
   importTargetSkillSchema,
   reimportTargetSkillSchema,
+  updateKnowledgeBankEntrySchema,
   updateMcpServerSchema,
   updateTargetMcpServerToolSchema,
   updateTargetSkillSchema,
@@ -33,6 +35,48 @@ export function registerTargetRoutes(router: Router): void {
     '/workspaces/:workspaceId/targets/:targetId/assistant/capabilities-preview',
     requireUser,
     authed(workspacesController.getTargetAssistantCapabilitiesPreview)
+  );
+  router.get(
+    '/workspaces/:workspaceId/targets/:targetId/knowledge-bank',
+    requireUser,
+    authed(workspacesController.listKnowledgeBankEntries)
+  );
+  router.post(
+    '/workspaces/:workspaceId/targets/:targetId/knowledge-bank/entries',
+    requireUser,
+    validateBody(createKnowledgeBankEntrySchema),
+    authed(workspacesController.createKnowledgeBankEntry)
+  );
+  router.get(
+    '/workspaces/:workspaceId/targets/:targetId/knowledge-bank/activity',
+    requireUser,
+    authed(workspacesController.listKnowledgeBankActivity)
+  );
+  router.get(
+    '/workspaces/:workspaceId/targets/:targetId/knowledge-bank/export',
+    requireUser,
+    authed(workspacesController.exportKnowledgeBank)
+  );
+  router.post(
+    '/workspaces/:workspaceId/targets/:targetId/knowledge-bank/reset',
+    requireUser,
+    authed(workspacesController.resetKnowledgeBank)
+  );
+  router.patch(
+    '/workspaces/:workspaceId/targets/:targetId/knowledge-bank/entries/:entryId',
+    requireUser,
+    validateBody(updateKnowledgeBankEntrySchema),
+    authed(workspacesController.updateKnowledgeBankEntry)
+  );
+  router.post(
+    '/workspaces/:workspaceId/targets/:targetId/knowledge-bank/entries/:entryId/promote',
+    requireUser,
+    authed(workspacesController.promoteKnowledgeBankEntry)
+  );
+  router.post(
+    '/workspaces/:workspaceId/targets/:targetId/knowledge-bank/entries/:entryId/archive',
+    requireUser,
+    authed(workspacesController.archiveKnowledgeBankEntry)
   );
   router.get(
     '/workspaces/:workspaceId/targets/:targetId/mcp/servers',

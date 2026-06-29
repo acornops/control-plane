@@ -15,6 +15,7 @@ export const WORKSPACE_CAPABILITIES = [
   'manage_targets',
   'manage_mcp',
   'manage_tools',
+  'manage_knowledge_bank',
   'manage_skills',
   'manage_workflows',
   'manage_agents',
@@ -59,12 +60,13 @@ export const WORKSPACE_CAPABILITY_METADATA: Record<WorkspaceCapability, { group:
   delete_sessions: { group: 'operations', sortOrder: 40 },
   manage_mcp: { group: 'settings', sortOrder: 0 },
   manage_tools: { group: 'settings', sortOrder: 10 },
-  manage_skills: { group: 'settings', sortOrder: 20 },
-  manage_workflows: { group: 'settings', sortOrder: 30 },
-  manage_agents: { group: 'settings', sortOrder: 40 },
-  manage_ai_settings: { group: 'settings', sortOrder: 50 },
-  manage_agent_keys: { group: 'settings', sortOrder: 60 },
-  manage_webhooks: { group: 'settings', sortOrder: 70 }
+  manage_knowledge_bank: { group: 'settings', sortOrder: 20 },
+  manage_skills: { group: 'settings', sortOrder: 30 },
+  manage_workflows: { group: 'settings', sortOrder: 40 },
+  manage_agents: { group: 'settings', sortOrder: 50 },
+  manage_ai_settings: { group: 'settings', sortOrder: 60 },
+  manage_agent_keys: { group: 'settings', sortOrder: 70 },
+  manage_webhooks: { group: 'settings', sortOrder: 80 }
 };
 
 export function groupWorkspaceCapabilities(capabilities: Iterable<keyof DomainWorkspacePermissions>): RoleTemplateCapabilityGroup[] {
@@ -103,6 +105,7 @@ const EMPTY_PERMISSIONS: WorkspacePermissions = {
   manage_targets: false,
   manage_mcp: false,
   manage_tools: false,
+  manage_knowledge_bank: false,
   manage_skills: false,
   manage_workflows: false,
   manage_agents: false,
@@ -126,6 +129,7 @@ const READ_ONLY_PERMISSIONS: WorkspacePermissions = {
   manage_targets: false,
   manage_mcp: false,
   manage_tools: false,
+  manage_knowledge_bank: false,
   manage_skills: false,
   manage_workflows: false,
   manage_agents: false,
@@ -149,6 +153,7 @@ const OWNER_PERMISSIONS: WorkspacePermissions = {
   manage_targets: true,
   manage_mcp: true,
   manage_tools: true,
+  manage_knowledge_bank: true,
   manage_skills: true,
   manage_workflows: true,
   manage_agents: true,
