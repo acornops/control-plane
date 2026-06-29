@@ -8,6 +8,7 @@ import { repo } from '../store/repository.js';
 import { KUBERNETES_TARGET_TYPE, TargetType, ToolAccessMode } from '../types/domain.js';
 
 export const WEB_SEARCH_TOOL_ID = 'web_search';
+export const KNOWLEDGE_BANK_TOOL_ID = 'knowledge_bank';
 
 function defaultWebSearchConfig(): Record<string, unknown> {
   return {
@@ -233,6 +234,7 @@ export async function resolveTargetRunTools(params: {
   }
 
   let allowedNativeTools: TargetRunNativeTool[] = [];
+  let knowledgeBankPreviewItems: TargetRunToolPreviewItem[] = [];
   try {
     const webSearchSetting = await repo.getTargetToolSetting(targetId, WEB_SEARCH_TOOL_ID);
     if (webSearchSetting?.enabled ?? true) {
@@ -240,6 +242,20 @@ export async function resolveTargetRunTools(params: {
         id: WEB_SEARCH_TOOL_ID,
         config: webSearchConfig(webSearchSetting?.config)
       }];
+    }
+    if (config.KNOWLEDGE_BANK_ENABLED) {
+      const knowledgeBankSetting = await repo.getTargetToolSetting(targetId, KNOWLEDGE_BANK_TOOL_ID);
+      if (knowledgeBankSetting?.enabled ?? true) {
+        knowledgeBankPreviewItems = [{
+          id: KNOWLEDGE_BANK_TOOL_ID,
+          name: KNOWLEDGE_BANK_TOOL_ID,
+          label: 'Knowledge Bank',
+          description: 'Retrieve target-specific troubleshooting knowledge.',
+          capability: 'read',
+          runtimeKind: 'function',
+          source: 'builtin'
+        }];
+      }
     }
   } catch (err) {
     logger.warn(
@@ -263,7 +279,7 @@ export async function resolveTargetRunTools(params: {
     runtimeKind: 'provider_native',
     source: 'provider_native'
   }));
-  const previewItems = [...functionPreviewItems, ...nativePreviewItems]
+  const previewItems = [...functionPreviewItems, ...nativePreviewItems, ...knowledgeBankPreviewItems]
     .sort((left, right) => left.name.localeCompare(right.name) || left.runtimeKind.localeCompare(right.runtimeKind));
   const allowedToolOperations = Object.fromEntries(
     allowedToolSpecs.map((tool) => [tool.name, tool.capability])

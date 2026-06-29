@@ -30,6 +30,7 @@ import { LlmProvider, ReasoningEffort, ReasoningSummaryMode, WorkspaceAiSettings
 import { toSingleParam } from '../../utils/params.js';
 import { LlmGatewayHttpError } from '../../services/mcp-registry-client.js';
 import { mapGatewayError } from './common.js';
+import { requeuePausedKnowledgeBankCheckpoints } from '../../services/knowledge-bank/requeue.js';
 
 const AI_GATEWAY_UPSTREAM_MESSAGE = 'Failed to synchronize AI provider settings with llm-gateway';
 
@@ -215,6 +216,7 @@ export async function updateWorkspaceAiSettings(req: AuthenticatedRequest, res: 
       reasoningSummaryMode,
       reasoningEffort
     });
+    await requeuePausedKnowledgeBankCheckpoints({ workspaceId, reason: 'workspace_ai_settings_updated' });
     await recordWorkspaceAuditEvent({
       workspaceId,
       category: 'workspace',
@@ -269,6 +271,7 @@ export async function upsertWorkspaceAiProviderCredential(req: AuthenticatedRequ
       return;
     }
     await putWorkspaceProviderCredential(workspaceId, provider, req.body.apiKey);
+    await requeuePausedKnowledgeBankCheckpoints({ workspaceId, reason: 'workspace_ai_provider_credential_saved' });
     await recordWorkspaceAuditEvent({
       workspaceId,
       category: 'workspace',

@@ -2,9 +2,22 @@ import { NextFunction, Response } from 'express';
 import { listConfiguredRoleTemplates } from '../../auth/authorization.js';
 import { AuthenticatedRequest } from '../../auth/middleware.js';
 import { requireTargetAccess } from '../../auth/workspace-authorization.js';
+import { config } from '../../config.js';
+import {
+  defaultModel,
+  defaultProvider,
+  isModelAllowedForProvider,
+  parseAllowedModels,
+  parseAllowedProviderModels,
+  parseAllowedProviders
+} from '../../services/llm-policy.js';
+import { KNOWLEDGE_BANK_TOOL_ID, normalizeKnowledgeBankConfig } from '../../services/knowledge-bank/config.js';
+import { recordKnowledgeBankAudit } from '../../services/knowledge-bank/audit.js';
+import { requeuePausedKnowledgeBankCheckpoints } from '../../services/knowledge-bank/requeue.js';
 import { webhooks } from '../../services/webhooks.js';
 import { repo } from '../../store/repository.js';
 import { KUBERNETES_TARGET_TYPE, TargetType } from '../../types/domain.js';
+import { KnowledgeBankToolConfig } from '../../types/knowledge-bank.js';
 import { toSingleParam } from '../../utils/params.js';
 import { recordNativeToolSettingAudit } from './mcp-audit.js';
 
@@ -18,23 +31,38 @@ interface DomainFiltersConfig extends Record<string, unknown> {
 }
 
 interface TargetNativeToolItem {
-  id: typeof WEB_SEARCH_TOOL_ID;
+  id: typeof WEB_SEARCH_TOOL_ID | typeof KNOWLEDGE_BANK_TOOL_ID;
   label: string;
   enabled: boolean;
   description: string;
   capability: 'read' | 'write';
-  runtimeKind: 'provider_native';
+  runtimeKind: 'provider_native' | 'function';
   visibility: {
     appearsInAssistantToolList: boolean;
     appearsInRunEnabledTools: boolean;
     appearsInToolCalls: boolean;
   };
-  config: DomainFiltersConfig;
+  config: DomainFiltersConfig | KnowledgeBankToolConfig;
+  readiness?: {
+    learningAvailable: boolean;
+    learningPausedReason: 'ai_settings_missing' | 'provider_not_allowed' | 'model_not_allowed' | null;
+  };
+  permissions?: {
+    canEdit: boolean;
+  };
 }
+
+type KnowledgeBankReadiness = NonNullable<TargetNativeToolItem['readiness']>;
 
 function getNativeToolEditableRoles(): string[] {
   return listConfiguredRoleTemplates()
     .filter((role) => role.capabilities.includes('manage_tools'))
+    .map((role) => role.key);
+}
+
+function getKnowledgeBankEditableRoles(): string[] {
+  return listConfiguredRoleTemplates()
+    .filter((role) => role.capabilities.includes('manage_knowledge_bank'))
     .map((role) => role.key);
 }
 
@@ -145,7 +173,10 @@ function normalizeWebSearchConfig(input: unknown): DomainFiltersConfig {
   };
 }
 
-function buildWebSearchItem(setting?: { enabled: boolean; config: Record<string, unknown> } | null): TargetNativeToolItem {
+function buildWebSearchItem(
+  setting: { enabled: boolean; config: Record<string, unknown> } | null | undefined,
+  canEdit: boolean
+): TargetNativeToolItem {
   return {
     id: WEB_SEARCH_TOOL_ID,
     label: 'Web Search',
@@ -158,7 +189,35 @@ function buildWebSearchItem(setting?: { enabled: boolean; config: Record<string,
       appearsInRunEnabledTools: true,
       appearsInToolCalls: false
     },
-    config: normalizePersistedWebSearchConfig(setting?.config)
+    config: normalizePersistedWebSearchConfig(setting?.config),
+    permissions: {
+      canEdit
+    }
+  };
+}
+
+function buildKnowledgeBankItem(
+  setting: { enabled: boolean; config: Record<string, unknown> } | null | undefined,
+  readiness: KnowledgeBankReadiness,
+  canEdit: boolean
+): TargetNativeToolItem {
+  return {
+    id: KNOWLEDGE_BANK_TOOL_ID,
+    label: 'Knowledge Bank',
+    enabled: setting?.enabled ?? true,
+    description: 'Retrieve and improve target-specific troubleshooting knowledge for future assistant runs.',
+    capability: 'read',
+    runtimeKind: 'function',
+    visibility: {
+      appearsInAssistantToolList: true,
+      appearsInRunEnabledTools: true,
+      appearsInToolCalls: false
+    },
+    config: normalizeKnowledgeBankConfig(setting?.config),
+    readiness,
+    permissions: {
+      canEdit
+    }
   };
 }
 
@@ -170,6 +229,50 @@ function respondMissingToolsCapability(res: Response): void {
       retryable: false
     }
   });
+}
+
+function respondMissingKnowledgeBankCapability(res: Response): void {
+  res.status(403).json({
+    error: {
+      code: 'FORBIDDEN',
+      message: 'Only workspace roles with knowledge bank management capability can modify Knowledge Bank settings',
+      retryable: false
+    }
+  });
+}
+
+async function resolveKnowledgeBankReadiness(workspaceId: string, toolConfig: KnowledgeBankToolConfig): Promise<KnowledgeBankReadiness> {
+  const workspaceAiSettings = await repo.getWorkspaceAiSettings(workspaceId);
+  const provider = toolConfig.learning.checkpointModel.mode === 'custom'
+    ? toolConfig.learning.checkpointModel.provider
+    : workspaceAiSettings?.defaultProvider || defaultProvider();
+  const model = toolConfig.learning.checkpointModel.mode === 'custom'
+    ? toolConfig.learning.checkpointModel.model
+    : workspaceAiSettings?.defaultModel || defaultModel();
+  const allowedProviders = parseAllowedProviders();
+  const allowedModels = parseAllowedModels();
+  const allowedProviderModels = parseAllowedProviderModels();
+  if (!provider || !allowedProviders.includes(provider)) {
+    return { learningAvailable: false, learningPausedReason: 'provider_not_allowed' };
+  }
+  if (!model || !allowedModels.includes(model) || !isModelAllowedForProvider(provider, model, allowedProviderModels)) {
+    return { learningAvailable: false, learningPausedReason: 'model_not_allowed' };
+  }
+  return { learningAvailable: true, learningPausedReason: null };
+}
+
+async function validateKnowledgeBankToolConfig(workspaceId: string, toolConfig: KnowledgeBankToolConfig): Promise<string | null> {
+  if (toolConfig.learning.checkpointModel.mode !== 'custom') {
+    return null;
+  }
+  const readiness = await resolveKnowledgeBankReadiness(workspaceId, toolConfig);
+  if (readiness.learningAvailable) {
+    return null;
+  }
+  if (readiness.learningPausedReason === 'provider_not_allowed') {
+    return 'Selected checkpoint model provider is not allowed';
+  }
+  return 'Selected checkpoint model is not allowed for this deployment';
 }
 
 function targetWebhookScope(targetId: string, targetType: TargetType): {
@@ -196,17 +299,26 @@ export async function listTargetTools(
     if (!access) {
       return;
     }
-    const setting = await repo.getTargetToolSetting(targetId, WEB_SEARCH_TOOL_ID);
+    const [webSearchSetting, knowledgeBankSetting] = await Promise.all([
+      repo.getTargetToolSetting(targetId, WEB_SEARCH_TOOL_ID),
+      config.KNOWLEDGE_BANK_ENABLED ? repo.getTargetToolSetting(targetId, KNOWLEDGE_BANK_TOOL_ID) : Promise.resolve(null)
+    ]);
+    const knowledgeConfig = normalizeKnowledgeBankConfig(knowledgeBankSetting?.config);
+    const items: TargetNativeToolItem[] = [buildWebSearchItem(webSearchSetting, access.authz.can('manage_tools'))];
+    if (config.KNOWLEDGE_BANK_ENABLED) {
+      const knowledgeReadiness = await resolveKnowledgeBankReadiness(workspaceId, knowledgeConfig);
+      items.push(buildKnowledgeBankItem(knowledgeBankSetting, knowledgeReadiness, access.authz.can('manage_knowledge_bank')));
+    }
     res.status(200).json({
       workspaceId,
       targetId,
       targetType: access.target.targetType,
       ...(access.target.targetType === KUBERNETES_TARGET_TYPE ? { clusterId: targetId } : {}),
       permissions: {
-        canEdit: access.authz.can('manage_tools'),
-        editableRoles: getNativeToolEditableRoles()
+        canEdit: access.authz.can('manage_tools') || access.authz.can('manage_knowledge_bank'),
+        editableRoles: [...new Set([...getNativeToolEditableRoles(), ...getKnowledgeBankEditableRoles()])]
       },
-      items: [buildWebSearchItem(setting)]
+      items
     });
   } catch (err) {
     next(err);
@@ -226,12 +338,20 @@ export async function updateTargetToolSettings(
     if (!access) {
       return;
     }
-    if (!access.authz.can('manage_tools')) {
+    if (toolId !== WEB_SEARCH_TOOL_ID && toolId !== KNOWLEDGE_BANK_TOOL_ID) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Tool not found', retryable: false } });
+      return;
+    }
+    if (toolId === KNOWLEDGE_BANK_TOOL_ID && !config.KNOWLEDGE_BANK_ENABLED) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Tool not found', retryable: false } });
+      return;
+    }
+    if (toolId === WEB_SEARCH_TOOL_ID && !access.authz.can('manage_tools')) {
       respondMissingToolsCapability(res);
       return;
     }
-    if (toolId !== WEB_SEARCH_TOOL_ID) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Tool not found', retryable: false } });
+    if (toolId === KNOWLEDGE_BANK_TOOL_ID && !access.authz.can('manage_knowledge_bank')) {
+      respondMissingKnowledgeBankCapability(res);
       return;
     }
     if (typeof req.body?.enabled !== 'boolean') {
@@ -240,11 +360,19 @@ export async function updateTargetToolSettings(
     }
 
     const existingSetting = await repo.getTargetToolSetting(targetId, toolId);
-    let config: DomainFiltersConfig;
+    let toolConfig: DomainFiltersConfig | KnowledgeBankToolConfig;
     try {
-      config = Object.prototype.hasOwnProperty.call(req.body, 'config')
-        ? normalizeWebSearchConfig(req.body?.config)
-        : normalizePersistedWebSearchConfig(existingSetting?.config);
+      if (toolId === WEB_SEARCH_TOOL_ID) {
+        toolConfig = Object.prototype.hasOwnProperty.call(req.body, 'config')
+          ? normalizeWebSearchConfig(req.body?.config)
+          : normalizePersistedWebSearchConfig(existingSetting?.config);
+      } else {
+        toolConfig = normalizeKnowledgeBankConfig(
+          Object.prototype.hasOwnProperty.call(req.body, 'config')
+            ? req.body?.config
+            : existingSetting?.config
+        );
+      }
     } catch (err) {
       res.status(400).json({
         error: {
@@ -255,8 +383,21 @@ export async function updateTargetToolSettings(
       });
       return;
     }
+    if (toolId === KNOWLEDGE_BANK_TOOL_ID) {
+      const validationMessage = await validateKnowledgeBankToolConfig(workspaceId, toolConfig as KnowledgeBankToolConfig);
+      if (validationMessage) {
+        res.status(400).json({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: validationMessage,
+            retryable: false
+          }
+        });
+        return;
+      }
+    }
 
-    const setting = await repo.upsertTargetToolSetting(targetId, toolId, req.body.enabled, config);
+    const setting = await repo.upsertTargetToolSetting(targetId, toolId, req.body.enabled, toolConfig as unknown as Record<string, unknown>);
     webhooks.emit({
       type: 'tool.catalog.changed.v1',
       workspaceId,
@@ -268,16 +409,37 @@ export async function updateTargetToolSettings(
         enabled: req.body.enabled
       }
     });
-    await recordNativeToolSettingAudit(
+    if (toolId === WEB_SEARCH_TOOL_ID) {
+      await recordNativeToolSettingAudit(
+        workspaceId,
+        targetId,
+        access.target.targetType,
+        req.auth.userId,
+        toolId,
+        req.body.enabled,
+        toolConfig as DomainFiltersConfig
+      );
+      res.status(200).json(buildWebSearchItem(setting, access.authz.can('manage_tools')));
+      return;
+    }
+
+    const readiness = await resolveKnowledgeBankReadiness(workspaceId, toolConfig as KnowledgeBankToolConfig);
+    await requeuePausedKnowledgeBankCheckpoints({
       workspaceId,
       targetId,
-      access.target.targetType,
-      req.auth.userId,
-      toolId,
-      req.body.enabled,
-      config
-    );
-    res.status(200).json(buildWebSearchItem(setting));
+      reason: 'knowledge_bank_tool_setting_updated'
+    });
+    await recordKnowledgeBankAudit({
+      workspaceId,
+      targetId,
+      targetType: access.target.targetType,
+      actorUserId: req.auth.userId,
+      eventType: 'knowledge.tool.setting_updated.v1',
+      objectId: targetId,
+      summary: 'Knowledge Bank setting changed',
+      metadata: { enabled: req.body.enabled, config: toolConfig }
+    });
+    res.status(200).json(buildKnowledgeBankItem(setting, readiness, access.authz.can('manage_knowledge_bank')));
   } catch (err) {
     next(err);
   }
