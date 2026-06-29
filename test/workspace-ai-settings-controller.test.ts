@@ -201,6 +201,7 @@ describe('workspace AI settings controller', () => {
     installWorkspace('admin');
     installAiCredentialGateway();
     const auditEvents: string[] = [];
+    let requeued = 0;
     repo.insertWorkspaceAuditEvent = async (event) => {
       auditEvents.push(event.eventType);
       return {
@@ -214,6 +215,12 @@ describe('workspace AI settings controller', () => {
         metadata: event.metadata ?? {},
         occurredAt: '2026-05-24T00:00:00.000Z'
       };
+    };
+    repo.requeueKnowledgeBankPausedCheckpoints = async (workspaceId, targetId) => {
+      assert.equal(workspaceId, 'workspace-1');
+      assert.equal(targetId, undefined);
+      requeued += 1;
+      return 2;
     };
 
     const saved = await callController(
@@ -231,6 +238,7 @@ describe('workspace AI settings controller', () => {
       'workspace.ai_provider_credential.saved.v1',
       'workspace.ai_provider_credential.deleted.v1'
     ]);
+    assert.equal(requeued, 1);
     assert(!JSON.stringify(saved.body).includes('test-key'));
     assert(!JSON.stringify(deleted.body).includes('test-key'));
   });
@@ -256,8 +264,15 @@ describe('workspace AI settings controller', () => {
     installWorkspace('admin');
     installAiCredentialGateway();
     let persisted: Parameters<typeof repo.upsertWorkspaceAiSettings>[1] | undefined;
+    let requeued = 0;
     repo.upsertWorkspaceAiSettings = async (_workspaceId, settings) => {
       persisted = settings;
+    };
+    repo.requeueKnowledgeBankPausedCheckpoints = async (workspaceId, targetId) => {
+      assert.equal(workspaceId, 'workspace-1');
+      assert.equal(targetId, undefined);
+      requeued += 1;
+      return 1;
     };
 
     const response = await callController(
@@ -270,6 +285,7 @@ describe('workspace AI settings controller', () => {
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(persisted, { defaultProvider: 'openai', defaultModel: 'gpt-5.5', reasoningSummaryMode: 'auto', reasoningEffort: 'low' });
+    assert.equal(requeued, 1);
   });
 
   it('rejects default model changes that do not match the selected provider', async () => {

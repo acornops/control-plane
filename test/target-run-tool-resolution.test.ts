@@ -103,17 +103,17 @@ describe('target run tool resolution', () => {
     ]);
     assert.equal(result.writeUnavailableReason, 'run_read_only');
     assert.deepEqual(result.summary, {
-      totalAllowed: 2,
+      totalAllowed: 3,
       functionAllowed: 1,
       nativeAllowed: 1,
-      readAllowed: 2,
+      readAllowed: 3,
       writeAllowed: 0,
       configuredWrite: 1,
       excludedWrite: 1
     });
   });
 
-  it('includes web search by default when no explicit target setting exists', async () => {
+  it('includes default target tools when no explicit target setting exists', async () => {
     installResolverRepoStubs(['read', 'write']);
     mockToolList([]);
 
@@ -128,8 +128,10 @@ describe('target run tool resolution', () => {
     assert.deepEqual(result.allowedNativeTools, [
       { id: 'web_search', config: { domainFilters: { allowedDomains: [], blockedDomains: [] } } }
     ]);
-    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['web_search']);
+    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['knowledge_bank', 'web_search']);
+    assert.deepEqual(result.allowedToolNames, []);
     assert.equal(result.summary.nativeAllowed, 1);
+    assert.equal(result.summary.totalAllowed, 2);
   });
 
   it('excludes web search when the target explicitly disables it', async () => {
@@ -218,7 +220,7 @@ describe('target run tool resolution', () => {
 
     assert.deepEqual(result.allowedToolNames, ['a_read', 'overridden_read', 'z_write']);
     assert.deepEqual(result.allowedToolSpecs.map((tool) => tool.name), ['a_read', 'a_read', 'overridden_read', 'z_write', 'z_write']);
-    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['a_read', 'overridden_read', 'web_search', 'z_write']);
+    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['a_read', 'knowledge_bank', 'overridden_read', 'web_search', 'z_write']);
     assert.equal(result.summary.configuredWrite, 2);
     assert.equal(result.summary.excludedWrite, 0);
   });
@@ -241,7 +243,7 @@ describe('target run tool resolution', () => {
 
     assert.deepEqual(result.allowedToolNames, ['get_logs']);
     assert.deepEqual(result.allowedToolSpecs.map((tool) => tool.name), ['get_logs']);
-    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['get_logs', 'web_search']);
+    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['get_logs', 'knowledge_bank', 'web_search']);
   });
 
   it('filters write tools when the agent does not advertise write capability', async () => {
@@ -409,10 +411,10 @@ describe('target assistant capabilities preview controller', () => {
 
     assert.equal(response.statusCode, 200);
     assert.equal(body.toolAccessMode, 'read_only');
-    assert.equal(body.toolSummary.totalAllowed, 2);
+    assert.equal(body.toolSummary.totalAllowed, 3);
     assert.equal(body.toolSummary.writeAllowed, 0);
     assert.equal(body.skillSummary.totalAvailable, 1);
-    assert.deepEqual(body.tools.map((item) => item.id), ['get_logs', 'web_search']);
+    assert.deepEqual(body.tools.map((item) => item.id), ['get_logs', 'knowledge_bank', 'web_search']);
     assert.equal(body.tools.some((item) => Object.prototype.hasOwnProperty.call(item, 'input_schema')), false);
     assert.deepEqual(body.skills, [
       {

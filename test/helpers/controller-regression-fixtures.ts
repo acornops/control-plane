@@ -21,6 +21,7 @@ const originals = {
   listRecentTargetChatActivity: repo.listRecentTargetChatActivity,
   listTargetChatActivityEvents: repo.listTargetChatActivityEvents,
   getSession: repo.getSession,
+  listMessages: repo.listMessages,
   deleteSession: repo.deleteSession,
   getWorkspaceAiSettings: repo.getWorkspaceAiSettings,
   upsertWorkspaceAiSettings: repo.upsertWorkspaceAiSettings,
@@ -47,6 +48,8 @@ const originals = {
   getTargetToolSetting: repo.getTargetToolSetting,
   listEnabledTargetToolSettings: repo.listEnabledTargetToolSettings,
   upsertTargetToolSetting: repo.upsertTargetToolSetting,
+  searchKnowledgeBankSnippets: repo.searchKnowledgeBankSnippets,
+  requeueKnowledgeBankPausedCheckpoints: repo.requeueKnowledgeBankPausedCheckpoints,
   listEnabledValidTargetSkills: repo.listEnabledValidTargetSkills,
   listEnabledValidTargetSkillSummaries: repo.listEnabledValidTargetSkillSummaries,
   createWebhookSubscription: repo.createWebhookSubscription,
@@ -65,6 +68,7 @@ export function restoreControllerRegressionState(): void {
   repo.listRecentTargetChatActivity = originals.listRecentTargetChatActivity;
   repo.listTargetChatActivityEvents = originals.listTargetChatActivityEvents;
   repo.getSession = originals.getSession;
+  repo.listMessages = originals.listMessages;
   repo.deleteSession = originals.deleteSession;
   repo.getWorkspaceAiSettings = originals.getWorkspaceAiSettings;
   repo.upsertWorkspaceAiSettings = originals.upsertWorkspaceAiSettings;
@@ -91,6 +95,8 @@ export function restoreControllerRegressionState(): void {
   repo.getTargetToolSetting = originals.getTargetToolSetting;
   repo.listEnabledTargetToolSettings = originals.listEnabledTargetToolSettings;
   repo.upsertTargetToolSetting = originals.upsertTargetToolSetting;
+  repo.searchKnowledgeBankSnippets = originals.searchKnowledgeBankSnippets;
+  repo.requeueKnowledgeBankPausedCheckpoints = originals.requeueKnowledgeBankPausedCheckpoints;
   repo.listEnabledValidTargetSkills = originals.listEnabledValidTargetSkills;
   repo.listEnabledValidTargetSkillSummaries = originals.listEnabledValidTargetSkillSummaries;
   repo.createWebhookSubscription = originals.createWebhookSubscription;
@@ -185,6 +191,7 @@ export function installWorkspace(role: Role | null): void {
     createdAt: '2026-05-24T00:00:00.000Z'
   });
   repo.getWorkspaceAiSettings = async () => null;
+  repo.requeueKnowledgeBankPausedCheckpoints = async () => 0;
   repo.listEnabledValidTargetSkills = async () => [];
   repo.listEnabledValidTargetSkillSummaries = async () => [];
 }

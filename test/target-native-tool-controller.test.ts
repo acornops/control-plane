@@ -13,9 +13,12 @@ import {
 afterEach(restoreControllerRegressionState);
 
 describe('target native tool controller', () => {
-  it('lists web search as enabled when the target has no explicit setting', async () => {
+  it('lists default built-in target tools when the target has no explicit setting', async () => {
     installWorkspace('operator');
     repo.getTargetToolSetting = async () => null;
+    const gatewayFetch = mock.method(globalThis, 'fetch', async () => {
+      throw new Error('tools catalog must not call the llm gateway');
+    });
 
     const response = await callController(
       listTargetTools,
@@ -42,9 +45,104 @@ describe('target native tool controller', () => {
             allowedDomains: [],
             blockedDomains: []
           }
+        },
+        permissions: {
+          canEdit: false
+        }
+      },
+      {
+        id: 'knowledge_bank',
+        label: 'Knowledge Bank',
+        enabled: true,
+        description: 'Retrieve and improve target-specific troubleshooting knowledge for future assistant runs.',
+        capability: 'read',
+        runtimeKind: 'function',
+        visibility: {
+          appearsInAssistantToolList: true,
+          appearsInRunEnabledTools: true,
+          appearsInToolCalls: false
+        },
+        config: {
+          learning: {
+            idleCheckpointDelayMinutes: 30,
+            minimumObservationsBeforeGeneralization: 3,
+            checkpointModel: {
+              mode: 'workspace_default'
+            }
+          },
+          retrieval: {
+            maxSnippetsPerRetrieval: 4,
+            maxSnippetSizeBytes: 1536
+          }
+        },
+        readiness: {
+          learningAvailable: true,
+          learningPausedReason: null
+        },
+        permissions: {
+          canEdit: false
         }
       }
     ]);
+    assert.equal(gatewayFetch.mock.callCount(), 0);
+  });
+
+  it('keeps target tools listing independent from llm gateway availability', async () => {
+    installWorkspace('operator');
+    repo.getTargetToolSetting = async () => null;
+    const gatewayFetch = mock.method(globalThis, 'fetch', async () => {
+      throw new Error('llm-gateway unavailable');
+    });
+
+    const response = await callController(
+      listTargetTools,
+      createRequest({ workspaceId: 'workspace-1', targetId: 'cluster-1' })
+    );
+
+    const body = response.body as {
+      items: Array<{
+        id: string;
+        readiness?: { learningAvailable: boolean; learningPausedReason: string | null };
+      }>;
+    };
+    assert.equal(response.statusCode, 200);
+    assert.equal(body.items.find((item) => item.id === 'web_search')?.id, 'web_search');
+    assert.deepEqual(body.items.find((item) => item.id === 'knowledge_bank')?.readiness, {
+      learningAvailable: true,
+      learningPausedReason: null
+    });
+    assert.equal(gatewayFetch.mock.callCount(), 0);
+  });
+
+  it('checks workspace default model policy without calling the llm gateway', async () => {
+    installWorkspace('operator');
+    repo.getTargetToolSetting = async () => null;
+    repo.getWorkspaceAiSettings = async () => ({
+      workspaceId: 'workspace-1',
+      defaultProvider: 'openai',
+      defaultModel: 'not-an-allowed-model'
+    });
+    const gatewayFetch = mock.method(globalThis, 'fetch', async () => {
+      throw new Error('tools catalog must not call the llm gateway');
+    });
+
+    const response = await callController(
+      listTargetTools,
+      createRequest({ workspaceId: 'workspace-1', targetId: 'cluster-1' })
+    );
+
+    const body = response.body as {
+      items: Array<{
+        id: string;
+        readiness?: { learningAvailable: boolean; learningPausedReason: string | null };
+      }>;
+    };
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(body.items.find((item) => item.id === 'knowledge_bank')?.readiness, {
+      learningAvailable: false,
+      learningPausedReason: 'model_not_allowed'
+    });
+    assert.equal(gatewayFetch.mock.callCount(), 0);
   });
 
   it('normalizes and persists web search domain filters', async () => {
@@ -152,6 +250,49 @@ describe('target native tool controller', () => {
       (response.body as { config: Record<string, unknown> }).config,
       existingConfig
     );
+  });
+
+  it('requeues paused knowledge checkpoints when Knowledge Bank settings change', async () => {
+    installWorkspace('admin');
+    let requeueInput: { workspaceId: string; targetId?: string } | null = null;
+    repo.getTargetToolSetting = async () => null;
+    repo.upsertTargetToolSetting = async (targetId, toolId, enabled, config) => ({
+      targetId,
+      toolId,
+      enabled,
+      config,
+      updatedAt: '2026-05-24T00:00:00.000Z'
+    });
+    repo.requeueKnowledgeBankPausedCheckpoints = async (workspaceId, targetId) => {
+      requeueInput = { workspaceId, targetId };
+      return 3;
+    };
+    mock.method(webhooks, 'emit', () => undefined);
+
+    const response = await callController(
+      updateTargetToolSettings,
+      createRequest(
+        { workspaceId: 'workspace-1', targetId: 'cluster-1', toolId: 'knowledge_bank' },
+        {
+          enabled: true,
+          config: {
+            learning: {
+              idleCheckpointDelayMinutes: 45,
+              minimumObservationsBeforeGeneralization: 4,
+              checkpointModel: { mode: 'workspace_default' }
+            },
+            retrieval: {
+              maxSnippetsPerRetrieval: 5,
+              maxSnippetSizeBytes: 2048
+            }
+          }
+        }
+      )
+    );
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(requeueInput, { workspaceId: 'workspace-1', targetId: 'cluster-1' });
+    assert.equal((response.body as { id: string }).id, 'knowledge_bank');
   });
 
   it('rejects invalid web search domain filter values before persisting', async () => {
