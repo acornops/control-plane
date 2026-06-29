@@ -196,6 +196,7 @@ Workspace responses expose server-owned authorization fields:
 - `permissions.manage_targets`
 - `permissions.manage_mcp`
 - `permissions.manage_tools`
+- `permissions.manage_knowledge_bank`
 - `permissions.manage_skills`
 - `permissions.manage_workflows`
 - `permissions.manage_agents`
@@ -321,6 +322,14 @@ VM host snapshots retain only the latest raw target snapshot, then materialize i
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/assistant/capabilities-preview?toolAccessMode=read_only|read_write`
 - `PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolId}`
+- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/knowledge-bank`
+- `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/knowledge-bank/entries`
+- `PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/knowledge-bank/entries/{entryId}`
+- `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/knowledge-bank/entries/{entryId}/promote`
+- `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/knowledge-bank/entries/{entryId}/archive`
+- `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/knowledge-bank/reset`
+- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/knowledge-bank/activity`
+- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/knowledge-bank/export`
 - `PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools/{toolName}`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools`
@@ -336,7 +345,7 @@ VM host snapshots retain only the latest raw target snapshot, then materialize i
 - `DELETE /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}`
 - `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}/reimport`
 
-Built-in tools and MCP-discovered tools use distinct target-scoped APIs. Kubernetes clusters and virtual machines both use the target MCP, Skills, and Tools surfaces. The Tools catalog shows only AcornOps built-in tools such as `web_search`; MCP-discovered tools remain in the MCP catalog and paged MCP server tool APIs. `web_search` defaults to enabled for targets without an explicit tool setting, and storing `enabled=false` is the target-level opt-out. Built-in tool rows include runtime metadata so built-in capabilities can be listed as available without implying that they always emit standard function tool-call events. Kubernetes and VM agent tools are synchronized from each connected agent and remain capability-tagged. Write-tool availability is driven by the advertised tool capability, target agent capabilities, user permissions, and the requested run `toolAccessMode`; the current VM v1 agent catalog happens to advertise only read tools.
+Built-in tools and MCP-discovered tools use distinct target-scoped APIs. Kubernetes clusters and virtual machines both use the target MCP, Skills, and Tools surfaces. The Tools catalog shows only AcornOps built-in tools such as `web_search` and `knowledge_bank`; MCP-discovered tools remain in the MCP catalog and paged MCP server tool APIs. `web_search` defaults to enabled for targets without an explicit tool setting, and storing `enabled=false` is the target-level opt-out. `knowledge_bank` defaults to enabled when the platform feature flag is enabled. Built-in tool rows include runtime metadata and per-item permissions so built-in capabilities can be listed as available without implying that they always emit standard function tool-call events or share the same management permission. Kubernetes and VM agent tools are synchronized from each connected agent and remain capability-tagged. Write-tool availability is driven by the advertised tool capability, target agent capabilities, user permissions, and the requested run `toolAccessMode`; the current VM v1 agent catalog happens to advertise only read tools.
 
 `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/assistant/capabilities-preview` requires target read access and the run-creation capability matching the explicit `toolAccessMode` query. It returns an informational preview of the tools a target assistant run would be allowed to use plus enabled valid skills that are assistant-visible for the next run. It includes summary counts, write unavailability reason, approval policy, display-safe tool items, and skill names/descriptions only. It must not return MCP input schemas, hidden disabled tool inventories, or full skill files; internal execution bootstrap and the hidden skill loader remain the enforcement authority.
 
@@ -352,17 +361,32 @@ The management console depends on these MCP catalog fields:
 The management console depends on these built-in Tools catalog fields:
 
 - `permissions.canEdit`
-- `items[].{id,label,enabled,description,capability,runtimeKind,visibility,config}`
+- `items[].{id,label,enabled,description,capability,runtimeKind,visibility,config,permissions.{canEdit},readiness?}`
 - `web_search.config.domainFilters.{allowedDomains,blockedDomains}`
+- `knowledge_bank.config.learning.{idleCheckpointDelayMinutes,minimumObservationsBeforeGeneralization,checkpointModel}` and `knowledge_bank.config.retrieval.{maxSnippetsPerRetrieval,maxSnippetSizeBytes}`
+- `knowledge_bank.readiness.{learningAvailable,learningPausedReason}`
 - Built-in tool settings are patched through `/tools/{toolId}` with `{enabled, config?}`.
+- Knowledge Bank entry APIs return `{workspaceId,targetId,targetType,permissions.{canEdit},items[]}` for lists and entry objects with Markdown body, frontmatter, status, tags, normalized signals, scope, evidence summary, observation count, confidence, and timestamps.
+- Knowledge Bank tool catalog readiness is a local provider/model policy check only. It must not call the LLM gateway or credential-status APIs while listing target tools.
 
 Mutation policy exposed to the management console:
 
 - Roles with `permissions.manage_mcp` may mutate MCP server configuration.
-- Roles with `permissions.manage_tools` may mutate MCP per-tool enablement and built-in tool settings. Catalog `permissions.editableRoles` is derived from the deployment role templates for display only; `permissions.canEdit` is the authoritative per-user decision.
+- Roles with `permissions.manage_tools` may mutate MCP per-tool enablement and non-Knowledge-Bank built-in tool settings.
+- Roles with `permissions.manage_knowledge_bank` may mutate Knowledge Bank entries and Knowledge Bank tool settings.
+- Catalog `permissions.editableRoles` is derived from the deployment role templates for display only; catalog `permissions.canEdit` means the user can edit at least one built-in target tool. Each tool row's `permissions.canEdit` is the authoritative per-tool decision.
 - Public remote MCP server creation is discovery-first: callers provide connection details and optional non-secret `publicHeaders`, and tool mappings are discovered through the server's `tools/list` endpoint.
 - Newly discovered external MCP tools remain disabled until an authorized workspace role reviews and enables them with an explicit capability.
 - Roles without the relevant management capability are read-only for that configuration surface.
+
+Knowledge Bank operational metrics are exported through the existing `/metrics` endpoint:
+
+- `control_plane_knowledge_bank_retrievals_total{outcome}`
+- `control_plane_knowledge_bank_checkpoint_outcomes_total{status,reason}`
+- `control_plane_knowledge_bank_checkpoint_duration_ms_bucket{status,le}`
+- `control_plane_knowledge_bank_checkpoint_patches_total{status}`
+
+These labels must remain low-cardinality and must not include workspace IDs, target IDs, session IDs, entry IDs, raw prompts, raw logs, or knowledge text.
 
 ### Target troubleshooting skills
 
@@ -460,6 +484,7 @@ Current event types emitted by execution-engine and forwarded by control plane:
 - `skill_context_load_started`
 - `skill_context_loaded`
 - `skill_context_load_failed`
+- `knowledge_context_retrieved`
 - `tool_call_started`
 - `tool_call_completed`
 - `tool_approval_requested` with optional `payload.summary`
@@ -729,6 +754,7 @@ Context response contract:
 - `messages[]` with `{role, content}`
 - `summaries[]`
 - `attachments[]`
+- `knowledge_bank.snippets[]` with retrieved Knowledge Bank entry metadata for run detail transparency.
 
 Event ingestion contract:
 
