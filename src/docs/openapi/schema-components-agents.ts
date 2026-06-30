@@ -4,7 +4,7 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
   return {
     AgentDefinition: {
       type: 'object',
-      required: ['id', 'workspaceId', 'name', 'instructions', 'status', 'providerType', 'version'],
+      required: ['id', 'workspaceId', 'name', 'instructions', 'status', 'kind', 'providerType', 'version'],
       properties: {
         id: { type: 'string' },
         workspaceId: { type: 'string' },
@@ -13,6 +13,7 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         instructions: { type: 'string' },
         status: { type: 'string', enum: ['active', 'disabled', 'draft'] },
         source: { type: 'string', enum: ['system', 'user'] },
+        kind: { type: 'string', enum: ['system_orchestrator', 'specialist_agent'] },
         providerType: { type: 'string', enum: ['internal', 'external'] },
         version: { type: 'integer' },
         ownerUserId: { type: 'string' },

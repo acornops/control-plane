@@ -169,7 +169,7 @@ export function badRequest(res: Response, code: string, message: string, details
 
 export function workflowsUsingAgent(workspaceId: string, agentId: string): string[] {
   return listWorkflowDefinitions(workspaceId)
-    .filter((workflow) => workflow.steps.some((step) => (step.assignedAgentIds || []).includes(agentId)))
+    .filter((workflow) => workflow.steps.some((step) => (step.agentIds || []).includes(agentId)))
     .map((workflow) => workflow.name);
 }
 

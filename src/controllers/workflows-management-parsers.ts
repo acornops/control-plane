@@ -82,7 +82,7 @@ export function workflowSteps(value: unknown): WorkflowStepDefinition[] | undefi
         id: typeof entry.id === 'string' ? entry.id.trim() : '',
         title: typeof entry.title === 'string' ? entry.title.trim() : '',
         requiredInputs: stringList(entry.requiredInputs) || [],
-        assignedAgentIds: stringList(entry.assignedAgentIds),
+        agentIds: stringList(entry.agentIds),
         targetBinding,
         enabledSkills: stringList(entry.enabledSkills) || [],
         allowedMcpServers: stringList(entry.allowedMcpServers) || [],

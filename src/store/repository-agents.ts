@@ -11,6 +11,7 @@ import type {
 const agentsByWorkspace = new Map<string, Map<string, AgentDefinition>>();
 const versionsByAgent = new Map<string, AgentVersionSnapshot[]>();
 const activityByAgent = new Map<string, AgentActivityRecord[]>();
+const defaultDevelopmentOwnerUserId = 'user-1';
 
 export interface CreateAgentDefinitionInput {
   workspaceId: string;
@@ -19,6 +20,7 @@ export interface CreateAgentDefinitionInput {
   instructions: string;
   ownerUserId: string;
   createdBy: string;
+  kind?: AgentDefinition['kind'];
   providerType?: AgentDefinition['providerType'];
   mcpServers?: string[];
   tools?: string[];
@@ -34,6 +36,7 @@ export interface AgentDefinitionUpdate {
   description?: string;
   instructions?: string;
   status?: AgentDefinition['status'];
+  kind?: AgentDefinition['kind'];
   providerType?: AgentDefinition['providerType'];
   ownerUserId?: string;
   mcpServers?: string[];
@@ -137,6 +140,31 @@ function defaultAgents(workspaceId: string): AgentDefinition[] {
   const now = nowIso();
   return [
     {
+      id: 'agent-workflow-orchestrator',
+      workspaceId,
+      name: 'System Orchestrator',
+      description: 'Coordinates workflow steps and applies server-compiled workflow capability gates.',
+      instructions: 'Coordinate workflow execution using the workflow definition and selected agents. Do not grant additional domain tool access.',
+      status: 'active',
+      source: 'system',
+      kind: 'system_orchestrator',
+      providerType: 'internal',
+      version: 1,
+      ownerUserId: 'system',
+      createdBy: 'system',
+      createdAt: now,
+      updatedAt: now,
+      mcpServers: [],
+      tools: [],
+      skills: [],
+      contextGrants: [],
+      targetScope: { type: 'workspace' },
+      approvalPolicy: { mode: 'none', writeToolsRequireApproval: true },
+      trustPolicy: { level: 'restricted', allowExternalData: false },
+      triggers: [],
+      activity: { runCount: 0 }
+    },
+    {
       id: 'agent-cluster-triage',
       workspaceId,
       name: 'Kubernetes Diagnostics',
@@ -144,9 +172,10 @@ function defaultAgents(workspaceId: string): AgentDefinition[] {
       instructions: 'Use read-only cluster inventory, event, log, and metric tools.',
       status: 'active',
       source: 'system',
+      kind: 'specialist_agent',
       providerType: 'internal',
       version: 1,
-      ownerUserId: 'system',
+      ownerUserId: defaultDevelopmentOwnerUserId,
       createdBy: 'system',
       createdAt: now,
       updatedAt: now,
@@ -168,9 +197,10 @@ function defaultAgents(workspaceId: string): AgentDefinition[] {
       instructions: 'Coordinate release checks; request approval before write tools.',
       status: 'active',
       source: 'system',
+      kind: 'specialist_agent',
       providerType: 'external',
       version: 1,
-      ownerUserId: 'system',
+      ownerUserId: defaultDevelopmentOwnerUserId,
       createdBy: 'system',
       createdAt: now,
       updatedAt: now,
@@ -192,9 +222,10 @@ function defaultAgents(workspaceId: string): AgentDefinition[] {
       instructions: 'Use selected chat context only after approval and write the requested report artifact.',
       status: 'active',
       source: 'system',
+      kind: 'specialist_agent',
       providerType: 'internal',
       version: 1,
-      ownerUserId: 'system',
+      ownerUserId: defaultDevelopmentOwnerUserId,
       createdBy: 'system',
       createdAt: now,
       updatedAt: now,
@@ -261,6 +292,7 @@ export function createAgentDefinition(input: CreateAgentDefinitionInput): AgentD
     instructions: input.instructions.trim(),
     status: 'active',
     source: 'user',
+    kind: input.kind || 'specialist_agent',
     providerType: input.providerType || 'internal',
     version: 1,
     ownerUserId: input.ownerUserId,
@@ -291,6 +323,7 @@ export function updateAgentDefinition(workspaceId: string, agentId: string, patc
     description: typeof patch.description === 'string' ? patch.description.trim() : current.description,
     instructions: patch.instructions?.trim() || current.instructions,
     status: patch.status || current.status,
+    kind: patch.kind || current.kind,
     providerType: patch.providerType || current.providerType,
     ownerUserId: patch.ownerUserId || current.ownerUserId,
     mcpServers: patch.mcpServers ? uniqueSorted(patch.mcpServers) : current.mcpServers,

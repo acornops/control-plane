@@ -165,7 +165,7 @@ describe('execution engine client', () => {
     });
   });
 
-  it('includes assigned agent metadata in workspace-scoped execution requests', async () => {
+  it('includes explicit delegated agent metadata in workspace-scoped execution requests', async () => {
     mutableConfig.EXECUTION_ENGINE_BASE_URL = 'https://engine.example.com';
     mutableConfig.EXECUTION_ENGINE_DISPATCH_TOKEN = 'dispatch-token';
 
@@ -186,13 +186,6 @@ describe('execution engine client', () => {
     await dispatchWorkflowRunToExecutionEngine(createWorkflowRun({
       compiledAccessScope: {
         ...createWorkflowRun().compiledAccessScope,
-        agentAssignments: [
-          {
-            stepId: 'inventory-scope',
-            agentIds: ['agent-cluster-triage'],
-            agentVersions: { 'agent-cluster-triage': 4 }
-          }
-        ],
         jwtClaims: {
           ...createWorkflowRun().compiledAccessScope.jwtClaims,
           agent_id: 'agent-cluster-triage',

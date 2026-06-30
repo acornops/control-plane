@@ -58,7 +58,7 @@ export interface WorkflowStepDefinition {
   id: string;
   title: string;
   requiredInputs: string[];
-  assignedAgentIds?: string[];
+  agentIds?: string[];
   targetBinding?: WorkflowTargetBinding;
   enabledSkills: string[];
   allowedMcpServers: string[];
@@ -85,6 +85,7 @@ export interface WorkflowDefinitionForAccess {
   description?: string;
   status?: WorkflowStatus;
   category: WorkflowCategory;
+  orchestratorAgentId: string;
   tags?: string[];
   inputs?: WorkflowInputDefinition[];
   enabledMcpServers?: string[];
@@ -157,7 +158,7 @@ export interface CompiledWorkflowAccessScope {
   enabledSkills: string[];
   contextGrants: string[];
   approvalGates: string[];
-  agentAssignments?: Array<{
+  selectedAgents?: Array<{
     stepId: string;
     agentIds: string[];
     agentVersions: Record<string, number>;

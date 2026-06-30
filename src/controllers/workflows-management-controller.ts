@@ -56,8 +56,14 @@ function collectWorkflowReferenceErrors(workspaceId: string, steps: WorkflowStep
   const knownServers = new Map(options.mcpServers.map((option) => [option.value, option]));
   const knownTools = new Map(options.mcpTools.map((option) => [option.value, option]));
   const knownSkills = new Map(options.skills.map((option) => [option.value, option]));
+  const knownAgents = new Map(options.agents.map((option) => [option.value, option]));
   const errors: string[] = [];
   for (const step of steps) {
+    for (const agent of step.agentIds || []) {
+      const option = knownAgents.get(agent);
+      if (!option) errors.push(`Unknown agent: ${agent}`);
+      else if (option.disabled) errors.push(`Disabled agent: ${agent}`);
+    }
     for (const server of step.allowedMcpServers) {
       const option = knownServers.get(server);
       if (!option) errors.push(`Unknown MCP server: ${server}`);
@@ -119,7 +125,7 @@ function requestWorkflowScopeUpdate(req: AuthenticatedRequest, workflow: Workflo
       id: typeof entry.id === 'string' ? entry.id : '',
       title: typeof entry.title === 'string' ? entry.title.trim() : undefined,
       requiredInputs: stringList(entry.requiredInputs),
-      assignedAgentIds: stringList(entry.assignedAgentIds),
+      agentIds: stringList(entry.agentIds),
       targetBinding: entry.targetBinding && typeof entry.targetBinding === 'object' && !Array.isArray(entry.targetBinding)
         ? entry.targetBinding as WorkflowStepDefinition['targetBinding']
         : undefined,
@@ -297,7 +303,7 @@ export async function updateWorkflow(_req: AuthenticatedRequest, res: Response):
     return stepUpdate
       ? {
           ...step,
-          assignedAgentIds: stepUpdate.assignedAgentIds || step.assignedAgentIds,
+          agentIds: stepUpdate.agentIds || step.agentIds,
           enabledSkills: stepUpdate.enabledSkills || step.enabledSkills,
           allowedMcpServers: stepUpdate.allowedMcpServers || step.allowedMcpServers,
           allowedTools: stepUpdate.allowedTools || step.allowedTools

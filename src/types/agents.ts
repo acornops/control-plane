@@ -3,6 +3,7 @@ import type { WorkspaceAuditOperation, TargetType } from './domain.js';
 
 export type AgentStatus = 'active' | 'disabled' | 'draft';
 export type AgentDefinitionSource = 'system' | 'user';
+export type AgentDefinitionKind = 'system_orchestrator' | 'specialist_agent';
 export type AgentProviderType = 'internal' | 'external';
 export type AgentTriggerType =
   | 'manual'
@@ -67,6 +68,7 @@ export interface AgentDefinition {
   instructions: string;
   status: AgentStatus;
   source: AgentDefinitionSource;
+  kind: AgentDefinitionKind;
   providerType: AgentProviderType;
   version: number;
   ownerUserId: string;

@@ -56,6 +56,7 @@ function createAgent(overrides: Partial<AgentDefinition> = {}): AgentDefinition 
     instructions: 'Stay inside the assigned workflow scope.',
     status: 'active',
     source: 'system',
+    kind: 'specialist_agent',
     providerType: 'internal',
     version: 2,
     ownerUserId: 'system',
@@ -206,7 +207,7 @@ describe('workflow access compiler', () => {
     );
   });
 
-  it('narrows assigned workflow step scope to active agent grants', () => {
+  it('narrows workflow step scope to active agent grants without setting agent identity claims', () => {
     const compiled = compileWorkflowAccessScope({
       workflow: createWorkflow({
         steps: [
@@ -214,7 +215,7 @@ describe('workflow access compiler', () => {
             id: 'summarize',
             title: 'Summarize exposure',
             requiredInputs: [],
-            assignedAgentIds: ['agent-incident'],
+            agentIds: ['agent-incident'],
             enabledSkills: ['acornops-security-baseline', 'acornops-cross-repo-change'],
             allowedMcpServers: ['audit-log', 'workspace-registry'],
             allowedTools: ['audit.events.search', 'mcp.tools.list', 'mcp.servers.list'],
@@ -236,18 +237,18 @@ describe('workflow access compiler', () => {
       approvedContextGrants: ['audit_events']
     });
 
-    assert.deepEqual(compiled.agentAssignments, [
+    assert.deepEqual(compiled.selectedAgents, [
       { stepId: 'summarize', agentIds: ['agent-incident'], agentVersions: { 'agent-incident': 2 } }
     ]);
     assert.deepEqual(compiled.mcpServers, ['audit-log']);
     assert.deepEqual(compiled.tools, ['audit.events.search', 'mcp.tools.list']);
     assert.deepEqual(compiled.enabledSkills, ['acornops-security-baseline']);
     assert.deepEqual(compiled.contextGrants, ['audit_events']);
-    assert.equal(compiled.jwtClaims.agent_id, 'agent-incident');
-    assert.equal(compiled.jwtClaims.agent_version, 2);
+    assert.equal(compiled.jwtClaims.agent_id, undefined);
+    assert.equal(compiled.jwtClaims.agent_version, undefined);
   });
 
-  it('does not expand empty workflow step allowlists to the assigned agent scope', () => {
+  it('does not expand empty workflow step allowlists to the selected agent scope', () => {
     const compiled = compileWorkflowAccessScope({
       workflow: createWorkflow({
         enabledMcpServers: [],
@@ -257,7 +258,7 @@ describe('workflow access compiler', () => {
             id: 'summarize',
             title: 'Summarize exposure',
             requiredInputs: [],
-            assignedAgentIds: ['agent-incident'],
+            agentIds: ['agent-incident'],
             enabledSkills: [],
             allowedMcpServers: [],
             allowedTools: [],
@@ -285,7 +286,7 @@ describe('workflow access compiler', () => {
     assert.deepEqual(compiled.contextGrants, []);
   });
 
-  it('rejects workflow steps assigned to disabled agents', () => {
+  it('rejects workflow steps scoped to disabled agents', () => {
     assert.throws(
       () => compileWorkflowAccessScope({
         workflow: createWorkflow({
@@ -294,7 +295,7 @@ describe('workflow access compiler', () => {
               id: 'summarize',
               title: 'Summarize exposure',
               requiredInputs: [],
-              assignedAgentIds: ['agent-disabled'],
+              agentIds: ['agent-disabled'],
               enabledSkills: ['acornops-security-baseline'],
               allowedMcpServers: ['audit-log'],
               allowedTools: ['audit.events.search'],

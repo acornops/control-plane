@@ -43,6 +43,20 @@ describe('agents controller', () => {
     assert.ok(body.items.every((agent) => agent.status === 'active'));
   });
 
+  it('keeps only the workflow orchestrator owned by the system actor', async () => {
+    installWorkspace('viewer');
+
+    const response = await callController(listAgents, createRequest({ workspaceId: 'workspace-1' }));
+
+    assert.equal(response.statusCode, 200);
+    const body = response.body as { items: Array<{ id: string; ownerUserId: string }> };
+    const ownerByAgentId = new Map(body.items.map((agent) => [agent.id, agent.ownerUserId]));
+    assert.equal(ownerByAgentId.get('agent-workflow-orchestrator'), 'system');
+    assert.equal(ownerByAgentId.get('agent-cluster-triage'), 'user-1');
+    assert.equal(ownerByAgentId.get('agent-release-coordinator'), 'user-1');
+    assert.equal(ownerByAgentId.get('agent-incident-reporter'), 'user-1');
+  });
+
   it('can include disabled agents for management views without changing the default list', async () => {
     installWorkspace('admin');
 
@@ -75,7 +89,7 @@ describe('agents controller', () => {
         id: 'triage',
         title: 'Triage',
         requiredInputs: [],
-        assignedAgentIds: ['agent-cluster-triage'],
+        agentIds: ['agent-cluster-triage'],
         enabledSkills: [],
         allowedMcpServers: [],
         allowedTools: [],
@@ -328,7 +342,7 @@ describe('agents controller', () => {
         id: 'assigned-step',
         title: 'Assigned step',
         requiredInputs: [],
-        assignedAgentIds: [agentId],
+        agentIds: [agentId],
         enabledSkills: [],
         allowedMcpServers: [],
         allowedTools: [],

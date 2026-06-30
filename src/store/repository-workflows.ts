@@ -71,7 +71,7 @@ export interface WorkflowDefinitionScopeUpdate {
     id: string;
     title?: string;
     requiredInputs?: string[];
-    assignedAgentIds?: string[];
+    agentIds?: string[];
     targetBinding?: WorkflowStepDefinition['targetBinding'];
     enabledSkills?: string[];
     allowedMcpServers?: string[];
@@ -88,6 +88,7 @@ export interface CreateWorkflowDefinitionInput {
   name: string;
   description?: string;
   category: WorkflowCategory;
+  orchestratorAgentId?: string;
   tags?: string[];
   inputs?: WorkflowInputDefinition[];
   enabledMcpServers?: string[];
@@ -114,7 +115,7 @@ function cloneWorkflowDefinition(definition: WorkflowDefinitionForAccess): Workf
     steps: definition.steps.map((step) => ({
       ...step,
       requiredInputs: [...step.requiredInputs],
-      assignedAgentIds: step.assignedAgentIds ? [...step.assignedAgentIds] : undefined,
+      agentIds: step.agentIds ? [...step.agentIds] : undefined,
       targetBinding: step.targetBinding ? { ...step.targetBinding } : undefined,
       enabledSkills: [...step.enabledSkills],
       allowedMcpServers: [...step.allowedMcpServers],
@@ -163,7 +164,7 @@ function updateStepScope(step: WorkflowStepDefinition, update: NonNullable<Workf
     ...step,
     title: update.title || step.title,
     requiredInputs: update.requiredInputs ? uniqueSorted(update.requiredInputs) : step.requiredInputs,
-    assignedAgentIds: update.assignedAgentIds ? uniqueSorted(update.assignedAgentIds) : step.assignedAgentIds,
+    agentIds: update.agentIds ? uniqueSorted(update.agentIds) : step.agentIds,
     targetBinding: update.targetBinding || step.targetBinding,
     enabledSkills: update.enabledSkills ? uniqueSorted(update.enabledSkills) : step.enabledSkills,
     allowedMcpServers: update.allowedMcpServers ? uniqueSorted(update.allowedMcpServers) : step.allowedMcpServers,
@@ -197,6 +198,7 @@ export function createWorkflowDefinition(input: CreateWorkflowDefinitionInput): 
     description: input.description?.trim(),
     status: 'draft',
     category: input.category,
+    orchestratorAgentId: input.orchestratorAgentId || 'agent-workflow-orchestrator',
     tags: uniqueSorted(input.tags || []),
     inputs: (input.inputs || []).map((item) => ({ ...item })),
     enabledMcpServers: uniqueSorted(input.enabledMcpServers || input.steps.flatMap((step) => step.allowedMcpServers)),
@@ -211,7 +213,7 @@ export function createWorkflowDefinition(input: CreateWorkflowDefinitionInput): 
     steps: input.steps.map((step) => ({
       ...step,
       requiredInputs: uniqueSorted(step.requiredInputs),
-      assignedAgentIds: step.assignedAgentIds ? uniqueSorted(step.assignedAgentIds) : undefined,
+      agentIds: step.agentIds ? uniqueSorted(step.agentIds) : undefined,
       enabledSkills: uniqueSorted(step.enabledSkills),
       allowedMcpServers: uniqueSorted(step.allowedMcpServers),
       allowedTools: uniqueSorted(step.allowedTools),
@@ -486,7 +488,7 @@ export function getWorkflowOptionsCatalog(workspaceId: string): WorkflowOptionsC
       { value: 'acornops-open-pr', label: 'Open PR', description: 'Prepare branch and pull request handoff' },
       { value: 'acornops-target-boundary-design', label: 'Target boundary design', description: 'Target model compatibility checks' }
     ],
-    agents: listAgentDefinitions(workspaceId).map((agent) => ({
+    agents: listAgentDefinitions(workspaceId).filter((agent) => agent.kind === 'specialist_agent').map((agent) => ({
       value: agent.id,
       label: agent.name,
       description: agent.description,
