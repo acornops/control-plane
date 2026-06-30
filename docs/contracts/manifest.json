@@ -293,8 +293,8 @@
         "runApprovalDecision": ["targetId", "targetType", "clusterId?", "summary?", "conflict.approval.{targetId,targetType,clusterId?,summary?}"],
         "postMessageAccepted": ["message_id", "run_id"],
         "runEventFrame": ["schema_version", "run_id", "seq", "ts", "type", "payload"],
-        "agent": ["id", "workspaceId", "name", "description?", "instructions", "status", "source", "providerType", "version", "ownerUserId", "mcpServers[]", "tools[]", "skills[]", "contextGrants[]", "targetScope", "approvalPolicy", "trustPolicy", "triggers[]", "activity"],
-        "workflowAgentAssignments": ["steps[].assignedAgentIds[]", "compiledAccessScope.agentAssignments[]", "jwtClaims.agent_id?", "jwtClaims.agent_version?", "jwtClaims.trigger_id?"],
+        "agent": ["id", "workspaceId", "name", "description?", "instructions", "status", "source", "kind", "providerType", "version", "ownerUserId", "mcpServers[]", "tools[]", "skills[]", "contextGrants[]", "targetScope", "approvalPolicy", "trustPolicy", "triggers[]", "activity"],
+        "workflowSelectedAgents": ["orchestratorAgentId", "steps[].agentIds[]", "compiledAccessScope.selectedAgents[]", "jwtClaims.agent_id? explicit direct/delegated agent only", "jwtClaims.agent_version? explicit direct/delegated agent only", "jwtClaims.trigger_id?"],
         "workflowSchedule": ["id", "workspaceId", "workflowId", "workflowVersion", "name", "status", "cron", "timezone", "inputDefaults", "approvedContextGrants", "nextRunAt?", "lastRunAt?", "lastStatus?", "lastError?", "createdBy", "updatedBy"],
         "workflowSchedulePage": ["items", "summary.{total,active,paused,approvalGated,nextRunAt?}"],
         "workspaceApprovalInbox": ["items[].{approvalId,runId,source,workflowId?,targetId?,summary,toolName,requestedBy?,expiresAt,status,decision?,decidedBy?,decidedAt?,requestedAt}", "nextCursor?"]

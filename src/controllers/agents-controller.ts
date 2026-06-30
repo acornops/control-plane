@@ -190,6 +190,10 @@ export async function updateAgent(req: AuthenticatedRequest, res: Response, next
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
       return;
     }
+    if (current.kind === 'system_orchestrator') {
+      res.status(409).json({ error: { code: 'SYSTEM_ORCHESTRATOR_IMMUTABLE', message: 'The system workflow orchestrator cannot be edited.', retryable: false } });
+      return;
+    }
     const patch = agentPatch(bodyRecord(req.body));
     const optionErrors = collectAgentOptionErrors(workspaceId, { ...current, ...patch });
     if (optionErrors.length > 0) {

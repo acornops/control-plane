@@ -269,9 +269,13 @@ and trigger mutations emit workspace audit events with agent id, version, status
 and trigger metadata when applicable. External provider agents use restricted trust defaults
 and cannot self-expand tools, MCP servers, skills, context grants, target
 scopes, approval policy, or external data access beyond server-owned catalogs.
-Workflow steps may assign `assignedAgentIds`; runtime scope is the
-intersection of the assigned agents, workflow policy, step narrowing, approved
-context grants, and actor permissions.
+Workflow definitions include a read-only `orchestratorAgentId` for the System
+Orchestrator. Workflow steps may select `agentIds[]`; runtime scope is the
+intersection of the selected agents, workflow policy, step narrowing, approved
+context grants, and actor permissions. When a step selects no agents, the
+workflow step scope applies directly. Selected workflow agents do not populate
+runtime `agent_id` or `agent_version`; those JWT claims remain reserved for
+explicit direct or delegated agent execution.
 
 Kubernetes cluster registration response must remain:
 
@@ -506,7 +510,7 @@ post-terminal assistant content.
 
 ### Workspace workflow APIs
 
-Workflows are workspace-scoped automation resources, not synthetic targets. Existing target session and run behavior remains target-scoped.
+Workflows are workspace-scoped automation resources, not synthetic targets. Existing target session and run behavior remains target-scoped. Workflow definitions must not add a platform-level target selection model; target access for future workflows is represented through server-compiled built-in tool capabilities.
 
 Implemented management-console routes:
 
@@ -549,7 +553,6 @@ Workflow execution scope must be server-compiled:
 - `workflow_id`, `workflow_run_id`, `workflow_session_id`, and current step id are included in run-scoped JWTs for workspace workflow runs.
 - Control-plane dispatches workflow runs to execution-engine with `scope_type = "workspace"` and without synthetic `target_id` or `target_type` fields.
 - Execution bootstrap for workflow runs returns `routing.target_scoped = false`, `routing.workflow_scoped = true`, and context endpoint `GET /internal/v1/workflow-sessions/{workflowSessionId}/context`.
-- `targetRef` is optional and only present when a workflow step explicitly targets a Kubernetes cluster, VM, or future target type.
 - Allowed tools, allowed tool operations, context grants, selected chat-history grants, and read-only/read-write mode are enforced by control plane, execution-engine, and llm-gateway contracts, not by management-console visibility.
 
 Workflow chat history is separate from target chat history. Workflow access to target or workflow chat history requires explicit configured grants, and selected-chat grants must be stored as references rather than copied transcript secrets.

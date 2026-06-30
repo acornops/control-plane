@@ -148,7 +148,7 @@ function workflowSteps(value: unknown): WorkflowStepDefinition[] | undefined {
         id: typeof entry.id === 'string' ? entry.id.trim() : '',
         title: typeof entry.title === 'string' ? entry.title.trim() : '',
         requiredInputs: stringList(entry.requiredInputs) || [],
-        assignedAgentIds: stringList(entry.assignedAgentIds),
+        agentIds: stringList(entry.agentIds),
         targetBinding,
         enabledSkills: stringList(entry.enabledSkills) || [],
         allowedMcpServers: stringList(entry.allowedMcpServers) || [],
@@ -164,8 +164,12 @@ function workflowSteps(value: unknown): WorkflowStepDefinition[] | undefined {
 function collectWorkflowReferenceErrors(workspaceId: string, steps: WorkflowStepDefinition[]): string[] {
   const options = getWorkflowOptionsCatalog(workspaceId);
   const knownTools = new Set(options.mcpTools.map((option) => option.value));
+  const knownAgents = new Set(options.agents.map((option) => option.value));
   const errors: string[] = [];
   for (const step of steps) {
+    for (const agent of step.agentIds || []) {
+      if (!knownAgents.has(agent)) errors.push(`Unknown agent: ${agent}`);
+    }
     for (const tool of step.allowedTools) {
       if (!knownTools.has(tool)) errors.push(`Unknown MCP tool: ${tool}`);
     }
@@ -213,7 +217,7 @@ function requestWorkflowScopeUpdate(req: AuthenticatedRequest, workflow: Workflo
       id: typeof entry.id === 'string' ? entry.id : '',
       title: typeof entry.title === 'string' ? entry.title.trim() : undefined,
       requiredInputs: stringList(entry.requiredInputs),
-      assignedAgentIds: stringList(entry.assignedAgentIds),
+      agentIds: stringList(entry.agentIds),
       targetBinding: entry.targetBinding && typeof entry.targetBinding === 'object' && !Array.isArray(entry.targetBinding)
         ? entry.targetBinding as WorkflowStepDefinition['targetBinding']
         : undefined,

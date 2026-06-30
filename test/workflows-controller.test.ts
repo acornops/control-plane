@@ -107,8 +107,6 @@ describe('workflows controller', () => {
       workflow_run_id: body.workflow_run_id,
       workflow_session_id: sessionId,
       workflow_step_id: 'collect-cluster-signals',
-      agent_id: 'agent-cluster-triage',
-      agent_version: 1,
       requested_at: run.requestedAt
     });
 
@@ -283,7 +281,7 @@ describe('workflows controller', () => {
         steps: [
           {
             id: 'collect-cluster-signals',
-            assignedAgentIds: ['agent-release-coordinator'],
+            agentIds: ['agent-release-coordinator'],
             allowedMcpServers: ['github'],
             allowedTools: ['github.repositories.read', 'github.branches.create'],
             contextGrants: ['workspace_metadata'],
