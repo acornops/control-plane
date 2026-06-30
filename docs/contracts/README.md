@@ -293,7 +293,7 @@ VM registration accepts `name`, optional `hostname`, `osFamily = "linux"`, `serv
 
 Pod log reads are backed by the connected Kubernetes agent `get_resource_logs` tool. They require `permissions.read_target_logs`, respect the cluster namespace include/exclude scope, and return `{ name, namespace, container, logs, tailLines, previous, fetchedAt }`.
 
-`installInstructions.command` is owned by the control plane. Management consoles must display it as returned instead of hardcoding chart paths, release names, or Helm value names.
+`installInstructions.command` is owned by the control plane. Management consoles must not hardcode chart paths, release names, or read-write Helm values, but may re-render user-selected namespace scope before copy. Kubernetes cluster registration and agent-key rotation may send `agentAccessMode = "read_only" | "read_write"`; omitted or unknown values default to `read_only`. Read-write install instructions returned by the control plane must include `--set rbac.write.enabled=true`.
 
 Kubernetes cluster updates accept `name`, `namespaceInclude`, and `namespaceExclude`. Namespace scope changes take effect for control-plane authorization and regenerated install instructions immediately. If the Kubernetes agent is connected and supports `config/update_namespace_scope`, the control plane pushes the new scope over the existing WebSocket channel and the next snapshot uses it without an agent restart. Disconnected agents receive the persisted scope in the next handshake response.
 

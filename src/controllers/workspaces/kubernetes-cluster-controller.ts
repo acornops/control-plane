@@ -17,6 +17,7 @@ import {
   buildAgentInstallInstructions,
   clusterAllowsNamespace,
   normalizeNamespaceList,
+  parseAgentAccessMode,
   parseBooleanQuery,
   parseBoundedIntQuery,
   parseMetricLimit,
@@ -41,6 +42,7 @@ function mapClusterMetricPoint(point: { timestamp: string; metrics: Record<strin
 export async function registerCluster(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
+    const agentAccessMode = parseAgentAccessMode(req.body?.agentAccessMode);
     if (
       !(await requireWorkspaceCapability(
         req,
@@ -93,6 +95,7 @@ export async function registerCluster(req: AuthenticatedRequest, res: Response, 
       summary: 'Kubernetes cluster registered',
       metadata: {
         status: cluster.status,
+        agentAccessMode,
         namespaceInclude: cluster.namespaceInclude,
         namespaceExclude: cluster.namespaceExclude
       }
@@ -100,7 +103,7 @@ export async function registerCluster(req: AuthenticatedRequest, res: Response, 
     res.status(201).json({
       cluster,
       agentKey: rawAgentKey,
-      installInstructions: buildAgentInstallInstructions(cluster, rawAgentKey)
+      installInstructions: buildAgentInstallInstructions(cluster, rawAgentKey, agentAccessMode)
     });
   } catch (err) {
     next(err);
@@ -452,6 +455,7 @@ export async function rotateAgentKey(req: AuthenticatedRequest, res: Response, n
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
     const clusterId = toSingleParam(req.params.clusterId);
+    const agentAccessMode = parseAgentAccessMode(req.body?.agentAccessMode);
     const access = await requireClusterAccess(req, res, workspaceId, clusterId);
     if (!access) {
       return;
@@ -504,13 +508,13 @@ export async function rotateAgentKey(req: AuthenticatedRequest, res: Response, n
       objectId: clusterId,
       objectName: access.cluster.name,
       summary: 'Cluster agent key rotated',
-      metadata: { keyVersion: reg.keyVersion + 1 }
+      metadata: { keyVersion: reg.keyVersion + 1, agentAccessMode }
     });
     res.status(200).json({
       clusterId,
       agentKey: rawAgentKey,
       keyVersion: reg.keyVersion + 1,
-      installInstructions: buildAgentInstallInstructions(access.cluster, rawAgentKey)
+      installInstructions: buildAgentInstallInstructions(access.cluster, rawAgentKey, agentAccessMode)
     });
   } catch (err) {
     next(err);

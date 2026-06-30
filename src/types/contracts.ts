@@ -121,9 +121,11 @@ export const upsertWorkspaceAiProviderCredentialSchema = z.object({
 }).strict();
 
 const namespaceListSchema = z.array(z.string().trim().min(1).max(253)).max(100).optional();
+const agentAccessModeSchema = z.string().trim().max(64).optional();
 
 export const registerClusterSchema = z.object({
   name: z.string().min(1),
+  agentAccessMode: agentAccessModeSchema,
   namespaceInclude: namespaceListSchema,
   namespaceExclude: namespaceListSchema
 });

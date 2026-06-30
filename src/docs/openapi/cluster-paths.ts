@@ -53,12 +53,19 @@ export function buildClusterPaths(): Record<string, unknown> {
                       type: 'array',
                       items: { type: 'string' },
                       example: ['sandbox']
+                    },
+                    agentAccessMode: {
+                      type: 'string',
+                      enum: ['read_only', 'read_write'],
+                      default: 'read_only',
+                      description: 'Controls the generated Helm command RBAC mode. read_write adds rbac.write.enabled=true.'
                     }
                   },
                   example: {
                     name: 'payments-prod-eks',
                     namespaceInclude: ['payments', 'shared'],
-                    namespaceExclude: ['sandbox']
+                    namespaceExclude: ['sandbox'],
+                    agentAccessMode: 'read_only'
                   }
                 }
               }
@@ -192,6 +199,25 @@ export function buildClusterPaths(): Record<string, unknown> {
             { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
             { in: 'path', name: 'clusterId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_CLUSTER_ID } }
           ],
+          requestBody: {
+            required: false,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    agentAccessMode: {
+                      type: 'string',
+                      enum: ['read_only', 'read_write'],
+                      default: 'read_only',
+                      description: 'Controls the generated Helm command RBAC mode. read_write adds rbac.write.enabled=true.'
+                    }
+                  },
+                  example: { agentAccessMode: 'read_only' }
+                }
+              }
+            }
+          },
           responses: { '200': { description: 'New key and agent install instructions issued.' } }
         }
       },

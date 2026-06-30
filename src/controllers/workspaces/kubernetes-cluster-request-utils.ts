@@ -12,6 +12,8 @@ interface AgentInstallInstructions {
   warnings: string[];
 }
 
+export type AgentAccessMode = 'read_only' | 'read_write';
+
 export function parseMetricWindowMs(value: unknown): number {
   const text = typeof value === 'string' ? value.trim() : '1h';
   const match = text.match(/^(\d+)(m|h|d)$/);
@@ -81,7 +83,19 @@ function helmSetJson(path: string, value: unknown): string {
   return `  --set-json ${path}=${toShellSingleQuoted(JSON.stringify(value))}`;
 }
 
-export function buildAgentInstallInstructions(cluster: KubernetesCluster, agentKey: string): AgentInstallInstructions {
+function helmSetBool(path: string, value: boolean): string {
+  return `  --set ${path}=${value ? 'true' : 'false'}`;
+}
+
+export function parseAgentAccessMode(value: unknown): AgentAccessMode {
+  return value === 'read_write' ? 'read_write' : 'read_only';
+}
+
+export function buildAgentInstallInstructions(
+  cluster: KubernetesCluster,
+  agentKey: string,
+  agentAccessMode: AgentAccessMode = 'read_only'
+): AgentInstallInstructions {
   const include = cluster.namespaceInclude || [];
   const exclude = cluster.namespaceExclude || [];
   const excluded = new Set(exclude);
@@ -103,6 +117,9 @@ export function buildAgentInstallInstructions(cluster: KubernetesCluster, agentK
     helmSetJson('namespaceScope.include', include),
     helmSetJson('namespaceScope.exclude', exclude)
   ];
+  if (agentAccessMode === 'read_write') {
+    lines.push(helmSetBool('rbac.write.enabled', true));
+  }
   if (watchNamespaces.length > 0) {
     lines.push(helmSetString('config.watchNamespaces', watchNamespaces.join(',')));
   }
