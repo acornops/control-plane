@@ -1,4 +1,4 @@
-import { KnowledgeBankEntry } from '../../types/knowledge-bank.js';
+import { TargetInsightsEntry } from '../../types/target-insights.js';
 
 function yamlScalar(value: unknown): string {
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
@@ -20,7 +20,7 @@ function yamlObject(value: Record<string, unknown>, indent = ''): string[] {
   });
 }
 
-export function serializeKnowledgeBankEntryAsMarkdown(entry: KnowledgeBankEntry): string {
+export function serializeTargetInsightsEntryAsMarkdown(entry: TargetInsightsEntry): string {
   const frontmatter = {
     title: entry.title,
     status: entry.status,
@@ -43,14 +43,14 @@ export function serializeKnowledgeBankEntryAsMarkdown(entry: KnowledgeBankEntry)
   ].join('\n');
 }
 
-export function serializeKnowledgeBankBundle(entries: KnowledgeBankEntry[]): string {
+export function serializeTargetInsightsBundle(entries: TargetInsightsEntry[]): string {
   return entries.map((entry) => [
     `# ${entry.title}`,
     '',
-    `Path: knowledge-bank/${entry.id}.md`,
+    `Path: target-insights/${entry.id}.md`,
     '',
     '```markdown',
-    serializeKnowledgeBankEntryAsMarkdown(entry),
+    serializeTargetInsightsEntryAsMarkdown(entry),
     '```'
   ].join('\n')).join('\n\n');
 }

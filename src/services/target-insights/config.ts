@@ -1,9 +1,9 @@
 import { LlmProvider } from '../../types/domain.js';
-import { KnowledgeBankToolConfig } from '../../types/knowledge-bank.js';
+import { TargetInsightsToolConfig } from '../../types/target-insights.js';
 
-export const KNOWLEDGE_BANK_TOOL_ID = 'knowledge_bank';
+export const TARGET_INSIGHTS_TOOL_ID = 'target_insights';
 
-export const KNOWLEDGE_BANK_DEFAULT_CONFIG: KnowledgeBankToolConfig = {
+export const TARGET_INSIGHTS_DEFAULT_CONFIG: TargetInsightsToolConfig = {
   learning: {
     idleCheckpointDelayMinutes: 30,
     minimumObservationsBeforeGeneralization: 3,
@@ -34,7 +34,7 @@ function optionalProvider(value: unknown): LlmProvider | undefined {
   return typeof value === 'string' && LLM_PROVIDERS.has(value as LlmProvider) ? value as LlmProvider : undefined;
 }
 
-export function normalizeKnowledgeBankConfig(input?: Record<string, unknown> | null): KnowledgeBankToolConfig {
+export function normalizeTargetInsightsConfig(input?: Record<string, unknown> | null): TargetInsightsToolConfig {
   const config = asObject(input);
   const learning = asObject(config.learning);
   const retrieval = asObject(config.retrieval);
@@ -47,13 +47,13 @@ export function normalizeKnowledgeBankConfig(input?: Record<string, unknown> | n
     learning: {
       idleCheckpointDelayMinutes: boundedInt(
         learning.idleCheckpointDelayMinutes,
-        KNOWLEDGE_BANK_DEFAULT_CONFIG.learning.idleCheckpointDelayMinutes,
+        TARGET_INSIGHTS_DEFAULT_CONFIG.learning.idleCheckpointDelayMinutes,
         5,
         1440
       ),
       minimumObservationsBeforeGeneralization: boundedInt(
         learning.minimumObservationsBeforeGeneralization,
-        KNOWLEDGE_BANK_DEFAULT_CONFIG.learning.minimumObservationsBeforeGeneralization,
+        TARGET_INSIGHTS_DEFAULT_CONFIG.learning.minimumObservationsBeforeGeneralization,
         2,
         10
       ),
@@ -64,13 +64,13 @@ export function normalizeKnowledgeBankConfig(input?: Record<string, unknown> | n
     retrieval: {
       maxSnippetsPerRetrieval: boundedInt(
         retrieval.maxSnippetsPerRetrieval,
-        KNOWLEDGE_BANK_DEFAULT_CONFIG.retrieval.maxSnippetsPerRetrieval,
+        TARGET_INSIGHTS_DEFAULT_CONFIG.retrieval.maxSnippetsPerRetrieval,
         1,
         8
       ),
       maxSnippetSizeBytes: boundedInt(
         retrieval.maxSnippetSizeBytes,
-        KNOWLEDGE_BANK_DEFAULT_CONFIG.retrieval.maxSnippetSizeBytes,
+        TARGET_INSIGHTS_DEFAULT_CONFIG.retrieval.maxSnippetSizeBytes,
         512,
         4096
       )

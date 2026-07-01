@@ -51,10 +51,10 @@ describe('target native tool controller', () => {
         }
       },
       {
-        id: 'knowledge_bank',
-        label: 'Knowledge Bank',
+        id: 'target_insights',
+        label: 'Insights',
         enabled: true,
-        description: 'Retrieve and improve target-specific troubleshooting knowledge for future assistant runs.',
+        description: 'Retrieve and improve target-specific troubleshooting insights for future assistant runs.',
         capability: 'read',
         runtimeKind: 'function',
         visibility: {
@@ -107,7 +107,7 @@ describe('target native tool controller', () => {
     };
     assert.equal(response.statusCode, 200);
     assert.equal(body.items.find((item) => item.id === 'web_search')?.id, 'web_search');
-    assert.deepEqual(body.items.find((item) => item.id === 'knowledge_bank')?.readiness, {
+    assert.deepEqual(body.items.find((item) => item.id === 'target_insights')?.readiness, {
       learningAvailable: true,
       learningPausedReason: null
     });
@@ -138,7 +138,7 @@ describe('target native tool controller', () => {
       }>;
     };
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(body.items.find((item) => item.id === 'knowledge_bank')?.readiness, {
+    assert.deepEqual(body.items.find((item) => item.id === 'target_insights')?.readiness, {
       learningAvailable: false,
       learningPausedReason: 'model_not_allowed'
     });
@@ -252,7 +252,7 @@ describe('target native tool controller', () => {
     );
   });
 
-  it('requeues paused knowledge checkpoints when Knowledge Bank settings change', async () => {
+  it('requeues paused target insights checkpoints when Target Insights settings change', async () => {
     installWorkspace('admin');
     let requeueInput: { workspaceId: string; targetId?: string } | null = null;
     repo.getTargetToolSetting = async () => null;
@@ -263,7 +263,7 @@ describe('target native tool controller', () => {
       config,
       updatedAt: '2026-05-24T00:00:00.000Z'
     });
-    repo.requeueKnowledgeBankPausedCheckpoints = async (workspaceId, targetId) => {
+    repo.requeueTargetInsightsPausedCheckpoints = async (workspaceId, targetId) => {
       requeueInput = { workspaceId, targetId };
       return 3;
     };
@@ -272,7 +272,7 @@ describe('target native tool controller', () => {
     const response = await callController(
       updateTargetToolSettings,
       createRequest(
-        { workspaceId: 'workspace-1', targetId: 'cluster-1', toolId: 'knowledge_bank' },
+        { workspaceId: 'workspace-1', targetId: 'cluster-1', toolId: 'target_insights' },
         {
           enabled: true,
           config: {
@@ -292,7 +292,7 @@ describe('target native tool controller', () => {
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(requeueInput, { workspaceId: 'workspace-1', targetId: 'cluster-1' });
-    assert.equal((response.body as { id: string }).id, 'knowledge_bank');
+    assert.equal((response.body as { id: string }).id, 'target_insights');
   });
 
   it('rejects invalid web search domain filter values before persisting', async () => {

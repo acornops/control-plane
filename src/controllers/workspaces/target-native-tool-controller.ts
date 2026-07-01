@@ -11,13 +11,13 @@ import {
   parseAllowedProviderModels,
   parseAllowedProviders
 } from '../../services/llm-policy.js';
-import { KNOWLEDGE_BANK_TOOL_ID, normalizeKnowledgeBankConfig } from '../../services/knowledge-bank/config.js';
-import { recordKnowledgeBankAudit } from '../../services/knowledge-bank/audit.js';
-import { requeuePausedKnowledgeBankCheckpoints } from '../../services/knowledge-bank/requeue.js';
+import { TARGET_INSIGHTS_TOOL_ID, normalizeTargetInsightsConfig } from '../../services/target-insights/config.js';
+import { recordTargetInsightsAudit } from '../../services/target-insights/audit.js';
+import { requeuePausedTargetInsightsCheckpoints } from '../../services/target-insights/requeue.js';
 import { webhooks } from '../../services/webhooks.js';
 import { repo } from '../../store/repository.js';
 import { KUBERNETES_TARGET_TYPE, TargetType } from '../../types/domain.js';
-import { KnowledgeBankToolConfig } from '../../types/knowledge-bank.js';
+import { TargetInsightsToolConfig } from '../../types/target-insights.js';
 import { toSingleParam } from '../../utils/params.js';
 import { recordNativeToolSettingAudit } from './mcp-audit.js';
 
@@ -31,7 +31,7 @@ interface DomainFiltersConfig extends Record<string, unknown> {
 }
 
 interface TargetNativeToolItem {
-  id: typeof WEB_SEARCH_TOOL_ID | typeof KNOWLEDGE_BANK_TOOL_ID;
+  id: typeof WEB_SEARCH_TOOL_ID | typeof TARGET_INSIGHTS_TOOL_ID;
   label: string;
   enabled: boolean;
   description: string;
@@ -42,7 +42,7 @@ interface TargetNativeToolItem {
     appearsInRunEnabledTools: boolean;
     appearsInToolCalls: boolean;
   };
-  config: DomainFiltersConfig | KnowledgeBankToolConfig;
+  config: DomainFiltersConfig | TargetInsightsToolConfig;
   readiness?: {
     learningAvailable: boolean;
     learningPausedReason: 'ai_settings_missing' | 'provider_not_allowed' | 'model_not_allowed' | null;
@@ -52,7 +52,7 @@ interface TargetNativeToolItem {
   };
 }
 
-type KnowledgeBankReadiness = NonNullable<TargetNativeToolItem['readiness']>;
+type TargetInsightsReadiness = NonNullable<TargetNativeToolItem['readiness']>;
 
 function getNativeToolEditableRoles(): string[] {
   return listConfiguredRoleTemplates()
@@ -60,9 +60,9 @@ function getNativeToolEditableRoles(): string[] {
     .map((role) => role.key);
 }
 
-function getKnowledgeBankEditableRoles(): string[] {
+function getTargetInsightsEditableRoles(): string[] {
   return listConfiguredRoleTemplates()
-    .filter((role) => role.capabilities.includes('manage_knowledge_bank'))
+    .filter((role) => role.capabilities.includes('manage_target_insights'))
     .map((role) => role.key);
 }
 
@@ -196,16 +196,16 @@ function buildWebSearchItem(
   };
 }
 
-function buildKnowledgeBankItem(
+function buildTargetInsightsItem(
   setting: { enabled: boolean; config: Record<string, unknown> } | null | undefined,
-  readiness: KnowledgeBankReadiness,
+  readiness: TargetInsightsReadiness,
   canEdit: boolean
 ): TargetNativeToolItem {
   return {
-    id: KNOWLEDGE_BANK_TOOL_ID,
-    label: 'Knowledge Bank',
+    id: TARGET_INSIGHTS_TOOL_ID,
+    label: 'Insights',
     enabled: setting?.enabled ?? true,
-    description: 'Retrieve and improve target-specific troubleshooting knowledge for future assistant runs.',
+    description: 'Retrieve and improve target-specific troubleshooting insights for future assistant runs.',
     capability: 'read',
     runtimeKind: 'function',
     visibility: {
@@ -213,7 +213,7 @@ function buildKnowledgeBankItem(
       appearsInRunEnabledTools: true,
       appearsInToolCalls: false
     },
-    config: normalizeKnowledgeBankConfig(setting?.config),
+    config: normalizeTargetInsightsConfig(setting?.config),
     readiness,
     permissions: {
       canEdit
@@ -231,17 +231,17 @@ function respondMissingToolsCapability(res: Response): void {
   });
 }
 
-function respondMissingKnowledgeBankCapability(res: Response): void {
+function respondMissingTargetInsightsCapability(res: Response): void {
   res.status(403).json({
     error: {
       code: 'FORBIDDEN',
-      message: 'Only workspace roles with knowledge bank management capability can modify Knowledge Bank settings',
+      message: 'Only workspace roles with target insights management capability can modify Target Insights settings',
       retryable: false
     }
   });
 }
 
-async function resolveKnowledgeBankReadiness(workspaceId: string, toolConfig: KnowledgeBankToolConfig): Promise<KnowledgeBankReadiness> {
+async function resolveTargetInsightsReadiness(workspaceId: string, toolConfig: TargetInsightsToolConfig): Promise<TargetInsightsReadiness> {
   const workspaceAiSettings = await repo.getWorkspaceAiSettings(workspaceId);
   const provider = toolConfig.learning.checkpointModel.mode === 'custom'
     ? toolConfig.learning.checkpointModel.provider
@@ -261,11 +261,11 @@ async function resolveKnowledgeBankReadiness(workspaceId: string, toolConfig: Kn
   return { learningAvailable: true, learningPausedReason: null };
 }
 
-async function validateKnowledgeBankToolConfig(workspaceId: string, toolConfig: KnowledgeBankToolConfig): Promise<string | null> {
+async function validateTargetInsightsToolConfig(workspaceId: string, toolConfig: TargetInsightsToolConfig): Promise<string | null> {
   if (toolConfig.learning.checkpointModel.mode !== 'custom') {
     return null;
   }
-  const readiness = await resolveKnowledgeBankReadiness(workspaceId, toolConfig);
+  const readiness = await resolveTargetInsightsReadiness(workspaceId, toolConfig);
   if (readiness.learningAvailable) {
     return null;
   }
@@ -299,15 +299,15 @@ export async function listTargetTools(
     if (!access) {
       return;
     }
-    const [webSearchSetting, knowledgeBankSetting] = await Promise.all([
+    const [webSearchSetting, targetInsightsSetting] = await Promise.all([
       repo.getTargetToolSetting(targetId, WEB_SEARCH_TOOL_ID),
-      config.KNOWLEDGE_BANK_ENABLED ? repo.getTargetToolSetting(targetId, KNOWLEDGE_BANK_TOOL_ID) : Promise.resolve(null)
+      config.TARGET_INSIGHTS_ENABLED ? repo.getTargetToolSetting(targetId, TARGET_INSIGHTS_TOOL_ID) : Promise.resolve(null)
     ]);
-    const knowledgeConfig = normalizeKnowledgeBankConfig(knowledgeBankSetting?.config);
+    const insightsConfig = normalizeTargetInsightsConfig(targetInsightsSetting?.config);
     const items: TargetNativeToolItem[] = [buildWebSearchItem(webSearchSetting, access.authz.can('manage_tools'))];
-    if (config.KNOWLEDGE_BANK_ENABLED) {
-      const knowledgeReadiness = await resolveKnowledgeBankReadiness(workspaceId, knowledgeConfig);
-      items.push(buildKnowledgeBankItem(knowledgeBankSetting, knowledgeReadiness, access.authz.can('manage_knowledge_bank')));
+    if (config.TARGET_INSIGHTS_ENABLED) {
+      const insightsReadiness = await resolveTargetInsightsReadiness(workspaceId, insightsConfig);
+      items.push(buildTargetInsightsItem(targetInsightsSetting, insightsReadiness, access.authz.can('manage_target_insights')));
     }
     res.status(200).json({
       workspaceId,
@@ -315,8 +315,8 @@ export async function listTargetTools(
       targetType: access.target.targetType,
       ...(access.target.targetType === KUBERNETES_TARGET_TYPE ? { clusterId: targetId } : {}),
       permissions: {
-        canEdit: access.authz.can('manage_tools') || access.authz.can('manage_knowledge_bank'),
-        editableRoles: [...new Set([...getNativeToolEditableRoles(), ...getKnowledgeBankEditableRoles()])]
+        canEdit: access.authz.can('manage_tools') || access.authz.can('manage_target_insights'),
+        editableRoles: [...new Set([...getNativeToolEditableRoles(), ...getTargetInsightsEditableRoles()])]
       },
       items
     });
@@ -338,11 +338,11 @@ export async function updateTargetToolSettings(
     if (!access) {
       return;
     }
-    if (toolId !== WEB_SEARCH_TOOL_ID && toolId !== KNOWLEDGE_BANK_TOOL_ID) {
+    if (toolId !== WEB_SEARCH_TOOL_ID && toolId !== TARGET_INSIGHTS_TOOL_ID) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Tool not found', retryable: false } });
       return;
     }
-    if (toolId === KNOWLEDGE_BANK_TOOL_ID && !config.KNOWLEDGE_BANK_ENABLED) {
+    if (toolId === TARGET_INSIGHTS_TOOL_ID && !config.TARGET_INSIGHTS_ENABLED) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Tool not found', retryable: false } });
       return;
     }
@@ -350,8 +350,8 @@ export async function updateTargetToolSettings(
       respondMissingToolsCapability(res);
       return;
     }
-    if (toolId === KNOWLEDGE_BANK_TOOL_ID && !access.authz.can('manage_knowledge_bank')) {
-      respondMissingKnowledgeBankCapability(res);
+    if (toolId === TARGET_INSIGHTS_TOOL_ID && !access.authz.can('manage_target_insights')) {
+      respondMissingTargetInsightsCapability(res);
       return;
     }
     if (typeof req.body?.enabled !== 'boolean') {
@@ -360,14 +360,14 @@ export async function updateTargetToolSettings(
     }
 
     const existingSetting = await repo.getTargetToolSetting(targetId, toolId);
-    let toolConfig: DomainFiltersConfig | KnowledgeBankToolConfig;
+    let toolConfig: DomainFiltersConfig | TargetInsightsToolConfig;
     try {
       if (toolId === WEB_SEARCH_TOOL_ID) {
         toolConfig = Object.prototype.hasOwnProperty.call(req.body, 'config')
           ? normalizeWebSearchConfig(req.body?.config)
           : normalizePersistedWebSearchConfig(existingSetting?.config);
       } else {
-        toolConfig = normalizeKnowledgeBankConfig(
+        toolConfig = normalizeTargetInsightsConfig(
           Object.prototype.hasOwnProperty.call(req.body, 'config')
             ? req.body?.config
             : existingSetting?.config
@@ -383,8 +383,8 @@ export async function updateTargetToolSettings(
       });
       return;
     }
-    if (toolId === KNOWLEDGE_BANK_TOOL_ID) {
-      const validationMessage = await validateKnowledgeBankToolConfig(workspaceId, toolConfig as KnowledgeBankToolConfig);
+    if (toolId === TARGET_INSIGHTS_TOOL_ID) {
+      const validationMessage = await validateTargetInsightsToolConfig(workspaceId, toolConfig as TargetInsightsToolConfig);
       if (validationMessage) {
         res.status(400).json({
           error: {
@@ -423,23 +423,23 @@ export async function updateTargetToolSettings(
       return;
     }
 
-    const readiness = await resolveKnowledgeBankReadiness(workspaceId, toolConfig as KnowledgeBankToolConfig);
-    await requeuePausedKnowledgeBankCheckpoints({
+    const readiness = await resolveTargetInsightsReadiness(workspaceId, toolConfig as TargetInsightsToolConfig);
+    await requeuePausedTargetInsightsCheckpoints({
       workspaceId,
       targetId,
-      reason: 'knowledge_bank_tool_setting_updated'
+      reason: 'target_insights_tool_setting_updated'
     });
-    await recordKnowledgeBankAudit({
+    await recordTargetInsightsAudit({
       workspaceId,
       targetId,
       targetType: access.target.targetType,
       actorUserId: req.auth.userId,
-      eventType: 'knowledge.tool.setting_updated.v1',
+      eventType: 'target_insights.tool.setting_updated.v1',
       objectId: targetId,
-      summary: 'Knowledge Bank setting changed',
+      summary: 'Target Insights setting changed',
       metadata: { enabled: req.body.enabled, config: toolConfig }
     });
-    res.status(200).json(buildKnowledgeBankItem(setting, readiness, access.authz.can('manage_knowledge_bank')));
+    res.status(200).json(buildTargetInsightsItem(setting, readiness, access.authz.can('manage_target_insights')));
   } catch (err) {
     next(err);
   }

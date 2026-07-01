@@ -9,7 +9,7 @@ export function buildTargetToolPaths(): Record<string, unknown> {
     ...targetParameters,
     { in: 'path', name: 'entryId', required: true, schema: { type: 'string', format: 'uuid' } }
   ];
-  const knowledgeEntryRequestSchema = {
+  const targetInsightsEntryRequestSchema = {
     type: 'object',
     properties: {
       title: { type: 'string', minLength: 1 },
@@ -25,23 +25,23 @@ export function buildTargetToolPaths(): Record<string, unknown> {
     },
     additionalProperties: false
   };
-  const createKnowledgeEntryRequestBody = {
+  const createTargetInsightsEntryRequestBody = {
     required: true,
     content: {
       'application/json': {
         schema: {
-          ...knowledgeEntryRequestSchema,
+          ...targetInsightsEntryRequestSchema,
           required: ['title', 'status', 'bodyMarkdown']
         }
       }
     }
   };
-  const updateKnowledgeEntryRequestBody = {
+  const updateTargetInsightsEntryRequestBody = {
     required: true,
     content: {
       'application/json': {
         schema: {
-          ...knowledgeEntryRequestSchema,
+          ...targetInsightsEntryRequestSchema,
           minProperties: 1
         }
       }
@@ -94,7 +94,7 @@ export function buildTargetToolPaths(): Record<string, unknown> {
         parameters: [
           { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
           { in: 'path', name: 'targetId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_TARGET_ID } },
-          { in: 'path', name: 'toolId', required: true, schema: { type: 'string', enum: ['web_search', 'knowledge_bank'], example: 'web_search' } }
+          { in: 'path', name: 'toolId', required: true, schema: { type: 'string', enum: ['web_search', 'target_insights'], example: 'web_search' } }
         ],
         requestBody: {
           required: true,
@@ -123,101 +123,101 @@ export function buildTargetToolPaths(): Record<string, unknown> {
         responses: {
           '200': { description: 'Updated built-in target tool.' },
           '400': { description: 'Invalid tool configuration.' },
-          '403': { description: 'Missing tool management or Knowledge Bank management permission.' },
+          '403': { description: 'Missing tool management or Target Insights management permission.' },
           '404': { description: 'Unknown toolId.' }
         }
       }
     },
-    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/knowledge-bank': {
+    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/target-insights': {
       get: {
         tags: ['workspaces'],
-        summary: 'List Knowledge Bank entries for a target',
+        summary: 'List Target Insights entries for a target',
         security: [{ userSession: [] }],
         parameters: targetParameters,
         responses: {
-          '200': { description: 'Knowledge Bank entries and permissions for the target.' },
-          '404': { description: 'Knowledge Bank is disabled.' }
+          '200': { description: 'Target Insights entries and permissions for the target.' },
+          '404': { description: 'Target Insights is disabled.' }
         }
       }
     },
-    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/knowledge-bank/entries': {
+    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/target-insights/entries': {
       post: {
         tags: ['workspaces'],
-        summary: 'Create a Knowledge Bank entry for a target',
+        summary: 'Create a Target Insights entry for a target',
         security: [{ userSession: [] }],
         parameters: targetParameters,
-        requestBody: createKnowledgeEntryRequestBody,
+        requestBody: createTargetInsightsEntryRequestBody,
         responses: {
-          '201': { description: 'Created Knowledge Bank entry.' },
-          '403': { description: 'Missing manage_knowledge_bank permission.' }
+          '201': { description: 'Created Target Insights entry.' },
+          '403': { description: 'Missing manage_target_insights permission.' }
         }
       }
     },
-    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/knowledge-bank/entries/{entryId}': {
+    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/target-insights/entries/{entryId}': {
       patch: {
         tags: ['workspaces'],
-        summary: 'Update a Knowledge Bank entry',
+        summary: 'Update a Target Insights entry',
         security: [{ userSession: [] }],
         parameters: entryParameters,
-        requestBody: updateKnowledgeEntryRequestBody,
+        requestBody: updateTargetInsightsEntryRequestBody,
         responses: {
-          '200': { description: 'Updated Knowledge Bank entry.' },
-          '403': { description: 'Missing manage_knowledge_bank permission.' },
-          '404': { description: 'Knowledge Bank entry not found.' }
+          '200': { description: 'Updated Target Insights entry.' },
+          '403': { description: 'Missing manage_target_insights permission.' },
+          '404': { description: 'Target Insights entry not found.' }
         }
       }
     },
-    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/knowledge-bank/entries/{entryId}/promote': {
+    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/target-insights/entries/{entryId}/promote': {
       post: {
         tags: ['workspaces'],
-        summary: 'Promote a Knowledge Bank entry to active',
+        summary: 'Promote a Target Insights entry to active',
         security: [{ userSession: [] }],
         parameters: entryParameters,
         responses: {
-          '200': { description: 'Promoted Knowledge Bank entry.' },
-          '403': { description: 'Missing manage_knowledge_bank permission.' }
+          '200': { description: 'Promoted Target Insights entry.' },
+          '403': { description: 'Missing manage_target_insights permission.' }
         }
       }
     },
-    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/knowledge-bank/entries/{entryId}/archive': {
+    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/target-insights/entries/{entryId}/archive': {
       post: {
         tags: ['workspaces'],
-        summary: 'Archive a Knowledge Bank entry',
+        summary: 'Archive a Target Insights entry',
         security: [{ userSession: [] }],
         parameters: entryParameters,
         responses: {
-          '200': { description: 'Archived Knowledge Bank entry.' },
-          '403': { description: 'Missing manage_knowledge_bank permission.' }
+          '200': { description: 'Archived Target Insights entry.' },
+          '403': { description: 'Missing manage_target_insights permission.' }
         }
       }
     },
-    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/knowledge-bank/reset': {
+    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/target-insights/reset': {
       post: {
         tags: ['workspaces'],
-        summary: 'Hard reset a target Knowledge Bank',
+        summary: 'Hard reset a target Target Insights',
         security: [{ userSession: [] }],
         parameters: targetParameters,
         responses: {
-          '200': { description: 'Deleted Knowledge Bank entries and checkpoint jobs for the target.' },
-          '403': { description: 'Missing manage_knowledge_bank permission.' }
+          '200': { description: 'Deleted Target Insights entries and checkpoint jobs for the target.' },
+          '403': { description: 'Missing manage_target_insights permission.' }
         }
       }
     },
-    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/knowledge-bank/activity': {
+    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/target-insights/activity': {
       get: {
         tags: ['workspaces'],
-        summary: 'List Knowledge Bank audit activity for a target',
+        summary: 'List Target Insights audit activity for a target',
         security: [{ userSession: [] }],
         parameters: targetParameters,
         responses: {
-          '200': { description: 'Knowledge Bank audit activity for the target.' }
+          '200': { description: 'Target Insights audit activity for the target.' }
         }
       }
     },
-    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/knowledge-bank/export': {
+    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/target-insights/export': {
       get: {
         tags: ['workspaces'],
-        summary: 'Export target Knowledge Bank as Markdown',
+        summary: 'Export target Target Insights as Markdown',
         security: [{ userSession: [] }],
         parameters: targetParameters,
         responses: {

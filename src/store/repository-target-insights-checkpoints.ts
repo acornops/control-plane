@@ -2,12 +2,12 @@ import type { PoolClient } from 'pg';
 import { config } from '../config.js';
 import { db } from '../infra/db.js';
 import { logger } from '../logger.js';
-import { normalizeKnowledgeBankConfig } from '../services/knowledge-bank/config.js';
+import { normalizeTargetInsightsConfig } from '../services/target-insights/config.js';
 import { TargetType } from '../types/domain.js';
 
 type Queryable = Pick<typeof db, 'query'> | PoolClient;
 
-export interface KnowledgeBankCheckpointJob {
+export interface TargetInsightsCheckpointJob {
   workspaceId: string;
   targetId: string;
   targetType: TargetType;
@@ -22,7 +22,7 @@ export interface KnowledgeBankCheckpointJob {
   hasPendingApproval: boolean;
 }
 
-interface KnowledgeBankCheckpointJobRow {
+interface TargetInsightsCheckpointJobRow {
   workspace_id: string;
   target_id: string;
   target_type: TargetType;
@@ -37,7 +37,7 @@ interface KnowledgeBankCheckpointJobRow {
   has_pending_approval: boolean;
 }
 
-function mapCheckpointJob(row: KnowledgeBankCheckpointJobRow): KnowledgeBankCheckpointJob {
+function mapCheckpointJob(row: TargetInsightsCheckpointJobRow): TargetInsightsCheckpointJob {
   return {
     workspaceId: row.workspace_id,
     targetId: row.target_id,
@@ -54,12 +54,12 @@ function mapCheckpointJob(row: KnowledgeBankCheckpointJobRow): KnowledgeBankChec
   };
 }
 
-export async function upsertKnowledgeBankCheckpointJobForSessionActivity(
+export async function upsertTargetInsightsCheckpointJobForSessionActivity(
   sessionId: string,
   activityAt: string,
   queryable: Queryable = db
 ): Promise<void> {
-  if (!config.KNOWLEDGE_BANK_ENABLED) return;
+  if (!config.TARGET_INSIGHTS_ENABLED) return;
   const sessionResult = await queryable.query<{
     workspace_id: string;
     target_id: string;
@@ -71,17 +71,17 @@ export async function upsertKnowledgeBankCheckpointJobForSessionActivity(
      FROM sessions s
      JOIN targets t ON t.id = s.target_id
      LEFT JOIN target_tool_settings setting
-       ON setting.target_id = s.target_id AND setting.tool_id = 'knowledge_bank'
+       ON setting.target_id = s.target_id AND setting.tool_id = 'target_insights'
      WHERE s.id = $1`,
     [sessionId]
   );
   if (!sessionResult.rowCount) return;
   const row = sessionResult.rows[0];
   const toolEnabled = row.tool_enabled ?? true;
-  const toolConfig = normalizeKnowledgeBankConfig(row.config_json);
+  const toolConfig = normalizeTargetInsightsConfig(row.config_json);
   const dueAt = new Date(new Date(activityAt).getTime() + toolConfig.learning.idleCheckpointDelayMinutes * 60_000).toISOString();
   await queryable.query(
-    `INSERT INTO target_knowledge_checkpoint_jobs (
+    `INSERT INTO target_insights_checkpoint_jobs (
        workspace_id, target_id, session_id, target_type, last_activity_at, due_at,
        status, lease_owner, lease_expires_at, last_error, retry_after, updated_at
      ) VALUES ($1, $2, $3, $4, $5::timestamptz, $6::timestamptz, $7, NULL, NULL, $8, NULL, NOW())
@@ -95,11 +95,11 @@ export async function upsertKnowledgeBankCheckpointJobForSessionActivity(
          last_error = EXCLUDED.last_error,
          retry_after = NULL,
          attempts = CASE
-           WHEN target_knowledge_checkpoint_jobs.last_activity_at < EXCLUDED.last_activity_at THEN 0
-           ELSE target_knowledge_checkpoint_jobs.attempts
+           WHEN target_insights_checkpoint_jobs.last_activity_at < EXCLUDED.last_activity_at THEN 0
+           ELSE target_insights_checkpoint_jobs.attempts
          END,
          updated_at = NOW()
-     WHERE target_knowledge_checkpoint_jobs.last_activity_at < EXCLUDED.last_activity_at`,
+     WHERE target_insights_checkpoint_jobs.last_activity_at < EXCLUDED.last_activity_at`,
     [
       row.workspace_id,
       row.target_id,
@@ -113,37 +113,37 @@ export async function upsertKnowledgeBankCheckpointJobForSessionActivity(
   );
 }
 
-export async function scheduleKnowledgeBankCheckpointJobForSessionActivity(
+export async function scheduleTargetInsightsCheckpointJobForSessionActivity(
   sessionId: string,
   activityAt: string,
   client?: PoolClient
 ): Promise<void> {
-  if (!config.KNOWLEDGE_BANK_ENABLED) return;
+  if (!config.TARGET_INSIGHTS_ENABLED) return;
   if (client) {
-    await client.query('SAVEPOINT knowledge_bank_checkpoint_enqueue');
+    await client.query('SAVEPOINT target_insights_checkpoint_enqueue');
     try {
-      await upsertKnowledgeBankCheckpointJobForSessionActivity(sessionId, activityAt, client);
-      await client.query('RELEASE SAVEPOINT knowledge_bank_checkpoint_enqueue');
+      await upsertTargetInsightsCheckpointJobForSessionActivity(sessionId, activityAt, client);
+      await client.query('RELEASE SAVEPOINT target_insights_checkpoint_enqueue');
     } catch (err) {
-      await client.query('ROLLBACK TO SAVEPOINT knowledge_bank_checkpoint_enqueue');
-      await client.query('RELEASE SAVEPOINT knowledge_bank_checkpoint_enqueue');
-      logger.warn({ err, sessionId }, 'Failed scheduling Knowledge Bank checkpoint job for session activity');
+      await client.query('ROLLBACK TO SAVEPOINT target_insights_checkpoint_enqueue');
+      await client.query('RELEASE SAVEPOINT target_insights_checkpoint_enqueue');
+      logger.warn({ err, sessionId }, 'Failed scheduling Target Insights checkpoint job for session activity');
     }
     return;
   }
   try {
-    await upsertKnowledgeBankCheckpointJobForSessionActivity(sessionId, activityAt);
+    await upsertTargetInsightsCheckpointJobForSessionActivity(sessionId, activityAt);
   } catch (err) {
-    logger.warn({ err, sessionId }, 'Failed scheduling Knowledge Bank checkpoint job for session activity');
+    logger.warn({ err, sessionId }, 'Failed scheduling Target Insights checkpoint job for session activity');
   }
 }
 
-export async function claimDueKnowledgeBankCheckpointJobs(
+export async function claimDueTargetInsightsCheckpointJobs(
   limit = 50,
   leaseOwner: string,
   leaseSeconds = 300
-): Promise<KnowledgeBankCheckpointJob[]> {
-  const result = await db.query<KnowledgeBankCheckpointJobRow>(
+): Promise<TargetInsightsCheckpointJob[]> {
+  const result = await db.query<TargetInsightsCheckpointJobRow>(
     `WITH due AS (
        SELECT
          job.workspace_id,
@@ -168,10 +168,10 @@ export async function claimDueKnowledgeBankCheckpointJobs(
            WHERE r.session_id = job.session_id
              AND a.status = 'pending'
          ) AS has_pending_approval
-       FROM target_knowledge_checkpoint_jobs job
+       FROM target_insights_checkpoint_jobs job
        JOIN sessions s ON s.id = job.session_id
        LEFT JOIN target_tool_settings setting
-         ON setting.target_id = job.target_id AND setting.tool_id = 'knowledge_bank'
+         ON setting.target_id = job.target_id AND setting.tool_id = 'target_insights'
        WHERE job.due_at IS NOT NULL
          AND job.due_at <= NOW()
          AND job.status IN ('queued', 'failed', 'processing')
@@ -181,7 +181,7 @@ export async function claimDueKnowledgeBankCheckpointJobs(
        LIMIT $1
        FOR UPDATE OF job SKIP LOCKED
      )
-     UPDATE target_knowledge_checkpoint_jobs job
+     UPDATE target_insights_checkpoint_jobs job
      SET status = 'processing',
          lease_owner = $2,
          lease_expires_at = NOW() + ($3::int * INTERVAL '1 second'),
@@ -209,7 +209,7 @@ export async function claimDueKnowledgeBankCheckpointJobs(
   return result.rows.map(mapCheckpointJob);
 }
 
-export async function rescheduleKnowledgeBankCheckpointJob(params: {
+export async function rescheduleTargetInsightsCheckpointJob(params: {
   workspaceId: string;
   targetId: string;
   sessionId: string;
@@ -220,7 +220,7 @@ export async function rescheduleKnowledgeBankCheckpointJob(params: {
   retryAfter?: string | null;
 }, queryable: Queryable = db): Promise<boolean> {
   const result = await queryable.query(
-    `UPDATE target_knowledge_checkpoint_jobs
+    `UPDATE target_insights_checkpoint_jobs
      SET status = 'queued',
          due_at = $6::timestamptz,
          lease_owner = NULL,
@@ -248,7 +248,7 @@ export async function rescheduleKnowledgeBankCheckpointJob(params: {
   return (result.rowCount ?? 0) > 0;
 }
 
-export async function finishKnowledgeBankCheckpointJob(params: {
+export async function finishTargetInsightsCheckpointJob(params: {
   workspaceId: string;
   targetId: string;
   sessionId: string;
@@ -259,7 +259,7 @@ export async function finishKnowledgeBankCheckpointJob(params: {
   retryAfter?: string | null;
 }, queryable: Queryable = db): Promise<boolean> {
   const result = await queryable.query(
-    `UPDATE target_knowledge_checkpoint_jobs
+    `UPDATE target_insights_checkpoint_jobs
      SET status = $6,
          due_at = CASE WHEN $8::timestamptz IS NULL THEN NULL ELSE $8::timestamptz END,
          lease_owner = NULL,
@@ -287,7 +287,7 @@ export async function finishKnowledgeBankCheckpointJob(params: {
   return (result.rowCount ?? 0) > 0;
 }
 
-export async function renewKnowledgeBankCheckpointJobLeaseIfCurrent(params: {
+export async function renewTargetInsightsCheckpointJobLeaseIfCurrent(params: {
   workspaceId: string;
   targetId: string;
   sessionId: string;
@@ -296,7 +296,7 @@ export async function renewKnowledgeBankCheckpointJobLeaseIfCurrent(params: {
   leaseSeconds?: number;
 }, queryable: Queryable = db): Promise<boolean> {
   const result = await queryable.query(
-    `UPDATE target_knowledge_checkpoint_jobs job
+    `UPDATE target_insights_checkpoint_jobs job
      SET lease_expires_at = NOW() + ($6::int * INTERVAL '1 second'),
          updated_at = NOW()
      FROM sessions s
@@ -336,9 +336,9 @@ export async function renewKnowledgeBankCheckpointJobLeaseIfCurrent(params: {
   return (result.rowCount ?? 0) > 0;
 }
 
-export async function requeueKnowledgeBankPausedCheckpoints(workspaceId: string, targetId?: string): Promise<number> {
+export async function requeueTargetInsightsPausedCheckpoints(workspaceId: string, targetId?: string): Promise<number> {
   const result = await db.query(
-    `UPDATE target_knowledge_checkpoint_jobs job
+    `UPDATE target_insights_checkpoint_jobs job
      SET status = 'queued',
          due_at = NOW(),
          lease_owner = NULL,

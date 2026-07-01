@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import { db } from '../src/infra/db.js';
-import { runKnowledgeBankCheckpointSweep } from '../src/services/knowledge-bank/checkpoint-worker.js';
+import { runTargetInsightsCheckpointSweep } from '../src/services/target-insights/checkpoint-worker.js';
 import { repo } from '../src/store/repository.js';
 
 afterEach(() => {
@@ -28,7 +28,7 @@ function checkpointJob(lastActivityAt: string, overrides: Record<string, unknown
 
 function mockSingleClaim(job: ReturnType<typeof checkpointJob>): void {
   let claimed = false;
-  mock.method(repo, 'claimDueKnowledgeBankCheckpointJobs', async (limit) => {
+  mock.method(repo, 'claimDueTargetInsightsCheckpointJobs', async (limit) => {
     assert.equal(limit, 1);
     if (claimed) return [];
     claimed = true;
@@ -89,23 +89,23 @@ function mockConfiguredGatewayResponse(patchPayload: unknown): void {
   });
 }
 
-describe('Knowledge Bank checkpoint worker', () => {
+describe('Target Insights checkpoint worker', () => {
   it('reschedules a due job until the configured idle delay has elapsed', async () => {
     const rescheduledJobs: unknown[] = [];
     const lastActivityAt = new Date(Date.now() - 10 * 60_000).toISOString();
     const job = checkpointJob(lastActivityAt);
 
     mockSingleClaim(job);
-    mock.method(repo, 'rescheduleKnowledgeBankCheckpointJob', async (params) => {
+    mock.method(repo, 'rescheduleTargetInsightsCheckpointJob', async (params) => {
       rescheduledJobs.push(params);
       return true;
     });
-    const finishJob = mock.method(repo, 'finishKnowledgeBankCheckpointJob', async () => true);
+    const finishJob = mock.method(repo, 'finishTargetInsightsCheckpointJob', async () => true);
     const listMessages = mock.method(repo, 'listMessages', async () => {
       throw new Error('messages should not be fetched before idle delay');
     });
 
-    await runKnowledgeBankCheckpointSweep();
+    await runTargetInsightsCheckpointSweep();
 
     assert.equal(listMessages.mock.callCount(), 0);
     assert.equal(finishJob.mock.callCount(), 0);
@@ -127,16 +127,16 @@ describe('Knowledge Bank checkpoint worker', () => {
     const job = checkpointJob(staleActivityAt, { sessionLastMessageAt: newerActivityAt });
 
     mockSingleClaim(job);
-    mock.method(repo, 'upsertKnowledgeBankCheckpointJobForSessionActivity', async (sessionId, activityAt) => {
+    mock.method(repo, 'upsertTargetInsightsCheckpointJobForSessionActivity', async (sessionId, activityAt) => {
       upserts.push({ sessionId, activityAt });
     });
-    const finishJob = mock.method(repo, 'finishKnowledgeBankCheckpointJob', async () => true);
-    const rescheduleJob = mock.method(repo, 'rescheduleKnowledgeBankCheckpointJob', async () => true);
+    const finishJob = mock.method(repo, 'finishTargetInsightsCheckpointJob', async () => true);
+    const rescheduleJob = mock.method(repo, 'rescheduleTargetInsightsCheckpointJob', async () => true);
     const listMessages = mock.method(repo, 'listMessages', async () => {
       throw new Error('messages should not be fetched for stale jobs');
     });
 
-    await runKnowledgeBankCheckpointSweep();
+    await runTargetInsightsCheckpointSweep();
 
     assert.equal(listMessages.mock.callCount(), 0);
     assert.equal(finishJob.mock.callCount(), 0);
@@ -150,7 +150,7 @@ describe('Knowledge Bank checkpoint worker', () => {
     const job = checkpointJob(lastActivityAt, { hasActiveRun: true });
 
     mockSingleClaim(job);
-    mock.method(repo, 'rescheduleKnowledgeBankCheckpointJob', async (params) => {
+    mock.method(repo, 'rescheduleTargetInsightsCheckpointJob', async (params) => {
       rescheduledJobs.push(params);
       return true;
     });
@@ -158,7 +158,7 @@ describe('Knowledge Bank checkpoint worker', () => {
       throw new Error('messages should not be fetched while a run is active');
     });
 
-    await runKnowledgeBankCheckpointSweep();
+    await runTargetInsightsCheckpointSweep();
 
     assert.equal(listMessages.mock.callCount(), 0);
     assert.equal(rescheduledJobs.length, 1);
@@ -173,7 +173,7 @@ describe('Knowledge Bank checkpoint worker', () => {
     const job = checkpointJob(lastActivityAt);
 
     mockSingleClaim(job);
-    mock.method(repo, 'finishKnowledgeBankCheckpointJob', async (params) => {
+    mock.method(repo, 'finishTargetInsightsCheckpointJob', async (params) => {
       finishedJobs.push(params);
       return true;
     });
@@ -191,7 +191,7 @@ describe('Knowledge Bank checkpoint worker', () => {
       ]
     }), { status: 200 }));
 
-    await runKnowledgeBankCheckpointSweep();
+    await runTargetInsightsCheckpointSweep();
 
     assert.equal(listMessages.mock.callCount(), 0);
     assert.deepEqual(finishedJobs, [{
@@ -245,8 +245,8 @@ describe('Knowledge Bank checkpoint worker', () => {
 
     mockSingleClaim(job);
     mockRepositoryTransaction();
-    mock.method(repo, 'finishKnowledgeBankCheckpointJob', async () => true);
-    mock.method(repo, 'renewKnowledgeBankCheckpointJobLeaseIfCurrent', async () => true);
+    mock.method(repo, 'finishTargetInsightsCheckpointJob', async () => true);
+    mock.method(repo, 'renewTargetInsightsCheckpointJobLeaseIfCurrent', async () => true);
     mock.method(repo, 'getWorkspaceAiSettings', async () => null);
     mock.method(repo, 'listMessages', async () => ({
       items: [
@@ -254,11 +254,11 @@ describe('Knowledge Bank checkpoint worker', () => {
         { role: 'assistant', content: 'Refreshing the imagePullSecret fixed the invoices namespace.' }
       ]
     }));
-    mock.method(repo, 'listKnowledgeBankEntries', async () => [existingEntry]);
-    mock.method(repo, 'createKnowledgeBankEntry', async () => {
+    mock.method(repo, 'listTargetInsightsEntries', async () => [existingEntry]);
+    mock.method(repo, 'createTargetInsightsEntry', async () => {
       throw new Error('repeated namespace evidence should update the existing entry');
     });
-    mock.method(repo, 'updateKnowledgeBankEntry', async (_workspaceId, _targetId, entryId, patch) => {
+    mock.method(repo, 'updateTargetInsightsEntry', async (_workspaceId, _targetId, entryId, patch) => {
       updates.push({ entryId, patch });
       return {
         ...existingEntry,
@@ -282,7 +282,7 @@ describe('Knowledge Bank checkpoint worker', () => {
       }]
     });
 
-    await runKnowledgeBankCheckpointSweep();
+    await runTargetInsightsCheckpointSweep();
 
     assert.equal(updates.length, 1);
     assert.deepEqual(updates[0], {
@@ -329,8 +329,8 @@ describe('Knowledge Bank checkpoint worker', () => {
 
     mockSingleClaim(job);
     mockRepositoryTransaction();
-    mock.method(repo, 'finishKnowledgeBankCheckpointJob', async () => true);
-    mock.method(repo, 'renewKnowledgeBankCheckpointJobLeaseIfCurrent', async () => true);
+    mock.method(repo, 'finishTargetInsightsCheckpointJob', async () => true);
+    mock.method(repo, 'renewTargetInsightsCheckpointJobLeaseIfCurrent', async () => true);
     mock.method(repo, 'getWorkspaceAiSettings', async () => null);
     mock.method(repo, 'listMessages', async () => ({
       items: [
@@ -338,8 +338,8 @@ describe('Knowledge Bank checkpoint worker', () => {
         { role: 'assistant', content: 'Refreshing the imagePullSecret fixed it again.' }
       ]
     }));
-    mock.method(repo, 'listKnowledgeBankEntries', async () => [existingEntry]);
-    mock.method(repo, 'updateKnowledgeBankEntry', async (_workspaceId, _targetId, entryId, patch) => {
+    mock.method(repo, 'listTargetInsightsEntries', async () => [existingEntry]);
+    mock.method(repo, 'updateTargetInsightsEntry', async (_workspaceId, _targetId, entryId, patch) => {
       updates.push({ entryId, patch });
       return {
         ...existingEntry,
@@ -358,7 +358,7 @@ describe('Knowledge Bank checkpoint worker', () => {
       }]
     });
 
-    await runKnowledgeBankCheckpointSweep();
+    await runTargetInsightsCheckpointSweep();
 
     assert.equal(updates.length, 1);
     assert.equal((updates[0] as { patch: Record<string, unknown> }).patch.status, undefined);
@@ -376,21 +376,21 @@ describe('Knowledge Bank checkpoint worker', () => {
     const lastActivityAt = new Date(Date.now() - 45 * 60_000).toISOString();
     const job = checkpointJob(lastActivityAt);
     const rescheduledJobs: unknown[] = [];
-    const createEntry = mock.method(repo, 'createKnowledgeBankEntry', async () => {
-      throw new Error('stale checkpoint workers must not write knowledge entries');
+    const createEntry = mock.method(repo, 'createTargetInsightsEntry', async () => {
+      throw new Error('stale checkpoint workers must not write insight entries');
     });
-    const updateEntry = mock.method(repo, 'updateKnowledgeBankEntry', async () => {
-      throw new Error('stale checkpoint workers must not update knowledge entries');
+    const updateEntry = mock.method(repo, 'updateTargetInsightsEntry', async () => {
+      throw new Error('stale checkpoint workers must not update insight entries');
     });
 
     mockSingleClaim(job);
     mockRepositoryTransaction();
-    mock.method(repo, 'rescheduleKnowledgeBankCheckpointJob', async (params) => {
+    mock.method(repo, 'rescheduleTargetInsightsCheckpointJob', async (params) => {
       rescheduledJobs.push(params);
       return false;
     });
-    mock.method(repo, 'finishKnowledgeBankCheckpointJob', async () => true);
-    mock.method(repo, 'renewKnowledgeBankCheckpointJobLeaseIfCurrent', async () => false);
+    mock.method(repo, 'finishTargetInsightsCheckpointJob', async () => true);
+    mock.method(repo, 'renewTargetInsightsCheckpointJobLeaseIfCurrent', async () => false);
     mock.method(repo, 'getWorkspaceAiSettings', async () => null);
     mock.method(repo, 'listMessages', async () => ({
       items: [
@@ -398,7 +398,7 @@ describe('Knowledge Bank checkpoint worker', () => {
         { role: 'assistant', content: 'Refreshing the imagePullSecret fixed the invoices namespace.' }
       ]
     }));
-    mock.method(repo, 'listKnowledgeBankEntries', async () => []);
+    mock.method(repo, 'listTargetInsightsEntries', async () => []);
     mockConfiguredGatewayResponse({
       patches: [{
         action: 'create',
@@ -412,7 +412,7 @@ describe('Knowledge Bank checkpoint worker', () => {
       }]
     });
 
-    await runKnowledgeBankCheckpointSweep();
+    await runTargetInsightsCheckpointSweep();
 
     assert.equal(createEntry.mock.callCount(), 0);
     assert.equal(updateEntry.mock.callCount(), 0);

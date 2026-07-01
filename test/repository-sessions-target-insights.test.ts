@@ -8,7 +8,7 @@ afterEach(() => {
   mock.restoreAll();
 });
 
-describe('session repository Knowledge Bank scheduling', () => {
+describe('session repository Target Insights scheduling', () => {
   it('contains checkpoint enqueue failures inside a transaction savepoint', async () => {
     const queries: string[] = [];
     let released = false;
@@ -29,9 +29,9 @@ describe('session repository Knowledge Bank scheduling', () => {
         if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
           return { rowCount: null, rows: [] };
         }
-        if (sql === 'SAVEPOINT knowledge_bank_checkpoint_enqueue' ||
-          sql === 'ROLLBACK TO SAVEPOINT knowledge_bank_checkpoint_enqueue' ||
-          sql === 'RELEASE SAVEPOINT knowledge_bank_checkpoint_enqueue') {
+        if (sql === 'SAVEPOINT target_insights_checkpoint_enqueue' ||
+          sql === 'ROLLBACK TO SAVEPOINT target_insights_checkpoint_enqueue' ||
+          sql === 'RELEASE SAVEPOINT target_insights_checkpoint_enqueue') {
           return { rowCount: null, rows: [] };
         }
         if (sql.includes('FROM messages') && sql.includes('FOR UPDATE')) {
@@ -55,7 +55,7 @@ describe('session repository Knowledge Bank scheduling', () => {
             }]
           };
         }
-        if (sql.includes('INSERT INTO target_knowledge_checkpoint_jobs')) {
+        if (sql.includes('INSERT INTO target_insights_checkpoint_jobs')) {
           throw new Error('checkpoint queue unavailable');
         }
         throw new Error(`Unexpected query: ${sql}`);
@@ -71,7 +71,7 @@ describe('session repository Knowledge Bank scheduling', () => {
 
     assert.equal(message.id, 'message-1');
     assert.equal(released, true);
-    assert.equal(queries.includes('ROLLBACK TO SAVEPOINT knowledge_bank_checkpoint_enqueue'), true);
+    assert.equal(queries.includes('ROLLBACK TO SAVEPOINT target_insights_checkpoint_enqueue'), true);
     assert.equal(queries.includes('COMMIT'), true);
     assert.equal(queries.includes('ROLLBACK'), false);
     assert.equal(warn.mock.callCount(), 1);

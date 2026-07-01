@@ -313,7 +313,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
     TargetTool: {
       type: 'object',
       properties: {
-        id: { type: 'string', enum: ['web_search', 'knowledge_bank'] },
+        id: { type: 'string', enum: ['web_search', 'target_insights'] },
         label: { type: 'string' },
         description: { type: 'string' },
         enabled: { type: 'boolean', default: true },
@@ -334,7 +334,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: true
     },
-    KnowledgeBankEntry: {
+    TargetInsightsEntry: {
       type: 'object',
       required: ['id', 'workspaceId', 'targetId', 'targetType', 'title', 'status', 'bodyMarkdown'],
       properties: {
@@ -359,7 +359,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: true
     },
-    KnowledgeBankCatalog: {
+    TargetInsightsCatalog: {
       type: 'object',
       required: ['workspaceId', 'targetId', 'targetType', 'permissions', 'items'],
       properties: {
@@ -367,11 +367,11 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         targetId: uuid,
         targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] },
         permissions: jsonObject,
-        items: { type: 'array', items: schemaRef('KnowledgeBankEntry') }
+        items: { type: 'array', items: schemaRef('TargetInsightsEntry') }
       },
       additionalProperties: true
     },
-    KnowledgeBankResetResult: {
+    TargetInsightsResetResult: {
       type: 'object',
       required: ['status', 'deletedEntries', 'deletedCheckpoints'],
       properties: {
@@ -381,7 +381,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: true
     },
-    KnowledgeBankActivity: {
+    TargetInsightsActivity: {
       type: 'object',
       required: ['workspaceId', 'targetId', 'items'],
       properties: {

@@ -2,23 +2,23 @@ import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { db } from '../infra/db.js';
 import {
-  KnowledgeBankEntry,
-  KnowledgeBankEntryInput,
-  KnowledgeBankEntryPatch,
-  KnowledgeBankEntryStatus,
-  KnowledgeBankSnippet
-} from '../types/knowledge-bank.js';
+  TargetInsightsEntry,
+  TargetInsightsEntryInput,
+  TargetInsightsEntryPatch,
+  TargetInsightsEntryStatus,
+  TargetInsightsSnippet
+} from '../types/target-insights.js';
 import { TargetType } from '../types/domain.js';
 
 type Queryable = Pick<typeof db, 'query'> | PoolClient;
 
-interface KnowledgeBankEntryRow {
+interface TargetInsightsEntryRow {
   id: string;
   workspace_id: string;
   target_id: string;
   target_type: TargetType;
   title: string;
-  status: KnowledgeBankEntryStatus;
+  status: TargetInsightsEntryStatus;
   body_markdown: string;
   frontmatter: Record<string, unknown>;
   tags: string[];
@@ -33,12 +33,12 @@ interface KnowledgeBankEntryRow {
   updated_at: Date;
 }
 
-interface ExtractedKnowledgeQueryTerms {
+interface ExtractedTargetInsightsQueryTerms {
   terms: string[];
   strongTerms: string[];
 }
 
-const KNOWLEDGE_QUERY_STOP_WORDS = new Set(`
+const TARGET_INSIGHTS_QUERY_STOP_WORDS = new Set(`
   a an the i me my we our ours you your yours
   is are was were be been being
   do does did have has had can could should would will
@@ -47,17 +47,17 @@ const KNOWLEDGE_QUERY_STOP_WORDS = new Set(`
   this that these those there here
   please show tell check find get got getting know
   need needs want wants looking look explain
-  knowledge bank memory note notes file files
+  target insights memory note notes file files
 `.trim().split(/\s+/));
 
-function normalizeKnowledgeQueryToken(token: string): string {
+function normalizeTargetInsightsQueryToken(token: string): string {
   return token
     .trim()
     .toLowerCase()
     .replace(/^['"`([{<]+|['"`\])}>.,!?;:]+$/g, '');
 }
 
-function isStrongKnowledgeQueryToken(rawToken: string, normalized: string): boolean {
+function isStrongTargetInsightsQueryToken(rawToken: string, normalized: string): boolean {
   return normalized.length >= 14 ||
     /\d/.test(normalized) ||
     /[_./:-]/.test(rawToken) ||
@@ -65,24 +65,24 @@ function isStrongKnowledgeQueryToken(rawToken: string, normalized: string): bool
     /^[A-Z0-9_/-]{3,}$/.test(rawToken);
 }
 
-export function extractKnowledgeQueryTerms(query: string): ExtractedKnowledgeQueryTerms {
+export function extractTargetInsightsQueryTerms(query: string): ExtractedTargetInsightsQueryTerms {
   const terms: string[] = [];
   const strongTerms: string[] = [];
   const seen = new Set<string>();
   const rawTokens = query.match(/[A-Za-z0-9][A-Za-z0-9_.:/-]*/g) || [];
 
   for (const rawToken of rawTokens) {
-    const normalized = normalizeKnowledgeQueryToken(rawToken);
+    const normalized = normalizeTargetInsightsQueryToken(rawToken);
     if (
       normalized.length < 3 ||
-      KNOWLEDGE_QUERY_STOP_WORDS.has(normalized) ||
+      TARGET_INSIGHTS_QUERY_STOP_WORDS.has(normalized) ||
       seen.has(normalized)
     ) {
       continue;
     }
     seen.add(normalized);
     terms.push(normalized);
-    if (isStrongKnowledgeQueryToken(rawToken, normalized)) {
+    if (isStrongTargetInsightsQueryToken(rawToken, normalized)) {
       strongTerms.push(normalized);
     }
     if (terms.length >= 32) {
@@ -98,7 +98,7 @@ function iso(value: Date | string | null | undefined): string | undefined {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
-function mapEntry(row: KnowledgeBankEntryRow): KnowledgeBankEntry {
+function mapEntry(row: TargetInsightsEntryRow): TargetInsightsEntry {
   return {
     id: row.id,
     workspaceId: row.workspace_id,
@@ -125,11 +125,11 @@ function normalizeTags(tags: string[] | undefined): string[] {
   return [...new Set((tags || []).map((tag) => tag.trim().toLowerCase()).filter(Boolean))].slice(0, 32);
 }
 
-export async function listKnowledgeBankEntries(
+export async function listTargetInsightsEntries(
   workspaceId: string,
   targetId: string,
-  options: { status?: KnowledgeBankEntryStatus; q?: string; limit?: number } = {}
-): Promise<KnowledgeBankEntry[]> {
+  options: { status?: TargetInsightsEntryStatus; q?: string; limit?: number } = {}
+): Promise<TargetInsightsEntry[]> {
   const limit = Math.max(1, Math.min(200, options.limit ?? 100));
   const params: Array<string | number> = [workspaceId, targetId, limit];
   const clauses = ['workspace_id = $1', 'target_id = $2'];
@@ -143,34 +143,34 @@ export async function listKnowledgeBankEntries(
   }
   const result = await db.query(
     `SELECT *
-     FROM target_knowledge_entries
+     FROM target_insights_entries
      WHERE ${clauses.join(' AND ')}
      ORDER BY updated_at DESC, id DESC
      LIMIT $3`,
     params
   );
-  return (result.rows as KnowledgeBankEntryRow[]).map(mapEntry);
+  return (result.rows as TargetInsightsEntryRow[]).map(mapEntry);
 }
 
-export async function getKnowledgeBankEntry(
+export async function getTargetInsightsEntry(
   workspaceId: string,
   targetId: string,
   entryId: string,
   queryable: Queryable = db
-): Promise<KnowledgeBankEntry | null> {
+): Promise<TargetInsightsEntry | null> {
   const result = await queryable.query(
     `SELECT *
-     FROM target_knowledge_entries
+     FROM target_insights_entries
      WHERE workspace_id = $1 AND target_id = $2 AND id = $3`,
     [workspaceId, targetId, entryId]
   );
-  return result.rows[0] ? mapEntry(result.rows[0] as KnowledgeBankEntryRow) : null;
+  return result.rows[0] ? mapEntry(result.rows[0] as TargetInsightsEntryRow) : null;
 }
 
-export async function createKnowledgeBankEntry(input: KnowledgeBankEntryInput, queryable: Queryable = db): Promise<KnowledgeBankEntry> {
+export async function createTargetInsightsEntry(input: TargetInsightsEntryInput, queryable: Queryable = db): Promise<TargetInsightsEntry> {
   const id = randomUUID();
   const result = await queryable.query(
-    `INSERT INTO target_knowledge_entries (
+    `INSERT INTO target_insights_entries (
        id, workspace_id, target_id, target_type, title, status, body_markdown,
        frontmatter, tags, signals, scope, evidence_summary, observation_count,
        confidence, first_observed_at, last_observed_at, created_at, updated_at
@@ -198,17 +198,17 @@ export async function createKnowledgeBankEntry(input: KnowledgeBankEntryInput, q
       input.lastObservedAt || null
     ]
   );
-  return mapEntry(result.rows[0] as KnowledgeBankEntryRow);
+  return mapEntry(result.rows[0] as TargetInsightsEntryRow);
 }
 
-export async function updateKnowledgeBankEntry(
+export async function updateTargetInsightsEntry(
   workspaceId: string,
   targetId: string,
   entryId: string,
-  patch: KnowledgeBankEntryPatch,
+  patch: TargetInsightsEntryPatch,
   queryable: Queryable = db
-): Promise<KnowledgeBankEntry | null> {
-  const current = await getKnowledgeBankEntry(workspaceId, targetId, entryId, queryable);
+): Promise<TargetInsightsEntry | null> {
+  const current = await getTargetInsightsEntry(workspaceId, targetId, entryId, queryable);
   if (!current) return null;
   const next = {
     title: patch.title ?? current.title,
@@ -225,7 +225,7 @@ export async function updateKnowledgeBankEntry(
     lastObservedAt: patch.lastObservedAt === undefined ? current.lastObservedAt || null : patch.lastObservedAt
   };
   const result = await queryable.query(
-    `UPDATE target_knowledge_entries
+    `UPDATE target_insights_entries
      SET title = $4,
          status = $5,
          body_markdown = $6,
@@ -259,16 +259,16 @@ export async function updateKnowledgeBankEntry(
       next.lastObservedAt
     ]
   );
-  return result.rows[0] ? mapEntry(result.rows[0] as KnowledgeBankEntryRow) : null;
+  return result.rows[0] ? mapEntry(result.rows[0] as TargetInsightsEntryRow) : null;
 }
 
-export async function resetKnowledgeBank(workspaceId: string, targetId: string): Promise<{ deletedEntries: number; deletedCheckpoints: number }> {
+export async function resetTargetInsights(workspaceId: string, targetId: string): Promise<{ deletedEntries: number; deletedCheckpoints: number }> {
   const entries = await db.query(
-    'DELETE FROM target_knowledge_entries WHERE workspace_id = $1 AND target_id = $2',
+    'DELETE FROM target_insights_entries WHERE workspace_id = $1 AND target_id = $2',
     [workspaceId, targetId]
   );
   const checkpoints = await db.query(
-    'DELETE FROM target_knowledge_checkpoint_jobs WHERE workspace_id = $1 AND target_id = $2',
+    'DELETE FROM target_insights_checkpoint_jobs WHERE workspace_id = $1 AND target_id = $2',
     [workspaceId, targetId]
   );
   return {
@@ -277,20 +277,20 @@ export async function resetKnowledgeBank(workspaceId: string, targetId: string):
   };
 }
 
-export async function searchKnowledgeBankSnippets(
+export async function searchTargetInsightsSnippets(
   workspaceId: string,
   targetId: string,
   query: string,
   options: { limit: number; maxSnippetSizeBytes: number }
-): Promise<KnowledgeBankSnippet[]> {
+): Promise<TargetInsightsSnippet[]> {
   const trimmed = query.trim();
   if (!trimmed) {
     return [];
   }
   const limit = Math.max(1, Math.min(8, options.limit));
   const maxBytes = Math.max(512, Math.min(4096, options.maxSnippetSizeBytes));
-  const queryTerms = extractKnowledgeQueryTerms(trimmed);
-  const result = await db.query<KnowledgeBankEntryRow & {
+  const queryTerms = extractTargetInsightsQueryTerms(trimmed);
+  const result = await db.query<TargetInsightsEntryRow & {
     rank: string | number;
     tag_overlap: string | number;
     signal_overlap: string | number;
@@ -315,7 +315,7 @@ export async function searchKnowledgeBankSnippets(
          e.*,
          to_tsvector('simple', e.title || ' ' || e.body_markdown || ' ' || e.evidence_summary) AS search_document,
          LOWER(e.title || ' ' || e.body_markdown || ' ' || e.evidence_summary) AS search_text
-       FROM target_knowledge_entries e
+       FROM target_insights_entries e
        WHERE e.workspace_id = $1
          AND e.target_id = $2
          AND e.status = 'active'

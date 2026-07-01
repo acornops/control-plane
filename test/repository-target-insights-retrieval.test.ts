@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import { db } from '../src/infra/db.js';
-import { searchKnowledgeBankSnippets } from '../src/store/repository-knowledge-bank.js';
+import { searchTargetInsightsSnippets } from '../src/store/repository-target-insights.js';
 
 afterEach(() => {
   mock.restoreAll();
 });
 
-function createKnowledgeRow(overrides: Record<string, unknown> = {}) {
+function createInsightRow(overrides: Record<string, unknown> = {}) {
   const now = new Date('2026-06-29T01:00:00.000Z');
   return {
     id: 'entry-1',
@@ -39,7 +39,7 @@ function createKnowledgeRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe('Knowledge Bank retrieval query', () => {
+describe('Target Insights retrieval query', () => {
   it('allows extracted strong terms to match through a separate one-term lane', async () => {
     let capturedParams: unknown[] | undefined;
     let capturedSql = '';
@@ -49,10 +49,10 @@ describe('Knowledge Bank retrieval query', () => {
       return { rowCount: 0, rows: [] };
     });
 
-    await searchKnowledgeBankSnippets(
+    await searchTargetInsightsSnippets(
       'workspace-1',
       'target-1',
-      'Do we have knowledge bank about crashloopbackoff?',
+      'Do we have target insights about crashloopbackoff?',
       { limit: 4, maxSnippetSizeBytes: 1536 }
     );
 
@@ -75,7 +75,7 @@ describe('Knowledge Bank retrieval query', () => {
       return { rowCount: 0, rows: [] };
     });
 
-    await searchKnowledgeBankSnippets(
+    await searchTargetInsightsSnippets(
       'workspace-1',
       'target-1',
       'Why did vendor approval get skipped?',
@@ -94,7 +94,7 @@ describe('Knowledge Bank retrieval query', () => {
       return { rowCount: 0, rows: [] };
     });
 
-    await searchKnowledgeBankSnippets(
+    await searchTargetInsightsSnippets(
       'workspace-1',
       'target-1',
       'Tell me about automation',
@@ -109,10 +109,10 @@ describe('Knowledge Bank retrieval query', () => {
   it('includes controlled text overlap in snippet scoring', async () => {
     mock.method(db, 'query', async () => ({
       rowCount: 1,
-      rows: [createKnowledgeRow({ text_term_overlap: 3, strong_text_term_overlap: 0 })]
+      rows: [createInsightRow({ text_term_overlap: 3, strong_text_term_overlap: 0 })]
     }));
 
-    const snippets = await searchKnowledgeBankSnippets(
+    const snippets = await searchTargetInsightsSnippets(
       'workspace-1',
       'target-1',
       'Why did vendor approval get skipped?',

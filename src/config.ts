@@ -196,7 +196,7 @@ const envSchema = z.object({
   TARGET_METRIC_HISTORY_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   WORKSPACE_AUDIT_LOGGING_MODE: workspaceAuditLoggingModeFromEnv,
   WORKSPACE_AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
-  KNOWLEDGE_BANK_ENABLED: envBoolean(true),
+  TARGET_INSIGHTS_ENABLED: envBoolean(true),
   TARGET_CHAT_RECENT_ACTIVITY_WINDOW_SECONDS: z.coerce.number().int().min(60).max(3600).default(300),
   RUN_EVENT_BUFFER_SIZE: z.coerce.number().int().positive().default(200),
   PERSIST_RUN_EVENTS: optionalEnvBoolean(),

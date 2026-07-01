@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
-  incrementKnowledgeBankCheckpointOutcome,
-  incrementKnowledgeBankRetrieval,
-  observeKnowledgeBankCheckpointDurationMs,
-  recordKnowledgeBankCheckpointPatchCount,
+  incrementTargetInsightsCheckpointOutcome,
+  incrementTargetInsightsRetrieval,
+  observeTargetInsightsCheckpointDurationMs,
+  recordTargetInsightsCheckpointPatchCount,
   renderControlPlaneMetrics
 } from '../src/metrics.js';
 
@@ -19,17 +19,17 @@ describe('control-plane metrics', () => {
     assert.equal(payload.endsWith('\n'), true);
   });
 
-  it('renders Knowledge Bank operational metrics without high-cardinality labels', () => {
-    incrementKnowledgeBankRetrieval('hit');
-    incrementKnowledgeBankCheckpointOutcome('skipped', 'ai_settings_missing');
-    observeKnowledgeBankCheckpointDurationMs('completed', 1200);
-    recordKnowledgeBankCheckpointPatchCount('applied', 2);
+  it('renders Target Insights operational metrics without high-cardinality labels', () => {
+    incrementTargetInsightsRetrieval('hit');
+    incrementTargetInsightsCheckpointOutcome('skipped', 'ai_settings_missing');
+    observeTargetInsightsCheckpointDurationMs('completed', 1200);
+    recordTargetInsightsCheckpointPatchCount('applied', 2);
 
     const payload = renderControlPlaneMetrics();
 
-    assert.match(payload, /control_plane_knowledge_bank_retrievals_total\{[^}]*outcome="hit"[^}]*\}/);
-    assert.match(payload, /control_plane_knowledge_bank_checkpoint_outcomes_total\{[^}]*status="skipped",reason="ai_settings_missing"[^}]*\}/);
-    assert.match(payload, /control_plane_knowledge_bank_checkpoint_duration_ms_bucket\{[^}]*status="completed",le="5000"[^}]*\}/);
-    assert.match(payload, /control_plane_knowledge_bank_checkpoint_patches_total\{[^}]*status="applied"[^}]*\} 2/);
+    assert.match(payload, /control_plane_target_insights_retrievals_total\{[^}]*outcome="hit"[^}]*\}/);
+    assert.match(payload, /control_plane_target_insights_checkpoint_outcomes_total\{[^}]*status="skipped",reason="ai_settings_missing"[^}]*\}/);
+    assert.match(payload, /control_plane_target_insights_checkpoint_duration_ms_bucket\{[^}]*status="completed",le="5000"[^}]*\}/);
+    assert.match(payload, /control_plane_target_insights_checkpoint_patches_total\{[^}]*status="applied"[^}]*\} 2/);
   });
 });

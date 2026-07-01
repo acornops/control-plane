@@ -216,7 +216,7 @@ describe('workspace AI settings controller', () => {
         occurredAt: '2026-05-24T00:00:00.000Z'
       };
     };
-    repo.requeueKnowledgeBankPausedCheckpoints = async (workspaceId, targetId) => {
+    repo.requeueTargetInsightsPausedCheckpoints = async (workspaceId, targetId) => {
       assert.equal(workspaceId, 'workspace-1');
       assert.equal(targetId, undefined);
       requeued += 1;
@@ -268,7 +268,7 @@ describe('workspace AI settings controller', () => {
     repo.upsertWorkspaceAiSettings = async (_workspaceId, settings) => {
       persisted = settings;
     };
-    repo.requeueKnowledgeBankPausedCheckpoints = async (workspaceId, targetId) => {
+    repo.requeueTargetInsightsPausedCheckpoints = async (workspaceId, targetId) => {
       assert.equal(workspaceId, 'workspace-1');
       assert.equal(targetId, undefined);
       requeued += 1;

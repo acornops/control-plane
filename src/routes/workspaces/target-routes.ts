@@ -3,11 +3,11 @@ import { authenticatedHandler, requireUser } from '../../auth/middleware.js';
 import * as workspacesController from '../../controllers/workspaces-controller.js';
 import {
   createMcpServerSchema,
-  createKnowledgeBankEntrySchema,
+  createTargetInsightsEntrySchema,
   createTargetSkillSchema,
   importTargetSkillSchema,
   reimportTargetSkillSchema,
-  updateKnowledgeBankEntrySchema,
+  updateTargetInsightsEntrySchema,
   updateMcpServerSchema,
   updateTargetMcpServerToolSchema,
   updateTargetSkillSchema,
@@ -37,46 +37,46 @@ export function registerTargetRoutes(router: Router): void {
     authed(workspacesController.getTargetAssistantCapabilitiesPreview)
   );
   router.get(
-    '/workspaces/:workspaceId/targets/:targetId/knowledge-bank',
+    '/workspaces/:workspaceId/targets/:targetId/target-insights',
     requireUser,
-    authed(workspacesController.listKnowledgeBankEntries)
+    authed(workspacesController.listTargetInsightsEntries)
   );
   router.post(
-    '/workspaces/:workspaceId/targets/:targetId/knowledge-bank/entries',
+    '/workspaces/:workspaceId/targets/:targetId/target-insights/entries',
     requireUser,
-    validateBody(createKnowledgeBankEntrySchema),
-    authed(workspacesController.createKnowledgeBankEntry)
+    validateBody(createTargetInsightsEntrySchema),
+    authed(workspacesController.createTargetInsightsEntry)
   );
   router.get(
-    '/workspaces/:workspaceId/targets/:targetId/knowledge-bank/activity',
+    '/workspaces/:workspaceId/targets/:targetId/target-insights/activity',
     requireUser,
-    authed(workspacesController.listKnowledgeBankActivity)
+    authed(workspacesController.listTargetInsightsActivity)
   );
   router.get(
-    '/workspaces/:workspaceId/targets/:targetId/knowledge-bank/export',
+    '/workspaces/:workspaceId/targets/:targetId/target-insights/export',
     requireUser,
-    authed(workspacesController.exportKnowledgeBank)
+    authed(workspacesController.exportTargetInsights)
   );
   router.post(
-    '/workspaces/:workspaceId/targets/:targetId/knowledge-bank/reset',
+    '/workspaces/:workspaceId/targets/:targetId/target-insights/reset',
     requireUser,
-    authed(workspacesController.resetKnowledgeBank)
+    authed(workspacesController.resetTargetInsights)
   );
   router.patch(
-    '/workspaces/:workspaceId/targets/:targetId/knowledge-bank/entries/:entryId',
+    '/workspaces/:workspaceId/targets/:targetId/target-insights/entries/:entryId',
     requireUser,
-    validateBody(updateKnowledgeBankEntrySchema),
-    authed(workspacesController.updateKnowledgeBankEntry)
+    validateBody(updateTargetInsightsEntrySchema),
+    authed(workspacesController.updateTargetInsightsEntry)
   );
   router.post(
-    '/workspaces/:workspaceId/targets/:targetId/knowledge-bank/entries/:entryId/promote',
+    '/workspaces/:workspaceId/targets/:targetId/target-insights/entries/:entryId/promote',
     requireUser,
-    authed(workspacesController.promoteKnowledgeBankEntry)
+    authed(workspacesController.promoteTargetInsightsEntry)
   );
   router.post(
-    '/workspaces/:workspaceId/targets/:targetId/knowledge-bank/entries/:entryId/archive',
+    '/workspaces/:workspaceId/targets/:targetId/target-insights/entries/:entryId/archive',
     requireUser,
-    authed(workspacesController.archiveKnowledgeBankEntry)
+    authed(workspacesController.archiveTargetInsightsEntry)
   );
   router.get(
     '/workspaces/:workspaceId/targets/:targetId/mcp/servers',

@@ -319,8 +319,8 @@ expectIncludes(configSource, 'TARGET_METRIC_HISTORY_RETENTION_DAYS', 'Target met
 
 for (const contractToken of [
   'Roles with `permissions.manage_mcp` may mutate MCP server configuration.',
-  'Roles with `permissions.manage_tools` may mutate MCP per-tool enablement and non-Knowledge-Bank built-in tool settings.',
-  'Roles with `permissions.manage_knowledge_bank` may mutate Knowledge Bank entries and Knowledge Bank tool settings.',
+  'Roles with `permissions.manage_tools` may mutate MCP per-tool enablement and non-Target-Insights built-in tool settings.',
+  'Roles with `permissions.manage_target_insights` may mutate Target Insights entries and Target Insights tool settings.',
   'Roles without the relevant management capability are read-only for that configuration surface.',
   '{ items, nextCursor? }',
   'sessionPolicy.allowedTools',

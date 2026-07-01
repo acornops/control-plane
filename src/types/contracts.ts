@@ -450,7 +450,7 @@ export const updateTargetToolSchema = z.object({
   config: z.record(z.unknown()).optional()
 }).strict();
 
-export { createKnowledgeBankEntrySchema, updateKnowledgeBankEntrySchema } from './knowledge-bank-contracts.js';
+export { createTargetInsightsEntrySchema, updateTargetInsightsEntrySchema } from './target-insights-contracts.js';
 
 const targetSkillFileSchema = z.object({
   path: z.string().trim().min(1).max(512),

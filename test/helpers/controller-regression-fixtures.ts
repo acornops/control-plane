@@ -48,8 +48,8 @@ const originals = {
   getTargetToolSetting: repo.getTargetToolSetting,
   listEnabledTargetToolSettings: repo.listEnabledTargetToolSettings,
   upsertTargetToolSetting: repo.upsertTargetToolSetting,
-  searchKnowledgeBankSnippets: repo.searchKnowledgeBankSnippets,
-  requeueKnowledgeBankPausedCheckpoints: repo.requeueKnowledgeBankPausedCheckpoints,
+  searchTargetInsightsSnippets: repo.searchTargetInsightsSnippets,
+  requeueTargetInsightsPausedCheckpoints: repo.requeueTargetInsightsPausedCheckpoints,
   listEnabledValidTargetSkills: repo.listEnabledValidTargetSkills,
   listEnabledValidTargetSkillSummaries: repo.listEnabledValidTargetSkillSummaries,
   createWebhookSubscription: repo.createWebhookSubscription,
@@ -95,8 +95,8 @@ export function restoreControllerRegressionState(): void {
   repo.getTargetToolSetting = originals.getTargetToolSetting;
   repo.listEnabledTargetToolSettings = originals.listEnabledTargetToolSettings;
   repo.upsertTargetToolSetting = originals.upsertTargetToolSetting;
-  repo.searchKnowledgeBankSnippets = originals.searchKnowledgeBankSnippets;
-  repo.requeueKnowledgeBankPausedCheckpoints = originals.requeueKnowledgeBankPausedCheckpoints;
+  repo.searchTargetInsightsSnippets = originals.searchTargetInsightsSnippets;
+  repo.requeueTargetInsightsPausedCheckpoints = originals.requeueTargetInsightsPausedCheckpoints;
   repo.listEnabledValidTargetSkills = originals.listEnabledValidTargetSkills;
   repo.listEnabledValidTargetSkillSummaries = originals.listEnabledValidTargetSkillSummaries;
   repo.createWebhookSubscription = originals.createWebhookSubscription;
@@ -191,7 +191,7 @@ export function installWorkspace(role: Role | null): void {
     createdAt: '2026-05-24T00:00:00.000Z'
   });
   repo.getWorkspaceAiSettings = async () => null;
-  repo.requeueKnowledgeBankPausedCheckpoints = async () => 0;
+  repo.requeueTargetInsightsPausedCheckpoints = async () => 0;
   repo.listEnabledValidTargetSkills = async () => [];
   repo.listEnabledValidTargetSkillSummaries = async () => [];
 }

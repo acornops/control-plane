@@ -1,20 +1,20 @@
 import { LlmProvider, TargetType } from './domain.js';
 
-export type KnowledgeBankEntryStatus = 'active' | 'pending' | 'archived';
-export type KnowledgeBankCheckpointModelMode = 'workspace_default' | 'custom';
-export type KnowledgeBankCheckpointStatus = 'applied' | 'skipped' | 'failed' | 'noop';
+export type TargetInsightsEntryStatus = 'active' | 'pending' | 'archived';
+export type TargetInsightsCheckpointModelMode = 'workspace_default' | 'custom';
+export type TargetInsightsCheckpointStatus = 'applied' | 'skipped' | 'failed' | 'noop';
 
-export interface KnowledgeBankCheckpointModelConfig {
-  mode: KnowledgeBankCheckpointModelMode;
+export interface TargetInsightsCheckpointModelConfig {
+  mode: TargetInsightsCheckpointModelMode;
   provider?: LlmProvider;
   model?: string;
 }
 
-export interface KnowledgeBankToolConfig {
+export interface TargetInsightsToolConfig {
   learning: {
     idleCheckpointDelayMinutes: number;
     minimumObservationsBeforeGeneralization: number;
-    checkpointModel: KnowledgeBankCheckpointModelConfig;
+    checkpointModel: TargetInsightsCheckpointModelConfig;
   };
   retrieval: {
     maxSnippetsPerRetrieval: number;
@@ -22,13 +22,13 @@ export interface KnowledgeBankToolConfig {
   };
 }
 
-export interface KnowledgeBankEntry {
+export interface TargetInsightsEntry {
   id: string;
   workspaceId: string;
   targetId: string;
   targetType: TargetType;
   title: string;
-  status: KnowledgeBankEntryStatus;
+  status: TargetInsightsEntryStatus;
   bodyMarkdown: string;
   frontmatter: Record<string, unknown>;
   tags: string[];
@@ -43,12 +43,12 @@ export interface KnowledgeBankEntry {
   updatedAt: string;
 }
 
-export interface KnowledgeBankEntryInput {
+export interface TargetInsightsEntryInput {
   workspaceId: string;
   targetId: string;
   targetType: TargetType;
   title: string;
-  status: KnowledgeBankEntryStatus;
+  status: TargetInsightsEntryStatus;
   bodyMarkdown: string;
   frontmatter?: Record<string, unknown>;
   tags?: string[];
@@ -61,9 +61,9 @@ export interface KnowledgeBankEntryInput {
   lastObservedAt?: string | null;
 }
 
-export interface KnowledgeBankEntryPatch {
+export interface TargetInsightsEntryPatch {
   title?: string;
-  status?: KnowledgeBankEntryStatus;
+  status?: TargetInsightsEntryStatus;
   bodyMarkdown?: string;
   frontmatter?: Record<string, unknown>;
   tags?: string[];
@@ -76,14 +76,14 @@ export interface KnowledgeBankEntryPatch {
   lastObservedAt?: string | null;
 }
 
-export interface KnowledgeBankRetrievalQuery {
+export interface TargetInsightsRetrievalQuery {
   workspaceId: string;
   targetId: string;
   text: string;
-  config: KnowledgeBankToolConfig;
+  config: TargetInsightsToolConfig;
 }
 
-export interface KnowledgeBankSnippet {
+export interface TargetInsightsSnippet {
   entryId: string;
   title: string;
   body: string;

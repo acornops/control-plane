@@ -13,14 +13,14 @@ import {
 
 afterEach(restoreControllerRegressionState);
 
-describe('internal execution Knowledge Bank context', () => {
-  it('continues session context assembly when Knowledge Bank retrieval fails', async () => {
+describe('internal execution Target Insights context', () => {
+  it('continues session context assembly when Target Insights retrieval fails', async () => {
     repo.getSession = async () => createSessionRecord();
     repo.getRun = async () => createRun({ status: 'running' });
     repo.listMessages = async () => ({ items: [createMessage({ content: 'diagnose registry 401' })] });
     repo.getTargetToolSetting = async () => null;
-    repo.searchKnowledgeBankSnippets = async () => {
-      throw new Error('knowledge retrieval unavailable');
+    repo.searchTargetInsightsSnippets = async () => {
+      throw new Error('insights retrieval unavailable');
     };
     const request = createRequest({ sessionId: 'session-1' }) as ReturnType<typeof createRequest> & {
       query: Record<string, string>;
@@ -30,7 +30,7 @@ describe('internal execution Knowledge Bank context', () => {
     const response = await callController(getSessionContext, request);
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual((response.body as { knowledge_bank: { retrieval_status: string; snippets: unknown[] } }).knowledge_bank, {
+    assert.deepEqual((response.body as { target_insights: { retrieval_status: string; snippets: unknown[] } }).target_insights, {
       retrieval_status: 'error',
       snippets: []
     });
@@ -39,20 +39,20 @@ describe('internal execution Knowledge Bank context', () => {
     assert.equal(messages[1]?.content, 'diagnose registry 401');
   });
 
-  it('marks Knowledge Bank retrieval as skipped when the target setting is disabled', async () => {
+  it('marks Target Insights retrieval as skipped when the target setting is disabled', async () => {
     repo.getSession = async () => createSessionRecord();
     repo.getRun = async () => createRun({ status: 'running' });
     repo.listMessages = async () => ({ items: [createMessage({ content: 'diagnose crashloopbackoff' })] });
     repo.getTargetToolSetting = async () => ({
       workspaceId: 'workspace-1',
       targetId: 'target-1',
-      toolId: 'knowledge_bank',
+      toolId: 'target_insights',
       enabled: false,
       config: {},
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
-    repo.searchKnowledgeBankSnippets = async () => {
+    repo.searchTargetInsightsSnippets = async () => {
       throw new Error('search should not be called');
     };
     const request = createRequest({ sessionId: 'session-1' }) as ReturnType<typeof createRequest> & {
@@ -63,7 +63,7 @@ describe('internal execution Knowledge Bank context', () => {
     const response = await callController(getSessionContext, request);
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual((response.body as { knowledge_bank: { retrieval_status: string; snippets: unknown[] } }).knowledge_bank, {
+    assert.deepEqual((response.body as { target_insights: { retrieval_status: string; snippets: unknown[] } }).target_insights, {
       retrieval_status: 'skipped',
       snippets: []
     });

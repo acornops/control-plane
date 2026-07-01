@@ -8,7 +8,7 @@ import { repo } from '../store/repository.js';
 import { KUBERNETES_TARGET_TYPE, TargetType, ToolAccessMode } from '../types/domain.js';
 
 export const WEB_SEARCH_TOOL_ID = 'web_search';
-export const KNOWLEDGE_BANK_TOOL_ID = 'knowledge_bank';
+export const TARGET_INSIGHTS_TOOL_ID = 'target_insights';
 
 function defaultWebSearchConfig(): Record<string, unknown> {
   return {
@@ -234,7 +234,7 @@ export async function resolveTargetRunTools(params: {
   }
 
   let allowedNativeTools: TargetRunNativeTool[] = [];
-  let knowledgeBankPreviewItems: TargetRunToolPreviewItem[] = [];
+  let targetInsightsPreviewItems: TargetRunToolPreviewItem[] = [];
   try {
     const webSearchSetting = await repo.getTargetToolSetting(targetId, WEB_SEARCH_TOOL_ID);
     if (webSearchSetting?.enabled ?? true) {
@@ -243,14 +243,14 @@ export async function resolveTargetRunTools(params: {
         config: webSearchConfig(webSearchSetting?.config)
       }];
     }
-    if (config.KNOWLEDGE_BANK_ENABLED) {
-      const knowledgeBankSetting = await repo.getTargetToolSetting(targetId, KNOWLEDGE_BANK_TOOL_ID);
-      if (knowledgeBankSetting?.enabled ?? true) {
-        knowledgeBankPreviewItems = [{
-          id: KNOWLEDGE_BANK_TOOL_ID,
-          name: KNOWLEDGE_BANK_TOOL_ID,
-          label: 'Knowledge Bank',
-          description: 'Retrieve target-specific troubleshooting knowledge.',
+    if (config.TARGET_INSIGHTS_ENABLED) {
+      const targetInsightsSetting = await repo.getTargetToolSetting(targetId, TARGET_INSIGHTS_TOOL_ID);
+      if (targetInsightsSetting?.enabled ?? true) {
+        targetInsightsPreviewItems = [{
+          id: TARGET_INSIGHTS_TOOL_ID,
+          name: TARGET_INSIGHTS_TOOL_ID,
+          label: 'Insights',
+          description: 'Retrieve target-specific troubleshooting insights.',
           capability: 'read',
           runtimeKind: 'function',
           source: 'builtin'
@@ -279,7 +279,7 @@ export async function resolveTargetRunTools(params: {
     runtimeKind: 'provider_native',
     source: 'provider_native'
   }));
-  const previewItems = [...functionPreviewItems, ...nativePreviewItems, ...knowledgeBankPreviewItems]
+  const previewItems = [...functionPreviewItems, ...nativePreviewItems, ...targetInsightsPreviewItems]
     .sort((left, right) => left.name.localeCompare(right.name) || left.runtimeKind.localeCompare(right.runtimeKind));
   const allowedToolOperations = Object.fromEntries(
     allowedToolSpecs.map((tool) => [tool.name, tool.capability])

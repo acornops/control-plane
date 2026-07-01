@@ -16,10 +16,10 @@ const adminRequests = new Map<string, number>();
 const runEventIngestCounts = new Map<string, number>();
 const workflowSchedulerCounts = new Map<string, number>();
 const approvalInboxQueries = new Map<string, number>();
-const knowledgeBankRetrievals = new Map<string, number>();
-const knowledgeBankCheckpointOutcomes = new Map<string, number>();
-const knowledgeBankCheckpointDurations = new Map<string, number>();
-const knowledgeBankCheckpointPatchCounts = new Map<string, number>();
+const targetInsightsRetrievals = new Map<string, number>();
+const targetInsightsCheckpointOutcomes = new Map<string, number>();
+const targetInsightsCheckpointDurations = new Map<string, number>();
+const targetInsightsCheckpointPatchCounts = new Map<string, number>();
 let adminMutations = 0;
 let adminAuditWriteFailures = 0;
 
@@ -55,25 +55,25 @@ export function incrementApprovalInboxQuery(status: string): void {
   increment(approvalInboxQueries, status);
 }
 
-export function incrementKnowledgeBankRetrieval(outcome: 'hit' | 'miss' | 'skipped' | 'error', count = 1): void {
-  increment(knowledgeBankRetrievals, outcome, count);
+export function incrementTargetInsightsRetrieval(outcome: 'hit' | 'miss' | 'skipped' | 'error', count = 1): void {
+  increment(targetInsightsRetrievals, outcome, count);
 }
 
-export function incrementKnowledgeBankCheckpointOutcome(status: string, reason = 'none', count = 1): void {
-  increment(knowledgeBankCheckpointOutcomes, `${status}:${reason}`, count);
+export function incrementTargetInsightsCheckpointOutcome(status: string, reason = 'none', count = 1): void {
+  increment(targetInsightsCheckpointOutcomes, `${status}:${reason}`, count);
 }
 
-export function observeKnowledgeBankCheckpointDurationMs(status: string, durationMs: number): void {
+export function observeTargetInsightsCheckpointDurationMs(status: string, durationMs: number): void {
   const buckets = [1000, 5000, 15000, 30000, 60000, Number.POSITIVE_INFINITY];
   for (const bucket of buckets) {
     if (durationMs <= bucket) {
-      increment(knowledgeBankCheckpointDurations, `${status}:${bucket === Number.POSITIVE_INFINITY ? '+Inf' : bucket}`);
+      increment(targetInsightsCheckpointDurations, `${status}:${bucket === Number.POSITIVE_INFINITY ? '+Inf' : bucket}`);
     }
   }
 }
 
-export function recordKnowledgeBankCheckpointPatchCount(status: string, patchCount: number): void {
-  increment(knowledgeBankCheckpointPatchCounts, status, patchCount);
+export function recordTargetInsightsCheckpointPatchCount(status: string, patchCount: number): void {
+  increment(targetInsightsCheckpointPatchCounts, status, patchCount);
 }
 
 export function renderControlPlaneMetrics(): string {
@@ -133,27 +133,27 @@ export function renderControlPlaneMetrics(): string {
     ...Array.from(approvalInboxQueries.entries()).map(([status, value]) =>
       metricLine('control_plane_approval_inbox_queries_total', { ...serviceLabels, status }, value)
     ),
-    '# HELP control_plane_knowledge_bank_retrievals_total Knowledge Bank retrieval outcomes for run context assembly.',
-    '# TYPE control_plane_knowledge_bank_retrievals_total counter',
-    ...Array.from(knowledgeBankRetrievals.entries()).map(([outcome, value]) =>
-      metricLine('control_plane_knowledge_bank_retrievals_total', { ...serviceLabels, outcome }, value)
+    '# HELP control_plane_target_insights_retrievals_total Target Insights retrieval outcomes for run context assembly.',
+    '# TYPE control_plane_target_insights_retrievals_total counter',
+    ...Array.from(targetInsightsRetrievals.entries()).map(([outcome, value]) =>
+      metricLine('control_plane_target_insights_retrievals_total', { ...serviceLabels, outcome }, value)
     ),
-    '# HELP control_plane_knowledge_bank_checkpoint_outcomes_total Knowledge Bank checkpoint outcomes by status and safe reason.',
-    '# TYPE control_plane_knowledge_bank_checkpoint_outcomes_total counter',
-    ...Array.from(knowledgeBankCheckpointOutcomes.entries()).map(([key, value]) => {
+    '# HELP control_plane_target_insights_checkpoint_outcomes_total Target Insights checkpoint outcomes by status and safe reason.',
+    '# TYPE control_plane_target_insights_checkpoint_outcomes_total counter',
+    ...Array.from(targetInsightsCheckpointOutcomes.entries()).map(([key, value]) => {
       const [status, reason] = key.split(':');
-      return metricLine('control_plane_knowledge_bank_checkpoint_outcomes_total', { ...serviceLabels, status, reason }, value);
+      return metricLine('control_plane_target_insights_checkpoint_outcomes_total', { ...serviceLabels, status, reason }, value);
     }),
-    '# HELP control_plane_knowledge_bank_checkpoint_duration_ms_bucket Knowledge Bank checkpoint duration bucket counts by status.',
-    '# TYPE control_plane_knowledge_bank_checkpoint_duration_ms_bucket counter',
-    ...Array.from(knowledgeBankCheckpointDurations.entries()).map(([key, value]) => {
+    '# HELP control_plane_target_insights_checkpoint_duration_ms_bucket Target Insights checkpoint duration bucket counts by status.',
+    '# TYPE control_plane_target_insights_checkpoint_duration_ms_bucket counter',
+    ...Array.from(targetInsightsCheckpointDurations.entries()).map(([key, value]) => {
       const [status, le] = key.split(':');
-      return metricLine('control_plane_knowledge_bank_checkpoint_duration_ms_bucket', { ...serviceLabels, status, le }, value);
+      return metricLine('control_plane_target_insights_checkpoint_duration_ms_bucket', { ...serviceLabels, status, le }, value);
     }),
-    '# HELP control_plane_knowledge_bank_checkpoint_patches_total Knowledge Bank patches applied by checkpoint status.',
-    '# TYPE control_plane_knowledge_bank_checkpoint_patches_total counter',
-    ...Array.from(knowledgeBankCheckpointPatchCounts.entries()).map(([status, value]) =>
-      metricLine('control_plane_knowledge_bank_checkpoint_patches_total', { ...serviceLabels, status }, value)
+    '# HELP control_plane_target_insights_checkpoint_patches_total Target Insights patches applied by checkpoint status.',
+    '# TYPE control_plane_target_insights_checkpoint_patches_total counter',
+    ...Array.from(targetInsightsCheckpointPatchCounts.entries()).map(([status, value]) =>
+      metricLine('control_plane_target_insights_checkpoint_patches_total', { ...serviceLabels, status }, value)
     )
   ];
   return `${lines.join('\n')}\n`;

@@ -21,7 +21,7 @@ import { expireAndResumeTimedOutApprovals } from './services/approval-timeouts.j
 import { syncTargetBuiltInTools } from './services/target-built-in-tool-sync.js';
 import { runControlPlaneRetentionSweep } from './services/conversation-retention.js';
 import { ensureDevelopmentMcpSeed } from './services/development-mcp-seed.js';
-import { runKnowledgeBankCheckpointSweep } from './services/knowledge-bank/checkpoint-worker.js';
+import { runTargetInsightsCheckpointSweep } from './services/target-insights/checkpoint-worker.js';
 import { repo } from './store/repository.js';
 import { runtime } from './store/runtime.js';
 import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE } from './types/domain.js';
@@ -106,16 +106,16 @@ async function main(): Promise<void> {
     }
   }, Math.max(5, Math.min(config.AGENT_WRITE_CONFIRMATION_TIMEOUT_SECONDS, 60)) * 1000);
   approvalTimeoutInterval.unref();
-  const knowledgeBankCheckpointInterval = setInterval(async () => {
+  const targetInsightsCheckpointInterval = setInterval(async () => {
     try {
-      await withRedisLease('knowledge-bank-checkpoints', 120, async () => {
-        await runKnowledgeBankCheckpointSweep();
+      await withRedisLease('target-insights-checkpoints', 120, async () => {
+        await runTargetInsightsCheckpointSweep();
       });
     } catch (err) {
-      logger.warn({ err }, 'Knowledge Bank checkpoint sweep failed');
+      logger.warn({ err }, 'Target Insights checkpoint sweep failed');
     }
   }, 60_000);
-  knowledgeBankCheckpointInterval.unref();
+  targetInsightsCheckpointInterval.unref();
 
   server.on('upgrade', (request, socket, head) => {
     const handled = agentGateway.handleUpgrade(request, socket, head);
@@ -147,7 +147,7 @@ async function main(): Promise<void> {
     clearInterval(toolingSyncInterval);
     clearInterval(conversationRetentionInterval);
     clearInterval(approvalTimeoutInterval);
-    clearInterval(knowledgeBankCheckpointInterval);
+    clearInterval(targetInsightsCheckpointInterval);
     const forceExit = setTimeout(() => {
       logger.error('Forced control plane shutdown after timeout');
       process.exit(1);

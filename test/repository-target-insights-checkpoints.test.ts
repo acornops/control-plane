@@ -2,18 +2,18 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import { db } from '../src/infra/db.js';
 import {
-  claimDueKnowledgeBankCheckpointJobs,
-  finishKnowledgeBankCheckpointJob,
-  renewKnowledgeBankCheckpointJobLeaseIfCurrent,
-  rescheduleKnowledgeBankCheckpointJob,
-  upsertKnowledgeBankCheckpointJobForSessionActivity
-} from '../src/store/repository-knowledge-bank-checkpoints.js';
+  claimDueTargetInsightsCheckpointJobs,
+  finishTargetInsightsCheckpointJob,
+  renewTargetInsightsCheckpointJobLeaseIfCurrent,
+  rescheduleTargetInsightsCheckpointJob,
+  upsertTargetInsightsCheckpointJobForSessionActivity
+} from '../src/store/repository-target-insights-checkpoints.js';
 
 afterEach(() => {
   mock.restoreAll();
 });
 
-describe('Knowledge Bank checkpoint job repository', () => {
+describe('Target Insights checkpoint job repository', () => {
   it('reclaims expired processing jobs when claiming due checkpoint work', async () => {
     mock.method(db, 'query', async (sql: string, params?: unknown[]) => {
       assert.match(sql, /job\.status IN \('queued', 'failed', 'processing'\)/);
@@ -38,7 +38,7 @@ describe('Knowledge Bank checkpoint job repository', () => {
       };
     });
 
-    const jobs = await claimDueKnowledgeBankCheckpointJobs(50, 'worker-1');
+    const jobs = await claimDueTargetInsightsCheckpointJobs(50, 'worker-1');
 
     assert.deepEqual(jobs, [{
       workspaceId: 'workspace-1',
@@ -74,11 +74,11 @@ describe('Knowledge Bank checkpoint job repository', () => {
       }
       assert.match(sql, /attempts = CASE/);
       assert.match(sql, /last_activity_at < EXCLUDED\.last_activity_at THEN 0/);
-      assert.match(sql, /WHERE target_knowledge_checkpoint_jobs\.last_activity_at < EXCLUDED\.last_activity_at/);
+      assert.match(sql, /WHERE target_insights_checkpoint_jobs\.last_activity_at < EXCLUDED\.last_activity_at/);
       return { rowCount: 1, rows: [] };
     });
 
-    await upsertKnowledgeBankCheckpointJobForSessionActivity('session-1', '2026-06-29T01:00:00.000Z');
+    await upsertTargetInsightsCheckpointJobForSessionActivity('session-1', '2026-06-29T01:00:00.000Z');
 
     assert.equal(queries.length, 2);
   });
@@ -90,7 +90,7 @@ describe('Knowledge Bank checkpoint job repository', () => {
       return { rowCount: 1, rows: [] };
     });
 
-    await finishKnowledgeBankCheckpointJob({
+    await finishTargetInsightsCheckpointJob({
       workspaceId: 'workspace-1',
       targetId: 'target-1',
       sessionId: 'session-1',
@@ -98,7 +98,7 @@ describe('Knowledge Bank checkpoint job repository', () => {
       leaseOwner: 'worker-1',
       status: 'noop'
     });
-    await rescheduleKnowledgeBankCheckpointJob({
+    await rescheduleTargetInsightsCheckpointJob({
       workspaceId: 'workspace-1',
       targetId: 'target-1',
       sessionId: 'session-1',
@@ -107,7 +107,7 @@ describe('Knowledge Bank checkpoint job repository', () => {
       dueAt: '2026-06-29T01:01:00.000Z',
       error: 'run_active'
     });
-    await renewKnowledgeBankCheckpointJobLeaseIfCurrent({
+    await renewTargetInsightsCheckpointJobLeaseIfCurrent({
       workspaceId: 'workspace-1',
       targetId: 'target-1',
       sessionId: 'session-1',

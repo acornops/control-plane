@@ -320,7 +320,7 @@ CREATE TABLE IF NOT EXISTS target_tool_settings (
   PRIMARY KEY (target_id, tool_id)
 );
 
-CREATE TABLE IF NOT EXISTS target_knowledge_entries (
+CREATE TABLE IF NOT EXISTS target_insights_entries (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
@@ -339,19 +339,19 @@ CREATE TABLE IF NOT EXISTS target_knowledge_entries (
   last_observed_at TIMESTAMPTZ NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT target_knowledge_entries_status_check
+  CONSTRAINT target_insights_entries_status_check
     CHECK (status IN ('active', 'pending', 'archived')),
-  CONSTRAINT target_knowledge_entries_target_type_check
+  CONSTRAINT target_insights_entries_target_type_check
     CHECK (target_type IN ('kubernetes', 'virtual_machine')),
-  CONSTRAINT target_knowledge_entries_confidence_check
+  CONSTRAINT target_insights_entries_confidence_check
     CHECK (confidence >= 0 AND confidence <= 1),
-  CONSTRAINT target_knowledge_entries_observation_count_check
+  CONSTRAINT target_insights_entries_observation_count_check
     CHECK (observation_count >= 0),
-  CONSTRAINT target_knowledge_entries_frontmatter_object_check
+  CONSTRAINT target_insights_entries_frontmatter_object_check
     CHECK (jsonb_typeof(frontmatter) = 'object'),
-  CONSTRAINT target_knowledge_entries_signals_object_check
+  CONSTRAINT target_insights_entries_signals_object_check
     CHECK (jsonb_typeof(signals) = 'object'),
-  CONSTRAINT target_knowledge_entries_scope_object_check
+  CONSTRAINT target_insights_entries_scope_object_check
     CHECK (jsonb_typeof(scope) = 'object')
 );
 
@@ -369,7 +369,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   deleted_at TIMESTAMPTZ NULL
 );
 
-CREATE TABLE IF NOT EXISTS target_knowledge_checkpoint_jobs (
+CREATE TABLE IF NOT EXISTS target_insights_checkpoint_jobs (
   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -384,11 +384,11 @@ CREATE TABLE IF NOT EXISTS target_knowledge_checkpoint_jobs (
   attempts INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT target_knowledge_checkpoint_jobs_status_check
+  CONSTRAINT target_insights_checkpoint_jobs_status_check
     CHECK (status IN ('queued', 'processing', 'applied', 'noop', 'skipped', 'failed')),
-  CONSTRAINT target_knowledge_checkpoint_jobs_target_type_check
+  CONSTRAINT target_insights_checkpoint_jobs_target_type_check
     CHECK (target_type IN ('kubernetes', 'virtual_machine')),
-  CONSTRAINT target_knowledge_checkpoint_jobs_attempts_check
+  CONSTRAINT target_insights_checkpoint_jobs_attempts_check
     CHECK (attempts >= 0),
   PRIMARY KEY (workspace_id, target_id, session_id)
 );
@@ -558,7 +558,7 @@ CREATE TABLE IF NOT EXISTS workspace_audit_events (
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT workspace_audit_events_category_check
-    CHECK (category IN ('membership', 'workspace', 'target', 'session', 'run', 'approval', 'mcp', 'tool', 'knowledge')),
+    CHECK (category IN ('membership', 'workspace', 'target', 'session', 'run', 'approval', 'mcp', 'tool', 'insights')),
   CONSTRAINT workspace_audit_events_operation_check
     CHECK (operation IN ('read', 'write')),
   CONSTRAINT workspace_audit_events_actor_type_check
@@ -821,25 +821,25 @@ CREATE INDEX IF NOT EXISTS idx_target_tool_overrides_target
 CREATE INDEX IF NOT EXISTS idx_target_tool_settings_target
   ON target_tool_settings (target_id);
 
-CREATE INDEX IF NOT EXISTS idx_target_knowledge_entries_target_status
-  ON target_knowledge_entries (target_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_target_insights_entries_target_status
+  ON target_insights_entries (target_id, status, updated_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_target_knowledge_entries_workspace_target
-  ON target_knowledge_entries (workspace_id, target_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_target_insights_entries_workspace_target
+  ON target_insights_entries (workspace_id, target_id, updated_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_target_knowledge_entries_search
-  ON target_knowledge_entries
+CREATE INDEX IF NOT EXISTS idx_target_insights_entries_search
+  ON target_insights_entries
   USING GIN (to_tsvector('simple', title || ' ' || body_markdown || ' ' || evidence_summary));
 
-CREATE INDEX IF NOT EXISTS idx_target_knowledge_entries_tags
-  ON target_knowledge_entries USING GIN (tags);
+CREATE INDEX IF NOT EXISTS idx_target_insights_entries_tags
+  ON target_insights_entries USING GIN (tags);
 
-CREATE INDEX IF NOT EXISTS idx_target_knowledge_checkpoint_jobs_due
-  ON target_knowledge_checkpoint_jobs (status, due_at, retry_after, lease_expires_at)
+CREATE INDEX IF NOT EXISTS idx_target_insights_checkpoint_jobs_due
+  ON target_insights_checkpoint_jobs (status, due_at, retry_after, lease_expires_at)
   WHERE due_at IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_target_knowledge_checkpoint_jobs_target
-  ON target_knowledge_checkpoint_jobs (workspace_id, target_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_target_insights_checkpoint_jobs_target
+  ON target_insights_checkpoint_jobs (workspace_id, target_id, updated_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_inventory_items_target_sort
   ON target_inventory_items (target_id, sort_key);

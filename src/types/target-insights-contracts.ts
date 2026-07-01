@@ -1,10 +1,10 @@
 import { z } from 'zod';
 
-const knowledgeBankStatusSchema = z.enum(['active', 'pending', 'archived']);
+const targetInsightsStatusSchema = z.enum(['active', 'pending', 'archived']);
 
-export const createKnowledgeBankEntrySchema = z.object({
+export const createTargetInsightsEntrySchema = z.object({
   title: z.string().trim().min(1).max(240),
-  status: knowledgeBankStatusSchema.default('active'),
+  status: targetInsightsStatusSchema.default('active'),
   bodyMarkdown: z.string().max(32768),
   frontmatter: z.record(z.unknown()).optional(),
   tags: z.array(z.string().trim().min(1).max(80)).max(32).optional(),
@@ -15,7 +15,7 @@ export const createKnowledgeBankEntrySchema = z.object({
   confidence: z.number().min(0).max(1).optional()
 }).strict();
 
-export const updateKnowledgeBankEntrySchema = createKnowledgeBankEntrySchema.partial().strict().refine(
+export const updateTargetInsightsEntrySchema = createTargetInsightsEntrySchema.partial().strict().refine(
   (input) => Object.keys(input).length > 0,
   { message: 'at least one field is required' }
 );

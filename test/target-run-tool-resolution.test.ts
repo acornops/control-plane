@@ -128,7 +128,7 @@ describe('target run tool resolution', () => {
     assert.deepEqual(result.allowedNativeTools, [
       { id: 'web_search', config: { domainFilters: { allowedDomains: [], blockedDomains: [] } } }
     ]);
-    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['knowledge_bank', 'web_search']);
+    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['target_insights', 'web_search']);
     assert.deepEqual(result.allowedToolNames, []);
     assert.equal(result.summary.nativeAllowed, 1);
     assert.equal(result.summary.totalAllowed, 2);
@@ -220,7 +220,7 @@ describe('target run tool resolution', () => {
 
     assert.deepEqual(result.allowedToolNames, ['a_read', 'overridden_read', 'z_write']);
     assert.deepEqual(result.allowedToolSpecs.map((tool) => tool.name), ['a_read', 'a_read', 'overridden_read', 'z_write', 'z_write']);
-    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['a_read', 'knowledge_bank', 'overridden_read', 'web_search', 'z_write']);
+    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['a_read', 'overridden_read', 'target_insights', 'web_search', 'z_write']);
     assert.equal(result.summary.configuredWrite, 2);
     assert.equal(result.summary.excludedWrite, 0);
   });
@@ -243,7 +243,7 @@ describe('target run tool resolution', () => {
 
     assert.deepEqual(result.allowedToolNames, ['get_logs']);
     assert.deepEqual(result.allowedToolSpecs.map((tool) => tool.name), ['get_logs']);
-    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['get_logs', 'knowledge_bank', 'web_search']);
+    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['get_logs', 'target_insights', 'web_search']);
   });
 
   it('filters write tools when the agent does not advertise write capability', async () => {
@@ -414,7 +414,7 @@ describe('target assistant capabilities preview controller', () => {
     assert.equal(body.toolSummary.totalAllowed, 3);
     assert.equal(body.toolSummary.writeAllowed, 0);
     assert.equal(body.skillSummary.totalAvailable, 1);
-    assert.deepEqual(body.tools.map((item) => item.id), ['get_logs', 'knowledge_bank', 'web_search']);
+    assert.deepEqual(body.tools.map((item) => item.id), ['get_logs', 'target_insights', 'web_search']);
     assert.equal(body.tools.some((item) => Object.prototype.hasOwnProperty.call(item, 'input_schema')), false);
     assert.deepEqual(body.skills, [
       {

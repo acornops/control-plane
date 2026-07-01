@@ -104,7 +104,7 @@ export interface WorkspacePermissions {
   manage_targets: boolean;
   manage_mcp: boolean;
   manage_tools: boolean;
-  manage_knowledge_bank: boolean;
+  manage_target_insights: boolean;
   manage_skills: boolean;
   manage_workflows: boolean;
   manage_agents: boolean;
@@ -236,7 +236,7 @@ export const WORKSPACE_AUDIT_CATEGORIES = [
   'approval',
   'mcp',
   'tool',
-  'knowledge'
+  'insights'
 ] as const;
 
 export type WorkspaceAuditCategory = typeof WORKSPACE_AUDIT_CATEGORIES[number];

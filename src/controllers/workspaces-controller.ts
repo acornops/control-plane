@@ -273,15 +273,15 @@ export {
 } from './workspaces/target-native-tool-controller.js';
 
 export {
-  archiveKnowledgeBankEntry,
-  createKnowledgeBankEntry,
-  exportKnowledgeBank,
-  listKnowledgeBankActivity,
-  listKnowledgeBankEntries,
-  promoteKnowledgeBankEntry,
-  resetKnowledgeBank,
-  updateKnowledgeBankEntry
-} from './workspaces/knowledge-bank-controller.js';
+  archiveTargetInsightsEntry,
+  createTargetInsightsEntry,
+  exportTargetInsights,
+  listTargetInsightsActivity,
+  listTargetInsightsEntries,
+  promoteTargetInsightsEntry,
+  resetTargetInsights,
+  updateTargetInsightsEntry
+} from './workspaces/target-insights-controller.js';
 
 export {
   createTargetSkillForTarget,

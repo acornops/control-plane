@@ -2,21 +2,21 @@ import { randomUUID } from 'node:crypto';
 import { config } from '../../config.js';
 import { logger } from '../../logger.js';
 import {
-  incrementKnowledgeBankCheckpointOutcome,
-  observeKnowledgeBankCheckpointDurationMs,
-  recordKnowledgeBankCheckpointPatchCount
+  incrementTargetInsightsCheckpointOutcome,
+  observeTargetInsightsCheckpointDurationMs,
+  recordTargetInsightsCheckpointPatchCount
 } from '../../metrics.js';
 import { repo } from '../../store/repository.js';
 import { withTransaction } from '../../store/repository-transaction.js';
 import { TargetType } from '../../types/domain.js';
-import { KnowledgeBankEntry, KnowledgeBankEntryPatch } from '../../types/knowledge-bank.js';
+import { TargetInsightsEntry, TargetInsightsEntryPatch } from '../../types/target-insights.js';
 import { isModelAllowedForProvider } from '../llm-policy.js';
 import { gatewayTokenService } from '../token-service.js';
 import { resolveWorkspaceLlmSettings } from '../workspace-ai-resolution.js';
-import { recordKnowledgeBankAudit } from './audit.js';
-import { normalizeKnowledgeBankConfig } from './config.js';
+import { recordTargetInsightsAudit } from './audit.js';
+import { normalizeTargetInsightsConfig } from './config.js';
 
-interface KnowledgePatch {
+interface TargetInsightPatch {
   action: 'create' | 'update' | 'archive' | 'noop';
   entryId?: string;
   title?: string;
@@ -55,11 +55,11 @@ function overlapCount(left: Set<string>, right: Set<string>): number {
   return count;
 }
 
-function findGeneralizationTarget(patch: KnowledgePatch, entries: KnowledgeBankEntry[]): KnowledgeBankEntry | null {
+function findGeneralizationTarget(patch: TargetInsightPatch, entries: TargetInsightsEntry[]): TargetInsightsEntry | null {
   const patchTitleTerms = tokenize(patch.title);
   const patchTags = new Set((patch.tags || []).map((tag) => tag.toLowerCase()));
   const patchSignals = flattenSignalTerms(patch.signals);
-  let best: { entry: KnowledgeBankEntry; score: number } | null = null;
+  let best: { entry: TargetInsightsEntry; score: number } | null = null;
   for (const entry of entries) {
     if (entry.status === 'archived') continue;
     const tagOverlap = overlapCount(patchTags, new Set(entry.tags.map((tag) => tag.toLowerCase())));
@@ -99,11 +99,11 @@ function mergeEvidenceSummary(existing: string, incoming: string | undefined): s
 }
 
 function buildGeneralizedUpdate(
-  entry: KnowledgeBankEntry,
-  patch: KnowledgePatch,
+  entry: TargetInsightsEntry,
+  patch: TargetInsightPatch,
   minimumObservationsBeforeGeneralization: number,
   lastObservedAt: string
-): KnowledgeBankEntryPatch {
+): TargetInsightsEntryPatch {
   const observationCount = Math.max(entry.observationCount + 1, patch.observationCount || 0);
   return {
     ...(patch.title ? { title: patch.title } : {}),
@@ -146,7 +146,7 @@ function extractJson(text: string): unknown {
   }
 }
 
-function normalizePatch(value: unknown): KnowledgePatch[] {
+function normalizePatch(value: unknown): TargetInsightPatch[] {
   const items = Array.isArray(value)
     ? value
     : value && typeof value === 'object' && Array.isArray((value as { patches?: unknown }).patches)
@@ -154,7 +154,7 @@ function normalizePatch(value: unknown): KnowledgePatch[] {
       : [];
   return items.slice(0, 8).flatMap((item) => {
     if (!item || typeof item !== 'object') return [];
-    const patch = item as KnowledgePatch;
+    const patch = item as TargetInsightPatch;
     if (!['create', 'update', 'archive', 'noop'].includes(patch.action)) return [];
     return [{
       action: patch.action,
@@ -183,7 +183,7 @@ async function streamGatewayJsonPatch(input: {
   allowedModels: string[];
   transcript: string;
   existingEntries: Array<{ id: string; title: string; status: string; evidenceSummary: string }>;
-}): Promise<KnowledgePatch[]> {
+}): Promise<TargetInsightPatch[]> {
   const checkpointRunId = randomUUID();
   const token = await gatewayTokenService.signRunScopeToken({
     runId: checkpointRunId,
@@ -223,7 +223,7 @@ async function streamGatewayJsonPatch(input: {
           {
             role: 'system',
             content: [
-              'You update AcornOps Knowledge Bank entries for future troubleshooting.',
+              'You update AcornOps Target Insights entries for future troubleshooting.',
               'Return only JSON: {"patches":[...]} with actions create, update, archive, or noop.',
               'Generalize repeated namespace/host-specific issues into broader fixes when evidence supports it.',
               'Do not include run IDs or raw logs. Use concise evidence summaries.'
@@ -267,7 +267,7 @@ async function streamGatewayJsonPatch(input: {
   }
 }
 
-function jobKey(job: Awaited<ReturnType<typeof repo.claimDueKnowledgeBankCheckpointJobs>>[number]) {
+function jobKey(job: Awaited<ReturnType<typeof repo.claimDueTargetInsightsCheckpointJobs>>[number]) {
   return {
     workspaceId: job.workspaceId,
     targetId: job.targetId,
@@ -278,10 +278,10 @@ function jobKey(job: Awaited<ReturnType<typeof repo.claimDueKnowledgeBankCheckpo
 }
 
 async function finishJob(
-  job: Awaited<ReturnType<typeof repo.claimDueKnowledgeBankCheckpointJobs>>[number],
+  job: Awaited<ReturnType<typeof repo.claimDueTargetInsightsCheckpointJobs>>[number],
   params: { status: string; error?: string | null; retryAfter?: string | null }
 ): Promise<void> {
-  await repo.finishKnowledgeBankCheckpointJob({
+  await repo.finishTargetInsightsCheckpointJob({
     ...jobKey(job),
     status: params.status,
     error: params.error,
@@ -290,44 +290,44 @@ async function finishJob(
 }
 
 async function rescheduleJob(
-  job: Awaited<ReturnType<typeof repo.claimDueKnowledgeBankCheckpointJobs>>[number],
+  job: Awaited<ReturnType<typeof repo.claimDueTargetInsightsCheckpointJobs>>[number],
   dueAt: string,
   error?: string
 ): Promise<void> {
-  await repo.rescheduleKnowledgeBankCheckpointJob({
+  await repo.rescheduleTargetInsightsCheckpointJob({
     ...jobKey(job),
     dueAt,
     error
   });
 }
 
-async function processJob(job: Awaited<ReturnType<typeof repo.claimDueKnowledgeBankCheckpointJobs>>[number]): Promise<void> {
-  const toolConfig = normalizeKnowledgeBankConfig(job.config);
+async function processJob(job: Awaited<ReturnType<typeof repo.claimDueTargetInsightsCheckpointJobs>>[number]): Promise<void> {
+  const toolConfig = normalizeTargetInsightsConfig(job.config);
   if (!job.sessionActive) {
     await finishJob(job, { status: 'skipped', error: 'session_inactive' });
-    incrementKnowledgeBankCheckpointOutcome('skipped', 'session_inactive');
+    incrementTargetInsightsCheckpointOutcome('skipped', 'session_inactive');
     return;
   }
   if (!job.toolEnabled) {
     await finishJob(job, { status: 'skipped', error: 'tool_disabled' });
-    incrementKnowledgeBankCheckpointOutcome('skipped', 'tool_disabled');
+    incrementTargetInsightsCheckpointOutcome('skipped', 'tool_disabled');
     return;
   }
   if (new Date(job.sessionLastMessageAt).getTime() > new Date(job.lastActivityAt).getTime()) {
-    await repo.upsertKnowledgeBankCheckpointJobForSessionActivity(job.sessionId, job.sessionLastMessageAt);
-    incrementKnowledgeBankCheckpointOutcome('skipped', 'stale_activity');
+    await repo.upsertTargetInsightsCheckpointJobForSessionActivity(job.sessionId, job.sessionLastMessageAt);
+    incrementTargetInsightsCheckpointOutcome('skipped', 'stale_activity');
     return;
   }
   const retryAfterMs = new Date(job.lastActivityAt).getTime() +
     toolConfig.learning.idleCheckpointDelayMinutes * 60_000;
   if (Date.now() < retryAfterMs) {
     await rescheduleJob(job, new Date(retryAfterMs).toISOString(), 'idle_delay_pending');
-    incrementKnowledgeBankCheckpointOutcome('skipped', 'idle_delay_pending');
+    incrementTargetInsightsCheckpointOutcome('skipped', 'idle_delay_pending');
     return;
   }
   if (job.hasActiveRun || job.hasPendingApproval) {
     await rescheduleJob(job, new Date(Date.now() + 60_000).toISOString(), job.hasActiveRun ? 'run_active' : 'approval_pending');
-    incrementKnowledgeBankCheckpointOutcome('skipped', job.hasActiveRun ? 'run_active' : 'approval_pending');
+    incrementTargetInsightsCheckpointOutcome('skipped', job.hasActiveRun ? 'run_active' : 'approval_pending');
     return;
   }
   const snapshot = toolConfig.learning.checkpointModel.mode === 'custom'
@@ -348,23 +348,23 @@ async function processJob(job: Awaited<ReturnType<typeof repo.claimDueKnowledgeB
         : null;
   if (skipReason) {
     await finishJob(job, { status: 'skipped', error: skipReason });
-    await recordKnowledgeBankAudit({
+    await recordTargetInsightsAudit({
       workspaceId: job.workspaceId,
       targetId: job.targetId,
       targetType: job.targetType,
       actorType: 'system',
-      eventType: 'knowledge.checkpoint.skipped.v1',
+      eventType: 'target_insights.checkpoint.skipped.v1',
       objectId: job.targetId,
-      summary: 'Knowledge Bank checkpoint skipped',
+      summary: 'Target Insights checkpoint skipped',
       metadata: { reason: skipReason, sessionId: job.sessionId }
     });
-    incrementKnowledgeBankCheckpointOutcome('skipped', skipReason);
+    incrementTargetInsightsCheckpointOutcome('skipped', skipReason);
     return;
   }
 
   const messages = await repo.listMessages(job.sessionId, { limit: 80 });
   const transcript = messages.items.map((message) => `${message.role}: ${message.content}`).join('\n\n').slice(-24000);
-  const existingEntries = await repo.listKnowledgeBankEntries(job.workspaceId, job.targetId, { limit: 80 });
+  const existingEntries = await repo.listTargetInsightsEntries(job.workspaceId, job.targetId, { limit: 80 });
   const patches = await streamGatewayJsonPatch({
     workspaceId: job.workspaceId,
     targetId: job.targetId,
@@ -384,7 +384,7 @@ async function processJob(job: Awaited<ReturnType<typeof repo.claimDueKnowledgeB
   });
   let applied = 0;
   const terminalStatus = await withTransaction(async (client) => {
-    if (!(await repo.renewKnowledgeBankCheckpointJobLeaseIfCurrent(jobKey(job), client))) {
+    if (!(await repo.renewTargetInsightsCheckpointJobLeaseIfCurrent(jobKey(job), client))) {
       return null;
     }
 
@@ -393,7 +393,7 @@ async function processJob(job: Awaited<ReturnType<typeof repo.claimDueKnowledgeB
       if (patch.action === 'create' && patch.title && patch.bodyMarkdown) {
         const generalizationTarget = findGeneralizationTarget(patch, existingEntries);
         if (generalizationTarget) {
-          const updated = await repo.updateKnowledgeBankEntry(
+          const updated = await repo.updateTargetInsightsEntry(
             job.workspaceId,
             job.targetId,
             generalizationTarget.id,
@@ -414,7 +414,7 @@ async function processJob(job: Awaited<ReturnType<typeof repo.claimDueKnowledgeB
           const status = (patch.observationCount || 0) >= toolConfig.learning.minimumObservationsBeforeGeneralization
             ? 'active'
             : patch.status || 'pending';
-          const created = await repo.createKnowledgeBankEntry({
+          const created = await repo.createTargetInsightsEntry({
             workspaceId: job.workspaceId,
             targetId: job.targetId,
             targetType: job.targetType,
@@ -446,7 +446,7 @@ async function processJob(job: Awaited<ReturnType<typeof repo.claimDueKnowledgeB
           : (observationCount || 0) >= toolConfig.learning.minimumObservationsBeforeGeneralization
             ? 'active'
             : patch.status;
-        const updated = await repo.updateKnowledgeBankEntry(job.workspaceId, job.targetId, patch.entryId, {
+        const updated = await repo.updateTargetInsightsEntry(job.workspaceId, job.targetId, patch.entryId, {
           ...(patch.title ? { title: patch.title } : {}),
           ...(patch.bodyMarkdown ? { bodyMarkdown: patch.bodyMarkdown } : {}),
           ...(nextStatus ? { status: nextStatus } : {}),
@@ -467,41 +467,41 @@ async function processJob(job: Awaited<ReturnType<typeof repo.claimDueKnowledgeB
     }
 
     const status = applied > 0 ? 'applied' : 'noop';
-    const finished = await repo.finishKnowledgeBankCheckpointJob({
+    const finished = await repo.finishTargetInsightsCheckpointJob({
       ...jobKey(job),
       status
     }, client);
     if (!finished) {
-      throw new Error('Knowledge Bank checkpoint lease expired before finish');
+      throw new Error('Target Insights checkpoint lease expired before finish');
     }
     return status;
   });
 
   if (!terminalStatus) {
     await rescheduleJob(job, new Date(Date.now() + 60_000).toISOString(), 'state_changed');
-    incrementKnowledgeBankCheckpointOutcome('skipped', 'state_changed');
+    incrementTargetInsightsCheckpointOutcome('skipped', 'state_changed');
     return;
   }
-  incrementKnowledgeBankCheckpointOutcome(terminalStatus);
-  recordKnowledgeBankCheckpointPatchCount(terminalStatus, applied);
-  await recordKnowledgeBankAudit({
+  incrementTargetInsightsCheckpointOutcome(terminalStatus);
+  recordTargetInsightsCheckpointPatchCount(terminalStatus, applied);
+  await recordTargetInsightsAudit({
     workspaceId: job.workspaceId,
     targetId: job.targetId,
     targetType: job.targetType,
     actorType: 'system',
-    eventType: 'knowledge.checkpoint.applied.v1',
+    eventType: 'target_insights.checkpoint.applied.v1',
     objectId: job.targetId,
-    summary: applied > 0 ? 'Knowledge Bank checkpoint applied' : 'Knowledge Bank checkpoint completed with no changes',
+    summary: applied > 0 ? 'Target Insights checkpoint applied' : 'Target Insights checkpoint completed with no changes',
     metadata: { sessionId: job.sessionId, appliedPatchCount: applied }
   });
 }
 
-export async function runKnowledgeBankCheckpointSweep(): Promise<void> {
-  if (!config.KNOWLEDGE_BANK_ENABLED) return;
+export async function runTargetInsightsCheckpointSweep(): Promise<void> {
+  if (!config.TARGET_INSIGHTS_ENABLED) return;
   const leaseOwner = `${config.CONTROL_PLANE_INSTANCE_ID}:${randomUUID()}`;
   const claimedKeys = new Set<string>();
   for (let index = 0; index < 50; index += 1) {
-    const [job] = await repo.claimDueKnowledgeBankCheckpointJobs(1, leaseOwner);
+    const [job] = await repo.claimDueTargetInsightsCheckpointJobs(1, leaseOwner);
     if (!job) break;
     const claimedKey = `${job.workspaceId}:${job.targetId}:${job.sessionId}:${job.lastActivityAt}`;
     if (claimedKeys.has(claimedKey)) break;
@@ -513,16 +513,16 @@ export async function runKnowledgeBankCheckpointSweep(): Promise<void> {
       status = 'completed';
     } catch (err) {
       status = 'failed';
-      logger.warn({ err, targetId: job.targetId, sessionId: job.sessionId }, 'Knowledge Bank checkpoint failed');
-      await repo.finishKnowledgeBankCheckpointJob({
+      logger.warn({ err, targetId: job.targetId, sessionId: job.sessionId }, 'Target Insights checkpoint failed');
+      await repo.finishTargetInsightsCheckpointJob({
         ...jobKey(job),
         status: 'failed',
-        error: err instanceof Error ? err.message : 'Knowledge Bank checkpoint failed',
+        error: err instanceof Error ? err.message : 'Target Insights checkpoint failed',
         retryAfter: new Date(Date.now() + 15 * 60_000).toISOString()
       });
-      incrementKnowledgeBankCheckpointOutcome('failed', 'exception');
+      incrementTargetInsightsCheckpointOutcome('failed', 'exception');
     } finally {
-      observeKnowledgeBankCheckpointDurationMs(status, Date.now() - startedAt);
+      observeTargetInsightsCheckpointDurationMs(status, Date.now() - startedAt);
     }
   }
 }

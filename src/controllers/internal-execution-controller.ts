@@ -1,9 +1,9 @@
 import { NextFunction, Request, Response } from 'express';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
-import { incrementKnowledgeBankRetrieval, incrementRunEventsIngested } from '../metrics.js';
+import { incrementTargetInsightsRetrieval, incrementRunEventsIngested } from '../metrics.js';
 import { publishRunEvents } from '../services/control-plane-coordination.js';
-import { KNOWLEDGE_BANK_TOOL_ID, normalizeKnowledgeBankConfig } from '../services/knowledge-bank/config.js';
+import { TARGET_INSIGHTS_TOOL_ID, normalizeTargetInsightsConfig } from '../services/target-insights/config.js';
 import { recordTargetChatActivityEvent } from '../services/target-chat-activity-events.js';
 import { emitRunStatusTransition } from '../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
@@ -29,9 +29,9 @@ import {
 export { bootstrap } from './internal-execution-bootstrap.js';
 export { summarizeRunEventCounts } from './internal-execution-events.js';
 
-function buildKnowledgeBankContextMessage(snippets: Awaited<ReturnType<typeof repo.searchKnowledgeBankSnippets>>): string {
+function buildTargetInsightsContextMessage(snippets: Awaited<ReturnType<typeof repo.searchTargetInsightsSnippets>>): string {
   return [
-    'Knowledge Bank context retrieved for this target. Use it as prior operational evidence, but verify against live tool output before making claims.',
+    'Target Insights context retrieved for this target. Use it as prior operational evidence, but verify against live tool output before making claims.',
     ...snippets.map((snippet, index) => [
       '',
       `${index + 1}. ${snippet.title}`,
@@ -43,7 +43,7 @@ function buildKnowledgeBankContextMessage(snippets: Awaited<ReturnType<typeof re
   ].join('\n');
 }
 
-type KnowledgeBankRetrievalStatus = 'disabled' | 'skipped' | 'hit' | 'miss' | 'error';
+type TargetInsightsRetrievalStatus = 'disabled' | 'skipped' | 'hit' | 'miss' | 'error';
 
 export async function getRunSkillSnapshot(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -95,38 +95,38 @@ export async function getSessionContext(req: Request, res: Response, next: NextF
     }
 
     const messagesPage = await repo.listMessages(sessionId);
-    let knowledgeSnippets: Awaited<ReturnType<typeof repo.searchKnowledgeBankSnippets>> = [];
-    let knowledgeRetrievalStatus: KnowledgeBankRetrievalStatus = config.KNOWLEDGE_BANK_ENABLED ? 'skipped' : 'disabled';
-    if (config.KNOWLEDGE_BANK_ENABLED && run) {
+    let insightSnippets: Awaited<ReturnType<typeof repo.searchTargetInsightsSnippets>> = [];
+    let insightsRetrievalStatus: TargetInsightsRetrievalStatus = config.TARGET_INSIGHTS_ENABLED ? 'skipped' : 'disabled';
+    if (config.TARGET_INSIGHTS_ENABLED && run) {
       try {
-        const setting = await repo.getTargetToolSetting(session.targetId, KNOWLEDGE_BANK_TOOL_ID);
+        const setting = await repo.getTargetToolSetting(session.targetId, TARGET_INSIGHTS_TOOL_ID);
         if (setting?.enabled ?? true) {
-          const toolConfig = normalizeKnowledgeBankConfig(setting?.config);
+          const toolConfig = normalizeTargetInsightsConfig(setting?.config);
           const query = messagesPage.items
             .map((message) => message.content)
             .join('\n')
             .slice(-8000);
-          knowledgeSnippets = await repo.searchKnowledgeBankSnippets(session.workspaceId, session.targetId, query, {
+          insightSnippets = await repo.searchTargetInsightsSnippets(session.workspaceId, session.targetId, query, {
             limit: toolConfig.retrieval.maxSnippetsPerRetrieval,
             maxSnippetSizeBytes: toolConfig.retrieval.maxSnippetSizeBytes
           });
-          knowledgeRetrievalStatus = knowledgeSnippets.length > 0 ? 'hit' : 'miss';
-          incrementKnowledgeBankRetrieval(knowledgeSnippets.length > 0 ? 'hit' : 'miss');
+          insightsRetrievalStatus = insightSnippets.length > 0 ? 'hit' : 'miss';
+          incrementTargetInsightsRetrieval(insightSnippets.length > 0 ? 'hit' : 'miss');
         } else {
-          knowledgeRetrievalStatus = 'skipped';
-          incrementKnowledgeBankRetrieval('skipped');
+          insightsRetrievalStatus = 'skipped';
+          incrementTargetInsightsRetrieval('skipped');
         }
       } catch (err) {
-        knowledgeSnippets = [];
-        knowledgeRetrievalStatus = 'error';
-        incrementKnowledgeBankRetrieval('error');
+        insightSnippets = [];
+        insightsRetrievalStatus = 'error';
+        incrementTargetInsightsRetrieval('error');
         logger.warn({
           err,
           workspaceId: session.workspaceId,
           targetId: session.targetId,
           sessionId,
           runId
-        }, 'Knowledge Bank retrieval failed; continuing without snippets');
+        }, 'Target Insights retrieval failed; continuing without snippets');
       }
     }
     const context = {
@@ -135,17 +135,17 @@ export async function getSessionContext(req: Request, res: Response, next: NextF
           role: 'system',
           content: config.AGENT_SYSTEM_INSTRUCTION
         },
-        ...(knowledgeSnippets.length > 0 ? [{
+        ...(insightSnippets.length > 0 ? [{
           role: 'system',
-          content: buildKnowledgeBankContextMessage(knowledgeSnippets)
+          content: buildTargetInsightsContextMessage(insightSnippets)
         }] : []),
         ...messagesPage.items.map((message) => ({ role: message.role, content: message.content }))
       ],
       summaries: [],
       attachments: [],
-      knowledge_bank: {
-        retrieval_status: knowledgeRetrievalStatus,
-        snippets: knowledgeSnippets.map((snippet) => ({
+      target_insights: {
+        retrieval_status: insightsRetrievalStatus,
+        snippets: insightSnippets.map((snippet) => ({
           entry_id: snippet.entryId,
           title: snippet.title,
           evidence_summary: snippet.evidenceSummary,
