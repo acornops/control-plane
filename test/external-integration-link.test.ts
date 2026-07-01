@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import { createExternalIntegrationLink, hashExternalIntegrationLinkToken } from '../src/auth/external-integration-link.js';
-import { requireExternalIntegrationClient } from '../src/auth/middleware.js';
+import { requireActor } from '../src/auth/middleware.js';
 import {
   completeExternalIntegrationLinkRequest,
   createExternalIntegrationLinkRequest,
@@ -388,10 +388,11 @@ describe('external integration link contract', () => {
     });
   });
 
-  it('requires a registered external integration client token', () => {
+  it('requires a registered external integration client token', async () => {
+    const requireClientActor = requireActor(['externalIntegrationClient']);
     const deniedRes = createResponse();
     let nextCalled = false;
-    requireExternalIntegrationClient(
+    await requireClientActor(
       { header: () => 'Bearer wrong-token' } as never,
       deniedRes as never,
       () => {
@@ -405,7 +406,7 @@ describe('external integration link contract', () => {
       header: () => `Bearer ${DEV_EXTERNAL_INTEGRATION_TOKEN}`
     } as { externalIntegrationClient?: unknown; header(name: string): string };
     const allowedRes = createResponse();
-    requireExternalIntegrationClient(
+    await requireClientActor(
       allowedReq as never,
       allowedRes as never,
       () => {

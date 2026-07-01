@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import {
+  capabilitiesToPermissions,
   getWorkspacePermissions,
   hasWorkspaceCapability,
   isSupportedRole,
@@ -18,10 +19,31 @@ export interface WorkspaceAuthorization {
   can(capability: WorkspaceCapability): boolean;
 }
 
+const EXTERNAL_INTEGRATION_WORKSPACE_PERMISSIONS = capabilitiesToPermissions([
+  'read_workspace_data',
+  'create_sessions',
+  'create_read_only_runs'
+]);
+
+function intersectWorkspacePermissions(
+  left: WorkspacePermissions,
+  right: WorkspacePermissions
+): WorkspacePermissions {
+  return Object.fromEntries(
+    Object.keys(left).map((capability) => [
+      capability,
+      left[capability as WorkspaceCapability] && right[capability as WorkspaceCapability]
+    ])
+  ) as WorkspacePermissions;
+}
+
 export function getEffectiveWorkspacePermissions(
-  _req: AuthenticatedRequest,
+  req: AuthenticatedRequest,
   role: Role | null | undefined
 ): WorkspacePermissions {
+  if (req.auth.credential?.type === 'external_integration') {
+    return intersectWorkspacePermissions(getWorkspacePermissions(role), EXTERNAL_INTEGRATION_WORKSPACE_PERMISSIONS);
+  }
   return getWorkspacePermissions(role);
 }
 
