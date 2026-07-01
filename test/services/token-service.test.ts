@@ -43,6 +43,7 @@ describe('gateway token service', () => {
     assert.deepEqual(verification.payload.permissions, {
       allowed_providers: ['anthropic', 'gemini'],
       allowed_tools: ['get_resource', 'get_resource_logs'],
+      allowed_native_tools: [],
       allowed_tool_operations: {
         get_resource: 'read',
         get_resource_logs: 'read'
@@ -62,6 +63,15 @@ describe('gateway token service', () => {
       sessionId: 'session-verify',
       allowedProviders: ['openai'],
       allowedTools: ['get_pods'],
+      allowedNativeTools: [{
+        id: 'web_search',
+        config: {
+          domainFilters: {
+            allowedDomains: ['docs.example.com'],
+            blockedDomains: ['internal.example.com']
+          }
+        }
+      }],
       allowedToolOperations: { get_pods: 'read' },
       maxOutputTokens: 1024,
       allowedModels: ['gpt-4.1-mini']
@@ -78,6 +88,15 @@ describe('gateway token service', () => {
     assert.equal(claims.sessionId, 'session-verify');
     assert.deepEqual(claims.allowedProviders, ['openai']);
     assert.deepEqual(claims.allowedTools, ['get_pods']);
+    assert.deepEqual(claims.allowedNativeTools, [{
+      id: 'web_search',
+      config: {
+        domainFilters: {
+          allowedDomains: ['docs.example.com'],
+          blockedDomains: ['internal.example.com']
+        }
+      }
+    }]);
     assert.deepEqual(claims.allowedToolOperations, { get_pods: 'read' });
     assert.equal(claims.maxOutputTokens, 1024);
     assert.deepEqual(claims.allowedModels, ['gpt-4.1-mini']);
@@ -92,6 +111,9 @@ describe('gateway token service', () => {
       workflowRunId: 'workflow-run-1',
       workflowSessionId: 'workflow-session-1',
       workflowStepId: 'inventory',
+      agentId: 'agent-cluster-triage',
+      agentVersion: 7,
+      triggerId: 'trigger-manual-1',
       sessionId: 'workflow-session-1',
       allowedProviders: ['openai'],
       allowedTools: ['mcp.tools.list', 'audit.events.search'],
@@ -124,9 +146,13 @@ describe('gateway token service', () => {
     assert.equal(verification.payload.workflow_run_id, 'workflow-run-1');
     assert.equal(verification.payload.workflow_session_id, 'workflow-session-1');
     assert.equal(verification.payload.workflow_step_id, 'inventory');
+    assert.equal(verification.payload.agent_id, 'agent-cluster-triage');
+    assert.equal(verification.payload.agent_version, 7);
+    assert.equal(verification.payload.trigger_id, 'trigger-manual-1');
     assert.deepEqual(verification.payload.permissions, {
       allowed_providers: ['openai'],
       allowed_tools: ['mcp.tools.list', 'audit.events.search'],
+      allowed_native_tools: [],
       allowed_tool_operations: {
         'mcp.tools.list': 'read',
         'audit.events.search': 'read'
@@ -143,6 +169,9 @@ describe('gateway token service', () => {
     assert.equal(claims.workflowRunId, 'workflow-run-1');
     assert.equal(claims.workflowSessionId, 'workflow-session-1');
     assert.equal(claims.workflowStepId, 'inventory');
+    assert.equal(claims.agentId, 'agent-cluster-triage');
+    assert.equal(claims.agentVersion, 7);
+    assert.equal(claims.triggerId, 'trigger-manual-1');
     assert.equal(claims.targetId, undefined);
     assert.equal(claims.targetType, undefined);
     assert.deepEqual(claims.contextGrants, ['audit_events', 'workspace_metadata']);
@@ -218,6 +247,7 @@ describe('gateway token service', () => {
     assert.deepEqual(verification.payload.permissions, {
       allowed_providers: ['openai'],
       allowed_tools: ['list_resources'],
+      allowed_native_tools: [],
       allowed_tool_operations: {},
       max_output_tokens: null,
       allowed_models: []

@@ -5,10 +5,8 @@ import {
   upsertClusterSnapshot
 } from '../src/store/repository-kubernetes-clusters.js';
 import {
-  listClusterSnapshotResources,
-  listWorkspaceSnapshotFindings
+  listClusterSnapshotResources
 } from '../src/store/repository-kubernetes-inventory.js';
-import { decodeCursor } from '../src/utils/pagination.js';
 
 afterEach(() => {
   mock.restoreAll();
@@ -81,104 +79,22 @@ describe('normalized snapshot repository reads', () => {
     ]);
   });
 
-  it('uses severity-first keyset pagination for workspace findings', async () => {
-    mock.method(db, 'query', async (sql: string, params: unknown[]) => {
-      assert.match(sql, /FROM target_findings f/);
-      assert.match(sql, /f\.workspace_id = \$1/);
-      assert.match(sql, /f\.severity = \$2/);
-      assert.match(sql, /f\.target_id = \$3/);
-      assert.match(sql, /f\.severity_rank > \$4/);
-      assert.match(sql, /ORDER BY f\.severity_rank ASC, f\.finding_ts DESC, f\.finding_id ASC/);
-      assert.deepEqual(params, [
-        'workspace-1',
-        'critical',
-        'cluster-1',
-        0,
-        '2026-05-10T00:00:00.000Z',
-        'finding-0',
-        2
-      ]);
-      return {
-        rows: [
-          {
-            finding_id: 'finding-1',
-            severity: 'critical',
-            severity_rank: 0,
-            title: 'Pod unhealthy',
-            message: 'Pod is unhealthy.',
-            finding_ts: '2026-05-10T00:00:00.000Z',
-            namespace: 'default',
-            object_kind: 'Pod',
-            object_name: 'pod-1',
-            reason: 'CrashLoopBackOff',
-            cluster_id: 'cluster-1',
-            cluster_name: 'cluster-1'
-          },
-          {
-            finding_id: 'finding-2',
-            severity: 'critical',
-            severity_rank: 0,
-            title: 'Node unhealthy',
-            message: 'Node is unhealthy.',
-            finding_ts: '2026-05-09T00:00:00.000Z',
-            namespace: null,
-            object_kind: 'Node',
-            object_name: 'node-1',
-            reason: 'NotReady',
-            cluster_id: 'cluster-1',
-            cluster_name: 'cluster-1'
-          }
-        ]
-      };
-    });
-
-    const page = await listWorkspaceSnapshotFindings('workspace-1', {
-      limit: 1,
-      cursor: {
-        severityRank: 0,
-        findingTs: '2026-05-10T00:00:00.000Z',
-        findingId: 'finding-0'
-      },
-      severity: 'critical',
-      clusterId: 'cluster-1',
-      signature: 'sig'
-    });
-
-    assert.equal(page.items.length, 1);
-    assert.equal(page.items[0].id, 'finding-1');
-    assert.deepEqual(decodeCursor(page.nextCursor, 'sig'), {
-      signature: 'sig',
-      severityRank: 0,
-      findingTs: '2026-05-10T00:00:00.000Z',
-      findingId: 'finding-1'
-    });
-  });
-
-  it('matches workspace findings search against current joined cluster names', async () => {
-    mock.method(db, 'query', async (sql: string, params: unknown[]) => {
-      assert.match(sql, /f\.search_text LIKE \$2/);
-      assert.match(sql, /LOWER\(t\.name\) LIKE \$2/);
-      assert.deepEqual(params, ['workspace-1', '%renamed\\_cluster%', 2]);
-      return { rows: [] };
-    });
-
-    const page = await listWorkspaceSnapshotFindings('workspace-1', {
-      limit: 1,
-      q: 'Renamed_Cluster'
-    });
-
-    assert.deepEqual(page, { items: [], nextCursor: undefined });
-  });
 });
 
 describe('normalized snapshot repository ingest', () => {
-  it('writes raw snapshot history and replaces normalized latest rows in one transaction', async () => {
+  it('writes compact metric history and replaces normalized latest rows in one transaction', async () => {
     const statements: string[] = [];
     const queryParams: unknown[][] = [];
     const client = {
       query: async (sql: string, params?: unknown[]) => {
         statements.push(sql);
         queryParams.push(params ?? []);
+        if (sql.includes('INSERT INTO target_issues') && sql.includes('RETURNING id')) {
+          return { rowCount: 1, rows: [{ id: 'issue-1' }] };
+        }
+        if (sql.includes('FROM target_issues')) {
+          return { rowCount: 0, rows: [] };
+        }
         if (sql.includes('FROM targets t') && sql.includes("t.target_type = 'kubernetes'")) {
           assert.deepEqual(params, ['cluster-1']);
           return {
@@ -213,22 +129,103 @@ describe('normalized snapshot repository ingest', () => {
         resources: {
           pods: [{ uid: 'pod-1', name: 'pod-1', namespace: 'default', phase: 'Pending' }]
         },
+        metrics: {
+          nodes: [
+            {
+              usage: {
+                cpu: '1500m',
+                memory: '2Gi'
+              }
+            }
+          ]
+        },
         events: []
       }
     });
 
     assert.equal(statements[0], 'BEGIN');
     const latestSnapshotIndex = statements.findIndex((sql) => sql.includes('INSERT INTO target_snapshots'));
-    const historySnapshotIndex = statements.findIndex((sql) => sql.includes('INSERT INTO target_snapshot_history'));
+    const metricHistoryIndex = statements.findIndex((sql) => sql.includes('INSERT INTO target_metric_history'));
     assert.notEqual(latestSnapshotIndex, -1);
-    assert.notEqual(historySnapshotIndex, -1);
+    assert.notEqual(metricHistoryIndex, -1);
+    assert(!statements.some((sql) => sql.includes('INSERT INTO target_snapshot_history')));
     assert.equal(queryParams[latestSnapshotIndex][1], 'workspace-1');
-    assert.equal(queryParams[historySnapshotIndex][2], 'workspace-1');
+    assert.equal(queryParams[metricHistoryIndex][1], 'workspace-1');
+    assert.deepEqual(JSON.parse(String(queryParams[metricHistoryIndex][4])), {
+      cpuCores: 1.5,
+      memoryBytes: 2 * 1024 ** 3
+    });
     assert(statements.some((sql) => sql.includes('DELETE FROM target_inventory_items')));
     assert(statements.some((sql) => sql.includes('DELETE FROM target_findings')));
     assert(statements.some((sql) => sql.includes('INSERT INTO target_inventory_items')));
     assert(statements.some((sql) => sql.includes('INSERT INTO target_findings')));
+    assert(statements.some((sql) => sql.includes('INSERT INTO target_issues')));
+    assert(statements.some((sql) => sql.includes('INSERT INTO target_issue_observations')));
     assert(statements.some((sql) => sql.includes('INSERT INTO target_snapshot_summaries')));
+    assert.equal(statements.at(-1), 'COMMIT');
+  });
+
+  it('ignores older Kubernetes snapshots without replacing latest rows, writing metrics, or reconciling issues', async () => {
+    const statements: string[] = [];
+    const client = {
+      query: async (sql: string, params?: unknown[]) => {
+        statements.push(sql);
+        if (sql.includes('FROM targets t') && sql.includes("t.target_type = 'kubernetes'")) {
+          assert.deepEqual(params, ['cluster-1']);
+          return {
+            rowCount: 1,
+            rows: [
+              {
+                id: 'cluster-1',
+                workspace_id: 'workspace-1',
+                target_type: 'kubernetes',
+                name: 'cluster-1',
+                status: 'online',
+                namespace_include: [],
+                namespace_exclude: [],
+                write_confirmation_required_override: null,
+                created_at: '2026-05-10T00:00:00.000Z',
+                updated_at: '2026-05-10T00:00:00.000Z'
+              }
+            ]
+          };
+        }
+        if (sql.includes('FROM target_snapshots')) {
+          return {
+            rowCount: 1,
+            rows: [
+              {
+                target_id: 'cluster-1',
+                workspace_id: 'workspace-1',
+                snapshot_ts: '2026-05-10T00:05:00.000Z',
+                data: { resources: { pods: [] }, events: [] }
+              }
+            ]
+          };
+        }
+        return { rowCount: 0, rows: [] };
+      },
+      release: () => undefined
+    };
+    mock.method(db, 'connect', async () => client);
+
+    await upsertClusterSnapshot({
+      clusterId: 'cluster-1',
+      workspaceId: 'workspace-1',
+      timestamp: '2026-05-10T00:04:00.000Z',
+      data: {
+        resources: {
+          pods: [{ uid: 'pod-1', name: 'pod-1', namespace: 'default', phase: 'Pending' }]
+        },
+        events: []
+      }
+    });
+
+    assert(!statements.some((sql) => sql.includes('INSERT INTO target_snapshot_history')));
+    assert(!statements.some((sql) => sql.includes('INSERT INTO target_metric_history')));
+    assert(!statements.some((sql) => sql.includes('INSERT INTO target_snapshots')));
+    assert(!statements.some((sql) => sql.includes('DELETE FROM target_inventory_items')));
+    assert(!statements.some((sql) => sql.includes('INSERT INTO target_issues')));
     assert.equal(statements.at(-1), 'COMMIT');
   });
 });

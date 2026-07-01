@@ -2,12 +2,11 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 import {
   getVirtualMachine,
-  listVirtualMachineFindings,
   listVirtualMachineInventory,
   listVirtualMachines
 } from '../src/controllers/workspaces/virtual-machine-controller.js';
 import { repo } from '../src/store/repository.js';
-import type { TargetFindingInput, TargetInventoryItemInput } from '../src/store/repository-target-inventory.js';
+import type { TargetInventoryItemInput } from '../src/store/repository-target-inventory.js';
 import type { VirtualMachineSnapshotSummaryRecord } from '../src/store/repository-virtual-machines.js';
 import type { TargetSummary, VirtualMachineTarget } from '../src/types/domain.js';
 
@@ -15,7 +14,6 @@ const originalGetTarget = repo.getTarget;
 const originalGetVirtualMachine = repo.getVirtualMachine;
 const originalGetVirtualMachineSnapshotSummary = repo.getVirtualMachineSnapshotSummary;
 const originalGetWorkspaceRole = repo.getWorkspaceRole;
-const originalListVirtualMachineFindings = repo.listVirtualMachineFindings;
 const originalListVirtualMachineInventory = repo.listVirtualMachineInventory;
 const originalListVirtualMachines = repo.listVirtualMachines;
 const originalListVirtualMachineSnapshotSummaries = repo.listVirtualMachineSnapshotSummaries;
@@ -25,7 +23,6 @@ afterEach(() => {
   repo.getVirtualMachine = originalGetVirtualMachine;
   repo.getVirtualMachineSnapshotSummary = originalGetVirtualMachineSnapshotSummary;
   repo.getWorkspaceRole = originalGetWorkspaceRole;
-  repo.listVirtualMachineFindings = originalListVirtualMachineFindings;
   repo.listVirtualMachineInventory = originalListVirtualMachineInventory;
   repo.listVirtualMachines = originalListVirtualMachines;
   repo.listVirtualMachineSnapshotSummaries = originalListVirtualMachineSnapshotSummaries;
@@ -112,7 +109,7 @@ function createSnapshotSummary(): VirtualMachineSnapshotSummaryRecord {
 }
 
 describe('external integration virtual machine reads', () => {
-  it('allows external integration credentials to read VM list, overview, inventory, and findings', async () => {
+  it('allows external integration credentials to read VM list, overview, and inventory', async () => {
     const vm = createVm();
     repo.getWorkspaceRole = async () => 'owner';
     repo.getTarget = async () => createTarget();
@@ -139,26 +136,6 @@ describe('external integration virtual machine reads', () => {
         item: {}
       }
     ];
-    repo.listVirtualMachineFindings = async (): Promise<TargetFindingInput[]> => [
-      {
-        targetId: 'vm-1',
-        workspaceId: 'workspace-1',
-        snapshotTs: '2026-06-01T00:01:00.000Z',
-        findingId: 'finding-1',
-        severity: 'warning',
-        severityRank: 2,
-        scopeKind: null,
-        scopeName: null,
-        objectKind: 'systemd_service',
-        objectName: 'sshd',
-        title: 'Service attention needed',
-        message: 'Service needs attention.',
-        reason: null,
-        findingTs: '2026-06-01T00:01:00.000Z',
-        searchText: 'service attention needed'
-      }
-    ];
-
     const list = createResponse();
     await listVirtualMachines(createExternalIntegrationRequest() as never, list as never, (err?: unknown) => {
       if (err) throw err;
@@ -171,18 +148,11 @@ describe('external integration virtual machine reads', () => {
     await listVirtualMachineInventory(createExternalIntegrationRequest() as never, inventory as never, (err?: unknown) => {
       if (err) throw err;
     });
-    const findings = createResponse();
-    await listVirtualMachineFindings(createExternalIntegrationRequest() as never, findings as never, (err?: unknown) => {
-      if (err) throw err;
-    });
-
     assert.equal(list.statusCode, 200);
     assert.equal((list.body as { items: VirtualMachineTarget[] }).items[0].id, 'vm-1');
     assert.equal(overview.statusCode, 200);
     assert.equal((overview.body as VirtualMachineTarget & { latestSnapshot: { timestamp: string } }).latestSnapshot.timestamp, '2026-06-01T00:01:00.000Z');
     assert.equal(inventory.statusCode, 200);
     assert.equal((inventory.body as { items: TargetInventoryItemInput[] }).items[0].itemId, 'service:sshd');
-    assert.equal(findings.statusCode, 200);
-    assert.equal((findings.body as { items: TargetFindingInput[] }).items[0].findingId, 'finding-1');
   });
 });

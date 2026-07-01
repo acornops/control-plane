@@ -79,7 +79,8 @@ export const runCommitSchema = z.object({
 export const postMessageSchema = z.object({
   content: z.string().min(1),
   toolAccessMode: z.enum(['read_only', 'read_write']).optional(),
-  clientMessageId: z.string().min(1).max(128).optional()
+  clientMessageId: z.string().min(1).max(128).optional(),
+  llm: z.unknown().optional()
 });
 
 export const createWorkspaceSchema = z.object({
@@ -106,13 +107,13 @@ export const updateWorkspaceMemberSchema = z.object({
 
 export const llmProviderSchema = z.enum(['openai', 'anthropic', 'gemini']);
 export const reasoningSummaryModeSchema = z.enum(['off', 'auto', 'concise', 'detailed']);
-export const reasoningEffortSchema = z.enum(['default', 'low', 'medium', 'high']);
+export const reasoningEffortSchema = z.enum(['off', 'low', 'medium', 'high']);
 
 export const updateWorkspaceAiSettingsSchema = z.object({
   defaultProvider: llmProviderSchema,
   defaultModel: z.string().trim().min(1).max(160),
   reasoningSummaryMode: reasoningSummaryModeSchema.optional(),
-  reasoningEffort: reasoningEffortSchema.optional().default('default')
+  reasoningEffort: reasoningEffortSchema.optional()
 }).strict();
 
 export const upsertWorkspaceAiProviderCredentialSchema = z.object({
@@ -120,9 +121,11 @@ export const upsertWorkspaceAiProviderCredentialSchema = z.object({
 }).strict();
 
 const namespaceListSchema = z.array(z.string().trim().min(1).max(253)).max(100).optional();
+const agentAccessModeSchema = z.string().trim().max(64).optional();
 
 export const registerClusterSchema = z.object({
   name: z.string().min(1),
+  agentAccessMode: agentAccessModeSchema,
   namespaceInclude: namespaceListSchema,
   namespaceExclude: namespaceListSchema
 });
@@ -436,6 +439,45 @@ export const updateMcpServerSchema = z.object({
   validateMcpPublicHeaders(input.publicHeaders, ctx);
   validateMcpAuthConfig(input.auth, ctx);
 });
+
+export const updateTargetMcpServerToolSchema = z.object({
+  enabled: z.boolean(),
+  capability: z.enum(['read', 'write']).optional()
+}).strict();
+
+export const updateTargetToolSchema = z.object({
+  enabled: z.boolean(),
+  config: z.record(z.unknown()).optional()
+}).strict();
+
+export { createKnowledgeBankEntrySchema, updateKnowledgeBankEntrySchema } from './knowledge-bank-contracts.js';
+
+const targetSkillFileSchema = z.object({
+  path: z.string().trim().min(1).max(512),
+  content: z.string().max(32768)
+}).strict();
+
+export const createTargetSkillSchema = z.object({
+  files: z.array(targetSkillFileSchema).min(1).max(16)
+}).strict();
+
+export const importTargetSkillSchema = z.object({
+  repoUrl: z.string().url(),
+  ref: z.string().trim().min(1).max(255).optional(),
+  subpath: z.string().trim().min(1).max(512).optional(),
+  enabled: z.boolean().optional()
+}).strict();
+
+export const updateTargetSkillSchema = z.object({
+  enabled: z.boolean().optional(),
+  files: z.array(targetSkillFileSchema).min(1).max(16).optional()
+}).strict().refine((input) => input.enabled !== undefined || input.files !== undefined, {
+  message: 'at least one field is required'
+});
+
+export const reimportTargetSkillSchema = z.object({
+  force: z.boolean().optional().default(false)
+}).strict();
 
 export const webhookEventTypes = [
   'workspace.created.v1',

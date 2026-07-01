@@ -5,9 +5,9 @@ import { createSession, deleteSession, postMessage } from '../src/controllers/se
 import { listTargets } from '../src/controllers/workspaces/target-controller.js';
 import {
   createTargetMcpServerForTarget,
+  listTargetMcpCatalog,
   listTargetMcpServers,
   listTargetMcpServerTools,
-  listTargetToolsCatalog
 } from '../src/controllers/workspaces/target-tool-controller.js';
 import { getVirtualMachineLogs } from '../src/controllers/workspaces/virtual-machine-controller.js';
 import { agentGateway } from '../src/agent/ws-server.js';
@@ -248,7 +248,7 @@ describe('target controller regressions', () => {
     });
 
     const catalog = await callController(
-      listTargetToolsCatalog,
+      listTargetMcpCatalog,
       createRequest({ workspaceId: 'workspace-1', targetId: 'target-1' })
     );
     assert.equal(catalog.statusCode, 200);

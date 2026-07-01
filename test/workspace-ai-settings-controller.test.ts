@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
-import { postMessage } from '../src/controllers/sessions-controller.js';
 import { config } from '../src/config.js';
 import {
   deleteWorkspaceAiProviderCredential,
@@ -10,57 +9,36 @@ import {
   upsertWorkspaceAiProviderCredential
 } from '../src/controllers/workspaces/ai-settings-controller.js';
 import { repo } from '../src/store/repository.js';
-import type { LlmProvider } from '../src/types/domain.js';
+import { postMessageSchema } from '../src/types/contracts.js';
 import {
   callController,
-  createMessage,
   createRequest,
-  createRun,
-  createSessionRecord,
   createWorkspaceAiCredentialStatusResponse,
   installWorkspace,
   isWorkspaceAiCredentialStatusRequest,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
+import {
+  installAiCredentialGateway,
+  installFailingAiCredentialGateway
+} from './helpers/workspace-ai-settings-fixtures.js';
 
 afterEach(restoreControllerRegressionState);
 
-function installAiCredentialGateway(status: 'configured' | 'missing' | 'disabled' = 'configured') {
-  mock.method(globalThis, 'fetch', async (input, init) => {
-    const url = String(input);
-    if (url.includes('/api/v1/internal/llm/provider-credentials/') && init?.method === 'PUT') {
-      assert.equal(JSON.parse(String(init.body)).api_key, 'test-key');
-      return new Response(JSON.stringify({ provider: 'gemini', configured: true, enabled: true }), { status: 200 });
-    }
-    if (url.includes('/api/v1/internal/llm/provider-credentials/') && init?.method === 'DELETE') {
-      return new Response(JSON.stringify({ provider: 'gemini', configured: false, enabled: true }), { status: 200 });
-    }
-    if (isWorkspaceAiCredentialStatusRequest(input)) {
-      const response = createWorkspaceAiCredentialStatusResponse();
-      if (status === 'missing') {
-        response.providers = response.providers.map((provider) => ({ ...provider, configured: false }));
-      }
-      if (status === 'disabled') {
-        response.providers = response.providers.map((provider) => (
-          provider.provider === 'gemini' ? { ...provider, enabled: false } : provider
-        ));
-      }
-      return new Response(JSON.stringify(response), { status: 200 });
-    }
-    return new Response('unexpected request', { status: 500 });
-  });
-}
-
-function installFailingAiCredentialGateway() {
-  mock.method(globalThis, 'fetch', async (input) => {
-    if (isWorkspaceAiCredentialStatusRequest(input)) {
-      return new Response(JSON.stringify({ detail: 'gateway unavailable' }), { status: 503 });
-    }
-    return new Response('unexpected request', { status: 500 });
-  });
-}
-
 describe('workspace AI settings controller', () => {
+  it('leaves semantic llm validation to the session controller after request body validation', () => {
+    const parsed = postMessageSchema.safeParse({
+      content: 'diagnose',
+      toolAccessMode: 'read_write',
+      llm: { reasoningEffort: 'extra_high' }
+    });
+
+    assert.equal(parsed.success, true);
+    if (!parsed.success) assert.fail('expected malformed llm selection to pass body shape validation');
+    assert.deepEqual(parsed.data.llm, { reasoningEffort: 'extra_high' });
+    assert.equal(postMessageSchema.safeParse({ content: '' }).success, false);
+  });
+
   it('returns safe workspace AI settings without credential values or secret names', async () => {
     installWorkspace('viewer');
     installAiCredentialGateway();
@@ -74,8 +52,14 @@ describe('workspace AI settings controller', () => {
     const body = response.body as Record<string, unknown>;
     assert.equal(body.defaultProvider, 'openai');
     assert.equal(body.reasoningSummaryMode, 'auto');
+    assert.equal(body.reasoningEffort, 'low');
+    assert.deepEqual(body.allowedReasoningEfforts, ['off', 'low', 'medium', 'high']);
     assert.equal(body.reasoningSummariesEnabled, true);
     assert.deepEqual(body.allowedProviders, ['openai', 'anthropic', 'gemini']);
+    assert.deepEqual(Object.keys(body.allowedProviderModels as Record<string, unknown>), ['openai', 'anthropic', 'gemini']);
+    assert((body.allowedProviderModels as Record<string, string[]>).openai.includes('gpt-5.5'));
+    assert((body.allowedProviderModels as Record<string, string[]>).anthropic.includes('claude-sonnet-4-6'));
+    assert((body.allowedProviderModels as Record<string, string[]>).gemini.includes('gemini-2.5-flash'));
     assert(Array.isArray(body.providers));
     assert(!JSON.stringify(body).includes('apiKey'));
     assert(!JSON.stringify(body).includes('secret'));
@@ -217,6 +201,7 @@ describe('workspace AI settings controller', () => {
     installWorkspace('admin');
     installAiCredentialGateway();
     const auditEvents: string[] = [];
+    let requeued = 0;
     repo.insertWorkspaceAuditEvent = async (event) => {
       auditEvents.push(event.eventType);
       return {
@@ -230,6 +215,12 @@ describe('workspace AI settings controller', () => {
         metadata: event.metadata ?? {},
         occurredAt: '2026-05-24T00:00:00.000Z'
       };
+    };
+    repo.requeueKnowledgeBankPausedCheckpoints = async (workspaceId, targetId) => {
+      assert.equal(workspaceId, 'workspace-1');
+      assert.equal(targetId, undefined);
+      requeued += 1;
+      return 2;
     };
 
     const saved = await callController(
@@ -247,6 +238,7 @@ describe('workspace AI settings controller', () => {
       'workspace.ai_provider_credential.saved.v1',
       'workspace.ai_provider_credential.deleted.v1'
     ]);
+    assert.equal(requeued, 1);
     assert(!JSON.stringify(saved.body).includes('test-key'));
     assert(!JSON.stringify(deleted.body).includes('test-key'));
   });
@@ -268,125 +260,19 @@ describe('workspace AI settings controller', () => {
     assert.deepEqual(deletedProviders, ['openai', 'anthropic', 'gemini']);
   });
 
-  it('rejects run creation before dispatch when the selected provider credential is missing', async () => {
-    installWorkspace('admin');
-    installAiCredentialGateway('missing');
-    repo.getSession = async () => createSessionRecord();
-    repo.findRunByClientMessageId = async () => null;
-    let attemptedRunCreate = false;
-    repo.createRunFromUserMessage = async () => {
-      attemptedRunCreate = true;
-      return {
-        message: createMessage(),
-        run: createRun(),
-        idempotent: true
-      };
-    };
-
-    const response = await callController(
-      postMessage,
-      createRequest({ sessionId: 'session-1' }, { content: 'diagnose', toolAccessMode: 'read_write' })
-    );
-
-    assert.equal(response.statusCode, 400);
-    assert.equal((response.body as { error: { code: string } }).error.code, 'AI_PROVIDER_CREDENTIAL_MISSING');
-    assert.equal(attemptedRunCreate, false);
-  });
-
-  it('keeps accepted client message retries idempotent even if credentials are later missing', async () => {
-    installWorkspace('admin');
-    installAiCredentialGateway('missing');
-    repo.getSession = async () => createSessionRecord();
-    repo.findRunByClientMessageId = async () => ({
-      message: createMessage({ id: 'existing-message', clientMessageId: 'retry-message', runId: 'existing-run' }),
-      run: createRun({ id: 'existing-run' }),
-      idempotent: true
-    });
-    let attemptedRunCreate = false;
-    repo.createRunFromUserMessage = async () => {
-      attemptedRunCreate = true;
-      return {
-        message: createMessage(),
-        run: createRun(),
-        idempotent: false
-      };
-    };
-
-    const response = await callController(
-      postMessage,
-      createRequest(
-        { sessionId: 'session-1' },
-        { content: 'diagnose', toolAccessMode: 'read_write', clientMessageId: 'retry-message' }
-      )
-    );
-
-    assert.equal(response.statusCode, 202);
-    assert.deepEqual(response.body, { message_id: 'existing-message', run_id: 'existing-run' });
-    assert.equal(attemptedRunCreate, false);
-  });
-
-  it('freezes the selected provider and model on newly created runs', async () => {
-    installWorkspace('admin');
-    installAiCredentialGateway();
-    repo.getWorkspaceAiSettings = async () => ({
-      workspaceId: 'workspace-1',
-      defaultProvider: 'openai',
-      defaultModel: 'gpt-5.5'
-    });
-    repo.getSession = async () => createSessionRecord();
-    repo.findRunByClientMessageId = async () => null;
-    let createdRunInput: { llmProvider?: LlmProvider; llmModel?: string } | undefined;
-    repo.createRunFromUserMessage = async (input) => {
-      createdRunInput = input;
-      return {
-        message: createMessage(),
-        run: createRun({ llmProvider: input.llmProvider, llmModel: input.llmModel }),
-        idempotent: true
-      };
-    };
-
-    const response = await callController(
-      postMessage,
-      createRequest({ sessionId: 'session-1' }, { content: 'diagnose', toolAccessMode: 'read_write' })
-    );
-
-    assert.equal(response.statusCode, 202);
-    assert.equal(createdRunInput?.llmProvider, 'openai');
-    assert.equal(createdRunInput?.llmModel, 'gpt-5.5');
-  });
-
-  it('rejects run creation before dispatch when the selected provider is disabled', async () => {
-    installWorkspace('admin');
-    installAiCredentialGateway('disabled');
-    repo.getWorkspaceAiSettings = async () => ({ workspaceId: 'workspace-1', defaultProvider: 'gemini', defaultModel: 'gemini-2.0-flash' });
-    repo.getSession = async () => createSessionRecord();
-    repo.findRunByClientMessageId = async () => null;
-    let attemptedRunCreate = false;
-    repo.createRunFromUserMessage = async () => {
-      attemptedRunCreate = true;
-      return {
-        message: createMessage(),
-        run: createRun(),
-        idempotent: true
-      };
-    };
-
-    const response = await callController(
-      postMessage,
-      createRequest({ sessionId: 'session-1' }, { content: 'diagnose', toolAccessMode: 'read_write' })
-    );
-
-    assert.equal(response.statusCode, 400);
-    assert.equal((response.body as { error: { code: string } }).error.code, 'PROVIDER_NOT_ALLOWED');
-    assert.equal(attemptedRunCreate, false);
-  });
-
   it('persists allowed default provider and model changes', async () => {
     installWorkspace('admin');
     installAiCredentialGateway();
     let persisted: Parameters<typeof repo.upsertWorkspaceAiSettings>[1] | undefined;
+    let requeued = 0;
     repo.upsertWorkspaceAiSettings = async (_workspaceId, settings) => {
       persisted = settings;
+    };
+    repo.requeueKnowledgeBankPausedCheckpoints = async (workspaceId, targetId) => {
+      assert.equal(workspaceId, 'workspace-1');
+      assert.equal(targetId, undefined);
+      requeued += 1;
+      return 1;
     };
 
     const response = await callController(
@@ -398,7 +284,8 @@ describe('workspace AI settings controller', () => {
     );
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(persisted, { defaultProvider: 'openai', defaultModel: 'gpt-5.5', reasoningSummaryMode: 'auto', reasoningEffort: 'default' });
+    assert.deepEqual(persisted, { defaultProvider: 'openai', defaultModel: 'gpt-5.5', reasoningSummaryMode: 'auto', reasoningEffort: 'low' });
+    assert.equal(requeued, 1);
   });
 
   it('rejects default model changes that do not match the selected provider', async () => {
@@ -417,33 +304,4 @@ describe('workspace AI settings controller', () => {
     assert.equal((response.body as { error: { code: string } }).error.code, 'MODEL_NOT_ALLOWED');
   });
 
-  it('rejects run creation before dispatch when stored provider and model do not match', async () => {
-    installWorkspace('admin');
-    installAiCredentialGateway();
-    repo.getWorkspaceAiSettings = async () => ({
-      workspaceId: 'workspace-1',
-      defaultProvider: 'openai',
-      defaultModel: 'gemini-2.0-flash'
-    });
-    repo.getSession = async () => createSessionRecord();
-    repo.findRunByClientMessageId = async () => null;
-    let attemptedRunCreate = false;
-    repo.createRunFromUserMessage = async () => {
-      attemptedRunCreate = true;
-      return {
-        message: createMessage(),
-        run: createRun(),
-        idempotent: true
-      };
-    };
-
-    const response = await callController(
-      postMessage,
-      createRequest({ sessionId: 'session-1' }, { content: 'diagnose', toolAccessMode: 'read_write' })
-    );
-
-    assert.equal(response.statusCode, 400);
-    assert.equal((response.body as { error: { code: string } }).error.code, 'MODEL_NOT_ALLOWED');
-    assert.equal(attemptedRunCreate, false);
-  });
 });

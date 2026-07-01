@@ -58,15 +58,23 @@ for (const table of [
   'kubernetes_target_settings',
   'target_agent_registrations',
   'target_snapshots',
-  'target_snapshot_history',
   'target_inventory_items',
   'target_findings',
   'target_snapshot_summaries',
+  'target_issues',
+  'target_issue_observations',
+  'target_metric_history',
   'target_tool_overrides',
+  'target_tool_settings',
+  'target_skills',
+  'target_skill_files',
   'sessions',
   'messages',
   'runs',
   'run_events',
+  'run_skill_catalog_snapshots',
+  'skill_snapshot_blobs',
+  'run_skill_snapshots',
   'run_tool_approvals',
   'run_continuations',
   'chat_activity_events',
@@ -89,7 +97,7 @@ for (const needle of [
   "reasoning_summary_mode TEXT NOT NULL DEFAULT 'auto'",
   "CHECK (reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed'))",
   'reasoning_effort TEXT NOT NULL DEFAULT',
-  "CHECK (reasoning_effort IN ('default', 'low', 'medium', 'high'))",
+  "CHECK (reasoning_effort IN ('off', 'low', 'medium', 'high'))",
   'source TEXT NOT NULL DEFAULT',
   "kind TEXT NOT NULL CHECK (kind IN ('system', 'custom'))",
   'capabilities JSONB NOT NULL',
@@ -140,7 +148,9 @@ for (const needle of [
   'fk_run_tool_approvals_workspace_target',
   'fk_webhook_subscriptions_workspace_target',
   'fk_webhook_history_workspace_target',
-  'fk_target_snapshot_history_workspace_target',
+  'fk_target_issues_workspace_target',
+  'fk_target_issue_observations_workspace_target',
+  'fk_target_metric_history_workspace_target',
   'idx_user_password_credentials_last_login',
   'idx_user_email_verification_tokens_user_email',
   'idx_user_password_reset_tokens_expires_at',
@@ -174,7 +184,16 @@ for (const needle of [
   'idx_messages_run_assistant_final',
   'idx_run_tool_approvals_run_call',
   'idx_run_tool_approvals_run_status',
-  'idx_target_snapshot_history_target_ts',
+  "severity TEXT NOT NULL CHECK (severity IN ('critical', 'warning', 'info'))",
+  'CREATE TABLE IF NOT EXISTS target_issues',
+  'CREATE TABLE IF NOT EXISTS target_issue_observations',
+  'idx_target_issues_workspace_order',
+  'idx_target_issue_observations_issue_ts',
+  'CREATE TABLE IF NOT EXISTS target_metric_history',
+  'metrics JSONB NOT NULL DEFAULT',
+  'PRIMARY KEY (target_id, sample_ts)',
+  'idx_target_metric_history_target_ts',
+  'idx_target_metric_history_workspace_target_ts',
   'idx_inventory_items_target_sort',
   'idx_inventory_items_search_trgm',
   'idx_target_findings_target_order',
@@ -192,9 +211,13 @@ for (const needle of [
 ]) {
   assert(initial.includes(needle), `initial migration missing ${needle}`);
 }
+const chatActivityTable = initial.slice(
+  initial.indexOf('CREATE TABLE IF NOT EXISTS chat_activity_events'),
+  initial.indexOf('CREATE TABLE IF NOT EXISTS webhook_subscriptions')
+);
 for (const childResource of ['sessions', 'runs', 'messages', 'run_tool_approvals']) {
   assert(
-    !new RegExp(`REFERENCES\\s+${childResource}\\b`, 'i').test(initial.slice(initial.indexOf('CREATE TABLE IF NOT EXISTS chat_activity_events'))),
+    !new RegExp(`REFERENCES\\s+${childResource}\\b`, 'i').test(chatActivityTable),
     `chat_activity_events must keep durable resource ids instead of cascading from ${childResource}`
   );
 }
@@ -211,6 +234,46 @@ assert(initial.includes('idx_workspace_memberships_workspace_role'), 'initial mi
 assert(!initial.includes('workspace_memberships_role_check'), 'workspace memberships must not use enum-style role constraints');
 assert(!initial.includes('workspace_invitations_role_check'), 'workspace invitations must not use enum-style role constraints');
 assert(!initial.includes("CHECK (role IN ('owner', 'admin', 'operator', 'viewer"), 'workspace invitations role must not be enum constrained');
+assert(!initial.includes('CREATE TABLE IF NOT EXISTS target_snapshot_history'), 'squashed baseline must not create target snapshot history');
+assert(!initial.includes('fk_target_snapshot_history_workspace_target'), 'squashed baseline must not keep target snapshot history foreign keys');
+assert(!initial.includes('idx_target_snapshot_history_target_ts'), 'squashed baseline must not keep target snapshot history indexes');
+
+const targetSkills = initial;
+for (const table of ['target_skills', 'target_skill_files']) {
+  assert(targetSkills.includes(`CREATE TABLE IF NOT EXISTS ${table}`), `target skills migration must create ${table}`);
+}
+for (const needle of [
+  "source_type TEXT NOT NULL CHECK (source_type IN ('manual', 'git_import'))",
+  "validation_status TEXT NOT NULL CHECK (validation_status IN ('valid', 'invalid'))",
+  "sync_status TEXT NOT NULL CHECK (sync_status IN ('not_applicable', 'current', 'modified'))",
+  "file_count INTEGER NOT NULL CHECK (file_count >= 1 AND file_count <= 16)",
+  "total_bytes INTEGER NOT NULL CHECK (total_bytes >= 0 AND total_bytes <= 131072)",
+  'target_skills_target_scope_unique',
+  'target_skills_source_metadata_check',
+  "size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0 AND size_bytes <= 32768)",
+  'target_skill_files_path_check',
+  "path LIKE '%.md'",
+  "path NOT LIKE '/%'",
+  "path NOT LIKE '%/../%'",
+  "path NOT LIKE '%/./%'",
+  'idx_target_skills_target_updated',
+  'idx_target_skills_target_enabled_valid',
+  'idx_target_skill_files_skill_path'
+]) {
+  assert(targetSkills.includes(needle), `target skills migration missing ${needle}`);
+}
+for (const needle of [
+  "source_type = 'git_import'",
+  'source_repo_url IS NOT NULL',
+  'source_ref IS NOT NULL',
+  "sync_status IN ('current', 'modified')"
+]) {
+  assert(targetSkills.includes(needle), `target skills migration missing ${needle}`);
+}
+assert(
+  !targetSkills.includes('source_commit_sha IS NOT NULL'),
+  'target skills migration must allow GitHub imports without source_commit_sha'
+);
 
 const packageJson = JSON.parse(read('package.json'));
 assert(packageJson.scripts['db:migrate'], 'package must expose db:migrate');
@@ -318,10 +381,22 @@ async function runSqlChecks(databaseUrl) {
       "SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'workspace_membership_audit'"
     );
     assert.equal(membershipAudit.rowCount, 1, 'workspace membership audit table must exist after migrations');
+    const metricHistory = await client.query(
+      "SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'target_metric_history'"
+    );
+    assert.equal(metricHistory.rowCount, 1, 'target metric history table must exist after migrations');
+    const targetIssues = await client.query(
+      "SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'target_issues'"
+    );
+    assert.equal(targetIssues.rowCount, 1, 'target issues table must exist after migrations');
+    const targetIssueObservations = await client.query(
+      "SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'target_issue_observations'"
+    );
+    assert.equal(targetIssueObservations.rowCount, 1, 'target issue observations table must exist after migrations');
     const snapshotHistory = await client.query(
       "SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'target_snapshot_history'"
     );
-    assert.equal(snapshotHistory.rowCount, 1, 'target snapshot history table must exist after migrations');
+    assert.equal(snapshotHistory.rowCount, 0, 'target snapshot history table must be removed after migrations');
     for (const table of ['target_inventory_items', 'target_findings', 'target_snapshot_summaries']) {
       const result = await client.query(
         'SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1',

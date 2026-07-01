@@ -27,8 +27,22 @@ export function buildAdminSchemas(): Record<string, JsonSchema> {
       type: 'object',
       properties: {
         adminApiEnabled: { type: 'boolean' },
-        workspacePlans: jsonObject,
-        quotas: jsonObject
+        planCatalog: jsonObject,
+        roleTemplateKeys: stringArray,
+        authModes: jsonObject,
+        retention: {
+          type: 'object',
+          properties: {
+            conversationDays: { type: 'integer' },
+            webhookHistoryDays: { type: 'integer' },
+            workspaceAuditDays: { type: 'integer' },
+            targetMetricHistoryDays: { type: 'integer' }
+          },
+          additionalProperties: true
+        },
+        auditLogging: jsonObject,
+        runPolicy: jsonObject,
+        featureFlags: jsonObject
       },
       additionalProperties: true
     },

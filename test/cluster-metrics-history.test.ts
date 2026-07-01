@@ -2,16 +2,17 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import { getWorkspaceClusterMetricsHistory } from '../src/controllers/workspaces/kubernetes-cluster-controller.js';
 import { repo } from '../src/store/repository.js';
-import type { Cluster, ClusterSnapshot } from '../src/types/domain.js';
+import type { TargetMetricHistoryPoint } from '../src/store/repository-target-metrics.js';
+import type { Cluster } from '../src/types/domain.js';
 
 const originalGetWorkspaceRole = repo.getWorkspaceRole;
 const originalGetCluster = repo.getCluster;
-const originalListClusterSnapshotHistory = repo.listClusterSnapshotHistory;
+const originalListTargetMetricHistory = repo.listTargetMetricHistory;
 
 afterEach(() => {
   repo.getWorkspaceRole = originalGetWorkspaceRole;
   repo.getCluster = originalGetCluster;
-  repo.listClusterSnapshotHistory = originalListClusterSnapshotHistory;
+  repo.listTargetMetricHistory = originalListTargetMetricHistory;
   mock.reset();
 });
 
@@ -59,22 +60,15 @@ function createCluster(id: string, workspaceId = 'workspace-1'): Cluster {
   };
 }
 
-function createSnapshot(clusterId: string, workspaceId = 'workspace-1'): ClusterSnapshot {
+function createMetricPoint(clusterId: string, workspaceId = 'workspace-1'): TargetMetricHistoryPoint {
   return {
-    clusterId,
+    targetId: clusterId,
     workspaceId,
+    targetType: 'kubernetes',
     timestamp: '2026-05-25T00:00:00.000Z',
-    data: {
-      metrics: {
-        nodes: [
-          {
-            usage: {
-              cpu: '1500m',
-              memory: '2Gi'
-            }
-          }
-        ]
-      }
+    metrics: {
+      cpuCores: 1.5,
+      memoryBytes: 2 * 1024 ** 3
     }
   };
 }
@@ -127,11 +121,11 @@ describe('workspace cluster metrics history', () => {
       if (clusterId === 'other-workspace') return createCluster(clusterId, 'workspace-2');
       return createCluster(clusterId);
     };
-    repo.listClusterSnapshotHistory = async (clusterId: string) => {
+    repo.listTargetMetricHistory = async (clusterId: string) => {
       historyCalls.push(clusterId);
       return [
-        createSnapshot(clusterId),
-        createSnapshot(clusterId, 'workspace-2')
+        createMetricPoint(clusterId),
+        createMetricPoint(clusterId, 'workspace-2')
       ];
     };
     const res = createResponse();

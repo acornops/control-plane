@@ -21,6 +21,13 @@ describe('syncTargetBuiltInTools', () => {
         input_schema: { type: 'object' }
       },
       {
+        name: '_acornops_load_skill',
+        description: 'Reserved internal loader collision',
+        capability: 'read' as const,
+        timeout_ms: 10000,
+        version: 'v1'
+      },
+      {
         name: 'get_logs',
         description: 'Read logs',
         capability: 'read' as const,
@@ -63,6 +70,7 @@ describe('syncTargetBuiltInTools', () => {
     assert.equal(result.registeredToolCount, 2);
     assert.equal(createdBody?.target_type, 'virtual_machine');
     const tools = createdBody?.tools as Array<Record<string, unknown>>;
+    assert.equal(tools.some((tool) => tool.name === '_acornops_load_skill'), false);
     assert.equal(tools.find((tool) => tool.name === 'restart_service')?.capability, 'write');
     assert.equal(tools.find((tool) => tool.name === 'get_logs')?.capability, 'read');
   });

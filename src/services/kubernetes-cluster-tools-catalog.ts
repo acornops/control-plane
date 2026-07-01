@@ -5,9 +5,9 @@ import { McpServerConfig, McpToolConfig } from './mcp-registry-client.js';
 
 type EffectiveDisabledReason = 'server_disabled' | 'agent_write_disabled' | null;
 
-export function getToolCatalogEditableRoles(): string[] {
+export function getMcpCatalogEditableRoles(): string[] {
   return listConfiguredRoleTemplates()
-    .filter((role) => role.capabilities.includes('manage_tools') && role.capabilities.includes('manage_mcp'))
+    .filter((role) => role.capabilities.includes('manage_mcp'))
     .map((role) => role.key);
 }
 
@@ -59,6 +59,7 @@ export interface KubernetesClusterToolCatalogServer {
   isSystem: boolean;
   canDelete: boolean;
   canEditConnection: boolean;
+  canToggle: boolean;
   authType: 'none' | 'bearer_token' | 'custom_header';
   publicHeaders?: Record<string, string>;
   connectionStatus: 'unknown' | 'ok' | 'error';
@@ -195,6 +196,7 @@ export function composeTargetToolsCatalog(params: {
   const servers: KubernetesClusterToolCatalogServer[] = [];
   for (const server of serverByUrl.values()) {
     const isBuiltin = isBuiltinServer(server);
+    const isPlaceholder = !isBuiltin && (server.workspace_id !== workspaceId || server.target_id !== targetId);
     const toolRows = tools
       .filter((tool) => tool.mcp_server_url === server.server_url)
       .map((tool) => {
@@ -229,13 +231,18 @@ export function composeTargetToolsCatalog(params: {
       type: isBuiltin ? 'builtin' : 'mcp',
       enabled: Boolean(server.enabled),
       isSystem: isBuiltin,
-      canDelete: !isBuiltin,
-      canEditConnection: !isBuiltin,
+      canDelete: !isBuiltin && !isPlaceholder,
+      canEditConnection: !isBuiltin && !isPlaceholder,
+      canToggle: !isPlaceholder,
       authType: server.auth_type,
       publicHeaders: server.public_headers ?? {},
-      connectionStatus: server.connection_status === 'ok' || server.connection_status === 'error' ? server.connection_status : 'unknown',
-      lastDiscoveryAt: server.last_discovery_at ?? null,
-      lastDiscoveryError: server.last_discovery_error ?? null,
+      connectionStatus: isBuiltin
+        ? 'ok'
+        : server.connection_status === 'ok' || server.connection_status === 'error'
+          ? server.connection_status
+          : 'unknown',
+      lastDiscoveryAt: isBuiltin ? null : server.last_discovery_at ?? null,
+      lastDiscoveryError: isBuiltin ? null : server.last_discovery_error ?? null,
       toolCounts: summarizeToolCounts(toolRows),
       tools: toolRows.map((tool) => ({
         name: tool.name,
@@ -264,7 +271,7 @@ export function composeTargetToolsCatalog(params: {
     ...(targetType === KUBERNETES_TARGET_TYPE ? { clusterId: targetId } : {}),
     permissions: {
       canEdit,
-      editableRoles: getToolCatalogEditableRoles()
+      editableRoles: getMcpCatalogEditableRoles()
     },
     servers
   };

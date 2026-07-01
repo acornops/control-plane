@@ -69,6 +69,16 @@ export function registerWorkspaceRoutes(router: Router): void {
     validateBody(updateWorkspaceMemberSchema),
     authed(workspacesController.updateWorkspaceMember)
   );
-  router.delete('/workspaces/:workspaceId/members/:userId', requireActor(['user']), authed(workspacesController.deleteWorkspaceMember));
-  router.get('/workspaces/:workspaceId/investigations', requireActor(['user', 'externalIntegration']), authed(workspacesController.listWorkspaceInvestigations));
+  router.delete(
+    '/workspaces/:workspaceId/members/:userId',
+    requireActor(['user']),
+    authed(workspacesController.deleteWorkspaceMember)
+  );
+  router.get('/workspaces/:workspaceId/issues', requireActor(['user', 'externalIntegration']), authed(workspacesController.listWorkspaceIssues));
+  router.get('/workspaces/:workspaceId/issues/:issueId', requireActor(['user', 'externalIntegration']), authed(workspacesController.getTargetIssue));
+  router.get(
+    '/workspaces/:workspaceId/issues/:issueId/observations',
+    requireActor(['user', 'externalIntegration']),
+    authed(workspacesController.listTargetIssueObservations)
+  );
 }

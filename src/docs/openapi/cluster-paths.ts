@@ -11,31 +11,6 @@ const externalUserHeader = {
 
 export function buildClusterPaths(): Record<string, unknown> {
   return {
-      '/api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/tools/catalog': {
-        get: {
-          tags: ['workspaces'],
-          summary: 'List cluster tools grouped by server with configured/effective state',
-          security: [{ userSession: [] }],
-          parameters: [
-            {
-              in: 'path',
-              name: 'workspaceId',
-              required: true,
-              schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID }
-            },
-            {
-              in: 'path',
-              name: 'clusterId',
-              required: true,
-              schema: { type: 'string', format: 'uuid', example: EXAMPLE_CLUSTER_ID }
-            },
-            { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
-            { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } },
-            { in: 'query', name: 'q', required: false, schema: { type: 'string' } }
-          ],
-          responses: { '200': { description: 'Cluster tool catalog grouped by paged server summaries.' } }
-        }
-      },
       '/api/v1/workspaces/{workspaceId}/kubernetes-clusters': {
         get: {
           tags: ['workspaces'],
@@ -88,12 +63,19 @@ export function buildClusterPaths(): Record<string, unknown> {
                       type: 'array',
                       items: { type: 'string' },
                       example: ['sandbox']
+                    },
+                    agentAccessMode: {
+                      type: 'string',
+                      enum: ['read_only', 'read_write'],
+                      default: 'read_only',
+                      description: 'Controls the generated Helm command RBAC mode. read_write adds rbac.write.enabled=true.'
                     }
                   },
                   example: {
                     name: 'payments-prod-eks',
                     namespaceInclude: ['payments', 'shared'],
-                    namespaceExclude: ['sandbox']
+                    namespaceExclude: ['sandbox'],
+                    agentAccessMode: 'read_only'
                   }
                 }
               }
@@ -198,25 +180,6 @@ export function buildClusterPaths(): Record<string, unknown> {
           responses: { '200': { description: 'Cluster resource page payload: { items, nextCursor? }.' } }
         }
       },
-      '/api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/findings': {
-        get: {
-          tags: ['workspaces'],
-          summary: 'List snapshot-derived cluster findings',
-          description: 'Browser callers use the session cookie. External integration callers may use the external integration client token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
-          security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
-          parameters: [
-            externalUserHeader,
-            { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
-            { in: 'path', name: 'clusterId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_CLUSTER_ID } },
-            { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
-            { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } },
-            { in: 'query', name: 'q', required: false, schema: { type: 'string' } },
-            { in: 'query', name: 'severity', required: false, schema: { type: 'string', enum: ['critical', 'warning', 'info'] } },
-            { in: 'query', name: 'namespace', required: false, schema: { type: 'string' } }
-          ],
-          responses: { '200': { description: 'Cluster finding page payload: { items, nextCursor? }.' } }
-        }
-      },
       ...buildClusterMetricPaths(),
       '/api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/pods/{namespace}/{podName}/logs': {
         get: {
@@ -250,6 +213,25 @@ export function buildClusterPaths(): Record<string, unknown> {
             { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
             { in: 'path', name: 'clusterId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_CLUSTER_ID } }
           ],
+          requestBody: {
+            required: false,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    agentAccessMode: {
+                      type: 'string',
+                      enum: ['read_only', 'read_write'],
+                      default: 'read_only',
+                      description: 'Controls the generated Helm command RBAC mode. read_write adds rbac.write.enabled=true.'
+                    }
+                  },
+                  example: { agentAccessMode: 'read_only' }
+                }
+              }
+            }
+          },
           responses: { '200': { description: 'New key and agent install instructions issued.' } }
         }
       },

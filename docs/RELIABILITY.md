@@ -19,7 +19,7 @@
 - Use the integration compose profile when changing execution-engine, llm-gateway, or auth-facing behavior.
 - Preserve deterministic run event ordering and terminal run states.
 - Preserve durable write-approval behavior: approval creation stores continuation and `waiting_for_approval` atomically, and decisions resume through backend redispatch.
-- Keep browser-facing snapshot resource, finding, investigation, and summary shapes explicit in contracts; raw snapshot history remains internal storage for metrics history and diagnostics.
+- Keep browser-facing snapshot resource, durable issue, summary, and metric-history shapes explicit in contracts; only the latest raw target snapshot is retained, while metrics use compact history samples.
 - Run event replay must read persisted `run_events` before live SSE fanout when persistence is enabled.
 - Target chat activity streams must replay persisted `chat_activity_events` before live SSE fanout when clients reconnect with `Last-Event-ID` or `?after=...`; fresh connects are live-only and should use recent activity/session reads for initial state.
 - Multi-pod deployments must keep unique `CONTROL_PLANE_INSTANCE_ID` values and a shared `REDIS_URL`.

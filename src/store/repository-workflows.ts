@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { defaultWorkflowDefinitions } from './repository-workflow-defaults.js';
 import { resetWorkflowRunRepositoryForTests } from './repository-workflow-runs.js';
+import { listAgentDefinitions } from './repository-agents.js';
 export type { WorkflowApprovalRecord, WorkflowMessageRecord, WorkflowRunRecord, WorkflowSessionRecord } from './repository-workflow-runs.js';
-export { appendWorkflowRunEvents, createWorkflowRun, createWorkflowSession, createWorkflowUserMessage, decideWorkflowRunApproval, getWorkflowRun, getWorkflowRunApproval, getWorkflowSession, listWorkflowMessages, listWorkflowRunApprovals, listWorkflowRunsForSession, listWorkflowSessions, updateWorkflowRun, upsertWorkflowAssistantFinalMessage } from './repository-workflow-runs.js';
+export { appendWorkflowRunEvents, createWorkflowRun, createWorkflowSession, createWorkflowUserMessage, decideWorkflowRunApproval, getWorkflowRun, getWorkflowRunApproval, getWorkflowSession, listWorkflowApprovalsForWorkspace, listWorkflowMessages, listWorkflowRunApprovals, listWorkflowRunsForSession, listWorkflowSessions, updateWorkflowRun, upsertWorkflowAssistantFinalMessage } from './repository-workflow-runs.js';
 import type {
   CompiledWorkflowAccessScope,
   WorkflowCategory,
@@ -70,6 +71,7 @@ export interface WorkflowDefinitionScopeUpdate {
     id: string;
     title?: string;
     requiredInputs?: string[];
+    agentIds?: string[];
     targetBinding?: WorkflowStepDefinition['targetBinding'];
     enabledSkills?: string[];
     allowedMcpServers?: string[];
@@ -86,6 +88,7 @@ export interface CreateWorkflowDefinitionInput {
   name: string;
   description?: string;
   category: WorkflowCategory;
+  orchestratorAgentId?: string;
   tags?: string[];
   inputs?: WorkflowInputDefinition[];
   enabledMcpServers?: string[];
@@ -112,6 +115,7 @@ function cloneWorkflowDefinition(definition: WorkflowDefinitionForAccess): Workf
     steps: definition.steps.map((step) => ({
       ...step,
       requiredInputs: [...step.requiredInputs],
+      agentIds: step.agentIds ? [...step.agentIds] : undefined,
       targetBinding: step.targetBinding ? { ...step.targetBinding } : undefined,
       enabledSkills: [...step.enabledSkills],
       allowedMcpServers: [...step.allowedMcpServers],
@@ -160,6 +164,7 @@ function updateStepScope(step: WorkflowStepDefinition, update: NonNullable<Workf
     ...step,
     title: update.title || step.title,
     requiredInputs: update.requiredInputs ? uniqueSorted(update.requiredInputs) : step.requiredInputs,
+    agentIds: update.agentIds ? uniqueSorted(update.agentIds) : step.agentIds,
     targetBinding: update.targetBinding || step.targetBinding,
     enabledSkills: update.enabledSkills ? uniqueSorted(update.enabledSkills) : step.enabledSkills,
     allowedMcpServers: update.allowedMcpServers ? uniqueSorted(update.allowedMcpServers) : step.allowedMcpServers,
@@ -193,6 +198,7 @@ export function createWorkflowDefinition(input: CreateWorkflowDefinitionInput): 
     description: input.description?.trim(),
     status: 'draft',
     category: input.category,
+    orchestratorAgentId: input.orchestratorAgentId || 'agent-workflow-orchestrator',
     tags: uniqueSorted(input.tags || []),
     inputs: (input.inputs || []).map((item) => ({ ...item })),
     enabledMcpServers: uniqueSorted(input.enabledMcpServers || input.steps.flatMap((step) => step.allowedMcpServers)),
@@ -207,6 +213,7 @@ export function createWorkflowDefinition(input: CreateWorkflowDefinitionInput): 
     steps: input.steps.map((step) => ({
       ...step,
       requiredInputs: uniqueSorted(step.requiredInputs),
+      agentIds: step.agentIds ? uniqueSorted(step.agentIds) : undefined,
       enabledSkills: uniqueSorted(step.enabledSkills),
       allowedMcpServers: uniqueSorted(step.allowedMcpServers),
       allowedTools: uniqueSorted(step.allowedTools),
@@ -481,6 +488,13 @@ export function getWorkflowOptionsCatalog(workspaceId: string): WorkflowOptionsC
       { value: 'acornops-open-pr', label: 'Open PR', description: 'Prepare branch and pull request handoff' },
       { value: 'acornops-target-boundary-design', label: 'Target boundary design', description: 'Target model compatibility checks' }
     ],
+    agents: listAgentDefinitions(workspaceId).filter((agent) => agent.kind === 'specialist_agent').map((agent) => ({
+      value: agent.id,
+      label: agent.name,
+      description: agent.description,
+      disabled: agent.status !== 'active',
+      disabledReason: agent.status !== 'active' ? 'Agent disabled' : undefined
+    })),
     chatSessions: [
       { value: 'chat-incident-001', label: 'Incident chat 001', description: 'Selected cluster incident thread' },
       { value: 'chat-incident-002', label: 'Incident chat 002', description: 'Follow-up mitigation thread' }

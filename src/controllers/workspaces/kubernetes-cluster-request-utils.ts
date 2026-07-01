@@ -1,5 +1,5 @@
 import { config } from '../../config.js';
-import { KubernetesCluster, ClusterSnapshot } from '../../types/domain.js';
+import { KubernetesCluster } from '../../types/domain.js';
 
 interface AgentInstallInstructions {
   command: string;
@@ -12,23 +12,7 @@ interface AgentInstallInstructions {
   warnings: string[];
 }
 
-const MEMORY_BINARY_UNITS: Record<string, number> = {
-  Ki: 1024,
-  Mi: 1024 ** 2,
-  Gi: 1024 ** 3,
-  Ti: 1024 ** 4,
-  Pi: 1024 ** 5,
-  Ei: 1024 ** 6
-};
-
-const MEMORY_DECIMAL_UNITS: Record<string, number> = {
-  K: 1000,
-  M: 1000 ** 2,
-  G: 1000 ** 3,
-  T: 1000 ** 4,
-  P: 1000 ** 5,
-  E: 1000 ** 6
-};
+export type AgentAccessMode = 'read_only' | 'read_write';
 
 export function parseMetricWindowMs(value: unknown): number {
   const text = typeof value === 'string' ? value.trim() : '1h';
@@ -67,73 +51,6 @@ export function parseBooleanQuery(value: unknown): boolean {
   return normalized === 'true' || normalized === '1' || normalized === 'yes';
 }
 
-function parseCpuToCores(value: unknown): number | null {
-  if (typeof value !== 'string') return null;
-  const match = value.trim().match(/^([0-9]+(?:\.[0-9]+)?)(n|u|m)?$/);
-  if (!match) return null;
-
-  const amount = Number(match[1]);
-  if (!Number.isFinite(amount)) return null;
-
-  if (match[2] === 'n') return amount / 1_000_000_000;
-  if (match[2] === 'u') return amount / 1_000_000;
-  if (match[2] === 'm') return amount / 1000;
-  return amount;
-}
-
-function parseMemoryToBytes(value: unknown): number | null {
-  if (typeof value !== 'string') return null;
-  const match = value.trim().match(/^([0-9]+(?:\.[0-9]+)?)([a-zA-Z]+)?$/);
-  if (!match) return null;
-
-  const amount = Number(match[1]);
-  const unit = match[2] || '';
-  if (!Number.isFinite(amount)) return null;
-
-  if (!unit) return amount;
-  if (MEMORY_BINARY_UNITS[unit]) return amount * MEMORY_BINARY_UNITS[unit];
-  if (MEMORY_DECIMAL_UNITS[unit]) return amount * MEMORY_DECIMAL_UNITS[unit];
-  return null;
-}
-
-function metricNodesFromSnapshot(snapshot: ClusterSnapshot): Array<{ usage?: { cpu?: unknown; memory?: unknown } }> {
-  const metrics = snapshot.data.metrics;
-  if (!metrics || typeof metrics !== 'object') return [];
-  const nodes = (metrics as { nodes?: unknown }).nodes;
-  return Array.isArray(nodes) ? nodes as Array<{ usage?: { cpu?: unknown; memory?: unknown } }> : [];
-}
-
-export function summarizeSnapshotMetrics(snapshot: ClusterSnapshot): {
-  timestamp: string;
-  cpuCores: number | null;
-  memoryBytes: number | null;
-} | null {
-  let cpuCores = 0;
-  let memoryBytes = 0;
-  let hasCpu = false;
-  let hasMemory = false;
-
-  for (const node of metricNodesFromSnapshot(snapshot)) {
-    const cpu = parseCpuToCores(node.usage?.cpu);
-    const memory = parseMemoryToBytes(node.usage?.memory);
-    if (cpu !== null) {
-      cpuCores += cpu;
-      hasCpu = true;
-    }
-    if (memory !== null) {
-      memoryBytes += memory;
-      hasMemory = true;
-    }
-  }
-
-  if (!hasCpu && !hasMemory) return null;
-  return {
-    timestamp: snapshot.timestamp,
-    cpuCores: hasCpu ? cpuCores : null,
-    memoryBytes: hasMemory ? memoryBytes : null
-  };
-}
-
 export function normalizeNamespaceList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
@@ -166,7 +83,19 @@ function helmSetJson(path: string, value: unknown): string {
   return `  --set-json ${path}=${toShellSingleQuoted(JSON.stringify(value))}`;
 }
 
-export function buildAgentInstallInstructions(cluster: KubernetesCluster, agentKey: string): AgentInstallInstructions {
+function helmSetBool(path: string, value: boolean): string {
+  return `  --set ${path}=${value ? 'true' : 'false'}`;
+}
+
+export function parseAgentAccessMode(value: unknown): AgentAccessMode {
+  return value === 'read_write' ? 'read_write' : 'read_only';
+}
+
+export function buildAgentInstallInstructions(
+  cluster: KubernetesCluster,
+  agentKey: string,
+  agentAccessMode: AgentAccessMode = 'read_only'
+): AgentInstallInstructions {
   const include = cluster.namespaceInclude || [];
   const exclude = cluster.namespaceExclude || [];
   const excluded = new Set(exclude);
@@ -188,6 +117,9 @@ export function buildAgentInstallInstructions(cluster: KubernetesCluster, agentK
     helmSetJson('namespaceScope.include', include),
     helmSetJson('namespaceScope.exclude', exclude)
   ];
+  if (agentAccessMode === 'read_write') {
+    lines.push(helmSetBool('rbac.write.enabled', true));
+  }
   if (watchNamespaces.length > 0) {
     lines.push(helmSetString('config.watchNamespaces', watchNamespaces.join(',')));
   }

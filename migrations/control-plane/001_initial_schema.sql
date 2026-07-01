@@ -102,8 +102,8 @@ CREATE TABLE IF NOT EXISTS workspace_ai_settings (
   default_model TEXT NOT NULL,
   reasoning_summary_mode TEXT NOT NULL DEFAULT 'auto'
     CHECK (reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed')),
-  reasoning_effort TEXT NOT NULL DEFAULT 'default'
-    CHECK (reasoning_effort IN ('default', 'low', 'medium', 'high')),
+  reasoning_effort TEXT NOT NULL DEFAULT 'low'
+    CHECK (reasoning_effort IN ('off', 'low', 'medium', 'high')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -194,15 +194,6 @@ CREATE TABLE IF NOT EXISTS target_snapshots (
   data JSONB NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS target_snapshot_history (
-  id TEXT PRIMARY KEY,
-  target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
-  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  snapshot_ts TIMESTAMPTZ NOT NULL,
-  data JSONB NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
 CREATE TABLE IF NOT EXISTS target_inventory_items (
   target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -228,7 +219,7 @@ CREATE TABLE IF NOT EXISTS target_findings (
   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   snapshot_ts TIMESTAMPTZ NOT NULL,
   finding_id TEXT NOT NULL,
-  severity TEXT NOT NULL,
+  severity TEXT NOT NULL CHECK (severity IN ('critical', 'warning', 'info')),
   severity_rank INTEGER NOT NULL,
   scope_kind TEXT NULL,
   scope_name TEXT NULL,
@@ -254,12 +245,114 @@ CREATE TABLE IF NOT EXISTS target_snapshot_summaries (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS target_issues (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+  target_type TEXT NOT NULL CHECK (target_type IN ('kubernetes', 'virtual_machine')),
+  fingerprint TEXT NOT NULL,
+  issue_type TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('active', 'recovering', 'resolved')),
+  severity TEXT NOT NULL CHECK (severity IN ('critical', 'warning', 'info')),
+  severity_rank INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  scope_kind TEXT NULL,
+  scope_name TEXT NULL,
+  object_kind TEXT NULL,
+  object_name TEXT NULL,
+  reason TEXT NULL,
+  first_seen_at TIMESTAMPTZ NOT NULL,
+  last_seen_at TIMESTAMPTZ NOT NULL,
+  last_observed_snapshot_at TIMESTAMPTZ NOT NULL,
+  resolved_at TIMESTAMPTZ NULL,
+  occurrence_count INTEGER NOT NULL DEFAULT 1,
+  reopened_count INTEGER NOT NULL DEFAULT 0,
+  clean_snapshot_count INTEGER NOT NULL DEFAULT 0,
+  latest_evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
+  search_text TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (target_id, fingerprint)
+);
+
+CREATE TABLE IF NOT EXISTS target_issue_observations (
+  id TEXT PRIMARY KEY,
+  issue_id TEXT NOT NULL REFERENCES target_issues(id) ON DELETE CASCADE,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+  target_type TEXT NOT NULL CHECK (target_type IN ('kubernetes', 'virtual_machine')),
+  snapshot_ts TIMESTAMPTZ NOT NULL,
+  finding_id TEXT NULL,
+  severity TEXT NOT NULL CHECK (severity IN ('critical', 'warning', 'info')),
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  reason TEXT NULL,
+  evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS target_metric_history (
+  target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  target_type TEXT NOT NULL CHECK (target_type IN ('kubernetes', 'virtual_machine')),
+  sample_ts TIMESTAMPTZ NOT NULL,
+  metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (target_id, sample_ts)
+);
+
 CREATE TABLE IF NOT EXISTS target_tool_overrides (
   target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
   tool_name TEXT NOT NULL,
   enabled BOOLEAN NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (target_id, tool_name)
+);
+
+CREATE TABLE IF NOT EXISTS target_tool_settings (
+  target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+  tool_id TEXT NOT NULL,
+  enabled BOOLEAN NOT NULL,
+  config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (target_id, tool_id)
+);
+
+CREATE TABLE IF NOT EXISTS target_knowledge_entries (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+  target_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  body_markdown TEXT NOT NULL,
+  frontmatter JSONB NOT NULL DEFAULT '{}'::jsonb,
+  tags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  signals JSONB NOT NULL DEFAULT '{}'::jsonb,
+  scope JSONB NOT NULL DEFAULT '{}'::jsonb,
+  evidence_summary TEXT NOT NULL DEFAULT '',
+  observation_count INTEGER NOT NULL DEFAULT 0,
+  confidence NUMERIC(4, 3) NOT NULL DEFAULT 0,
+  first_observed_at TIMESTAMPTZ NULL,
+  last_observed_at TIMESTAMPTZ NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT target_knowledge_entries_status_check
+    CHECK (status IN ('active', 'pending', 'archived')),
+  CONSTRAINT target_knowledge_entries_target_type_check
+    CHECK (target_type IN ('kubernetes', 'virtual_machine')),
+  CONSTRAINT target_knowledge_entries_confidence_check
+    CHECK (confidence >= 0 AND confidence <= 1),
+  CONSTRAINT target_knowledge_entries_observation_count_check
+    CHECK (observation_count >= 0),
+  CONSTRAINT target_knowledge_entries_frontmatter_object_check
+    CHECK (jsonb_typeof(frontmatter) = 'object'),
+  CONSTRAINT target_knowledge_entries_signals_object_check
+    CHECK (jsonb_typeof(signals) = 'object'),
+  CONSTRAINT target_knowledge_entries_scope_object_check
+    CHECK (jsonb_typeof(scope) = 'object')
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -274,6 +367,30 @@ CREATE TABLE IF NOT EXISTS sessions (
   last_message_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '30 days'),
   deleted_at TIMESTAMPTZ NULL
+);
+
+CREATE TABLE IF NOT EXISTS target_knowledge_checkpoint_jobs (
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  target_type TEXT NOT NULL,
+  last_activity_at TIMESTAMPTZ NOT NULL,
+  due_at TIMESTAMPTZ NULL,
+  status TEXT NOT NULL DEFAULT 'queued',
+  lease_owner TEXT NULL,
+  lease_expires_at TIMESTAMPTZ NULL,
+  last_error TEXT NULL,
+  retry_after TIMESTAMPTZ NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT target_knowledge_checkpoint_jobs_status_check
+    CHECK (status IN ('queued', 'processing', 'applied', 'noop', 'skipped', 'failed')),
+  CONSTRAINT target_knowledge_checkpoint_jobs_target_type_check
+    CHECK (target_type IN ('kubernetes', 'virtual_machine')),
+  CONSTRAINT target_knowledge_checkpoint_jobs_attempts_check
+    CHECK (attempts >= 0),
+  PRIMARY KEY (workspace_id, target_id, session_id)
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -302,8 +419,8 @@ CREATE TABLE IF NOT EXISTS runs (
   llm_model TEXT NOT NULL DEFAULT 'gpt-5.5',
   llm_reasoning_summary_mode TEXT NOT NULL DEFAULT 'auto'
     CHECK (llm_reasoning_summary_mode IN ('off', 'auto', 'concise', 'detailed')),
-  llm_reasoning_effort TEXT NOT NULL DEFAULT 'default'
-    CHECK (llm_reasoning_effort IN ('default', 'low', 'medium', 'high')),
+  llm_reasoning_effort TEXT NOT NULL DEFAULT 'low'
+    CHECK (llm_reasoning_effort IN ('off', 'low', 'medium', 'high')),
   tool_access_mode TEXT NOT NULL DEFAULT 'read_only',
   status TEXT NOT NULL,
   requested_at TIMESTAMPTZ NOT NULL,
@@ -441,7 +558,7 @@ CREATE TABLE IF NOT EXISTS workspace_audit_events (
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT workspace_audit_events_category_check
-    CHECK (category IN ('membership', 'workspace', 'target', 'session', 'run', 'approval', 'mcp', 'tool')),
+    CHECK (category IN ('membership', 'workspace', 'target', 'session', 'run', 'approval', 'mcp', 'tool', 'knowledge')),
   CONSTRAINT workspace_audit_events_operation_check
     CHECK (operation IN ('read', 'write')),
   CONSTRAINT workspace_audit_events_actor_type_check
@@ -517,12 +634,6 @@ ALTER TABLE target_snapshots
   REFERENCES targets(workspace_id, id)
   ON DELETE CASCADE;
 
-ALTER TABLE target_snapshot_history
-  ADD CONSTRAINT fk_target_snapshot_history_workspace_target
-  FOREIGN KEY (workspace_id, target_id)
-  REFERENCES targets(workspace_id, id)
-  ON DELETE CASCADE;
-
 ALTER TABLE target_inventory_items
   ADD CONSTRAINT fk_target_inventory_items_workspace_target
   FOREIGN KEY (workspace_id, target_id)
@@ -537,6 +648,24 @@ ALTER TABLE target_findings
 
 ALTER TABLE target_snapshot_summaries
   ADD CONSTRAINT fk_target_snapshot_summaries_workspace_target
+  FOREIGN KEY (workspace_id, target_id)
+  REFERENCES targets(workspace_id, id)
+  ON DELETE CASCADE;
+
+ALTER TABLE target_issues
+  ADD CONSTRAINT fk_target_issues_workspace_target
+  FOREIGN KEY (workspace_id, target_id)
+  REFERENCES targets(workspace_id, id)
+  ON DELETE CASCADE;
+
+ALTER TABLE target_issue_observations
+  ADD CONSTRAINT fk_target_issue_observations_workspace_target
+  FOREIGN KEY (workspace_id, target_id)
+  REFERENCES targets(workspace_id, id)
+  ON DELETE CASCADE;
+
+ALTER TABLE target_metric_history
+  ADD CONSTRAINT fk_target_metric_history_workspace_target
   FOREIGN KEY (workspace_id, target_id)
   REFERENCES targets(workspace_id, id)
   ON DELETE CASCADE;
@@ -689,11 +818,28 @@ CREATE INDEX IF NOT EXISTS idx_chat_activity_events_session
 CREATE INDEX IF NOT EXISTS idx_target_tool_overrides_target
   ON target_tool_overrides (target_id);
 
-CREATE INDEX IF NOT EXISTS idx_target_snapshot_history_target_ts
-  ON target_snapshot_history (target_id, snapshot_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_target_tool_settings_target
+  ON target_tool_settings (target_id);
 
-CREATE INDEX IF NOT EXISTS idx_target_snapshot_history_workspace_target_ts
-  ON target_snapshot_history (workspace_id, target_id, snapshot_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_target_knowledge_entries_target_status
+  ON target_knowledge_entries (target_id, status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_target_knowledge_entries_workspace_target
+  ON target_knowledge_entries (workspace_id, target_id, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_target_knowledge_entries_search
+  ON target_knowledge_entries
+  USING GIN (to_tsvector('simple', title || ' ' || body_markdown || ' ' || evidence_summary));
+
+CREATE INDEX IF NOT EXISTS idx_target_knowledge_entries_tags
+  ON target_knowledge_entries USING GIN (tags);
+
+CREATE INDEX IF NOT EXISTS idx_target_knowledge_checkpoint_jobs_due
+  ON target_knowledge_checkpoint_jobs (status, due_at, retry_after, lease_expires_at)
+  WHERE due_at IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_target_knowledge_checkpoint_jobs_target
+  ON target_knowledge_checkpoint_jobs (workspace_id, target_id, updated_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_inventory_items_target_sort
   ON target_inventory_items (target_id, sort_key);
@@ -730,6 +876,27 @@ CREATE INDEX IF NOT EXISTS idx_target_findings_search_trgm
 
 CREATE INDEX IF NOT EXISTS idx_snapshot_summaries_workspace_target
   ON target_snapshot_summaries (workspace_id, target_id);
+
+CREATE INDEX IF NOT EXISTS idx_target_issues_workspace_order
+  ON target_issues (workspace_id, status, severity_rank, last_seen_at DESC, id);
+
+CREATE INDEX IF NOT EXISTS idx_target_issues_workspace_target_order
+  ON target_issues (workspace_id, target_id, status, severity_rank, last_seen_at DESC, id);
+
+CREATE INDEX IF NOT EXISTS idx_target_issues_workspace_scope_order
+  ON target_issues (workspace_id, scope_name, status, severity_rank, last_seen_at DESC, id);
+
+CREATE INDEX IF NOT EXISTS idx_target_issues_search_trgm
+  ON target_issues USING gin (search_text gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_target_issue_observations_issue_ts
+  ON target_issue_observations (issue_id, snapshot_ts DESC, id);
+
+CREATE INDEX IF NOT EXISTS idx_target_metric_history_target_ts
+  ON target_metric_history (target_id, sample_ts DESC);
+
+CREATE INDEX IF NOT EXISTS idx_target_metric_history_workspace_target_ts
+  ON target_metric_history (workspace_id, target_id, sample_ts DESC);
 
 CREATE INDEX IF NOT EXISTS idx_webhook_subscriptions_workspace_enabled
   ON webhook_subscriptions (workspace_id, enabled);
@@ -778,3 +945,114 @@ CREATE INDEX IF NOT EXISTS admin_audit_events_token_idx
 
 CREATE INDEX IF NOT EXISTS admin_audit_events_action_idx
   ON admin_audit_events (action, occurred_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS target_skills (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  source_type TEXT NOT NULL CHECK (source_type IN ('manual', 'git_import')),
+  enabled BOOLEAN NOT NULL DEFAULT false,
+  validation_status TEXT NOT NULL CHECK (validation_status IN ('valid', 'invalid')),
+  validation_errors JSONB NOT NULL DEFAULT '[]'::jsonb,
+  file_count INTEGER NOT NULL CHECK (file_count >= 1 AND file_count <= 16),
+  total_bytes INTEGER NOT NULL CHECK (total_bytes >= 0 AND total_bytes <= 131072),
+  source_repo_url TEXT NULL,
+  source_ref TEXT NULL,
+  source_subpath TEXT NULL,
+  source_commit_sha TEXT NULL,
+  sync_status TEXT NOT NULL CHECK (sync_status IN ('not_applicable', 'current', 'modified')),
+  created_by TEXT NULL,
+  updated_by TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT target_skills_target_scope_unique UNIQUE (target_id, id),
+  CONSTRAINT target_skills_source_metadata_check CHECK (
+    (source_type = 'manual'
+      AND source_repo_url IS NULL
+      AND source_ref IS NULL
+      AND source_subpath IS NULL
+      AND source_commit_sha IS NULL
+      AND sync_status = 'not_applicable')
+    OR
+    (source_type = 'git_import'
+      AND source_repo_url IS NOT NULL
+      AND source_ref IS NOT NULL
+      AND sync_status IN ('current', 'modified'))
+  )
+);
+
+CREATE TABLE IF NOT EXISTS target_skill_files (
+  skill_id TEXT NOT NULL REFERENCES target_skills(id) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  content TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0 AND size_bytes <= 32768),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (skill_id, path),
+  CONSTRAINT target_skill_files_path_check CHECK (
+    path = 'SKILL.md'
+    OR (
+      path LIKE '%.md'
+      AND path NOT LIKE '/%'
+      AND path NOT LIKE '%/'
+      AND path NOT LIKE '%//%'
+      AND path NOT LIKE '../%'
+      AND path NOT LIKE '%/../%'
+      AND path NOT LIKE './%'
+      AND path NOT LIKE '%/./%'
+    )
+  )
+);
+
+CREATE TABLE IF NOT EXISTS run_skill_catalog_snapshots (
+  run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+  workspace_id TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  target_type TEXT NOT NULL CHECK (target_type IN ('kubernetes', 'virtual_machine')),
+  skill_count INTEGER NOT NULL CHECK (skill_count >= 0),
+  total_bytes INTEGER NOT NULL CHECK (total_bytes >= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS skill_snapshot_blobs (
+  content_hash TEXT PRIMARY KEY,
+  files JSONB NOT NULL,
+  file_count INTEGER NOT NULL CHECK (file_count >= 0),
+  total_bytes INTEGER NOT NULL CHECK (total_bytes >= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_referenced_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS run_skill_snapshots (
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  skill_ref TEXT NOT NULL,
+  skill_id TEXT NOT NULL,
+  content_hash TEXT NOT NULL REFERENCES skill_snapshot_blobs(content_hash),
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  source JSONB NOT NULL DEFAULT '{}'::jsonb,
+  file_count INTEGER NOT NULL CHECK (file_count >= 0),
+  total_bytes INTEGER NOT NULL CHECK (total_bytes >= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (run_id, skill_ref)
+);
+
+CREATE INDEX IF NOT EXISTS idx_target_skills_target_updated
+  ON target_skills (target_id, updated_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_target_skills_target_enabled_valid
+  ON target_skills (target_id, enabled, validation_status);
+
+CREATE INDEX IF NOT EXISTS idx_target_skill_files_skill_path
+  ON target_skill_files (skill_id, path);
+
+CREATE INDEX IF NOT EXISTS idx_run_skill_snapshots_content_hash
+  ON run_skill_snapshots (content_hash);
+
+CREATE INDEX IF NOT EXISTS idx_run_skill_snapshots_run_skill_id
+  ON run_skill_snapshots (run_id, skill_id);
+
+CREATE INDEX IF NOT EXISTS idx_skill_snapshot_blobs_last_referenced_at
+  ON skill_snapshot_blobs (last_referenced_at);

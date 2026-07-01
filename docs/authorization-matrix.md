@@ -4,7 +4,7 @@ The control plane is authoritative for workspace roles and capabilities. Deploym
 
 API enforcement for workspace-scoped routes goes through centralized workspace authorization helpers in `src/auth/workspace-authorization.ts`. Controllers should ask for workspace read access, a named workspace capability, target access, or Kubernetes cluster access through that layer instead of reading repository membership or role state directly. For session-cookie authentication, effective permissions are resolved from configured role template capabilities. The built-in templates below are the defaults; deployments may disable non-owner built-ins and add custom role templates with supported capability ids. Future PAT support should narrow those effective permissions in the centralized helper layer, not in individual controllers.
 
-Capability ids: `read_workspace_data`, `read_members`, `read_audit_log`, `delete_workspace`, `manage_members`, `manage_targets`, `manage_mcp`, `manage_tools`, `manage_ai_settings`, `manage_agent_keys`, `manage_webhooks`, `create_sessions`, `create_read_only_runs`, `create_read_write_runs`, `read_target_logs`, `cancel_runs`, `delete_sessions`.
+Capability ids: `read_workspace_data`, `read_members`, `read_audit_log`, `delete_workspace`, `manage_members`, `manage_targets`, `manage_mcp`, `manage_tools`, `manage_skills`, `manage_ai_settings`, `manage_agent_keys`, `manage_webhooks`, `create_sessions`, `create_read_only_runs`, `create_read_write_runs`, `read_target_logs`, `cancel_runs`, `delete_sessions`.
 
 ## Auth Layering
 
@@ -21,6 +21,7 @@ The intended request flow is `credential -> identity -> workspace authorization 
 | Register, update, or delete targets and Kubernetes clusters | Yes | Yes | No | No | No |
 | Create, update, delete, or test MCP servers | Yes | Yes | No | No | No |
 | Toggle cluster tools | Yes | Yes | No | No | No |
+| Create, import, update, reimport, delete, enable, or disable target skills | Yes | Yes | No | No | No |
 | Manage workspace AI provider settings and credentials | Yes | Yes | No | No | No |
 | Rotate agent keys | Yes | Yes | No | No | No |
 | Create troubleshooting sessions | Yes | Yes | Yes | No | No |

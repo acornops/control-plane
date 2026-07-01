@@ -5,12 +5,18 @@ import { isTargetType, type TargetType, type WorkspaceAuditOperation } from '../
 
 export type RunScopeType = 'target' | 'workspace';
 
+export interface NativeToolPermission {
+  id: string;
+  config: Record<string, unknown>;
+}
+
 interface BaseRunScopeClaims {
   runId: string;
   workspaceId: string;
   sessionId: string;
   allowedProviders: string[];
   allowedTools: string[];
+  allowedNativeTools?: NativeToolPermission[];
   allowedToolOperations?: Record<string, WorkspaceAuditOperation>;
   maxOutputTokens?: number;
   allowedModels?: string[];
@@ -28,6 +34,9 @@ export interface WorkflowRunScopeClaims extends BaseRunScopeClaims {
   workflowRunId: string;
   workflowSessionId: string;
   workflowStepId?: string;
+  agentId?: string;
+  agentVersion?: number;
+  triggerId?: string;
   contextGrants?: string[];
   targetId?: string;
   targetType?: TargetType;
@@ -39,12 +48,16 @@ export interface VerifiedRunScopeClaims extends BaseRunScopeClaims {
   subject: string;
   tokenId?: string;
   scopeType: RunScopeType;
+  allowedNativeTools: NativeToolPermission[];
   targetId?: string;
   targetType?: TargetType;
   workflowId?: string;
   workflowRunId?: string;
   workflowSessionId?: string;
   workflowStepId?: string;
+  agentId?: string;
+  agentVersion?: number;
+  triggerId?: string;
   contextGrants: string[];
 }
 
@@ -135,6 +148,17 @@ function optionalStringClaim(payload: JWTPayload, key: string): string | undefin
   return value;
 }
 
+function optionalNumberClaim(payload: JWTPayload, key: string): number | undefined {
+  const value = payload[key];
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Gateway token claim ${key} must be a finite number when present`);
+  }
+  return value;
+}
+
 function toolOperationMapClaim(value: unknown): Record<string, WorkspaceAuditOperation> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
@@ -149,6 +173,31 @@ function toolOperationMapClaim(value: unknown): Record<string, WorkspaceAuditOpe
     }
   }
   return operations;
+}
+
+function nativeToolPermissionsClaim(value: unknown): NativeToolPermission[] {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new Error('Gateway token permission allowed_native_tools must be an array');
+  }
+  return value.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error('Gateway token permission allowed_native_tools entries must be objects');
+    }
+    const item = entry as Record<string, unknown>;
+    if (typeof item.id !== 'string' || item.id.trim().length === 0) {
+      throw new Error('Gateway token permission allowed_native_tools entries require id');
+    }
+    if (item.config !== undefined && (!item.config || typeof item.config !== 'object' || Array.isArray(item.config))) {
+      throw new Error('Gateway token permission allowed_native_tools config must be an object');
+    }
+    return {
+      id: item.id,
+      config: (item.config as Record<string, unknown> | undefined) || {}
+    };
+  });
 }
 
 function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
@@ -181,6 +230,7 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
     sessionId: stringClaim(payload, 'session_id'),
     allowedProviders: stringArrayClaim(permissionObject.allowed_providers, 'allowed_providers'),
     allowedTools: stringArrayClaim(permissionObject.allowed_tools, 'allowed_tools'),
+    allowedNativeTools: nativeToolPermissionsClaim(permissionObject.allowed_native_tools),
     allowedToolOperations: toolOperationMapClaim(permissionObject.allowed_tool_operations),
     allowedModels: stringArrayClaim(permissionObject.allowed_models, 'allowed_models'),
     maxOutputTokens: typeof maxOutputTokens === 'number' ? maxOutputTokens : undefined,
@@ -200,6 +250,9 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
       workflowRunId: stringClaim(payload, 'workflow_run_id'),
       workflowSessionId: stringClaim(payload, 'workflow_session_id'),
       workflowStepId: optionalStringClaim(payload, 'workflow_step_id'),
+      agentId: optionalStringClaim(payload, 'agent_id'),
+      agentVersion: optionalNumberClaim(payload, 'agent_version'),
+      triggerId: optionalStringClaim(payload, 'trigger_id'),
       targetId: optionalStringClaim(payload, 'target_id'),
       targetType
     };
@@ -234,6 +287,7 @@ export class GatewayTokenService {
     const permissionPayload: Record<string, unknown> = {
       allowed_providers: input.allowedProviders,
       allowed_tools: input.allowedTools,
+      allowed_native_tools: input.allowedNativeTools || [],
       allowed_tool_operations: input.allowedToolOperations || {},
       max_output_tokens: input.maxOutputTokens ?? null,
       allowed_models: input.allowedModels || []
@@ -262,6 +316,15 @@ export class GatewayTokenService {
       payload.workflow_session_id = input.workflowSessionId;
       if (input.workflowStepId) {
         payload.workflow_step_id = input.workflowStepId;
+      }
+      if (input.agentId) {
+        payload.agent_id = input.agentId;
+      }
+      if (typeof input.agentVersion === 'number') {
+        payload.agent_version = input.agentVersion;
+      }
+      if (input.triggerId) {
+        payload.trigger_id = input.triggerId;
       }
       if (input.targetId) {
         payload.target_id = input.targetId;

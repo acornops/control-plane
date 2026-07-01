@@ -1,12 +1,16 @@
 import { Router } from 'express';
 import { authenticatedHandler, requireActor } from '../auth/middleware.js';
 import * as workflowsController from '../controllers/workflows-controller.js';
+import * as workflowSchedulesController from '../controllers/workflow-schedules-controller.js';
 
 export const workflowsRouter = Router();
 const authed = authenticatedHandler;
 
 workflowsRouter.get('/workspaces/:workspaceId/workflows', requireActor(['user']), authed(workflowsController.listWorkflows));
 workflowsRouter.post('/workspaces/:workspaceId/workflows', requireActor(['user']), authed(workflowsController.createWorkflow));
+workflowsRouter.get('/workspaces/:workspaceId/workflow-schedules', requireActor(['user']), authed(workflowSchedulesController.listWorkspaceWorkflowSchedules));
+workflowsRouter.post('/workspaces/:workspaceId/workflow-schedules', requireActor(['user']), authed(workflowSchedulesController.createWorkflowScheduleForWorkspace));
+workflowsRouter.get('/workspaces/:workspaceId/approvals', requireActor(['user']), authed(workflowSchedulesController.listWorkspaceApprovalInbox));
 workflowsRouter.get('/workspaces/:workspaceId/workflow-options', requireActor(['user']), authed(workflowsController.listWorkflowOptions));
 workflowsRouter.get('/workspaces/:workspaceId/mcp/servers', requireActor(['user']), authed(workflowsController.listWorkflowMcpServersForWorkspace));
 workflowsRouter.post('/workspaces/:workspaceId/mcp/servers', requireActor(['user']), authed(workflowsController.createWorkflowMcpServerForWorkspace));
@@ -17,6 +21,8 @@ workflowsRouter.get('/workspaces/:workspaceId/mcp/servers/:serverId/tools', requ
 workflowsRouter.get('/workflows/:workflowId', requireActor(['user']), authed(workflowsController.getWorkflow));
 workflowsRouter.patch('/workflows/:workflowId', requireActor(['user']), authed(workflowsController.updateWorkflow));
 workflowsRouter.delete('/workflows/:workflowId', requireActor(['user']), authed(workflowsController.deleteWorkflow));
+workflowsRouter.patch('/workflow-schedules/:scheduleId', requireActor(['user']), authed(workflowSchedulesController.updateWorkflowSchedule));
+workflowsRouter.delete('/workflow-schedules/:scheduleId', requireActor(['user']), authed(workflowSchedulesController.deleteWorkflowSchedule));
 workflowsRouter.get('/workflows/:workflowId/sessions', requireActor(['user']), authed(workflowsController.listSessions));
 workflowsRouter.post('/workflows/:workflowId/sessions', requireActor(['user']), authed(workflowsController.createSession));
 workflowsRouter.post('/workflow-sessions/:sessionId/messages', requireActor(['user']), authed(workflowsController.postMessage));

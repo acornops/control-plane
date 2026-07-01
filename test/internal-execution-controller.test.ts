@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import {
   bootstrap,
-  normalizeToolCapability,
   summarizeRunEventCounts
 } from '../src/controllers/internal-execution-controller.js';
+import { normalizeToolCapability } from '../src/services/target-run-tool-resolution.js';
 import { agentGateway } from '../src/agent/ws-server.js';
 import { webhooks, type WebhookEventInput } from '../src/services/webhooks.js';
 import { gatewayTokenService } from '../src/services/token-service.js';
@@ -19,6 +19,7 @@ import {
   resetWorkflowRepositoryForTests
 } from '../src/store/repository-workflows.js';
 import { runtime } from '../src/store/runtime.js';
+import { listAgentDefinitions } from '../src/store/repository-agents.js';
 import type { RunEvent } from '../src/types/domain.js';
 import {
   callController,
@@ -69,6 +70,10 @@ beforeEach(() => {
     payload: event.payload ?? {},
     createdAt: '2026-05-24T00:00:00.000Z'
   });
+  repo.listEnabledValidTargetSkills = async () => [];
+  repo.getRunSkillCatalog = async () => [];
+  repo.getTargetToolSetting = async () => null;
+  repo.listEnabledTargetToolSettings = async () => [];
 });
 
 afterEach(() => {
@@ -322,6 +327,7 @@ describe('internal execution bootstrap audit metadata', () => {
     assert.ok(workflow);
     const compiledAccessScope = compileWorkflowAccessScope({
       workflow,
+      agents: listAgentDefinitions(workflow.workspaceId),
       actor: {
         userId: 'user-1',
         role: 'operator',
@@ -346,7 +352,7 @@ describe('internal execution bootstrap audit metadata', () => {
       llmProvider: 'gemini',
       llmModel: 'gemini-2.0-flash',
       llmReasoningSummaryMode: 'off',
-      llmReasoningEffort: 'default'
+      llmReasoningEffort: 'off'
     });
 
     repo.getWorkspaceAiSettings = async () => null;

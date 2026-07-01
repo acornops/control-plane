@@ -165,6 +165,53 @@ describe('execution engine client', () => {
     });
   });
 
+  it('includes explicit delegated agent metadata in workspace-scoped execution requests', async () => {
+    mutableConfig.EXECUTION_ENGINE_BASE_URL = 'https://engine.example.com';
+    mutableConfig.EXECUTION_ENGINE_DISPATCH_TOKEN = 'dispatch-token';
+
+    let fetchCall:
+      | {
+          url: string;
+          init?: RequestInit;
+        }
+      | undefined;
+    mock.method(globalThis, 'fetch', async (input, init) => {
+      fetchCall = {
+        url: input instanceof URL ? input.toString() : String(input),
+        init
+      };
+      return new Response(null, { status: 202 });
+    });
+
+    await dispatchWorkflowRunToExecutionEngine(createWorkflowRun({
+      compiledAccessScope: {
+        ...createWorkflowRun().compiledAccessScope,
+        jwtClaims: {
+          ...createWorkflowRun().compiledAccessScope.jwtClaims,
+          agent_id: 'agent-cluster-triage',
+          agent_version: 4
+        }
+      }
+    }));
+
+    assert.ok(fetchCall);
+    assert.deepEqual(JSON.parse(String(fetchCall.init?.body)), {
+      contract_version: 1,
+      scope_type: 'workspace',
+      run_id: 'workflow-run-1',
+      workspace_id: 'ws-1',
+      session_id: 'workflow-session-1',
+      message_id: 'workflow-message-1',
+      workflow_id: 'workspace-tool-exposure-audit',
+      workflow_run_id: 'workflow-execution-1',
+      workflow_session_id: 'workflow-session-1',
+      workflow_step_id: 'inventory-scope',
+      agent_id: 'agent-cluster-triage',
+      agent_version: 4,
+      requested_at: '2026-05-25T00:00:00.000Z'
+    });
+  });
+
   it('aborts timed-out dispatch requests and logs the failure', async () => {
     mutableConfig.EXECUTION_ENGINE_TIMEOUT_MS = 5;
 

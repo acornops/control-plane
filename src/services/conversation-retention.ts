@@ -4,13 +4,21 @@ import { repo } from '../store/repository.js';
 
 const PURGE_BATCH_SIZE = 500;
 
-type RetentionTaskName = 'conversations' | 'webhook_history' | 'workspace_audit_events' | 'external_integration_link_tokens';
+type RetentionTaskName =
+  | 'conversations'
+  | 'webhook_history'
+  | 'workspace_audit_events'
+  | 'external_integration_link_tokens'
+  | 'target_metric_history'
+  | 'skill_snapshot_blobs';
 
 interface RetentionSweepTasks {
   conversations: () => Promise<number>;
   webhookHistory: () => Promise<number>;
   workspaceAuditEvents: () => Promise<number>;
   externalIntegrationLinkTokens: () => Promise<number>;
+  targetMetricHistory: () => Promise<number>;
+  skillSnapshotBlobs: () => Promise<number>;
 }
 
 /**
@@ -47,12 +55,16 @@ export async function runControlPlaneRetentionSweep(tasks: RetentionSweepTasks =
   conversations: purgeExpiredConversations,
   webhookHistory: purgeOldWebhookHistory,
   workspaceAuditEvents: purgeOldWorkspaceAuditEvents,
-  externalIntegrationLinkTokens: purgeOldExternalIntegrationLinkTokens
+  externalIntegrationLinkTokens: purgeOldExternalIntegrationLinkTokens,
+  targetMetricHistory: purgeOldTargetMetricHistory,
+  skillSnapshotBlobs: purgeOrphanedSkillSnapshotBlobs
 }): Promise<void> {
   await runRetentionTask('conversations', tasks.conversations);
   await runRetentionTask('webhook_history', tasks.webhookHistory);
   await runRetentionTask('workspace_audit_events', tasks.workspaceAuditEvents);
   await runRetentionTask('external_integration_link_tokens', tasks.externalIntegrationLinkTokens);
+  await runRetentionTask('target_metric_history', tasks.targetMetricHistory);
+  await runRetentionTask('skill_snapshot_blobs', tasks.skillSnapshotBlobs);
 }
 
 export async function purgeOldWebhookHistory(): Promise<number> {
@@ -101,6 +113,40 @@ export async function purgeOldExternalIntegrationLinkTokens(): Promise<number> {
 
   if (purgedTotal > 0) {
     logger.info({ purgedTotal }, 'Purged old external integration link tokens');
+  }
+
+  return purgedTotal;
+}
+
+export async function purgeOldTargetMetricHistory(): Promise<number> {
+  let purgedTotal = 0;
+  while (true) {
+    const purged = await repo.purgeOldTargetMetricHistory(config.TARGET_METRIC_HISTORY_RETENTION_DAYS, PURGE_BATCH_SIZE);
+    purgedTotal += purged;
+    if (purged < PURGE_BATCH_SIZE) {
+      break;
+    }
+  }
+
+  if (purgedTotal > 0) {
+    logger.info({ purgedTotal }, 'Purged old target metric history');
+  }
+
+  return purgedTotal;
+}
+
+export async function purgeOrphanedSkillSnapshotBlobs(): Promise<number> {
+  let purgedTotal = 0;
+  while (true) {
+    const purged = await repo.purgeOrphanedSkillSnapshotBlobs(config.SKILL_SNAPSHOT_BLOB_ORPHAN_GRACE_DAYS, PURGE_BATCH_SIZE);
+    purgedTotal += purged;
+    if (purged < PURGE_BATCH_SIZE) {
+      break;
+    }
+  }
+
+  if (purgedTotal > 0) {
+    logger.info({ purgedTotal }, 'Purged orphaned skill snapshot blobs');
   }
 
   return purgedTotal;

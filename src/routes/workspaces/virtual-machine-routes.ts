@@ -22,25 +22,12 @@ export function registerVirtualMachineRoutes(router: Router): void {
     authed(workspacesController.updateVirtualMachine)
   );
   router.delete('/workspaces/:workspaceId/virtual-machines/:vmId', requireActor(['user']), authed(workspacesController.deleteVirtualMachine));
-  router.post(
-    '/workspaces/:workspaceId/virtual-machines/:vmId/rotate-agent-key',
-    requireActor(['user']),
-    authed(workspacesController.rotateVirtualMachineAgentKey)
-  );
+  router.post('/workspaces/:workspaceId/virtual-machines/:vmId/rotate-agent-key', requireActor(['user']), authed(workspacesController.rotateVirtualMachineAgentKey));
   router.get(
     '/workspaces/:workspaceId/virtual-machines/:vmId/resources',
     requireActor(['user', 'externalIntegration']),
     authed(workspacesController.listVirtualMachineInventory)
   );
-  router.get(
-    '/workspaces/:workspaceId/virtual-machines/:vmId/findings',
-    requireActor(['user', 'externalIntegration']),
-    authed(workspacesController.listVirtualMachineFindings)
-  );
-  router.get(
-    '/workspaces/:workspaceId/virtual-machines/:vmId/metrics/history',
-    requireActor(['user']),
-    authed(workspacesController.getVirtualMachineMetricsHistory)
-  );
+  router.get('/workspaces/:workspaceId/virtual-machines/:vmId/metrics/history', requireActor(['user']), authed(workspacesController.getVirtualMachineMetricsHistory));
   router.get('/workspaces/:workspaceId/virtual-machines/:vmId/logs', requireActor(['user']), authed(workspacesController.getVirtualMachineLogs));
 }

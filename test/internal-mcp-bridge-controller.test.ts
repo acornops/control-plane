@@ -4,6 +4,7 @@ import { callMcpTool, operationForToolCall } from '../src/controllers/internal-m
 import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
 import { repo } from '../src/store/repository.js';
+import { listAgentDefinitions } from '../src/store/repository-agents.js';
 import {
   createWorkflowRun,
   createWorkflowSession,
@@ -61,6 +62,7 @@ describe('internal MCP bridge audit classification', () => {
     assert.ok(workflow);
     const compiledAccessScope = compileWorkflowAccessScope({
       workflow,
+      agents: listAgentDefinitions(workflow.workspaceId),
       actor: {
         userId: 'user-1',
         role: 'operator',

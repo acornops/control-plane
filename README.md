@@ -285,20 +285,25 @@ Implementation notes:
 
 ## Integration Contracts
 
-### Kubernetes cluster and target tool catalogs (server-first)
+### Target MCP servers, skills, and built-in tools
 
-The management console's MCP Servers tab consumes a server-owned tools catalog API:
+The management console consumes distinct target-scoped surfaces for MCP servers,
+skills, and built-in tools:
 
-- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/catalog`
-- `PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolName}`
+- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/catalog`
+- `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools`
+- `PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolId}`
+- `PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools/{toolName}`
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`
 - `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`
 - `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/test-connection`
-- `GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/tools/catalog`
 
-Remote MCP server management is target-scoped. Kubernetes clusters are one target type using the target MCP surface, while Kubernetes built-in tools and the catalog composition that injects them remain Kubernetes-specific. Target-scoped catalog routes currently return catalog data for Kubernetes targets and return `UNSUPPORTED_TARGET_TYPE` for `virtual_machine` targets until VM tools exist.
+Remote MCP server management is target-scoped. Kubernetes clusters and VMs both
+use the target MCP, Skills, and built-in Tools surfaces. The Tools tab contains only
+AcornOps built-in tools such as `web_search`; MCP-discovered
+tools stay in the MCP catalog and paged server tool APIs.
 
-Response includes:
+MCP catalog responses include:
 
 - target-scoped `permissions.canEdit` for tool/server mutation controls
 - `servers[]` with built-in and remote MCP servers
@@ -306,11 +311,15 @@ Response includes:
 - server-level and tool-level counts (`total`, `enabledConfigured`, `enabledEffective`, write counts)
 - MCP discovery diagnostics per server (`connectionStatus`, `lastDiscoveryAt`, `lastDiscoveryError`)
 
+Built-in Tools responses include `permissions.canEdit`, `items[]`, and
+`web_search.config.domainFilters.{allowedDomains,blockedDomains}`.
+
 Mutation policy:
 
-- `owner` and `admin` can update tool toggles and MCP server settings.
+- roles with `manage_mcp` can update MCP server settings.
+- roles with `manage_tools` can update MCP tool toggles and built-in tool settings.
 - Remote MCP server creation accepts connection details plus optional non-secret public headers; tools are discovered from the server's `tools/list` endpoint and remain disabled until an admin reviews and enables them.
-- `operator` and `viewer` are read-only.
+- other roles are read-only unless custom role templates grant the relevant capability.
 
 ### execution-engine integration
 

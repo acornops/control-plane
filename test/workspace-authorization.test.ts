@@ -122,6 +122,7 @@ describe('workspace authorization helpers', () => {
     assert.equal(authz?.can('manage_targets'), true);
     assert.equal(authz?.can('manage_mcp'), true);
     assert.equal(authz?.can('manage_tools'), true);
+    assert.equal(authz?.can('manage_skills'), true);
     assert.equal(authz?.can('manage_agent_keys'), true);
     assert.equal(authz?.can('manage_webhooks'), true);
     assert.equal(authz?.can('delete_workspace'), false);

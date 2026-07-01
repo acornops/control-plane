@@ -1,8 +1,5 @@
 import {
   createPasswordUser as createPasswordUserRecord,
-  ensureDefaultUser as ensureDefaultUserRecord,
-  ensureDevelopmentAccessForUser as ensureDevelopmentAccessForUserRecord,
-  ensureDevelopmentSeed as ensureDevelopmentSeedRecord,
   getAuthMethodsForUser as getAuthMethodsForUserRecord,
   getFederatedIdentityByProviderSubject as getFederatedIdentityByProviderSubjectRecord,
   getPasswordCredentialByIdentifier as getPasswordCredentialByIdentifierRecord,
@@ -20,6 +17,7 @@ import {
   userHasWorkspaceAccess as userHasWorkspaceAccessRecord,
   addWorkspace as addWorkspaceRecord
 } from './repository-users.js';
+import * as repositoryUserSeed from './repository-user-seed.js';
 import {
   consumeEmailVerificationToken as consumeEmailVerificationTokenRecord,
   invalidateEmailVerificationToken as invalidateEmailVerificationTokenRecord,
@@ -56,7 +54,6 @@ import {
   deleteCluster as deleteClusterRecord,
   getCluster as getClusterRecord,
   getClusterSnapshot as getClusterSnapshotRecord,
-  listClusterSnapshotHistory as listClusterSnapshotHistoryRecord,
   listClusters as listClustersRecord,
   updateCluster as updateClusterRecord,
   upsertClusterSnapshot as upsertClusterSnapshotRecord
@@ -66,10 +63,8 @@ import {
   deleteVirtualMachine as deleteVirtualMachineRecord,
   getVirtualMachine as getVirtualMachineRecord,
   getVirtualMachineSnapshot as getVirtualMachineSnapshotRecord,
-  listVirtualMachineFindings as listVirtualMachineFindingsRecord,
   listVirtualMachineInventory as listVirtualMachineInventoryRecord,
   getVirtualMachineSnapshotSummary as getVirtualMachineSnapshotSummaryRecord,
-  listVirtualMachineSnapshotHistory as listVirtualMachineSnapshotHistoryRecord,
   listVirtualMachineSnapshotSummaries as listVirtualMachineSnapshotSummariesRecord,
   listVirtualMachines as listVirtualMachinesRecord,
   updateVirtualMachine as updateVirtualMachineRecord,
@@ -82,16 +77,39 @@ import {
   upsertTargetAgentRegistration as upsertTargetAgentRegistrationRecord
 } from './repository-target-agent-registrations.js';
 import {
+  getTargetToolSetting as getTargetToolSettingRecord,
+  listEnabledTargetToolSettings as listEnabledTargetToolSettingsRecord,
+  listTargetToolSettings as listTargetToolSettingsRecord,
   listTargetToolOverrides as listTargetToolOverridesRecord,
-  setTargetToolOverride as setTargetToolOverrideRecord
+  setTargetToolOverride as setTargetToolOverrideRecord,
+  upsertTargetToolSetting as upsertTargetToolSettingRecord
 } from './repository-target-tools.js';
+import * as repositoryKnowledgeBank from './repository-knowledge-bank.js';
+import * as repositoryKnowledgeBankCheckpoints from './repository-knowledge-bank-checkpoints.js';
+import {
+  countEnabledTargetSkills as countEnabledTargetSkillsRecord,
+  createTargetSkill as createTargetSkillRecord,
+  deleteTargetSkill as deleteTargetSkillRecord,
+  getTargetSkill as getTargetSkillRecord,
+  listEnabledValidTargetSkillSummaries as listEnabledValidTargetSkillSummariesRecord,
+  listEnabledValidTargetSkills as listEnabledValidTargetSkillsRecord,
+  listTargetSkills as listTargetSkillsRecord,
+  updateTargetSkill as updateTargetSkillRecord,
+  updateTargetSkillEnabled as updateTargetSkillEnabledRecord
+} from './repository-target-skills.js';
+import * as runSkillSnapshots from './repository-run-skill-snapshots.js';
 import {
   getClusterSnapshotSummary as getClusterSnapshotSummaryRecord,
-  listClusterSnapshotFindings as listClusterSnapshotFindingsRecord,
   listClusterSnapshotResources as listClusterSnapshotResourcesRecord,
-  listClusterSnapshotSummaries as listClusterSnapshotSummariesRecord,
-  listWorkspaceSnapshotFindings as listWorkspaceSnapshotFindingsRecord
+  listClusterSnapshotSummaries as listClusterSnapshotSummariesRecord
 } from './repository-kubernetes-inventory.js';
+import {
+  getTargetIssue as getTargetIssueRecord,
+  listTargetIssueObservations as listTargetIssueObservationsRecord,
+  listTargetIssues as listTargetIssuesRecord,
+  listWorkspaceIssues as listWorkspaceIssuesRecord,
+  summarizeTargetIssues as summarizeTargetIssuesRecord
+} from './repository-target-issues.js';
 import {
   addMessage as addMessageRecord,
   addRun as addRunRecord,
@@ -124,6 +142,7 @@ import {
   expireRunToolApproval as expireRunToolApprovalRecord,
   getRunContinuation as getRunContinuationRecord,
   getRunToolApproval as getRunToolApprovalRecord,
+  listWorkspaceRunToolApprovals as listWorkspaceRunToolApprovalsRecord,
   listRunToolApprovals as listRunToolApprovalsRecord,
   markRunToolApprovalExecutionFinished as markRunToolApprovalExecutionFinishedRecord,
   markRunToolApprovalExecutionStarted as markRunToolApprovalExecutionStartedRecord
@@ -139,10 +158,7 @@ import {
   purgeOldWebhookHistory as purgeOldWebhookHistoryRecord,
   updateWebhookSubscription as updateWebhookSubscriptionRecord
 } from './repository-webhooks.js';
-import {
-  getTarget as getTargetRecord,
-  listTargets as listTargetsRecord
-} from './repository-targets.js';
+import { getTarget as getTargetRecord, listTargets as listTargetsRecord } from './repository-targets.js';
 import {
   insertWorkspaceAuditEvent as insertWorkspaceAuditEventRecord,
   listWorkspaceAuditEvents as listWorkspaceAuditEventsRecord,
@@ -186,6 +202,10 @@ import {
   revokeExternalIntegrationUserLink as revokeExternalIntegrationUserLinkRecord,
   resolveExternalIntegrationUserLink as resolveExternalIntegrationUserLinkRecord
 } from './repository-external-integration-links.js';
+import {
+  listTargetMetricHistory as listTargetMetricHistoryRecord,
+  purgeOldTargetMetricHistory as purgeOldTargetMetricHistoryRecord
+} from './repository-target-metrics.js';
 import { insertAccountAuditEvent as insertAccountAuditEventRecord } from './repository-account-audit.js';
 import { getUserQuotaForUser as getUserQuotaForUserRecord } from './repository-quotas.js';
 
@@ -366,6 +386,8 @@ export class Repository {
 
   listRunToolApprovals = listRunToolApprovalsRecord;
 
+  listWorkspaceRunToolApprovals = listWorkspaceRunToolApprovalsRecord;
+
   getRunContinuation = getRunContinuationRecord;
 
   deleteRunContinuation = deleteRunContinuationRecord;
@@ -390,11 +412,15 @@ export class Repository {
 
   listClusterSnapshotResources = listClusterSnapshotResourcesRecord;
 
-  listClusterSnapshotFindings = listClusterSnapshotFindingsRecord;
+  listWorkspaceIssues = listWorkspaceIssuesRecord;
+  listTargetIssues = listTargetIssuesRecord;
+  summarizeTargetIssues = summarizeTargetIssuesRecord;
+  getTargetIssue = getTargetIssueRecord;
+  listTargetIssueObservations = listTargetIssueObservationsRecord;
 
-  listWorkspaceSnapshotFindings = listWorkspaceSnapshotFindingsRecord;
+  listTargetMetricHistory = listTargetMetricHistoryRecord;
 
-  listClusterSnapshotHistory = listClusterSnapshotHistoryRecord;
+  purgeOldTargetMetricHistory = purgeOldTargetMetricHistoryRecord;
 
   upsertVirtualMachineSnapshot = upsertVirtualMachineSnapshotRecord;
 
@@ -404,15 +430,47 @@ export class Repository {
 
   listVirtualMachineSnapshotSummaries = listVirtualMachineSnapshotSummariesRecord;
 
-  listVirtualMachineSnapshotHistory = listVirtualMachineSnapshotHistoryRecord;
-
   listVirtualMachineInventory = listVirtualMachineInventoryRecord;
 
-  listVirtualMachineFindings = listVirtualMachineFindingsRecord;
-
   listTargetToolOverrides = listTargetToolOverridesRecord;
-
   setTargetToolOverride = setTargetToolOverrideRecord;
+  listTargetToolSettings = listTargetToolSettingsRecord;
+  getTargetToolSetting = getTargetToolSettingRecord;
+  listEnabledTargetToolSettings = listEnabledTargetToolSettingsRecord;
+  upsertTargetToolSetting = upsertTargetToolSettingRecord;
+  listKnowledgeBankEntries = repositoryKnowledgeBank.listKnowledgeBankEntries;
+  getKnowledgeBankEntry = repositoryKnowledgeBank.getKnowledgeBankEntry;
+  createKnowledgeBankEntry = repositoryKnowledgeBank.createKnowledgeBankEntry;
+  updateKnowledgeBankEntry = repositoryKnowledgeBank.updateKnowledgeBankEntry;
+  resetKnowledgeBank = repositoryKnowledgeBank.resetKnowledgeBank;
+  searchKnowledgeBankSnippets = repositoryKnowledgeBank.searchKnowledgeBankSnippets;
+  upsertKnowledgeBankCheckpointJobForSessionActivity = repositoryKnowledgeBankCheckpoints.upsertKnowledgeBankCheckpointJobForSessionActivity;
+  claimDueKnowledgeBankCheckpointJobs = repositoryKnowledgeBankCheckpoints.claimDueKnowledgeBankCheckpointJobs;
+  rescheduleKnowledgeBankCheckpointJob = repositoryKnowledgeBankCheckpoints.rescheduleKnowledgeBankCheckpointJob;
+  finishKnowledgeBankCheckpointJob = repositoryKnowledgeBankCheckpoints.finishKnowledgeBankCheckpointJob;
+  renewKnowledgeBankCheckpointJobLeaseIfCurrent = repositoryKnowledgeBankCheckpoints.renewKnowledgeBankCheckpointJobLeaseIfCurrent;
+  requeueKnowledgeBankPausedCheckpoints = repositoryKnowledgeBankCheckpoints.requeueKnowledgeBankPausedCheckpoints;
+
+  listTargetSkills = listTargetSkillsRecord;
+
+  getTargetSkill = getTargetSkillRecord;
+
+  createTargetSkill = createTargetSkillRecord;
+
+  updateTargetSkill = updateTargetSkillRecord;
+
+  updateTargetSkillEnabled = updateTargetSkillEnabledRecord;
+
+  deleteTargetSkill = deleteTargetSkillRecord;
+
+  countEnabledTargetSkills = countEnabledTargetSkillsRecord;
+
+  listEnabledValidTargetSkills = listEnabledValidTargetSkillsRecord;
+  listEnabledValidTargetSkillSummaries = listEnabledValidTargetSkillSummariesRecord;
+  createRunSkillSnapshot = runSkillSnapshots.createRunSkillSnapshot;
+  getRunSkillCatalog = runSkillSnapshots.getRunSkillCatalog;
+  getRunSkillSnapshot = runSkillSnapshots.getRunSkillSnapshot;
+  purgeOrphanedSkillSnapshotBlobs = runSkillSnapshots.purgeOrphanedSkillSnapshotBlobs;
 
   createWebhookSubscription = createWebhookSubscriptionRecord;
 
@@ -480,11 +538,11 @@ export class Repository {
 
   getRoleTemplate = getRoleTemplateRecord;
 
-  ensureDefaultUser = ensureDefaultUserRecord;
+  ensureDefaultUser = repositoryUserSeed.ensureDefaultUser;
 
-  ensureDevelopmentAccessForUser = ensureDevelopmentAccessForUserRecord;
+  ensureDevelopmentAccessForUser = repositoryUserSeed.ensureDevelopmentAccessForUser;
 
-  ensureDevelopmentSeed = ensureDevelopmentSeedRecord;
+  ensureDevelopmentSeed = repositoryUserSeed.ensureDevelopmentSeed;
 
 }
 

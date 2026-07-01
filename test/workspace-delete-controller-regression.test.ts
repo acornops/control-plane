@@ -30,6 +30,7 @@ function createWorkspaceSummary(): WorkspaceSummary {
       manage_targets: true,
       manage_mcp: true,
       manage_tools: true,
+      manage_skills: true,
       manage_ai_settings: true,
       manage_agent_keys: true,
       manage_webhooks: true,

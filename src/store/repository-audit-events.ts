@@ -194,6 +194,7 @@ export async function listWorkspaceAuditEvents(
     eventType?: string;
     actorUserId?: string;
     objectType?: string;
+    metadataTargetId?: string;
     from?: string;
     to?: string;
     signature?: string;
@@ -217,6 +218,10 @@ export async function listWorkspaceAuditEvents(
   if (options.objectType) {
     params.push(options.objectType);
     clauses.push(`e.object_type = $${params.length}`);
+  }
+  if (options.metadataTargetId) {
+    params.push(options.metadataTargetId);
+    clauses.push(`e.metadata->>'targetId' = $${params.length}`);
   }
   if (options.from) {
     params.push(options.from);

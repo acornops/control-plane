@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
-import { listWorkspaceInvestigations } from '../src/controllers/workspaces-controller.js';
 import {
-  listClusterFindings,
+  getTargetIssueSummary,
+  listTargetIssueObservations,
+  listWorkspaceIssues
+} from '../src/controllers/workspaces-controller.js';
+import {
   listClusterResources,
   listClusters
 } from '../src/controllers/workspaces/kubernetes-cluster-controller.js';
@@ -14,20 +17,24 @@ const originalGetWorkspaceRole = repo.getWorkspaceRole;
 const originalGetCluster = repo.getCluster;
 const originalGetClusterSnapshot = repo.getClusterSnapshot;
 const originalListClusters = repo.listClusters;
-const originalListClusterSnapshotFindings = repo.listClusterSnapshotFindings;
 const originalListClusterSnapshotResources = repo.listClusterSnapshotResources;
 const originalListClusterSnapshotSummaries = repo.listClusterSnapshotSummaries;
-const originalListWorkspaceSnapshotFindings = repo.listWorkspaceSnapshotFindings;
+const originalListWorkspaceIssues = repo.listWorkspaceIssues;
+const originalSummarizeTargetIssues = repo.summarizeTargetIssues;
+const originalGetTargetIssue = repo.getTargetIssue;
+const originalListTargetIssueObservations = repo.listTargetIssueObservations;
 
 afterEach(() => {
   repo.getWorkspaceRole = originalGetWorkspaceRole;
   repo.getCluster = originalGetCluster;
   repo.getClusterSnapshot = originalGetClusterSnapshot;
   repo.listClusters = originalListClusters;
-  repo.listClusterSnapshotFindings = originalListClusterSnapshotFindings;
   repo.listClusterSnapshotResources = originalListClusterSnapshotResources;
   repo.listClusterSnapshotSummaries = originalListClusterSnapshotSummaries;
-  repo.listWorkspaceSnapshotFindings = originalListWorkspaceSnapshotFindings;
+  repo.listWorkspaceIssues = originalListWorkspaceIssues;
+  repo.summarizeTargetIssues = originalSummarizeTargetIssues;
+  repo.getTargetIssue = originalGetTargetIssue;
+  repo.listTargetIssueObservations = originalListTargetIssueObservations;
 });
 
 function createRequest(query: Record<string, string | undefined> = {}) {
@@ -38,7 +45,9 @@ function createRequest(query: Record<string, string | undefined> = {}) {
     },
     params: {
       workspaceId: 'workspace-1',
-      clusterId: 'cluster-1'
+      clusterId: 'cluster-1',
+      targetId: 'cluster-1',
+      issueId: 'issue-1'
     },
     query
   };
@@ -132,31 +141,50 @@ describe('normalized snapshot controller reads', () => {
     assert.deepEqual((res.body as { items: Array<{ id: string }> }).items.map((item) => item.id), ['pod-1']);
   });
 
-  it('lists workspace investigations through normalized rows without scanning clusters', async () => {
+  it('lists workspace issues through durable issue rows for external integrations', async () => {
     repo.getWorkspaceRole = async () => 'viewer';
     repo.listClusters = async () => {
-      throw new Error('workspace investigations should not scan clusters');
+      throw new Error('workspace issues should not scan clusters');
     };
     repo.getClusterSnapshot = async () => {
-      throw new Error('workspace investigations should not read raw snapshots');
+      throw new Error('workspace issues should not read raw snapshots');
     };
-    repo.listWorkspaceSnapshotFindings = async (_workspaceId, options) => ({
+    repo.listWorkspaceIssues = async (_workspaceId, options) => ({
       items: [
         {
-          id: 'finding-1',
+          id: 'issue-1',
+          workspaceId: 'workspace-1',
+          targetId: options.targetId || 'cluster-1',
+          targetType: 'kubernetes',
+          targetName: 'cluster-1',
+          fingerprint: 'kubernetes|cluster-1|default|deployment|api|app|pod-unhealthy',
+          issueType: 'kubernetes_pod_unhealthy',
+          status: 'active',
           severity: 'critical',
           title: 'Pod unhealthy',
-          message: 'Pod is unhealthy.',
-          timestamp: Date.parse('2026-05-10T00:00:00.000Z'),
-          clusterId: options.clusterId || 'cluster-1',
-          clusterName: 'cluster-1'
+          summary: 'Pod is unhealthy.',
+          namespace: 'default',
+          scopeKind: 'Namespace',
+          scopeName: 'default',
+          objectKind: 'Deployment',
+          objectName: 'api',
+          reason: 'CrashLoopBackOff',
+          firstSeenAt: '2026-05-10T00:00:00.000Z',
+          lastSeenAt: '2026-05-10T00:00:00.000Z',
+          lastObservedSnapshotAt: '2026-05-10T00:00:00.000Z',
+          occurrenceCount: 1,
+          reopenedCount: 0,
+          cleanSnapshotCount: 0,
+          latestEvidence: {},
+          createdAt: '2026-05-10T00:00:00.000Z',
+          updatedAt: '2026-05-10T00:00:00.000Z'
         }
       ]
     });
     const res = createResponse();
 
-    await listWorkspaceInvestigations(
-      createRequest({ severity: 'critical', clusterId: 'cluster-1' }) as never,
+    await listWorkspaceIssues(
+      createExternalIntegrationRequest({ severity: 'critical', targetId: 'cluster-1' }) as never,
       res as never,
       (err?: unknown) => {
         if (err) throw err;
@@ -164,7 +192,65 @@ describe('normalized snapshot controller reads', () => {
     );
 
     assert.equal(res.statusCode, 200);
-    assert.deepEqual((res.body as { items: Array<{ id: string }> }).items.map((item) => item.id), ['finding-1']);
+    assert.deepEqual((res.body as { items: Array<{ id: string }> }).items.map((item) => item.id), ['issue-1']);
+  });
+
+  it('returns target issue summary through durable issue rows', async () => {
+    repo.getWorkspaceRole = async () => 'viewer';
+    repo.getClusterSnapshot = async () => {
+      throw new Error('target issue summary should not read raw snapshots');
+    };
+    repo.summarizeTargetIssues = async (workspaceId, targetId) => {
+      assert.equal(workspaceId, 'workspace-1');
+      assert.equal(targetId, 'cluster-1');
+      return {
+        total: 3,
+        active: 2,
+        recovering: 1,
+        critical: 1,
+        warning: 2,
+        info: 0
+      };
+    };
+    const res = createResponse();
+
+    await getTargetIssueSummary(
+      createRequest() as never,
+      res as never,
+      (err?: unknown) => {
+        if (err) throw err;
+      }
+    );
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.body, {
+      total: 3,
+      active: 2,
+      recovering: 1,
+      critical: 1,
+      warning: 2,
+      info: 0
+    });
+  });
+
+  it('returns not found for missing issue observation history', async () => {
+    repo.getWorkspaceRole = async () => 'viewer';
+    repo.getTargetIssue = async () => null;
+    repo.listTargetIssueObservations = async () => {
+      throw new Error('missing issue should be checked before observations');
+    };
+    const res = createResponse();
+
+    await listTargetIssueObservations(
+      createRequest() as never,
+      res as never,
+      (err?: unknown) => {
+        if (err) throw err;
+      }
+    );
+
+    assert.equal(res.statusCode, 404);
+    assert.deepEqual(res.body, { error: { code: 'NOT_FOUND', message: 'Issue not found', retryable: false } });
   });
 
   it('uses normalized summaries for cluster list payloads', async () => {
@@ -279,7 +365,7 @@ describe('normalized snapshot controller reads', () => {
     ]);
   });
 
-  it('allows external integration credentials to read cluster resources and findings', async () => {
+  it('allows external integration credentials to read cluster resources', async () => {
     repo.getWorkspaceRole = async () => 'owner';
     repo.getCluster = async () => createCluster();
     repo.listClusterSnapshotResources = async (clusterId) => ({
@@ -298,64 +384,13 @@ describe('normalized snapshot controller reads', () => {
       ],
       nextCursor: undefined
     });
-    repo.listClusterSnapshotFindings = async () => ({
-      items: [
-        {
-          id: 'finding-1',
-          severity: 'warning',
-          title: 'Pod unhealthy',
-          message: 'Pod is unhealthy.',
-          timestamp: Date.parse('2026-06-01T00:00:00.000Z'),
-          clusterId: 'cluster-1',
-          clusterName: 'cluster-1',
-          namespace: 'default',
-          resourceKind: 'Pod',
-          resourceName: 'pod-1'
-        }
-      ],
-      nextCursor: undefined
-    });
-
     const resources = createResponse();
     await listClusterResources(createExternalIntegrationRequest() as never, resources as never, (err?: unknown) => {
       if (err) throw err;
     });
 
-    const findings = createResponse();
-    await listClusterFindings(createExternalIntegrationRequest() as never, findings as never, (err?: unknown) => {
-      if (err) throw err;
-    });
-
     assert.equal(resources.statusCode, 200);
     assert.equal((resources.body as { items: Array<{ id: string }> }).items[0].id, 'pod-1');
-    assert.equal(findings.statusCode, 200);
-    assert.equal((findings.body as { items: Array<{ id: string }> }).items[0].id, 'finding-1');
-  });
-
-  it('allows external integration credentials to list workspace investigations', async () => {
-    repo.getWorkspaceRole = async () => 'owner';
-    repo.listWorkspaceSnapshotFindings = async () => ({
-      items: [
-        {
-          id: 'finding-1',
-          severity: 'critical',
-          title: 'Pod unhealthy',
-          message: 'Pod is unhealthy.',
-          timestamp: Date.parse('2026-06-01T00:00:00.000Z'),
-          clusterId: 'cluster-1',
-          clusterName: 'cluster-1'
-        }
-      ],
-      nextCursor: undefined
-    });
-    const res = createResponse();
-
-    await listWorkspaceInvestigations(createExternalIntegrationRequest() as never, res as never, (err?: unknown) => {
-      if (err) throw err;
-    });
-
-    assert.equal(res.statusCode, 200);
-    assert.equal((res.body as { items: Array<{ id: string }> }).items[0].id, 'finding-1');
   });
 
   it('rejects external integration cluster lists when the linked role cannot read workspace data', async () => {

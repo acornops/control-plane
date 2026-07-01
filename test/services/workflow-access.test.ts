@@ -6,6 +6,7 @@ import {
   WorkflowAccessDeniedError,
   type WorkflowDefinitionForAccess
 } from '../../src/services/workflow-access.js';
+import type { AgentDefinition } from '../../src/types/agents.js';
 
 function createWorkflow(overrides: Partial<WorkflowDefinitionForAccess> = {}): WorkflowDefinitionForAccess {
   return {
@@ -42,6 +43,35 @@ function createWorkflow(overrides: Partial<WorkflowDefinitionForAccess> = {}): W
         approvalRequired: false
       }
     ],
+    ...overrides
+  };
+}
+
+function createAgent(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
+  return {
+    id: 'agent-incident',
+    workspaceId: 'workspace-1',
+    name: 'Incident analyst',
+    description: 'Reads cluster signals.',
+    instructions: 'Stay inside the assigned workflow scope.',
+    status: 'active',
+    source: 'system',
+    kind: 'specialist_agent',
+    providerType: 'internal',
+    version: 2,
+    ownerUserId: 'system',
+    createdBy: 'system',
+    createdAt: '2026-06-27T00:00:00.000Z',
+    updatedAt: '2026-06-27T00:00:00.000Z',
+    mcpServers: ['audit-log'],
+    tools: ['audit.events.search', 'mcp.tools.list'],
+    skills: ['acornops-security-baseline'],
+    contextGrants: ['audit_events'],
+    targetScope: { type: 'workspace' },
+    approvalPolicy: { mode: 'none', writeToolsRequireApproval: false },
+    trustPolicy: { level: 'restricted', allowExternalData: false },
+    triggers: [],
+    activity: { runCount: 0 },
     ...overrides
   };
 }
@@ -174,6 +204,120 @@ describe('workflow access compiler', () => {
       (err) => err instanceof WorkflowAccessDeniedError
         && err.code === 'WORKFLOW_CONTEXT_GRANT_DENIED'
         && err.missingContextGrants.includes('selected_chat_sessions')
+    );
+  });
+
+  it('narrows workflow step scope to active agent grants without setting agent identity claims', () => {
+    const compiled = compileWorkflowAccessScope({
+      workflow: createWorkflow({
+        steps: [
+          {
+            id: 'summarize',
+            title: 'Summarize exposure',
+            requiredInputs: [],
+            agentIds: ['agent-incident'],
+            enabledSkills: ['acornops-security-baseline', 'acornops-cross-repo-change'],
+            allowedMcpServers: ['audit-log', 'workspace-registry'],
+            allowedTools: ['audit.events.search', 'mcp.tools.list', 'mcp.servers.list'],
+            contextGrants: ['audit_events', 'workspace_metadata'],
+            approvalRequired: false
+          }
+        ]
+      }),
+      agents: [createAgent()],
+      actor: {
+        userId: 'user-operator',
+        role: 'operator',
+        permissions: capabilitiesToPermissions([
+          'read_workspace_data',
+          'create_sessions',
+          'create_read_only_runs'
+        ])
+      },
+      approvedContextGrants: ['audit_events']
+    });
+
+    assert.deepEqual(compiled.selectedAgents, [
+      { stepId: 'summarize', agentIds: ['agent-incident'], agentVersions: { 'agent-incident': 2 } }
+    ]);
+    assert.deepEqual(compiled.mcpServers, ['audit-log']);
+    assert.deepEqual(compiled.tools, ['audit.events.search', 'mcp.tools.list']);
+    assert.deepEqual(compiled.enabledSkills, ['acornops-security-baseline']);
+    assert.deepEqual(compiled.contextGrants, ['audit_events']);
+    assert.equal(compiled.jwtClaims.agent_id, undefined);
+    assert.equal(compiled.jwtClaims.agent_version, undefined);
+  });
+
+  it('does not expand empty workflow step allowlists to the selected agent scope', () => {
+    const compiled = compileWorkflowAccessScope({
+      workflow: createWorkflow({
+        enabledMcpServers: [],
+        enabledSkills: [],
+        steps: [
+          {
+            id: 'summarize',
+            title: 'Summarize exposure',
+            requiredInputs: [],
+            agentIds: ['agent-incident'],
+            enabledSkills: [],
+            allowedMcpServers: [],
+            allowedTools: [],
+            contextGrants: [],
+            approvalRequired: false
+          }
+        ]
+      }),
+      agents: [createAgent()],
+      actor: {
+        userId: 'user-operator',
+        role: 'operator',
+        permissions: capabilitiesToPermissions([
+          'read_workspace_data',
+          'create_sessions',
+          'create_read_only_runs'
+        ])
+      },
+      approvedContextGrants: []
+    });
+
+    assert.deepEqual(compiled.mcpServers, []);
+    assert.deepEqual(compiled.tools, []);
+    assert.deepEqual(compiled.enabledSkills, []);
+    assert.deepEqual(compiled.contextGrants, []);
+  });
+
+  it('rejects workflow steps scoped to disabled agents', () => {
+    assert.throws(
+      () => compileWorkflowAccessScope({
+        workflow: createWorkflow({
+          steps: [
+            {
+              id: 'summarize',
+              title: 'Summarize exposure',
+              requiredInputs: [],
+              agentIds: ['agent-disabled'],
+              enabledSkills: ['acornops-security-baseline'],
+              allowedMcpServers: ['audit-log'],
+              allowedTools: ['audit.events.search'],
+              contextGrants: ['audit_events'],
+              approvalRequired: false
+            }
+          ]
+        }),
+        agents: [createAgent({ id: 'agent-disabled', status: 'disabled' })],
+        actor: {
+          userId: 'user-operator',
+          role: 'operator',
+          permissions: capabilitiesToPermissions([
+            'read_workspace_data',
+            'create_sessions',
+            'create_read_only_runs'
+          ])
+        },
+        approvedContextGrants: ['audit_events']
+      }),
+      (err) => err instanceof WorkflowAccessDeniedError
+        && err.code === 'WORKFLOW_AGENT_SCOPE_DENIED'
     );
   });
 });

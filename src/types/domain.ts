@@ -104,6 +104,10 @@ export interface WorkspacePermissions {
   manage_targets: boolean;
   manage_mcp: boolean;
   manage_tools: boolean;
+  manage_knowledge_bank: boolean;
+  manage_skills: boolean;
+  manage_workflows: boolean;
+  manage_agents: boolean;
   manage_ai_settings: boolean;
   manage_agent_keys: boolean;
   manage_webhooks: boolean;
@@ -148,7 +152,7 @@ export interface WorkspaceSummary extends Workspace {
 
 export type LlmProvider = 'openai' | 'anthropic' | 'gemini';
 export type ReasoningSummaryMode = 'off' | 'auto' | 'concise' | 'detailed';
-export type ReasoningEffort = 'default' | 'low' | 'medium' | 'high';
+export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high';
 
 export interface WorkspaceAiSettings {
   workspaceId: string;
@@ -170,6 +174,17 @@ export interface TargetSummary {
   createdAt: string;
   updatedAt: string;
 }
+export type {
+  TargetSkillBundleStats,
+  TargetSkillDetail,
+  TargetSkillFile,
+  TargetSkillSource,
+  TargetSkillSourceType,
+  TargetSkillsCatalog,
+  TargetSkillSummary,
+  TargetSkillSyncStatus,
+  TargetSkillValidationStatus
+} from './target-skills.js';
 
 export interface WorkspaceMembership {
   workspaceId: string;
@@ -220,7 +235,8 @@ export const WORKSPACE_AUDIT_CATEGORIES = [
   'run',
   'approval',
   'mcp',
-  'tool'
+  'tool',
+  'knowledge'
 ] as const;
 
 export type WorkspaceAuditCategory = typeof WORKSPACE_AUDIT_CATEGORIES[number];
@@ -305,6 +321,14 @@ export interface VirtualMachineSnapshot {
   timestamp: string;
   data: Record<string, unknown>;
 }
+
+export type {
+  TargetIssue,
+  TargetIssueObservation,
+  TargetIssueSummary,
+  TargetIssueSeverity,
+  TargetIssueStatus
+} from './target-issues.js';
 
 export interface TargetAgentRegistration {
   targetId: string;

@@ -6,7 +6,7 @@ import { cancelRun, decideRunApproval } from '../src/controllers/runs-controller
 import { rotateAgentKey } from '../src/controllers/workspaces/kubernetes-cluster-controller.js';
 import {
   createTargetMcpServerForTarget,
-  updateTargetToolSettings
+  updateTargetMcpServerToolSettings
 } from '../src/controllers/workspaces/target-tool-controller.js';
 import { createWebhook, deleteWebhook } from '../src/controllers/webhooks-controller.js';
 import { logger } from '../src/logger.js';
@@ -263,14 +263,14 @@ describe('controller authorization regressions', () => {
   it('requires manage_tools for tool settings updates', async () => {
     installWorkspace('operator');
     const denied = await callController(
-      updateTargetToolSettings,
-      createRequest({ workspaceId: 'workspace-1', targetId: 'cluster-1', toolName: 'get_pods' }, { enabled: false })
+      updateTargetMcpServerToolSettings,
+      createRequest({ workspaceId: 'workspace-1', targetId: 'cluster-1', serverId: 'server-1', toolName: 'get_pods' }, { enabled: false })
     );
     assert.equal(denied.statusCode, 403);
 
     installWorkspace('admin');
     repo.setTargetToolOverride = async () => undefined;
-    mock.method(globalThis, 'fetch', async (_input, init) => {
+    mock.method(globalThis, 'fetch', async (input, init) => {
       if (init?.method === 'PATCH') {
         return new Response(JSON.stringify({
           name: 'get_pods',
@@ -279,6 +279,19 @@ describe('controller authorization regressions', () => {
           enabled: false,
           capability: 'read'
         }), { status: 200 });
+      }
+      if (String(input).includes('/api/v1/internal/mcp/servers?')) {
+        return new Response(JSON.stringify([{
+          id: 'server-1',
+          workspace_id: 'workspace-1',
+          target_id: 'cluster-1',
+          target_type: 'kubernetes',
+          server_name: 'builtin',
+          server_url: 'builtin://cluster',
+          enabled: true,
+          auth_type: 'none',
+          tools: []
+        }]), { status: 200 });
       }
       return new Response(JSON.stringify([
         {
@@ -291,8 +304,8 @@ describe('controller authorization regressions', () => {
       ]), { status: 200 });
     });
     const allowed = await callController(
-      updateTargetToolSettings,
-      createRequest({ workspaceId: 'workspace-1', targetId: 'cluster-1', toolName: 'get_pods' }, { enabled: false })
+      updateTargetMcpServerToolSettings,
+      createRequest({ workspaceId: 'workspace-1', targetId: 'cluster-1', serverId: 'server-1', toolName: 'get_pods' }, { enabled: false })
     );
     assert.equal(allowed.statusCode, 200);
   });
@@ -300,21 +313,36 @@ describe('controller authorization regressions', () => {
   it('requires explicit capability when enabling a discovered MCP tool', async () => {
     installWorkspace('admin');
     repo.setTargetToolOverride = async () => undefined;
-    mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify([
-      {
-        name: 'external.lookup',
-        mcp_server_url: 'https://mcp.example.test',
-        timeout_ms: 10000,
-        enabled: false,
-        capability: 'read',
-        source: 'mcp'
+    mock.method(globalThis, 'fetch', async (input) => {
+      if (String(input).includes('/api/v1/internal/mcp/servers?')) {
+        return new Response(JSON.stringify([{
+          id: 'server-1',
+          workspace_id: 'workspace-1',
+          target_id: 'cluster-1',
+          target_type: 'kubernetes',
+          server_name: 'external',
+          server_url: 'https://mcp.example.test',
+          enabled: true,
+          auth_type: 'none',
+          tools: []
+        }]), { status: 200 });
       }
-    ]), { status: 200 }));
+      return new Response(JSON.stringify([
+        {
+          name: 'external.lookup',
+          mcp_server_url: 'https://mcp.example.test',
+          timeout_ms: 10000,
+          enabled: false,
+          capability: 'read',
+          source: 'mcp'
+        }
+      ]), { status: 200 });
+    });
 
     const response = await callController(
-      updateTargetToolSettings,
+      updateTargetMcpServerToolSettings,
       createRequest(
-        { workspaceId: 'workspace-1', targetId: 'cluster-1', toolName: 'external.lookup' },
+        { workspaceId: 'workspace-1', targetId: 'cluster-1', serverId: 'server-1', toolName: 'external.lookup' },
         { enabled: true }
       )
     );

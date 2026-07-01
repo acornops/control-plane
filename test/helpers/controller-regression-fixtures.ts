@@ -21,6 +21,7 @@ const originals = {
   listRecentTargetChatActivity: repo.listRecentTargetChatActivity,
   listTargetChatActivityEvents: repo.listTargetChatActivityEvents,
   getSession: repo.getSession,
+  listMessages: repo.listMessages,
   deleteSession: repo.deleteSession,
   getWorkspaceAiSettings: repo.getWorkspaceAiSettings,
   upsertWorkspaceAiSettings: repo.upsertWorkspaceAiSettings,
@@ -29,6 +30,7 @@ const originals = {
   getRun: repo.getRun,
   createRunToolApproval: repo.createRunToolApproval,
   getRunToolApproval: repo.getRunToolApproval,
+  listWorkspaceRunToolApprovals: repo.listWorkspaceRunToolApprovals,
   decideRunToolApproval: repo.decideRunToolApproval,
   getRunContinuation: repo.getRunContinuation,
   appendRunEvents: repo.appendRunEvents,
@@ -43,6 +45,13 @@ const originals = {
   listMatchingWebhookSubscriptions: repo.listMatchingWebhookSubscriptions,
   listTargetToolOverrides: repo.listTargetToolOverrides,
   setTargetToolOverride: repo.setTargetToolOverride,
+  getTargetToolSetting: repo.getTargetToolSetting,
+  listEnabledTargetToolSettings: repo.listEnabledTargetToolSettings,
+  upsertTargetToolSetting: repo.upsertTargetToolSetting,
+  searchKnowledgeBankSnippets: repo.searchKnowledgeBankSnippets,
+  requeueKnowledgeBankPausedCheckpoints: repo.requeueKnowledgeBankPausedCheckpoints,
+  listEnabledValidTargetSkills: repo.listEnabledValidTargetSkills,
+  listEnabledValidTargetSkillSummaries: repo.listEnabledValidTargetSkillSummaries,
   createWebhookSubscription: repo.createWebhookSubscription,
   updateWebhookSubscription: repo.updateWebhookSubscription,
   deleteWebhookSubscription: repo.deleteWebhookSubscription,
@@ -59,6 +68,7 @@ export function restoreControllerRegressionState(): void {
   repo.listRecentTargetChatActivity = originals.listRecentTargetChatActivity;
   repo.listTargetChatActivityEvents = originals.listTargetChatActivityEvents;
   repo.getSession = originals.getSession;
+  repo.listMessages = originals.listMessages;
   repo.deleteSession = originals.deleteSession;
   repo.getWorkspaceAiSettings = originals.getWorkspaceAiSettings;
   repo.upsertWorkspaceAiSettings = originals.upsertWorkspaceAiSettings;
@@ -67,6 +77,7 @@ export function restoreControllerRegressionState(): void {
   repo.getRun = originals.getRun;
   repo.createRunToolApproval = originals.createRunToolApproval;
   repo.getRunToolApproval = originals.getRunToolApproval;
+  repo.listWorkspaceRunToolApprovals = originals.listWorkspaceRunToolApprovals;
   repo.decideRunToolApproval = originals.decideRunToolApproval;
   repo.getRunContinuation = originals.getRunContinuation;
   repo.appendRunEvents = originals.appendRunEvents;
@@ -81,6 +92,13 @@ export function restoreControllerRegressionState(): void {
   repo.listMatchingWebhookSubscriptions = originals.listMatchingWebhookSubscriptions;
   repo.listTargetToolOverrides = originals.listTargetToolOverrides;
   repo.setTargetToolOverride = originals.setTargetToolOverride;
+  repo.getTargetToolSetting = originals.getTargetToolSetting;
+  repo.listEnabledTargetToolSettings = originals.listEnabledTargetToolSettings;
+  repo.upsertTargetToolSetting = originals.upsertTargetToolSetting;
+  repo.searchKnowledgeBankSnippets = originals.searchKnowledgeBankSnippets;
+  repo.requeueKnowledgeBankPausedCheckpoints = originals.requeueKnowledgeBankPausedCheckpoints;
+  repo.listEnabledValidTargetSkills = originals.listEnabledValidTargetSkills;
+  repo.listEnabledValidTargetSkillSummaries = originals.listEnabledValidTargetSkillSummaries;
   repo.createWebhookSubscription = originals.createWebhookSubscription;
   repo.updateWebhookSubscription = originals.updateWebhookSubscription;
   repo.deleteWebhookSubscription = originals.deleteWebhookSubscription;
@@ -189,6 +207,9 @@ export function installWorkspace(role: Role | null): void {
     createdAt: '2026-05-24T00:00:00.000Z'
   });
   repo.getWorkspaceAiSettings = async () => null;
+  repo.requeueKnowledgeBankPausedCheckpoints = async () => 0;
+  repo.listEnabledValidTargetSkills = async () => [];
+  repo.listEnabledValidTargetSkillSummaries = async () => [];
 }
 
 export function createWorkspaceAiCredentialStatusResponse(workspaceId = 'workspace-1') {

@@ -33,11 +33,21 @@ import {
   recordToolCatalogAudit
 } from './mcp-audit.js';
 
-function respondMissingCapability(res: Response): void {
+function respondMissingMcpCapability(res: Response): void {
   res.status(403).json({
     error: {
       code: 'FORBIDDEN',
-      message: 'Only workspace roles with tool and MCP management capability can modify tool and MCP server settings',
+      message: 'Only workspace roles with MCP management capability can modify MCP server settings',
+      retryable: false
+    }
+  });
+}
+
+function respondMissingToolsCapability(res: Response): void {
+  res.status(403).json({
+    error: {
+      code: 'FORBIDDEN',
+      message: 'Only workspace roles with tool management capability can modify tool settings',
       retryable: false
     }
   });
@@ -55,7 +65,7 @@ function targetWebhookScope(targetId: string, targetType: TargetType): {
   };
 }
 
-export async function listTargetToolsCatalog(
+export async function listTargetMcpCatalog(
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
@@ -80,7 +90,7 @@ export async function listTargetToolsCatalog(
       workspaceId,
       targetId,
       targetType: access.target.targetType,
-      canEdit: access.authz.can('manage_tools') && access.authz.can('manage_mcp'),
+      canEdit: access.authz.can('manage_mcp'),
       tools,
       servers,
       overrides,
@@ -157,7 +167,7 @@ export async function listTargetMcpServerTools(req: AuthenticatedRequest, res: R
       workspaceId,
       targetId,
       targetType: access.target.targetType,
-      canEdit: access.authz.can('manage_tools') && access.authz.can('manage_mcp'),
+      canEdit: access.authz.can('manage_mcp'),
       tools,
       servers,
       overrides,
@@ -208,7 +218,7 @@ export async function createTargetMcpServerForTarget(req: AuthenticatedRequest, 
       return;
     }
     if (!access.authz.can('manage_mcp')) {
-      respondMissingCapability(res);
+      respondMissingMcpCapability(res);
       return;
     }
 
@@ -275,7 +285,7 @@ export async function updateTargetMcpServerForTarget(req: AuthenticatedRequest, 
       return;
     }
     if (!access.authz.can('manage_mcp')) {
-      respondMissingCapability(res);
+      respondMissingMcpCapability(res);
       return;
     }
 
@@ -344,7 +354,7 @@ export async function deleteTargetMcpServerForTarget(req: AuthenticatedRequest, 
       return;
     }
     if (!access.authz.can('manage_mcp')) {
-      respondMissingCapability(res);
+      respondMissingMcpCapability(res);
       return;
     }
 
@@ -390,7 +400,7 @@ export async function testTargetMcpServerConnectionForTarget(req: AuthenticatedR
       return;
     }
     if (!access.authz.can('manage_mcp')) {
-      respondMissingCapability(res);
+      respondMissingMcpCapability(res);
       return;
     }
 
@@ -420,17 +430,18 @@ export async function testTargetMcpServerConnectionForTarget(req: AuthenticatedR
   }
 }
 
-export async function updateTargetToolSettings(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+export async function updateTargetMcpServerToolSettings(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
     const targetId = toSingleParam(req.params.targetId);
+    const serverId = toSingleParam(req.params.serverId);
     const toolName = toSingleParam(req.params.toolName);
     const access = await requireTargetAccess(req, res, workspaceId, targetId);
     if (!access) {
       return;
     }
     if (!access.authz.can('manage_tools')) {
-      respondMissingCapability(res);
+      respondMissingToolsCapability(res);
       return;
     }
 
@@ -438,11 +449,19 @@ export async function updateTargetToolSettings(req: AuthenticatedRequest, res: R
       res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'enabled is required', retryable: false } });
       return;
     }
-    const tools = await listTargetMcpTools(workspaceId, targetId, access.target.targetType, {
-      includeServerDisabled: true,
-      includeDisabled: true
-    });
-    const existing = tools.find((tool) => tool.name === toolName);
+    const [tools, servers] = await Promise.all([
+      listTargetMcpTools(workspaceId, targetId, access.target.targetType, {
+        includeServerDisabled: true,
+        includeDisabled: true
+      }),
+      listGatewayTargetMcpServers(workspaceId, targetId, access.target.targetType)
+    ]);
+    const server = servers.find((item) => item.id === serverId);
+    if (!server) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'MCP server not found', retryable: false } });
+      return;
+    }
+    const existing = tools.find((tool) => tool.name === toolName && tool.mcp_server_url === server.server_url);
     if (!existing) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Tool not found', retryable: false } });
       return;
@@ -474,7 +493,8 @@ export async function updateTargetToolSettings(req: AuthenticatedRequest, res: R
       ...targetWebhookScope(targetId, access.target.targetType),
       subject: { type: 'target', id: targetId },
       data: {
-        reason: 'tool_setting_updated',
+        reason: 'mcp_tool_setting_updated',
+        serverId,
         toolName,
         enabled: req.body.enabled
       }

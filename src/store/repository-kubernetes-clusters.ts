@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../infra/db.js';
+import { summarizeKubernetesSnapshotMetrics } from '../services/target-metric-samples.js';
 import { ClusterSnapshot, KUBERNETES_TARGET_TYPE, KubernetesCluster } from '../types/domain.js';
 import { PagedResult, encodeCursor, pageWithCursor } from '../utils/pagination.js';
 import {
@@ -9,6 +10,7 @@ import {
   toIso
 } from './repository-mappers.js';
 import { replaceClusterSnapshotDerivedRows } from './repository-kubernetes-inventory.js';
+import { upsertTargetMetricSample } from './repository-target-metrics.js';
 import { withTransaction } from './repository-transaction.js';
 import { assertWorkspaceTargetQuota } from './repository-quotas.js';
 
@@ -27,6 +29,14 @@ const clusterSelect = `
   FROM targets t
   LEFT JOIN kubernetes_target_settings k ON k.target_id = t.id
 `;
+
+function isNewerSnapshot(currentTimestamp: string, previousTimestamp: string): boolean {
+  const currentTime = Date.parse(currentTimestamp);
+  const previousTime = Date.parse(previousTimestamp);
+  return Number.isFinite(currentTime) && Number.isFinite(previousTime)
+    ? currentTime > previousTime
+    : currentTimestamp > previousTimestamp;
+}
 
 export async function addCluster(
   workspaceId: string,
@@ -174,7 +184,6 @@ export async function deleteCluster(clusterId: string): Promise<boolean> {
     await client.query('DELETE FROM sessions WHERE target_id = $1', [clusterId]);
     await client.query('DELETE FROM runs WHERE target_id = $1', [clusterId]);
     await client.query('DELETE FROM run_tool_approvals WHERE target_id = $1', [clusterId]);
-    await client.query('DELETE FROM target_snapshot_history WHERE target_id = $1', [clusterId]);
     await client.query('DELETE FROM targets WHERE id = $1', [clusterId]);
     return true;
   });
@@ -196,6 +205,21 @@ export async function upsertClusterSnapshot(snapshot: ClusterSnapshot): Promise<
       ...snapshot,
       workspaceId: cluster.workspaceId
     };
+    const previousSnapshotResult = await client.query<ClusterSnapshotRow>(
+      `SELECT target_id, workspace_id, snapshot_ts, data
+       FROM target_snapshots
+       WHERE target_id = $1`,
+      [canonicalSnapshot.clusterId]
+    );
+    const previousSnapshot: ClusterSnapshot | null = previousSnapshotResult.rows.length > 0
+      ? {
+        clusterId: previousSnapshotResult.rows[0].target_id,
+        workspaceId: previousSnapshotResult.rows[0].workspace_id,
+        timestamp: toIso(previousSnapshotResult.rows[0].snapshot_ts)!,
+        data: previousSnapshotResult.rows[0].data || {}
+      }
+      : null;
+    if (previousSnapshot && !isNewerSnapshot(canonicalSnapshot.timestamp, previousSnapshot.timestamp)) return;
     const payload = JSON.stringify(canonicalSnapshot.data);
     await client.query(
       `INSERT INTO target_snapshots (target_id, workspace_id, snapshot_ts, data)
@@ -206,12 +230,15 @@ export async function upsertClusterSnapshot(snapshot: ClusterSnapshot): Promise<
            data = EXCLUDED.data`,
       [canonicalSnapshot.clusterId, canonicalSnapshot.workspaceId, canonicalSnapshot.timestamp, payload]
     );
-    await client.query(
-      `INSERT INTO target_snapshot_history (id, target_id, workspace_id, snapshot_ts, data)
-       VALUES ($1, $2, $3, $4, $5::jsonb)`,
-      [randomUUID(), canonicalSnapshot.clusterId, canonicalSnapshot.workspaceId, canonicalSnapshot.timestamp, payload]
-    );
-    await replaceClusterSnapshotDerivedRows(client, cluster, canonicalSnapshot);
+    const metricSample = summarizeKubernetesSnapshotMetrics(canonicalSnapshot);
+    await upsertTargetMetricSample(client, {
+      targetId: canonicalSnapshot.clusterId,
+      workspaceId: canonicalSnapshot.workspaceId,
+      targetType: 'kubernetes',
+      timestamp: canonicalSnapshot.timestamp,
+      metrics: metricSample
+    });
+    await replaceClusterSnapshotDerivedRows(client, cluster, canonicalSnapshot, previousSnapshot);
   });
 }
 
@@ -225,35 +252,4 @@ export async function getClusterSnapshot(clusterId: string): Promise<ClusterSnap
     timestamp: toIso(row.snapshot_ts)!,
     data: row.data || {}
   };
-}
-
-export async function listClusterSnapshotHistory(
-  clusterId: string,
-  options: { since?: string; limit?: number } = {}
-): Promise<ClusterSnapshot[]> {
-  const params: Array<string | number> = [clusterId];
-  let where = 'target_id = $1';
-  if (options.since) {
-    params.push(options.since);
-    where += ` AND snapshot_ts >= $${params.length}`;
-  }
-  params.push(options.limit ?? 100);
-  const result = await db.query<ClusterSnapshotRow>(
-    `SELECT *
-     FROM (
-       SELECT target_id, workspace_id, snapshot_ts, data
-       FROM target_snapshot_history
-       WHERE ${where}
-       ORDER BY snapshot_ts DESC
-       LIMIT $${params.length}
-     ) recent
-     ORDER BY snapshot_ts ASC`,
-    params
-  );
-  return result.rows.map((row) => ({
-    clusterId: row.target_id,
-    workspaceId: row.workspace_id,
-    timestamp: toIso(row.snapshot_ts)!,
-    data: row.data || {}
-  }));
 }

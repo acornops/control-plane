@@ -1,8 +1,9 @@
 import { NextFunction, Request, Response } from 'express';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
-import { incrementRunEventsIngested } from '../metrics.js';
+import { incrementKnowledgeBankRetrieval, incrementRunEventsIngested } from '../metrics.js';
 import { publishRunEvents } from '../services/control-plane-coordination.js';
+import { KNOWLEDGE_BANK_TOOL_ID, normalizeKnowledgeBankConfig } from '../services/knowledge-bank/config.js';
 import { recordTargetChatActivityEvent } from '../services/target-chat-activity-events.js';
 import { emitRunStatusTransition } from '../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
@@ -25,8 +26,53 @@ import {
   summarizeRunEventCounts
 } from './internal-execution-events.js';
 
-export { bootstrap, normalizeToolCapability } from './internal-execution-bootstrap.js';
+export { bootstrap } from './internal-execution-bootstrap.js';
 export { summarizeRunEventCounts } from './internal-execution-events.js';
+
+function buildKnowledgeBankContextMessage(snippets: Awaited<ReturnType<typeof repo.searchKnowledgeBankSnippets>>): string {
+  return [
+    'Knowledge Bank context retrieved for this target. Use it as prior operational evidence, but verify against live tool output before making claims.',
+    ...snippets.map((snippet, index) => [
+      '',
+      `${index + 1}. ${snippet.title}`,
+      snippet.evidenceSummary ? `Evidence: ${snippet.evidenceSummary}` : undefined,
+      `Confidence: ${snippet.confidence}; observations: ${snippet.observationCount}`,
+      snippet.tags.length ? `Tags: ${snippet.tags.join(', ')}` : undefined,
+      snippet.body
+    ].filter(Boolean).join('\n'))
+  ].join('\n');
+}
+
+type KnowledgeBankRetrievalStatus = 'disabled' | 'skipped' | 'hit' | 'miss' | 'error';
+
+export async function getRunSkillSnapshot(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const runId = toSingleParam(req.params.runId);
+    const skillRef = toSingleParam(req.params.skillRef);
+    const snapshot = await repo.getRunSkillSnapshot(runId, skillRef);
+    if (!snapshot) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Skill snapshot not found for run', retryable: false } });
+      return;
+    }
+    res.status(200).json({
+      skill_ref: snapshot.ref,
+      skill_id: snapshot.skillId,
+      name: snapshot.name,
+      description: snapshot.description,
+      source: snapshot.source,
+      content_hash: snapshot.contentHash,
+      file_count: snapshot.fileCount,
+      total_bytes: snapshot.totalBytes,
+      files: snapshot.files.map((file) => ({
+        path: file.path,
+        content: file.content,
+        size_bytes: file.sizeBytes
+      }))
+    });
+  } catch (err) {
+    next(err);
+  }
+}
 
 export async function getSessionContext(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -39,8 +85,9 @@ export async function getSessionContext(req: Request, res: Response, next: NextF
       return;
     }
 
+    let run = null;
     if (runId) {
-      const run = await repo.getRun(runId);
+      run = await repo.getRun(runId);
       if (!run || run.sessionId !== sessionId) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Run not found for session', retryable: false } });
         return;
@@ -48,16 +95,67 @@ export async function getSessionContext(req: Request, res: Response, next: NextF
     }
 
     const messagesPage = await repo.listMessages(sessionId);
+    let knowledgeSnippets: Awaited<ReturnType<typeof repo.searchKnowledgeBankSnippets>> = [];
+    let knowledgeRetrievalStatus: KnowledgeBankRetrievalStatus = config.KNOWLEDGE_BANK_ENABLED ? 'skipped' : 'disabled';
+    if (config.KNOWLEDGE_BANK_ENABLED && run) {
+      try {
+        const setting = await repo.getTargetToolSetting(session.targetId, KNOWLEDGE_BANK_TOOL_ID);
+        if (setting?.enabled ?? true) {
+          const toolConfig = normalizeKnowledgeBankConfig(setting?.config);
+          const query = messagesPage.items
+            .map((message) => message.content)
+            .join('\n')
+            .slice(-8000);
+          knowledgeSnippets = await repo.searchKnowledgeBankSnippets(session.workspaceId, session.targetId, query, {
+            limit: toolConfig.retrieval.maxSnippetsPerRetrieval,
+            maxSnippetSizeBytes: toolConfig.retrieval.maxSnippetSizeBytes
+          });
+          knowledgeRetrievalStatus = knowledgeSnippets.length > 0 ? 'hit' : 'miss';
+          incrementKnowledgeBankRetrieval(knowledgeSnippets.length > 0 ? 'hit' : 'miss');
+        } else {
+          knowledgeRetrievalStatus = 'skipped';
+          incrementKnowledgeBankRetrieval('skipped');
+        }
+      } catch (err) {
+        knowledgeSnippets = [];
+        knowledgeRetrievalStatus = 'error';
+        incrementKnowledgeBankRetrieval('error');
+        logger.warn({
+          err,
+          workspaceId: session.workspaceId,
+          targetId: session.targetId,
+          sessionId,
+          runId
+        }, 'Knowledge Bank retrieval failed; continuing without snippets');
+      }
+    }
     const context = {
       messages: [
         {
           role: 'system',
           content: config.AGENT_SYSTEM_INSTRUCTION
         },
+        ...(knowledgeSnippets.length > 0 ? [{
+          role: 'system',
+          content: buildKnowledgeBankContextMessage(knowledgeSnippets)
+        }] : []),
         ...messagesPage.items.map((message) => ({ role: message.role, content: message.content }))
       ],
       summaries: [],
-      attachments: []
+      attachments: [],
+      knowledge_bank: {
+        retrieval_status: knowledgeRetrievalStatus,
+        snippets: knowledgeSnippets.map((snippet) => ({
+          entry_id: snippet.entryId,
+          title: snippet.title,
+          evidence_summary: snippet.evidenceSummary,
+          tags: snippet.tags,
+          confidence: snippet.confidence,
+          observation_count: snippet.observationCount,
+          score: snippet.score,
+          updated_at: snippet.updatedAt
+        }))
+      }
     };
 
     res.status(200).json(context);

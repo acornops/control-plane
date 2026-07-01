@@ -135,16 +135,6 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
         responses: { '200': { description: 'VM inventory page payload: { items, nextCursor? }.' } }
       }
     },
-    '/api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/findings': {
-      get: {
-        tags: ['workspaces'],
-        summary: 'List snapshot-derived VM findings',
-        description: 'Browser callers use the session cookie. External integration callers may use the external integration client token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
-        security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
-        parameters: [externalUserHeader, workspaceParam, vmParam],
-        responses: { '200': { description: 'VM findings page payload: { items, nextCursor? }.' } }
-      }
-    },
     '/api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/metrics/history': {
       get: {
         tags: ['workspaces'],

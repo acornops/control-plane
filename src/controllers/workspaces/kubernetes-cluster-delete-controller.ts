@@ -5,13 +5,13 @@ import {
   requireWorkspaceCapability
 } from '../../auth/workspace-authorization.js';
 import { LlmGatewayHttpError } from '../../services/mcp-registry-client.js';
+import { cleanupKubernetesTargetMcpServers } from '../../services/target-mcp-cleanup.js';
 import { webhooks } from '../../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../../services/workspace-audit.js';
 import { repo } from '../../store/repository.js';
 import { KUBERNETES_TARGET_TYPE } from '../../types/domain.js';
 import { toSingleParam } from '../../utils/params.js';
 import { mapGatewayError } from './common.js';
-import { cleanupTargetMcpServers } from './kubernetes-cluster-mcp-controller.js';
 
 export async function deleteCluster(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -34,7 +34,7 @@ export async function deleteCluster(req: AuthenticatedRequest, res: Response, ne
     }
 
     const cluster = access.cluster;
-    await cleanupTargetMcpServers(workspaceId, clusterId);
+    await cleanupKubernetesTargetMcpServers(workspaceId, clusterId);
     const clusterDeletedWebhook = await webhooks.prepare({
       type: 'target.deleted.v1',
       workspaceId,

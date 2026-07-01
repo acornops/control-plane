@@ -2,10 +2,15 @@ import { config } from '../config.js';
 import {
   configuredAllowedModelsForProvider,
   configuredModelBelongsToProvider,
+  emptyProviderModelMap,
+  flatProviderModels,
   parseConfigCsv,
+  parseConfiguredAllowedProviderModels,
   parseConfiguredAllowedProviders,
   parseConfiguredReasoningEfforts,
   parseConfiguredReasoningSummaryModes,
+  providerModelsConfigured,
+  type ProviderModelMap,
   SUPPORTED_LLM_PROVIDER_VALUES
 } from '../config-llm-policy.js';
 import { LlmProvider, ReasoningEffort, ReasoningSummaryMode } from '../types/domain.js';
@@ -24,8 +29,29 @@ export function parseAllowedProviders(value = config.LLM_ALLOWED_PROVIDERS): Llm
   return parseConfiguredAllowedProviders(value);
 }
 
-export function parseAllowedModels(value = config.LLM_ALLOWED_MODELS): string[] {
-  return parseConfigCsv(value);
+export function parseAllowedProviderModels(
+  value = config.LLM_ALLOWED_PROVIDER_MODELS,
+  legacyModels = config.LLM_ALLOWED_MODELS
+): ProviderModelMap {
+  if (providerModelsConfigured(value)) {
+    return parseConfiguredAllowedProviderModels(value);
+  }
+  const models = parseConfigCsv(legacyModels);
+  const providerModels = emptyProviderModelMap();
+  for (const provider of SUPPORTED_LLM_PROVIDER_VALUES) {
+    providerModels[provider] = configuredAllowedModelsForProvider(provider, models);
+  }
+  return providerModels;
+}
+
+export function parseAllowedModels(
+  value = config.LLM_ALLOWED_PROVIDER_MODELS,
+  legacyModels = config.LLM_ALLOWED_MODELS
+): string[] {
+  if (providerModelsConfigured(value)) {
+    return flatProviderModels(parseConfiguredAllowedProviderModels(value));
+  }
+  return parseConfigCsv(legacyModels);
 }
 
 export function parseAllowedReasoningSummaryModes(
@@ -44,11 +70,21 @@ export function modelBelongsToProvider(model: string, provider: LlmProvider): bo
   return configuredModelBelongsToProvider(model, provider);
 }
 
-export function allowedModelsForProvider(provider: LlmProvider, models = parseAllowedModels()): string[] {
+export function allowedModelsForProvider(
+  provider: LlmProvider,
+  models: string[] | ProviderModelMap = parseAllowedProviderModels()
+): string[] {
+  if (!Array.isArray(models)) {
+    return models[provider] || [];
+  }
   return configuredAllowedModelsForProvider(provider, models);
 }
 
-export function isModelAllowedForProvider(provider: LlmProvider, model: string, models = parseAllowedModels()): boolean {
+export function isModelAllowedForProvider(
+  provider: LlmProvider,
+  model: string,
+  models: string[] | ProviderModelMap = parseAllowedProviderModels()
+): boolean {
   return allowedModelsForProvider(provider, models).includes(model);
 }
 

@@ -14,11 +14,17 @@ function metricLine(name: string, labels: Record<string, string>, value: number)
 const adminAuthFailures = new Map<string, number>();
 const adminRequests = new Map<string, number>();
 const runEventIngestCounts = new Map<string, number>();
+const workflowSchedulerCounts = new Map<string, number>();
+const approvalInboxQueries = new Map<string, number>();
+const knowledgeBankRetrievals = new Map<string, number>();
+const knowledgeBankCheckpointOutcomes = new Map<string, number>();
+const knowledgeBankCheckpointDurations = new Map<string, number>();
+const knowledgeBankCheckpointPatchCounts = new Map<string, number>();
 let adminMutations = 0;
 let adminAuditWriteFailures = 0;
 
-function increment(map: Map<string, number>, key: string): void {
-  map.set(key, (map.get(key) || 0) + 1);
+function increment(map: Map<string, number>, key: string, count = 1): void {
+  map.set(key, (map.get(key) || 0) + count);
 }
 
 export function incrementAdminAuthFailures(reason: string): void {
@@ -39,6 +45,35 @@ export function incrementAdminAuditWriteFailures(): void {
 
 export function incrementRunEventsIngested(eventType: string, count = 1): void {
   runEventIngestCounts.set(eventType, (runEventIngestCounts.get(eventType) || 0) + count);
+}
+
+export function incrementWorkflowSchedulerEvent(event: string, count = 1): void {
+  workflowSchedulerCounts.set(event, (workflowSchedulerCounts.get(event) || 0) + count);
+}
+
+export function incrementApprovalInboxQuery(status: string): void {
+  increment(approvalInboxQueries, status);
+}
+
+export function incrementKnowledgeBankRetrieval(outcome: 'hit' | 'miss' | 'skipped' | 'error', count = 1): void {
+  increment(knowledgeBankRetrievals, outcome, count);
+}
+
+export function incrementKnowledgeBankCheckpointOutcome(status: string, reason = 'none', count = 1): void {
+  increment(knowledgeBankCheckpointOutcomes, `${status}:${reason}`, count);
+}
+
+export function observeKnowledgeBankCheckpointDurationMs(status: string, durationMs: number): void {
+  const buckets = [1000, 5000, 15000, 30000, 60000, Number.POSITIVE_INFINITY];
+  for (const bucket of buckets) {
+    if (durationMs <= bucket) {
+      increment(knowledgeBankCheckpointDurations, `${status}:${bucket === Number.POSITIVE_INFINITY ? '+Inf' : bucket}`);
+    }
+  }
+}
+
+export function recordKnowledgeBankCheckpointPatchCount(status: string, patchCount: number): void {
+  increment(knowledgeBankCheckpointPatchCounts, status, patchCount);
 }
 
 export function renderControlPlaneMetrics(): string {
@@ -87,6 +122,38 @@ export function renderControlPlaneMetrics(): string {
     '# TYPE control_plane_run_events_ingested_total counter',
     ...Array.from(runEventIngestCounts.entries()).map(([eventType, value]) =>
       metricLine('control_plane_run_events_ingested_total', { ...serviceLabels, event_type: eventType }, value)
+    ),
+    '# HELP control_plane_workflow_scheduler_events_total Workflow scheduler outcomes by event.',
+    '# TYPE control_plane_workflow_scheduler_events_total counter',
+    ...Array.from(workflowSchedulerCounts.entries()).map(([event, value]) =>
+      metricLine('control_plane_workflow_scheduler_events_total', { ...serviceLabels, event }, value)
+    ),
+    '# HELP control_plane_approval_inbox_queries_total Workspace approval inbox queries by status filter.',
+    '# TYPE control_plane_approval_inbox_queries_total counter',
+    ...Array.from(approvalInboxQueries.entries()).map(([status, value]) =>
+      metricLine('control_plane_approval_inbox_queries_total', { ...serviceLabels, status }, value)
+    ),
+    '# HELP control_plane_knowledge_bank_retrievals_total Knowledge Bank retrieval outcomes for run context assembly.',
+    '# TYPE control_plane_knowledge_bank_retrievals_total counter',
+    ...Array.from(knowledgeBankRetrievals.entries()).map(([outcome, value]) =>
+      metricLine('control_plane_knowledge_bank_retrievals_total', { ...serviceLabels, outcome }, value)
+    ),
+    '# HELP control_plane_knowledge_bank_checkpoint_outcomes_total Knowledge Bank checkpoint outcomes by status and safe reason.',
+    '# TYPE control_plane_knowledge_bank_checkpoint_outcomes_total counter',
+    ...Array.from(knowledgeBankCheckpointOutcomes.entries()).map(([key, value]) => {
+      const [status, reason] = key.split(':');
+      return metricLine('control_plane_knowledge_bank_checkpoint_outcomes_total', { ...serviceLabels, status, reason }, value);
+    }),
+    '# HELP control_plane_knowledge_bank_checkpoint_duration_ms_bucket Knowledge Bank checkpoint duration bucket counts by status.',
+    '# TYPE control_plane_knowledge_bank_checkpoint_duration_ms_bucket counter',
+    ...Array.from(knowledgeBankCheckpointDurations.entries()).map(([key, value]) => {
+      const [status, le] = key.split(':');
+      return metricLine('control_plane_knowledge_bank_checkpoint_duration_ms_bucket', { ...serviceLabels, status, le }, value);
+    }),
+    '# HELP control_plane_knowledge_bank_checkpoint_patches_total Knowledge Bank patches applied by checkpoint status.',
+    '# TYPE control_plane_knowledge_bank_checkpoint_patches_total counter',
+    ...Array.from(knowledgeBankCheckpointPatchCounts.entries()).map(([status, value]) =>
+      metricLine('control_plane_knowledge_bank_checkpoint_patches_total', { ...serviceLabels, status }, value)
     )
   ];
   return `${lines.join('\n')}\n`;

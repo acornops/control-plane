@@ -1,0 +1,275 @@
+import assert from 'node:assert/strict';
+import { afterEach, describe, it, mock } from 'node:test';
+import { decideRunApproval } from '../src/controllers/runs-controller.js';
+import {
+  createWorkflowScheduleForWorkspace,
+  deleteWorkflowSchedule,
+  listWorkspaceApprovalInbox,
+  listWorkspaceWorkflowSchedules,
+  updateWorkflowSchedule
+} from '../src/controllers/workflow-schedules-controller.js';
+import { getWorkspacePermissions } from '../src/auth/authorization.js';
+import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
+import { runWorkflowScheduleTick } from '../src/services/workflow-scheduler.js';
+import {
+  createWorkflowRun,
+  createWorkflowSession,
+  createWorkflowUserMessage,
+  getWorkflowDefinition,
+  listWorkflowRunApprovals,
+  resetWorkflowRepositoryForTests
+} from '../src/store/repository-workflows.js';
+import {
+  computeNextWorkflowScheduleRunAt,
+  resetWorkflowScheduleRepositoryForTests
+} from '../src/store/repository-workflow-schedules.js';
+import { listAgentDefinitions } from '../src/store/repository-agents.js';
+import type { Run, RunToolApproval } from '../src/types/domain.js';
+import {
+  callController,
+  createRequest,
+  createWorkspaceAiCredentialStatusResponse,
+  installWorkspace,
+  isWorkspaceAiCredentialStatusRequest,
+  restoreControllerRegressionState
+} from './helpers/controller-regression-fixtures.js';
+
+afterEach(() => {
+  resetWorkflowRepositoryForTests();
+  resetWorkflowScheduleRepositoryForTests();
+  restoreControllerRegressionState();
+});
+
+function createTargetRunApproval(overrides: Partial<RunToolApproval> = {}): RunToolApproval {
+  return {
+    id: 'target-approval-1',
+    runId: 'target-run-1',
+    workspaceId: 'workspace-1',
+    targetId: 'cluster-1',
+    targetType: 'kubernetes',
+    clusterId: 'cluster-1',
+    toolCallId: 'call-1',
+    toolName: 'restart_workload',
+    summary: 'Restart workload default/web.',
+    arguments: {},
+    status: 'pending',
+    executionStatus: 'not_started',
+    requestedBy: 'user-2',
+    createdAt: '2026-06-27T00:00:00.000Z',
+    expiresAt: '2026-06-27T00:10:00.000Z',
+    ...overrides
+  };
+}
+
+function createTargetRun(overrides: Partial<Run> = {}): Run {
+  return {
+    id: 'target-run-1',
+    workspaceId: 'workspace-1',
+    targetId: 'cluster-1',
+    targetType: 'kubernetes',
+    clusterId: 'cluster-1',
+    sessionId: 'session-1',
+    messageId: 'message-1',
+    toolAccessMode: 'read_write',
+    status: 'waiting_for_approval',
+    requestedAt: '2026-06-27T00:00:00.000Z',
+    ...overrides
+  };
+}
+
+describe('workflow schedules and approval inbox', () => {
+  it('computes next schedule due time in the stored timezone', () => {
+    assert.equal(
+      computeNextWorkflowScheduleRunAt('0 9 * * *', new Date('2026-01-01T00:30:00.000Z'), 'Asia/Singapore'),
+      '2026-01-01T01:00:00.000Z'
+    );
+  });
+
+  it('requires manage_workflows to create, update, and delete schedules', async () => {
+    installWorkspace('operator');
+
+    const createDenied = await callController(createWorkflowScheduleForWorkspace, createRequest(
+      { workspaceId: 'workspace-1' },
+      {
+        workflowId: 'cluster-triage',
+        name: 'Hourly triage',
+        cron: '0 * * * *',
+        timezone: 'UTC',
+        inputDefaults: { clusterId: 'cluster-primary' },
+        approvedContextGrants: ['workspace_metadata', 'target_inventory']
+      }
+    ));
+
+    assert.equal(createDenied.statusCode, 403);
+    assert.equal((createDenied.body as { error: { code: string } }).error.code, 'FORBIDDEN');
+  });
+
+  it('creates, lists, pauses, and deletes workflow schedules for authorized users', async () => {
+    installWorkspace('admin');
+
+    const created = await callController(createWorkflowScheduleForWorkspace, createRequest(
+      { workspaceId: 'workspace-1' },
+      {
+        workflowId: 'cluster-triage',
+        name: 'Hourly triage',
+        cron: '0 * * * *',
+        timezone: 'UTC',
+        enabled: true,
+        inputDefaults: { clusterId: 'cluster-primary' },
+        approvedContextGrants: ['workspace_metadata', 'target_inventory']
+      }
+    ));
+
+    assert.equal(created.statusCode, 201);
+    const schedule = (created.body as { schedule: { id: string; workflowVersion: number; nextRunAt: string } }).schedule;
+    assert.equal(schedule.workflowVersion, 1);
+    assert.ok(schedule.nextRunAt);
+
+    const listed = await callController(listWorkspaceWorkflowSchedules, createRequest({ workspaceId: 'workspace-1' }));
+    assert.equal(listed.statusCode, 200);
+    assert.equal((listed.body as { items: unknown[]; summary: { active: number } }).items.length, 1);
+    assert.equal((listed.body as { summary: { active: number } }).summary.active, 1);
+
+    const paused = await callController(updateWorkflowSchedule, createRequest(
+      { scheduleId: schedule.id },
+      { workspaceId: 'workspace-1', enabled: false }
+    ));
+    assert.equal(paused.statusCode, 200);
+    assert.equal((paused.body as { schedule: { status: string } }).schedule.status, 'paused');
+
+    const deleted = await callController(deleteWorkflowSchedule, createRequest(
+      { scheduleId: schedule.id },
+      { workspaceId: 'workspace-1' }
+    ));
+    assert.equal(deleted.statusCode, 204);
+  });
+
+  it('dispatches due schedules into workflow runs and records dispatch status', async () => {
+    installWorkspace('admin');
+    const executionDispatches: unknown[] = [];
+    mock.method(globalThis, 'fetch', async (input, init) => {
+      const url = String(input);
+      if (isWorkspaceAiCredentialStatusRequest(input)) {
+        return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse('workspace-1')), { status: 200 });
+      }
+      if (url === 'http://localhost:8080/api/v1/runs' && init?.method === 'POST') {
+        executionDispatches.push(JSON.parse(String(init.body)));
+        return new Response(null, { status: 202 });
+      }
+      return new Response(`unexpected request: ${url}`, { status: 500 });
+    });
+
+    const created = await callController(createWorkflowScheduleForWorkspace, createRequest(
+      { workspaceId: 'workspace-1' },
+      {
+        workflowId: 'cluster-triage',
+        name: 'Due triage',
+        cron: '* * * * *',
+        timezone: 'UTC',
+        enabled: true,
+        inputDefaults: { clusterId: 'cluster-primary' },
+        approvedContextGrants: ['workspace_metadata', 'target_inventory']
+      }
+    ));
+    const createdSchedule = (created.body as { schedule: { id: string; nextRunAt: string } }).schedule;
+    const scheduleId = createdSchedule.id;
+
+    const tickNow = new Date(createdSchedule.nextRunAt);
+    const result = await runWorkflowScheduleTick({ now: tickNow });
+
+    assert.equal(result.claimed, 1);
+    assert.equal(executionDispatches.length, 1);
+    const listed = await callController(listWorkspaceWorkflowSchedules, createRequest({ workspaceId: 'workspace-1' }));
+    const schedule = (listed.body as { items: Array<{ id: string; lastStatus?: string; lastRunAt?: string }> }).items.find((item) => item.id === scheduleId);
+    assert.equal(schedule?.lastStatus, 'dispatched');
+    assert.equal(schedule?.lastRunAt, tickNow.toISOString());
+  });
+
+  it('dispatches due schedules with an explicit workflow runtime subject after creator role changes', async () => {
+    installWorkspace('admin');
+    const executionDispatches: unknown[] = [];
+    mock.method(globalThis, 'fetch', async (input, init) => {
+      const url = String(input);
+      if (isWorkspaceAiCredentialStatusRequest(input)) {
+        return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse('workspace-1')), { status: 200 });
+      }
+      if (url === 'http://localhost:8080/api/v1/runs' && init?.method === 'POST') {
+        executionDispatches.push(JSON.parse(String(init.body)));
+        return new Response(null, { status: 202 });
+      }
+      return new Response(`unexpected request: ${url}`, { status: 500 });
+    });
+    const created = await callController(createWorkflowScheduleForWorkspace, createRequest(
+      { workspaceId: 'workspace-1' },
+      {
+        workflowId: 'cluster-triage',
+        name: 'Due triage',
+        cron: '* * * * *',
+        timezone: 'UTC',
+        enabled: true,
+        inputDefaults: { clusterId: 'cluster-primary' },
+        approvedContextGrants: ['workspace_metadata', 'target_inventory']
+      }
+    ));
+    const createdSchedule = (created.body as { schedule: { id: string; nextRunAt: string } }).schedule;
+    const scheduleId = createdSchedule.id;
+    installWorkspace('viewer');
+
+    const result = await runWorkflowScheduleTick({ now: new Date(createdSchedule.nextRunAt) });
+
+    assert.equal(result.dispatched, 1);
+    assert.equal(executionDispatches.length, 1);
+    const listed = await callController(listWorkspaceWorkflowSchedules, createRequest({ workspaceId: 'workspace-1' }));
+    const schedule = (listed.body as { items: Array<{ id: string; status: string; lastStatus?: string }> }).items.find((item) => item.id === scheduleId);
+    assert.equal(schedule?.status, 'enabled');
+    assert.equal(schedule?.lastStatus, 'dispatched');
+  });
+
+  it('lists target approvals and workflow approval gates in one workspace inbox', async () => {
+    installWorkspace('admin');
+    const workflow = getWorkflowDefinition('workspace-1', 'cluster-triage');
+    assert.ok(workflow);
+    const compiledAccessScope = compileWorkflowAccessScope({
+      workflow: {
+        ...workflow,
+        policy: {
+          ...workflow.policy,
+          mode: 'read_write',
+          approvalRequirements: ['Before running write-capable workflow automation']
+        }
+      },
+      agents: listAgentDefinitions('workspace-1'),
+      actor: {
+        userId: 'user-1',
+        role: 'admin',
+        permissions: getWorkspacePermissions('admin')
+      },
+      approvedContextGrants: ['workspace_metadata', 'target_inventory']
+    });
+    const session = createWorkflowSession({ workflow: { ...workflow, policy: { ...workflow.policy, mode: 'read_write', approvalRequirements: ['Before running write-capable workflow automation'] } }, createdBy: 'user-1', compiledAccessScope });
+    const message = createWorkflowUserMessage({ session, content: 'Run gated workflow' });
+    const run = createWorkflowRun({ session, message, workflowStepId: 'collect-cluster-signals' });
+    const workflowApproval = listWorkflowRunApprovals(run.id)[0];
+
+    const targetApproval = createTargetRunApproval();
+    const targetRun = createTargetRun();
+    const { repo } = await import('../src/store/repository.js');
+    repo.listWorkspaceRunToolApprovals = async () => [targetApproval];
+    repo.getRun = async (runId: string) => runId === targetRun.id ? targetRun : null;
+
+    const response = await callController(listWorkspaceApprovalInbox, createRequest({ workspaceId: 'workspace-1' }));
+
+    assert.equal(response.statusCode, 200);
+    const body = response.body as { items: Array<{ approvalId: string; source: string; runId: string; status: string }> };
+    assert.deepEqual(body.items.map((item) => item.source).sort(), ['target_tool', 'workflow_gate']);
+    assert.ok(body.items.some((item) => item.approvalId === workflowApproval.id && item.runId === run.id));
+    assert.ok(body.items.some((item) => item.approvalId === targetApproval.id && item.runId === targetRun.id));
+
+    mock.method(globalThis, 'fetch', async () => new Response(null, { status: 202 }));
+    const decided = await callController(decideRunApproval, createRequest(
+      { runId: run.id, approvalId: workflowApproval.id },
+      { decision: 'approved' }
+    ));
+    assert.equal(decided.statusCode, 200);
+  });
+});

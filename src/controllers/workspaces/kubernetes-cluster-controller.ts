@@ -17,17 +17,32 @@ import {
   buildAgentInstallInstructions,
   clusterAllowsNamespace,
   normalizeNamespaceList,
+  parseAgentAccessMode,
   parseBooleanQuery,
   parseBoundedIntQuery,
   parseMetricLimit,
   parseMetricWindowMs,
-  parseOptionalPositiveIntQuery,
-  summarizeSnapshotMetrics
+  parseOptionalPositiveIntQuery
 } from './kubernetes-cluster-request-utils.js';
+
+function mapClusterMetricPoint(point: { timestamp: string; metrics: Record<string, unknown> }): {
+  timestamp: string;
+  cpuCores: number | null;
+  memoryBytes: number | null;
+} {
+  const cpuCores = typeof point.metrics.cpuCores === 'number' ? point.metrics.cpuCores : Number.NaN;
+  const memoryBytes = typeof point.metrics.memoryBytes === 'number' ? point.metrics.memoryBytes : Number.NaN;
+  return {
+    timestamp: point.timestamp,
+    cpuCores: Number.isFinite(cpuCores) ? cpuCores : null,
+    memoryBytes: Number.isFinite(memoryBytes) ? memoryBytes : null
+  };
+}
 
 export async function registerCluster(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
+    const agentAccessMode = parseAgentAccessMode(req.body?.agentAccessMode);
     if (
       !(await requireWorkspaceCapability(
         req,
@@ -80,6 +95,7 @@ export async function registerCluster(req: AuthenticatedRequest, res: Response, 
       summary: 'Kubernetes cluster registered',
       metadata: {
         status: cluster.status,
+        agentAccessMode,
         namespaceInclude: cluster.namespaceInclude,
         namespaceExclude: cluster.namespaceExclude
       }
@@ -87,7 +103,7 @@ export async function registerCluster(req: AuthenticatedRequest, res: Response, 
     res.status(201).json({
       cluster,
       agentKey: rawAgentKey,
-      installInstructions: buildAgentInstallInstructions(cluster, rawAgentKey)
+      installInstructions: buildAgentInstallInstructions(cluster, rawAgentKey, agentAccessMode)
     });
   } catch (err) {
     next(err);
@@ -133,13 +149,12 @@ export async function getWorkspaceClusterMetricsHistory(
       if (!cluster || cluster.workspaceId !== workspaceId) {
         continue;
       }
-      const snapshots = await repo.listClusterSnapshotHistory(clusterId, { since, limit });
+      const points = await repo.listTargetMetricHistory(clusterId, { targetType: 'kubernetes', since, limit });
       items.push({
         clusterId,
-        points: snapshots
-          .filter((snapshot) => snapshot.workspaceId === workspaceId)
-          .map(summarizeSnapshotMetrics)
-          .filter((point): point is NonNullable<typeof point> => point !== null)
+        points: points
+          .filter((point) => point.workspaceId === workspaceId)
+          .map(mapClusterMetricPoint)
       });
     }
 
@@ -168,11 +183,9 @@ export async function getClusterMetricsHistory(
     const windowMs = parseMetricWindowMs(req.query.window);
     const limit = parseMetricLimit(req.query.limit);
     const since = new Date(Date.now() - windowMs).toISOString();
-    const snapshots = await repo.listClusterSnapshotHistory(clusterId, { since, limit });
-    const points = snapshots
-      .filter((snapshot) => snapshot.workspaceId === workspaceId)
-      .map(summarizeSnapshotMetrics)
-      .filter((point): point is NonNullable<typeof point> => point !== null);
+    const points = (await repo.listTargetMetricHistory(clusterId, { targetType: 'kubernetes', since, limit }))
+      .filter((point) => point.workspaceId === workspaceId)
+      .map(mapClusterMetricPoint);
 
     res.status(200).json({
       workspaceId,
@@ -442,6 +455,7 @@ export async function rotateAgentKey(req: AuthenticatedRequest, res: Response, n
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
     const clusterId = toSingleParam(req.params.clusterId);
+    const agentAccessMode = parseAgentAccessMode(req.body?.agentAccessMode);
     const access = await requireClusterAccess(req, res, workspaceId, clusterId);
     if (!access) {
       return;
@@ -494,13 +508,13 @@ export async function rotateAgentKey(req: AuthenticatedRequest, res: Response, n
       objectId: clusterId,
       objectName: access.cluster.name,
       summary: 'Cluster agent key rotated',
-      metadata: { keyVersion: reg.keyVersion + 1 }
+      metadata: { keyVersion: reg.keyVersion + 1, agentAccessMode }
     });
     res.status(200).json({
       clusterId,
       agentKey: rawAgentKey,
       keyVersion: reg.keyVersion + 1,
-      installInstructions: buildAgentInstallInstructions(access.cluster, rawAgentKey)
+      installInstructions: buildAgentInstallInstructions(access.cluster, rawAgentKey, agentAccessMode)
     });
   } catch (err) {
     next(err);
@@ -509,7 +523,6 @@ export async function rotateAgentKey(req: AuthenticatedRequest, res: Response, n
 
 export {
   getCluster,
-  listClusterFindings,
   listClusterResources,
   listClusters
 } from './kubernetes-cluster-snapshot-controller.js';

@@ -68,6 +68,7 @@ const toolSync = [
   read('src/services/virtual-machine-tool-sync.ts')
 ].join('\n');
 const internalExecutionBootstrap = read('src/controllers/internal-execution-bootstrap.ts');
+const targetRunToolResolution = read('src/services/target-run-tool-resolution.ts');
 const internalMcpBridgeController = read('src/controllers/internal-mcp-bridge-controller.ts');
 const openApi = [read('src/docs/openapi.ts'), readTree('src/docs/openapi')].join('\n');
 const managementConsoleContract = manifest.counterparts?.['management-console'];
@@ -98,6 +99,7 @@ function openApiPath(contractPath) {
     .replace(/^[A-Z]+ /, '')
     .replace(/\?run_id=<runId>$/, '')
     .replace(/\?return_to=<management-console-url>$/, '')
+    .replace(/\?toolAccessMode=read_only\|read_write$/, '')
     .replace(/\?token=<external-integration-link-token>$/, '');
 }
 
@@ -129,10 +131,12 @@ for (const [docPath, routeNeedle, source, label] of [
   ['`PATCH /api/v1/workspaces/{workspaceId}/members/{userId}`', "workspacesRouter.patch('/workspaces/:workspaceId/members/:userId'", workspaceRoutes, 'Update workspace member route'],
   ['`DELETE /api/v1/workspaces/{workspaceId}/members/{userId}`', "workspacesRouter.delete('/workspaces/:workspaceId/members/:userId'", workspaceRoutes, 'Delete workspace member route'],
   ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters`', "workspacesRouter.get('/workspaces/:workspaceId/kubernetes-clusters'", workspaceRoutes, 'List clusters route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/investigations`', "workspacesRouter.get('/workspaces/:workspaceId/investigations'", workspaceRoutes, 'List investigations route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/issues`', "workspacesRouter.get('/workspaces/:workspaceId/issues'", workspaceRoutes, 'List issues route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/issues/{issueId}`', "workspacesRouter.get('/workspaces/:workspaceId/issues/:issueId'", workspaceRoutes, 'Get issue route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/issues/{issueId}/observations`', "'/workspaces/:workspaceId/issues/:issueId/observations'", workspaceRoutes, 'List issue observations route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/issues`', "workspacesRouter.get('/workspaces/:workspaceId/targets/:targetId/issues'", workspaceRoutes, 'List target issues route'],
   ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}`', "workspacesRouter.get('/workspaces/:workspaceId/kubernetes-clusters/:clusterId'", workspaceRoutes, 'Get cluster route'],
   ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/resources`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/resources'", workspaceRoutes, 'List cluster resources route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/findings`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/findings'", workspaceRoutes, 'List cluster findings route'],
   [
     '`POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters`',
     "workspacesRouter.post('/workspaces/:workspaceId/kubernetes-clusters'",
@@ -143,14 +147,24 @@ for (const [docPath, routeNeedle, source, label] of [
   ['`DELETE /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}`', "workspacesRouter.delete('/workspaces/:workspaceId/kubernetes-clusters/:clusterId'", workspaceRoutes, 'Delete cluster route'],
   ['`POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/rotate-agent-key`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/rotate-agent-key'", workspaceRoutes, 'Rotate agent-key route'],
   ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/pods/{namespace}/{podName}/logs`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/pods/:namespace/:podName/logs'", workspaceRoutes, 'Pod logs route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/tools/catalog`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/tools/catalog'", workspaceRoutes, 'Tools catalog route'],
-  ['`PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolName}`', "'/workspaces/:workspaceId/targets/:targetId/tools/:toolName'", workspaceRoutes, 'Target tool patch route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/catalog`', "'/workspaces/:workspaceId/targets/:targetId/mcp/catalog'", workspaceRoutes, 'Target MCP catalog route'],
+  ['`PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools/{toolName}`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/tools/:toolName'", workspaceRoutes, 'Target MCP tool patch route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools`', "'/workspaces/:workspaceId/targets/:targetId/tools'", workspaceRoutes, 'Target tools route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/assistant/capabilities-preview?toolAccessMode=read_only|read_write`', "'/workspaces/:workspaceId/targets/:targetId/assistant/capabilities-preview'", workspaceRoutes, 'Target assistant capabilities preview route'],
+  ['`PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolId}`', "'/workspaces/:workspaceId/targets/:targetId/tools/:toolId'", workspaceRoutes, 'Target tool settings patch route'],
   ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`', "workspacesRouter.get('/workspaces/:workspaceId/targets/:targetId/mcp/servers'", workspaceRoutes, 'List target MCP servers route'],
   ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/tools'", workspaceRoutes, 'List target MCP server tools route'],
   ['`POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers'", workspaceRoutes, 'Create target MCP server route'],
   ['`PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId'", workspaceRoutes, 'Patch target MCP server route'],
   ['`DELETE /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId'", workspaceRoutes, 'Delete target MCP server route'],
   ['`POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/test-connection`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/test-connection'", workspaceRoutes, 'Test target MCP server route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills`', "'/workspaces/:workspaceId/targets/:targetId/skills'", workspaceRoutes, 'List target skills route'],
+  ['`POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills`', "'/workspaces/:workspaceId/targets/:targetId/skills'", workspaceRoutes, 'Create target skill route'],
+  ['`POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/import`', "'/workspaces/:workspaceId/targets/:targetId/skills/import'", workspaceRoutes, 'Import target skill route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}`', "'/workspaces/:workspaceId/targets/:targetId/skills/:skillId'", workspaceRoutes, 'Get target skill route'],
+  ['`PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}`', "'/workspaces/:workspaceId/targets/:targetId/skills/:skillId'", workspaceRoutes, 'Patch target skill route'],
+  ['`DELETE /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}`', "'/workspaces/:workspaceId/targets/:targetId/skills/:skillId'", workspaceRoutes, 'Delete target skill route'],
+  ['`POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}/reimport`', "'/workspaces/:workspaceId/targets/:targetId/skills/:skillId/reimport'", workspaceRoutes, 'Reimport target skill route'],
   ['`POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/sessions`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/sessions'", sessionRoutes, 'Create session route'],
   ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/sessions`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/sessions'", sessionRoutes, 'List sessions route'],
   ['`DELETE /api/v1/sessions/{sessionId}`', "sessionsRouter.delete('/sessions/:sessionId'", sessionRoutes, 'Delete session route'],
@@ -307,10 +321,13 @@ expectIncludes(doc, '`operation` is `read` or `write`', 'Workspace audit operati
 expectIncludes(openApi, 'operation=read|write', 'Workspace audit operation OpenAPI doc');
 expectIncludes(configSource, 'WORKSPACE_AUDIT_LOGGING_MODE', 'Workspace audit logging mode config');
 expectIncludes(configSource, 'WORKSPACE_AUDIT_RETENTION_DAYS', 'Workspace audit retention config');
+expectIncludes(configSource, 'TARGET_METRIC_HISTORY_RETENTION_DAYS', 'Target metric history retention config');
 
 for (const contractToken of [
-  'Roles with both `permissions.manage_tools` and `permissions.manage_mcp` may mutate tool settings and MCP server configuration.',
-  'Roles without both management capabilities are read-only for tool and MCP configuration.',
+  'Roles with `permissions.manage_mcp` may mutate MCP server configuration.',
+  'Roles with `permissions.manage_tools` may mutate MCP per-tool enablement and non-Knowledge-Bank built-in tool settings.',
+  'Roles with `permissions.manage_knowledge_bank` may mutate Knowledge Bank entries and Knowledge Bank tool settings.',
+  'Roles without the relevant management capability are read-only for that configuration surface.',
   '{ items, nextCursor? }',
   'sessionPolicy.allowedTools',
   'sessionPolicy.writeEnabled',
@@ -343,7 +360,7 @@ for (const guardNeedle of [
   "capability === 'write' && !targetSupportsWrite",
   "capability === 'write' && !runAllowsWrite"
 ]) {
-  expectIncludes(internalExecutionBootstrap, guardNeedle, 'Write-tool gate implementation');
+  expectIncludes(targetRunToolResolution, guardNeedle, 'Write-tool gate implementation');
 }
 
 if (failures.length > 0) {

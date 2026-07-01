@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { db } from '../infra/db.js';
 import { AuthMethods, KUBERNETES_TARGET_TYPE, Role, User, VIRTUAL_MACHINE_TARGET_TYPE, Workspace, WorkspaceSummary } from '../types/domain.js';
 import { PagedResult, encodeCursor, pageWithCursor } from '../utils/pagination.js';
-import { ensureDevelopmentWorkspaceAndTargets } from './repository-development-seed.js';
 import {
   CreatePasswordUserResult,
   PasswordCredentialRow,
@@ -535,15 +534,4 @@ export async function getWorkspaceRole(userId: string, workspaceId: string): Pro
     );
     if (!result.rowCount) return null;
     return normalizeRole(result.rows[0].role);
-  }
-export const ensureDefaultUser = (): Promise<User> => upsertUser('dev@acornops.local', 'Dev User');
-export const ensureDefaultOperatorUser = (): Promise<User> => upsertUser('operator@acornops.local', 'Dev Operator');
-export const ensureDevelopmentAccessForUser = (userId: string): Promise<void> => ensureDevelopmentWorkspaceAndTargets(userId);
-
-export async function ensureDevelopmentSeed(seedAgentKey?: string, seedVmAgentKey?: string): Promise<void> {
-    const user = await ensureDefaultUser();
-    const operator = await ensureDefaultOperatorUser();
-    await ensureDevelopmentWorkspaceAndTargets(user.id, seedAgentKey, seedVmAgentKey, [
-      { userId: operator.id, role: 'operator' }
-    ], true);
   }

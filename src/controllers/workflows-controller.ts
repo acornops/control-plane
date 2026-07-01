@@ -30,6 +30,7 @@ import {
   updateWorkflowMcpServer,
   updateWorkflowRun
 } from '../store/repository-workflows.js';
+import { listAgentDefinitions } from '../store/repository-agents.js';
 import type {
   WorkflowCapabilityMode,
   WorkflowCategory,
@@ -147,6 +148,7 @@ function workflowSteps(value: unknown): WorkflowStepDefinition[] | undefined {
         id: typeof entry.id === 'string' ? entry.id.trim() : '',
         title: typeof entry.title === 'string' ? entry.title.trim() : '',
         requiredInputs: stringList(entry.requiredInputs) || [],
+        agentIds: stringList(entry.agentIds),
         targetBinding,
         enabledSkills: stringList(entry.enabledSkills) || [],
         allowedMcpServers: stringList(entry.allowedMcpServers) || [],
@@ -162,8 +164,12 @@ function workflowSteps(value: unknown): WorkflowStepDefinition[] | undefined {
 function collectWorkflowReferenceErrors(workspaceId: string, steps: WorkflowStepDefinition[]): string[] {
   const options = getWorkflowOptionsCatalog(workspaceId);
   const knownTools = new Set(options.mcpTools.map((option) => option.value));
+  const knownAgents = new Set(options.agents.map((option) => option.value));
   const errors: string[] = [];
   for (const step of steps) {
+    for (const agent of step.agentIds || []) {
+      if (!knownAgents.has(agent)) errors.push(`Unknown agent: ${agent}`);
+    }
     for (const tool of step.allowedTools) {
       if (!knownTools.has(tool)) errors.push(`Unknown MCP tool: ${tool}`);
     }
@@ -211,6 +217,7 @@ function requestWorkflowScopeUpdate(req: AuthenticatedRequest, workflow: Workflo
       id: typeof entry.id === 'string' ? entry.id : '',
       title: typeof entry.title === 'string' ? entry.title.trim() : undefined,
       requiredInputs: stringList(entry.requiredInputs),
+      agentIds: stringList(entry.agentIds),
       targetBinding: entry.targetBinding && typeof entry.targetBinding === 'object' && !Array.isArray(entry.targetBinding)
         ? entry.targetBinding as WorkflowStepDefinition['targetBinding']
         : undefined,
@@ -327,6 +334,7 @@ export async function createSession(req: AuthenticatedRequest, res: Response, ne
     try {
       compiledAccessScope = compileWorkflowAccessScope({
         workflow,
+        agents: listAgentDefinitions(workflow.workspaceId),
         actor: {
           userId: req.auth.userId,
           role: authz.role,
@@ -396,7 +404,7 @@ export async function listSessions(req: AuthenticatedRequest, res: Response, nex
     const authz = await requireWorkspaceDataRead(req, res, workflow.workspaceId);
     if (!authz) return;
     res.status(200).json({
-      items: listWorkflowSessions(workflowId).map((session) => ({
+      items: listWorkflowSessions(workspaceId, workflowId).map((session) => ({
         ...session,
         runs: listWorkflowRunsForSession(session.id)
       }))
@@ -444,7 +452,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Workspace AI model is not allowed', retryable: false } });
       return;
     }
-    if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, llmSettings.allowedModels)) {
+    if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, llmSettings.allowedProviderModels)) {
       res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Workspace AI model is not available for the selected provider', retryable: false } });
       return;
     }

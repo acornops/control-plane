@@ -38,7 +38,7 @@ export interface WorkflowRunRecord {
   llmProvider?: 'openai' | 'anthropic' | 'gemini';
   llmModel?: string;
   llmReasoningSummaryMode?: 'off' | 'auto' | 'concise' | 'detailed';
-  llmReasoningEffort?: 'default' | 'low' | 'medium' | 'high';
+  llmReasoningEffort?: 'off' | 'low' | 'medium' | 'high';
   requestedAt: string;
   startedAt?: string;
   endedAt?: string;
@@ -99,9 +99,9 @@ export function createWorkflowSession(params: {
   return session;
 }
 
-export function listWorkflowSessions(workflowId: string): WorkflowSessionRecord[] {
+export function listWorkflowSessions(workspaceId: string, workflowId: string): WorkflowSessionRecord[] {
   return [...workflowSessions.values()]
-    .filter((session) => session.workflowId === workflowId)
+    .filter((session) => session.workspaceId === workspaceId && session.workflowId === workflowId)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
@@ -202,6 +202,20 @@ export function listWorkflowRunApprovals(runId: string): WorkflowApprovalRecord[
   return [...workflowApprovals.values()]
     .filter((approval) => approval.runId === runId)
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+export function listWorkflowApprovalsForWorkspace(
+  workspaceId: string,
+  status: 'pending' | 'decided' | 'all' = 'pending'
+): WorkflowApprovalRecord[] {
+  return [...workflowApprovals.values()]
+    .filter((approval) => approval.workspaceId === workspaceId)
+    .filter((approval) => {
+      if (status === 'all') return true;
+      if (status === 'pending') return approval.status === 'pending';
+      return approval.status !== 'pending';
+    })
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
 export function getWorkflowRunApproval(approvalId: string): WorkflowApprovalRecord | null {

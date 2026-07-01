@@ -30,6 +30,7 @@ function createWorkspaceSummary(overrides: Partial<WorkspaceSummary> = {}): Work
       manage_targets: false,
       manage_mcp: false,
       manage_tools: false,
+      manage_skills: false,
       manage_agent_keys: false,
       manage_webhooks: false,
       create_sessions: false,

@@ -239,7 +239,7 @@ simple chat command set onto the AcornOps endpoints in this document:
 - `target` and `target N`: show or select the current generic target.
 - `clusters`, `cluster N`, `vms`, and `vm N`: optional shortcuts that can keep
   using the Kubernetes- and VM-specific endpoints.
-- `resources`, `findings`, `sessions`, `session`, and `messages`: use the
+- `resources`, `issues`, `sessions`, `session`, and `messages`: use the
   selected target or session and the endpoints below.
 - `ask <question>`: create or reuse a read-only session, post a message, follow
   the returned run, and render the final assistant reply.
@@ -284,12 +284,12 @@ The `targetType` filter is optional and currently accepts `kubernetes` or
 `virtual_machine`. Invalid values return `400 VALIDATION_ERROR` instead of
 widening the query.
 
-### Workspace Investigations
+### Workspace Issues
 
-List snapshot-derived investigations across a workspace:
+List durable operational issues across a workspace:
 
 ```http
-GET {ACORNOPS_API_BASE_URL}/api/v1/workspaces/{workspaceId}/investigations?limit=50&cursor={cursor}&q={search}&severity=critical&clusterId={clusterId}&namespace=default
+GET {ACORNOPS_API_BASE_URL}/api/v1/workspaces/{workspaceId}/issues?limit=50&cursor={cursor}&q={search}&status=active&severity=critical&targetId={targetId}&namespace=default
 ```
 
 Useful query parameters:
@@ -297,24 +297,27 @@ Useful query parameters:
 - `limit`: 1 to 100, default 50.
 - `cursor`: pagination cursor from `nextCursor`.
 - `q`: text search.
+- `status`: `active`, `recovering`, `resolved`, or `all`.
 - `severity`: `critical`, `warning`, or `info`.
-- `clusterId`: restrict to one Kubernetes cluster.
+- `targetId`: restrict to one target.
+- `targetType`: `kubernetes` or `virtual_machine`.
 - `namespace`: restrict to one Kubernetes namespace.
 
 Representative item:
 
 ```json
 {
-  "id": "finding-id",
+  "id": "issue-id",
+  "targetId": "target-id",
+  "targetType": "kubernetes",
+  "status": "active",
   "severity": "critical",
   "title": "Pod unhealthy",
-  "message": "Pod is unhealthy.",
-  "timestamp": 1780291200000,
-  "clusterId": "cluster-id",
-  "clusterName": "payments-prod",
+  "summary": "Pod is unhealthy.",
   "namespace": "payments",
-  "resourceKind": "Pod",
-  "resourceName": "payments-api-abc123"
+  "objectKind": "Pod",
+  "objectName": "payments-api-abc123",
+  "lastSeenAt": "2026-06-01T00:00:00.000Z"
 }
 ```
 
@@ -402,32 +405,34 @@ Representative resource:
 }
 ```
 
-List cluster findings:
+List target issues:
 
 ```http
-GET {ACORNOPS_API_BASE_URL}/api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/findings?limit=50&cursor={cursor}&q={search}&severity=warning&namespace=default
+GET {ACORNOPS_API_BASE_URL}/api/v1/workspaces/{workspaceId}/targets/{targetId}/issues?limit=50&cursor={cursor}&q={search}&status=active&severity=warning&namespace=default
 ```
 
 Useful filters:
 
+- `status`: `active`, `recovering`, `resolved`, or `all`.
 - `severity`: `critical`, `warning`, or `info`.
 - `namespace`: Kubernetes namespace.
 - `q`: text search.
 
-Representative finding:
+Representative issue:
 
 ```json
 {
-  "id": "finding-id",
+  "id": "issue-id",
+  "targetId": "cluster-id",
+  "targetType": "kubernetes",
+  "status": "active",
   "severity": "warning",
   "title": "Pod unhealthy",
-  "message": "Pod is unhealthy.",
-  "timestamp": 1780291200000,
-  "clusterId": "cluster-id",
-  "clusterName": "payments-prod",
+  "summary": "Pod is unhealthy.",
   "namespace": "payments",
-  "resourceKind": "Pod",
-  "resourceName": "payments-api-abc123"
+  "objectKind": "Pod",
+  "objectName": "payments-api-abc123",
+  "lastSeenAt": "2026-06-01T00:00:00.000Z"
 }
 ```
 
@@ -491,30 +496,10 @@ Representative VM resource:
 }
 ```
 
-List VM findings:
+VM issues use the target issue endpoint:
 
 ```http
-GET {ACORNOPS_API_BASE_URL}/api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/findings
-```
-
-Representative VM finding:
-
-```json
-{
-  "targetId": "vm-id",
-  "workspaceId": "workspace-id",
-  "snapshotTs": "2026-06-01T00:01:00.000Z",
-  "findingId": "finding-id",
-  "severity": "warning",
-  "scopeKind": null,
-  "scopeName": null,
-  "objectKind": "systemd_service",
-  "objectName": "sshd",
-  "title": "Service attention needed",
-  "message": "Service needs attention.",
-  "reason": null,
-  "findingTs": "2026-06-01T00:01:00.000Z"
-}
+GET {ACORNOPS_API_BASE_URL}/api/v1/workspaces/{workspaceId}/targets/{vmId}/issues
 ```
 
 ### Assistant Sessions

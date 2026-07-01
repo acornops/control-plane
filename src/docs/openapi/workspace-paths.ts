@@ -200,7 +200,7 @@ export function buildWorkspacePaths(): Record<string, unknown> {
         },
         patch: {
           tags: ['workspaces'],
-          summary: 'Update workspace default AI provider, model, and reasoning summary settings',
+          summary: 'Update workspace default AI provider, model, reasoning summary, and reasoning effort settings',
           security: [{ userSession: [] }],
           parameters: [
             {
@@ -220,8 +220,16 @@ export function buildWorkspacePaths(): Record<string, unknown> {
                   properties: {
                     defaultProvider: llmProviderSchema,
                     defaultModel: { type: 'string', example: 'gpt-5.5' },
-                    reasoningSummaryMode: { type: 'string', enum: ['off', 'auto', 'concise', 'detailed'], default: 'auto' },
-                    reasoningEffort: { type: 'string', enum: ['default', 'low', 'medium', 'high'], default: 'default' }
+                    reasoningSummaryMode: {
+                      type: 'string',
+                      enum: ['off', 'auto', 'concise', 'detailed'],
+                      description: 'Omit to preserve the existing allowed mode, or use the deployment default for first-time settings.'
+                    },
+                    reasoningEffort: {
+                      type: 'string',
+                      enum: ['off', 'low', 'medium', 'high'],
+                      description: 'Omit to preserve the existing allowed effort, or use low for first-time settings.'
+                    }
                   }
                 }
               }
@@ -407,10 +415,10 @@ export function buildWorkspacePaths(): Record<string, unknown> {
           }
         }
       },
-      '/api/v1/workspaces/{workspaceId}/investigations': {
+      '/api/v1/workspaces/{workspaceId}/issues': {
         get: {
           tags: ['workspaces'],
-          summary: 'List snapshot-derived investigations for a workspace',
+          summary: 'List durable operational issues for a workspace',
           description: 'Browser callers use the session cookie. External integration callers may use the external integration client token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
           security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
@@ -419,11 +427,46 @@ export function buildWorkspacePaths(): Record<string, unknown> {
             { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
             { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } },
             { in: 'query', name: 'q', required: false, schema: { type: 'string' } },
+            { in: 'query', name: 'status', required: false, schema: { type: 'string', enum: ['active', 'recovering', 'resolved', 'all'] } },
             { in: 'query', name: 'severity', required: false, schema: { type: 'string', enum: ['critical', 'warning', 'info'] } },
-            { in: 'query', name: 'clusterId', required: false, schema: { type: 'string', format: 'uuid', example: EXAMPLE_CLUSTER_ID } },
+            { in: 'query', name: 'targetType', required: false, schema: { type: 'string', enum: ['kubernetes', 'virtual_machine'] } },
+            { in: 'query', name: 'targetId', required: false, schema: { type: 'string', format: 'uuid', example: EXAMPLE_CLUSTER_ID } },
             { in: 'query', name: 'namespace', required: false, schema: { type: 'string', example: 'default' } }
           ],
-          responses: { '200': { description: 'Investigation page payload: { items, nextCursor? }.' } }
+          responses: { '200': { description: 'Issue page payload: { items, nextCursor? }.' } }
+        }
+      },
+      '/api/v1/workspaces/{workspaceId}/issues/{issueId}': {
+        get: {
+          tags: ['workspaces'],
+          summary: 'Get a durable operational issue',
+          description: 'Browser callers use the session cookie. External integration callers may use the external integration client token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
+          security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+          parameters: [
+            externalUserHeader,
+            { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
+            { in: 'path', name: 'issueId', required: true, schema: { type: 'string', format: 'uuid' } }
+          ],
+          responses: { '200': { description: 'Issue payload.' }, '404': { description: 'Issue not found.' } }
+        }
+      },
+      '/api/v1/workspaces/{workspaceId}/issues/{issueId}/observations': {
+        get: {
+          tags: ['workspaces'],
+          summary: 'List observations for a durable operational issue',
+          description: 'Browser callers use the session cookie. External integration callers may use the external integration client token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
+          security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+          parameters: [
+            externalUserHeader,
+            { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
+            { in: 'path', name: 'issueId', required: true, schema: { type: 'string', format: 'uuid' } },
+            { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
+            { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } }
+          ],
+          responses: {
+            '200': { description: 'Issue observation page payload: { items, nextCursor? }.' },
+            '404': { description: 'Issue not found.' }
+          }
         }
       },
       '/api/v1/workspaces/{workspaceId}/members/{userId}': {

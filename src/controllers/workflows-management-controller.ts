@@ -53,11 +53,31 @@ function requireWorkflowWorkspaceId(req: AuthenticatedRequest, res: Response): s
 
 function collectWorkflowReferenceErrors(workspaceId: string, steps: WorkflowStepDefinition[]): string[] {
   const options = getWorkflowOptionsCatalog(workspaceId);
-  const knownTools = new Set(options.mcpTools.map((option) => option.value));
+  const knownServers = new Map(options.mcpServers.map((option) => [option.value, option]));
+  const knownTools = new Map(options.mcpTools.map((option) => [option.value, option]));
+  const knownSkills = new Map(options.skills.map((option) => [option.value, option]));
+  const knownAgents = new Map(options.agents.map((option) => [option.value, option]));
   const errors: string[] = [];
   for (const step of steps) {
+    for (const agent of step.agentIds || []) {
+      const option = knownAgents.get(agent);
+      if (!option) errors.push(`Unknown agent: ${agent}`);
+      else if (option.disabled) errors.push(`Disabled agent: ${agent}`);
+    }
+    for (const server of step.allowedMcpServers) {
+      const option = knownServers.get(server);
+      if (!option) errors.push(`Unknown MCP server: ${server}`);
+      else if (option.disabled) errors.push(`Disabled MCP server: ${server}`);
+    }
     for (const tool of step.allowedTools) {
-      if (!knownTools.has(tool)) errors.push(`Unknown MCP tool: ${tool}`);
+      const option = knownTools.get(tool);
+      if (!option) errors.push(`Unknown MCP tool: ${tool}`);
+      else if (option.disabled) errors.push(`Disabled MCP tool: ${tool}`);
+    }
+    for (const skill of step.enabledSkills) {
+      const option = knownSkills.get(skill);
+      if (!option) errors.push(`Unknown skill: ${skill}`);
+      else if (option.disabled) errors.push(`Disabled skill: ${skill}`);
     }
   }
   return errors;
@@ -65,14 +85,18 @@ function collectWorkflowReferenceErrors(workspaceId: string, steps: WorkflowStep
 
 function collectWorkflowScopeReferenceErrors(workspaceId: string, mcpServers: string[], skills: string[]): string[] {
   const options = getWorkflowOptionsCatalog(workspaceId);
-  const knownServers = new Set(options.mcpServers.map((option) => option.value));
-  const knownSkills = new Set(options.skills.map((option) => option.value));
+  const knownServers = new Map(options.mcpServers.map((option) => [option.value, option]));
+  const knownSkills = new Map(options.skills.map((option) => [option.value, option]));
   const errors: string[] = [];
   for (const server of mcpServers) {
-    if (!knownServers.has(server)) errors.push(`Unknown MCP server: ${server}`);
+    const option = knownServers.get(server);
+    if (!option) errors.push(`Unknown MCP server: ${server}`);
+    else if (option.disabled) errors.push(`Disabled MCP server: ${server}`);
   }
   for (const skill of skills) {
-    if (!knownSkills.has(skill)) errors.push(`Unknown skill: ${skill}`);
+    const option = knownSkills.get(skill);
+    if (!option) errors.push(`Unknown skill: ${skill}`);
+    else if (option.disabled) errors.push(`Disabled skill: ${skill}`);
   }
   return errors;
 }
@@ -101,6 +125,7 @@ function requestWorkflowScopeUpdate(req: AuthenticatedRequest, workflow: Workflo
       id: typeof entry.id === 'string' ? entry.id : '',
       title: typeof entry.title === 'string' ? entry.title.trim() : undefined,
       requiredInputs: stringList(entry.requiredInputs),
+      agentIds: stringList(entry.agentIds),
       targetBinding: entry.targetBinding && typeof entry.targetBinding === 'object' && !Array.isArray(entry.targetBinding)
         ? entry.targetBinding as WorkflowStepDefinition['targetBinding']
         : undefined,
@@ -163,7 +188,7 @@ export async function createWorkflow(req: AuthenticatedRequest, res: Response, n
       req,
       res,
       workspaceId,
-      'manage_mcp',
+      'manage_workflows',
       'No permission to create workflows'
     );
     if (!authz) return;
@@ -257,8 +282,8 @@ export async function updateWorkflow(_req: AuthenticatedRequest, res: Response):
     req,
     res,
     workflow.workspaceId,
-    'manage_mcp',
-    'No permission to edit workflow MCP scope'
+    'manage_workflows',
+    'No permission to edit workflows'
   );
   if (!authz) return;
 
@@ -278,6 +303,7 @@ export async function updateWorkflow(_req: AuthenticatedRequest, res: Response):
     return stepUpdate
       ? {
           ...step,
+          agentIds: stepUpdate.agentIds || step.agentIds,
           enabledSkills: stepUpdate.enabledSkills || step.enabledSkills,
           allowedMcpServers: stepUpdate.allowedMcpServers || step.allowedMcpServers,
           allowedTools: stepUpdate.allowedTools || step.allowedTools
@@ -336,7 +362,7 @@ export async function deleteWorkflow(req: AuthenticatedRequest, res: Response, n
       req,
       res,
       workspaceId,
-      'manage_mcp',
+      'manage_workflows',
       'No permission to delete workflows'
     );
     if (!authz) return;
@@ -402,7 +428,7 @@ export async function createWorkflowMcpServerForWorkspace(req: AuthenticatedRequ
         : undefined,
       createdBy: req.auth.userId
     });
-    res.status(201).json(server);
+    res.status(201).json({ server });
   } catch (err) {
     next(err);
   }
@@ -419,7 +445,7 @@ export async function updateWorkflowMcpServerForWorkspace(req: AuthenticatedRequ
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'MCP server not found', retryable: false } });
       return;
     }
-    res.status(200).json(updated);
+    res.status(200).json({ server: updated });
   } catch (err) {
     next(err);
   }

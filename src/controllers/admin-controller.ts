@@ -64,7 +64,9 @@ export async function systemConfig(req: AdminAuthenticatedRequest, res: Response
       retention: {
         conversationDays: config.CONVERSATION_RETENTION_DAYS,
         webhookHistoryDays: config.WEBHOOK_HISTORY_RETENTION_DAYS,
-        workspaceAuditDays: config.WORKSPACE_AUDIT_RETENTION_DAYS
+        workspaceAuditDays: config.WORKSPACE_AUDIT_RETENTION_DAYS,
+        targetMetricHistoryDays: config.TARGET_METRIC_HISTORY_RETENTION_DAYS,
+        skillSnapshotBlobOrphanGraceDays: config.SKILL_SNAPSHOT_BLOB_ORPHAN_GRACE_DAYS
       },
       auditLogging: {
         mode: config.WORKSPACE_AUDIT_LOGGING_MODE

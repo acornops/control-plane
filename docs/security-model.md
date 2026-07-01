@@ -50,7 +50,7 @@
   `read_workspace_data`, `create_sessions`, and `create_read_only_runs`,
   intersected with the linked user's workspace role. In phase 1 they are
   accepted only by workspace summary/list, generic target summary/list,
-  Kubernetes and VM overview/list, snapshot resource/finding/investigation
+  Kubernetes and VM overview/list, snapshot resource reads, durable issue
   reads, read-only session/message routes, and run observation routes.
   Operational target data and read-only assistant conversations are visible;
   member, audit, logs, read-write runs, approval decisions, cancellation,
