@@ -8,6 +8,7 @@ import {
 } from '../../auth/workspace-authorization.js';
 import type { WorkspaceAuthorization } from '../../auth/workspace-authorization.js';
 import { webhooks } from '../../services/webhooks.js';
+import { mapVirtualMachineMetricHistoryPoint } from '../../services/virtual-machine-metric-history.js';
 import { recordWorkspaceAuditEvent } from '../../services/workspace-audit.js';
 import { repo } from '../../store/repository.js';
 import { VIRTUAL_MACHINE_TARGET_TYPE } from '../../types/domain.js';
@@ -333,12 +334,7 @@ export async function getVirtualMachineMetricsHistory(req: AuthenticatedRequest,
     const since = new Date(Date.now() - windowMs).toISOString();
     const points = (await repo.listTargetMetricHistory(vmId, { targetType: 'virtual_machine', since, limit }))
       .filter((point) => point.workspaceId === workspaceId)
-      .map((point) => ({
-        timestamp: point.timestamp,
-        loadAverage: Array.isArray(point.metrics.loadAverage) ? point.metrics.loadAverage : [],
-        memory: point.metrics.memory || null,
-        disks: Array.isArray(point.metrics.disks) ? point.metrics.disks : []
-      }));
+      .map(mapVirtualMachineMetricHistoryPoint);
     res.status(200).json({ workspaceId, targetId: vmId, windowMs, points });
   } catch (err) {
     next(err);

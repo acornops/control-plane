@@ -128,8 +128,13 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
         tags: ['workspaces'],
         summary: 'Get bounded VM metrics history',
         security: [{ userSession: [] }],
-        parameters: [workspaceParam, vmParam],
-        responses: { '200': { description: 'VM metrics history payload: { workspaceId, targetId, windowMs, points }.' } }
+        parameters: [
+          workspaceParam,
+          vmParam,
+          { in: 'query', name: 'window', required: false, schema: { type: 'string', example: '1h' } },
+          { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 288, example: 48 } }
+        ],
+        responses: { '200': { description: 'VM load, memory, swap, and root disk history payload: { workspaceId, targetId, windowMs, points }.' } }
       }
     },
     '/api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/logs': {

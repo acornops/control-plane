@@ -84,9 +84,14 @@ export function summarizeVirtualMachineSnapshotMetrics(snapshot: VirtualMachineS
   const metrics = snapshot.data.metrics;
   if (!metrics || typeof metrics !== 'object') return null;
   const value = metrics as Record<string, unknown>;
+  const cpuUsagePercent = typeof value.cpuUsagePercent === 'number' && Number.isFinite(value.cpuUsagePercent) && value.cpuUsagePercent >= 0 && value.cpuUsagePercent <= 100
+    ? value.cpuUsagePercent
+    : null;
   return {
     loadAverage: Array.isArray(value.loadAverage) ? value.loadAverage : [],
-    memory: value.memory && typeof value.memory === 'object' ? value.memory : null,
+    cpuUsagePercent,
+    memory: value.memory && typeof value.memory === 'object' && !Array.isArray(value.memory) ? value.memory : null,
+    swap: value.swap && typeof value.swap === 'object' && !Array.isArray(value.swap) ? value.swap : null,
     disks: Array.isArray(value.disks) ? value.disks : []
   };
 }

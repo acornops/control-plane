@@ -122,11 +122,60 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         workspaceId: uuid,
         targetId: uuid,
         clusterId: uuid,
-        windowMs: { type: 'integer' },
+        windowMs: { type: 'integer', minimum: 0 },
         points: { type: 'array', items: jsonObject },
         items: { type: 'array', items: jsonObject }
       },
       additionalProperties: true
+    },
+    VirtualMachineMetricHistoryPoint: {
+      type: 'object',
+      required: [
+        'timestamp',
+        'loadAverage1m',
+        'loadAverage5m',
+        'loadAverage15m',
+        'cpuUsagePercent',
+        'memoryUsedBytes',
+        'memoryTotalBytes',
+        'memoryFreeBytes',
+        'memoryUsedPercent',
+        'swapUsedBytes',
+        'swapTotalBytes',
+        'swapUsedPercent',
+        'rootDiskUsedBytes',
+        'rootDiskTotalBytes',
+        'rootDiskUsedPercent'
+      ],
+      properties: {
+        timestamp: dateTime,
+        loadAverage1m: { type: 'number', minimum: 0, nullable: true },
+        loadAverage5m: { type: 'number', minimum: 0, nullable: true },
+        loadAverage15m: { type: 'number', minimum: 0, nullable: true },
+        cpuUsagePercent: { type: 'number', minimum: 0, maximum: 100, nullable: true },
+        memoryUsedBytes: { type: 'number', minimum: 0, nullable: true },
+        memoryTotalBytes: { type: 'number', minimum: 0, nullable: true },
+        memoryFreeBytes: { type: 'number', minimum: 0, nullable: true },
+        memoryUsedPercent: { type: 'number', minimum: 0, maximum: 100, nullable: true },
+        swapUsedBytes: { type: 'number', minimum: 0, nullable: true },
+        swapTotalBytes: { type: 'number', minimum: 0, nullable: true },
+        swapUsedPercent: { type: 'number', minimum: 0, maximum: 100, nullable: true },
+        rootDiskUsedBytes: { type: 'number', minimum: 0, nullable: true },
+        rootDiskTotalBytes: { type: 'number', minimum: 0, nullable: true },
+        rootDiskUsedPercent: { type: 'number', minimum: 0, maximum: 100, nullable: true }
+      },
+      additionalProperties: false
+    },
+    VirtualMachineMetricHistory: {
+      type: 'object',
+      required: ['workspaceId', 'targetId', 'windowMs', 'points'],
+      properties: {
+        workspaceId: uuid,
+        targetId: uuid,
+        windowMs: { type: 'integer', minimum: 0 },
+        points: { type: 'array', items: schemaRef('VirtualMachineMetricHistoryPoint') }
+      },
+      additionalProperties: false
     },
     ChatSession: {
       type: 'object',

@@ -81,7 +81,9 @@ describe('virtual machine repository reads', () => {
       data: {
         metrics: {
           loadAverage: [0.1, 0.2, 0.3],
+          cpuUsagePercent: 7.5,
           memory: { totalBytes: 1024, usedBytes: 512 },
+          swap: { totalBytes: 2048, usedBytes: 256 },
           disks: [{ mountpoint: '/', usedBytes: 128 }]
         },
         findings: [
@@ -104,7 +106,9 @@ describe('virtual machine repository reads', () => {
     assert(!statements.some((sql) => sql.includes('INSERT INTO target_snapshot_history')));
     assert.deepEqual(JSON.parse(String(queryParams[metricHistoryIndex][4])), {
       loadAverage: [0.1, 0.2, 0.3],
+      cpuUsagePercent: 7.5,
       memory: { totalBytes: 1024, usedBytes: 512 },
+      swap: { totalBytes: 2048, usedBytes: 256 },
       disks: [{ mountpoint: '/', usedBytes: 128 }]
     });
     assert.equal(insertedFindings[0]?.severity, 'info');

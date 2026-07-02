@@ -113,7 +113,7 @@ export function schemaForOperation(method: string, path: string, statusCode: str
     'PATCH /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}': 'VirtualMachine',
     'POST /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/rotate-agent-key': 'AgentKeyRotation',
     'GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/resources': 'InventoryPage',
-    'GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/metrics/history': 'MetricHistory',
+    'GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/metrics/history': 'VirtualMachineMetricHistory',
     'GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/logs': 'VmLogs',
     'GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions': 'ChatSessionPage',
     'POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions': 'ChatSession',
