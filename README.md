@@ -25,7 +25,7 @@ This repository supports human and agent-assisted development. Start coding agen
 
 ## Contracts
 
-Cross-repo contract documentation lives in [`docs/contracts/README.md`](docs/contracts/README.md). Treat that directory as the source of truth for management-console, execution-engine, llm-gateway, and k8s-agent integration boundaries.
+Cross-repo contract documentation lives in [`docs/contracts/README.md`](docs/contracts/README.md). Treat that directory as the source of truth for management-console, execution-engine, llm-gateway, and agentk integration boundaries.
 Machine-readable contract data lives in [`docs/contracts/manifest.json`](docs/contracts/manifest.json).
 Run `npm run contracts:check` to mechanically verify the documented control-plane contracts against the implementation.
 
@@ -147,7 +147,7 @@ API docs exposure is controlled by `ENABLE_API_DOCS` (enabled by default in loca
 
 ## Start Full AcornOps Stack
 
-For full platform bring-up (management console + control-plane + execution-engine + llm-gateway + k8s-agent + edge proxy), use the deployment repository:
+For full platform bring-up (management console + control-plane + execution-engine + llm-gateway + agentk + edge proxy), use the deployment repository:
 
 ```bash
 cd ../acornops-deployment
@@ -205,8 +205,8 @@ Control-plane HA defaults:
 
 - `CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED=false` in local development and `true` in production.
 - `CONTROL_PLANE_INSTANCE_ID` defaults to the host or pod name and must be unique per replica.
-- `CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS=90` controls Redis ownership expiry for live k8s-agent WebSocket connections.
-- `CONTROL_PLANE_AGENT_SNAPSHOT_INTERVAL_SECONDS=60` controls the default telemetry snapshot cadence sent to k8s agents during handshake.
+- `CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS=90` controls Redis ownership expiry for live agentk WebSocket connections.
+- `CONTROL_PLANE_AGENT_SNAPSHOT_INTERVAL_SECONDS=60` controls the default telemetry snapshot cadence sent to AgentKs during handshake.
 
 In multi-replica deployments, Redis records the pod that owns each agent WebSocket and carries cross-pod JSON-RPC routing, run event fanout, and renewed scheduler leases. If an owning pod restarts, the agent reconnects and later commands route through the new owner; active commands on the closing connection can fail or time out.
 
@@ -365,13 +365,13 @@ Gateway verification settings in compose:
 - `AUTH_ISSUER=llm-gateway`
 - `AUTH_AUDIENCE=execution-gateway`
 
-### k8s-agent integration
+### agentk integration
 
 Agent websocket endpoint:
 
 - `ws://localhost:8081/api/v1/agent/connect`
 
-For `k8s-agent`:
+For `agentk`:
 
 - `ACORNOPS_AGENT_PLATFORM_URL=ws://localhost:8081/api/v1/agent/connect`
 - `ACORNOPS_CLUSTER_ID=<cluster id returned by cluster register API>`

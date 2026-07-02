@@ -36,11 +36,11 @@ const emptyVmSnapshotSummary = {
 
 function buildVmInstallInstructions(input: { targetId: string; agentKey: string; platformUrl?: string }): string {
   return [
-    'Install the AcornOps VM agent on a Linux/systemd host:',
+    'Install the AcornOps AgentV on a Linux/systemd host:',
     '',
     '```bash',
     'sudo install -d -m 0750 -o root -g root /etc/acornops',
-    'sudo tee /etc/acornops/vm-agent.env >/dev/null <<EOF',
+    'sudo tee /etc/acornops/agentv.env >/dev/null <<EOF',
     `ACORNOPS_AGENT_PLATFORM_URL=${input.platformUrl || 'https://api.acornops.dev'}`,
     `ACORNOPS_TARGET_ID=${input.targetId}`,
     `ACORNOPS_AGENT_KEY=${input.agentKey}`,
@@ -53,9 +53,9 @@ function buildVmInstallInstructions(input: { targetId: string; agentKey: string;
     'ACORNOPS_VM_ALLOWED_LOG_SOURCES=journald,syslog',
     'ACORNOPS_VM_COLLECTOR_MODE=live',
     'EOF',
-    'sudo chown root:acornops-agent /etc/acornops/vm-agent.env',
-    'sudo chmod 0640 /etc/acornops/vm-agent.env',
-    'sudo systemctl enable --now acornops-vm-agent',
+    'sudo chown root:acornops-agent /etc/acornops/agentv.env',
+    'sudo chmod 0640 /etc/acornops/agentv.env',
+    'sudo systemctl enable --now acornops-agentv',
     '```',
     '',
     'The agent connects outbound only and exposes read-only diagnostics.'
@@ -298,7 +298,7 @@ export async function rotateVirtualMachineAgentKey(req: AuthenticatedRequest, re
       objectType: 'virtual_machine',
       objectId: vmId,
       objectName: access.target.name,
-      summary: 'VM agent key rotated',
+      summary: 'AgentV key rotated',
       metadata: { keyVersion: reg.keyVersion + 1 }
     });
     res.status(200).json({

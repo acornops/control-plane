@@ -81,7 +81,7 @@ const managementConsoleContract = manifest.counterparts?.['management-console'];
 const externalIntegrationClientContract = manifest.counterparts?.['external-integration-client'];
 const executionEngineContract = manifest.counterparts?.['execution-engine'];
 const llmGatewayContract = manifest.counterparts?.['llm-gateway'];
-const agentContract = manifest.counterparts?.['k8s-agent'];
+const agentContract = manifest.counterparts?.['agentk'];
 
 expectIncludes(readme, '[`docs/contracts/README.md`](docs/contracts/README.md)', 'README contract link');
 expectIncludes(readme, '[`docs/contracts/manifest.json`](docs/contracts/manifest.json)', 'README manifest link');
@@ -95,7 +95,7 @@ for (const heading of [
   '## Management Console Public Contract',
   '## Execution-Engine Contract',
   '## LLM-Gateway Contract',
-  '## K8s-Agent Contract'
+  '## AgentK Contract'
 ]) {
   expectIncludes(doc, heading, 'Contract doc heading');
 }
@@ -465,8 +465,8 @@ expectIncludes(
 );
 
 for (const toolName of agentContract.builtinToolNames) {
-  expectIncludes(doc, toolName, 'K8s-agent builtin tool doc');
-  expectIncludes(agentSource, toolName, 'K8s-agent builtin tool implementation');
+  expectIncludes(doc, toolName, 'AgentK builtin tool doc');
+  expectIncludes(agentSource, toolName, 'AgentK builtin tool implementation');
 }
 
 for (const guardNeedle of [

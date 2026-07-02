@@ -12,12 +12,12 @@
 
 - Direct browser-side business logic
 - In-process LLM inference
-- In-cluster tool execution without the k8s-agent
+- In-cluster tool execution without the agentk
 
 ## Primary Consumers
 
 - Management-console operators
 - Execution-engine
 - llm-gateway
-- k8s-agent
-- vm-agent
+- agentk
+- agentv

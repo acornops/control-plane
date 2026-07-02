@@ -32,7 +32,7 @@ function createVm(status: 'online' | 'offline') {
   };
 }
 
-describe('VM agent handshake', () => {
+describe('AgentV handshake', () => {
   it('returns capability-driven write policy for VM handshakes', async () => {
     const store = new Map<string, string>();
     installRedisStore(store);
@@ -73,7 +73,7 @@ describe('VM agent handshake', () => {
     internal.handleConnection(ws as unknown as WebSocket, {
       headers: {
         'x-agent-key': 'agent-key-vm',
-        'x-agent-version': 'vm-agent-test'
+        'x-agent-version': 'agentv-test'
       },
       socket: { remoteAddress: '203.0.113.13' }
     } as never);
@@ -87,13 +87,13 @@ describe('VM agent handshake', () => {
         params: {
           targetId: 'vm-1',
           targetType: 'virtual_machine',
-          agentType: 'vm_agent',
+          agentType: 'agentv',
           agentKey: 'agent-key-vm',
           supportedCapabilities: ['read', 'write', 'logs']
         }
       })),
       'agent-key-vm',
-      'vm-agent-test',
+      'agentv-test',
       '203.0.113.13'
     );
 

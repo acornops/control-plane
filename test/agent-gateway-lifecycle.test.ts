@@ -238,7 +238,7 @@ describe('agent gateway lifecycle', () => {
         params: {
           targetId: 'cluster-1',
           targetType: 'kubernetes',
-          agentType: 'k8s_agent',
+          agentType: 'agentk',
           agentKey: 'agent-key'
         }
       }))),
@@ -300,7 +300,7 @@ describe('agent gateway lifecycle', () => {
           targetId: 'cluster-claimed',
           agentKey: 'agent-key-other',
           targetType: 'kubernetes',
-          agentType: 'k8s_agent',
+          agentType: 'agentk',
           supportedCapabilities: ['read']
         }
       })),
@@ -351,7 +351,7 @@ describe('agent gateway lifecycle', () => {
         params: {
           agentKey: 'agent-key-claimed',
           targetType: 'kubernetes',
-          agentType: 'k8s_agent',
+          agentType: 'agentk',
           supportedCapabilities: ['read']
         }
       })),

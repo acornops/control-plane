@@ -111,7 +111,7 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
         summary: 'Rotate the virtual machine agent key',
         security: [{ userSession: [] }],
         parameters: [workspaceParam, vmParam],
-        responses: { '200': { description: 'Replacement VM agent key and updated systemd install instructions.' } }
+        responses: { '200': { description: 'Replacement AgentV key and updated systemd install instructions.' } }
       }
     },
     '/api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/resources': {
@@ -140,7 +140,7 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
     '/api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/logs': {
       get: {
         tags: ['workspaces'],
-        summary: 'Read bounded logs from the connected VM agent',
+        summary: 'Read bounded logs from the connected AgentV',
         security: [{ userSession: [] }],
         parameters: [
           workspaceParam,
@@ -149,7 +149,7 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
           { in: 'query', name: 'query', required: false, schema: { type: 'string' } },
           { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 200, default: 100 } }
         ],
-        responses: { '200': { description: 'VM log entries returned by the connected VM agent.' } }
+        responses: { '200': { description: 'VM log entries returned by the connected AgentV.' } }
       }
     }
   };

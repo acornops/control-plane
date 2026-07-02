@@ -10,7 +10,7 @@ afterEach(() => {
 });
 
 describe('syncTargetBuiltInTools', () => {
-  it('preserves VM agent-advertised tool capabilities during built-in sync', async () => {
+  it('preserves AgentV-advertised tool capabilities during built-in sync', async () => {
     mock.method(agentGateway, 'listAgentTools', async () => [
       {
         name: 'restart_service',

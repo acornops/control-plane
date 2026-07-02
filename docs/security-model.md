@@ -13,7 +13,7 @@
 - Builtin MCP bridge calls use the run-scoped gateway JWT issued during execution bootstrap.
 - llm-gateway admin traffic uses the shared admin token value configured locally as `LLM_GATEWAY_ADMIN_TOKEN`.
 - Run-scoped gateway JWTs are minted here, validated downstream, and re-validated by the builtin MCP bridge.
-- k8s-agent and VM-agent websocket auth is keyed by target agent secrets, and production agent upgrades must arrive over HTTPS/WSS transport.
+- agentk and AgentV websocket auth is keyed by target agent secrets, and production agent upgrades must arrive over HTTPS/WSS transport.
 
 ## Secrets
 

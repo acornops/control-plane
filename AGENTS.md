@@ -29,7 +29,7 @@ For work that touches multiple AcornOps repositories, start the agent from the `
 - `src/routes`: HTTP route registration and middleware wiring
 - `src/controllers`: request handling and orchestration behavior
 - `src/services`: downstream clients and platform integration logic
-- `src/agent`: websocket bridge for k8s-agent connectivity
+- `src/agent`: websocket bridge for agentk connectivity
 - `src/store`: Postgres-backed state and Redis-backed runtime coordination
 - `src/types`: API and internal boundary schemas
 

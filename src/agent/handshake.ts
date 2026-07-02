@@ -31,7 +31,7 @@ export async function handleAgentHandshake(input: {
         .filter((entry) => entry.length > 0)
     : [];
 
-  const expectedAgentType = targetType === VIRTUAL_MACHINE_TARGET_TYPE ? 'vm_agent' : 'k8s_agent';
+  const expectedAgentType = targetType === VIRTUAL_MACHINE_TARGET_TYPE ? 'agentv' : 'agentk';
   if (!targetId || !isTargetType(targetType) || agentType !== expectedAgentType || (keyTargetId && targetId !== keyTargetId)) {
     input.ws.send(JSON.stringify(createErrorResponse(input.requestId, 401, 'Invalid agent key')));
     input.ws.close(1008, 'Invalid agent key');

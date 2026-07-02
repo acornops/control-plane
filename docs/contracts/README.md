@@ -13,10 +13,10 @@ Machine-readable contract data for this repo lives in `docs/contracts/manifest.j
 | Execution engine | execution-engine -> control-plane | Bootstrap, context fetch, run event ingestion, run commit |
 | LLM gateway | control-plane -> llm-gateway | Internal MCP admin API and workspace AI provider credential status/write/delete API |
 | LLM gateway | llm-gateway -> control-plane | JWKS fetch for run JWT validation, builtin MCP tool bridge |
-| K8s agent | k8s-agent -> control-plane | WebSocket handshake, heartbeat, snapshot, `tools/list`, `tools/call` |
-| K8s agent | control-plane -> k8s-agent | Handshake response, JSON-RPC tool execution requests |
-| VM agent | vm-agent -> control-plane | WebSocket handshake, heartbeat, host snapshot, `tools/list`, `tools/call` |
-| VM agent | control-plane -> vm-agent | Handshake response and JSON-RPC tool execution requests |
+| AgentK | agentk -> control-plane | WebSocket handshake, heartbeat, snapshot, `tools/list`, `tools/call` |
+| AgentK | control-plane -> agentk | Handshake response, JSON-RPC tool execution requests |
+| AgentV | agentv -> control-plane | WebSocket handshake, heartbeat, host snapshot, `tools/list`, `tools/call` |
+| AgentV | control-plane -> agentv | Handshake response and JSON-RPC tool execution requests |
 | Operators | operator -> control-plane | Admin API under `/admin/v1` for break-glass support, quota/plan management, run intervention, target agent operations, and audit search |
 
 ## Shared Invariants
@@ -28,7 +28,7 @@ Machine-readable contract data for this repo lives in `docs/contracts/manifest.j
   - `ORCH_SERVICE_TOKEN` for execution-engine callbacks into control plane,
   - `LLM_GATEWAY_ADMIN_TOKEN` / `ADMIN_API_TOKEN` for control-plane <-> llm-gateway admin traffic,
   - run-scoped JWTs minted by control plane for execution-engine <-> llm-gateway runtime traffic and llm-gateway builtin MCP bridge calls into control plane,
-  - target agent keys for k8s-agent and vm-agent WebSocket auth,
+  - target agent keys for agentk and agentv WebSocket auth,
   - admin bearer tokens for `/admin/v1` only.
 - `/admin/v1` accepts admin token descriptors only. Browser sessions, CSRF
   cookies, service tokens, run-scoped JWTs, and agent keys are not valid admin
@@ -318,7 +318,7 @@ Durable issue and snapshot-derived management-console data is exposed through bo
 
 Paged resource and issue APIs return `{ items, nextCursor? }`, accept `limit`, `cursor`, and `q` where search is supported, and apply exact filters before pagination. Cursor reuse with different query/filter state returns `400`. Target issue summaries return exact active plus recovering counts by status and severity from durable issues, excluding resolved issues, and are the canonical source for overview navigation badges. The control plane persists only the latest raw agent snapshot, then materializes latest resources, internal findings, durable issues, summary counts, and compact metric samples at ingest for browser-facing APIs.
 
-VM host snapshots retain only the latest raw target snapshot, then materialize inventory, internal findings, durable issues, summaries, and compact metric samples at ingest. Browser-facing VM resource APIs return `{ items, nextCursor? }`; VM metrics return bounded history points from compact metric history; VM logs are read live through the connected VM agent with `permissions.read_target_logs` authorization and return bounded entries only.
+VM host snapshots retain only the latest raw target snapshot, then materialize inventory, internal findings, durable issues, summaries, and compact metric samples at ingest. Browser-facing VM resource APIs return `{ items, nextCursor? }`; VM metrics return bounded history points from compact metric history; VM logs are read live through the connected AgentV with `permissions.read_target_logs` authorization and return bounded entries only.
 
 ### MCP management, skills, and tools APIs
 
@@ -349,7 +349,7 @@ VM host snapshots retain only the latest raw target snapshot, then materialize i
 - `DELETE /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}`
 - `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}/reimport`
 
-Built-in tools and MCP-discovered tools use distinct target-scoped APIs. Kubernetes clusters and virtual machines both use the target MCP, Skills, and Tools surfaces. The Tools catalog shows only AcornOps built-in tools such as `web_search` and `target_insights`; MCP-discovered tools remain in the MCP catalog and paged MCP server tool APIs. `web_search` defaults to enabled for targets without an explicit tool setting, and storing `enabled=false` is the target-level opt-out. `target_insights` defaults to enabled when the platform feature flag is enabled. Built-in tool rows include runtime metadata and per-item permissions so built-in capabilities can be listed as available without implying that they always emit standard function tool-call events or share the same management permission. Kubernetes and VM agent tools are synchronized from each connected agent and remain capability-tagged. Write-tool availability is driven by the advertised tool capability, target agent capabilities, user permissions, and the requested run `toolAccessMode`; the current VM v1 agent catalog happens to advertise only read tools.
+Built-in tools and MCP-discovered tools use distinct target-scoped APIs. Kubernetes clusters and virtual machines both use the target MCP, Skills, and Tools surfaces. The Tools catalog shows only AcornOps built-in tools such as `web_search` and `target_insights`; MCP-discovered tools remain in the MCP catalog and paged MCP server tool APIs. `web_search` defaults to enabled for targets without an explicit tool setting, and storing `enabled=false` is the target-level opt-out. `target_insights` defaults to enabled when the platform feature flag is enabled. Built-in tool rows include runtime metadata and per-item permissions so built-in capabilities can be listed as available without implying that they always emit standard function tool-call events or share the same management permission. Kubernetes and AgentV tools are synchronized from each connected agent and remain capability-tagged. Write-tool availability is driven by the advertised tool capability, target agent capabilities, user permissions, and the requested run `toolAccessMode`; the current VM v1 agent catalog happens to advertise only read tools.
 
 `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/assistant/capabilities-preview` requires target read access and the run-creation capability matching the explicit `toolAccessMode` query. It returns an informational preview of the tools a target assistant run would be allowed to use plus enabled valid skills that are assistant-visible for the next run. It includes summary counts, write unavailability reason, approval policy, display-safe tool items, and skill names/descriptions only. It must not return MCP input schemas, hidden disabled tool inventories, or full skill files; internal execution bootstrap and the hidden skill loader remain the enforcement authority.
 
@@ -855,7 +855,7 @@ The builtin server identity must remain:
 
 because control plane uses those values to detect and reconcile the builtin tool bridge.
 
-## K8s-Agent Contract
+## AgentK Contract
 
 ### Connection and handshake
 
@@ -881,7 +881,7 @@ Handshake request is JSON-RPC `lifecycle/handshake` with:
 - `agentVersion`
 - `targetId`
 - `targetType = "kubernetes"`
-- `agentType = "k8s_agent"`
+- `agentType = "agentk"`
 - `supportedCapabilities`
 - `clusterFeatures.metricsApiAvailable`
 - `clusterFeatures.rbacMode`
@@ -946,9 +946,9 @@ The control plane uses JSON-RPC requests over the same WebSocket:
 
 The agent remains the implementation owner for builtin tool schemas and runtime behavior, while the control plane owns how those tools are registered, filtered, and exposed to the rest of the platform.
 
-## VM-Agent Contract
+## AgentV Contract
 
-The VM agent uses the same outbound WebSocket paths, agent-key authentication, heartbeat, snapshot, `tools/list`, and `tools/call` JSON-RPC envelope as the Kubernetes agent. VM handshakes must set `targetType = "virtual_machine"` and `agentType = "vm_agent"`.
+The AgentV uses the same outbound WebSocket paths, agent-key authentication, heartbeat, snapshot, `tools/list`, and `tools/call` JSON-RPC envelope as the Kubernetes agent. VM handshakes must set `targetType = "virtual_machine"` and `agentType = "agentv"`.
 
 VM handshake metadata includes:
 
@@ -957,7 +957,7 @@ VM handshake metadata includes:
 - `agentVersion`
 - `targetId`
 - `targetType = "virtual_machine"`
-- `agentType = "vm_agent"`
+- `agentType = "agentv"`
 - `supportedCapabilities`
 - `osFamily = "linux"`
 - `serviceManager = "systemd"`
@@ -972,7 +972,7 @@ VM handshake success responses include the same target-scoped session policy env
 - `config.snapshotInterval`
 - `config.maxSnapshotBytes`
 
-The initial Linux/systemd VM agent advertises read/logs/MCP/chat/systemd/linux capabilities and exposes this read-only tool catalog:
+The initial Linux/systemd AgentV advertises read/logs/MCP/chat/systemd/linux capabilities and exposes this read-only tool catalog:
 
 - `get_host_summary`
 - `list_processes`

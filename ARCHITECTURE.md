@@ -22,8 +22,8 @@ flowchart LR
     DB[(Postgres)]
     Redis[(Redis)]
     EE[execution-engine]
-    Agent[k8s-agent]
-    VMAgent[vm-agent]
+    Agent[agentk]
+    VMAgent[agentv]
     GW[llm-gateway]
 
     User --> UI
@@ -94,8 +94,8 @@ flowchart TD
         OIDC[Dex / Keycloak / External OIDC]
         EE[execution-engine]
         GW[llm-gateway]
-        Agent[k8s-agent]
-        VMAgent[vm-agent]
+        Agent[agentk]
+        VMAgent[agentv]
     end
 
     UI --> App

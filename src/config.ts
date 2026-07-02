@@ -204,7 +204,7 @@ const envSchema = z.object({
   SEED_AGENT_KEY: z.string().optional(),
   SEED_VM_AGENT_KEY: z.string().optional(),
   AGENT_HELM_RELEASE_NAME: z.preprocess(emptyStringToUndefined, z.string().min(1).default('acornops-agent')),
-  AGENT_HELM_CHART_REF: z.preprocess(emptyStringToUndefined, z.string().min(1).default('oci://ghcr.io/acornops/charts/acornops-k8s-agent')),
+  AGENT_HELM_CHART_REF: z.preprocess(emptyStringToUndefined, z.string().min(1).default('oci://ghcr.io/acornops/charts/acornops-agentk')),
   AGENT_HELM_NAMESPACE: z.preprocess(emptyStringToUndefined, z.string().min(1).default('acornops')),
 
   OIDC_PROVIDER_NAME: z.string().default('oidc'),

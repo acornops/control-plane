@@ -146,7 +146,7 @@ function installInstructions(targetId: string, targetType: TargetType, _agentKey
   if (targetType === KUBERNETES_TARGET_TYPE) {
     return `Use the existing Kubernetes agent install flow with target ${targetId} and the returned one-time agent key.`;
   }
-  return `Set ACORNOPS_TARGET_ID=${targetId} and ACORNOPS_AGENT_KEY to the returned one-time key, then restart the VM agent.`;
+  return `Set ACORNOPS_TARGET_ID=${targetId} and ACORNOPS_AGENT_KEY to the returned one-time key, then restart the AgentV.`;
 }
 
 export async function rotateTargetAgentKey(req: AdminAuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {

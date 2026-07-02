@@ -1,7 +1,7 @@
 {
   "repo": "control-plane",
   "version": 1,
-  "runtimeDependencies": ["management-console", "execution-engine", "llm-gateway", "k8s-agent", "vm-agent"],
+  "runtimeDependencies": ["management-console", "execution-engine", "llm-gateway", "agentk", "agentv"],
   "counterparts": {
     "management-console": {
       "authPaths": [
@@ -510,7 +510,7 @@
         "callPath": "POST /internal/v1/mcp/tools/call"
       }
     },
-    "k8s-agent": {
+    "agentk": {
       "websocketPaths": ["/api/v1/agent/connect", "/agent/v1/connect"],
       "agentHeaders": ["x-agent-key", "x-agent-version"],
       "handshakeRequestFields": [
@@ -571,7 +571,7 @@
       ],
       "toolCallRequestFields": ["name", "arguments"]
     },
-    "vm-agent": {
+    "agentv": {
       "websocketPaths": ["/api/v1/agent/connect", "/agent/v1/connect"],
       "agentHeaders": ["x-agent-key", "x-agent-version"],
       "handshakeRequestFields": [

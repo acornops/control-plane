@@ -232,7 +232,7 @@ export async function connectAgent(gateway: AgentGateway, input: AgentFixture): 
       params: {
         targetId: input.clusterId,
         targetType: 'kubernetes',
-        agentType: 'k8s_agent',
+        agentType: 'agentk',
         agentKey: input.agentKey,
         supportedCapabilities: ['read']
       }
