@@ -134,6 +134,7 @@
         "DELETE /api/v1/agents/{agentId}/triggers/{triggerId}",
         "GET /api/v1/workspaces/{workspaceId}/workflows",
         "POST /api/v1/workspaces/{workspaceId}/workflows",
+        "GET /api/v1/workspaces/{workspaceId}/workflow-options",
         "GET /api/v1/workspaces/{workspaceId}/mcp/servers",
         "POST /api/v1/workspaces/{workspaceId}/mcp/servers",
         "PATCH /api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}",

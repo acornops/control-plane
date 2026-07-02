@@ -1,5 +1,22 @@
 export function buildInternalPaths(): Record<string, unknown> {
   return {
+    '/internal/v1/workflow-sessions/{sessionId}/context': {
+      get: {
+        tags: ['internal'],
+        summary: 'Internal: load workflow session execution context',
+        security: [{ serviceToken: [] }],
+        description: 'Returns the compiled workflow session context for execution-engine workflow runs.',
+        parameters: [
+          { in: 'path', name: 'sessionId', required: true, schema: { type: 'string', example: 'workflow-session-01' } },
+          { in: 'query', name: 'run_id', required: false, schema: { type: 'string', format: 'uuid' } }
+        ],
+        responses: {
+          '200': {
+            description: 'Workflow session context.'
+          }
+        }
+      }
+    },
     '/internal/v1/mcp/tools/call': {
         post: {
           tags: ['internal'],

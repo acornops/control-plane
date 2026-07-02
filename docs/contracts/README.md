@@ -515,6 +515,7 @@ Workflows are workspace-scoped automation resources, not synthetic targets. Exis
 Implemented management-console routes:
 
 - `GET /api/v1/workspaces/{workspaceId}/workflows`
+- `GET /api/v1/workspaces/{workspaceId}/workflow-options`
 - `GET /api/v1/workspaces/{workspaceId}/mcp/servers`
 - `POST /api/v1/workspaces/{workspaceId}/mcp/servers`
 - `PATCH /api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}`

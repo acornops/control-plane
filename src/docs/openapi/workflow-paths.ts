@@ -1,117 +1,233 @@
 import { EXAMPLE_RUN_ID, EXAMPLE_WORKSPACE_ID } from '../../constants/dev-defaults.js';
 
-const scheduleSchema = {
-  type: 'object',
-  properties: {
-    id: { type: 'string', format: 'uuid' },
-    workspaceId: { type: 'string', format: 'uuid' },
-    workflowId: { type: 'string' },
-    workflowVersion: { type: 'integer' },
-    name: { type: 'string' },
-    status: { type: 'string', enum: ['enabled', 'paused'] },
-    cron: { type: 'string', example: '0 9 * * 1-5' },
-    timezone: { type: 'string', example: 'UTC' },
-    inputDefaults: { type: 'object', additionalProperties: true },
-    approvedContextGrants: { type: 'array', items: { type: 'string' } },
-    nextRunAt: { type: 'string', format: 'date-time' },
-    lastRunAt: { type: 'string', format: 'date-time' },
-    lastStatus: { type: 'string', enum: ['dispatched', 'failed', 'auto_paused', 'skipped'] },
-    lastError: { type: 'string' }
+const workspaceIdParameter = {
+  in: 'path',
+  name: 'workspaceId',
+  required: true,
+  schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID }
+};
+
+const workflowIdParameter = {
+  in: 'path',
+  name: 'workflowId',
+  required: true,
+  schema: { type: 'string', example: 'workflow-cluster-daily-triage' }
+};
+
+const scheduleIdParameter = {
+  in: 'path',
+  name: 'scheduleId',
+  required: true,
+  schema: { type: 'string', format: 'uuid' }
+};
+
+const serverIdParameter = {
+  in: 'path',
+  name: 'serverId',
+  required: true,
+  schema: { type: 'string', example: 'workflow-mcp-prometheus' }
+};
+
+const sessionIdParameter = {
+  in: 'path',
+  name: 'sessionId',
+  required: true,
+  schema: { type: 'string', example: 'workflow-session-01' }
+};
+
+const workflowWorkspaceIdQueryParameter = {
+  in: 'query',
+  name: 'workspaceId',
+  required: true,
+  schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID }
+};
+
+const workspaceBody = {
+  required: true,
+  content: {
+    'application/json': {
+      schema: {
+        type: 'object',
+        required: ['workspaceId'],
+        properties: {
+          workspaceId: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID }
+        },
+        additionalProperties: true
+      }
+    }
   }
 };
 
-const approvalInboxRowSchema = {
-  type: 'object',
-  properties: {
-    approvalId: { type: 'string', format: 'uuid' },
-    runId: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID },
-    source: { type: 'string', enum: ['target_tool', 'workflow_gate'] },
-    workflowId: { type: 'string' },
-    targetId: { type: 'string', format: 'uuid' },
-    targetType: { type: 'string' },
-    summary: { type: 'string' },
-    toolName: { type: 'string' },
-    requestedBy: { type: 'string' },
-    expiresAt: { type: 'string', format: 'date-time' },
-    status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'expired'] },
-    decision: { type: 'string', enum: ['approved', 'rejected'] },
-    decidedBy: { type: 'string' },
-    decidedAt: { type: 'string', format: 'date-time' },
-    requestedAt: { type: 'string', format: 'date-time' }
+const workflowMutationBody = {
+  required: true,
+  content: {
+    'application/json': {
+      schema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          description: { type: 'string' },
+          status: { type: 'string', enum: ['active', 'draft', 'paused'] },
+          category: { type: 'string' },
+          tags: { type: 'array', items: { type: 'string' } },
+          inputs: { type: 'array', items: { type: 'object', additionalProperties: true } },
+          enabledMcpServers: { type: 'array', items: { type: 'string' } },
+          enabledSkills: { type: 'array', items: { type: 'string' } },
+          requiredPermissions: { type: 'array', items: { type: 'string' } },
+          policy: { type: 'object', additionalProperties: true },
+          steps: { type: 'array', items: { type: 'object', additionalProperties: true } },
+          starterPrompt: { type: 'string' }
+        },
+        additionalProperties: true
+      }
+    }
+  }
+};
+
+const workflowMcpServerBody = {
+  required: true,
+  content: {
+    'application/json': {
+      schema: {
+        type: 'object',
+        required: ['name', 'url'],
+        properties: {
+          name: { type: 'string' },
+          url: { type: 'string', format: 'uri' },
+          enabled: { type: 'boolean' },
+          auth: { type: 'object', additionalProperties: true },
+          publicHeaders: { type: 'object', additionalProperties: { type: 'string' } }
+        },
+        additionalProperties: true
+      }
+    }
+  }
+};
+
+const workflowScheduleBody = {
+  required: true,
+  content: {
+    'application/json': {
+      schema: {
+        type: 'object',
+        required: ['workflowId', 'name', 'cron', 'timezone'],
+        properties: {
+          workspaceId: { type: 'string', format: 'uuid' },
+          workflowId: { type: 'string' },
+          name: { type: 'string' },
+          enabled: { type: 'boolean' },
+          cron: { type: 'string', example: '0 9 * * 1-5' },
+          timezone: { type: 'string', example: 'UTC' },
+          inputDefaults: { type: 'object', additionalProperties: true },
+          approvedContextGrants: { type: 'array', items: { type: 'string' } }
+        },
+        additionalProperties: true
+      }
+    }
   }
 };
 
 export function buildWorkflowPaths(): Record<string, unknown> {
   return {
+    '/api/v1/workspaces/{workspaceId}/workflows': {
+      get: {
+        tags: ['workflows'],
+        summary: 'List workflow definitions for a workspace',
+        description: 'Returns system and user workflow definitions visible to management-console. Requires read_workspace_data.',
+        security: [{ userSession: [] }],
+        parameters: [workspaceIdParameter],
+        responses: { '200': { description: 'Workflow definitions for the workspace.' } }
+      },
+      post: {
+        tags: ['workflows'],
+        summary: 'Create a workspace workflow definition',
+        description: 'Creates a user workflow definition from server-owned workflow options. Requires manage_workflows.',
+        security: [{ userSession: [] }],
+        parameters: [workspaceIdParameter],
+        requestBody: workflowMutationBody,
+        responses: { '201': { description: 'Workflow definition created.' } }
+      }
+    },
+    '/api/v1/workspaces/{workspaceId}/workflow-options': {
+      get: {
+        tags: ['workflows'],
+        summary: 'List server-compiled workflow options',
+        description: 'Returns selectable agents, MCP servers, tools, skills, approval policies, runtime limits, and retention policies for workflow builders.',
+        security: [{ userSession: [] }],
+        parameters: [workspaceIdParameter],
+        responses: { '200': { description: 'Workflow option catalog.' } }
+      }
+    },
+    '/api/v1/workspaces/{workspaceId}/mcp/servers': {
+      get: {
+        tags: ['workflows'],
+        summary: 'List workflow-scoped MCP servers',
+        security: [{ userSession: [] }],
+        parameters: [workspaceIdParameter],
+        responses: { '200': { description: 'Workflow MCP servers for the workspace.' } }
+      },
+      post: {
+        tags: ['workflows'],
+        summary: 'Create a workflow-scoped MCP server',
+        description: 'Creates an MCP server available to workflow definitions. Requires manage_mcp.',
+        security: [{ userSession: [] }],
+        parameters: [workspaceIdParameter],
+        requestBody: workflowMcpServerBody,
+        responses: { '201': { description: 'Workflow MCP server created.' } }
+      }
+    },
+    '/api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}': {
+      patch: {
+        tags: ['workflows'],
+        summary: 'Update a workflow-scoped MCP server',
+        security: [{ userSession: [] }],
+        parameters: [workspaceIdParameter, serverIdParameter],
+        requestBody: workflowMcpServerBody,
+        responses: { '200': { description: 'Workflow MCP server updated.' } }
+      },
+      delete: {
+        tags: ['workflows'],
+        summary: 'Delete a workflow-scoped MCP server',
+        security: [{ userSession: [] }],
+        parameters: [workspaceIdParameter, serverIdParameter],
+        responses: { '204': { description: 'Workflow MCP server deleted.' } }
+      }
+    },
+    '/api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}/test-connection': {
+      post: {
+        tags: ['workflows'],
+        summary: 'Test workflow MCP server connection',
+        security: [{ userSession: [] }],
+        parameters: [workspaceIdParameter, serverIdParameter],
+        responses: { '200': { description: 'Workflow MCP server connection check result.' } }
+      }
+    },
+    '/api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}/tools': {
+      get: {
+        tags: ['workflows'],
+        summary: 'List workflow MCP server tools',
+        security: [{ userSession: [] }],
+        parameters: [workspaceIdParameter, serverIdParameter],
+        responses: { '200': { description: 'Workflow MCP server tools.' } }
+      }
+    },
     '/api/v1/workspaces/{workspaceId}/workflow-schedules': {
       get: {
         tags: ['workflows'],
         summary: 'List workflow schedules for a workspace',
         description: 'Returns control-plane-owned workflow schedules and summary metrics. Requires read_workspace_data.',
         security: [{ userSession: [] }],
-        parameters: [
-          { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } }
-        ],
-        responses: {
-          '200': {
-            description: 'Workflow schedule list and summary.',
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {
-                    items: { type: 'array', items: scheduleSchema },
-                    summary: {
-                      type: 'object',
-                      properties: {
-                        total: { type: 'integer' },
-                        active: { type: 'integer' },
-                        paused: { type: 'integer' },
-                        approvalGated: { type: 'integer' },
-                        nextRunAt: { type: 'string', format: 'date-time' }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
+        parameters: [workspaceIdParameter],
+        responses: { '200': { description: 'Workflow schedule list and summary.' } }
       },
       post: {
         tags: ['workflows'],
         summary: 'Create workflow schedule',
         description: 'Creates a scheduled workflow automation. Requires manage_workflows.',
         security: [{ userSession: [] }],
-        parameters: [
-          { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } }
-        ],
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                required: ['workflowId', 'name', 'cron', 'timezone'],
-                properties: {
-                  workflowId: { type: 'string' },
-                  name: { type: 'string' },
-                  enabled: { type: 'boolean' },
-                  cron: { type: 'string' },
-                  timezone: { type: 'string' },
-                  inputDefaults: { type: 'object', additionalProperties: true },
-                  approvedContextGrants: { type: 'array', items: { type: 'string' } }
-                }
-              }
-            }
-          }
-        },
-        responses: {
-          '201': {
-            description: 'Workflow schedule created.',
-            content: { 'application/json': { schema: { type: 'object', properties: { schedule: scheduleSchema } } } }
-          }
-        }
+        parameters: [workspaceIdParameter],
+        requestBody: workflowScheduleBody,
+        responses: { '201': { description: 'Workflow schedule created.' } }
       }
     },
     '/api/v1/workflow-schedules/{scheduleId}': {
@@ -120,39 +236,15 @@ export function buildWorkflowPaths(): Record<string, unknown> {
         summary: 'Update workflow schedule',
         description: 'Updates schedule cadence, enabled state, workflow, grants, or defaults. Requires manage_workflows.',
         security: [{ userSession: [] }],
-        parameters: [{ in: 'path', name: 'scheduleId', required: true, schema: { type: 'string', format: 'uuid' } }],
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                properties: {
-                  workspaceId: { type: 'string', format: 'uuid' },
-                  workflowId: { type: 'string' },
-                  name: { type: 'string' },
-                  enabled: { type: 'boolean' },
-                  cron: { type: 'string' },
-                  timezone: { type: 'string' },
-                  inputDefaults: { type: 'object', additionalProperties: true },
-                  approvedContextGrants: { type: 'array', items: { type: 'string' } }
-                }
-              }
-            }
-          }
-        },
-        responses: {
-          '200': {
-            description: 'Workflow schedule updated.',
-            content: { 'application/json': { schema: { type: 'object', properties: { schedule: scheduleSchema } } } }
-          }
-        }
+        parameters: [scheduleIdParameter],
+        requestBody: workflowScheduleBody,
+        responses: { '200': { description: 'Workflow schedule updated.' } }
       },
       delete: {
         tags: ['workflows'],
         summary: 'Delete workflow schedule',
         security: [{ userSession: [] }],
-        parameters: [{ in: 'path', name: 'scheduleId', required: true, schema: { type: 'string', format: 'uuid' } }],
+        parameters: [scheduleIdParameter],
         responses: { '204': { description: 'Workflow schedule deleted.' } }
       }
     },
@@ -163,27 +255,94 @@ export function buildWorkflowPaths(): Record<string, unknown> {
         description: 'Normalizes target write-tool approvals and workflow approval gates into a single workspace inbox. Decisions remain on the run-scoped approval decision endpoint.',
         security: [{ userSession: [] }],
         parameters: [
-          { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
+          workspaceIdParameter,
           { in: 'query', name: 'status', required: false, schema: { type: 'string', enum: ['pending', 'decided', 'all'], default: 'pending' } },
           { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100 } },
           { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } }
         ],
-        responses: {
-          '200': {
-            description: 'Unified approval inbox page.',
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {
-                    items: { type: 'array', items: approvalInboxRowSchema },
-                    nextCursor: { type: 'string' }
-                  }
-                }
+        responses: { '200': { description: 'Unified approval inbox page.' } }
+      }
+    },
+    '/api/v1/workflows/{workflowId}': {
+      get: {
+        tags: ['workflows'],
+        summary: 'Get a workflow definition',
+        security: [{ userSession: [] }],
+        parameters: [workflowIdParameter, workflowWorkspaceIdQueryParameter],
+        responses: { '200': { description: 'Workflow definition detail.' } }
+      },
+      patch: {
+        tags: ['workflows'],
+        summary: 'Update a workflow definition',
+        security: [{ userSession: [] }],
+        parameters: [workflowIdParameter],
+        requestBody: workflowMutationBody,
+        responses: { '200': { description: 'Workflow definition updated.' } }
+      },
+      delete: {
+        tags: ['workflows'],
+        summary: 'Delete a user workflow definition',
+        security: [{ userSession: [] }],
+        parameters: [workflowIdParameter],
+        requestBody: workspaceBody,
+        responses: { '204': { description: 'Workflow definition deleted.' } }
+      }
+    },
+    '/api/v1/workflows/{workflowId}/sessions': {
+      get: {
+        tags: ['workflows'],
+        summary: 'List workflow sessions',
+        security: [{ userSession: [] }],
+        parameters: [workflowIdParameter, workflowWorkspaceIdQueryParameter],
+        responses: { '200': { description: 'Workflow sessions and run history.' } }
+      },
+      post: {
+        tags: ['workflows'],
+        summary: 'Create a workflow session',
+        security: [{ userSession: [] }],
+        parameters: [workflowIdParameter],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['workspaceId'],
+                properties: {
+                  workspaceId: { type: 'string', format: 'uuid' },
+                  approvedContextGrants: { type: 'array', items: { type: 'string' } }
+                },
+                additionalProperties: true
               }
             }
           }
-        }
+        },
+        responses: { '201': { description: 'Workflow session created.' } }
+      }
+    },
+    '/api/v1/workflow-sessions/{sessionId}/messages': {
+      post: {
+        tags: ['workflows'],
+        summary: 'Post a workflow session message and dispatch a run',
+        security: [{ userSession: [] }],
+        parameters: [sessionIdParameter],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['content'],
+                properties: {
+                  content: { type: 'string' },
+                  inputs: { type: 'object', additionalProperties: true }
+                },
+                additionalProperties: true
+              }
+            }
+          }
+        },
+        responses: { '202': { description: 'Workflow run accepted.', headers: { 'X-Example-Run-Id': { schema: { type: 'string', example: EXAMPLE_RUN_ID } } } } }
       }
     }
   };

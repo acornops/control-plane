@@ -1,5 +1,6 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
+import * as ts from 'typescript';
 
 const root = process.cwd();
 
@@ -18,6 +19,17 @@ function readTree(relativePath) {
     .sort()
     .map((entry) => readTree(path.join(relativePath, entry)))
     .join('\n');
+}
+
+function readFilesUnder(absolutePath) {
+  if (!existsSync(absolutePath)) return [];
+  const stat = statSync(absolutePath);
+  if (!stat.isDirectory()) {
+    return [absolutePath];
+  }
+  return readdirSync(absolutePath)
+    .sort()
+    .flatMap((entry) => readFilesUnder(path.join(absolutePath, entry)));
 }
 
 const failures = [];
@@ -94,7 +106,110 @@ function openApiPath(contractPath) {
     .replace(/\?run_id=<runId>$/, '')
     .replace(/\?return_to=<management-console-url>$/, '')
     .replace(/\?toolAccessMode=read_only\|read_write$/, '')
+    .replace(/\?workspaceId=\{workspaceId\}$/, '')
     .replace(/\?token=<external-integration-link-token>$/, '');
+}
+
+function documentedManagementConsolePaths() {
+  const paths = new Set();
+  for (const value of Object.values(managementConsoleContract || {})) {
+    if (!Array.isArray(value)) continue;
+    for (const item of value) {
+      if (typeof item !== 'string' || !/^[A-Z]+ /.test(item)) continue;
+      paths.add(openApiPath(item).split('?')[0]);
+    }
+  }
+  return paths;
+}
+
+function templateExpressionPlaceholder(expression) {
+  if (ts.isCallExpression(expression)) {
+    const callee = expression.expression.getText();
+    const [firstArg] = expression.arguments;
+    if (callee === 'pageQuery') {
+      return '';
+    }
+    if (callee === 'encodeURIComponent' && firstArg && ts.isIdentifier(firstArg)) {
+      return `{${firstArg.text}}`;
+    }
+  }
+  if (ts.isIdentifier(expression)) {
+    return /query$/i.test(expression.text) ? '' : `{${expression.text}}`;
+  }
+  if (ts.isConditionalExpression(expression)) {
+    return '';
+  }
+  return `{${expression.getText()}}`;
+}
+
+function templateExpressionText(node) {
+  let text = node.head.text;
+  for (const span of node.templateSpans) {
+    text += templateExpressionPlaceholder(span.expression);
+    text += span.literal.text;
+  }
+  return text;
+}
+
+function normalizeFrontendApiPath(value) {
+  const apiIndex = value.indexOf('/api/v1');
+  const internalIndex = value.indexOf('/internal/v1');
+  const startCandidates = [apiIndex, internalIndex].filter((index) => index >= 0);
+  if (startCandidates.length === 0) return null;
+  const start = Math.min(...startCandidates);
+  const apiPath = value
+    .slice(start)
+    .replace(/\?\s*$/, '')
+    .replace(/\{[^}]*query[^}]*\}$/i, '')
+    .split('?')[0];
+  return apiPath || null;
+}
+
+function extractFrontendApiPaths(source, filename) {
+  const sourceFile = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const paths = new Set();
+
+  function visit(node) {
+    let value = null;
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+      value = node.text;
+    } else if (ts.isTemplateExpression(node)) {
+      value = templateExpressionText(node);
+    }
+    if (value) {
+      const apiPath = normalizeFrontendApiPath(value);
+      if (apiPath) paths.add(apiPath);
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile);
+  return paths;
+}
+
+function checkManagementConsoleSourceApiCoverage() {
+  const managementConsoleRoot = process.env.ACORNOPS_MANAGEMENT_CONSOLE_ROOT
+    ? path.resolve(process.env.ACORNOPS_MANAGEMENT_CONSOLE_ROOT)
+    : path.resolve(root, '..', 'management-console');
+  const servicesRoot = path.join(managementConsoleRoot, 'src', 'services');
+  if (!existsSync(servicesRoot)) return;
+
+  const documentedPaths = documentedManagementConsolePaths();
+  const frontendPaths = new Set();
+  for (const filename of readFilesUnder(servicesRoot)) {
+    if (!/\.[cm]?[tj]sx?$/.test(filename) || /\.test\.[cm]?[tj]sx?$/.test(filename)) continue;
+    const source = readFileSync(filename, 'utf8');
+    for (const apiPath of extractFrontendApiPaths(source, filename)) {
+      frontendPaths.add(apiPath);
+    }
+  }
+
+  for (const apiPath of Array.from(frontendPaths).sort()) {
+    expect(
+      documentedPaths.has(apiPath),
+      `Management-console service API path is missing from control-plane contract manifest: ${apiPath}`
+    );
+  }
 }
 
 for (const [docPath, routeNeedle, source, label] of [
@@ -191,6 +306,8 @@ for (const [docPath, routeNeedle, source, label] of [
   expectIncludes(source, routeNeedle, `${label} implementation`);
 }
 
+checkManagementConsoleSourceApiCoverage();
+
 for (const [needle, label] of [
   ['`objectType`', 'Workspace audit object-type filter doc'],
   ['`object`', 'Workspace audit object field doc']
@@ -233,8 +350,10 @@ for (const [functionName, label] of [
 for (const contractPath of [
   ...managementConsoleContract.authPaths,
   ...managementConsoleContract.workspaceTargetKubernetesClusterPaths,
+  ...managementConsoleContract.workspaceTargetVirtualMachinePaths,
   ...managementConsoleContract.toolingPaths,
   ...managementConsoleContract.chatRunPaths,
+  ...managementConsoleContract.plannedWorkflowPaths,
   ...managementConsoleContract.webhookPaths,
   ...externalIntegrationClientContract.authPaths,
   ...executionEngineContract.controlPlanePaths,
