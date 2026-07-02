@@ -1,7 +1,6 @@
 import { NextFunction, Response } from 'express';
 import { AuthenticatedRequest } from '../../auth/middleware.js';
 import { requireTargetAccess } from '../../auth/workspace-authorization.js';
-import { importTargetSkillFromGithub, GithubSkillImportError } from '../../services/github-skill-import.js';
 import { pageInMemory } from '../../services/snapshot-listing.js';
 import {
   composeTargetSkillsCatalog,
@@ -78,6 +77,29 @@ function normalizeManualSkillSource(): TargetSkillSource {
     type: 'manual',
     syncStatus: 'not_applicable'
   };
+}
+
+function normalizeGitImportSource(input: { provider: 'github' | 'gitlab'; repoUrl: string; apiBaseUrl?: string; ref: string; subpath?: string; commitSha?: string }): TargetSkillSource {
+  return {
+    type: 'git_import',
+    provider: input.provider,
+    repoUrl: input.repoUrl,
+    ...(input.apiBaseUrl ? { apiBaseUrl: input.apiBaseUrl } : {}),
+    ref: input.ref,
+    ...(input.subpath ? { subpath: input.subpath } : {}),
+    ...(input.commitSha ? { commitSha: input.commitSha } : {}),
+    syncStatus: 'current'
+  };
+}
+
+function gitImportSourceMatches(left: TargetSkillSource, right: TargetSkillSource): boolean {
+  return left.type === 'git_import' &&
+    right.type === 'git_import' &&
+    left.provider === right.provider &&
+    left.repoUrl === right.repoUrl &&
+    (left.apiBaseUrl || '') === (right.apiBaseUrl || '') &&
+    left.ref === right.ref &&
+    (left.subpath || '') === (right.subpath || '');
 }
 
 export async function listTargetSkills(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
@@ -206,12 +228,8 @@ export async function importTargetSkillForTarget(req: AuthenticatedRequest, res:
       return;
     }
 
-    const imported = await importTargetSkillFromGithub({
-      repoUrl: req.body.repoUrl,
-      ref: req.body.ref,
-      subpath: req.body.subpath
-    });
-    const bundle = normalizeTargetSkillBundle(imported.files);
+    const source = normalizeGitImportSource(req.body.source);
+    const bundle = normalizeTargetSkillBundle(req.body.files);
     const storageLimitErrors = getTargetSkillBundleStorageLimitErrors(bundle);
     if (storageLimitErrors.length > 0) {
       respondSkillBundleLimitFailure(res, storageLimitErrors);
@@ -241,7 +259,7 @@ export async function importTargetSkillForTarget(req: AuthenticatedRequest, res:
       validationStatus: bundle.validationStatus,
       validationErrors: bundle.validationErrors,
       bundleStats: bundle.bundleStats,
-      source: imported.source,
+      source,
       files: bundle.files,
       actorUserId: req.auth.userId
     });
@@ -253,20 +271,10 @@ export async function importTargetSkillForTarget(req: AuthenticatedRequest, res:
       eventType: 'skill.imported.v1',
       operation: 'write',
       skill,
-      summary: 'Target skill imported from GitHub'
+      summary: 'Target skill imported from Git'
     });
     res.status(201).json(skill);
   } catch (err) {
-    if (err instanceof GithubSkillImportError) {
-      res.status(err.statusCode).json({
-        error: {
-          code: err.code,
-          message: err.message,
-          retryable: false
-        }
-      });
-      return;
-    }
     next(err);
   }
 }
@@ -456,7 +464,7 @@ export async function reimportTargetSkillForTarget(req: AuthenticatedRequest, re
       res.status(400).json({
         error: {
           code: 'INVALID_SKILL_SOURCE',
-          message: 'Only GitHub-imported skills can be reimported.',
+          message: 'Only Git-imported skills can be reimported.',
           retryable: false
         }
       });
@@ -473,12 +481,18 @@ export async function reimportTargetSkillForTarget(req: AuthenticatedRequest, re
       return;
     }
 
-    const imported = await importTargetSkillFromGithub({
-      repoUrl: existing.source.repoUrl || '',
-      ref: existing.source.ref,
-      subpath: existing.source.subpath
-    });
-    const bundle = normalizeTargetSkillBundle(imported.files);
+    const source = normalizeGitImportSource(req.body.source);
+    if (!gitImportSourceMatches(existing.source, source)) {
+      res.status(400).json({
+        error: {
+          code: 'SOURCE_MISMATCH',
+          message: 'Reimport source must match the stored Git source for this skill.',
+          retryable: false
+        }
+      });
+      return;
+    }
+    const bundle = normalizeTargetSkillBundle(req.body.files);
     const storageLimitErrors = getTargetSkillBundleStorageLimitErrors(bundle);
     if (storageLimitErrors.length > 0) {
       respondSkillBundleLimitFailure(res, storageLimitErrors);
@@ -495,7 +509,7 @@ export async function reimportTargetSkillForTarget(req: AuthenticatedRequest, re
       validationStatus: bundle.validationStatus,
       validationErrors: bundle.validationErrors,
       bundleStats: bundle.bundleStats,
-      source: withUpdatedSkillSyncStatus(imported.source, true, 'reimport'),
+      source: withUpdatedSkillSyncStatus(source, true, 'reimport'),
       files: bundle.files,
       actorUserId: req.auth.userId
     });
@@ -512,7 +526,7 @@ export async function reimportTargetSkillForTarget(req: AuthenticatedRequest, re
       eventType: 'skill.reimported.v1',
       operation: 'write',
       skill: updated,
-      summary: 'Target skill reimported from GitHub',
+      summary: 'Target skill reimported from Git',
       metadata: {
         locallyModified: existing.source.syncStatus === 'modified',
         autoDisabled: existing.enabled && !updated.enabled && updated.validationStatus !== 'valid'
@@ -520,16 +534,6 @@ export async function reimportTargetSkillForTarget(req: AuthenticatedRequest, re
     });
     res.status(200).json(updated);
   } catch (err) {
-    if (err instanceof GithubSkillImportError) {
-      res.status(err.statusCode).json({
-        error: {
-          code: err.code,
-          message: err.message,
-          retryable: false
-        }
-      });
-      return;
-    }
     next(err);
   }
 }

@@ -958,7 +958,9 @@ CREATE TABLE IF NOT EXISTS target_skills (
   validation_errors JSONB NOT NULL DEFAULT '[]'::jsonb,
   file_count INTEGER NOT NULL CHECK (file_count >= 1 AND file_count <= 16),
   total_bytes INTEGER NOT NULL CHECK (total_bytes >= 0 AND total_bytes <= 131072),
+  source_provider TEXT NULL CHECK (source_provider IS NULL OR source_provider IN ('github', 'gitlab')),
   source_repo_url TEXT NULL,
+  source_api_base_url TEXT NULL,
   source_ref TEXT NULL,
   source_subpath TEXT NULL,
   source_commit_sha TEXT NULL,
@@ -970,13 +972,16 @@ CREATE TABLE IF NOT EXISTS target_skills (
   CONSTRAINT target_skills_target_scope_unique UNIQUE (target_id, id),
   CONSTRAINT target_skills_source_metadata_check CHECK (
     (source_type = 'manual'
+      AND source_provider IS NULL
       AND source_repo_url IS NULL
+      AND source_api_base_url IS NULL
       AND source_ref IS NULL
       AND source_subpath IS NULL
       AND source_commit_sha IS NULL
       AND sync_status = 'not_applicable')
     OR
     (source_type = 'git_import'
+      AND source_provider IS NOT NULL
       AND source_repo_url IS NOT NULL
       AND source_ref IS NOT NULL
       AND sync_status IN ('current', 'modified'))

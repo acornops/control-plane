@@ -1,6 +1,7 @@
 import type { TargetType } from './domain.js';
 
 export type TargetSkillSourceType = 'manual' | 'git_import';
+export type TargetSkillImportProvider = 'github' | 'gitlab';
 export type TargetSkillValidationStatus = 'valid' | 'invalid';
 export type TargetSkillSyncStatus = 'not_applicable' | 'current' | 'modified';
 
@@ -17,7 +18,9 @@ export interface TargetSkillFile {
 
 export interface TargetSkillSource {
   type: TargetSkillSourceType;
+  provider?: TargetSkillImportProvider;
   repoUrl?: string;
+  apiBaseUrl?: string;
   ref?: string;
   subpath?: string;
   commitSha?: string;

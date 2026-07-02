@@ -249,7 +249,7 @@
         "targetTools.target_insights.config.learning.{idleCheckpointDelayMinutes,minimumObservationsBeforeGeneralization,checkpointModel}",
         "targetTools.target_insights.config.retrieval.{maxSnippetsPerRetrieval,maxSnippetSizeBytes}",
         "targetTools.target_insights.readiness.{learningAvailable,learningPausedReason}",
-        "targetSkills.items[].{id,name,description,enabled,validationStatus,validationErrors,bundleStats.{fileCount,totalBytes},source.{type,repoUrl?,ref?,subpath?,commitSha?,syncStatus},createdAt,updatedAt}",
+        "targetSkills.items[].{id,name,description,enabled,validationStatus,validationErrors,bundleStats.{fileCount,totalBytes},source.{type,provider?,repoUrl?,apiBaseUrl?,ref?,subpath?,commitSha?,syncStatus},createdAt,updatedAt}",
         "targetSkillDetail.files[].{path,content,sizeBytes}"
       ],
       "requestFields": {

@@ -13,12 +13,14 @@ interface TargetSkillRow {
   name: string;
   description: string;
   source_type: 'manual' | 'git_import';
+  source_provider: 'github' | 'gitlab' | null;
   enabled: boolean;
   validation_status: 'valid' | 'invalid';
   validation_errors: string[] | null;
   file_count: number;
   total_bytes: number;
   source_repo_url: string | null;
+  source_api_base_url: string | null;
   source_ref: string | null;
   source_subpath: string | null;
   source_commit_sha: string | null;
@@ -70,12 +72,14 @@ export async function listTargetSkills(targetId: string): Promise<TargetSkillSum
             s.name,
             s.description,
             s.source_type,
+            s.source_provider,
             s.enabled,
             s.validation_status,
             s.validation_errors,
             s.file_count,
             s.total_bytes,
             s.source_repo_url,
+            s.source_api_base_url,
             s.source_ref,
             s.source_subpath,
             s.source_commit_sha,
@@ -189,12 +193,14 @@ export async function listEnabledValidTargetSkillSummaries(targetId: string): Pr
             s.name,
             s.description,
             s.source_type,
+            s.source_provider,
             s.enabled,
             s.validation_status,
             s.validation_errors,
             s.file_count,
             s.total_bytes,
             s.source_repo_url,
+            s.source_api_base_url,
             s.source_ref,
             s.source_subpath,
             s.source_commit_sha,
@@ -226,12 +232,14 @@ export async function listEnabledValidTargetSkillsInTransaction(
             s.name,
             s.description,
             s.source_type,
+            s.source_provider,
             s.enabled,
             s.validation_status,
             s.validation_errors,
             s.file_count,
             s.total_bytes,
             s.source_repo_url,
+            s.source_api_base_url,
             s.source_ref,
             s.source_subpath,
             s.source_commit_sha,
@@ -283,12 +291,14 @@ async function insertOrUpdateTargetSkill(
        name,
        description,
        source_type,
+       source_provider,
        enabled,
        validation_status,
        validation_errors,
        file_count,
        total_bytes,
        source_repo_url,
+       source_api_base_url,
        source_ref,
        source_subpath,
        source_commit_sha,
@@ -299,18 +309,20 @@ async function insertOrUpdateTargetSkill(
        updated_at
      )
      VALUES (
-       $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), NOW()
+       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW(), NOW()
      )
      ON CONFLICT (id) DO UPDATE
      SET name = EXCLUDED.name,
          description = EXCLUDED.description,
          source_type = EXCLUDED.source_type,
+         source_provider = EXCLUDED.source_provider,
          enabled = EXCLUDED.enabled,
          validation_status = EXCLUDED.validation_status,
          validation_errors = EXCLUDED.validation_errors,
          file_count = EXCLUDED.file_count,
          total_bytes = EXCLUDED.total_bytes,
          source_repo_url = EXCLUDED.source_repo_url,
+         source_api_base_url = EXCLUDED.source_api_base_url,
          source_ref = EXCLUDED.source_ref,
          source_subpath = EXCLUDED.source_subpath,
          source_commit_sha = EXCLUDED.source_commit_sha,
@@ -324,12 +336,14 @@ async function insertOrUpdateTargetSkill(
       input.name,
       input.description,
       input.source.type,
+      input.source.provider || null,
       input.enabled,
       input.validationStatus,
       JSON.stringify(input.validationErrors),
       input.bundleStats.fileCount,
       input.bundleStats.totalBytes,
       input.source.repoUrl || null,
+      input.source.apiBaseUrl || null,
       input.source.ref || null,
       input.source.subpath || null,
       input.source.commitSha || null,
@@ -375,12 +389,14 @@ async function getTargetSkillRow(targetId: string, skillId: string): Promise<Tar
             s.name,
             s.description,
             s.source_type,
+            s.source_provider,
             s.enabled,
             s.validation_status,
             s.validation_errors,
             s.file_count,
             s.total_bytes,
             s.source_repo_url,
+            s.source_api_base_url,
             s.source_ref,
             s.source_subpath,
             s.source_commit_sha,
@@ -407,12 +423,14 @@ async function getTargetSkillRowInTransaction(client: PoolClient, targetId: stri
             s.name,
             s.description,
             s.source_type,
+            s.source_provider,
             s.enabled,
             s.validation_status,
             s.validation_errors,
             s.file_count,
             s.total_bytes,
             s.source_repo_url,
+            s.source_api_base_url,
             s.source_ref,
             s.source_subpath,
             s.source_commit_sha,
@@ -460,7 +478,9 @@ function mapTargetSkillSummary(row: TargetSkillRow): TargetSkillSummary {
     },
     source: {
       type: row.source_type,
+      provider: row.source_provider || undefined,
       repoUrl: row.source_repo_url || undefined,
+      apiBaseUrl: row.source_api_base_url || undefined,
       ref: row.source_ref || undefined,
       subpath: row.source_subpath || undefined,
       commitSha: row.source_commit_sha || undefined,

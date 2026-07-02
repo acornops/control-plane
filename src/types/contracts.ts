@@ -451,33 +451,12 @@ export const updateTargetToolSchema = z.object({
 }).strict();
 
 export { createTargetInsightsEntrySchema, updateTargetInsightsEntrySchema } from './target-insights-contracts.js';
-
-const targetSkillFileSchema = z.object({
-  path: z.string().trim().min(1).max(512),
-  content: z.string().max(32768)
-}).strict();
-
-export const createTargetSkillSchema = z.object({
-  files: z.array(targetSkillFileSchema).min(1).max(16)
-}).strict();
-
-export const importTargetSkillSchema = z.object({
-  repoUrl: z.string().url(),
-  ref: z.string().trim().min(1).max(255).optional(),
-  subpath: z.string().trim().min(1).max(512).optional(),
-  enabled: z.boolean().optional()
-}).strict();
-
-export const updateTargetSkillSchema = z.object({
-  enabled: z.boolean().optional(),
-  files: z.array(targetSkillFileSchema).min(1).max(16).optional()
-}).strict().refine((input) => input.enabled !== undefined || input.files !== undefined, {
-  message: 'at least one field is required'
-});
-
-export const reimportTargetSkillSchema = z.object({
-  force: z.boolean().optional().default(false)
-}).strict();
+export {
+  createTargetSkillSchema,
+  importTargetSkillSchema,
+  reimportTargetSkillSchema,
+  updateTargetSkillSchema
+} from './target-skill-contracts.js';
 
 export const webhookEventTypes = [
   'workspace.created.v1',

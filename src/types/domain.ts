@@ -179,6 +179,7 @@ export type {
   TargetSkillDetail,
   TargetSkillFile,
   TargetSkillSource,
+  TargetSkillImportProvider,
   TargetSkillSourceType,
   TargetSkillsCatalog,
   TargetSkillSummary,

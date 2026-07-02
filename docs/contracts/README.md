@@ -400,7 +400,7 @@ The management console depends on these target skill fields:
 
 - `permissions.canEdit`
 - `permissions.editableRoles`
-- `items[].{id,name,description,enabled,validationStatus,validationErrors,bundleStats.{fileCount,totalBytes},source.{type,repoUrl?,ref?,subpath?,commitSha?,syncStatus},createdAt,updatedAt}`
+- `items[].{id,name,description,enabled,validationStatus,validationErrors,bundleStats.{fileCount,totalBytes},source.{type,provider?,repoUrl?,apiBaseUrl?,ref?,subpath?,commitSha?,syncStatus},createdAt,updatedAt}`
 - `detail.files[].{path,content,sizeBytes}`
 
 Mutation policy and runtime contract:
@@ -409,7 +409,7 @@ Mutation policy and runtime contract:
 - Skill bundles accept root `SKILL.md` plus optional user-defined relative Markdown files; non-Markdown files, scripts, binaries, symlinks, executable assets, and unsafe path segments are rejected.
 - `SKILL.md` is authoritative for `name` and `description` through required frontmatter fields.
 - Manual skill creation enables valid bundles automatically and stores invalid bundles disabled.
-- Imported skills support public GitHub HTTPS repositories or GitHub `tree/{ref}/{subpath}` folder URLs and are stored as local snapshots. REST API imports include `source.commitSha`; archive fallback imports may omit it when GitHub API rate limits prevent SHA resolution.
+- Imported skills are submitted as resolved Markdown snapshots with informational Git provider source metadata and are stored as local snapshots. Supported providers are GitHub and GitLab, including custom hosted deployments selected explicitly by the client. The importing browser must be able to reach the Git host API and the host must allow browser API requests from the console origin. `source.apiBaseUrl` is optional and is used when the deployment API cannot be derived as GitHub `/api/v3` or GitLab `/api/v4` from the repository host.
 - Reimport is explicit. Imported skills with local edits require confirmation before overwrite and return `source.syncStatus=modified` until reimported.
 - Invalid skills may be stored disabled, but only valid skills may be enabled. Each target may have at most `10` enabled skills.
 - Run bootstrap may include optional `skills.{contract_version,entries[].{ref,skill_id,name,description,file_count,total_bytes},load_endpoint}` for target troubleshooting runs only. Full skill files are loaded later from the hidden internal skill snapshot endpoint, and workflow runs remain unchanged.

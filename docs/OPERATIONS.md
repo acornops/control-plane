@@ -22,7 +22,6 @@
 - `EXTERNAL_INTEGRATION_CLIENTS_JSON`
 - `EXTERNAL_INTEGRATION_LINK_TOKEN_RETENTION_DAYS` (default `30`)
 - `TARGET_METRIC_HISTORY_RETENTION_DAYS` (default `30`)
-- `GITHUB_IMPORT_TOKEN` (optional; recommended when GitHub skill imports are enabled)
 - `EXECUTION_ENGINE_DISPATCH_TOKEN`
 - `LLM_GATEWAY_ADMIN_TOKEN`
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`
@@ -34,12 +33,15 @@ enables `CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED=true` by default.
 URLs returned by the integration endpoint and must be the public HTTPS console
 origin in production.
 
-`GITHUB_IMPORT_TOKEN` authenticates GitHub skill import API requests and avoids
-GitHub's low unauthenticated rate limit. If the GitHub API rate limit is already
-exhausted, public imports can fall back to a repository archive for the requested
-ref, or common default refs `main` and `master`. Imports accept either a bare
-public repository URL with optional `ref` and `subpath`, or a GitHub folder URL
-that embeds both values.
+GitHub and GitLab skill imports are fetched by the management console and
+submitted to the control plane as resolved Markdown snapshots. The control plane
+does not require Git provider egress or credentials for this flow. Custom
+GitHub Enterprise and self-managed GitLab hosts work when users choose the
+matching provider in the import dialog. User browsers must be able to reach the
+Git host API, and the Git host must allow browser API requests from the console
+origin. The console derives GitHub Enterprise API URLs as `/api/v3` and GitLab
+API URLs as `/api/v4`; operators should tell users the API base URL for
+path-prefixed or otherwise custom deployments.
 
 `EXTERNAL_INTEGRATION_CLIENTS_JSON` contains enabled integration client
 descriptors, not raw tokens. Generate a raw bearer token for each installed

@@ -244,6 +244,8 @@ for (const table of ['target_skills', 'target_skill_files']) {
 }
 for (const needle of [
   "source_type TEXT NOT NULL CHECK (source_type IN ('manual', 'git_import'))",
+  "source_provider TEXT NULL CHECK (source_provider IS NULL OR source_provider IN ('github', 'gitlab'))",
+  "source_api_base_url TEXT NULL",
   "validation_status TEXT NOT NULL CHECK (validation_status IN ('valid', 'invalid'))",
   "sync_status TEXT NOT NULL CHECK (sync_status IN ('not_applicable', 'current', 'modified'))",
   "file_count INTEGER NOT NULL CHECK (file_count >= 1 AND file_count <= 16)",
@@ -264,15 +266,17 @@ for (const needle of [
 }
 for (const needle of [
   "source_type = 'git_import'",
+  'source_provider IS NOT NULL',
   'source_repo_url IS NOT NULL',
   'source_ref IS NOT NULL',
+  'source_api_base_url IS NULL',
   "sync_status IN ('current', 'modified')"
 ]) {
   assert(targetSkills.includes(needle), `target skills migration missing ${needle}`);
 }
 assert(
   !targetSkills.includes('source_commit_sha IS NOT NULL'),
-  'target skills migration must allow GitHub imports without source_commit_sha'
+  'target skills migration must allow Git imports without source_commit_sha'
 );
 
 const packageJson = JSON.parse(read('package.json'));

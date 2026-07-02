@@ -54,21 +54,21 @@ Important local and production variables:
 - `EXTERNAL_INTEGRATION_LINK_TTL_SECONDS`
 - `EXTERNAL_INTEGRATION_LINK_TOKEN_RETENTION_DAYS`
 - `TARGET_METRIC_HISTORY_RETENTION_DAYS`
-- `GITHUB_IMPORT_TOKEN` (optional; authenticates public GitHub skill imports to avoid low unauthenticated API rate limits)
 - `EXECUTION_ENGINE_BASE_URL`
 - `EXECUTION_ENGINE_DISPATCH_TOKEN`
 - `LLM_GATEWAY_URL`
 - `LLM_GATEWAY_ADMIN_TOKEN`
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`
 
-GitHub skill imports use the GitHub REST API when available. Set
-`GITHUB_IMPORT_TOKEN` to avoid GitHub's low unauthenticated API rate limit.
-Imports accept either a bare public repository URL with optional `ref` and
-`subpath`, or a GitHub folder URL such as
-`https://github.com/openai/skills/tree/main/skills/.curated/cli-creator`. When
-the API rate limit is exhausted, public imports fall back to downloading a
-repository archive for the requested ref, or `main`/`master` when no ref is
-provided.
+GitHub and GitLab skill imports are fetched in the management console. The
+control plane only receives the resolved Markdown snapshot plus informational
+source metadata, then validates and stores it. Custom GitHub Enterprise and
+self-managed GitLab hosts work because the console selects the provider
+explicitly instead of inferring it from the hostname. The developer browser
+must be able to reach the Git host API, and that host must allow browser API
+requests for the import flow. The console derives GitHub Enterprise API URLs as
+`/api/v3` and GitLab API URLs as `/api/v4`; use the optional API base URL field
+for path-prefixed or otherwise custom deployments.
 
 ## Validation
 

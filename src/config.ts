@@ -251,7 +251,6 @@ const envSchema = z.object({
   EXTERNAL_INTEGRATION_LINK_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(600),
   EXTERNAL_INTEGRATION_LINK_TTL_SECONDS: z.coerce.number().int().min(86400).max(31536000).default(2592000),
   EXTERNAL_INTEGRATION_LINK_TOKEN_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
-  GITHUB_IMPORT_TOKEN: optionalStringFromEnv,
   EXECUTION_ENGINE_BASE_URL: z.string().url().default('http://localhost:8080'),
   EXECUTION_ENGINE_DISPATCH_TOKEN: z.string().default('dev_execution_engine_dispatch_token'),
   EXECUTION_ENGINE_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),

@@ -1,102 +1,15 @@
 import { EXAMPLE_MCP_SERVER_ID, EXAMPLE_TARGET_ID, EXAMPLE_TARGET_SKILL_ID, EXAMPLE_WORKSPACE_ID } from '../../constants/dev-defaults.js';
 import { TARGET_TYPES } from '../../types/domain.js';
 import { buildTargetIssuePaths } from './target-issue-paths.js';
+import { buildTargetSkillSchemas } from './target-skill-schemas.js';
 import { buildTargetToolPaths } from './target-tool-paths.js';
 export function buildTargetPaths(exampleServerUrl: string): Record<string, unknown> {
-  const targetSkillSourceSchema = {
-    type: 'object',
-    required: ['type', 'syncStatus'],
-    properties: {
-      type: { type: 'string', enum: ['manual', 'git_import'] },
-      repoUrl: { type: 'string', format: 'uri' },
-      ref: { type: 'string' },
-      subpath: { type: 'string' },
-      commitSha: { type: 'string' },
-      syncStatus: { type: 'string', enum: ['not_applicable', 'current', 'modified'] }
-    }
-  };
-  const targetSkillSummarySchema = {
-    type: 'object',
-    required: [
-      'id',
-      'workspaceId',
-      'targetId',
-      'targetType',
-      'name',
-      'description',
-      'enabled',
-      'validationStatus',
-      'validationErrors',
-      'bundleStats',
-      'source',
-      'createdAt',
-      'updatedAt'
-    ],
-    properties: {
-      id: { type: 'string', format: 'uuid' },
-      workspaceId: { type: 'string', format: 'uuid' },
-      targetId: { type: 'string', format: 'uuid' },
-      targetType: { type: 'string', enum: [...TARGET_TYPES] },
-      clusterId: { type: 'string', format: 'uuid' },
-      name: { type: 'string' },
-      description: { type: 'string' },
-      enabled: { type: 'boolean' },
-      validationStatus: { type: 'string', enum: ['valid', 'invalid'] },
-      validationErrors: { type: 'array', items: { type: 'string' } },
-      bundleStats: {
-        type: 'object',
-        required: ['fileCount', 'totalBytes'],
-        properties: {
-          fileCount: { type: 'integer', minimum: 1, maximum: 16 },
-          totalBytes: { type: 'integer', minimum: 0, maximum: 131072 }
-        }
-      },
-      source: targetSkillSourceSchema,
-      createdAt: { type: 'string', format: 'date-time' },
-      updatedAt: { type: 'string', format: 'date-time' }
-    }
-  };
-  const targetSkillFileSchema = {
-    type: 'object',
-    required: ['path', 'content', 'sizeBytes'],
-    properties: {
-      path: { type: 'string', example: 'SKILL.md' },
-      content: { type: 'string' },
-      sizeBytes: { type: 'integer', minimum: 0, maximum: 32768 }
-    }
-  };
-  const targetSkillDetailSchema = {
-    allOf: [
-      targetSkillSummarySchema,
-      {
-        type: 'object',
-        required: ['files'],
-        properties: {
-          files: { type: 'array', items: targetSkillFileSchema }
-        }
-      }
-    ]
-  };
-  const targetSkillCatalogSchema = {
-    type: 'object',
-    required: ['workspaceId', 'targetId', 'targetType', 'permissions', 'items'],
-    properties: {
-      workspaceId: { type: 'string', format: 'uuid' },
-      targetId: { type: 'string', format: 'uuid' },
-      targetType: { type: 'string', enum: [...TARGET_TYPES] },
-      clusterId: { type: 'string', format: 'uuid' },
-      permissions: {
-        type: 'object',
-        required: ['canEdit', 'editableRoles'],
-        properties: {
-          canEdit: { type: 'boolean' },
-          editableRoles: { type: 'array', items: { type: 'string' } }
-        }
-      },
-      items: { type: 'array', items: targetSkillSummarySchema },
-      nextCursor: { type: 'string' }
-    }
-  };
+  const {
+    targetSkillCatalogSchema,
+    targetSkillDetailSchema,
+    targetSkillFileRequestSchema,
+    targetSkillGitImportSourceRequestSchema
+  } = buildTargetSkillSchemas();
   const jsonResponse = (description: string, schema: Record<string, unknown>) => ({
     description,
     content: {
@@ -435,7 +348,7 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/import': {
       post: {
         tags: ['workspaces'],
-        summary: 'Import a target troubleshooting skill from an unauthenticated GitHub repository snapshot',
+        summary: 'Import a client-resolved Git target troubleshooting skill snapshot',
         security: [{ userSession: [] }],
         parameters: [
           { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
@@ -447,11 +360,10 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
             'application/json': {
               schema: {
                 type: 'object',
-                required: ['repoUrl'],
+                required: ['files', 'source'],
                 properties: {
-                  repoUrl: { type: 'string', format: 'uri', example: 'https://github.com/openai/skills/tree/main/skills/.curated/cli-creator' },
-                  ref: { type: 'string', example: 'main' },
-                  subpath: { type: 'string', example: 'skills/troubleshooting-cnpg' }
+                  files: { type: 'array', items: targetSkillFileRequestSchema },
+                  source: targetSkillGitImportSourceRequestSchema
                 }
               }
             }
@@ -522,7 +434,7 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}/reimport': {
       post: {
         tags: ['workspaces'],
-        summary: 'Reimport a GitHub-backed target troubleshooting skill snapshot',
+        summary: 'Replace a Git-backed target troubleshooting skill with a client-resolved snapshot',
         security: [{ userSession: [] }],
         parameters: [
           { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
@@ -535,8 +447,11 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
             'application/json': {
               schema: {
                 type: 'object',
+                required: ['files', 'source'],
                 properties: {
-                  force: { type: 'boolean', default: false }
+                  force: { type: 'boolean', default: false },
+                  files: { type: 'array', items: targetSkillFileRequestSchema },
+                  source: targetSkillGitImportSourceRequestSchema
                 }
               }
             }

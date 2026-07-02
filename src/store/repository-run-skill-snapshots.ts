@@ -82,7 +82,9 @@ function compareSkillSnapshotOrder(left: TargetSkillDetail, right: TargetSkillDe
 function skillSourceJson(source: TargetSkillSource): Record<string, unknown> {
   return {
     type: source.type,
+    ...(source.provider ? { provider: source.provider } : {}),
     ...(source.repoUrl ? { repoUrl: source.repoUrl } : {}),
+    ...(source.apiBaseUrl ? { apiBaseUrl: source.apiBaseUrl } : {}),
     ...(source.ref ? { ref: source.ref } : {}),
     ...(source.subpath ? { subpath: source.subpath } : {}),
     ...(source.commitSha ? { commitSha: source.commitSha } : {}),
