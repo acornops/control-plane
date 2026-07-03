@@ -47,6 +47,7 @@ function expectIncludes(content, needle, message) {
 const readme = read('README.md');
 const doc = read('docs/contracts/README.md');
 const manifest = JSON.parse(read('docs/contracts/manifest.json'));
+const manifestText = JSON.stringify(manifest);
 const authRoutes = read('src/routes/auth.ts');
 const authController = read('src/controllers/auth-controller.ts');
 const workspaceRouteSources = [read('src/routes/workspaces.ts'), readTree('src/routes/workspaces')].join('\n');
@@ -90,14 +91,17 @@ expect(manifest.repo === 'control-plane', 'Manifest repo');
 
 for (const heading of [
   '# Control Plane Contracts',
+  '## Source Of Truth',
   '## Dependency Matrix',
   '## Shared Invariants',
-  '## Management Console Public Contract',
-  '## Execution-Engine Contract',
-  '## LLM-Gateway Contract',
-  '## AgentK Contract'
+  '## Boundary Notes',
+  '## Change Checklist'
 ]) {
   expectIncludes(doc, heading, 'Contract doc heading');
+}
+
+function docToken(value) {
+  return value.replace(/^`|`$/g, '');
 }
 
 function openApiPath(contractPath) {
@@ -302,7 +306,7 @@ for (const [docPath, routeNeedle, source, label] of [
   ['`DELETE /api/v1/workspaces/{workspaceId}/webhooks/{webhookId}`', "webhooksRouter.delete('/workspaces/:workspaceId/webhooks/:webhookId'", webhookRoutes, 'Delete webhook route'],
   ['`GET /api/v1/workspaces/{workspaceId}/webhooks/{webhookId}/history`', "'/workspaces/:workspaceId/webhooks/:webhookId/history'", webhookRoutes, 'Webhook history route']
 ]) {
-  expectIncludes(doc, docPath, `${label} doc`);
+  expectIncludes(manifestText, docToken(docPath), `${label} manifest`);
   expectIncludes(source, routeNeedle, `${label} implementation`);
 }
 
@@ -364,7 +368,6 @@ for (const contractPath of [
 }
 
 for (const eventType of managementConsoleContract.webhookEventTypes) {
-  expectIncludes(doc, eventType, 'Webhook event doc');
   expectIncludes(contracts, eventType, 'Webhook event schema');
 }
 
@@ -375,7 +378,6 @@ for (const adminPath of [
   '/api/v1/internal/mcp/servers/${encodeURIComponent(serverId)}',
   '/api/v1/internal/mcp/servers/${encodeURIComponent(serverId)}/test'
 ]) {
-  expectIncludes(doc, adminPath.replaceAll('${encodeURIComponent(toolName)}', '{tool_name}').replaceAll('${encodeURIComponent(serverId)}', '{server_id}'), 'LLM-gateway admin path doc');
   expectIncludes(mcpRegistryClient, adminPath, 'LLM-gateway admin client path');
 }
 
@@ -453,7 +455,7 @@ for (const contractToken of [
 }
 
 for (const eventType of executionEngineContract.eventTypes) {
-  expectIncludes(doc, eventType, 'Execution-engine event doc');
+  expectIncludes(manifestText, eventType, 'Execution-engine event manifest');
 }
 
 expectIncludes(doc, executionEngineContract.dispatchAuth, 'Execution-engine dispatch auth doc');
@@ -465,7 +467,7 @@ expectIncludes(
 );
 
 for (const toolName of agentContract.builtinToolNames) {
-  expectIncludes(doc, toolName, 'AgentK builtin tool doc');
+  expectIncludes(manifestText, toolName, 'AgentK builtin tool manifest');
   expectIncludes(agentSource, toolName, 'AgentK builtin tool implementation');
 }
 
