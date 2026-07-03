@@ -14,9 +14,10 @@ import {
 import { TARGET_INSIGHTS_TOOL_ID, normalizeTargetInsightsConfig } from '../../services/target-insights/config.js';
 import { recordTargetInsightsAudit } from '../../services/target-insights/audit.js';
 import { requeuePausedTargetInsightsCheckpoints } from '../../services/target-insights/requeue.js';
+import { targetWebhookScope } from '../../services/target-webhook-scope.js';
 import { webhooks } from '../../services/webhooks.js';
 import { repo } from '../../store/repository.js';
-import { KUBERNETES_TARGET_TYPE, TargetType } from '../../types/domain.js';
+import { TargetType } from '../../types/domain.js';
 import { TargetInsightsToolConfig } from '../../types/target-insights.js';
 import { toSingleParam } from '../../utils/params.js';
 import { recordNativeToolSettingAudit } from './mcp-audit.js';
@@ -275,18 +276,6 @@ async function validateTargetInsightsToolConfig(workspaceId: string, toolConfig:
   return 'Selected checkpoint model is not allowed for this deployment';
 }
 
-function targetWebhookScope(targetId: string, targetType: TargetType): {
-  clusterId?: string;
-  targetId: string;
-  targetType: TargetType;
-} {
-  return {
-    ...(targetType === KUBERNETES_TARGET_TYPE ? { clusterId: targetId } : {}),
-    targetId,
-    targetType
-  };
-}
-
 export async function listTargetTools(
   req: AuthenticatedRequest,
   res: Response,
@@ -311,9 +300,7 @@ export async function listTargetTools(
     }
     res.status(200).json({
       workspaceId,
-      targetId,
-      targetType: access.target.targetType,
-      ...(access.target.targetType === KUBERNETES_TARGET_TYPE ? { clusterId: targetId } : {}),
+      ...targetWebhookScope(targetId, access.target.targetType),
       permissions: {
         canEdit: access.authz.can('manage_tools') || access.authz.can('manage_target_insights'),
         editableRoles: [...new Set([...getNativeToolEditableRoles(), ...getTargetInsightsEditableRoles()])]

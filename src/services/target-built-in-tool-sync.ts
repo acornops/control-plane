@@ -9,6 +9,7 @@ import {
   updateTargetMcpServer
 } from './mcp-registry-client.js';
 import { isReservedInternalToolName } from './internal-tool-names.js';
+import { targetWebhookScope } from './target-webhook-scope.js';
 import { webhooks } from './webhooks.js';
 
 export interface BuiltInToolSyncResult {
@@ -25,18 +26,6 @@ export interface BuiltInToolSyncResult {
 
 function normalizeCapability(value: unknown): 'read' | 'write' {
   return value === 'read' ? 'read' : 'write';
-}
-
-function targetWebhookScope(targetId: string, targetType: TargetType): {
-  clusterId?: string;
-  targetId: string;
-  targetType: TargetType;
-} {
-  return {
-    ...(targetType === KUBERNETES_TARGET_TYPE ? { clusterId: targetId } : {}),
-    targetId,
-    targetType
-  };
 }
 
 function countRegisteredTools(tools: Array<{ name: string }>, expectedNames: Set<string>): number {

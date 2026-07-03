@@ -13,9 +13,10 @@ import {
   updateTargetTool
 } from '../../services/mcp-registry-client.js';
 import { pageInMemory } from '../../services/snapshot-listing.js';
+import { targetWebhookScope } from '../../services/target-webhook-scope.js';
 import { webhooks } from '../../services/webhooks.js';
 import { repo } from '../../store/repository.js';
-import { KUBERNETES_TARGET_TYPE, TargetType } from '../../types/domain.js';
+import { TargetType } from '../../types/domain.js';
 import { toSingleParam } from '../../utils/params.js';
 import {
   containsSearchText,
@@ -51,18 +52,6 @@ function respondMissingToolsCapability(res: Response): void {
       retryable: false
     }
   });
-}
-
-function targetWebhookScope(targetId: string, targetType: TargetType): {
-  clusterId?: string;
-  targetId: string;
-  targetType: TargetType;
-} {
-  return {
-    ...(targetType === KUBERNETES_TARGET_TYPE ? { clusterId: targetId } : {}),
-    targetId,
-    targetType
-  };
 }
 
 export async function listTargetMcpCatalog(
