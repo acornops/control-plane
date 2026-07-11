@@ -172,8 +172,17 @@ export async function rotateTargetAgentKey(req: AdminAuthenticatedRequest, res: 
       metadata: { previousKeyVersion: reg.keyVersion, ticketRef: req.body.ticketRef || null }
     });
     const agentKey = generateAgentKey(targetId);
-    const keyVersion = reg.keyVersion + 1;
-    await repo.upsertTargetAgentRegistration({ ...reg, agentKeyHash: hashSecret(agentKey), keyVersion });
+    const keyVersion = await repo.rotateTargetAgentKey(targetId, reg.keyVersion, hashSecret(agentKey));
+    if (keyVersion === null) {
+      res.status(409).json({
+        error: {
+          code: 'AGENT_KEY_ROTATION_CONFLICT',
+          message: 'Agent key changed during rotation; retry with the latest target state',
+          retryable: true
+        }
+      });
+      return;
+    }
     const disconnected = await agentGateway.disconnectCluster(targetId, 'Agent key rotated');
     await auditAdmin(req, {
       action: 'admin.target.agent_key.rotate',

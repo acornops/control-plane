@@ -48,8 +48,8 @@ describe('AgentV handshake', () => {
     mock.method(repo, 'getTargetAgentRegistration', async (targetId: string) =>
       targetId === registration.targetId ? registration : null
     );
-    mock.method(repo, 'upsertTargetAgentRegistration', async (next: typeof registration) => {
-      registration.capabilities = next.capabilities;
+    mock.method(repo, 'updateTargetAgentCapabilities', async (_targetId: string, capabilities: string[]) => {
+      registration.capabilities = capabilities;
     });
     mock.method(repo, 'updateTargetAgentSeen', async (_targetId: string, patch: Record<string, unknown>) => {
       seenUpdates.push(patch);

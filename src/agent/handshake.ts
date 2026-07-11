@@ -33,6 +33,14 @@ export async function handleAgentHandshake(input: {
 
   const expectedAgentType = targetType === VIRTUAL_MACHINE_TARGET_TYPE ? 'agentv' : 'agentk';
   if (!targetId || !isTargetType(targetType) || agentType !== expectedAgentType || (keyTargetId && targetId !== keyTargetId)) {
+    const reason = !targetId
+      ? 'missing_target_id'
+      : !isTargetType(targetType)
+        ? 'invalid_target_type'
+        : agentType !== expectedAgentType
+          ? 'invalid_agent_type'
+          : 'key_target_mismatch';
+    logger.warn({ reason, targetId, targetType, agentType, expectedAgentType }, 'Rejected agent handshake contract');
     input.ws.send(JSON.stringify(createErrorResponse(input.requestId, 401, 'Invalid agent key')));
     input.ws.close(1008, 'Invalid agent key');
     return;
@@ -40,13 +48,19 @@ export async function handleAgentHandshake(input: {
 
   const reg = await repo.getTargetAgentRegistration(targetId);
   if (!reg || reg.targetType !== targetType || !verifySecret(effectiveKey, reg.agentKeyHash)) {
+    const reason = !reg
+      ? 'registration_not_found'
+      : reg.targetType !== targetType
+        ? 'registered_target_type_mismatch'
+        : 'key_verification_failed';
+    logger.warn({ reason, targetId, targetType, agentType }, 'Rejected agent handshake authentication');
     input.ws.send(JSON.stringify(createErrorResponse(input.requestId, 401, 'Invalid agent key')));
     input.ws.close(1008, 'Invalid agent key');
     return;
   }
 
   const previousCapabilities = reg.capabilities || [];
-  await repo.upsertTargetAgentRegistration({ ...reg, capabilities: supportedCapabilities });
+  await repo.updateTargetAgentCapabilities(reg.targetId, supportedCapabilities);
 
   const now = new Date().toISOString();
   await repo.updateTargetAgentSeen(reg.targetId, {

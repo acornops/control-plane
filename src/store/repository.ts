@@ -73,6 +73,7 @@ import {
 import {
   getTargetAgentRegistration as getTargetAgentRegistrationRecord,
   listTargetAgentRegistrations as listTargetAgentRegistrationsRecord,
+  rotateTargetAgentKey as rotateTargetAgentKeyRecord, updateTargetAgentCapabilities as updateTargetAgentCapabilitiesRecord,
   updateTargetAgentSeen as updateTargetAgentSeenRecord,
   upsertTargetAgentRegistration as upsertTargetAgentRegistrationRecord
 } from './repository-target-agent-registrations.js';
@@ -333,11 +334,10 @@ export class Repository {
   deleteWorkspace = deleteWorkspaceRecord;
 
   upsertTargetAgentRegistration = upsertTargetAgentRegistrationRecord;
-
   getTargetAgentRegistration = getTargetAgentRegistrationRecord;
-
   listTargetAgentRegistrations = listTargetAgentRegistrationsRecord;
-
+  rotateTargetAgentKey = rotateTargetAgentKeyRecord;
+  updateTargetAgentCapabilities = updateTargetAgentCapabilitiesRecord;
   updateTargetAgentSeen = updateTargetAgentSeenRecord;
 
   addSession = addSessionRecord;

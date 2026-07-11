@@ -283,11 +283,17 @@ export async function rotateVirtualMachineAgentKey(req: AuthenticatedRequest, re
       return;
     }
     const rawAgentKey = generateAgentKey(vmId);
-    await repo.upsertTargetAgentRegistration({
-      ...reg,
-      agentKeyHash: hashSecret(rawAgentKey),
-      keyVersion: reg.keyVersion + 1
-    });
+    const keyVersion = await repo.rotateTargetAgentKey(vmId, reg.keyVersion, hashSecret(rawAgentKey));
+    if (keyVersion === null) {
+      res.status(409).json({
+        error: {
+          code: 'AGENT_KEY_ROTATION_CONFLICT',
+          message: 'Agent key changed during rotation; generate new install instructions and retry',
+          retryable: true
+        }
+      });
+      return;
+    }
     await agentGateway.disconnectCluster(vmId, 'Agent key rotated');
     await recordWorkspaceAuditEvent({
       workspaceId,
@@ -299,12 +305,12 @@ export async function rotateVirtualMachineAgentKey(req: AuthenticatedRequest, re
       objectId: vmId,
       objectName: access.target.name,
       summary: 'AgentV key rotated',
-      metadata: { keyVersion: reg.keyVersion + 1 }
+      metadata: { keyVersion }
     });
     res.status(200).json({
       targetId: vmId,
       agentKey: rawAgentKey,
-      keyVersion: reg.keyVersion + 1,
+      keyVersion,
       installInstructions: buildVmInstallInstructions({ targetId: vmId, agentKey: rawAgentKey })
     });
   } catch (err) {

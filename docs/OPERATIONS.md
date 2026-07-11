@@ -26,6 +26,10 @@
 - `LLM_GATEWAY_ADMIN_TOKEN`
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`
 
+Generated AgentK install commands use the latest chart release by default,
+including experimental releases. Set `AGENT_HELM_CHART_VERSION` when an
+environment needs to pin an exact, tested chart version.
+
 For multi-pod deployments, set a unique `CONTROL_PLANE_INSTANCE_ID` per pod.
 The platform Helm chart sets it from the Kubernetes pod name. Production also
 enables `CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED=true` by default.

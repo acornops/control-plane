@@ -88,6 +88,11 @@ expectIncludes(readme, '[`docs/contracts/README.md`](docs/contracts/README.md)',
 expectIncludes(readme, '[`docs/contracts/manifest.json`](docs/contracts/manifest.json)', 'README manifest link');
 expectIncludes(readme, 'Signup does not create or attach a workspace.', 'Password signup workspace ownership note');
 expect(manifest.repo === 'control-plane', 'Manifest repo');
+expect(
+  JSON.stringify(agentContract?.agentTypeValues) === JSON.stringify(['agentk']),
+  'AgentK contract should expose only the canonical agentType value'
+);
+expectIncludes(agentSource, "? 'agentv' : 'agentk'", 'AgentK canonical agentType implementation');
 
 for (const heading of [
   '# Control Plane Contracts',

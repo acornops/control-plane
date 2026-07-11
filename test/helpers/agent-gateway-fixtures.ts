@@ -182,9 +182,9 @@ export function installAgentRepoMocks(agents: AgentFixture[]): {
   mock.method(repo, 'getTargetAgentRegistration', async (clusterId: string) => {
     return registrations.find((entry) => entry.targetId === clusterId) || null;
   });
-  mock.method(repo, 'upsertTargetAgentRegistration', async (registration: TargetAgentRegistration) => {
-    const index = registrations.findIndex((entry) => entry.targetId === registration.targetId);
-    if (index >= 0) registrations[index] = registration;
+  mock.method(repo, 'updateTargetAgentCapabilities', async (targetId: string, capabilities: string[]) => {
+    const registration = registrations.find((entry) => entry.targetId === targetId);
+    if (registration) registration.capabilities = capabilities;
   });
   mock.method(repo, 'getCluster', async (clusterId: string) => clusters.get(clusterId) || null);
   mock.method(repo, 'updateCluster', async (clusterId: string, patch: Partial<Cluster>) => {

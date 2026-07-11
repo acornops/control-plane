@@ -32,6 +32,7 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Chat and run creation must preserve `sessionPolicy.allowedTools` and `sessionPolicy.writeEnabled`.
 - Agent snapshots preserve `config.snapshotInterval`, `config.maxSnapshotBytes`, and `config.namespaceScope.{include,exclude}`.
 - Agent namespace updates use `config/update_namespace_scope`.
+- Kubernetes agent handshakes use exactly `agentType: agentk`; the legacy `k8s_agent` value is not supported.
 
 ## Boundary Notes
 

@@ -40,6 +40,7 @@ const originals = {
   deleteRunContinuation: repo.deleteRunContinuation,
   updateRun: repo.updateRun,
   getTargetAgentRegistration: repo.getTargetAgentRegistration,
+  rotateTargetAgentKey: repo.rotateTargetAgentKey,
   upsertTargetAgentRegistration: repo.upsertTargetAgentRegistration,
   insertWorkspaceAuditEvent: repo.insertWorkspaceAuditEvent,
   listMatchingWebhookSubscriptions: repo.listMatchingWebhookSubscriptions,
@@ -87,6 +88,7 @@ export function restoreControllerRegressionState(): void {
   repo.deleteRunContinuation = originals.deleteRunContinuation;
   repo.updateRun = originals.updateRun;
   repo.getTargetAgentRegistration = originals.getTargetAgentRegistration;
+  repo.rotateTargetAgentKey = originals.rotateTargetAgentKey;
   repo.upsertTargetAgentRegistration = originals.upsertTargetAgentRegistration;
   repo.insertWorkspaceAuditEvent = originals.insertWorkspaceAuditEvent;
   repo.listMatchingWebhookSubscriptions = originals.listMatchingWebhookSubscriptions;

@@ -479,11 +479,17 @@ export async function rotateAgentKey(req: AuthenticatedRequest, res: Response, n
     }
 
     const rawAgentKey = generateAgentKey(clusterId);
-    await repo.upsertTargetAgentRegistration({
-      ...reg,
-      agentKeyHash: hashSecret(rawAgentKey),
-      keyVersion: reg.keyVersion + 1
-    });
+    const keyVersion = await repo.rotateTargetAgentKey(clusterId, reg.keyVersion, hashSecret(rawAgentKey));
+    if (keyVersion === null) {
+      res.status(409).json({
+        error: {
+          code: 'AGENT_KEY_ROTATION_CONFLICT',
+          message: 'Agent key changed during rotation; generate a new install command and retry',
+          retryable: true
+        }
+      });
+      return;
+    }
     await agentGateway.disconnectCluster(clusterId, 'Agent key rotated');
 
     webhooks.emit({
@@ -494,7 +500,7 @@ export async function rotateAgentKey(req: AuthenticatedRequest, res: Response, n
       targetType: KUBERNETES_TARGET_TYPE,
       subject: { type: 'agent', id: clusterId },
       data: {
-        keyVersion: reg.keyVersion + 1,
+        keyVersion,
         rotatedBy: req.auth.userId
       }
     });
@@ -508,12 +514,12 @@ export async function rotateAgentKey(req: AuthenticatedRequest, res: Response, n
       objectId: clusterId,
       objectName: access.cluster.name,
       summary: 'Cluster agent key rotated',
-      metadata: { keyVersion: reg.keyVersion + 1, agentAccessMode }
+      metadata: { keyVersion, agentAccessMode }
     });
     res.status(200).json({
       clusterId,
       agentKey: rawAgentKey,
-      keyVersion: reg.keyVersion + 1,
+      keyVersion,
       installInstructions: buildAgentInstallInstructions(access.cluster, rawAgentKey, agentAccessMode)
     });
   } catch (err) {

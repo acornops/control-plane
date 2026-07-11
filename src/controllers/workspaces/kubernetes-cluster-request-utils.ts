@@ -108,6 +108,9 @@ export function buildAgentInstallInstructions(
 
   const lines = [
     `helm upgrade --install ${toShellSingleQuoted(config.AGENT_HELM_RELEASE_NAME)} ${toShellSingleQuoted(config.AGENT_HELM_CHART_REF)}`,
+    config.AGENT_HELM_CHART_VERSION
+      ? `  --version ${toShellSingleQuoted(config.AGENT_HELM_CHART_VERSION)}`
+      : '  --devel',
     `  --namespace ${toShellSingleQuoted(config.AGENT_HELM_NAMESPACE)}`,
     '  --create-namespace',
     helmSetString('clusterName', cluster.name),

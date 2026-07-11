@@ -180,7 +180,7 @@ describe('controller authorization regressions', () => {
       keyVersion: 1
     };
     repo.getTargetAgentRegistration = async () => registration;
-    repo.upsertTargetAgentRegistration = async () => undefined;
+    repo.rotateTargetAgentKey = async () => 2;
     let disconnectedClusterId = '';
     mock.method(agentGateway, 'disconnectCluster', async (clusterId: string) => {
       disconnectedClusterId = clusterId;
@@ -189,6 +189,11 @@ describe('controller authorization regressions', () => {
     const allowed = await callController(rotateAgentKey, createRequest({ workspaceId: 'workspace-1', clusterId: 'cluster-1' }));
     assert.equal(allowed.statusCode, 200);
     assert.equal(disconnectedClusterId, 'cluster-1');
+
+    repo.rotateTargetAgentKey = async () => null;
+    const conflict = await callController(rotateAgentKey, createRequest({ workspaceId: 'workspace-1', clusterId: 'cluster-1' }));
+    assert.equal(conflict.statusCode, 409);
+    assert.equal((conflict.body as { error?: { code?: string } }).error?.code, 'AGENT_KEY_ROTATION_CONFLICT');
   });
 
   it('requires manage_mcp for MCP server mutations', async () => {
