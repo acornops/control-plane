@@ -14,6 +14,7 @@ export interface AgentRpcRequest {
   replyChannel: string;
   originInstanceId: string;
   expectedConnectionId: string;
+  agentRequestId?: string;
 }
 
 export interface AgentRpcResponse {
@@ -22,6 +23,7 @@ export interface AgentRpcResponse {
   result?: unknown;
   error?: string;
   code?: 'OWNER_MISMATCH' | 'AGENT_UNAVAILABLE' | 'COMMAND_TIMEOUT' | 'COMMAND_FAILED';
+  agentError?: { rpcCode: number; message: string; data?: Record<string, unknown> };
 }
 
 type AgentRpcHandler = (request: AgentRpcRequest) => Promise<AgentRpcResponse>;
@@ -53,7 +55,10 @@ function parseAgentRpcRequest(value: string): AgentRpcRequest | undefined {
     typeof parsed.method !== 'string' ||
     typeof parsed.replyChannel !== 'string' ||
     typeof parsed.originInstanceId !== 'string' ||
-    typeof parsed.expectedConnectionId !== 'string'
+    typeof parsed.expectedConnectionId !== 'string' ||
+    (parsed.agentRequestId !== undefined && (
+      typeof parsed.agentRequestId !== 'string' || parsed.agentRequestId.length === 0 || parsed.agentRequestId.length > 128
+    ))
   ) {
     return undefined;
   }
@@ -67,7 +72,8 @@ function parseAgentRpcRequest(value: string): AgentRpcRequest | undefined {
     params,
     replyChannel: parsed.replyChannel,
     originInstanceId: parsed.originInstanceId,
-    expectedConnectionId: parsed.expectedConnectionId
+    expectedConnectionId: parsed.expectedConnectionId,
+    agentRequestId: typeof parsed.agentRequestId === 'string' ? parsed.agentRequestId : undefined
   };
 }
 
@@ -76,12 +82,24 @@ function parseAgentRpcResponse(value: string): AgentRpcResponse | undefined {
   if (!parsed || typeof parsed.requestId !== 'string' || typeof parsed.ok !== 'boolean') {
     return undefined;
   }
+  const rawAgentError = parsed.agentError && typeof parsed.agentError === 'object' && !Array.isArray(parsed.agentError)
+    ? parsed.agentError as Record<string, unknown>
+    : undefined;
+  const rawAgentErrorData = rawAgentError?.data && typeof rawAgentError.data === 'object' && !Array.isArray(rawAgentError.data)
+    ? rawAgentError.data as Record<string, unknown>
+    : undefined;
+  const agentError = rawAgentError
+    && typeof rawAgentError.rpcCode === 'number' && Number.isInteger(rawAgentError.rpcCode)
+    && typeof rawAgentError.message === 'string' && rawAgentError.message.length <= 512
+    ? { rpcCode: rawAgentError.rpcCode, message: rawAgentError.message, data: rawAgentErrorData }
+    : undefined;
   return {
     requestId: parsed.requestId,
     ok: parsed.ok,
     result: parsed.result,
     error: typeof parsed.error === 'string' ? parsed.error : undefined,
-    code: typeof parsed.code === 'string' ? parsed.code as AgentRpcResponse['code'] : undefined
+    code: typeof parsed.code === 'string' ? parsed.code as AgentRpcResponse['code'] : undefined,
+    agentError
   };
 }
 
@@ -162,6 +180,7 @@ export async function requestRemoteAgentRpc(owner: AgentOwnerRecord, input: {
   method: string;
   params: Record<string, unknown>;
   timeoutMs: number;
+  agentRequestId?: string;
 }): Promise<AgentRpcResponse> {
   if (!distributedRoutingEnabled()) {
     return {
@@ -181,7 +200,8 @@ export async function requestRemoteAgentRpc(owner: AgentOwnerRecord, input: {
     params: input.params,
     replyChannel,
     originInstanceId: config.CONTROL_PLANE_INSTANCE_ID,
-    expectedConnectionId: owner.connectionId
+    expectedConnectionId: owner.connectionId,
+    agentRequestId: input.agentRequestId
   };
 
   const promise = new Promise<AgentRpcResponse>((resolve, reject) => {

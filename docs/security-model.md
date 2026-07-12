@@ -55,6 +55,8 @@
   approval decisions, cancellation, deletion, settings, and management
   capabilities remain denied.
 - Direct public agent tool calls are not exposed by the control plane; troubleshooting tool execution must use run-scoped gateway authorization.
+- Agent session policy is a mandatory defense-in-depth allowlist. It may not
+  elevate the local AgentK write or namespace policy.
 
 ## Admin Audit
 

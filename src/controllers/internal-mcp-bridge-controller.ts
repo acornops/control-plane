@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { NextFunction, Request, Response } from 'express';
 import { agentGateway } from '../agent/ws-server.js';
 import { type VerifiedRunScopeClaims } from '../services/token-service.js';
@@ -6,8 +7,26 @@ import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { repo } from '../store/repository.js';
 import { getWorkflowRun, WorkflowRunRecord } from '../store/repository-workflows.js';
 import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE } from '../types/domain.js';
+import { AgentToolCallError } from '../agent/types.js';
 
 const ACTIVE_TOOL_RUN_STATUSES = new Set(['dispatching', 'running', 'waiting_for_approval']);
+
+export function stableAgentRequestId(runId: string, toolCallId: unknown): string | undefined {
+  if (typeof toolCallId !== 'string' || toolCallId.length === 0) return undefined;
+  return `tool_${createHash('sha256').update(`${runId}:${toolCallId}`).digest('hex')}`;
+}
+
+export function publicAgentToolError(err: unknown): Record<string, unknown> {
+  if (!(err instanceof AgentToolCallError) || typeof err.data?.code !== 'string') {
+    return { code: 'AGENT_TOOL_ERROR', message: 'Agent tool call failed' };
+  }
+  return {
+    code: err.data.code,
+    message: err.message,
+    ...(err.data?.outcome === 'unknown' ? { outcome: 'unknown' } : {}),
+    ...(typeof err.data?.operationId === 'string' ? { operationId: err.data.operationId } : {}),
+  };
+}
 
 function isToolAllowedByRunToken(toolName: string, allowedTools: string[]): boolean {
   return allowedTools.includes('*') || allowedTools.includes(toolName);
@@ -202,7 +221,12 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
     const startedAt = Date.now();
     const operation = operationForToolCall(claims, toolName);
     try {
-      const result = await agentGateway.callAgentTool(targetId, toolName, args);
+      const result = await agentGateway.callAgentTool(
+        targetId,
+        toolName,
+        args,
+        stableAgentRequestId(claims.runId, req.body.toolCallId)
+      );
       const text = typeof result === 'string' ? result : JSON.stringify(result);
       webhooks.emit({
         type: 'tool.called.v1',
@@ -245,7 +269,8 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
       });
       return;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Agent tool call failed';
+      const publicError = publicAgentToolError(err);
+      const message = String(publicError.message);
       webhooks.emit({
         type: 'tool.called.v1',
         workspaceId,
@@ -283,7 +308,7 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
         }
       });
       res.status(200).json({
-        content: [{ type: 'text', text: message }],
+        content: [{ type: 'text', text: JSON.stringify(publicError) }],
         isError: true
       });
       return;

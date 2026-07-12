@@ -1,7 +1,7 @@
 import WebSocket from 'ws';
 import { logger } from '../logger.js';
 import { runtime } from '../store/runtime.js';
-import { AgentConnection } from './types.js';
+import { AgentConnection, AgentToolCallError } from './types.js';
 
 const connections = new Map<string, AgentConnection>(); // Kubernetes target id -> conn
 
@@ -48,7 +48,11 @@ export function closeStaleAgentConnection(clusterId: string, conn: AgentConnecti
   }
 }
 
-export function resolvePendingAgentResponse(ws: WebSocket, payload: { id: string | number; error?: { message?: unknown }; result?: unknown }): boolean {
+export function resolvePendingAgentResponse(ws: WebSocket, payload: {
+  id: string | number;
+  error?: { code?: unknown; message?: unknown; data?: unknown };
+  result?: unknown;
+}): boolean {
   const requestId = String(payload.id);
   const pending = runtime.agentCommands.get(requestId);
   if (!pending) return true;
@@ -63,7 +67,14 @@ export function resolvePendingAgentResponse(ws: WebSocket, payload: { id: string
 
   runtime.agentCommands.delete(requestId);
   if (payload.error) {
-    pending.reject(new Error(String(payload.error.message || 'Unknown agent error')));
+    const data = payload.error.data && typeof payload.error.data === 'object' && !Array.isArray(payload.error.data)
+      ? payload.error.data as Record<string, unknown>
+      : undefined;
+    pending.reject(new AgentToolCallError(
+      String(payload.error.message || 'Agent tool call failed'),
+      typeof payload.error.code === 'number' ? payload.error.code : -32603,
+      data
+    ));
   } else if ('result' in payload) {
     pending.resolve(payload.result);
   } else {

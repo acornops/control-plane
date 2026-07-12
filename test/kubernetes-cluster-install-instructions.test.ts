@@ -75,6 +75,15 @@ describe('Kubernetes cluster install instructions', () => {
     assert.equal(parsed.agentAccessMode, 'read_write');
   });
 
+  it('rejects namespace policy values AgentK cannot safely enforce', () => {
+    assert.equal(registerClusterSchema.safeParse({
+      name: 'invalid', namespaceInclude: ['INVALID']
+    }).success, false);
+    assert.equal(registerClusterSchema.safeParse({
+      name: 'duplicate', namespaceInclude: ['payments', 'payments']
+    }).success, false);
+  });
+
   it('lets controller defaulting handle unknown registration access modes', () => {
     const parsed = registerClusterSchema.parse({
       name: 'payments-prod',

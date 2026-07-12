@@ -437,6 +437,8 @@ for (const builtinConfigNeedle of [
 expectIncludes(internalMcpBridgeController, 'res.locals.gatewayRunClaims', 'Builtin MCP run token claims');
 expectIncludes(internalMcpBridgeController, 'isToolAllowedByRunToken(toolName, claims.allowedTools)', 'Builtin MCP allowed-tool check');
 expectIncludes(internalMcpBridgeController, 'operationForToolCall(claims, toolName)', 'Builtin MCP audit operation classification');
+expectIncludes(internalMcpBridgeController, 'stableAgentRequestId(claims.runId, req.body.toolCallId)', 'Stable AgentK operation id forwarding');
+expectIncludes(contracts, 'toolCallId: z.string().min(1).max(256).optional()', 'Builtin MCP tool call id contract');
 expectIncludes(doc, '`operation` is `read` or `write`', 'Workspace audit operation doc');
 expectIncludes(openApi, 'operation=read|write', 'Workspace audit operation OpenAPI doc');
 expectIncludes(configSource, 'WORKSPACE_AUDIT_LOGGING_MODE', 'Workspace audit logging mode config');

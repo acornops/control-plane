@@ -30,8 +30,13 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Roles with `permissions.manage_target_insights` may mutate Target Insights entries and Target Insights tool settings.
 - Roles without the relevant management capability are read-only for that configuration surface.
 - Chat and run creation must preserve `sessionPolicy.allowedTools` and `sessionPolicy.writeEnabled`.
+- Agent handshake responses always include a complete `sessionPolicy`; AgentK rejects tool calls until it is installed.
+- The Kubernetes built-in catalog contains `list_resources`, `get_resource`,
+  `get_resource_logs`, `restart_workload`, `scale_workload`, and `simulate_patch`.
 - Agent snapshots preserve `config.snapshotInterval`, `config.maxSnapshotBytes`, and `config.namespaceScope.{include,exclude}`.
 - Agent namespace updates use `config/update_namespace_scope`.
+- Built-in tool calls preserve the run-scoped model tool call ID as a stable,
+  hashed agent JSON-RPC request ID for write idempotency.
 - Kubernetes agent handshakes use exactly `agentType: agentk`; the legacy `k8s_agent` value is not supported.
 
 ## Boundary Notes

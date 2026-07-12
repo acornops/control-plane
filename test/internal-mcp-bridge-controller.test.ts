@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
-import { callMcpTool, operationForToolCall } from '../src/controllers/internal-mcp-bridge-controller.js';
+import {
+  callMcpTool,
+  operationForToolCall,
+  publicAgentToolError,
+  stableAgentRequestId
+} from '../src/controllers/internal-mcp-bridge-controller.js';
+import { AgentToolCallError } from '../src/agent/types.js';
 import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
 import { repo } from '../src/store/repository.js';
@@ -55,6 +61,25 @@ describe('internal MCP bridge audit classification', () => {
       'write'
     );
     assert.equal(operationForToolCall({ allowedToolOperations: {} }, 'unknown_tool'), 'write');
+  });
+
+  it('derives stable, run-scoped agent request IDs for idempotent retries', () => {
+    const first = stableAgentRequestId('run-1', 'call-1');
+    assert.equal(first, stableAgentRequestId('run-1', 'call-1'));
+    assert.notEqual(first, stableAgentRequestId('run-2', 'call-1'));
+    assert.match(first || '', /^tool_[a-f0-9]{64}$/);
+    assert.equal(stableAgentRequestId('run-1', undefined), undefined);
+  });
+
+  it('exposes only sanitized AgentK timeout receipt fields', () => {
+    assert.deepEqual(publicAgentToolError(new AgentToolCallError('Tool timed out', -32003, {
+      code: 'TOOL_TIMEOUT', outcome: 'unknown', operationId: 'operation-1', internal: 'drop-me'
+    })), {
+      code: 'TOOL_TIMEOUT', message: 'Tool timed out', outcome: 'unknown', operationId: 'operation-1'
+    });
+    assert.deepEqual(publicAgentToolError(new AgentToolCallError('raw upstream body', -32603)), {
+      code: 'AGENT_TOOL_ERROR', message: 'Agent tool call failed'
+    });
   });
 
   it('executes workspace workflow tools from the server-compiled run scope without a target', async () => {

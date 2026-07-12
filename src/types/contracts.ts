@@ -120,7 +120,12 @@ export const upsertWorkspaceAiProviderCredentialSchema = z.object({
   apiKey: z.string().trim().min(1).max(4096)
 }).strict();
 
-const namespaceListSchema = z.array(z.string().trim().min(1).max(253)).max(100).optional();
+const namespaceSchema = z.string().trim().min(1).max(63)
+  .regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/, 'Invalid Kubernetes namespace');
+const namespaceListSchema = z.array(namespaceSchema).max(100).refine(
+  (values) => new Set(values).size === values.length,
+  'Namespace list must not contain duplicates'
+).optional();
 const agentAccessModeSchema = z.string().trim().max(64).optional();
 
 export const registerClusterSchema = z.object({
@@ -157,7 +162,8 @@ export const createSessionSchema = z.object({
 
 export const internalMcpToolCallSchema = z.object({
   name: z.string().min(1),
-  arguments: z.record(z.unknown()).optional().default({})
+  arguments: z.record(z.unknown()).optional().default({}),
+  toolCallId: z.string().min(1).max(256).optional()
 });
 
 export const internalToolingSyncSchema = z

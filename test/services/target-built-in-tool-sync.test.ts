@@ -97,4 +97,45 @@ describe('syncTargetBuiltInTools', () => {
     assert.equal(result.registeredToolCount, 0);
     assert.match(result.error || '', /gateway down|llm-gateway request failed/);
   });
+
+  it('removes a stale apply_remediation registration when AgentK no longer advertises it', async () => {
+    mock.method(agentGateway, 'listAgentTools', async () => [{
+      name: 'list_resources',
+      description: 'List resources',
+      capability: 'read' as const
+    }]);
+    mock.method(webhooks, 'emit', () => undefined);
+    let patchBody: Record<string, unknown> | undefined;
+    mock.method(globalThis, 'fetch', async (input, init) => {
+      const url = String(input);
+      if (url.includes('/api/v1/internal/mcp/servers?')) {
+        return new Response(JSON.stringify([{
+          id: 'builtin-1', workspace_id: 'ws-1', target_id: 'cluster-1', target_type: 'kubernetes',
+          server_name: config.BUILTIN_MCP_SERVER_NAME, server_url: config.BUILTIN_MCP_SERVER_URL,
+          enabled: true, auth_type: 'none', tools: []
+        }]), { status: 200 });
+      }
+      if (url.includes('/api/v1/internal/mcp/tools?')) {
+        return new Response(JSON.stringify([
+          { name: 'list_resources', mcp_server_url: config.BUILTIN_MCP_SERVER_URL, timeout_ms: 10000, source: 'builtin', enabled: true },
+          { name: 'apply_remediation', mcp_server_url: config.BUILTIN_MCP_SERVER_URL, timeout_ms: 10000, source: 'builtin', enabled: true }
+        ]), { status: 200 });
+      }
+      if (url.includes('/api/v1/internal/mcp/servers/builtin-1?') && init?.method === 'PATCH') {
+        patchBody = JSON.parse(String(init.body));
+        return new Response(JSON.stringify({
+          id: 'builtin-1', workspace_id: 'ws-1', target_id: 'cluster-1', target_type: 'kubernetes',
+          server_name: config.BUILTIN_MCP_SERVER_NAME, server_url: config.BUILTIN_MCP_SERVER_URL,
+          enabled: true, auth_type: 'none', tools: patchBody?.tools
+        }), { status: 200 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
+
+    const result = await syncTargetBuiltInTools('ws-1', 'cluster-1', 'kubernetes');
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.removedTools, ['apply_remediation']);
+    assert.deepEqual(patchBody?.remove_tools, ['apply_remediation']);
+  });
 });

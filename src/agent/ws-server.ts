@@ -15,13 +15,13 @@ import {
   resolvePendingAgentResponse
 } from './connections.js';
 import { handleAgentHandshake } from './handshake.js';
-import { sendLocalJsonRpc } from './local-jsonrpc.js';
+import { AGENT_COMMAND_TIMEOUT_MS, sendLocalJsonRpc } from './local-jsonrpc.js';
 import { decodeAgentMessage } from './message-utils.js';
 import { markConnectionOfflineIfUnowned } from './offline-reconciliation.js';
 import {
   setBuiltInToolSyncSchedulerForTests as setBuiltInToolSyncSchedulerForTestsInternal
 } from './tool-sync-scheduler.js';
-import { AgentConnection, AgentToolDefinition, BuiltInToolSyncScheduler } from './types.js';
+import { AgentConnection, AgentToolCallError, AgentToolDefinition, BuiltInToolSyncScheduler } from './types.js';
 import {
   AgentRpcRequest,
   AgentRpcResponse,
@@ -126,11 +126,11 @@ export class AgentGateway {
     });
   }
 
-  async callAgentTool(clusterId: string, toolName: string, args: Record<string, unknown>): Promise<unknown> {
+  async callAgentTool(clusterId: string, toolName: string, args: Record<string, unknown>, requestId?: string): Promise<unknown> {
     return this.sendJsonRpc(clusterId, 'tools/call', {
       name: toolName,
       arguments: args
-    });
+    }, requestId);
   }
 
   async listAgentTools(clusterId: string): Promise<AgentToolDefinition[]> {
@@ -156,20 +156,21 @@ export class AgentGateway {
     });
   }
 
-  async sendJsonRpc(clusterId: string, method: string, params: Record<string, unknown>): Promise<unknown> {
-    return this.sendJsonRpcWithRetry(clusterId, method, params, true);
+  async sendJsonRpc(clusterId: string, method: string, params: Record<string, unknown>, requestId?: string): Promise<unknown> {
+    return this.sendJsonRpcWithRetry(clusterId, method, params, true, requestId);
   }
 
   private async sendJsonRpcWithRetry(
     clusterId: string,
     method: string,
     params: Record<string, unknown>,
-    retryOnOwnerMismatch: boolean
+    retryOnOwnerMismatch: boolean,
+    requestId?: string
   ): Promise<unknown> {
     const conn = getAgentConnection(clusterId);
     if (conn?.ws.readyState === WebSocket.OPEN) {
       if (!distributedRoutingEnabled() || await isCurrentAgentOwner(clusterId, conn.connectionId)) {
-        return sendLocalJsonRpc(conn, method, params);
+        return sendLocalJsonRpc(conn, method, params, requestId);
       }
       this.closeStaleLocalConnection(clusterId, conn);
     }
@@ -185,7 +186,7 @@ export class AgentGateway {
     if (owner.instanceId === controlPlaneInstanceId()) {
       if (retryOnOwnerMismatch) {
         await clearAgentOwnerIfCurrent(clusterId, owner.connectionId);
-        return this.sendJsonRpcWithRetry(clusterId, method, params, false);
+        return this.sendJsonRpcWithRetry(clusterId, method, params, false, requestId);
       }
       throw new Error('Agent is not connected');
     }
@@ -194,11 +195,15 @@ export class AgentGateway {
       clusterId,
       method,
       params,
-      timeoutMs: 15000
+      timeoutMs: AGENT_COMMAND_TIMEOUT_MS + 5_000,
+      agentRequestId: requestId
     });
     if (!response.ok) {
       if (response.code === 'OWNER_MISMATCH' && retryOnOwnerMismatch) {
-        return this.sendJsonRpcWithRetry(clusterId, method, params, false);
+        return this.sendJsonRpcWithRetry(clusterId, method, params, false, requestId);
+      }
+      if (response.agentError) {
+        throw new AgentToolCallError(response.agentError.message, response.agentError.rpcCode, response.agentError.data);
       }
       throw new Error(response.error || 'Agent command failed');
     }
@@ -225,7 +230,7 @@ export class AgentGateway {
       };
     }
     try {
-      const result = await sendLocalJsonRpc(conn, request.method, request.params);
+      const result = await sendLocalJsonRpc(conn, request.method, request.params, request.agentRequestId);
       return {
         requestId: request.requestId,
         ok: true,
@@ -236,7 +241,10 @@ export class AgentGateway {
         requestId: request.requestId,
         ok: false,
         code: err instanceof Error && /timed out/i.test(err.message) ? 'COMMAND_TIMEOUT' : 'COMMAND_FAILED',
-        error: err instanceof Error ? err.message : 'Agent command failed'
+        error: err instanceof Error ? err.message : 'Agent command failed',
+        ...(err instanceof AgentToolCallError ? {
+          agentError: { rpcCode: err.rpcCode, message: err.message, data: err.data }
+        } : {})
       };
     }
   }

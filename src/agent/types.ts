@@ -29,3 +29,15 @@ export interface AgentToolDefinition {
   version?: string;
   deprecated?: boolean;
 }
+
+/** A sanitized JSON-RPC tool failure returned by a connected target agent. */
+export class AgentToolCallError extends Error {
+  constructor(
+    message: string,
+    readonly rpcCode: number,
+    readonly data?: Record<string, unknown>
+  ) {
+    super(message);
+    this.name = 'AgentToolCallError';
+  }
+}

@@ -188,8 +188,7 @@ export async function handleAgentHandshake(input: {
           'get_resource_logs',
           'restart_workload',
           'scale_workload',
-          'simulate_patch',
-          'apply_remediation'
+          'simulate_patch'
         ]
         : [
           'get_host_summary',
