@@ -1,14 +1,20 @@
 import { NextFunction, Response } from 'express';
 import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { AuthenticatedRequest } from '../auth/middleware.js';
-import { incrementApprovalInboxQuery } from '../metrics.js';
+import {
+  incrementApprovalInboxQuery,
+  observeApprovalInboxQueryDurationMs,
+  observeWorkflowSchedulePreviewDurationMs
+} from '../metrics.js';
 import { repo } from '../store/repository.js';
 import {
   createWorkflowSchedule,
+  computeUpcomingWorkflowScheduleRuns,
   deleteWorkflowScheduleRecord,
   getWorkflowSchedule,
   listWorkflowSchedules,
   updateWorkflowScheduleRecord,
+  summarizeWorkflowScheduleCron,
   validateWorkflowScheduleCron,
   validateWorkflowScheduleTimezone
 } from '../store/repository-workflow-schedules.js';
@@ -18,11 +24,62 @@ import {
 } from '../store/repository-workflows.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import type { RunToolApproval } from '../types/domain.js';
-import type { WorkflowApprovalInboxRow, WorkflowScheduleRecord } from '../types/workflows.js';
+import type { WorkflowApprovalInboxResponse, WorkflowApprovalInboxRow, WorkflowScheduleRecord } from '../types/workflows.js';
 import { toSingleParam } from '../utils/params.js';
 
 function objectBody(req: AuthenticatedRequest): Record<string, unknown> {
   return req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {};
+}
+
+export async function previewWorkflowSchedule(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  const startedAt = Date.now();
+  try {
+    const workspaceId = toSingleParam(req.params.workspaceId);
+    if (!(await requireWorkspaceCapability(
+      req,
+      res,
+      workspaceId,
+      'manage_workflows',
+      'Only workspace roles with workflow management capability can preview schedules'
+    ))) return;
+    const body = objectBody(req);
+    const workflowId = typeof body.workflowId === 'string' ? body.workflowId.trim() : '';
+    const cron = typeof body.cron === 'string' ? body.cron.trim() : '';
+    const timezone = typeof body.timezone === 'string' ? body.timezone.trim() : '';
+    const defaults = objectValue(body.inputDefaults);
+    const approvedContextGrants = stringList(body.approvedContextGrants);
+    const errors: Array<{ field: string; message: string }> = [];
+    const workflow = workflowId ? getWorkflowDefinition(workspaceId, workflowId) : null;
+    if (!workflowId) errors.push({ field: 'workflowId', message: 'Choose a workflow.' });
+    else if (!workflow) errors.push({ field: 'workflowId', message: 'Workflow was not found in this workspace.' });
+    if (!cron) errors.push({ field: 'cron', message: 'Choose a frequency or enter a cron expression.' });
+    else if (!validateWorkflowScheduleCron(cron)) errors.push({ field: 'cron', message: 'Use a valid five-field cron expression.' });
+    if (!timezone) errors.push({ field: 'timezone', message: 'Choose a timezone.' });
+    else if (!validateWorkflowScheduleTimezone(timezone)) errors.push({ field: 'timezone', message: 'Choose a recognized IANA timezone.' });
+    if (workflow) {
+      for (const input of workflow.inputs || []) {
+        if (input.required && (defaults[input.name] === undefined || defaults[input.name] === null || defaults[input.name] === '')) {
+          errors.push({ field: `inputDefaults.${input.name}`, message: `${input.label} is required.` });
+        }
+      }
+      const allowedGrants = new Set(workflow.steps.flatMap((step) => step.contextGrants));
+      for (const grant of approvedContextGrants) {
+        if (!allowedGrants.has(grant)) errors.push({ field: 'approvedContextGrants', message: `Context grant ${grant} is not used by this workflow.` });
+      }
+    }
+    const valid = errors.length === 0;
+    const nextRunTimes = valid ? computeUpcomingWorkflowScheduleRuns(cron, timezone, 5) : [];
+    observeWorkflowSchedulePreviewDurationMs(valid ? 'valid' : 'invalid', Date.now() - startedAt);
+    res.status(200).json({
+      valid,
+      summary: valid ? summarizeWorkflowScheduleCron(cron, timezone) : 'Complete the highlighted fields to preview this schedule.',
+      nextRunTimes,
+      errors
+    });
+  } catch (err) {
+    observeWorkflowSchedulePreviewDurationMs('error', Date.now() - startedAt);
+    next(err);
+  }
 }
 
 function stringList(value: unknown): string[] {
@@ -250,24 +307,40 @@ function targetApprovalInboxRow(approval: RunToolApproval): WorkflowApprovalInbo
 }
 
 export async function listWorkspaceApprovalInbox(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  const startedAt = Date.now();
+  const rawStatus = typeof req.query.status === 'string' ? req.query.status : 'pending';
+  const status = rawStatus === 'decided' || rawStatus === 'all' ? rawStatus : 'pending';
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
-    if (!(await requireWorkspaceDataRead(req, res, workspaceId, 'No access to approvals'))) return;
-    const rawStatus = typeof req.query.status === 'string' ? req.query.status : 'pending';
-    const status = rawStatus === 'decided' || rawStatus === 'all' ? rawStatus : 'pending';
+    if (!(await requireWorkspaceDataRead(req, res, workspaceId, 'No access to approvals'))) {
+      incrementApprovalInboxQuery(status, 'denied');
+      observeApprovalInboxQueryDurationMs(status, 'denied', Date.now() - startedAt);
+      return;
+    }
     const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 50));
     const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
-    incrementApprovalInboxQuery(status);
-    const targetApprovals = await repo.listWorkspaceRunToolApprovals({ workspaceId, status, limit, cursor });
+    const [targetApprovals, pendingTargetCount] = await Promise.all([
+      repo.listWorkspaceRunToolApprovals({ workspaceId, status, limit, cursor }),
+      repo.countPendingWorkspaceRunToolApprovals(workspaceId)
+    ]);
     const workflowApprovals = collectWorkflowApprovalInboxRows(workspaceId, status);
+    const pendingWorkflowCount = listWorkflowApprovalsForWorkspace(workspaceId, 'pending').length;
     const items = [...targetApprovals.map(targetApprovalInboxRow), ...workflowApprovals]
       .sort((left, right) => right.requestedAt.localeCompare(left.requestedAt))
       .slice(0, limit);
-    res.status(200).json({
+    incrementApprovalInboxQuery(status, 'success');
+    observeApprovalInboxQueryDurationMs(status, 'success', Date.now() - startedAt);
+    const response: WorkflowApprovalInboxResponse = {
       items,
-      nextCursor: items.length === limit ? items[items.length - 1]?.requestedAt : undefined
-    });
+      pendingCount: pendingTargetCount + pendingWorkflowCount,
+      ...(items.length === limit && items[items.length - 1]?.requestedAt
+        ? { nextCursor: items[items.length - 1].requestedAt }
+        : {})
+    };
+    res.status(200).json(response);
   } catch (err) {
+    incrementApprovalInboxQuery(status, 'error');
+    observeApprovalInboxQueryDurationMs(status, 'error', Date.now() - startedAt);
     next(err);
   }
 }

@@ -18,7 +18,7 @@ import {
   listWorkflowMessages,
   resetWorkflowRepositoryForTests
 } from '../src/store/repository-workflows.js';
-import { listAgentDefinitions } from '../src/store/repository-agents.js';
+import { listAgentDefinitions, updateAgentDefinition } from '../src/store/repository-agents.js';
 import type { WorkflowDefinitionForAccess } from '../src/types/workflows.js';
 import {
   callController,
@@ -266,6 +266,9 @@ describe('workflows controller', () => {
 
   it('lets owners edit workflow categories and MCP scope before future sessions compile access', async () => {
     installWorkspace('owner');
+    updateAgentDefinition('workspace-1', 'agent-release-coordinator', {
+      mcpServers: ['github'], tools: ['github.repositories.read', 'github.branches.create']
+    });
 
     const updateResponse = await callController(updateWorkflow, createRequest(
       { workflowId: 'cluster-triage' },

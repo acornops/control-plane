@@ -7,6 +7,7 @@ import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
 import { compileWorkflowAccessScope, WorkflowAccessDeniedError } from '../services/workflow-access.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
+import { getWorkflowCapabilityReadinessErrors } from '../services/workflow-readiness.js';
 import {
   appendWorkflowRunEvents,
   createWorkflowDefinition,
@@ -39,6 +40,7 @@ import type {
   WorkflowStepDefinition
 } from '../types/workflows.js';
 import { toSingleParam } from '../utils/params.js';
+import { containsSearchText, makeQuerySignature, normalizeSearchQuery, pageArray, parseBoundedLimit } from '../utils/pagination.js';
 import { mapGatewayError } from './workspaces/common.js';
 
 const WORKFLOW_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
@@ -161,8 +163,8 @@ function workflowSteps(value: unknown): WorkflowStepDefinition[] | undefined {
     .filter((entry) => entry.id && entry.title);
 }
 
-function collectWorkflowReferenceErrors(workspaceId: string, steps: WorkflowStepDefinition[]): string[] {
-  const options = getWorkflowOptionsCatalog(workspaceId);
+async function collectWorkflowReferenceErrors(workspaceId: string, steps: WorkflowStepDefinition[]): Promise<string[]> {
+  const options = await getWorkflowOptionsCatalog(workspaceId);
   const knownTools = new Set(options.mcpTools.map((option) => option.value));
   const knownAgents = new Set(options.agents.map((option) => option.value));
   const errors: string[] = [];
@@ -177,8 +179,8 @@ function collectWorkflowReferenceErrors(workspaceId: string, steps: WorkflowStep
   return errors;
 }
 
-function collectWorkflowScopeReferenceErrors(workspaceId: string, mcpServers: string[], skills: string[]): string[] {
-  const options = getWorkflowOptionsCatalog(workspaceId);
+async function collectWorkflowScopeReferenceErrors(workspaceId: string, mcpServers: string[], skills: string[]): Promise<string[]> {
+  const options = await getWorkflowOptionsCatalog(workspaceId);
   const knownServers = new Set(options.mcpServers.map((option) => option.value));
   const knownSkills = new Set(options.skills.map((option) => option.value));
   const errors: string[] = [];
@@ -289,7 +291,13 @@ export async function listWorkflows(req: AuthenticatedRequest, res: Response, ne
     const workspaceId = toSingleParam(req.params.workspaceId);
     const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
-    res.status(200).json({ items: listWorkflowDefinitions(workspaceId) });
+    const q = normalizeSearchQuery(req.query.q);
+    const signature = makeQuerySignature({ workspaceId, q });
+    const rows = listWorkflowDefinitions(workspaceId)
+      .filter((workflow) => containsSearchText([workflow.name, workflow.description, workflow.category, workflow.status], q));
+    res.status(200).json(pageArray(rows, {
+      limit: parseBoundedLimit(req.query.limit), cursor: req.query.cursor, signature
+    }));
   } catch (err) {
     next(err);
   }
@@ -358,6 +366,14 @@ export async function createSession(req: AuthenticatedRequest, res: Response, ne
         return;
       }
       throw err;
+    }
+
+    const readinessErrors = await getWorkflowCapabilityReadinessErrors(workflow.workspaceId, compiledAccessScope);
+    if (readinessErrors.length > 0) {
+      res.status(409).json({ error: {
+        code: 'WORKFLOW_CAPABILITY_NOT_READY', message: readinessErrors[0], retryable: false, details: { readinessErrors }
+      } });
+      return;
     }
 
     const session = createWorkflowSession({
@@ -529,3 +545,4 @@ export {
   updateWorkflow,
   updateWorkflowMcpServerForWorkspace
 } from './workflows-management-controller.js';
+export { updateWorkflowMcpToolForWorkspace } from './workflows-mcp-tool-controller.js';

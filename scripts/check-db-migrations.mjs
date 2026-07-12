@@ -31,7 +31,9 @@ assert(dbSource.includes('assertDatabaseMigrationsCurrent'), 'startup must verif
 
 const files = migrationFiles();
 assert.deepEqual(files, [
-  '001_initial_schema.sql'
+  '001_initial_schema.sql',
+  '002_agents_workflows.sql',
+  '003_workflow_option_catalogs.sql'
 ]);
 for (const file of files) {
   assert(/^\d{3,}_[a-z0-9_]+\.sql$/.test(file), `invalid migration filename ${file}`);
@@ -39,6 +41,41 @@ for (const file of files) {
 }
 
 const initial = read('migrations/control-plane/001_initial_schema.sql');
+const agentsWorkflows = read('migrations/control-plane/002_agents_workflows.sql');
+const workflowOptionCatalogs = read('migrations/control-plane/003_workflow_option_catalogs.sql');
+for (const table of [
+  'agent_definitions',
+  'agent_triggers',
+  'agent_versions',
+  'agent_activity',
+  'workflow_definitions',
+  'workflow_mcp_servers',
+  'workflow_schedules',
+  'workflow_sessions',
+  'workflow_messages',
+  'workflow_runs',
+  'workflow_approvals'
+]) {
+  assert(agentsWorkflows.includes(`CREATE TABLE IF NOT EXISTS ${table}`), `agents/workflows migration must create ${table}`);
+}
+for (const table of ['workspace_skills']) {
+  assert(workflowOptionCatalogs.includes(`CREATE TABLE IF NOT EXISTS ${table}`), `workflow option catalog migration must create ${table}`);
+}
+for (const needle of [
+  'workspace_skills_name_unique',
+  'workspace_skills_workspace_enabled_valid_name_idx'
+]) {
+  assert(workflowOptionCatalogs.includes(needle), `workflow option catalog migration must preserve ${needle}`);
+}
+for (const needle of [
+  'lease_owner TEXT NULL',
+  'lease_expires_at TIMESTAMPTZ NULL',
+  "CHECK (jsonb_typeof(compiled_access_scope) = 'object')",
+  'ON DELETE RESTRICT',
+  'workflow_schedules_due_idx'
+]) {
+  assert(agentsWorkflows.includes(needle), `agents/workflows migration must preserve ${needle}`);
+}
 for (const table of [
   'users',
   'user_password_credentials',

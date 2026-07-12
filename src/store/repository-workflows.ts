@@ -1,15 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { defaultWorkflowDefinitions } from './repository-workflow-defaults.js';
 import { resetWorkflowRunRepositoryForTests } from './repository-workflow-runs.js';
-import { listAgentDefinitions } from './repository-agents.js';
 export type { WorkflowApprovalRecord, WorkflowMessageRecord, WorkflowRunRecord, WorkflowSessionRecord } from './repository-workflow-runs.js';
 export { appendWorkflowRunEvents, createWorkflowRun, createWorkflowSession, createWorkflowUserMessage, decideWorkflowRunApproval, getWorkflowRun, getWorkflowRunApproval, getWorkflowSession, listWorkflowApprovalsForWorkspace, listWorkflowMessages, listWorkflowRunApprovals, listWorkflowRunsForSession, listWorkflowSessions, updateWorkflowRun, upsertWorkflowAssistantFinalMessage } from './repository-workflow-runs.js';
+export { getWorkflowOptionsCatalog } from './repository-workflow-options.js';
+export { createWorkflowMcpServer, deleteWorkflowMcpServer, listWorkflowMcpServerTools, listWorkflowMcpServers, testWorkflowMcpServerConnection, updateWorkflowMcpServer } from './repository-workflow-mcp.js';
 import type {
   CompiledWorkflowAccessScope,
   WorkflowCategory,
   WorkflowDefinitionForAccess,
   WorkflowInputDefinition,
-  WorkflowOptionsCatalog,
   WorkflowStepDefinition
 } from '../types/workflows.js';
 
@@ -29,9 +29,13 @@ export interface WorkflowMcpServerRecord {
   url: string;
   enabled: boolean;
   authType: 'none' | 'bearer_token' | 'custom_header';
+  authHeaderName?: string;
+  scope: 'workspace';
+  credentialConfigured: boolean;
   publicHeaders: Record<string, string>;
   status: 'connected' | 'disabled' | 'not_checked' | 'error';
   lastCheckedAt?: string;
+  discoveryError?: string;
   tools: WorkflowMcpToolRecord[];
   createdBy: string;
   createdAt: string;
@@ -44,12 +48,12 @@ export interface WorkflowMcpServerInput {
   enabled?: boolean;
   auth?: {
     type?: WorkflowMcpServerRecord['authType'];
+    credential?: string;
+    headerName?: string;
   };
   publicHeaders?: Record<string, string>;
   createdBy: string;
 }
-
-const workflowMcpServersByWorkspace = new Map<string, Map<string, WorkflowMcpServerRecord>>();
 
 export interface WorkflowDefinitionScopeUpdate {
   name?: string;
@@ -284,245 +288,7 @@ export function deleteWorkflowDefinition(workspaceId: string, workflowId: string
   return 'deleted';
 }
 
-function cloneWorkflowMcpServer(server: WorkflowMcpServerRecord): WorkflowMcpServerRecord {
-  return {
-    ...server,
-    publicHeaders: { ...server.publicHeaders },
-    tools: server.tools.map((tool) => ({ ...tool }))
-  };
-}
-
-function defaultWorkflowMcpServers(workspaceId: string): WorkflowMcpServerRecord[] {
-  const createdAt = nowIso();
-  return [
-    {
-      id: 'acornops-cluster-agent',
-      workspaceId,
-      name: 'AcornOps cluster agent',
-      url: 'builtin://cluster-agent',
-      enabled: true,
-      authType: 'none',
-      publicHeaders: {},
-      status: 'connected',
-      lastCheckedAt: createdAt,
-      createdBy: 'system',
-      createdAt,
-      tools: [
-        { name: 'inventory.resources.list', title: 'List cluster resources', capability: 'read', enabled: true },
-        { name: 'events.search', title: 'Search cluster events', capability: 'read', enabled: true },
-        { name: 'logs.summarize', title: 'Summarize logs', capability: 'read', enabled: true },
-        { name: 'metrics.query', title: 'Query metrics', capability: 'read', enabled: true }
-      ]
-    },
-    {
-      id: 'github',
-      workspaceId,
-      name: 'GitHub',
-      url: 'https://api.github.com/mcp',
-      enabled: true,
-      authType: 'bearer_token',
-      publicHeaders: {},
-      status: 'not_checked',
-      createdBy: 'system',
-      createdAt,
-      tools: [
-        { name: 'github.repositories.read', title: 'Read repositories', capability: 'read', enabled: true },
-        { name: 'github.branches.list', title: 'List branches', capability: 'read', enabled: true },
-        { name: 'github.prs.list', title: 'List pull requests', capability: 'read', enabled: true },
-        { name: 'github.branches.create', title: 'Create branches', capability: 'write', enabled: true },
-        { name: 'github.prs.create', title: 'Create pull requests', capability: 'write', enabled: true }
-      ]
-    },
-    {
-      id: 'workspace-chat',
-      workspaceId,
-      name: 'Workspace chat history',
-      url: 'builtin://workspace-chat',
-      enabled: true,
-      authType: 'none',
-      publicHeaders: {},
-      status: 'connected',
-      lastCheckedAt: createdAt,
-      createdBy: 'system',
-      createdAt,
-      tools: [
-        { name: 'chat.sessions.read_selected', title: 'Read selected chat sessions', capability: 'read', enabled: true }
-      ]
-    },
-    {
-      id: 'artifact-writer',
-      workspaceId,
-      name: 'Artifact writer',
-      url: 'builtin://artifacts',
-      enabled: true,
-      authType: 'none',
-      publicHeaders: {},
-      status: 'connected',
-      lastCheckedAt: createdAt,
-      createdBy: 'system',
-      createdAt,
-      tools: [
-        { name: 'reports.pdf.generate', title: 'Generate PDF report', capability: 'read', enabled: true }
-      ]
-    }
-  ];
-}
-
-function mcpServersForWorkspace(workspaceId: string): Map<string, WorkflowMcpServerRecord> {
-  const existing = workflowMcpServersByWorkspace.get(workspaceId);
-  if (existing) return existing;
-  const servers = new Map<string, WorkflowMcpServerRecord>();
-  for (const server of defaultWorkflowMcpServers(workspaceId)) {
-    servers.set(server.id, server);
-  }
-  workflowMcpServersByWorkspace.set(workspaceId, servers);
-  return servers;
-}
-
-export function listWorkflowMcpServers(workspaceId: string): WorkflowMcpServerRecord[] {
-  return [...mcpServersForWorkspace(workspaceId).values()].map(cloneWorkflowMcpServer);
-}
-
-export function createWorkflowMcpServer(workspaceId: string, input: WorkflowMcpServerInput): WorkflowMcpServerRecord {
-  const servers = mcpServersForWorkspace(workspaceId);
-  const idBase = input.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'mcp-server';
-  let id = idBase;
-  let suffix = 2;
-  while (servers.has(id)) {
-    id = `${idBase}-${suffix}`;
-    suffix += 1;
-  }
-  const now = nowIso();
-  const server: WorkflowMcpServerRecord = {
-    id,
-    workspaceId,
-    name: input.name.trim(),
-    url: input.url.trim(),
-    enabled: input.enabled ?? true,
-    authType: input.auth?.type || 'none',
-    publicHeaders: input.publicHeaders || {},
-    status: input.enabled === false ? 'disabled' : 'not_checked',
-    tools: [],
-    createdBy: input.createdBy,
-    createdAt: now,
-    updatedAt: now
-  };
-  servers.set(id, server);
-  return cloneWorkflowMcpServer(server);
-}
-
-export function updateWorkflowMcpServer(
-  workspaceId: string,
-  serverId: string,
-  patch: Partial<Omit<WorkflowMcpServerInput, 'createdBy'>>
-): WorkflowMcpServerRecord | null {
-  const servers = mcpServersForWorkspace(workspaceId);
-  const current = servers.get(serverId);
-  if (!current) return null;
-  const updated: WorkflowMcpServerRecord = {
-    ...current,
-    name: patch.name?.trim() || current.name,
-    url: patch.url?.trim() || current.url,
-    enabled: typeof patch.enabled === 'boolean' ? patch.enabled : current.enabled,
-    authType: patch.auth?.type || current.authType,
-    publicHeaders: patch.publicHeaders || current.publicHeaders,
-    status: typeof patch.enabled === 'boolean' && !patch.enabled ? 'disabled' : current.status,
-    updatedAt: nowIso()
-  };
-  servers.set(serverId, updated);
-  return cloneWorkflowMcpServer(updated);
-}
-
-export function deleteWorkflowMcpServer(workspaceId: string, serverId: string): boolean {
-  return mcpServersForWorkspace(workspaceId).delete(serverId);
-}
-
-export function testWorkflowMcpServerConnection(workspaceId: string, serverId: string): WorkflowMcpServerRecord | null {
-  const servers = mcpServersForWorkspace(workspaceId);
-  const current = servers.get(serverId);
-  if (!current) return null;
-  const updated: WorkflowMcpServerRecord = {
-    ...current,
-    status: current.enabled ? 'connected' : 'disabled',
-    lastCheckedAt: nowIso(),
-    updatedAt: nowIso()
-  };
-  servers.set(serverId, updated);
-  return cloneWorkflowMcpServer(updated);
-}
-
-export function listWorkflowMcpServerTools(workspaceId: string, serverId: string): WorkflowMcpToolRecord[] | null {
-  const server = mcpServersForWorkspace(workspaceId).get(serverId);
-  return server ? server.tools.map((tool) => ({ ...tool })) : null;
-}
-
-export function getWorkflowOptionsCatalog(workspaceId: string): WorkflowOptionsCatalog {
-  const servers = listWorkflowMcpServers(workspaceId);
-  const tools = servers.flatMap((server) => server.tools.map((tool) => ({
-    value: tool.name,
-    label: tool.title,
-    description: `${server.name} - ${tool.capability}`,
-    disabled: !server.enabled || !tool.enabled,
-    disabledReason: !server.enabled ? 'MCP server disabled' : !tool.enabled ? 'Tool disabled' : undefined
-  })));
-  return {
-    clusters: [
-      { value: 'cluster-primary', label: 'Primary cluster', description: 'Default Kubernetes cluster' },
-      { value: 'cluster-staging', label: 'Staging cluster', description: 'Staging Kubernetes cluster' }
-    ],
-    repositories: [
-      { value: 'acornops/control-plane', label: 'acornops/control-plane' },
-      { value: 'acornops/management-console', label: 'acornops/management-console' }
-    ],
-    mcpServers: servers.map((server) => ({
-      value: server.id,
-      label: server.name,
-      description: server.url,
-      disabled: !server.enabled,
-      disabledReason: !server.enabled ? 'Server disabled' : undefined
-    })),
-    mcpTools: tools,
-    skills: [
-      { value: 'acornops-observability', label: 'AcornOps observability', description: 'Incident and signal analysis' },
-      { value: 'acornops-cross-repo-change', label: 'Cross-repo change', description: 'Multi-repository coordination' },
-      { value: 'acornops-open-pr', label: 'Open PR', description: 'Prepare branch and pull request handoff' },
-      { value: 'acornops-target-boundary-design', label: 'Target boundary design', description: 'Target model compatibility checks' }
-    ],
-    agents: listAgentDefinitions(workspaceId).filter((agent) => agent.kind === 'specialist_agent').map((agent) => ({
-      value: agent.id,
-      label: agent.name,
-      description: agent.description,
-      disabled: agent.status !== 'active',
-      disabledReason: agent.status !== 'active' ? 'Agent disabled' : undefined
-    })),
-    chatSessions: [
-      { value: 'chat-incident-001', label: 'Incident chat 001', description: 'Selected cluster incident thread' },
-      { value: 'chat-incident-002', label: 'Incident chat 002', description: 'Follow-up mitigation thread' }
-    ],
-    outputFormats: [
-      { value: 'pdf', label: 'PDF' },
-      { value: 'markdown', label: 'Markdown' }
-    ],
-    approvalPolicies: [
-      { value: 'none', label: 'No approval' },
-      { value: 'before_write', label: 'Before write-capable tools' },
-      { value: 'before_chat_read', label: 'Before reading selected chats' }
-    ],
-    runtimeLimits: [
-      { value: '600', label: '10 minutes' },
-      { value: '900', label: '15 minutes' },
-      { value: '1500', label: '25 minutes' }
-    ],
-    retentionPolicies: [
-      { value: '30', label: '30 days' },
-      { value: '90', label: '90 days' },
-      { value: '180', label: '180 days' }
-    ]
-  };
-}
-
 export function resetWorkflowRepositoryForTests(): void {
   resetWorkflowRunRepositoryForTests();
   workflowDefinitionsByWorkspace.clear();
-  workflowMcpServersByWorkspace.clear();
 }

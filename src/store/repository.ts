@@ -136,6 +136,7 @@ import {
   listTargetChatActivityEvents as listTargetChatActivityEventsRecord
 } from './repository-chat-activity.js';
 import {
+  countPendingWorkspaceRunToolApprovals as countPendingWorkspaceRunToolApprovalsRecord,
   createRunToolApproval as createRunToolApprovalRecord,
   decideRunToolApproval as decideRunToolApprovalRecord,
   deleteRunContinuation as deleteRunContinuationRecord,
@@ -385,9 +386,8 @@ export class Repository {
   getRunToolApproval = getRunToolApprovalRecord;
 
   listRunToolApprovals = listRunToolApprovalsRecord;
-
   listWorkspaceRunToolApprovals = listWorkspaceRunToolApprovalsRecord;
-
+  countPendingWorkspaceRunToolApprovals = countPendingWorkspaceRunToolApprovalsRecord;
   getRunContinuation = getRunContinuationRecord;
 
   deleteRunContinuation = deleteRunContinuationRecord;

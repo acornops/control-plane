@@ -46,7 +46,10 @@ export function buildAgentPaths(): Record<string, unknown> {
         security: [{ userSession: [] }],
         parameters: [
           workspaceIdParameter,
-          { in: 'query', name: 'includeInactive', required: false, schema: { type: 'boolean' } }
+          { in: 'query', name: 'includeInactive', required: false, schema: { type: 'boolean' } },
+          { in: 'query', name: 'q', required: false, schema: { type: 'string' } },
+          { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100 } },
+          { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } }
         ],
         responses: {
           '200': { description: 'Agent list for the workspace.' },
@@ -77,7 +80,10 @@ export function buildAgentPaths(): Record<string, unknown> {
         tags: ['agents'],
         summary: 'Get an agent definition',
         security: [{ userSession: [] }],
-        parameters: [agentIdPathParameter, agentWorkspaceIdQueryParameter],
+        parameters: [agentIdPathParameter, agentWorkspaceIdQueryParameter,
+          { in: 'query', name: 'q', required: false, schema: { type: 'string' } },
+          { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100 } },
+          { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } }],
         responses: { '200': { description: 'Agent detail.' } }
       },
       patch: {
@@ -116,7 +122,10 @@ export function buildAgentPaths(): Record<string, unknown> {
         tags: ['agents'],
         summary: 'List saved agent version snapshots',
         security: [{ userSession: [] }],
-        parameters: [agentIdPathParameter, agentWorkspaceIdQueryParameter],
+        parameters: [agentIdPathParameter, agentWorkspaceIdQueryParameter,
+          { in: 'query', name: 'q', required: false, schema: { type: 'string' } },
+          { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100 } },
+          { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } }],
         responses: {
           '200': { description: 'Agent version snapshots.' },
           '403': { description: 'Requires read_workspace_data.' }

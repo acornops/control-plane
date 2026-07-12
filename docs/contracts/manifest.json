@@ -141,8 +141,10 @@
         "DELETE /api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}",
         "POST /api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}/test-connection",
         "GET /api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}/tools",
+        "PATCH /api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}/tools/{toolName}",
         "GET /api/v1/workspaces/{workspaceId}/workflow-schedules",
         "POST /api/v1/workspaces/{workspaceId}/workflow-schedules",
+        "POST /api/v1/workspaces/{workspaceId}/workflow-schedules/preview",
         "PATCH /api/v1/workflow-schedules/{scheduleId}",
         "DELETE /api/v1/workflow-schedules/{scheduleId}",
         "GET /api/v1/workspaces/{workspaceId}/approvals",
@@ -298,7 +300,7 @@
         "workflowSelectedAgents": ["orchestratorAgentId", "steps[].agentIds[]", "compiledAccessScope.selectedAgents[]", "jwtClaims.agent_id? explicit direct/delegated agent only", "jwtClaims.agent_version? explicit direct/delegated agent only", "jwtClaims.trigger_id?"],
         "workflowSchedule": ["id", "workspaceId", "workflowId", "workflowVersion", "name", "status", "cron", "timezone", "inputDefaults", "approvedContextGrants", "nextRunAt?", "lastRunAt?", "lastStatus?", "lastError?", "createdBy", "updatedBy"],
         "workflowSchedulePage": ["items", "summary.{total,active,paused,approvalGated,nextRunAt?}"],
-        "workspaceApprovalInbox": ["items[].{approvalId,runId,source,workflowId?,targetId?,summary,toolName,requestedBy?,expiresAt,status,decision?,decidedBy?,decidedAt?,requestedAt}", "nextCursor?"]
+        "workspaceApprovalInbox": ["items[].{approvalId,runId,source,workflowId?,targetId?,summary,toolName,requestedBy?,expiresAt,status,decision?,decidedBy?,decidedAt?,requestedAt}", "pendingCount", "nextCursor?"]
       }
     },
     "operators": {
@@ -450,17 +452,18 @@
       "providerCredentialScope": "workspace-only: secret_name={provider}_api_key, tenant_scope={workspace_id}; target-scoped secrets are reserved for MCP/server credentials",
       "providerCredentialScopeFields": ["workspace_id"],
       "providerCredentialStatusFields": ["provider", "configured", "enabled"],
-      "mcpRegistryScopeFields": ["workspace_id", "target_id", "target_type"],
+      "mcpRegistryScopeFields": ["workspace_id", "scope_type", "target_id", "target_type"],
       "serverFields": [
         "id",
         "workspace_id",
+        "scope_type",
         "target_id",
         "target_type",
         "server_name",
         "server_url",
         "enabled",
         "auth_type",
-        "auth_secret_name",
+        "credential_configured",
         "auth_header_name",
         "auth_header_prefix",
         "public_headers",

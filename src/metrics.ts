@@ -16,10 +16,14 @@ const adminRequests = new Map<string, number>();
 const runEventIngestCounts = new Map<string, number>();
 const workflowSchedulerCounts = new Map<string, number>();
 const approvalInboxQueries = new Map<string, number>();
+const approvalInboxQueryDurations = new Map<string, number>();
 const targetInsightsRetrievals = new Map<string, number>();
 const targetInsightsCheckpointOutcomes = new Map<string, number>();
 const targetInsightsCheckpointDurations = new Map<string, number>();
 const targetInsightsCheckpointPatchCounts = new Map<string, number>();
+const workflowRepositoryFailures = new Map<string, number>();
+const workflowCatalogSourceAvailability = new Map<string, number>();
+const workflowSchedulePreviewDurations = new Map<string, number>();
 let adminMutations = 0;
 let adminAuditWriteFailures = 0;
 
@@ -51,8 +55,21 @@ export function incrementWorkflowSchedulerEvent(event: string, count = 1): void 
   workflowSchedulerCounts.set(event, (workflowSchedulerCounts.get(event) || 0) + count);
 }
 
-export function incrementApprovalInboxQuery(status: string): void {
-  increment(approvalInboxQueries, status);
+export function incrementApprovalInboxQuery(status: string, outcome: 'success' | 'denied' | 'error' = 'success'): void {
+  increment(approvalInboxQueries, `${status}:${outcome}`);
+}
+
+export function observeApprovalInboxQueryDurationMs(
+  status: string,
+  outcome: 'success' | 'denied' | 'error',
+  durationMs: number
+): void {
+  const buckets = [10, 50, 100, 250, 500, 1000, Number.POSITIVE_INFINITY];
+  for (const bucket of buckets) {
+    if (durationMs <= bucket) {
+      increment(approvalInboxQueryDurations, `${status}:${outcome}:${bucket === Number.POSITIVE_INFINITY ? '+Inf' : bucket}`);
+    }
+  }
 }
 
 export function incrementTargetInsightsRetrieval(outcome: 'hit' | 'miss' | 'skipped' | 'error', count = 1): void {
@@ -74,6 +91,23 @@ export function observeTargetInsightsCheckpointDurationMs(status: string, durati
 
 export function recordTargetInsightsCheckpointPatchCount(status: string, patchCount: number): void {
   increment(targetInsightsCheckpointPatchCounts, status, patchCount);
+}
+
+export function incrementWorkflowRepositoryFailure(repository: string, operation: string): void {
+  increment(workflowRepositoryFailures, `${repository}:${operation}`);
+}
+
+export function incrementWorkflowCatalogSource(source: string, status: string): void {
+  increment(workflowCatalogSourceAvailability, `${source}:${status}`);
+}
+
+export function observeWorkflowSchedulePreviewDurationMs(status: 'valid' | 'invalid' | 'error', durationMs: number): void {
+  const buckets = [10, 50, 100, 250, 500, 1000, Number.POSITIVE_INFINITY];
+  for (const bucket of buckets) {
+    if (durationMs <= bucket) {
+      increment(workflowSchedulePreviewDurations, `${status}:${bucket === Number.POSITIVE_INFINITY ? '+Inf' : bucket}`);
+    }
+  }
 }
 
 export function renderControlPlaneMetrics(): string {
@@ -128,11 +162,18 @@ export function renderControlPlaneMetrics(): string {
     ...Array.from(workflowSchedulerCounts.entries()).map(([event, value]) =>
       metricLine('control_plane_workflow_scheduler_events_total', { ...serviceLabels, event }, value)
     ),
-    '# HELP control_plane_approval_inbox_queries_total Workspace approval inbox queries by status filter.',
+    '# HELP control_plane_approval_inbox_queries_total Workspace approval inbox queries by status filter and outcome.',
     '# TYPE control_plane_approval_inbox_queries_total counter',
-    ...Array.from(approvalInboxQueries.entries()).map(([status, value]) =>
-      metricLine('control_plane_approval_inbox_queries_total', { ...serviceLabels, status }, value)
-    ),
+    ...Array.from(approvalInboxQueries.entries()).map(([key, value]) => {
+      const [status, outcome] = key.split(':');
+      return metricLine('control_plane_approval_inbox_queries_total', { ...serviceLabels, status, outcome }, value);
+    }),
+    '# HELP control_plane_approval_inbox_query_duration_ms_bucket Workspace approval inbox query duration buckets by status filter and outcome.',
+    '# TYPE control_plane_approval_inbox_query_duration_ms_bucket counter',
+    ...Array.from(approvalInboxQueryDurations.entries()).map(([key, value]) => {
+      const [status, outcome, le] = key.split(':');
+      return metricLine('control_plane_approval_inbox_query_duration_ms_bucket', { ...serviceLabels, status, outcome, le }, value);
+    }),
     '# HELP control_plane_target_insights_retrievals_total Target Insights retrieval outcomes for run context assembly.',
     '# TYPE control_plane_target_insights_retrievals_total counter',
     ...Array.from(targetInsightsRetrievals.entries()).map(([outcome, value]) =>
@@ -154,7 +195,25 @@ export function renderControlPlaneMetrics(): string {
     '# TYPE control_plane_target_insights_checkpoint_patches_total counter',
     ...Array.from(targetInsightsCheckpointPatchCounts.entries()).map(([status, value]) =>
       metricLine('control_plane_target_insights_checkpoint_patches_total', { ...serviceLabels, status }, value)
-    )
+    ),
+    '# HELP control_plane_workflow_repository_failures_total Durable agent and workflow repository failures by safe operation.',
+    '# TYPE control_plane_workflow_repository_failures_total counter',
+    ...Array.from(workflowRepositoryFailures.entries()).map(([key, value]) => {
+      const [repository, operation] = key.split(':');
+      return metricLine('control_plane_workflow_repository_failures_total', { ...serviceLabels, repository, operation }, value);
+    }),
+    '# HELP control_plane_workflow_catalog_source_total Workflow catalog source outcomes.',
+    '# TYPE control_plane_workflow_catalog_source_total counter',
+    ...Array.from(workflowCatalogSourceAvailability.entries()).map(([key, value]) => {
+      const [source, status] = key.split(':');
+      return metricLine('control_plane_workflow_catalog_source_total', { ...serviceLabels, source, status }, value);
+    }),
+    '# HELP control_plane_workflow_schedule_preview_duration_ms_bucket Schedule preview latency buckets.',
+    '# TYPE control_plane_workflow_schedule_preview_duration_ms_bucket counter',
+    ...Array.from(workflowSchedulePreviewDurations.entries()).map(([key, value]) => {
+      const [status, le] = key.split(':');
+      return metricLine('control_plane_workflow_schedule_preview_duration_ms_bucket', { ...serviceLabels, status, le }, value);
+    })
   ];
   return `${lines.join('\n')}\n`;
 }

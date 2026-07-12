@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  incrementApprovalInboxQuery,
   incrementTargetInsightsCheckpointOutcome,
   incrementTargetInsightsRetrieval,
+  observeApprovalInboxQueryDurationMs,
   observeTargetInsightsCheckpointDurationMs,
   recordTargetInsightsCheckpointPatchCount,
   renderControlPlaneMetrics
@@ -31,5 +33,16 @@ describe('control-plane metrics', () => {
     assert.match(payload, /control_plane_target_insights_checkpoint_outcomes_total\{[^}]*status="skipped",reason="ai_settings_missing"[^}]*\}/);
     assert.match(payload, /control_plane_target_insights_checkpoint_duration_ms_bucket\{[^}]*status="completed",le="5000"[^}]*\}/);
     assert.match(payload, /control_plane_target_insights_checkpoint_patches_total\{[^}]*status="applied"[^}]*\} 2/);
+  });
+
+  it('renders approval inbox query outcomes and duration without workspace labels', () => {
+    incrementApprovalInboxQuery('pending', 'success');
+    observeApprovalInboxQueryDurationMs('pending', 'success', 75);
+
+    const payload = renderControlPlaneMetrics();
+
+    assert.match(payload, /control_plane_approval_inbox_queries_total\{[^}]*status="pending",outcome="success"[^}]*\}/);
+    assert.match(payload, /control_plane_approval_inbox_query_duration_ms_bucket\{[^}]*status="pending",outcome="success",le="100"[^}]*\}/);
+    assert.doesNotMatch(payload, /workspace[_-]?id=/i);
   });
 });

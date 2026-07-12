@@ -121,14 +121,14 @@ describe('workflows management controller', () => {
     assert.equal(response.statusCode, 200);
     const body = response.body as {
       clusters: Array<{ value: string; label: string }>;
-      repositories: Array<{ value: string }>;
       mcpServers: Array<{ value: string }>;
       mcpTools: Array<{ value: string }>;
       skills: Array<{ value: string }>;
       outputFormats: Array<{ value: string }>;
+      sourceAvailability: Record<string, { status: string }>;
     };
-    assert.ok(body.clusters.some((option) => option.value === 'cluster-primary'));
-    assert.ok(body.repositories.some((option) => option.value === 'acornops/control-plane'));
+    assert.deepEqual(body.clusters, []);
+    assert.equal(body.sourceAvailability.clusters.status, 'empty');
     assert.ok(body.mcpServers.some((option) => option.value === 'github'));
     assert.ok(body.mcpTools.some((option) => option.value === 'github.prs.create'));
     assert.ok(body.skills.some((option) => option.value === 'acornops-observability'));

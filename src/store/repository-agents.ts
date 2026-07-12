@@ -136,7 +136,7 @@ function cloneActivity(record: AgentActivityRecord): AgentActivityRecord {
   };
 }
 
-function defaultAgents(workspaceId: string): AgentDefinition[] {
+export function defaultAgentDefinitions(workspaceId: string): AgentDefinition[] {
   const now = nowIso();
   return [
     {
@@ -204,8 +204,8 @@ function defaultAgents(workspaceId: string): AgentDefinition[] {
       createdBy: 'system',
       createdAt: now,
       updatedAt: now,
-      mcpServers: ['github'],
-      tools: ['github.repositories.read', 'github.branches.list', 'github.prs.list', 'github.branches.create', 'github.prs.create'],
+      mcpServers: [],
+      tools: [],
       skills: ['acornops-cross-repo-change', 'acornops-open-pr'],
       contextGrants: ['workspace_metadata'],
       targetScope: { type: 'workspace' },
@@ -246,7 +246,7 @@ function workspaceAgents(workspaceId: string): Map<string, AgentDefinition> {
   const existing = agentsByWorkspace.get(workspaceId);
   if (existing) return existing;
   const agents = new Map<string, AgentDefinition>();
-  for (const agent of defaultAgents(workspaceId)) {
+  for (const agent of defaultAgentDefinitions(workspaceId)) {
     agents.set(agent.id, agent);
   }
   agentsByWorkspace.set(workspaceId, agents);

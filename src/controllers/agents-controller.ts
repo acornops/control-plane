@@ -3,6 +3,7 @@ import { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { compileAgentRunScope, AgentAccessDeniedError } from '../services/agent-access.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
+import { deletePersistedAgentDefinition, persistAgentDefinition } from '../store/repository-workflow-options.js';
 import {
   createAgentActivityRecord,
   createAgentDefinition,
@@ -20,6 +21,7 @@ import {
 } from '../store/repository-agents.js';
 import type { AgentDefinition } from '../types/agents.js';
 import { toSingleParam } from '../utils/params.js';
+import { containsSearchText, makeQuerySignature, normalizeSearchQuery, pageArray, parseBoundedLimit } from '../utils/pagination.js';
 import {
   agentPatch,
   agentResponse,
@@ -87,7 +89,16 @@ export async function listAgents(req: AuthenticatedRequest, res: Response, next:
     const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
     const includeInactive = req.query.includeInactive === 'true' || req.query.includeInactive === '1';
-    res.status(200).json({ items: listAgentDefinitions(workspaceId, { includeInactive }).map(agentResponse) });
+    const q = normalizeSearchQuery(req.query.q);
+    const signature = makeQuerySignature({ workspaceId, includeInactive, q });
+    const rows = listAgentDefinitions(workspaceId, { includeInactive })
+      .filter((agent) => containsSearchText([agent.name, agent.description, agent.status, agent.ownerUserId], q))
+      .map(agentResponse);
+    res.status(200).json(pageArray(rows, {
+      limit: parseBoundedLimit(req.query.limit),
+      cursor: req.query.cursor,
+      signature
+    }));
   } catch (err) {
     next(err);
   }
@@ -140,7 +151,7 @@ export async function createAgent(req: AuthenticatedRequest, res: Response, next
       trustPolicy,
       targetScope
     };
-    const optionErrors = collectAgentOptionErrors(workspaceId, agentInput);
+    const optionErrors = await collectAgentOptionErrors(workspaceId, agentInput);
     if (optionErrors.length > 0) {
       badRequest(res, 'AGENT_OPTION_INVALID', 'Agent references unknown or disabled server-owned options.', optionErrors);
       return;
@@ -161,6 +172,7 @@ export async function createAgent(req: AuthenticatedRequest, res: Response, next
       trustPolicy,
       targetScope
     });
+    await persistAgentDefinition(agent);
     await recordWorkspaceAuditEvent({
       workspaceId,
       category: 'run',
@@ -195,7 +207,7 @@ export async function updateAgent(req: AuthenticatedRequest, res: Response, next
       return;
     }
     const patch = agentPatch(bodyRecord(req.body));
-    const optionErrors = collectAgentOptionErrors(workspaceId, { ...current, ...patch });
+    const optionErrors = await collectAgentOptionErrors(workspaceId, { ...current, ...patch });
     if (optionErrors.length > 0) {
       badRequest(res, 'AGENT_OPTION_INVALID', 'Agent references unknown or disabled server-owned options.', optionErrors);
       return;
@@ -211,6 +223,7 @@ export async function updateAgent(req: AuthenticatedRequest, res: Response, next
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
       return;
     }
+    await persistAgentDefinition(updated);
     await auditAgentDefinitionMutation(req, updated, 'agent.definition_updated.v1', 'Agent definition updated');
     res.status(200).json({ agent: agentResponse(updated) });
   } catch (err) {
@@ -247,6 +260,7 @@ export async function deleteAgent(req: AuthenticatedRequest, res: Response, next
       return;
     }
     deleteAgentDefinition(workspaceId, agentId);
+    await deletePersistedAgentDefinition(workspaceId, agentId);
     await recordWorkspaceAuditEvent({
       workspaceId,
       category: 'run',
@@ -297,7 +311,13 @@ export async function listAgentVersions(req: AuthenticatedRequest, res: Response
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
       return;
     }
-    res.status(200).json({ items: listAgentVersionSnapshots(workspaceId, agent.id) });
+    const q = normalizeSearchQuery(req.query.q);
+    const signature = makeQuerySignature({ workspaceId, agentId: agent.id, q });
+    const rows = listAgentVersionSnapshots(workspaceId, agent.id)
+      .filter((version) => containsSearchText([version.version, version.createdBy, version.createdAt], q));
+    res.status(200).json(pageArray(rows, {
+      limit: parseBoundedLimit(req.query.limit), cursor: req.query.cursor, signature
+    }));
   } catch (err) {
     next(err);
   }
@@ -318,6 +338,7 @@ export async function restoreAgentVersion(req: AuthenticatedRequest, res: Respon
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent version not found', retryable: false } });
       return;
     }
+    await persistAgentDefinition(restored);
     await auditAgentDefinitionMutation(req, restored, 'agent.version_restored.v1', 'Agent version restored', {
       restoredVersionId: toSingleParam(req.params.versionId)
     });
@@ -386,7 +407,14 @@ export async function listAgentActivity(req: AuthenticatedRequest, res: Response
     if (!workspaceId) return;
     const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
-    res.status(200).json({ items: listAgentActivityRecords(workspaceId, toSingleParam(req.params.agentId)) });
+    const agentId = toSingleParam(req.params.agentId);
+    const q = normalizeSearchQuery(req.query.q);
+    const signature = makeQuerySignature({ workspaceId, agentId, q });
+    const rows = listAgentActivityRecords(workspaceId, agentId)
+      .filter((activity) => containsSearchText([activity.status, activity.triggeredBy.type, activity.createdAt], q));
+    res.status(200).json(pageArray(rows, {
+      limit: parseBoundedLimit(req.query.limit), cursor: req.query.cursor, signature
+    }));
   } catch (err) {
     next(err);
   }

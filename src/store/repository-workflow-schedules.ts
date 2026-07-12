@@ -132,6 +132,33 @@ export function computeNextWorkflowScheduleRunAt(expression: string, from = new 
   return undefined;
 }
 
+export function computeUpcomingWorkflowScheduleRuns(
+  expression: string,
+  timezone: string,
+  count = 5,
+  from = new Date()
+): string[] {
+  const runs: string[] = [];
+  let cursor = from;
+  for (let index = 0; index < Math.max(1, Math.min(10, count)); index += 1) {
+    const next = computeNextWorkflowScheduleRunAt(expression, cursor, timezone);
+    if (!next) break;
+    runs.push(next);
+    cursor = new Date(next);
+  }
+  return runs;
+}
+
+export function summarizeWorkflowScheduleCron(expression: string, timezone: string): string {
+  const [minute, hour, day, month, weekday] = expression.trim().split(/\s+/);
+  const time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  if (day === '*' && month === '*' && weekday === '*') return `Every day at ${time} (${timezone})`;
+  if (day === '*' && month === '*' && weekday === '1-5') return `Weekdays at ${time} (${timezone})`;
+  if (day === '*' && month === '*' && /^\d(?:,\d)*$/.test(weekday)) return `Selected weekdays at ${time} (${timezone})`;
+  if (day === '*' && month === '*' && /^\d$/.test(weekday)) return `Weekly at ${time} (${timezone})`;
+  return `Cron ${expression.trim()} (${timezone})`;
+}
+
 export function createWorkflowSchedule(params: {
   workspaceId: string;
   workflowVersion: number;

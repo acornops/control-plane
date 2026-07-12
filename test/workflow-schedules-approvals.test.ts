@@ -6,6 +6,7 @@ import {
   deleteWorkflowSchedule,
   listWorkspaceApprovalInbox,
   listWorkspaceWorkflowSchedules,
+  previewWorkflowSchedule,
   updateWorkflowSchedule
 } from '../src/controllers/workflow-schedules-controller.js';
 import { getWorkspacePermissions } from '../src/auth/authorization.js';
@@ -102,6 +103,52 @@ describe('workflow schedules and approval inbox', () => {
 
     assert.equal(createDenied.statusCode, 403);
     assert.equal((createDenied.body as { error: { code: string } }).error.code, 'FORBIDDEN');
+  });
+
+  it('previews valid schedules without mutating schedule state', async () => {
+    installWorkspace('admin');
+    const response = await callController(previewWorkflowSchedule, createRequest(
+      { workspaceId: 'workspace-1' },
+      {
+        workflowId: 'cluster-triage',
+        name: 'Weekday triage',
+        cron: '0 9 * * 1-5',
+        timezone: 'UTC',
+        inputDefaults: { clusterId: 'cluster-primary', severity: 'high' },
+        approvedContextGrants: ['workspace_metadata', 'target_inventory']
+      }
+    ));
+
+    assert.equal(response.statusCode, 200);
+    const body = response.body as { valid: boolean; summary: string; nextRunTimes: string[]; errors: unknown[] };
+    assert.equal(body.valid, true);
+    assert.match(body.summary, /Weekdays at 09:00/);
+    assert.equal(body.nextRunTimes.length, 5);
+    assert.deepEqual(body.errors, []);
+    const listed = await callController(listWorkspaceWorkflowSchedules, createRequest({ workspaceId: 'workspace-1' }));
+    assert.deepEqual((listed.body as { items: unknown[] }).items, []);
+  });
+
+  it('returns field errors for invalid schedule previews', async () => {
+    installWorkspace('admin');
+    const response = await callController(previewWorkflowSchedule, createRequest(
+      { workspaceId: 'workspace-1' },
+      {
+        workflowId: 'cluster-triage',
+        cron: 'invalid',
+        timezone: 'Not/AZone',
+        inputDefaults: {},
+        approvedContextGrants: ['unapproved_context']
+      }
+    ));
+
+    assert.equal(response.statusCode, 200);
+    const body = response.body as { valid: boolean; nextRunTimes: string[]; errors: Array<{ field: string }> };
+    assert.equal(body.valid, false);
+    assert.deepEqual(body.nextRunTimes, []);
+    assert.ok(body.errors.some((error) => error.field === 'cron'));
+    assert.ok(body.errors.some((error) => error.field === 'timezone'));
+    assert.ok(body.errors.some((error) => error.field === 'approvedContextGrants'));
   });
 
   it('creates, lists, pauses, and deletes workflow schedules for authorized users', async () => {
@@ -255,12 +302,14 @@ describe('workflow schedules and approval inbox', () => {
     const targetRun = createTargetRun();
     const { repo } = await import('../src/store/repository.js');
     repo.listWorkspaceRunToolApprovals = async () => [targetApproval];
+    repo.countPendingWorkspaceRunToolApprovals = async (workspaceId: string) => workspaceId === 'workspace-1' ? 1 : 0;
     repo.getRun = async (runId: string) => runId === targetRun.id ? targetRun : null;
 
     const response = await callController(listWorkspaceApprovalInbox, createRequest({ workspaceId: 'workspace-1' }));
 
     assert.equal(response.statusCode, 200);
-    const body = response.body as { items: Array<{ approvalId: string; source: string; runId: string; status: string }> };
+    const body = response.body as { pendingCount: number; items: Array<{ approvalId: string; source: string; runId: string; status: string }> };
+    assert.equal(body.pendingCount, 2);
     assert.deepEqual(body.items.map((item) => item.source).sort(), ['target_tool', 'workflow_gate']);
     assert.ok(body.items.some((item) => item.approvalId === workflowApproval.id && item.runId === run.id));
     assert.ok(body.items.some((item) => item.approvalId === targetApproval.id && item.runId === targetRun.id));
@@ -271,5 +320,57 @@ describe('workflow schedules and approval inbox', () => {
       { decision: 'approved' }
     ));
     assert.equal(decided.statusCode, 200);
+  });
+
+  it('returns zero pending approvals when both normalized sources are empty', async () => {
+    installWorkspace('admin');
+    const { repo } = await import('../src/store/repository.js');
+    repo.listWorkspaceRunToolApprovals = async () => [];
+    repo.countPendingWorkspaceRunToolApprovals = async () => 0;
+
+    const request = createRequest({ workspaceId: 'workspace-1' });
+    request.query = { status: 'all' };
+    const response = await callController(listWorkspaceApprovalInbox, request);
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual((response.body as { items: unknown[] }).items, []);
+    assert.equal((response.body as { pendingCount: number }).pendingCount, 0);
+  });
+
+  it('keeps pendingCount independent of decided filtering, pagination, cursor, and limit', async () => {
+    installWorkspace('admin');
+    const observed: Array<{ workspaceId: string; status?: string; limit?: number; cursor?: string }> = [];
+    const { repo } = await import('../src/store/repository.js');
+    repo.listWorkspaceRunToolApprovals = async (params) => {
+      observed.push(params);
+      return [createTargetRunApproval({ status: 'approved', decision: 'approved' })];
+    };
+    repo.countPendingWorkspaceRunToolApprovals = async (workspaceId: string) => workspaceId === 'workspace-1' ? 101 : 0;
+
+    const request = createRequest({ workspaceId: 'workspace-1' });
+    request.query = { status: 'decided', limit: '1', cursor: '2026-06-28T00:00:00.000Z' };
+    const response = await callController(listWorkspaceApprovalInbox, request);
+
+    assert.equal(response.statusCode, 200);
+    assert.equal((response.body as { pendingCount: number }).pendingCount, 101);
+    assert.deepEqual(observed, [{
+      workspaceId: 'workspace-1',
+      status: 'decided',
+      limit: 1,
+      cursor: '2026-06-28T00:00:00.000Z'
+    }]);
+  });
+
+  it('preserves workspace-data authorization before querying approval counts', async () => {
+    installWorkspace('auditor');
+    let queried = false;
+    const { repo } = await import('../src/store/repository.js');
+    repo.listWorkspaceRunToolApprovals = async () => { queried = true; return []; };
+    repo.countPendingWorkspaceRunToolApprovals = async () => { queried = true; return 0; };
+
+    const response = await callController(listWorkspaceApprovalInbox, createRequest({ workspaceId: 'workspace-1' }));
+
+    assert.equal(response.statusCode, 403);
+    assert.equal(queried, false);
   });
 });

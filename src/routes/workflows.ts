@@ -10,6 +10,7 @@ workflowsRouter.get('/workspaces/:workspaceId/workflows', requireUser, authed(wo
 workflowsRouter.post('/workspaces/:workspaceId/workflows', requireUser, authed(workflowsController.createWorkflow));
 workflowsRouter.get('/workspaces/:workspaceId/workflow-schedules', requireUser, authed(workflowSchedulesController.listWorkspaceWorkflowSchedules));
 workflowsRouter.post('/workspaces/:workspaceId/workflow-schedules', requireUser, authed(workflowSchedulesController.createWorkflowScheduleForWorkspace));
+workflowsRouter.post('/workspaces/:workspaceId/workflow-schedules/preview', requireUser, authed(workflowSchedulesController.previewWorkflowSchedule));
 workflowsRouter.get('/workspaces/:workspaceId/approvals', requireUser, authed(workflowSchedulesController.listWorkspaceApprovalInbox));
 workflowsRouter.get('/workspaces/:workspaceId/workflow-options', requireUser, authed(workflowsController.listWorkflowOptions));
 workflowsRouter.get('/workspaces/:workspaceId/mcp/servers', requireUser, authed(workflowsController.listWorkflowMcpServersForWorkspace));
@@ -18,6 +19,7 @@ workflowsRouter.patch('/workspaces/:workspaceId/mcp/servers/:serverId', requireU
 workflowsRouter.delete('/workspaces/:workspaceId/mcp/servers/:serverId', requireUser, authed(workflowsController.deleteWorkflowMcpServerForWorkspace));
 workflowsRouter.post('/workspaces/:workspaceId/mcp/servers/:serverId/test-connection', requireUser, authed(workflowsController.testWorkflowMcpServerConnectionForWorkspace));
 workflowsRouter.get('/workspaces/:workspaceId/mcp/servers/:serverId/tools', requireUser, authed(workflowsController.listWorkflowMcpServerToolsForWorkspace));
+workflowsRouter.patch('/workspaces/:workspaceId/mcp/servers/:serverId/tools/:toolName', requireUser, authed(workflowsController.updateWorkflowMcpToolForWorkspace));
 workflowsRouter.get('/workflows/:workflowId', requireUser, authed(workflowsController.getWorkflow));
 workflowsRouter.patch('/workflows/:workflowId', requireUser, authed(workflowsController.updateWorkflow));
 workflowsRouter.delete('/workflows/:workflowId', requireUser, authed(workflowsController.deleteWorkflow));

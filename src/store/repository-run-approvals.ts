@@ -149,6 +149,17 @@ export async function listWorkspaceRunToolApprovals(params: {
   return result.rows.map(mapRunToolApproval);
 }
 
+export async function countPendingWorkspaceRunToolApprovals(workspaceId: string): Promise<number> {
+  const result = await db.query<{ count: string | number }>(
+    `SELECT COUNT(*) AS count
+     FROM run_tool_approvals
+     WHERE workspace_id = $1
+       AND status = 'pending'`,
+    [workspaceId]
+  );
+  return Number(result.rows[0]?.count || 0);
+}
+
 export async function getRunContinuation(runId: string): Promise<RunContinuation | null> {
   const result = await db.query<RunContinuationRow>('SELECT * FROM run_continuations WHERE run_id = $1', [runId]);
   if (!result.rowCount) return null;

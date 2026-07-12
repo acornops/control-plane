@@ -28,6 +28,13 @@ const serverIdParameter = {
   schema: { type: 'string', example: 'workflow-mcp-prometheus' }
 };
 
+const toolNameParameter = {
+  in: 'path',
+  name: 'toolName',
+  required: true,
+  schema: { type: 'string', example: 'issues.list' }
+};
+
 const sessionIdParameter = {
   in: 'path',
   name: 'sessionId',
@@ -135,7 +142,10 @@ export function buildWorkflowPaths(): Record<string, unknown> {
         summary: 'List workflow definitions for a workspace',
         description: 'Returns system and user workflow definitions visible to management-console. Requires read_workspace_data.',
         security: [{ userSession: [] }],
-        parameters: [workspaceIdParameter],
+        parameters: [workspaceIdParameter,
+          { in: 'query', name: 'q', required: false, schema: { type: 'string' } },
+          { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100 } },
+          { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } }],
         responses: { '200': { description: 'Workflow definitions for the workspace.' } }
       },
       post: {
@@ -211,6 +221,32 @@ export function buildWorkflowPaths(): Record<string, unknown> {
         responses: { '200': { description: 'Workflow MCP server tools.' } }
       }
     },
+    '/api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}/tools/{toolName}': {
+      patch: {
+        tags: ['workflows'],
+        summary: 'Review and enable or disable a workspace MCP tool',
+        description: 'Requires manage_mcp. Enabling a newly discovered tool requires an explicit read or write capability.',
+        security: [{ userSession: [] }],
+        parameters: [workspaceIdParameter, serverIdParameter, toolNameParameter],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['enabled', 'capability'],
+                properties: {
+                  enabled: { type: 'boolean' },
+                  capability: { type: 'string', enum: ['read', 'write'] }
+                },
+                additionalProperties: false
+              }
+            }
+          }
+        },
+        responses: { '200': { description: 'Workspace MCP tool updated.' } }
+      }
+    },
     '/api/v1/workspaces/{workspaceId}/workflow-schedules': {
       get: {
         tags: ['workflows'],
@@ -248,11 +284,22 @@ export function buildWorkflowPaths(): Record<string, unknown> {
         responses: { '204': { description: 'Workflow schedule deleted.' } }
       }
     },
+    '/api/v1/workspaces/{workspaceId}/workflow-schedules/preview': {
+      post: {
+        tags: ['workflows'],
+        summary: 'Preview a workflow schedule',
+        description: 'Validates workflow inputs, context grants, cron, and timezone without creating or changing a schedule.',
+        security: [{ userSession: [] }],
+        parameters: [workspaceIdParameter],
+        requestBody: workflowScheduleBody,
+        responses: { '200': { description: 'Schedule validation, readable summary, and upcoming run times.' } }
+      }
+    },
     '/api/v1/workspaces/{workspaceId}/approvals': {
       get: {
         tags: ['workflows'],
         summary: 'List workspace approval inbox',
-        description: 'Normalizes target write-tool approvals and workflow approval gates into a single workspace inbox. Decisions remain on the run-scoped approval decision endpoint.',
+        description: 'Normalizes target write-tool approvals and workflow approval gates into a single workspace inbox. pendingCount is the total pending count across both sources before pagination and is independent of the requested status filter. Decisions remain on the run-scoped approval decision endpoint.',
         security: [{ userSession: [] }],
         parameters: [
           workspaceIdParameter,

@@ -38,7 +38,9 @@ export function normalizeSearchQuery(value: unknown): string {
 }
 
 export function parseBoundedLimit(value: unknown, fallback = 50, max = 100): number {
-  const parsed = Number(toSingleParam(value as string | string[] | undefined));
+  const raw = toSingleParam(value as string | string[] | undefined);
+  if (!raw.trim()) return fallback;
+  const parsed = Number(raw);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(1, Math.min(max, Math.floor(parsed)));
 }
@@ -86,4 +88,20 @@ export function pageWithCursor<T>(
 export function containsSearchText(fields: Array<unknown>, q: string): boolean {
   if (!q) return true;
   return fields.some((field) => String(field || '').toLowerCase().includes(q));
+}
+
+export function pageArray<T>(
+  rows: T[],
+  options: { limit: number; cursor: unknown; signature: string }
+): PagedResult<T> {
+  const decoded = decodeCursor<{ signature: string; offset: number }>(options.cursor, options.signature);
+  const offset = Number.isInteger(decoded?.offset) && Number(decoded?.offset) >= 0 ? Number(decoded?.offset) : 0;
+  const items = rows.slice(offset, offset + options.limit);
+  const nextOffset = offset + items.length;
+  return {
+    items,
+    nextCursor: nextOffset < rows.length
+      ? encodeCursor({ signature: options.signature, offset: nextOffset })
+      : undefined
+  };
 }

@@ -2,6 +2,7 @@ import { NextFunction, Response } from 'express';
 import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { AuthenticatedRequest } from '../auth/middleware.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
+import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
 import {
   createWorkflowDefinition,
   createWorkflowMcpServer,
@@ -30,6 +31,16 @@ import {
   workflowStatus,
   workflowSteps
 } from './workflows-management-parsers.js';
+import { mapGatewayError } from './workspaces/common.js';
+
+function forwardWorkflowMcpError(err: unknown, res: Response, next: NextFunction): void {
+  if (err instanceof LlmGatewayHttpError) {
+    const mapped = mapGatewayError(err, { upstreamMessage: 'Workspace MCP service is unavailable' });
+    res.status(mapped.status).json(mapped.body);
+    return;
+  }
+  next(err);
+}
 
 function requestWorkspaceId(req: AuthenticatedRequest): string | null {
   const raw = req.body?.workspaceId || req.query.workspaceId;
@@ -51,8 +62,8 @@ function requireWorkflowWorkspaceId(req: AuthenticatedRequest, res: Response): s
   return workspaceId;
 }
 
-function collectWorkflowReferenceErrors(workspaceId: string, steps: WorkflowStepDefinition[]): string[] {
-  const options = getWorkflowOptionsCatalog(workspaceId);
+async function collectWorkflowReferenceErrors(workspaceId: string, steps: WorkflowStepDefinition[]): Promise<string[]> {
+  const options = await getWorkflowOptionsCatalog(workspaceId);
   const knownServers = new Map(options.mcpServers.map((option) => [option.value, option]));
   const knownTools = new Map(options.mcpTools.map((option) => [option.value, option]));
   const knownSkills = new Map(options.skills.map((option) => [option.value, option]));
@@ -83,8 +94,8 @@ function collectWorkflowReferenceErrors(workspaceId: string, steps: WorkflowStep
   return errors;
 }
 
-function collectWorkflowScopeReferenceErrors(workspaceId: string, mcpServers: string[], skills: string[]): string[] {
-  const options = getWorkflowOptionsCatalog(workspaceId);
+async function collectWorkflowScopeReferenceErrors(workspaceId: string, mcpServers: string[], skills: string[]): Promise<string[]> {
+  const options = await getWorkflowOptionsCatalog(workspaceId);
   const knownServers = new Map(options.mcpServers.map((option) => [option.value, option]));
   const knownSkills = new Map(options.skills.map((option) => [option.value, option]));
   const errors: string[] = [];
@@ -175,7 +186,7 @@ export async function listWorkflowOptions(req: AuthenticatedRequest, res: Respon
     const workspaceId = toSingleParam(req.params.workspaceId);
     const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
-    res.status(200).json(getWorkflowOptionsCatalog(workspaceId));
+    res.status(200).json(await getWorkflowOptionsCatalog(workspaceId));
   } catch (err) {
     next(err);
   }
@@ -205,7 +216,7 @@ export async function createWorkflow(req: AuthenticatedRequest, res: Response, n
       badRequest(res, 'WORKFLOW_STEPS_REQUIRED', 'At least one workflow step is required.');
       return;
     }
-    const referenceErrors = collectWorkflowReferenceErrors(workspaceId, steps);
+    const referenceErrors = await collectWorkflowReferenceErrors(workspaceId, steps);
     if (referenceErrors.length > 0) {
       badRequest(res, 'WORKFLOW_OPTION_INVALID', 'Workflow references unknown server-provided options.', referenceErrors);
       return;
@@ -216,7 +227,7 @@ export async function createWorkflow(req: AuthenticatedRequest, res: Response, n
     const policyMode = policyInput.mode === 'read_write' ? 'read_write' : 'read_only';
     const enabledMcpServers = stringList(body.enabledMcpServers) || [];
     const enabledSkills = stringList(body.enabledSkills) || [];
-    const scopeReferenceErrors = collectWorkflowScopeReferenceErrors(workspaceId, enabledMcpServers, enabledSkills);
+    const scopeReferenceErrors = await collectWorkflowScopeReferenceErrors(workspaceId, enabledMcpServers, enabledSkills);
     if (scopeReferenceErrors.length > 0) {
       badRequest(res, 'WORKFLOW_OPTION_INVALID', 'Workflow references unknown server-provided options.', scopeReferenceErrors);
       return;
@@ -310,14 +321,15 @@ export async function updateWorkflow(_req: AuthenticatedRequest, res: Response):
         }
       : step;
   });
-  const referenceErrors = [
-    ...collectWorkflowReferenceErrors(workflow.workspaceId, mergedSteps),
-    ...collectWorkflowScopeReferenceErrors(
+  const [stepReferenceErrors, scopeReferenceErrors] = await Promise.all([
+    collectWorkflowReferenceErrors(workflow.workspaceId, mergedSteps),
+    collectWorkflowScopeReferenceErrors(
       workflow.workspaceId,
       update.enabledMcpServers || workflow.enabledMcpServers || [],
       update.enabledSkills || workflow.enabledSkills || []
     )
-  ];
+  ]);
+  const referenceErrors = [...stepReferenceErrors, ...scopeReferenceErrors];
   if (referenceErrors.length > 0) {
     badRequest(res, 'WORKFLOW_OPTION_INVALID', 'Workflow references unknown server-provided options.', referenceErrors);
     return;
@@ -397,9 +409,9 @@ export async function listWorkflowMcpServersForWorkspace(req: AuthenticatedReque
     const workspaceId = toSingleParam(req.params.workspaceId);
     const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
-    res.status(200).json({ items: listWorkflowMcpServers(workspaceId) });
+    res.status(200).json({ items: await listWorkflowMcpServers(workspaceId) });
   } catch (err) {
-    next(err);
+    forwardWorkflowMcpError(err, res, next);
   }
 }
 
@@ -416,9 +428,9 @@ export async function createWorkflowMcpServerForWorkspace(req: AuthenticatedRequ
       return;
     }
     const auth = body.auth && typeof body.auth === 'object' && !Array.isArray(body.auth)
-      ? body.auth as { type?: 'none' | 'bearer_token' | 'custom_header' }
+      ? body.auth as { type?: 'none' | 'bearer_token' | 'custom_header'; credential?: string; headerName?: string }
       : undefined;
-    const server = createWorkflowMcpServer(workspaceId, {
+    const server = await createWorkflowMcpServer(workspaceId, {
       name,
       url,
       enabled: body.enabled !== false,
@@ -428,9 +440,14 @@ export async function createWorkflowMcpServerForWorkspace(req: AuthenticatedRequ
         : undefined,
       createdBy: req.auth.userId
     });
+    await recordWorkspaceAuditEvent({
+      workspaceId, category: 'mcp', eventType: 'workspace.mcp_server_created.v1', operation: 'write',
+      actorUserId: req.auth.userId, objectType: 'mcp_server', objectId: server.id, objectName: server.name,
+      summary: 'Workspace MCP server created', metadata: { serverId: server.id, authType: server.authType }
+    });
     res.status(201).json({ server });
   } catch (err) {
-    next(err);
+    forwardWorkflowMcpError(err, res, next);
   }
 }
 
@@ -440,14 +457,19 @@ export async function updateWorkflowMcpServerForWorkspace(req: AuthenticatedRequ
     const serverId = toSingleParam(req.params.serverId);
     const authz = await requireWorkspaceCapability(req, res, workspaceId, 'manage_mcp', 'No permission to manage MCP servers');
     if (!authz) return;
-    const updated = updateWorkflowMcpServer(workspaceId, serverId, req.body || {});
+    const updated = await updateWorkflowMcpServer(workspaceId, serverId, req.body || {});
     if (!updated) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'MCP server not found', retryable: false } });
       return;
     }
+    await recordWorkspaceAuditEvent({
+      workspaceId, category: 'mcp', eventType: 'workspace.mcp_server_updated.v1', operation: 'write',
+      actorUserId: req.auth.userId, objectType: 'mcp_server', objectId: updated.id, objectName: updated.name,
+      summary: 'Workspace MCP server updated', metadata: { serverId: updated.id, enabled: updated.enabled, credentialConfigured: updated.credentialConfigured }
+    });
     res.status(200).json({ server: updated });
   } catch (err) {
-    next(err);
+    forwardWorkflowMcpError(err, res, next);
   }
 }
 
@@ -457,13 +479,18 @@ export async function deleteWorkflowMcpServerForWorkspace(req: AuthenticatedRequ
     const serverId = toSingleParam(req.params.serverId);
     const authz = await requireWorkspaceCapability(req, res, workspaceId, 'manage_mcp', 'No permission to manage MCP servers');
     if (!authz) return;
-    if (!deleteWorkflowMcpServer(workspaceId, serverId)) {
+    if (!(await deleteWorkflowMcpServer(workspaceId, serverId))) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'MCP server not found', retryable: false } });
       return;
     }
+    await recordWorkspaceAuditEvent({
+      workspaceId, category: 'mcp', eventType: 'workspace.mcp_server_deleted.v1', operation: 'write',
+      actorUserId: req.auth.userId, objectType: 'mcp_server', objectId: serverId,
+      summary: 'Workspace MCP server deleted', metadata: { serverId }
+    });
     res.status(204).send();
   } catch (err) {
-    next(err);
+    forwardWorkflowMcpError(err, res, next);
   }
 }
 
@@ -473,11 +500,16 @@ export async function testWorkflowMcpServerConnectionForWorkspace(req: Authentic
     const serverId = toSingleParam(req.params.serverId);
     const authz = await requireWorkspaceCapability(req, res, workspaceId, 'manage_mcp', 'No permission to manage MCP servers');
     if (!authz) return;
-    const server = testWorkflowMcpServerConnection(workspaceId, serverId);
+    const server = await testWorkflowMcpServerConnection(workspaceId, serverId);
     if (!server) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'MCP server not found', retryable: false } });
       return;
     }
+    await recordWorkspaceAuditEvent({
+      workspaceId, category: 'mcp', eventType: 'workspace.mcp_server_tested.v1', operation: 'write',
+      actorUserId: req.auth.userId, objectType: 'mcp_server', objectId: server.id, objectName: server.name,
+      summary: 'Workspace MCP server connection tested', metadata: { serverId: server.id, status: server.status, toolCount: server.tools.length }
+    });
     res.status(200).json({
       serverId: server.id,
       status: server.status,
@@ -485,7 +517,7 @@ export async function testWorkflowMcpServerConnectionForWorkspace(req: Authentic
       message: server.status === 'connected' ? 'Connection available.' : 'Server is disabled.'
     });
   } catch (err) {
-    next(err);
+    forwardWorkflowMcpError(err, res, next);
   }
 }
 
@@ -495,13 +527,13 @@ export async function listWorkflowMcpServerToolsForWorkspace(req: AuthenticatedR
     const serverId = toSingleParam(req.params.serverId);
     const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
-    const tools = listWorkflowMcpServerTools(workspaceId, serverId);
+    const tools = await listWorkflowMcpServerTools(workspaceId, serverId);
     if (!tools) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'MCP server not found', retryable: false } });
       return;
     }
     res.status(200).json({ items: tools });
   } catch (err) {
-    next(err);
+    forwardWorkflowMcpError(err, res, next);
   }
 }

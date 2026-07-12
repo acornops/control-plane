@@ -23,10 +23,13 @@ The control plane owns the platform API boundary. Keep this README as a short in
 
 - Browser clients use cookie-backed auth and CSRF protection where required.
 - List responses that paginate use `{ items, nextCursor? }`.
+- The workspace approval inbox additionally requires `pendingCount`, the workspace-scoped total of pending target-tool and workflow-gate approvals before pagination and independently of the requested list filter.
 - Workspace audit filters expose `objectType`, `object`, and `operation`; `operation` is `read` or `write`.
 - Audit events keep structured object details instead of forcing agents to reconstruct them from free text.
 - Roles with `permissions.manage_mcp` may mutate MCP server configuration.
 - Roles with `permissions.manage_tools` may mutate MCP per-tool enablement and non-Target-Insights built-in tool settings.
+- Workspace workflow MCP configuration is gateway-owned. The control plane authorizes `manage_mcp`, delegates with explicit workspace scope, returns secret-free DTOs, and audits mutations.
+- Agents grant workflow MCP capabilities. Empty workflow restrictions inherit selected-agent grants; non-empty restrictions narrow them.
 - Roles with `permissions.manage_target_insights` may mutate Target Insights entries and Target Insights tool settings.
 - Roles without the relevant management capability are read-only for that configuration surface.
 - Chat and run creation must preserve `sessionPolicy.allowedTools` and `sessionPolicy.writeEnabled`.

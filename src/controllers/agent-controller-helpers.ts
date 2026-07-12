@@ -114,8 +114,8 @@ export function normalizeTargetScope(value: unknown): AgentDefinition['targetSco
   };
 }
 
-export function collectAgentOptionErrors(workspaceId: string, input: Partial<AgentDefinition>): string[] {
-  const options = getWorkflowOptionsCatalog(workspaceId);
+export async function collectAgentOptionErrors(workspaceId: string, input: Partial<AgentDefinition>): Promise<string[]> {
+  const options = await getWorkflowOptionsCatalog(workspaceId);
   const servers = new Map(options.mcpServers.map((option) => [option.value, option]));
   const tools = new Map(options.mcpTools.map((option) => [option.value, option]));
   const skills = new Map(options.skills.map((option) => [option.value, option]));

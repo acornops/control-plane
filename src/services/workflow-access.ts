@@ -69,8 +69,9 @@ function compileApprovalGates(workflow: WorkflowDefinitionForAccess): string[] {
   ]);
 }
 
-function intersectOrAgentGrant(stepValues: string[], agentValues: Iterable<string>): string[] {
+function restrictOrInheritAgentGrant(stepValues: string[], agentValues: Iterable<string>): string[] {
   const agentSet = new Set(agentValues);
+  if (stepValues.length === 0) return uniqueSorted(agentSet);
   return uniqueSorted(stepValues.filter((value) => agentSet.has(value)));
 }
 
@@ -122,12 +123,24 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
       };
     }
     const selectedAgents = activeAgentsForStep(input.workflow, agentsById, step.id, agentIds);
+    const grantedServers = new Set(selectedAgents.flatMap((agent) => agent.mcpServers));
+    const grantedTools = new Set(selectedAgents.flatMap((agent) => agent.tools));
+    const staleServer = step.allowedMcpServers.find((server) => !grantedServers.has(server));
+    const staleTool = step.allowedTools.find((tool) => !grantedTools.has(tool));
+    if (staleServer || staleTool) {
+      throw new WorkflowAccessDeniedError(
+        'WORKFLOW_AGENT_SCOPE_DENIED',
+        staleServer
+          ? `Workflow step ${step.id} references MCP server ${staleServer}, which is no longer granted by its selected agent.`
+          : `Workflow step ${step.id} references MCP tool ${staleTool}, which is no longer granted by its selected agent.`
+      );
+    }
     return {
       step,
-      mcpServers: intersectOrAgentGrant(step.allowedMcpServers, selectedAgents.flatMap((agent) => agent.mcpServers)),
-      tools: intersectOrAgentGrant(step.allowedTools, selectedAgents.flatMap((agent) => agent.tools)),
-      enabledSkills: intersectOrAgentGrant(step.enabledSkills, selectedAgents.flatMap((agent) => agent.skills)),
-      contextGrants: intersectOrAgentGrant(step.contextGrants, selectedAgents.flatMap((agent) => agent.contextGrants)),
+      mcpServers: restrictOrInheritAgentGrant(step.allowedMcpServers, selectedAgents.flatMap((agent) => agent.mcpServers)),
+      tools: restrictOrInheritAgentGrant(step.allowedTools, selectedAgents.flatMap((agent) => agent.tools)),
+      enabledSkills: restrictOrInheritAgentGrant(step.enabledSkills, selectedAgents.flatMap((agent) => agent.skills)),
+      contextGrants: restrictOrInheritAgentGrant(step.contextGrants, selectedAgents.flatMap((agent) => agent.contextGrants)),
       selectedAgents
     };
   });

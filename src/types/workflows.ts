@@ -23,7 +23,6 @@ export type WorkflowInputType =
   | 'text'
   | 'select'
   | 'cluster'
-  | 'repository'
   | 'mcp_server'
   | 'mcp_tool'
   | 'skill'
@@ -105,11 +104,31 @@ export interface WorkflowOption {
   description?: string;
   disabled?: boolean;
   disabledReason?: string;
+  provenance?: {
+    source: 'workspace' | 'target';
+    provider?: 'github' | 'gitlab';
+    targetId?: string;
+    targetName?: string;
+  };
+}
+
+export type WorkflowCatalogSourceName =
+  | 'clusters'
+  | 'mcpServers'
+  | 'mcpTools'
+  | 'skills'
+  | 'agents'
+  | 'chatSessions';
+
+export interface WorkflowCatalogSourceAvailability {
+  status: 'available' | 'empty' | 'unavailable' | 'error';
+  message?: string;
+  retryable?: boolean;
+  errorCode?: string;
 }
 
 export interface WorkflowOptionsCatalog {
   clusters: WorkflowOption[];
-  repositories: WorkflowOption[];
   mcpServers: WorkflowOption[];
   mcpTools: WorkflowOption[];
   skills: WorkflowOption[];
@@ -119,6 +138,14 @@ export interface WorkflowOptionsCatalog {
   approvalPolicies: WorkflowOption[];
   runtimeLimits: WorkflowOption[];
   retentionPolicies: WorkflowOption[];
+  sourceAvailability: Record<WorkflowCatalogSourceName, WorkflowCatalogSourceAvailability>;
+}
+
+export interface WorkflowSchedulePreview {
+  valid: boolean;
+  summary: string;
+  nextRunTimes: string[];
+  errors: Array<{ field: string; message: string }>;
 }
 
 export interface WorkflowAccessActor {
@@ -234,4 +261,10 @@ export interface WorkflowApprovalInboxRow {
   decidedBy?: string;
   decidedAt?: string;
   requestedAt: string;
+}
+
+export interface WorkflowApprovalInboxResponse {
+  items: WorkflowApprovalInboxRow[];
+  pendingCount: number;
+  nextCursor?: string;
 }

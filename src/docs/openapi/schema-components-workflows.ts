@@ -60,9 +60,20 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
       properties: {
         value: { type: 'string' },
         label: { type: 'string' },
-        group: { type: 'string' },
+        description: { type: 'string' },
         disabled: { type: 'boolean' },
-        metadata: jsonObject
+        disabledReason: { type: 'string' },
+        provenance: {
+          type: 'object',
+          required: ['source'],
+          properties: {
+            source: { type: 'string', enum: ['workspace', 'target'] },
+            provider: { type: 'string', enum: ['github', 'gitlab'] },
+            targetId: { type: 'string' },
+            targetName: { type: 'string' }
+          },
+          additionalProperties: false
+        }
       },
       additionalProperties: true
     },
@@ -70,7 +81,6 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
       type: 'object',
       properties: {
         clusters: { type: 'array', items: schemaRef('WorkflowOption') },
-        repositories: { type: 'array', items: schemaRef('WorkflowOption') },
         mcpServers: { type: 'array', items: schemaRef('WorkflowOption') },
         mcpTools: { type: 'array', items: schemaRef('WorkflowOption') },
         skills: { type: 'array', items: schemaRef('WorkflowOption') },
@@ -79,21 +89,39 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         outputFormats: { type: 'array', items: schemaRef('WorkflowOption') },
         approvalPolicies: { type: 'array', items: schemaRef('WorkflowOption') },
         runtimeLimits: { type: 'array', items: schemaRef('WorkflowOption') },
-        retentionPolicies: { type: 'array', items: schemaRef('WorkflowOption') }
+        retentionPolicies: { type: 'array', items: schemaRef('WorkflowOption') },
+        sourceAvailability: {
+          type: 'object',
+          additionalProperties: {
+            type: 'object',
+            required: ['status'],
+            properties: {
+              status: { type: 'string', enum: ['available', 'empty', 'unavailable', 'error'] },
+              message: { type: 'string' },
+              retryable: { type: 'boolean' },
+              errorCode: { type: 'string' }
+            },
+            additionalProperties: false
+          }
+        }
       },
       additionalProperties: true
     },
     WorkflowMcpServer: {
       type: 'object',
-      required: ['id', 'workspaceId', 'name', 'url', 'enabled', 'status'],
+      required: ['id', 'workspaceId', 'scope', 'name', 'url', 'enabled', 'status', 'credentialConfigured', 'tools'],
       properties: {
         id: mcpServerId,
         workspaceId: uuid,
+        scope: { type: 'string', enum: ['workspace'] },
         name: { type: 'string' },
         url: { type: 'string', format: 'uri' },
         enabled: { type: 'boolean' },
-        status: { type: 'string', enum: ['connected', 'disabled'] },
+        status: { type: 'string', enum: ['connected', 'disabled', 'not_checked', 'error'] },
         authType: { type: 'string' },
+        authHeaderName: { type: 'string' },
+        credentialConfigured: { type: 'boolean' },
+        discoveryError: { type: 'string' },
         publicHeaders: jsonObject,
         tools: { type: 'array', items: schemaRef('WorkflowMcpTool') },
         createdAt: dateTime,
@@ -122,17 +150,22 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
     },
     WorkflowMcpTool: {
       type: 'object',
-      required: ['name', 'serverId', 'capability', 'enabled'],
+      required: ['name', 'title', 'capability', 'enabled'],
       properties: {
         name: { type: 'string' },
-        serverId: mcpServerId,
-        description: { type: 'string' },
+        title: { type: 'string' },
         capability: { type: 'string', enum: ['read', 'write'] },
         enabled: { type: 'boolean' }
       },
       additionalProperties: true
     },
     WorkflowMcpToolList: pageOf('WorkflowMcpTool'),
+    WorkflowMcpToolResponse: {
+      type: 'object',
+      required: ['tool'],
+      properties: { tool: schemaRef('WorkflowMcpTool') },
+      additionalProperties: false
+    },
     WorkflowSchedule: {
       type: 'object',
       properties: {
@@ -168,7 +201,34 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
       properties: { schedule: schemaRef('WorkflowSchedule') },
       additionalProperties: true
     },
-    WorkflowApprovalInbox: pageOf('WorkflowApprovalInboxRow'),
+    WorkflowSchedulePreview: {
+      type: 'object',
+      required: ['valid', 'summary', 'nextRunTimes', 'errors'],
+      properties: {
+        valid: { type: 'boolean' },
+        summary: { type: 'string' },
+        nextRunTimes: { type: 'array', items: dateTime },
+        errors: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['field', 'message'],
+            properties: { field: { type: 'string' }, message: { type: 'string' } },
+            additionalProperties: false
+          }
+        }
+      },
+      additionalProperties: false
+    },
+    WorkflowApprovalInbox: {
+      type: 'object',
+      required: ['items', 'pendingCount'],
+      properties: {
+        items: { type: 'array', items: schemaRef('WorkflowApprovalInboxRow') },
+        pendingCount: { type: 'integer', minimum: 0 },
+        nextCursor: { type: 'string' }
+      }
+    },
     WorkflowApprovalInboxRow: {
       type: 'object',
       required: ['approvalId', 'runId', 'source', 'status', 'summary'],
