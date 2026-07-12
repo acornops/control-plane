@@ -57,6 +57,9 @@
 - Direct public agent tool calls are not exposed by the control plane; troubleshooting tool execution must use run-scoped gateway authorization.
 - Agent session policy is a mandatory defense-in-depth allowlist. It may not
   elevate the local AgentK write or namespace policy.
+- AgentK `patch_resource` remains a run-authorized write. The control plane
+  forwards its semantic arguments but cannot expand AgentK's local patch-kind
+  maximum or Kubernetes RBAC.
 
 ## Admin Audit
 

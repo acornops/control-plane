@@ -98,12 +98,11 @@ describe('syncTargetBuiltInTools', () => {
     assert.match(result.error || '', /gateway down|llm-gateway request failed/);
   });
 
-  it('removes a stale apply_remediation registration when AgentK no longer advertises it', async () => {
-    mock.method(agentGateway, 'listAgentTools', async () => [{
-      name: 'list_resources',
-      description: 'List resources',
-      capability: 'read' as const
-    }]);
+  it('adds patch_resource and removes stale mutation tools when AgentK discovery changes', async () => {
+    mock.method(agentGateway, 'listAgentTools', async () => [
+      { name: 'list_resources', description: 'List resources', capability: 'read' as const },
+      { name: 'patch_resource', description: 'Patch one resource', capability: 'write' as const },
+    ]);
     mock.method(webhooks, 'emit', () => undefined);
     let patchBody: Record<string, unknown> | undefined;
     mock.method(globalThis, 'fetch', async (input, init) => {
@@ -118,7 +117,8 @@ describe('syncTargetBuiltInTools', () => {
       if (url.includes('/api/v1/internal/mcp/tools?')) {
         return new Response(JSON.stringify([
           { name: 'list_resources', mcp_server_url: config.BUILTIN_MCP_SERVER_URL, timeout_ms: 10000, source: 'builtin', enabled: true },
-          { name: 'apply_remediation', mcp_server_url: config.BUILTIN_MCP_SERVER_URL, timeout_ms: 10000, source: 'builtin', enabled: true }
+          { name: 'apply_remediation', mcp_server_url: config.BUILTIN_MCP_SERVER_URL, timeout_ms: 10000, source: 'builtin', enabled: true },
+          { name: 'simulate_patch', mcp_server_url: config.BUILTIN_MCP_SERVER_URL, timeout_ms: 10000, source: 'builtin', enabled: true }
         ]), { status: 200 });
       }
       if (url.includes('/api/v1/internal/mcp/servers/builtin-1?') && init?.method === 'PATCH') {
@@ -135,7 +135,8 @@ describe('syncTargetBuiltInTools', () => {
     const result = await syncTargetBuiltInTools('ws-1', 'cluster-1', 'kubernetes');
 
     assert.equal(result.ok, true);
-    assert.deepEqual(result.removedTools, ['apply_remediation']);
-    assert.deepEqual(patchBody?.remove_tools, ['apply_remediation']);
+    assert.deepEqual(result.addedTools, ['patch_resource']);
+    assert.deepEqual(result.removedTools, ['apply_remediation', 'simulate_patch']);
+    assert.deepEqual(patchBody?.remove_tools, ['apply_remediation', 'simulate_patch']);
   });
 });

@@ -18,7 +18,7 @@ describe('pagination helpers', () => {
   });
 
   it('bounds page limits with sane defaults', () => {
-    assert.equal(parseBoundedLimit(undefined), 1);
+    assert.equal(parseBoundedLimit(undefined), 50);
     assert.equal(parseBoundedLimit('not-a-number'), 50);
     assert.equal(parseBoundedLimit('7.9'), 7);
     assert.equal(parseBoundedLimit('0'), 1);

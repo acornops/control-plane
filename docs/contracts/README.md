@@ -35,7 +35,7 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Chat and run creation must preserve `sessionPolicy.allowedTools` and `sessionPolicy.writeEnabled`.
 - Agent handshake responses always include a complete `sessionPolicy`; AgentK rejects tool calls until it is installed.
 - The Kubernetes built-in catalog contains `list_resources`, `get_resource`,
-  `get_resource_logs`, `restart_workload`, `scale_workload`, and `simulate_patch`.
+  `get_resource_logs`, `restart_workload`, `scale_workload`, and `patch_resource`.
 - Agent snapshots preserve `config.snapshotInterval`, `config.maxSnapshotBytes`, and `config.namespaceScope.{include,exclude}`.
 - Agent namespace updates use `config/update_namespace_scope`.
 - Built-in tool calls preserve the run-scoped model tool call ID as a stable,
