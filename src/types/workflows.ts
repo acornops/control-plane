@@ -1,5 +1,6 @@
 import type { WorkspaceCapability, WorkspacePermissions } from '../auth/authorization.js';
 import type { WorkspaceAuditOperation } from './domain.js';
+import type { AutomationReadinessStatus } from './agents.js';
 
 export type WorkflowStatus = 'active' | 'draft' | 'paused';
 export type WorkflowCapabilityMode = 'read_only' | 'read_write';
@@ -56,6 +57,7 @@ export interface WorkflowOutputArtifactDefinition {
 export interface WorkflowStepDefinition {
   id: string;
   title: string;
+  instructions?: string;
   requiredInputs: string[];
   agentIds?: string[];
   targetBinding?: WorkflowTargetBinding;
@@ -96,6 +98,10 @@ export interface WorkflowDefinitionForAccess {
   createdAt?: string;
   updatedAt?: string;
   starterPrompt?: string;
+  readiness?: {
+    status: AutomationReadinessStatus;
+    reasons: string[];
+  };
 }
 
 export interface WorkflowOption {
@@ -248,7 +254,7 @@ export interface WorkflowSchedulePatch {
 export interface WorkflowApprovalInboxRow {
   approvalId: string;
   runId: string;
-  source: 'target_tool' | 'workflow_gate';
+  source: 'target_tool' | 'workflow_gate' | 'agent_gate' | 'agent_tool' | 'workflow_tool';
   workflowId?: string;
   targetId?: string;
   targetType?: string;

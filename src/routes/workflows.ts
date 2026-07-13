@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { authenticatedHandler, requireUser } from '../auth/middleware.js';
 import * as workflowsController from '../controllers/workflows-controller.js';
 import * as workflowSchedulesController from '../controllers/workflow-schedules-controller.js';
+import * as workflowExecutionsController from '../controllers/workflow-executions-controller.js';
+import * as workflowReportsController from '../controllers/workflow-reports-controller.js';
 
 export const workflowsRouter = Router();
 const authed = authenticatedHandler;
@@ -28,3 +30,8 @@ workflowsRouter.delete('/workflow-schedules/:scheduleId', requireUser, authed(wo
 workflowsRouter.get('/workflows/:workflowId/sessions', requireUser, authed(workflowsController.listSessions));
 workflowsRouter.post('/workflows/:workflowId/sessions', requireUser, authed(workflowsController.createSession));
 workflowsRouter.post('/workflow-sessions/:sessionId/messages', requireUser, authed(workflowsController.postMessage));
+workflowsRouter.get('/workflow-executions/:executionId', requireUser, authed(workflowExecutionsController.getWorkflowExecution));
+workflowsRouter.post('/workflow-executions/:executionId/cancel', requireUser, authed(workflowExecutionsController.cancelWorkflowExecution));
+workflowsRouter.post('/workflow-executions/:executionId/resume', requireUser, authed(workflowExecutionsController.resumeWorkflowExecutionController));
+workflowsRouter.get('/workflow-reports/:reportId', requireUser, authed(workflowReportsController.getWorkflowReportMetadata));
+workflowsRouter.get('/workflow-reports/:reportId/download', requireUser, authed(workflowReportsController.downloadWorkflowReport));

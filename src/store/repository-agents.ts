@@ -1,16 +1,25 @@
 import { randomUUID } from 'node:crypto';
+import type { QueryResultRow } from 'pg';
+import { db } from '../infra/db.js';
+import { incrementAutomationMcpFailure } from '../metrics.js';
 import type {
-  AgentActivityRecord,
   AgentDefinition,
   AgentTriggerDefinition,
   AgentTriggerType,
-  AgentVersionSnapshot,
-  CompiledAgentRunScope
+  AgentVersionSnapshot
 } from '../types/agents.js';
+import { listWorkflowMcpServers } from './repository-workflow-mcp.js';
+import { computeNextWorkflowScheduleRunAt } from './repository-workflow-schedules.js';
 
-const agentsByWorkspace = new Map<string, Map<string, AgentDefinition>>();
-const versionsByAgent = new Map<string, AgentVersionSnapshot[]>();
-const activityByAgent = new Map<string, AgentActivityRecord[]>();
+export {
+  appendAgentRunEvents,
+  createAgentRunActivity,
+  getAgentActivityRecord,
+  listAgentActivityRecords,
+  listAgentRunEvents,
+  updateAgentActivityRecord
+} from './repository-agent-activity.js';
+
 const defaultDevelopmentOwnerUserId = 'user-1';
 
 export interface CreateAgentDefinitionInput {
@@ -54,6 +63,7 @@ export interface CreateAgentTriggerInput {
   name?: string;
   schedule?: AgentTriggerDefinition['schedule'];
   eventFilter?: Record<string, unknown>;
+  secretCiphertext?: string;
 }
 
 function nowIso(): string {
@@ -92,7 +102,8 @@ function cloneAgent(agent: AgentDefinition): AgentDefinition {
       schedule: trigger.schedule ? { ...trigger.schedule } : undefined,
       eventFilter: trigger.eventFilter ? { ...trigger.eventFilter } : undefined
     })),
-    activity: { ...agent.activity }
+    activity: { ...agent.activity },
+    readiness: { status: agent.readiness.status, reasons: [...agent.readiness.reasons] }
   };
 }
 
@@ -100,39 +111,6 @@ function cloneVersion(version: AgentVersionSnapshot): AgentVersionSnapshot {
   return {
     ...version,
     snapshot: cloneAgent(version.snapshot)
-  };
-}
-
-function cloneActivity(record: AgentActivityRecord): AgentActivityRecord {
-  return {
-    ...record,
-    triggeredBy: { ...record.triggeredBy },
-    inputContext: { ...record.inputContext },
-    compiledScope: {
-      ...record.compiledScope,
-      actor: { ...record.compiledScope.actor },
-      mcpServers: [...record.compiledScope.mcpServers],
-      tools: [...record.compiledScope.tools],
-      toolOperations: { ...record.compiledScope.toolOperations },
-      enabledSkills: [...record.compiledScope.enabledSkills],
-      contextGrants: [...record.compiledScope.contextGrants],
-      approvalGates: [...record.compiledScope.approvalGates],
-      targetScope: {
-        type: record.compiledScope.targetScope.type,
-        ...(record.compiledScope.targetScope.targetTypes ? { targetTypes: [...record.compiledScope.targetScope.targetTypes] } : {}),
-        ...(record.compiledScope.targetScope.targetIds ? { targetIds: [...record.compiledScope.targetScope.targetIds] } : {})
-      },
-      jwtClaims: {
-        ...record.compiledScope.jwtClaims,
-        permissions: {
-          allowed_tools: [...record.compiledScope.jwtClaims.permissions.allowed_tools],
-          allowed_tool_operations: { ...record.compiledScope.jwtClaims.permissions.allowed_tool_operations },
-          context_grants: [...record.compiledScope.jwtClaims.permissions.context_grants]
-        }
-      }
-    },
-    toolCalls: record.toolCalls.map((toolCall) => ({ ...toolCall })),
-    outputArtifacts: record.outputArtifacts.map((artifact) => ({ ...artifact }))
   };
 }
 
@@ -162,32 +140,34 @@ export function defaultAgentDefinitions(workspaceId: string): AgentDefinition[] 
       approvalPolicy: { mode: 'none', writeToolsRequireApproval: true },
       trustPolicy: { level: 'restricted', allowExternalData: false },
       triggers: [],
-      activity: { runCount: 0 }
+      activity: { runCount: 0 },
+      readiness: { status: 'ready', reasons: [] }
     },
     {
       id: 'agent-cluster-triage',
       workspaceId,
       name: 'Kubernetes Diagnostics',
-      description: 'Collects Kubernetes signals and summarizes likely incident causes.',
-      instructions: 'Use read-only cluster inventory, event, log, and metric tools.',
+      description: 'Collects live Kubernetes inventory, resource details, and logs through AgentK.',
+      instructions: 'Use only the selected target and the read-only built-in AgentK tools.',
       status: 'active',
       source: 'system',
       kind: 'specialist_agent',
       providerType: 'internal',
-      version: 1,
+      version: 2,
       ownerUserId: defaultDevelopmentOwnerUserId,
       createdBy: 'system',
       createdAt: now,
       updatedAt: now,
       mcpServers: ['acornops-cluster-agent'],
-      tools: ['events.search', 'inventory.resources.list', 'logs.summarize', 'metrics.query'],
+      tools: ['get_resource', 'get_resource_logs', 'list_resources'],
       skills: ['acornops-observability', 'acornops-target-boundary-design'],
       contextGrants: ['target_inventory', 'workspace_metadata'],
-      targetScope: { type: 'workspace', targetTypes: ['kubernetes'] },
+      targetScope: { type: 'selected_target', targetTypes: ['kubernetes'] },
       approvalPolicy: { mode: 'none', writeToolsRequireApproval: true },
       trustPolicy: { level: 'restricted', allowExternalData: false },
       triggers: [],
-      activity: { runCount: 0 }
+      activity: { runCount: 0 },
+      readiness: { status: 'needs_setup', reasons: ['Select an online Kubernetes target with the built-in AcornOps Kubernetes Tools server.'] }
     },
     {
       id: 'agent-release-coordinator',
@@ -199,7 +179,7 @@ export function defaultAgentDefinitions(workspaceId: string): AgentDefinition[] 
       source: 'system',
       kind: 'specialist_agent',
       providerType: 'external',
-      version: 1,
+      version: 2,
       ownerUserId: defaultDevelopmentOwnerUserId,
       createdBy: 'system',
       createdAt: now,
@@ -212,7 +192,8 @@ export function defaultAgentDefinitions(workspaceId: string): AgentDefinition[] 
       approvalPolicy: { mode: 'before_write', writeToolsRequireApproval: true },
       trustPolicy: { level: 'restricted', allowExternalData: false },
       triggers: [],
-      activity: { runCount: 0 }
+      activity: { runCount: 0 },
+      readiness: { status: 'needs_setup', reasons: ['Add and assign a GitHub or GitLab MCP integration.'] }
     },
     {
       id: 'agent-incident-reporter',
@@ -224,12 +205,12 @@ export function defaultAgentDefinitions(workspaceId: string): AgentDefinition[] 
       source: 'system',
       kind: 'specialist_agent',
       providerType: 'internal',
-      version: 1,
+      version: 2,
       ownerUserId: defaultDevelopmentOwnerUserId,
       createdBy: 'system',
       createdAt: now,
       updatedAt: now,
-      mcpServers: ['workspace-chat', 'artifact-writer'],
+      mcpServers: [],
       tools: ['chat.sessions.read_selected', 'reports.pdf.generate'],
       skills: ['acornops-observability'],
       contextGrants: ['selected_chat_sessions'],
@@ -237,52 +218,109 @@ export function defaultAgentDefinitions(workspaceId: string): AgentDefinition[] 
       approvalPolicy: { mode: 'before_write', writeToolsRequireApproval: true },
       trustPolicy: { level: 'restricted', allowExternalData: false },
       triggers: [],
-      activity: { runCount: 0 }
+      activity: { runCount: 0 },
+      readiness: { status: 'ready', reasons: [] }
     }
   ];
 }
 
-function workspaceAgents(workspaceId: string): Map<string, AgentDefinition> {
-  const existing = agentsByWorkspace.get(workspaceId);
-  if (existing) return existing;
-  const agents = new Map<string, AgentDefinition>();
-  for (const agent of defaultAgentDefinitions(workspaceId)) {
-    agents.set(agent.id, agent);
+type AgentRow = QueryResultRow;
+const iso = (value: unknown): string | undefined => value ? new Date(value as string).toISOString() : undefined;
+
+function mapTrigger(row: AgentRow): AgentTriggerDefinition {
+  return { id: row.id, type: row.type, enabled: row.enabled, name: row.name || undefined,
+    schedule: row.schedule || undefined, eventFilter: row.event_filter || undefined,
+    createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at) };
+}
+
+async function triggersFor(workspaceId: string, agentId: string): Promise<AgentTriggerDefinition[]> {
+  const result = await db.query<AgentRow>(
+    'SELECT * FROM agent_triggers WHERE workspace_id=$1 AND agent_id=$2 ORDER BY created_at,id', [workspaceId, agentId]
+  );
+  return result.rows.map(mapTrigger);
+}
+
+async function mapAgent(row: AgentRow): Promise<AgentDefinition> {
+  const agent: AgentDefinition = {
+    id: row.id, workspaceId: row.workspace_id, name: row.name, description: row.description || undefined,
+    instructions: row.instructions, status: row.status, source: row.source, kind: row.kind,
+    providerType: row.provider_type, version: row.version, ownerUserId: row.owner_user_id,
+    createdBy: row.created_by, createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)!,
+    mcpServers: row.mcp_servers || [], tools: row.tools || [], skills: row.skills || [],
+    contextGrants: row.context_grants || [], targetScope: row.target_scope,
+    approvalPolicy: row.approval_policy, trustPolicy: row.trust_policy,
+    triggers: await triggersFor(row.workspace_id, row.id),
+    activity: { runCount: row.run_count || 0, lastRunAt: iso(row.last_run_at), lastStatus: row.last_status || undefined },
+    readiness: { status: row.readiness_status || 'needs_setup', reasons: row.readiness_reasons || [] }
+  };
+  if (agent.source !== 'system') return agent;
+  if (agent.id === 'agent-cluster-triage') {
+    const targets = await db.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM targets
+       WHERE workspace_id=$1 AND target_type='kubernetes' AND status IN ('online', 'degraded')`,
+      [agent.workspaceId]
+    );
+    agent.readiness = Number(targets.rows[0]?.count || 0) > 0
+      ? { status: 'ready', reasons: [] }
+      : { status: 'needs_setup', reasons: ['Select an online Kubernetes target with the built-in AcornOps Kubernetes Tools server.'] };
   }
-  agentsByWorkspace.set(workspaceId, agents);
-  return agents;
-}
-
-export function listAgentDefinitions(workspaceId: string, options: { includeInactive?: boolean } = {}): AgentDefinition[] {
-  return [...workspaceAgents(workspaceId).values()]
-    .filter((agent) => options.includeInactive || agent.status === 'active')
-    .map(cloneAgent);
-}
-
-export function getAgentDefinition(workspaceId: string, agentId: string): AgentDefinition | null {
-  const agent = workspaceAgents(workspaceId).get(agentId);
-  return agent ? cloneAgent(agent) : null;
-}
-
-export function deleteAgentDefinition(workspaceId: string, agentId: string): boolean {
-  const agents = workspaceAgents(workspaceId);
-  const deleted = agents.delete(agentId);
-  if (deleted) {
-    versionsByAgent.delete(agentId);
-    activityByAgent.delete(agentId);
+  if (agent.id === 'agent-release-coordinator') {
+    const required = new Map<string, 'read' | 'write'>([
+      ['repository.metadata.read', 'read'],
+      ['repository.tree.list', 'read'],
+      ['repository.file.read', 'read'],
+      ['repository.branch.create', 'write'],
+      ['repository.commit.create', 'write'],
+      ['repository.change_request.create', 'write']
+    ]);
+    try {
+      const servers = await listWorkflowMcpServers(agent.workspaceId);
+      const server = servers.find((candidate) => {
+        if (!candidate.enabled || candidate.status !== 'connected' || !candidate.credentialConfigured) return false;
+        const tools = new Map(candidate.tools.filter((tool) => tool.enabled).map((tool) => [tool.name, tool.capability]));
+        return [...required].every(([name, capability]) => tools.get(name) === capability);
+      });
+      if (server) {
+        agent.mcpServers = [server.id];
+        agent.tools = [...required.keys()];
+        agent.readiness = { status: 'ready', reasons: [] };
+      } else {
+        agent.readiness = {
+          status: 'needs_setup',
+          reasons: ['Configure a connected, credentialed repository MCP server with the canonical read and idempotent write tools.']
+        };
+      }
+    } catch {
+      incrementAutomationMcpFailure('repository_readiness');
+      agent.readiness = {
+        status: 'blocked',
+        reasons: ['Repository MCP readiness could not be verified. Check the automation dependency diagnostics.']
+      };
+    }
   }
-  return deleted;
+  return agent;
 }
 
-export function createAgentDefinition(input: CreateAgentDefinitionInput): AgentDefinition {
-  const agents = workspaceAgents(input.workspaceId);
-  const idBase = `agent-${slug(input.name, 'custom')}`;
-  let id = idBase;
-  let suffix = 2;
-  while (agents.has(id)) {
-    id = `${idBase}-${suffix}`;
-    suffix += 1;
-  }
+export async function listAgentDefinitions(workspaceId: string, options: { includeInactive?: boolean } = {}): Promise<AgentDefinition[]> {
+  const result = await db.query<AgentRow>(
+    `SELECT * FROM agent_definitions WHERE workspace_id=$1 ${options.includeInactive ? '' : "AND status='active'"} ORDER BY updated_at DESC,id`,
+    [workspaceId]
+  );
+  return Promise.all(result.rows.map(mapAgent));
+}
+
+export async function getAgentDefinition(workspaceId: string, agentId: string): Promise<AgentDefinition | null> {
+  const result = await db.query<AgentRow>('SELECT * FROM agent_definitions WHERE workspace_id=$1 AND id=$2', [workspaceId, agentId]);
+  return result.rowCount ? mapAgent(result.rows[0]) : null;
+}
+
+export async function deleteAgentDefinition(workspaceId: string, agentId: string): Promise<boolean> {
+  const result = await db.query("DELETE FROM agent_definitions WHERE workspace_id=$1 AND id=$2 AND source='user'", [workspaceId, agentId]);
+  return Boolean(result.rowCount);
+}
+
+export async function createAgentDefinition(input: CreateAgentDefinitionInput): Promise<AgentDefinition> {
+  const id = `agent-${slug(input.name, 'custom')}-${randomUUID().slice(0, 8)}`;
   const now = nowIso();
   const agent: AgentDefinition = {
     id,
@@ -307,15 +345,23 @@ export function createAgentDefinition(input: CreateAgentDefinitionInput): AgentD
     approvalPolicy: input.approvalPolicy || { mode: 'before_write', writeToolsRequireApproval: true },
     trustPolicy: input.trustPolicy || { level: 'restricted', allowExternalData: false },
     triggers: [],
-    activity: { runCount: 0 }
+    activity: { runCount: 0 },
+    readiness: { status: 'ready', reasons: [] }
   };
-  agents.set(agent.id, agent);
-  return cloneAgent(agent);
+  const result = await db.query<AgentRow>(
+    `INSERT INTO agent_definitions (
+      workspace_id,id,name,description,instructions,status,source,kind,provider_type,version,owner_user_id,created_by,
+      mcp_servers,tools,skills,context_grants,target_scope,approval_policy,trust_policy,readiness_status,readiness_reasons
+     ) VALUES ($1,$2,$3,$4,$5,'active','user',$6,$7,1,$8,$9,$10,$11,$12,$13,$14,$15,$16,'ready','[]') RETURNING *`,
+    [input.workspaceId, id, agent.name, agent.description || null, agent.instructions, agent.kind, agent.providerType,
+     agent.ownerUserId, agent.createdBy, JSON.stringify(agent.mcpServers), JSON.stringify(agent.tools), JSON.stringify(agent.skills), JSON.stringify(agent.contextGrants),
+     agent.targetScope, agent.approvalPolicy, agent.trustPolicy]
+  );
+  return mapAgent(result.rows[0]);
 }
 
-export function updateAgentDefinition(workspaceId: string, agentId: string, patch: AgentDefinitionUpdate): AgentDefinition | null {
-  const agents = workspaceAgents(workspaceId);
-  const current = agents.get(agentId);
+export async function updateAgentDefinition(workspaceId: string, agentId: string, patch: AgentDefinitionUpdate): Promise<AgentDefinition | null> {
+  const current = await getAgentDefinition(workspaceId, agentId);
   if (!current) return null;
   const updated: AgentDefinition = {
     ...current,
@@ -336,12 +382,20 @@ export function updateAgentDefinition(workspaceId: string, agentId: string, patc
     version: current.version + 1,
     updatedAt: nowIso()
   };
-  agents.set(agentId, updated);
-  return cloneAgent(updated);
+  const result = await db.query<AgentRow>(
+    `UPDATE agent_definitions SET name=$3,description=$4,instructions=$5,status=$6,kind=$7,provider_type=$8,
+      owner_user_id=$9,mcp_servers=$10,tools=$11,skills=$12,context_grants=$13,target_scope=$14,
+      approval_policy=$15,trust_policy=$16,version=version+1,updated_at=NOW()
+     WHERE workspace_id=$1 AND id=$2 RETURNING *`,
+    [workspaceId, agentId, updated.name, updated.description || null, updated.instructions, updated.status, updated.kind,
+     updated.providerType, updated.ownerUserId, JSON.stringify(updated.mcpServers), JSON.stringify(updated.tools), JSON.stringify(updated.skills),
+     JSON.stringify(updated.contextGrants), updated.targetScope, updated.approvalPolicy, updated.trustPolicy]
+  );
+  return result.rowCount ? mapAgent(result.rows[0]) : null;
 }
 
-export function createAgentVersionSnapshot(workspaceId: string, agentId: string, createdBy: string): AgentVersionSnapshot | null {
-  const agent = workspaceAgents(workspaceId).get(agentId);
+export async function createAgentVersionSnapshot(workspaceId: string, agentId: string, createdBy: string): Promise<AgentVersionSnapshot | null> {
+  const agent = await getAgentDefinition(workspaceId, agentId);
   if (!agent) return null;
   const version: AgentVersionSnapshot = {
     id: randomUUID(),
@@ -352,41 +406,38 @@ export function createAgentVersionSnapshot(workspaceId: string, agentId: string,
     createdBy,
     createdAt: nowIso()
   };
-  const versions = versionsByAgent.get(agentId) || [];
-  versions.push(version);
-  versionsByAgent.set(agentId, versions);
-  return cloneVersion(version);
+  await db.query(
+    'INSERT INTO agent_versions (workspace_id,agent_id,id,version,snapshot,created_by,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+    [workspaceId, agentId, version.id, version.version, version.snapshot, createdBy, version.createdAt]
+  );
+  return version;
 }
 
-export function listAgentVersionSnapshots(workspaceId: string, agentId: string): AgentVersionSnapshot[] {
-  return (versionsByAgent.get(agentId) || [])
-    .filter((version) => version.workspaceId === workspaceId)
-    .slice()
-    .reverse()
-    .map(cloneVersion);
+export async function listAgentVersionSnapshots(workspaceId: string, agentId: string): Promise<AgentVersionSnapshot[]> {
+  const result = await db.query<AgentRow>(
+    'SELECT * FROM agent_versions WHERE workspace_id=$1 AND agent_id=$2 ORDER BY created_at DESC,id DESC', [workspaceId, agentId]
+  );
+  return result.rows.map((row) => ({ id: row.id, agentId: row.agent_id, workspaceId: row.workspace_id,
+    version: row.version, snapshot: row.snapshot, createdBy: row.created_by, createdAt: iso(row.created_at)! }));
 }
 
-export function restoreAgentVersionSnapshot(workspaceId: string, agentId: string, versionId: string): AgentDefinition | null {
-  const agents = workspaceAgents(workspaceId);
-  const current = agents.get(agentId);
+export async function restoreAgentVersionSnapshot(workspaceId: string, agentId: string, versionId: string): Promise<AgentDefinition | null> {
+  const current = await getAgentDefinition(workspaceId, agentId);
   if (!current) return null;
-  const version = (versionsByAgent.get(agentId) || [])
-    .find((candidate) => candidate.workspaceId === workspaceId && candidate.id === versionId);
-  if (!version) return null;
+  const result = await db.query<AgentRow>('SELECT snapshot FROM agent_versions WHERE workspace_id=$1 AND agent_id=$2 AND id=$3', [workspaceId, agentId, versionId]);
+  if (!result.rowCount) return null;
   const restored: AgentDefinition = {
-    ...cloneAgent(version.snapshot),
+    ...result.rows[0].snapshot,
     id: current.id,
     workspaceId,
     version: current.version + 1,
     updatedAt: nowIso()
   };
-  agents.set(agentId, restored);
-  return cloneAgent(restored);
+  return updateAgentDefinition(workspaceId, agentId, restored);
 }
 
-export function createAgentTrigger(workspaceId: string, agentId: string, input: CreateAgentTriggerInput): AgentTriggerDefinition | null {
-  const agents = workspaceAgents(workspaceId);
-  const agent = agents.get(agentId);
+export async function createAgentTrigger(workspaceId: string, agentId: string, input: CreateAgentTriggerInput): Promise<AgentTriggerDefinition | null> {
+  const agent = await getAgentDefinition(workspaceId, agentId);
   if (!agent) return null;
   const now = nowIso();
   const trigger: AgentTriggerDefinition = {
@@ -399,26 +450,27 @@ export function createAgentTrigger(workspaceId: string, agentId: string, input: 
     createdAt: now,
     updatedAt: now
   };
-  const updated = {
-    ...agent,
-    version: agent.version + 1,
-    triggers: [...agent.triggers, trigger],
-    updatedAt: now
-  };
-  agents.set(agentId, updated);
-  return { ...trigger, schedule: trigger.schedule ? { ...trigger.schedule } : undefined };
+  const nextOccurrenceAt = trigger.type === 'schedule' && trigger.schedule
+    ? computeNextWorkflowScheduleRunAt(trigger.schedule.cron, new Date(), trigger.schedule.timezone)
+    : null;
+  const result = await db.query<AgentRow>(
+    `INSERT INTO agent_triggers (workspace_id,agent_id,id,type,enabled,name,schedule,event_filter,secret_ciphertext,next_occurrence_at,created_at,updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11) RETURNING *`,
+    [workspaceId, agentId, trigger.id, trigger.type, trigger.enabled, trigger.name || null,
+     trigger.schedule || null, trigger.eventFilter || null, input.secretCiphertext || null, nextOccurrenceAt, now]
+  );
+  await db.query('UPDATE agent_definitions SET version=version+1,updated_at=NOW() WHERE workspace_id=$1 AND id=$2', [workspaceId, agentId]);
+  return mapTrigger(result.rows[0]);
 }
 
-export function updateAgentTrigger(
+export async function updateAgentTrigger(
   workspaceId: string,
   agentId: string,
   triggerId: string,
   patch: Partial<CreateAgentTriggerInput>
-): AgentTriggerDefinition | null {
-  const agents = workspaceAgents(workspaceId);
-  const agent = agents.get(agentId);
-  if (!agent) return null;
-  const trigger = agent.triggers.find((candidate) => candidate.id === triggerId);
+): Promise<AgentTriggerDefinition | null> {
+  const agent = await getAgentDefinition(workspaceId, agentId);
+  const trigger = agent?.triggers.find((candidate) => candidate.id === triggerId);
   if (!trigger) return null;
   const updatedTrigger: AgentTriggerDefinition = {
     ...trigger,
@@ -429,81 +481,23 @@ export function updateAgentTrigger(
     eventFilter: patch.eventFilter ? { ...patch.eventFilter } : trigger.eventFilter,
     updatedAt: nowIso()
   };
-  agents.set(agentId, {
-    ...agent,
-    version: agent.version + 1,
-    triggers: agent.triggers.map((candidate) => candidate.id === triggerId ? updatedTrigger : candidate),
-    updatedAt: updatedTrigger.updatedAt || nowIso()
-  });
-  return { ...updatedTrigger, schedule: updatedTrigger.schedule ? { ...updatedTrigger.schedule } : undefined };
+  const nextOccurrenceAt = updatedTrigger.type === 'schedule' && updatedTrigger.enabled && updatedTrigger.schedule
+    ? computeNextWorkflowScheduleRunAt(updatedTrigger.schedule.cron, new Date(), updatedTrigger.schedule.timezone)
+    : null;
+  const result = await db.query<AgentRow>(
+    `UPDATE agent_triggers SET type=$4,enabled=$5,name=$6,schedule=$7,event_filter=$8,next_occurrence_at=$9,updated_at=NOW()
+     WHERE workspace_id=$1 AND agent_id=$2 AND id=$3 RETURNING *`,
+    [workspaceId, agentId, triggerId, updatedTrigger.type, updatedTrigger.enabled, updatedTrigger.name || null,
+     updatedTrigger.schedule || null, updatedTrigger.eventFilter || null, nextOccurrenceAt]
+  );
+  await db.query('UPDATE agent_definitions SET version=version+1,updated_at=NOW() WHERE workspace_id=$1 AND id=$2', [workspaceId, agentId]);
+  return result.rowCount ? mapTrigger(result.rows[0]) : null;
 }
 
-export function deleteAgentTrigger(workspaceId: string, agentId: string, triggerId: string): boolean {
-  const agents = workspaceAgents(workspaceId);
-  const agent = agents.get(agentId);
-  if (!agent) return false;
-  const triggers = agent.triggers.filter((trigger) => trigger.id !== triggerId);
-  if (triggers.length === agent.triggers.length) return false;
-  agents.set(agentId, {
-    ...agent,
-    version: agent.version + 1,
-    triggers,
-    updatedAt: nowIso()
-  });
-  return true;
+export async function deleteAgentTrigger(workspaceId: string, agentId: string, triggerId: string): Promise<boolean> {
+  const result = await db.query('DELETE FROM agent_triggers WHERE workspace_id=$1 AND agent_id=$2 AND id=$3', [workspaceId, agentId, triggerId]);
+  if (result.rowCount) await db.query('UPDATE agent_definitions SET version=version+1,updated_at=NOW() WHERE workspace_id=$1 AND id=$2', [workspaceId, agentId]);
+  return Boolean(result.rowCount);
 }
 
-export function createAgentActivityRecord(input: {
-  agent: AgentDefinition;
-  triggerId?: string;
-  status: AgentActivityRecord['status'];
-  triggeredBy: AgentActivityRecord['triggeredBy'];
-  inputContext: Record<string, unknown>;
-  compiledScope: CompiledAgentRunScope;
-}): AgentActivityRecord {
-  const now = nowIso();
-  const record: AgentActivityRecord = {
-    id: randomUUID(),
-    agentId: input.agent.id,
-    workspaceId: input.agent.workspaceId,
-    agentVersion: input.agent.version,
-    triggerId: input.triggerId,
-    status: input.status,
-    triggeredBy: { ...input.triggeredBy },
-    inputContext: { ...input.inputContext },
-    compiledScope: input.compiledScope,
-    toolCalls: [],
-    outputArtifacts: [],
-    createdAt: now,
-    updatedAt: now
-  };
-  const records = activityByAgent.get(input.agent.id) || [];
-  records.unshift(record);
-  activityByAgent.set(input.agent.id, records);
-
-  const agents = workspaceAgents(input.agent.workspaceId);
-  const current = agents.get(input.agent.id);
-  if (current) {
-    agents.set(input.agent.id, {
-      ...current,
-      activity: {
-        runCount: current.activity.runCount + 1,
-        lastRunAt: now,
-        lastStatus: input.status
-      }
-    });
-  }
-  return cloneActivity(record);
-}
-
-export function listAgentActivityRecords(workspaceId: string, agentId: string): AgentActivityRecord[] {
-  return (activityByAgent.get(agentId) || [])
-    .filter((record) => record.workspaceId === workspaceId)
-    .map(cloneActivity);
-}
-
-export function resetAgentRepositoryForTests(): void {
-  agentsByWorkspace.clear();
-  versionsByAgent.clear();
-  activityByAgent.clear();
-}
+export function resetAgentRepositoryForTests(): void {}

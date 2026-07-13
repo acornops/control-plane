@@ -61,7 +61,12 @@ export function createApp() {
     res.setHeader('X-Request-Id', requestId);
     next();
   });
-  app.use(express.json({ limit: '4mb' }));
+  app.use(express.json({
+    limit: '4mb',
+    verify: (req, _res, buffer) => {
+      (req as Request & { rawBody?: string }).rawBody = buffer.toString('utf8');
+    }
+  }));
   app.use(cookieParser());
   app.use(csrfProtection);
 

@@ -381,8 +381,18 @@ export function buildWorkflowPaths(): Record<string, unknown> {
                 type: 'object',
                 required: ['content'],
                 properties: {
-                  content: { type: 'string' },
-                  inputs: { type: 'object', additionalProperties: true }
+                  content: {
+                    type: 'string',
+                    description: 'Control message. Target-bound launches use exact prompt references such as @cluster[Development Cluster] or @chat[Payments incident].'
+                  },
+                  inputs: {
+                    type: 'object',
+                    description: 'Structured authorization bindings derived from prompt references. Incident reports bind mentioned chats as chatSessionIds.',
+                    additionalProperties: true
+                  },
+                  clientRequestId: { type: 'string', description: 'Optional idempotency key supplied by the client.' },
+                  targetId: { type: 'string', description: 'Exact target identifier bound from the cluster reference in the control message.' },
+                  targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] }
                 },
                 additionalProperties: true
               }
@@ -390,6 +400,41 @@ export function buildWorkflowPaths(): Record<string, unknown> {
           }
         },
         responses: { '202': { description: 'Workflow run accepted.', headers: { 'X-Example-Run-Id': { schema: { type: 'string', example: EXAMPLE_RUN_ID } } } } }
+      }
+    },
+    '/api/v1/workflow-executions/{executionId}': {
+      get: {
+        tags: ['workflows'], summary: 'Get workflow execution and step attempts', security: [{ userSession: [] }],
+        parameters: [{ in: 'path', name: 'executionId', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Workflow execution with retained attempts.', content: { 'application/json': { schema: { type: 'object', properties: { execution: { type: 'object' }, attempts: { type: 'array', items: { type: 'object' } } } } } } } }
+      }
+    },
+    '/api/v1/workflow-executions/{executionId}/cancel': {
+      post: {
+        tags: ['workflows'], summary: 'Cancel a workflow execution', security: [{ userSession: [] }],
+        parameters: [{ in: 'path', name: 'executionId', required: true, schema: { type: 'string' } }],
+        responses: { '202': { description: 'Cancellation accepted.', content: { 'application/json': { schema: { type: 'object', properties: { status: { type: 'string' } } } } } } }
+      }
+    },
+    '/api/v1/workflow-executions/{executionId}/resume': {
+      post: {
+        tags: ['workflows'], summary: 'Resume a failed workflow step as a new attempt', security: [{ userSession: [] }],
+        parameters: [{ in: 'path', name: 'executionId', required: true, schema: { type: 'string' } }],
+        responses: { '202': { description: 'Resume attempt and dispatch intent committed.', content: { 'application/json': { schema: { type: 'object', properties: { executionId: { type: 'string' }, runId: { type: 'string' }, status: { type: 'string' } } } } } }, '409': { description: 'Execution is not resumable.' } }
+      }
+    },
+    '/api/v1/workflow-reports/{reportId}': {
+      get: {
+        tags: ['workflows'], summary: 'Get PDF report artifact metadata', security: [{ userSession: [] }],
+        parameters: [{ in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Report metadata without report source or PDF bytes.', content: { 'application/json': { schema: { type: 'object', properties: { report: { type: 'object' } } } } } } }
+      }
+    },
+    '/api/v1/workflow-reports/{reportId}/download': {
+      get: {
+        tags: ['workflows'], summary: 'Render and stream a PDF report', security: [{ userSession: [] }],
+        parameters: [{ in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Freshly rendered PDF stream.', content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } } } }
       }
     }
   };

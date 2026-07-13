@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { capabilitiesToPermissions } from '../../src/auth/authorization.js';
 import {
   compileWorkflowAccessScope,
+  workflowToolOperation,
   WorkflowAccessDeniedError,
   type WorkflowDefinitionForAccess
 } from '../../src/services/workflow-access.js';
@@ -77,6 +78,16 @@ function createAgent(overrides: Partial<AgentDefinition> = {}): AgentDefinition 
 }
 
 describe('workflow access compiler', () => {
+  it('keeps canonical reads read-only and conservatively gates writes and unknown tools', () => {
+    assert.equal(workflowToolOperation('repository.file.read', 'read_write'), 'read');
+    assert.equal(workflowToolOperation('repository.tree.list', 'read_write'), 'read');
+    assert.equal(workflowToolOperation('metrics.query', 'read_write'), 'read');
+    assert.equal(workflowToolOperation('repository.commit.create', 'read_write'), 'write');
+    assert.equal(workflowToolOperation('reports.pdf.generate', 'read_write'), 'write');
+    assert.equal(workflowToolOperation('vendor.custom.operation', 'read_write'), 'write');
+    assert.equal(workflowToolOperation('repository.commit.create', 'read_only'), 'read');
+  });
+
   it('compiles stable read-only workflow grants for an operator', () => {
     const compiled = compileWorkflowAccessScope({
       workflow: createWorkflow(),

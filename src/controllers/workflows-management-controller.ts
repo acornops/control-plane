@@ -70,6 +70,7 @@ async function collectWorkflowReferenceErrors(workspaceId: string, steps: Workfl
   const knownAgents = new Map(options.agents.map((option) => [option.value, option]));
   const errors: string[] = [];
   for (const step of steps) {
+    if ((step.agentIds || []).length !== 1) errors.push(`Step ${step.id} must select exactly one Agent.`);
     for (const agent of step.agentIds || []) {
       const option = knownAgents.get(agent);
       if (!option) errors.push(`Unknown agent: ${agent}`);
@@ -232,7 +233,7 @@ export async function createWorkflow(req: AuthenticatedRequest, res: Response, n
       badRequest(res, 'WORKFLOW_OPTION_INVALID', 'Workflow references unknown server-provided options.', scopeReferenceErrors);
       return;
     }
-    const workflow = createWorkflowDefinition({
+    const workflow = await createWorkflowDefinition({
       workspaceId,
       name,
       description: typeof body.description === 'string' ? body.description : undefined,
@@ -284,7 +285,7 @@ export async function updateWorkflow(_req: AuthenticatedRequest, res: Response):
   const workflowId = toSingleParam(req.params.workflowId);
   const workspaceId = requireWorkflowWorkspaceId(req, res);
   if (!workspaceId) return;
-  const workflow = getWorkflowDefinition(workspaceId, workflowId);
+  const workflow = await getWorkflowDefinition(workspaceId, workflowId);
   if (!workflow) {
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
     return;
@@ -335,7 +336,7 @@ export async function updateWorkflow(_req: AuthenticatedRequest, res: Response):
     return;
   }
 
-  const updated = updateWorkflowDefinitionScope(workflow.workspaceId, workflow.id, update);
+  const updated = await updateWorkflowDefinitionScope(workflow.workspaceId, workflow.id, update);
   if (!updated) {
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
     return;
@@ -378,7 +379,7 @@ export async function deleteWorkflow(req: AuthenticatedRequest, res: Response, n
       'No permission to delete workflows'
     );
     if (!authz) return;
-    const result = deleteWorkflowDefinition(workspaceId, workflowId);
+    const result = await deleteWorkflowDefinition(workspaceId, workflowId);
     if (result === 'not_found') {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
       return;

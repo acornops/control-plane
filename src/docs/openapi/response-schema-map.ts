@@ -28,6 +28,7 @@ export function schemaForOperation(method: string, path: string, statusCode: str
     'GET /api/v1/auth/jwks.json': 'Jwks',
     'GET /api/v1/workspaces/{workspaceId}/agents': 'AgentList',
     'POST /api/v1/workspaces/{workspaceId}/agents': 'AgentResponse',
+    'GET /api/v1/workspaces/{workspaceId}/automation/diagnostics': 'AutomationDiagnostics',
     'GET /api/v1/agents/{agentId}': 'AgentResponse',
     'PATCH /api/v1/agents/{agentId}': 'AgentResponse',
     'GET /api/v1/agents/{agentId}/versions': 'AgentVersionList',

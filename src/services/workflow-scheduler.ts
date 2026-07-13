@@ -1,18 +1,19 @@
 import { capabilitiesToPermissions, type WorkspaceCapability } from '../auth/authorization.js';
 import { logger } from '../logger.js';
 import { incrementWorkflowSchedulerEvent } from '../metrics.js';
-import { dispatchWorkflowRunToExecutionEngine } from './execution-engine-client.js';
 import { isModelAllowedForProvider } from './llm-policy.js';
 import { compileWorkflowAccessScope, WorkflowAccessDeniedError } from './workflow-access.js';
 import { resolveWorkspaceLlmSettings } from './workspace-ai-resolution.js';
 import { recordWorkspaceAuditEvent } from './workspace-audit.js';
+import { getWorkflowCapabilityReadinessErrors } from './workflow-readiness.js';
+import { resolveWorkflowTarget } from './workflow-target-resolution.js';
+import { validateWorkflowInputs } from './workflow-input-validation.js';
 import { withRedisLease } from './control-plane-coordination/leases.js';
 import { listAgentDefinitions } from '../store/repository-agents.js';
 import { repo } from '../store/repository.js';
 import {
-  createWorkflowRun,
+  createWorkflowExecution,
   createWorkflowSession,
-  createWorkflowUserMessage,
   getWorkflowDefinition,
   updateWorkflowRun
 } from '../store/repository-workflows.js';
@@ -20,7 +21,7 @@ import {
   listDueWorkflowSchedules,
   recordWorkflowScheduleDispatch
 } from '../store/repository-workflow-schedules.js';
-import type { WorkflowScheduleRecord } from '../types/workflows.js';
+import type { WorkflowDefinitionForAccess, WorkflowScheduleRecord } from '../types/workflows.js';
 
 export interface WorkflowScheduleTickResult {
   claimed: number;
@@ -34,11 +35,11 @@ function sanitizeError(err: unknown): string {
   return message.slice(0, 240);
 }
 
-function requiredRunCapability(workflow: NonNullable<ReturnType<typeof getWorkflowDefinition>>): WorkspaceCapability {
+function requiredRunCapability(workflow: WorkflowDefinitionForAccess): WorkspaceCapability {
   return workflow.policy.mode === 'read_write' ? 'create_read_write_runs' : 'create_read_only_runs';
 }
 
-function workflowRuntimeSubject(schedule: WorkflowScheduleRecord, workflow: NonNullable<ReturnType<typeof getWorkflowDefinition>>) {
+function workflowRuntimeSubject(schedule: WorkflowScheduleRecord, workflow: WorkflowDefinitionForAccess) {
   const permissions = capabilitiesToPermissions([
     ...workflow.requiredPermissions,
     requiredRunCapability(workflow)
@@ -51,9 +52,9 @@ function workflowRuntimeSubject(schedule: WorkflowScheduleRecord, workflow: NonN
 }
 
 async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Promise<'dispatched' | 'failed' | 'auto_paused'> {
-  const workflow = getWorkflowDefinition(schedule.workspaceId, schedule.workflowId);
+  const workflow = await getWorkflowDefinition(schedule.workspaceId, schedule.workflowId);
   if (!workflow || workflow.status !== 'active') {
-    recordWorkflowScheduleDispatch(schedule.id, 'auto_paused', { now, error: 'Workflow is not active.' });
+    await recordWorkflowScheduleDispatch(schedule.id, 'auto_paused', { now, error: 'Workflow is not active.' });
     await recordWorkspaceAuditEvent({
       workspaceId: schedule.workspaceId,
       category: 'run',
@@ -75,13 +76,13 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
   try {
     compiledAccessScope = compileWorkflowAccessScope({
       workflow,
-      agents: listAgentDefinitions(schedule.workspaceId),
+      agents: await listAgentDefinitions(schedule.workspaceId),
       actor: runtimeSubject,
       approvedContextGrants: schedule.approvedContextGrants
     });
   } catch (err) {
     if (err instanceof WorkflowAccessDeniedError) {
-      recordWorkflowScheduleDispatch(schedule.id, 'auto_paused', { now, error: sanitizeError(err) });
+      await recordWorkflowScheduleDispatch(schedule.id, 'auto_paused', { now, error: sanitizeError(err) });
       await recordWorkspaceAuditEvent({
         workspaceId: schedule.workspaceId,
         category: 'run',
@@ -102,37 +103,56 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
 
   const aiSettings = await resolveWorkspaceLlmSettings(schedule.workspaceId);
   if (!isModelAllowedForProvider(aiSettings.provider, aiSettings.model)) {
-    recordWorkflowScheduleDispatch(schedule.id, 'auto_paused', { now, error: 'Workspace AI model is not allowed.' });
+    await recordWorkflowScheduleDispatch(schedule.id, 'auto_paused', { now, error: 'Workspace AI model is not allowed.' });
     incrementWorkflowSchedulerEvent('auto_paused');
     return 'auto_paused';
   }
 
-  const session = createWorkflowSession({ workflow, createdBy: runtimeSubject.userId, compiledAccessScope });
-  const message = createWorkflowUserMessage({
-    session,
-    content: `Scheduled workflow: ${schedule.name}`,
+  const step = workflow.steps[0];
+  if (!step || step.agentIds?.length !== 1) throw new Error('Scheduled workflow step must select exactly one Agent');
+  const agent = (await listAgentDefinitions(schedule.workspaceId, { includeInactive: true }))
+    .find((candidate) => candidate.id === step.agentIds![0]);
+  if (!agent || agent.status !== 'active') throw new Error('Scheduled workflow Agent is not active');
+  await validateWorkflowInputs({ workspaceId: schedule.workspaceId, workflow, inputs: schedule.inputDefaults });
+  const target = await resolveWorkflowTarget({
+    workspaceId: schedule.workspaceId,
+    workflow,
     inputs: schedule.inputDefaults
   });
-  const stepId = workflow.steps[0]?.id;
-  const run = createWorkflowRun({
+  const readinessErrors = await getWorkflowCapabilityReadinessErrors(
+    schedule.workspaceId,
+    compiledAccessScope,
+    target
+  );
+  if (readinessErrors.length > 0) {
+    throw new Error(`Scheduled workflow capabilities are not ready: ${readinessErrors[0]}`);
+  }
+  const session = await createWorkflowSession({ workflow, createdBy: runtimeSubject.userId, compiledAccessScope });
+  const occurrenceKey = schedule.nextRunAt || now.toISOString();
+  const { run } = await createWorkflowExecution({
+    workflow,
     session,
-    message,
-    workflowStepId: stepId,
+    content: `Scheduled workflow: ${schedule.name}`,
+    inputs: schedule.inputDefaults,
+    triggerType: 'schedule',
+    triggerId: schedule.id,
+    occurrenceKey,
+    targetId: target?.id,
+    targetType: target?.targetType,
+    agentSnapshot: agent as unknown as Record<string, unknown>,
     llmProvider: aiSettings.provider,
     llmModel: aiSettings.model,
     llmReasoningSummaryMode: aiSettings.reasoning.summary_mode,
     llmReasoningEffort: aiSettings.reasoning.effort
   });
   if (run.status === 'waiting_for_approval') {
-    recordWorkflowScheduleDispatch(schedule.id, 'dispatched', { now });
+    await recordWorkflowScheduleDispatch(schedule.id, 'dispatched', { now });
     incrementWorkflowSchedulerEvent('approval_wait');
     return 'dispatched';
   }
   try {
-    updateWorkflowRun(run.id, { status: 'dispatching' });
-    await dispatchWorkflowRunToExecutionEngine(run);
-    updateWorkflowRun(run.id, { status: 'running', startedAt: now.toISOString() });
-    recordWorkflowScheduleDispatch(schedule.id, 'dispatched', { now });
+    // The durable outbox worker owns dispatch and retries after this transaction.
+    await recordWorkflowScheduleDispatch(schedule.id, 'dispatched', { now });
     await recordWorkspaceAuditEvent({
       workspaceId: schedule.workspaceId,
       category: 'run',
@@ -161,13 +181,13 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
     return 'dispatched';
   } catch (err) {
     const error = sanitizeError(err);
-    updateWorkflowRun(run.id, {
+    await updateWorkflowRun(run.id, {
       status: 'failed',
       errorCode: 'SCHEDULE_DISPATCH_FAILED',
       errorMessage: error,
       endedAt: now.toISOString()
     });
-    recordWorkflowScheduleDispatch(schedule.id, 'failed', { now, error });
+    await recordWorkflowScheduleDispatch(schedule.id, 'failed', { now, error });
     logger.error({ err, scheduleId: schedule.id, workflowId: schedule.workflowId }, 'Workflow schedule dispatch failed');
     incrementWorkflowSchedulerEvent('dispatch_failed');
     return 'failed';
@@ -177,7 +197,7 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
 export async function runWorkflowScheduleTick(params: { now?: Date; limit?: number } = {}): Promise<WorkflowScheduleTickResult> {
   const now = params.now || new Date();
   return (await withRedisLease('workflow-scheduler', 30, async () => {
-    const due = listDueWorkflowSchedules(now, params.limit || 50);
+    const due = await listDueWorkflowSchedules(now, params.limit || 50);
     const result: WorkflowScheduleTickResult = { claimed: due.length, dispatched: 0, failed: 0, autoPaused: 0 };
     incrementWorkflowSchedulerEvent('tick');
     for (const schedule of due) {
@@ -188,7 +208,7 @@ export async function runWorkflowScheduleTick(params: { now?: Date; limit?: numb
         else result.dispatched += 1;
       } catch (err) {
         const error = sanitizeError(err);
-        recordWorkflowScheduleDispatch(schedule.id, 'failed', { now, error });
+        await recordWorkflowScheduleDispatch(schedule.id, 'failed', { now, error });
         logger.error({ err, scheduleId: schedule.id }, 'Workflow scheduler failed processing due schedule');
         result.failed += 1;
       }

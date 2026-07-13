@@ -1,5 +1,16 @@
 export function buildInternalPaths(): Record<string, unknown> {
   return {
+    '/internal/v1/agent-runs/{runId}/context': {
+      get: {
+        tags: ['internal'],
+        summary: 'Internal: load standalone Agent run context',
+        security: [{ serviceToken: [] }],
+        parameters: [
+          { in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid' } }
+        ],
+        responses: { '200': { description: 'Versioned Agent instructions, prompt, input context, target binding, and compiled grants.' } }
+      }
+    },
     '/internal/v1/workflow-sessions/{sessionId}/context': {
       get: {
         tags: ['internal'],

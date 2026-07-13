@@ -121,6 +121,8 @@
       "plannedWorkflowPaths": [
         "GET /api/v1/workspaces/{workspaceId}/agents",
         "POST /api/v1/workspaces/{workspaceId}/agents",
+        "GET /api/v1/workspaces/{workspaceId}/automation/diagnostics",
+        "POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/runs",
         "GET /api/v1/agents/{agentId}?workspaceId={workspaceId}",
         "PATCH /api/v1/agents/{agentId}",
         "DELETE /api/v1/agents/{agentId}",
@@ -154,6 +156,11 @@
         "GET /api/v1/workflows/{workflowId}/sessions",
         "POST /api/v1/workflows/{workflowId}/sessions",
         "POST /api/v1/workflow-sessions/{sessionId}/messages",
+        "GET /api/v1/workflow-executions/{executionId}",
+        "POST /api/v1/workflow-executions/{executionId}/cancel",
+        "POST /api/v1/workflow-executions/{executionId}/resume",
+        "GET /api/v1/workflow-reports/{reportId}",
+        "GET /api/v1/workflow-reports/{reportId}/download",
         "GET /internal/v1/workflow-sessions/{sessionId}/context"
       ],
       "webhookPaths": [
@@ -259,7 +266,8 @@
         "patchCluster": ["name?", "namespaceInclude?", "namespaceExclude?", "writeConfirmationRequiredOverride?"],
         "registerVirtualMachine": ["name", "hostname?", "osFamily?", "serviceManager?", "allowedLogSources?"],
         "patchVirtualMachine": ["name?", "hostname?", "allowedLogSources?"],
-        "postMessage": ["content", "toolAccessMode", "clientMessageId"]
+        "postMessage": ["content", "toolAccessMode", "clientMessageId"],
+        "postWorkflowMessage": ["content", "inputs?", "clientRequestId?", "targetId?", "targetType?"]
       },
       "responseFields": {
         "user": ["quota.workspaceMemberships.{used,limit}"],
@@ -296,7 +304,11 @@
         "runApprovalDecision": ["targetId", "targetType", "clusterId?", "summary?", "conflict.approval.{targetId,targetType,clusterId?,summary?}"],
         "postMessageAccepted": ["message_id", "run_id"],
         "runEventFrame": ["schema_version", "run_id", "seq", "ts", "type", "payload"],
-        "agent": ["id", "workspaceId", "name", "description?", "instructions", "status", "source", "kind", "providerType", "version", "ownerUserId", "mcpServers[]", "tools[]", "skills[]", "contextGrants[]", "targetScope", "approvalPolicy", "trustPolicy", "triggers[]", "activity"],
+        "agent": ["id", "workspaceId", "name", "description?", "instructions", "status", "source", "kind", "providerType", "version", "ownerUserId", "mcpServers[]", "tools[]", "skills[]", "contextGrants[]", "targetScope", "approvalPolicy", "trustPolicy", "triggers[]", "activity", "readiness.{status,reasons[]}"],
+        "agentRunAccepted": ["runId", "activityId", "source=agent", "status"],
+        "automationDiagnostics": ["status", "runtime.{mode,workspaceEnabled,workerIntervalMs}", "dispatch.{byStatus,oldestPendingAgeSeconds}", "runs.{agentByStatus,workflowByStatus,active}", "triggers.{deliveriesByStatus,schedulerLagSeconds}", "approvals.{pending,oldestPendingAgeSeconds}", "templates.{byReadiness,items[]}", "reports.retainedSources", "checkedAt"],
+        "workflowExecutionAccepted": ["executionId", "run_id", "workflow_run_id", "status"],
+        "workflowReport": ["id", "executionId", "runId", "sourceVersion", "mediaType", "title", "sourceSizeBytes", "retentionExpiresAt", "no PDF bytes"],
         "workflowSelectedAgents": ["orchestratorAgentId", "steps[].agentIds[]", "compiledAccessScope.selectedAgents[]", "jwtClaims.agent_id? explicit direct/delegated agent only", "jwtClaims.agent_version? explicit direct/delegated agent only", "jwtClaims.trigger_id?"],
         "workflowSchedule": ["id", "workspaceId", "workflowId", "workflowVersion", "name", "status", "cron", "timezone", "inputDefaults", "approvedContextGrants", "nextRunAt?", "lastRunAt?", "lastStatus?", "lastError?", "createdBy", "updatedBy"],
         "workflowSchedulePage": ["items", "summary.{total,active,paused,approvalGated,nextRunAt?}"],
@@ -382,13 +394,14 @@
         "POST /internal/v1/runs/{runId}/approvals/{approvalId}/execution-finished",
         "DELETE /internal/v1/runs/{runId}/continuation",
         "GET /internal/v1/sessions/{sessionId}/context?run_id=<runId>",
+        "GET /internal/v1/agent-runs/{runId}/context",
         "POST /internal/v1/runs/{runId}/events",
         "GET /internal/v1/runs/{runId}/event-cursor",
         "POST /internal/v1/runs/{runId}/commit"
       ],
       "bootstrapFields": [
         "contract_version",
-        "scope.{type,workspace_id,target_id?,target_type?,workflow_id?,workflow_run_id?,workflow_session_id?,workflow_step_id?,agent_id?,agent_version?,trigger_id?,session_id,run_id,user_id}",
+        "scope.{type,workspace_id,target_id?,target_type?,workflow_id?,workflow_run_id?,workflow_execution_id?,workflow_session_id?,workflow_step_id?,step_index?,attempt_number?,idempotency_key?,agent_id?,agent_version?,trigger_id?,session_id,run_id,user_id}",
         "policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}",
         "context.{endpoint,max_context_tokens}",
         "llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}",
@@ -433,7 +446,10 @@
         "202 accepted_or_active",
         "200 terminal_idempotent_replay",
         "409 run_id_scope_mismatch",
-        "429 overloaded"
+        "429 overloaded",
+        "workspace scope may identify either a workflow step or a standalone Agent run",
+        "a selected-target workflow step dispatches with target scope plus target_id and target_type",
+        "idempotency_key is stable across at-least-once dispatch of one attempt"
       ]
     },
     "llm-gateway": {
@@ -494,14 +510,16 @@
       ],
       "runJwtWorkspaceScopeFields": [
         "scope.type",
-        "workflow_id",
-        "workflow_run_id",
-        "workflow_session_id",
+        "workflow_id? (required for workflow scope)",
+        "workflow_run_id? (required for workflow scope)",
+        "workflow_session_id? (required for workflow scope)",
         "workflow_step_id?",
         "agent_id?",
         "agent_version?",
         "trigger_id?",
-        "permissions.context_grants"
+        "permissions.context_grants",
+        "standalone Agent scope requires agent_id and agent_version",
+        "write tool calls receive a gateway-injected idempotencyKey derived from run_id and tool_call_id"
       ],
       "internalTransportSecurity": "HTTP by default; HTTPS/mTLS when Helm internalTransport.tls.enabled=true; admin/run-scoped bearer tokens remain required",
       "builtinBridge": {

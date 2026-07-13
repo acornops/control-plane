@@ -8,9 +8,7 @@ const AGENT_TRIGGER_TYPES: AgentTriggerType[] = [
   'workflow_step',
   'schedule',
   'webhook',
-  'audit_event',
-  'target_event',
-  'external_adapter'
+  'target_event'
 ];
 
 const KNOWN_CONTEXT_GRANTS = new Set([
@@ -157,18 +155,18 @@ export async function collectAgentOptionErrors(workspaceId: string, input: Parti
   return errors;
 }
 
-export function triggerType(value: unknown): AgentTriggerType {
+export function triggerType(value: unknown): AgentTriggerType | null {
   return typeof value === 'string' && AGENT_TRIGGER_TYPES.includes(value as AgentTriggerType)
     ? value as AgentTriggerType
-    : 'manual';
+    : null;
 }
 
 export function badRequest(res: Response, code: string, message: string, details?: unknown): void {
   res.status(400).json({ error: { code, message, retryable: false, details } });
 }
 
-export function workflowsUsingAgent(workspaceId: string, agentId: string): string[] {
-  return listWorkflowDefinitions(workspaceId)
+export async function workflowsUsingAgent(workspaceId: string, agentId: string): Promise<string[]> {
+  return (await listWorkflowDefinitions(workspaceId))
     .filter((workflow) => workflow.steps.some((step) => (step.agentIds || []).includes(agentId)))
     .map((workflow) => workflow.name);
 }
@@ -208,10 +206,10 @@ function agentCapabilities(agent: AgentDefinition): AgentCapability[] {
   return capabilities;
 }
 
-export function agentResponse(agent: AgentDefinition): AgentDefinitionResponse {
+export async function agentResponse(agent: AgentDefinition): Promise<AgentDefinitionResponse> {
   return {
     ...agent,
     capabilities: agentCapabilities(agent),
-    workflowsUsingAgent: workflowsUsingAgent(agent.workspaceId, agent.id)
+    workflowsUsingAgent: await workflowsUsingAgent(agent.workspaceId, agent.id)
   };
 }

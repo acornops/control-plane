@@ -25,6 +25,11 @@ import {
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import type { RunToolApproval } from '../types/domain.js';
 import type { WorkflowApprovalInboxResponse, WorkflowApprovalInboxRow, WorkflowScheduleRecord } from '../types/workflows.js';
+import {
+  countPendingWorkspaceAutomationApprovals,
+  listWorkspaceAutomationApprovals,
+  type AutomationRunApproval
+} from '../store/repository-automation-approvals.js';
 import { toSingleParam } from '../utils/params.js';
 
 function objectBody(req: AuthenticatedRequest): Record<string, unknown> {
@@ -49,7 +54,7 @@ export async function previewWorkflowSchedule(req: AuthenticatedRequest, res: Re
     const defaults = objectValue(body.inputDefaults);
     const approvedContextGrants = stringList(body.approvedContextGrants);
     const errors: Array<{ field: string; message: string }> = [];
-    const workflow = workflowId ? getWorkflowDefinition(workspaceId, workflowId) : null;
+    const workflow = workflowId ? await getWorkflowDefinition(workspaceId, workflowId) : null;
     if (!workflowId) errors.push({ field: 'workflowId', message: 'Choose a workflow.' });
     else if (!workflow) errors.push({ field: 'workflowId', message: 'Workflow was not found in this workspace.' });
     if (!cron) errors.push({ field: 'cron', message: 'Choose a frequency or enter a cron expression.' });
@@ -92,13 +97,17 @@ function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-function scheduleSummary(items: WorkflowScheduleRecord[]) {
+async function scheduleSummary(items: WorkflowScheduleRecord[]) {
+  const workflowBySchedule = new Map(await Promise.all(items.map(async (item) => [
+    item.id,
+    await getWorkflowDefinition(item.workspaceId, item.workflowId)
+  ] as const)));
   return {
     total: items.length,
     active: items.filter((item) => item.status === 'enabled').length,
     paused: items.filter((item) => item.status === 'paused').length,
     approvalGated: items.filter((item) => {
-      const workflow = getWorkflowDefinition(item.workspaceId, item.workflowId);
+      const workflow = workflowBySchedule.get(item.id);
       return Boolean(workflow?.policy.approvalRequirements.length || workflow?.steps.some((step) => step.approvalRequired));
     }).length,
     nextRunAt: items
@@ -126,8 +135,8 @@ export async function listWorkspaceWorkflowSchedules(req: AuthenticatedRequest, 
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
     if (!(await requireWorkspaceDataRead(req, res, workspaceId, 'No access to workflow schedules'))) return;
-    const items = listWorkflowSchedules(workspaceId);
-    res.status(200).json({ items, summary: scheduleSummary(items) });
+    const items = await listWorkflowSchedules(workspaceId);
+    res.status(200).json({ items, summary: await scheduleSummary(items) });
   } catch (err) {
     next(err);
   }
@@ -150,12 +159,12 @@ export async function createWorkflowScheduleForWorkspace(req: AuthenticatedReque
       res.status(400).json({ error: { code: validation.code, message: validation.message, retryable: false } });
       return;
     }
-    const workflow = getWorkflowDefinition(workspaceId, String(body.workflowId));
+    const workflow = await getWorkflowDefinition(workspaceId, String(body.workflowId));
     if (!workflow) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
       return;
     }
-    const schedule = createWorkflowSchedule({
+    const schedule = await createWorkflowSchedule({
       workspaceId,
       workflowVersion: workflow.version,
       actorUserId: req.auth.userId,
@@ -190,7 +199,7 @@ export async function createWorkflowScheduleForWorkspace(req: AuthenticatedReque
 export async function updateWorkflowSchedule(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const scheduleId = toSingleParam(req.params.scheduleId);
-    const current = getWorkflowSchedule(scheduleId);
+    const current = await getWorkflowSchedule(scheduleId);
     if (!current) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Schedule not found', retryable: false } });
       return;
@@ -215,12 +224,12 @@ export async function updateWorkflowSchedule(req: AuthenticatedRequest, res: Res
       return;
     }
     const workflowId = typeof body.workflowId === 'string' ? body.workflowId.trim() : current.workflowId;
-    const workflow = getWorkflowDefinition(current.workspaceId, workflowId);
+    const workflow = await getWorkflowDefinition(current.workspaceId, workflowId);
     if (!workflow) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
       return;
     }
-    const updated = updateWorkflowScheduleRecord(
+    const updated = await updateWorkflowScheduleRecord(
       scheduleId,
       {
         workflowId,
@@ -256,7 +265,7 @@ export async function updateWorkflowSchedule(req: AuthenticatedRequest, res: Res
 export async function deleteWorkflowSchedule(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const scheduleId = toSingleParam(req.params.scheduleId);
-    const current = getWorkflowSchedule(scheduleId);
+    const current = await getWorkflowSchedule(scheduleId);
     if (!current) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Schedule not found', retryable: false } });
       return;
@@ -268,7 +277,7 @@ export async function deleteWorkflowSchedule(req: AuthenticatedRequest, res: Res
       return;
     }
     if (!(await requireWorkspaceCapability(req, res, current.workspaceId, 'manage_workflows', 'Only workspace roles with workflow management capability can delete schedules'))) return;
-    deleteWorkflowScheduleRecord(scheduleId);
+    await deleteWorkflowScheduleRecord(scheduleId);
     await recordWorkspaceAuditEvent({
       workspaceId: current.workspaceId,
       category: 'run',
@@ -306,6 +315,27 @@ function targetApprovalInboxRow(approval: RunToolApproval): WorkflowApprovalInbo
   };
 }
 
+function automationApprovalInboxRow(approval: AutomationRunApproval): WorkflowApprovalInboxRow {
+  return {
+    approvalId: approval.id,
+    runId: approval.runId,
+    source: approval.sourceType === 'agent'
+      ? approval.approvalKind === 'pre_step' ? 'agent_gate' : 'agent_tool'
+      : 'workflow_tool',
+    targetId: approval.targetId,
+    targetType: approval.targetType,
+    summary: approval.summary,
+    toolName: approval.toolName,
+    requestedBy: approval.requestedBy,
+    expiresAt: approval.expiresAt,
+    status: approval.status,
+    decision: approval.decision,
+    decidedBy: approval.decidedBy,
+    decidedAt: approval.decidedAt,
+    requestedAt: approval.createdAt
+  };
+}
+
 export async function listWorkspaceApprovalInbox(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   const startedAt = Date.now();
   const rawStatus = typeof req.query.status === 'string' ? req.query.status : 'pending';
@@ -319,20 +349,22 @@ export async function listWorkspaceApprovalInbox(req: AuthenticatedRequest, res:
     }
     const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 50));
     const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
-    const [targetApprovals, pendingTargetCount] = await Promise.all([
+    const [targetApprovals, pendingTargetCount, automationApprovals, pendingAutomationCount] = await Promise.all([
       repo.listWorkspaceRunToolApprovals({ workspaceId, status, limit, cursor }),
-      repo.countPendingWorkspaceRunToolApprovals(workspaceId)
+      repo.countPendingWorkspaceRunToolApprovals(workspaceId),
+      listWorkspaceAutomationApprovals({ workspaceId, status, limit, cursor }),
+      countPendingWorkspaceAutomationApprovals(workspaceId)
     ]);
-    const workflowApprovals = collectWorkflowApprovalInboxRows(workspaceId, status);
-    const pendingWorkflowCount = listWorkflowApprovalsForWorkspace(workspaceId, 'pending').length;
-    const items = [...targetApprovals.map(targetApprovalInboxRow), ...workflowApprovals]
+    const workflowApprovals = await collectWorkflowApprovalInboxRows(workspaceId, status);
+    const pendingWorkflowCount = (await listWorkflowApprovalsForWorkspace(workspaceId, 'pending')).length;
+    const items = [...targetApprovals.map(targetApprovalInboxRow), ...workflowApprovals, ...automationApprovals.map(automationApprovalInboxRow)]
       .sort((left, right) => right.requestedAt.localeCompare(left.requestedAt))
       .slice(0, limit);
     incrementApprovalInboxQuery(status, 'success');
     observeApprovalInboxQueryDurationMs(status, 'success', Date.now() - startedAt);
     const response: WorkflowApprovalInboxResponse = {
       items,
-      pendingCount: pendingTargetCount + pendingWorkflowCount,
+      pendingCount: pendingTargetCount + pendingWorkflowCount + pendingAutomationCount,
       ...(items.length === limit && items[items.length - 1]?.requestedAt
         ? { nextCursor: items[items.length - 1].requestedAt }
         : {})
@@ -345,8 +377,8 @@ export async function listWorkspaceApprovalInbox(req: AuthenticatedRequest, res:
   }
 }
 
-function collectWorkflowApprovalInboxRows(workspaceId: string, status: 'pending' | 'decided' | 'all'): WorkflowApprovalInboxRow[] {
-  return listWorkflowApprovalsForWorkspace(workspaceId, status).map((approval) => ({
+async function collectWorkflowApprovalInboxRows(workspaceId: string, status: 'pending' | 'decided' | 'all'): Promise<WorkflowApprovalInboxRow[]> {
+  return (await listWorkflowApprovalsForWorkspace(workspaceId, status)).map((approval) => ({
     approvalId: approval.id,
     runId: approval.runId,
     source: 'workflow_gate',

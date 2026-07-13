@@ -55,9 +55,19 @@ function requiredPermissionsFor(workflow: WorkflowDefinitionForAccess): Workspac
   return uniqueSorted([...workflow.requiredPermissions, requiredRunCapability(workflow)]) as WorkspaceCapability[];
 }
 
+export function workflowToolOperation(
+  tool: string,
+  mode: WorkflowDefinitionForAccess['policy']['mode']
+): WorkspaceAuditOperation {
+  if (mode === 'read_only') return 'read';
+  const operation = tool.split('.').at(-1)?.toLowerCase() || '';
+  return /^(read|list|get|search|query|summarize|describe|inspect|preview|status)$/.test(operation)
+    ? 'read'
+    : 'write';
+}
+
 function compileToolOperations(tools: string[], mode: WorkflowDefinitionForAccess['policy']['mode']): Record<string, WorkspaceAuditOperation> {
-  const operation: WorkspaceAuditOperation = mode === 'read_write' ? 'write' : 'read';
-  return Object.fromEntries(tools.map((tool) => [tool, operation]));
+  return Object.fromEntries(tools.map((tool) => [tool, workflowToolOperation(tool, mode)]));
 }
 
 function compileApprovalGates(workflow: WorkflowDefinitionForAccess): string[] {
@@ -121,6 +131,12 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
         contextGrants: step.contextGrants,
         selectedAgents: [] as AgentDefinition[]
       };
+    }
+    if (agentIds.length > 1) {
+      throw new WorkflowAccessDeniedError(
+        'WORKFLOW_AGENT_SCOPE_DENIED',
+        `Workflow step ${step.id} must select exactly one Agent.`
+      );
     }
     const selectedAgents = activeAgentsForStep(input.workflow, agentsById, step.id, agentIds);
     const grantedServers = new Set(selectedAgents.flatMap((agent) => agent.mcpServers));

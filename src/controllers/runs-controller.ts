@@ -1,12 +1,10 @@
 import { NextFunction, Response } from 'express';
 import { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
-import { config } from '../config.js';
-import { cancelRunInExecutionEngine, dispatchRunToExecutionEngine, dispatchWorkflowRunToExecutionEngine } from '../services/execution-engine-client.js';
+import { cancelRunInExecutionEngine } from '../services/execution-engine-client.js';
 import { recordApprovalActivity } from '../services/target-chat-activity-events.js';
 import { webhooks } from '../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
-import { logger } from '../logger.js';
 import { repo } from '../store/repository.js';
 import {
   appendWorkflowRunEvents,
@@ -17,78 +15,34 @@ import {
   updateWorkflowRun
 } from '../store/repository-workflows.js';
 import { runtime } from '../store/runtime.js';
-import { KUBERNETES_TARGET_TYPE, Run, RunEvent } from '../types/domain.js';
+import { appendAgentRunEvents, getAgentActivityRecord, listAgentRunEvents, updateAgentActivityRecord } from '../store/repository-agents.js';
+import { getAutomationRunApproval, listAutomationRunApprovals } from '../store/repository-automation-approvals.js';
+import { KUBERNETES_TARGET_TYPE, RunEvent } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
+import { decideAutomationApprovalRequest } from './automation-run-approval-decision.js';
+import {
+  dispatchWorkflowRunAfterApprovals,
+  getReplayRunEvents,
+  redispatchWaitingRunAfterApproval,
+  writeSseRunEvent
+} from './run-controller-helpers.js';
 import { isRunTerminalStatus, terminalizeRunCancellation } from './run-cancellation.js';
-
-async function getReplayRunEvents(runId: string): Promise<RunEvent[]> {
-  if (config.PERSIST_RUN_EVENTS) {
-    return repo.getRunEvents(runId);
-  }
-  return runtime.getRunEvents(runId) as RunEvent[];
-}
-
-function writeSseRunEvent(res: Response, event: RunEvent): void {
-  const eventType = typeof event.type === 'string' ? event.type : undefined;
-  if (eventType) {
-    res.write(`event: ${eventType}\n`);
-  }
-  res.write(`data: ${JSON.stringify(event)}\n\n`);
-}
-
-function redispatchWaitingRunAfterApproval(run: Run): void {
-  if (run.status !== 'waiting_for_approval') return;
-  queueMicrotask(async () => {
-    try {
-      const latest = await repo.getRun(run.id);
-      if (!latest || latest.status !== 'waiting_for_approval') return;
-      const current = (await repo.updateRun(run.id, { status: 'dispatching' })) || latest;
-      await dispatchRunToExecutionEngine({ ...current, status: 'dispatching' });
-    } catch (err) {
-      logger.error({ err, runId: run.id }, 'Failed redispatching run after approval decision');
-    }
-  });
-}
-
-function dispatchWorkflowRunAfterApprovals(runId: string): void {
-  queueMicrotask(async () => {
-    const run = getWorkflowRun(runId);
-    if (!run || run.status !== 'waiting_for_approval') return;
-    const approvals = listWorkflowRunApprovals(run.id);
-    if (approvals.some((approval) => approval.status === 'pending')) return;
-    if (approvals.some((approval) => approval.status === 'rejected' || approval.status === 'expired')) {
-      updateWorkflowRun(run.id, {
-        status: 'failed',
-        errorCode: 'WORKFLOW_APPROVAL_NOT_GRANTED',
-        errorMessage: 'Workflow approval gate was not granted.',
-        endedAt: new Date().toISOString()
-      });
-      return;
-    }
-    const dispatching = updateWorkflowRun(run.id, { status: 'dispatching' }) || run;
-    try {
-      await dispatchWorkflowRunToExecutionEngine(dispatching);
-      updateWorkflowRun(run.id, { status: 'running', startedAt: new Date().toISOString() });
-    } catch (err) {
-      updateWorkflowRun(run.id, {
-        status: 'failed',
-        errorCode: 'DISPATCH_FAILED',
-        errorMessage: err instanceof Error ? err.message : 'Unknown dispatch failure',
-        endedAt: new Date().toISOString()
-      });
-    }
-  });
-}
 
 export async function getRun(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
-    const workflowRun = getWorkflowRun(runId);
+    const workflowRun = await getWorkflowRun(runId);
     if (workflowRun) {
       if (!(await requireWorkspaceDataRead(req, res, workflowRun.workspaceId, 'No access to run'))) {
         return;
       }
       res.status(200).json(workflowRun);
+      return;
+    }
+    const agentRun = await getAgentActivityRecord(runId);
+    if (agentRun) {
+      if (!(await requireWorkspaceDataRead(req, res, agentRun.workspaceId, 'No access to run'))) return;
+      res.status(200).json({ ...agentRun, source: 'agent' });
       return;
     }
     const run = await repo.getRun(runId);
@@ -110,7 +64,7 @@ export async function getRun(req: AuthenticatedRequest, res: Response, next: Nex
 export async function cancelRun(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
-    const workflowRun = getWorkflowRun(runId);
+    const workflowRun = await getWorkflowRun(runId);
     if (workflowRun) {
       const authz = await requireWorkspaceDataRead(req, res, workflowRun.workspaceId, 'No access to run');
       if (!authz) {
@@ -128,8 +82,8 @@ export async function cancelRun(req: AuthenticatedRequest, res: Response, next: 
       }
       if (!isRunTerminalStatus(workflowRun.status)) {
         const endedAt = new Date().toISOString();
-        updateWorkflowRun(workflowRun.id, { status: 'cancelled', endedAt });
-        const accepted = appendWorkflowRunEvents(workflowRun.id, [
+        await updateWorkflowRun(workflowRun.id, { status: 'cancelled', endedAt });
+        const accepted = await appendWorkflowRunEvents(workflowRun.id, [
           {
             schema_version: 1,
             run_id: workflowRun.id,
@@ -160,6 +114,24 @@ export async function cancelRun(req: AuthenticatedRequest, res: Response, next: 
           }
         });
         await cancelRunInExecutionEngine(workflowRun.id).catch(() => undefined);
+      }
+      res.status(202).json({ status: 'accepted' });
+      return;
+    }
+    const agentRun = await getAgentActivityRecord(runId);
+    if (agentRun) {
+      const authz = await requireWorkspaceDataRead(req, res, agentRun.workspaceId, 'No access to run');
+      if (!authz) return;
+      if (!authz.can('cancel_runs')) {
+        res.status(403).json({ error: { code: 'FORBIDDEN', message: 'No permission to cancel Agent runs', retryable: false } });
+        return;
+      }
+      if (!isRunTerminalStatus(agentRun.status)) {
+        const endedAt = new Date().toISOString();
+        await updateAgentActivityRecord(runId, { status: 'cancelled', endedAt });
+        await appendAgentRunEvents(agentRun, [{ schema_version: 1, run_id: runId,
+          seq: (await listAgentRunEvents(runId)).length + 1, ts: endedAt, type: 'run_cancelled', payload: { reason: 'user_cancelled' } }]);
+        await cancelRunInExecutionEngine(runId).catch(() => undefined);
       }
       res.status(202).json({ status: 'accepted' });
       return;
@@ -229,12 +201,18 @@ export async function cancelRun(req: AuthenticatedRequest, res: Response, next: 
 export async function listRunEvents(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
-    const workflowRun = getWorkflowRun(runId);
+    const workflowRun = await getWorkflowRun(runId);
     if (workflowRun) {
       if (!(await requireWorkspaceDataRead(req, res, workflowRun.workspaceId, 'No access to run'))) {
         return;
       }
       res.status(200).json(workflowRun.events || runtime.getRunEvents(workflowRun.id));
+      return;
+    }
+    const agentRun = await getAgentActivityRecord(runId);
+    if (agentRun) {
+      if (!(await requireWorkspaceDataRead(req, res, agentRun.workspaceId, 'No access to run'))) return;
+      res.status(200).json(await listAgentRunEvents(runId));
       return;
     }
     const run = await repo.getRun(runId);
@@ -257,12 +235,22 @@ export async function listRunEvents(req: AuthenticatedRequest, res: Response, ne
 export async function listRunApprovals(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
-    const workflowRun = getWorkflowRun(runId);
+    const workflowRun = await getWorkflowRun(runId);
     if (workflowRun) {
       if (!(await requireWorkspaceDataRead(req, res, workflowRun.workspaceId, 'No access to run'))) {
         return;
       }
-      res.status(200).json(listWorkflowRunApprovals(workflowRun.id));
+      const [workflowApprovals, automationApprovals] = await Promise.all([
+        listWorkflowRunApprovals(workflowRun.id),
+        listAutomationRunApprovals('workflow', workflowRun.id)
+      ]);
+      res.status(200).json([...workflowApprovals, ...automationApprovals]);
+      return;
+    }
+    const agentRun = await getAgentActivityRecord(runId);
+    if (agentRun) {
+      if (!(await requireWorkspaceDataRead(req, res, agentRun.workspaceId, 'No access to run'))) return;
+      res.status(200).json(await listAutomationRunApprovals('agent', agentRun.id));
       return;
     }
     const run = await repo.getRun(runId);
@@ -283,14 +271,19 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
   try {
     const runId = toSingleParam(req.params.runId);
     const approvalId = toSingleParam(req.params.approvalId);
-    const workflowRun = getWorkflowRun(runId);
+    const workflowRun = await getWorkflowRun(runId);
     if (workflowRun) {
       const authz = await requireWorkspaceDataRead(req, res, workflowRun.workspaceId, 'No access to run');
       if (!authz) {
         return;
       }
-      const approval = getWorkflowRunApproval(approvalId);
+      const approval = await getWorkflowRunApproval(approvalId);
       if (!approval || approval.runId !== workflowRun.id) {
+        const automationApproval = await getAutomationRunApproval(approvalId);
+        if (automationApproval?.sourceType === 'workflow' && automationApproval.runId === workflowRun.id) {
+          await decideAutomationApprovalRequest(req, res, automationApproval);
+          return;
+        }
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Approval not found', retryable: false } });
         return;
       }
@@ -320,7 +313,7 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
         return;
       }
 
-      const decided = decideWorkflowRunApproval(approval.id, req.body.decision, req.auth.userId);
+      const decided = await decideWorkflowRunApproval(approval.id, req.body.decision, req.auth.userId);
       if (!decided) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Approval not found', retryable: false } });
         return;
@@ -346,6 +339,16 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
       });
       dispatchWorkflowRunAfterApprovals(workflowRun.id);
       res.status(200).json(decided);
+      return;
+    }
+    const agentRun = await getAgentActivityRecord(runId);
+    if (agentRun) {
+      const approval = await getAutomationRunApproval(approvalId);
+      if (!approval || approval.sourceType !== 'agent' || approval.runId !== agentRun.id) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Approval not found', retryable: false } });
+        return;
+      }
+      await decideAutomationApprovalRequest(req, res, approval);
       return;
     }
     const run = await repo.getRun(runId);
@@ -452,7 +455,7 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
 export async function streamRun(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
-    const workflowRun = getWorkflowRun(runId);
+    const workflowRun = await getWorkflowRun(runId);
     const run = workflowRun || await repo.getRun(runId);
     if (!run) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Run not found', retryable: false } });

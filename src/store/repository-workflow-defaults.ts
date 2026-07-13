@@ -5,18 +5,24 @@ export function defaultWorkflowDefinitions(workspaceId: string): WorkflowDefinit
     {
       id: 'cluster-triage',
       workspaceId,
-      version: 1,
+      version: 3,
       source: 'system',
       templateId: 'cluster-triage',
       name: 'Cluster triage',
-      description: 'Inspect a selected cluster and summarize likely causes, severity, and next actions.',
+      description: 'Mention a Kubernetes cluster in the control message and summarize likely causes, severity, and next actions.',
       status: 'active',
       category: 'cluster-triage',
       orchestratorAgentId: 'agent-workflow-orchestrator',
       tags: ['cluster', 'triage', 'incident'],
       enabledMcpServers: ['acornops-cluster-agent'],
       enabledSkills: ['acornops-observability', 'acornops-target-boundary-design'],
-      inputs: [],
+      inputs: [{
+        name: 'targetId',
+        label: 'Kubernetes cluster',
+        type: 'cluster',
+        required: true,
+        optionSource: 'clusters'
+      }],
       requiredPermissions: ['read_workspace_data', 'create_read_only_runs'],
       policy: {
         mode: 'read_only',
@@ -28,17 +34,17 @@ export function defaultWorkflowDefinitions(workspaceId: string): WorkflowDefinit
         {
           id: 'collect-cluster-signals',
           title: 'Collect cluster signals',
-          requiredInputs: [],
+          requiredInputs: ['targetId'],
           agentIds: ['agent-cluster-triage'],
-          targetBinding: { type: 'selected_cluster', targetType: 'kubernetes', inputName: 'clusterId' },
+          targetBinding: { type: 'selected_target', targetType: 'kubernetes', inputName: 'targetId' },
           enabledSkills: ['acornops-observability', 'acornops-target-boundary-design'],
           allowedMcpServers: ['acornops-cluster-agent'],
-          allowedTools: ['inventory.resources.list', 'events.search', 'logs.summarize', 'metrics.query'],
+          allowedTools: ['get_resource', 'get_resource_logs', 'list_resources'],
           contextGrants: ['workspace_metadata', 'target_inventory'],
           approvalRequired: false
         }
       ],
-      starterPrompt: 'Triage the selected cluster. Start by showing the compiled read scope.'
+      starterPrompt: 'Triage @cluster[Cluster name] using live built-in inventory, resource, and log evidence.'
     },
     {
       id: 'repository-operation',
@@ -48,7 +54,7 @@ export function defaultWorkflowDefinitions(workspaceId: string): WorkflowDefinit
       templateId: 'repository-operation',
       name: 'Repository operation',
       description: 'Prepare and apply a controlled configuration change in a selected repository.',
-      status: 'active',
+      status: 'paused',
       category: 'git-operations',
       orchestratorAgentId: 'agent-workflow-orchestrator',
       tags: ['git', 'repository', 'operations'],
@@ -92,18 +98,24 @@ export function defaultWorkflowDefinitions(workspaceId: string): WorkflowDefinit
     {
       id: 'incident-report-pdf',
       workspaceId,
-      version: 1,
+      version: 3,
       source: 'system',
       templateId: 'incident-report-pdf',
       name: 'Generate incident report from chats',
-      description: 'Read selected cluster chats and generate a PDF incident report artifact.',
+      description: 'Mention one or more incident chats in the control message and generate a PDF incident report artifact.',
       status: 'active',
       category: 'incident-review',
       orchestratorAgentId: 'agent-workflow-orchestrator',
       tags: ['incident', 'report', 'pdf'],
-      enabledMcpServers: ['workspace-chat', 'artifact-writer'],
+      enabledMcpServers: [],
       enabledSkills: ['acornops-observability'],
-      inputs: [],
+      inputs: [{
+        name: 'chatSessionIds',
+        label: 'Incident chats',
+        type: 'chat_session_list',
+        required: true,
+        optionSource: 'chatSessions'
+      }],
       requiredPermissions: ['read_workspace_data', 'create_read_only_runs'],
       policy: {
         mode: 'read_only',
@@ -115,17 +127,17 @@ export function defaultWorkflowDefinitions(workspaceId: string): WorkflowDefinit
         {
           id: 'generate-incident-report',
           title: 'Generate incident report',
-          requiredInputs: [],
+          requiredInputs: ['chatSessionIds'],
           agentIds: ['agent-incident-reporter'],
           enabledSkills: ['acornops-observability'],
-          allowedMcpServers: ['workspace-chat', 'artifact-writer'],
+          allowedMcpServers: [],
           allowedTools: ['chat.sessions.read_selected', 'reports.pdf.generate'],
           contextGrants: ['selected_chat_sessions'],
           approvalRequired: true,
           outputArtifacts: [{ id: 'incident-report', type: 'pdf', title: 'Incident report PDF', required: true }]
         }
       ],
-      starterPrompt: 'Generate a PDF incident report from the selected chats.'
+      starterPrompt: 'Generate a PDF incident report from @chat[Incident chat title].'
     }
   ];
 }

@@ -1,11 +1,9 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it } from 'node:test';
+import { after, afterEach, beforeEach, describe, it } from 'node:test';
 import {
   createAgent,
-  createAgentTrigger,
   createAgentVersion,
   deleteAgent,
-  deleteAgentTrigger,
   getAgent,
   listAgentActivity,
   listAgentVersions,
@@ -13,23 +11,31 @@ import {
   restoreAgentVersion,
   testAgent,
   updateAgent,
-  updateAgentTrigger
 } from '../src/controllers/agents-controller.js';
+import {
+  createAgentTrigger,
+  deleteAgentTrigger,
+  updateAgentTrigger
+} from '../src/controllers/agent-triggers-controller.js';
 import { repo } from '../src/store/repository.js';
-import { resetAgentRepositoryForTests } from '../src/store/repository-agents.js';
-import { createWorkflowDefinition, resetWorkflowRepositoryForTests } from '../src/store/repository-workflows.js';
+import { createWorkflowDefinition } from '../src/store/repository-workflows.js';
 import {
   callController,
   createRequest,
   installWorkspace,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
+import { closeAutomationDatabaseFixtures, resetAutomationDatabaseFixtures } from './helpers/automation-database-fixtures.js';
+
+beforeEach(async () => {
+  await resetAutomationDatabaseFixtures();
+});
 
 afterEach(() => {
-  resetAgentRepositoryForTests();
-  resetWorkflowRepositoryForTests();
   restoreControllerRegressionState();
 });
+
+after(closeAutomationDatabaseFixtures);
 
 describe('agents controller', () => {
   it('lets data-read users list active system agents', async () => {
@@ -79,7 +85,7 @@ describe('agents controller', () => {
 
   it('enriches agent responses with workflow usage and derived capability rows', async () => {
     installWorkspace('admin');
-    createWorkflowDefinition({
+    await createWorkflowDefinition({
       workspaceId: 'workspace-1',
       name: 'Cluster incident workflow',
       category: 'incident-review',
@@ -108,7 +114,7 @@ describe('agents controller', () => {
     assert.ok(listAgent.workflowsUsingAgent?.includes('Cluster incident workflow'));
     assert.ok(listAgent.capabilities?.some((capability) => capability.source === 'target' && capability.resourceScope === 'kubernetes'));
     assert.ok(listAgent.capabilities?.some((capability) => capability.source === 'context' && capability.resourceScope === 'target_inventory'));
-    assert.ok(listAgent.capabilities?.some((capability) => capability.source === 'builtin_tool' && capability.resourceScope === 'events.search'));
+    assert.ok(listAgent.capabilities?.some((capability) => capability.source === 'builtin_tool' && capability.resourceScope === 'get_resource'));
 
     const fetched = await callController(getAgent, createRequest(
       { agentId: 'agent-cluster-triage' },
@@ -154,10 +160,10 @@ describe('agents controller', () => {
         name: 'Release helper',
         description: 'Coordinates release checks.',
         instructions: 'Prepare release notes and ask before write tools.',
-        providerType: 'external',
-        mcpServers: ['github'],
-        tools: ['github.repositories.read', 'github.prs.create'],
-        skills: ['acornops-cross-repo-change'],
+        providerType: 'internal',
+        mcpServers: ['acornops-cluster-agent'],
+        tools: ['get_resource', 'list_resources'],
+        skills: ['acornops-observability'],
         contextGrants: ['workspace_metadata'],
         approvalPolicy: { mode: 'before_write', writeToolsRequireApproval: true }
       }
@@ -167,7 +173,7 @@ describe('agents controller', () => {
     const agent = (created.body as { agent: { id: string; version: number; status: string; providerType: string; trustPolicy: { level: string; allowExternalData: boolean } } }).agent;
     assert.equal(agent.version, 1);
     assert.equal(agent.status, 'active');
-    assert.equal(agent.providerType, 'external');
+    assert.equal(agent.providerType, 'internal');
     assert.deepEqual(agent.trustPolicy, { level: 'restricted', allowExternalData: false });
 
     const patched = await callController(updateAgent, createRequest(
@@ -175,12 +181,12 @@ describe('agents controller', () => {
       {
         workspaceId: 'workspace-1',
         instructions: 'Prepare release notes and draft a PR plan.',
-        tools: ['github.repositories.read']
+        tools: ['get_resource']
       }
     ));
     assert.equal(patched.statusCode, 200);
     assert.equal((patched.body as { agent: { version: number; tools: string[] } }).agent.version, 2);
-    assert.deepEqual((patched.body as { agent: { tools: string[] } }).agent.tools, ['github.repositories.read']);
+    assert.deepEqual((patched.body as { agent: { tools: string[] } }).agent.tools, ['get_resource']);
 
     const version = await callController(createAgentVersion, createRequest(
       { agentId: agent.id },
@@ -204,7 +210,7 @@ describe('agents controller', () => {
     ));
     assert.equal(restored.statusCode, 200);
     assert.equal((restored.body as { agent: { version: number; tools: string[] } }).agent.version, 3);
-    assert.deepEqual((restored.body as { agent: { tools: string[] } }).agent.tools, ['github.repositories.read']);
+    assert.deepEqual((restored.body as { agent: { tools: string[] } }).agent.tools, ['get_resource']);
 
     const trigger = await callController(createAgentTrigger, createRequest(
       { agentId: agent.id },
@@ -234,15 +240,18 @@ describe('agents controller', () => {
         inputContext: { release: 'v1.2.3' }
       }
     ));
-    assert.equal(testRun.statusCode, 202);
+    assert.equal(testRun.statusCode, 200);
     assert.equal((testRun.body as { compiledScope: { agentId: string } }).compiledScope.agentId, agent.id);
+    assert.equal((testRun.body as { executing: boolean; deprecated: boolean }).executing, false);
+    assert.equal((testRun.body as { executing: boolean; deprecated: boolean }).deprecated, true);
+    assert.equal(testRun.headers.get('deprecation'), 'true');
 
     const activity = await callController(listAgentActivity, createRequest(
       { agentId: agent.id },
       { workspaceId: 'workspace-1' }
     ));
     assert.equal(activity.statusCode, 200);
-    assert.equal((activity.body as { items: Array<{ triggerId?: string }> }).items.length, 1);
+    assert.equal((activity.body as { items: Array<{ triggerId?: string }> }).items.length, 0);
 
     const deletedTrigger = await callController(deleteAgentTrigger, createRequest(
       { agentId: agent.id, triggerId },
@@ -265,7 +274,7 @@ describe('agents controller', () => {
     ));
     assert.equal(fetched.statusCode, 200);
     assert.equal((fetched.body as { agent: { id: string; providerType: string } }).agent.id, agent.id);
-    assert.equal((fetched.body as { agent: { providerType: string } }).agent.providerType, 'external');
+    assert.equal((fetched.body as { agent: { providerType: string } }).agent.providerType, 'internal');
   });
 
   it('lists agent version snapshots newest first', async () => {
@@ -332,7 +341,7 @@ describe('agents controller', () => {
       { name: 'Assigned helper', instructions: 'Handle assigned work.' }
     ));
     const agentId = (created.body as { agent: { id: string } }).agent.id;
-    createWorkflowDefinition({
+    await createWorkflowDefinition({
       workspaceId: 'workspace-1',
       name: 'Assigned helper workflow',
       category: 'release-operations',

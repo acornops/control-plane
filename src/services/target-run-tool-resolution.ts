@@ -155,6 +155,8 @@ export async function resolveTargetRunTools(params: {
   targetType: TargetType;
   toolAccessMode: ToolAccessMode;
   runId?: string;
+  builtInOnly?: boolean;
+  includeNativeTools?: boolean;
 }): Promise<TargetRunToolResolution> {
   const { workspaceId, targetId, targetType, toolAccessMode, runId } = params;
   const agentRegistration = await repo.getTargetAgentRegistration(targetId);
@@ -172,6 +174,9 @@ export async function resolveTargetRunTools(params: {
       repo.listTargetToolOverrides(targetId)
     ]);
     const enabledTools = tools
+      .filter((tool) => !params.builtInOnly || (
+        tool.source === 'builtin' && tool.mcp_server_url === config.BUILTIN_MCP_SERVER_URL
+      ))
       .filter((tool) => {
         if (!isReservedInternalToolName(tool.name)) return true;
         logger.warn({ workspaceId, targetId, targetType, runId, toolName: tool.name }, 'Skipping reserved internal tool name in run tool resolution');
@@ -235,39 +240,41 @@ export async function resolveTargetRunTools(params: {
 
   let allowedNativeTools: TargetRunNativeTool[] = [];
   let targetInsightsPreviewItems: TargetRunToolPreviewItem[] = [];
-  try {
-    const webSearchSetting = await repo.getTargetToolSetting(targetId, WEB_SEARCH_TOOL_ID);
-    if (webSearchSetting?.enabled ?? true) {
-      allowedNativeTools = [{
-        id: WEB_SEARCH_TOOL_ID,
-        config: webSearchConfig(webSearchSetting?.config)
-      }];
-    }
-    if (config.TARGET_INSIGHTS_ENABLED) {
-      const targetInsightsSetting = await repo.getTargetToolSetting(targetId, TARGET_INSIGHTS_TOOL_ID);
-      if (targetInsightsSetting?.enabled ?? true) {
-        targetInsightsPreviewItems = [{
-          id: TARGET_INSIGHTS_TOOL_ID,
-          name: TARGET_INSIGHTS_TOOL_ID,
-          label: 'Insights',
-          description: 'Retrieve target-specific troubleshooting insights.',
-          capability: 'read',
-          runtimeKind: 'function',
-          source: 'builtin'
+  if (params.includeNativeTools !== false) {
+    try {
+      const webSearchSetting = await repo.getTargetToolSetting(targetId, WEB_SEARCH_TOOL_ID);
+      if (webSearchSetting?.enabled ?? true) {
+        allowedNativeTools = [{
+          id: WEB_SEARCH_TOOL_ID,
+          config: webSearchConfig(webSearchSetting?.config)
         }];
       }
+      if (config.TARGET_INSIGHTS_ENABLED) {
+        const targetInsightsSetting = await repo.getTargetToolSetting(targetId, TARGET_INSIGHTS_TOOL_ID);
+        if (targetInsightsSetting?.enabled ?? true) {
+          targetInsightsPreviewItems = [{
+            id: TARGET_INSIGHTS_TOOL_ID,
+            name: TARGET_INSIGHTS_TOOL_ID,
+            label: 'Insights',
+            description: 'Retrieve target-specific troubleshooting insights.',
+            capability: 'read',
+            runtimeKind: 'function',
+            source: 'builtin'
+          }];
+        }
+      }
+    } catch (err) {
+      logger.warn(
+        {
+          runId,
+          workspaceId,
+          targetId,
+          targetType,
+          err
+        },
+        'Failed resolving run native tools; continuing with no native tool permissions'
+      );
     }
-  } catch (err) {
-    logger.warn(
-      {
-        runId,
-        workspaceId,
-        targetId,
-        targetType,
-        err
-      },
-      'Failed resolving run native tools; continuing with no native tool permissions'
-    );
   }
 
   const nativePreviewItems: TargetRunToolPreviewItem[] = allowedNativeTools.map((tool) => ({

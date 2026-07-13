@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, beforeEach, describe, it, mock } from 'node:test';
+import { after, afterEach, beforeEach, describe, it, mock } from 'node:test';
 import {
   bootstrap,
   summarizeRunEventCounts
@@ -12,11 +12,9 @@ import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
 import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { repo } from '../src/store/repository.js';
 import {
-  createWorkflowRun,
+  createWorkflowExecution,
   createWorkflowSession,
-  createWorkflowUserMessage,
-  getWorkflowDefinition,
-  resetWorkflowRepositoryForTests
+  getWorkflowDefinition
 } from '../src/store/repository-workflows.js';
 import { runtime } from '../src/store/runtime.js';
 import { listAgentDefinitions } from '../src/store/repository-agents.js';
@@ -31,13 +29,18 @@ import {
   isWorkspaceAiCredentialStatusRequest,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
+import {
+  closeAutomationDatabaseFixtures,
+  resetAutomationDatabaseFixtures
+} from './helpers/automation-database-fixtures.js';
 
 const originalAppendRunEvents = repo.appendRunEvents;
 const originalUpdateRun = repo.updateRun;
 const originalUpsertAssistantFinalMessage = repo.upsertAssistantFinalMessage;
 const originalWebhookEmit = webhooks.emit;
 
-beforeEach(() => {
+beforeEach(async () => {
+  await resetAutomationDatabaseFixtures();
   webhooks.emit = (_event: WebhookEventInput) => undefined;
   repo.insertWorkspaceAuditEvent = async (event) => ({
     id: 'audit-event-1',
@@ -83,8 +86,9 @@ afterEach(() => {
   repo.upsertAssistantFinalMessage = originalUpsertAssistantFinalMessage;
   webhooks.emit = originalWebhookEmit;
   runtime.clearRunEvents('run-1');
-  resetWorkflowRepositoryForTests();
 });
+
+after(closeAutomationDatabaseFixtures);
 
 function createRunEvent(type: string, seq: number, payload: Record<string, unknown> = {}): RunEvent {
   return {
@@ -322,12 +326,13 @@ describe('internal execution bootstrap audit metadata', () => {
     assert.deepEqual(tools.tool_specs, []);
   });
 
-  it('bootstraps workflow runs with workspace scope and compiled grants', async () => {
-    const workflow = getWorkflowDefinition('workspace-1', 'cluster-triage');
+  it('bootstraps cluster triage with target scope and only built-in tools', async () => {
+    const workflow = await getWorkflowDefinition('workspace-1', 'cluster-triage');
     assert.ok(workflow);
+    const agents = await listAgentDefinitions(workflow.workspaceId);
     const compiledAccessScope = compileWorkflowAccessScope({
       workflow,
-      agents: listAgentDefinitions(workflow.workspaceId),
+      agents,
       actor: {
         userId: 'user-1',
         role: 'operator',
@@ -335,28 +340,39 @@ describe('internal execution bootstrap audit metadata', () => {
       },
       approvedContextGrants: ['workspace_metadata', 'target_inventory']
     });
-    const session = createWorkflowSession({
+    const session = await createWorkflowSession({
       workflow,
       createdBy: 'user-1',
       compiledAccessScope
     });
-    const message = createWorkflowUserMessage({
+    const agent = agents.find((candidate) => candidate.id === 'agent-cluster-triage');
+    assert.ok(agent);
+    const created = await createWorkflowExecution({
+      workflow,
       session,
       content: 'Triage the primary cluster.',
-      inputs: { clusterId: 'cluster-primary', severity: 'high' }
-    });
-    const run = createWorkflowRun({
-      session,
-      message,
-      workflowStepId: 'collect-cluster-signals',
+      inputs: { targetId: 'cluster-primary', severity: 'high' },
+      targetId: 'cluster-primary',
+      targetType: 'kubernetes',
+      agentSnapshot: agent as unknown as Record<string, unknown>,
       llmProvider: 'gemini',
       llmModel: 'gemini-2.0-flash',
       llmReasoningSummaryMode: 'off',
       llmReasoningEffort: 'off'
     });
+    const run = created.run;
 
     repo.getWorkspaceAiSettings = async () => null;
     mock.method(globalThis, 'fetch', async (input) => {
+      const url = String(input);
+      if (url.includes('/api/v1/internal/mcp/tools?')) {
+        return new Response(JSON.stringify([
+          { name: 'list_resources', mcp_server_url: 'http://control-plane:8081/internal/v1/mcp', timeout_ms: 10000, capability: 'read', source: 'builtin', input_schema: { type: 'object' }, enabled: true },
+          { name: 'get_resource', mcp_server_url: 'http://control-plane:8081/internal/v1/mcp', timeout_ms: 10000, capability: 'read', source: 'builtin', input_schema: { type: 'object' }, enabled: true },
+          { name: 'get_resource_logs', mcp_server_url: 'http://control-plane:8081/internal/v1/mcp', timeout_ms: 10000, capability: 'read', source: 'builtin', input_schema: { type: 'object' }, enabled: true },
+          { name: 'get_weather', mcp_server_url: 'https://mock.example.test/mcp', timeout_ms: 10000, capability: 'read', source: 'mcp', input_schema: { type: 'object' }, enabled: true }
+        ]), { status: 200 });
+      }
       if (isWorkspaceAiCredentialStatusRequest(input)) {
         return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
       }
@@ -371,6 +387,7 @@ describe('internal execution bootstrap audit metadata', () => {
         workflow_run_id: string;
         workflow_session_id: string;
         target_id?: string;
+        target_type?: string;
       };
       context: { endpoint: string };
       routing: { target_scoped: boolean; workflow_scoped: boolean };
@@ -378,27 +395,26 @@ describe('internal execution bootstrap audit metadata', () => {
     };
 
     assert.equal(response.statusCode, 200);
-    assert.equal(body.scope.type, 'workspace');
+    assert.equal(body.scope.type, 'target');
     assert.equal(body.scope.workflow_id, 'cluster-triage');
     assert.equal(body.scope.workflow_run_id, run.workflowRunId);
-    assert.equal(body.scope.workflow_session_id, session.id);
-    assert.equal(body.scope.target_id, undefined);
-    assert.equal(body.context.endpoint, `/internal/v1/workflow-sessions/${session.id}/context`);
-    assert.equal(body.routing.target_scoped, false);
+    assert.equal(body.scope.workflow_session_id, created.execution.workflowSessionId);
+    assert.equal(body.scope.target_id, 'cluster-primary');
+    assert.equal(body.scope.target_type, 'kubernetes');
+    assert.equal(body.context.endpoint, `/internal/v1/workflow-sessions/${created.execution.workflowSessionId}/context`);
+    assert.equal(body.routing.target_scoped, true);
     assert.equal(body.routing.workflow_scoped, true);
     assert.deepEqual(body.tools.allowed_tools, [
-      'events.search',
-      'inventory.resources.list',
-      'logs.summarize',
-      'metrics.query'
+      'get_resource',
+      'get_resource_logs',
+      'list_resources'
     ]);
 
     const claims = await gatewayTokenService.verifyRunScopeToken(body.tools.gateway.token);
-    assert.equal(claims.scopeType, 'workspace');
-    assert.equal(claims.workflowId, 'cluster-triage');
-    assert.equal(claims.workflowRunId, run.workflowRunId);
-    assert.equal(claims.workflowSessionId, session.id);
-    assert.deepEqual(claims.contextGrants, ['target_inventory', 'workspace_metadata']);
+    assert.equal(claims.scopeType, 'target');
+    assert.equal(claims.targetId, 'cluster-primary');
+    assert.equal(claims.targetType, 'kubernetes');
+    assert.deepEqual(claims.contextGrants, []);
   });
 
   it('maps workspace AI credential status failures during bootstrap', async () => {

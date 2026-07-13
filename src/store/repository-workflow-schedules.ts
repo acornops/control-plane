@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
+import type { QueryResultRow } from 'pg';
+import { db } from '../infra/db.js';
+import { withTransaction } from './repository-transaction.js';
 import type {
   WorkflowScheduleInput,
   WorkflowScheduleLastStatus,
   WorkflowSchedulePatch,
   WorkflowScheduleRecord
 } from '../types/workflows.js';
-
-const workflowSchedules = new Map<string, WorkflowScheduleRecord>();
 
 function nowIso(now = new Date()): string {
   return now.toISOString();
@@ -159,13 +160,28 @@ export function summarizeWorkflowScheduleCron(expression: string, timezone: stri
   return `Cron ${expression.trim()} (${timezone})`;
 }
 
-export function createWorkflowSchedule(params: {
+type ScheduleRow = QueryResultRow;
+function mapSchedule(row: ScheduleRow): WorkflowScheduleRecord {
+  return {
+    id: row.id, workspaceId: row.workspace_id, workflowId: row.workflow_id,
+    workflowVersion: row.workflow_version, name: row.name, status: row.status,
+    cron: row.cron, timezone: row.timezone, inputDefaults: row.input_defaults || {},
+    approvedContextGrants: row.approved_context_grants || [], createdBy: row.created_by,
+    updatedBy: row.updated_by, createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+    nextRunAt: row.next_run_at ? new Date(row.next_run_at).toISOString() : undefined,
+    lastRunAt: row.last_run_at ? new Date(row.last_run_at).toISOString() : undefined,
+    lastStatus: row.last_status || undefined, lastError: row.last_error || undefined
+  };
+}
+
+export async function createWorkflowSchedule(params: {
   workspaceId: string;
   workflowVersion: number;
   input: WorkflowScheduleInput;
   actorUserId: string;
   now?: Date;
-}): WorkflowScheduleRecord {
+}): Promise<WorkflowScheduleRecord> {
   const now = params.now || new Date();
   const createdAt = nowIso(now);
   const status = params.input.status || (params.input.enabled === false ? 'paused' : 'enabled');
@@ -186,29 +202,37 @@ export function createWorkflowSchedule(params: {
     updatedAt: createdAt,
     nextRunAt: status === 'enabled' ? computeNextWorkflowScheduleRunAt(params.input.cron, now, params.input.timezone.trim()) : undefined
   };
-  workflowSchedules.set(schedule.id, schedule);
-  return cloneSchedule(schedule);
+  const result = await db.query<ScheduleRow>(
+    `INSERT INTO workflow_schedules (
+      id,workspace_id,workflow_id,workflow_version,name,status,cron,timezone,input_defaults,
+      approved_context_grants,created_by,updated_by,next_run_at,created_at,updated_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,$13,$13) RETURNING *`,
+    [schedule.id, schedule.workspaceId, schedule.workflowId, schedule.workflowVersion, schedule.name,
+     schedule.status, schedule.cron, schedule.timezone, schedule.inputDefaults, JSON.stringify(schedule.approvedContextGrants),
+     schedule.createdBy, schedule.nextRunAt || null, schedule.createdAt]
+  );
+  return mapSchedule(result.rows[0]);
 }
 
-export function listWorkflowSchedules(workspaceId: string): WorkflowScheduleRecord[] {
-  return [...workflowSchedules.values()]
-    .filter((schedule) => schedule.workspaceId === workspaceId)
-    .sort((left, right) => (left.nextRunAt || '').localeCompare(right.nextRunAt || '') || left.name.localeCompare(right.name))
-    .map(cloneSchedule);
+export async function listWorkflowSchedules(workspaceId: string): Promise<WorkflowScheduleRecord[]> {
+  const result = await db.query<ScheduleRow>(
+    'SELECT * FROM workflow_schedules WHERE workspace_id=$1 ORDER BY next_run_at NULLS LAST,name,id', [workspaceId]
+  );
+  return result.rows.map(mapSchedule);
 }
 
-export function getWorkflowSchedule(scheduleId: string): WorkflowScheduleRecord | null {
-  const schedule = workflowSchedules.get(scheduleId);
-  return schedule ? cloneSchedule(schedule) : null;
+export async function getWorkflowSchedule(scheduleId: string): Promise<WorkflowScheduleRecord | null> {
+  const result = await db.query<ScheduleRow>('SELECT * FROM workflow_schedules WHERE id=$1', [scheduleId]);
+  return result.rowCount ? mapSchedule(result.rows[0]) : null;
 }
 
-export function updateWorkflowScheduleRecord(
+export async function updateWorkflowScheduleRecord(
   scheduleId: string,
   patch: WorkflowSchedulePatch & { workflowVersion?: number },
   actorUserId: string,
   now = new Date()
-): WorkflowScheduleRecord | null {
-  const current = workflowSchedules.get(scheduleId);
+): Promise<WorkflowScheduleRecord | null> {
+  const current = await getWorkflowSchedule(scheduleId);
   if (!current) return null;
   const cron = patch.cron?.trim() || current.cron;
   const timezone = patch.timezone?.trim() || current.timezone;
@@ -227,29 +251,46 @@ export function updateWorkflowScheduleRecord(
     updatedAt: nowIso(now),
     nextRunAt: status === 'enabled' ? computeNextWorkflowScheduleRunAt(cron, now, timezone) : undefined
   };
-  workflowSchedules.set(scheduleId, updated);
-  return cloneSchedule(updated);
+  const result = await db.query<ScheduleRow>(
+    `UPDATE workflow_schedules SET workflow_id=$2,workflow_version=$3,name=$4,status=$5,cron=$6,timezone=$7,
+      input_defaults=$8,approved_context_grants=$9,updated_by=$10,next_run_at=$11,updated_at=$12
+     WHERE id=$1 RETURNING *`,
+    [scheduleId, updated.workflowId, updated.workflowVersion, updated.name, updated.status, updated.cron,
+     updated.timezone, updated.inputDefaults, JSON.stringify(updated.approvedContextGrants), updated.updatedBy,
+     updated.nextRunAt || null, updated.updatedAt]
+  );
+  return result.rowCount ? mapSchedule(result.rows[0]) : null;
 }
 
-export function deleteWorkflowScheduleRecord(scheduleId: string): boolean {
-  return workflowSchedules.delete(scheduleId);
+export async function deleteWorkflowScheduleRecord(scheduleId: string): Promise<boolean> {
+  const result = await db.query('DELETE FROM workflow_schedules WHERE id=$1', [scheduleId]);
+  return Boolean(result.rowCount);
 }
 
-export function listDueWorkflowSchedules(now = new Date(), limit = 50): WorkflowScheduleRecord[] {
-  const nowTime = now.getTime();
-  return [...workflowSchedules.values()]
-    .filter((schedule) => schedule.status === 'enabled' && schedule.nextRunAt && new Date(schedule.nextRunAt).getTime() <= nowTime)
-    .sort((left, right) => String(left.nextRunAt).localeCompare(String(right.nextRunAt)))
-    .slice(0, Math.max(1, limit))
-    .map(cloneSchedule);
+export async function listDueWorkflowSchedules(now = new Date(), limit = 50): Promise<WorkflowScheduleRecord[]> {
+  return withTransaction(async (client) => {
+    const result = await client.query<ScheduleRow>(
+      `SELECT * FROM workflow_schedules
+       WHERE status='enabled' AND next_run_at <= $1
+         AND (lease_expires_at IS NULL OR lease_expires_at < NOW())
+       ORDER BY next_run_at,id FOR UPDATE SKIP LOCKED LIMIT $2`, [now, Math.max(1, limit)]
+    );
+    if (result.rows.length) {
+      await client.query(
+        `UPDATE workflow_schedules SET lease_owner=$1,lease_expires_at=NOW()+INTERVAL '30 seconds'
+         WHERE id=ANY($2::text[])`, ['automation-scheduler', result.rows.map((row) => row.id)]
+      );
+    }
+    return result.rows.map(mapSchedule);
+  });
 }
 
-export function recordWorkflowScheduleDispatch(
+export async function recordWorkflowScheduleDispatch(
   scheduleId: string,
   status: WorkflowScheduleLastStatus,
   params: { now?: Date; error?: string } = {}
-): WorkflowScheduleRecord | null {
-  const current = workflowSchedules.get(scheduleId);
+): Promise<WorkflowScheduleRecord | null> {
+  const current = await getWorkflowSchedule(scheduleId);
   if (!current) return null;
   const now = params.now || new Date();
   const paused = status === 'auto_paused';
@@ -262,10 +303,12 @@ export function recordWorkflowScheduleDispatch(
     nextRunAt: paused ? undefined : computeNextWorkflowScheduleRunAt(current.cron, now, current.timezone),
     updatedAt: nowIso(now)
   };
-  workflowSchedules.set(scheduleId, updated);
-  return cloneSchedule(updated);
+  const result = await db.query<ScheduleRow>(
+    `UPDATE workflow_schedules SET status=$2,last_run_at=$3,last_status=$4,last_error=$5,next_run_at=$6,
+      lease_owner=NULL,lease_expires_at=NULL,updated_at=$3 WHERE id=$1 RETURNING *`,
+    [scheduleId, updated.status, updated.lastRunAt, updated.lastStatus, updated.lastError || null, updated.nextRunAt || null]
+  );
+  return result.rowCount ? mapSchedule(result.rows[0]) : null;
 }
 
-export function resetWorkflowScheduleRepositoryForTests(): void {
-  workflowSchedules.clear();
-}
+export function resetWorkflowScheduleRepositoryForTests(): void {}

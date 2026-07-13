@@ -22,6 +22,10 @@ import { syncTargetBuiltInTools } from './services/target-built-in-tool-sync.js'
 import { runControlPlaneRetentionSweep } from './services/conversation-retention.js';
 import { ensureDevelopmentMcpSeed } from './services/development-mcp-seed.js';
 import { runTargetInsightsCheckpointSweep } from './services/target-insights/checkpoint-worker.js';
+import { runAutomationOutboxTick } from './services/automation-outbox-worker.js';
+import { runAutomationTriggerTick } from './services/automation-trigger-worker.js';
+import { runWorkflowScheduleTick } from './services/workflow-scheduler.js';
+import { refreshAutomationMetricsSnapshot } from './services/automation-diagnostics.js';
 import { repo } from './store/repository.js';
 import { runtime } from './store/runtime.js';
 import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE } from './types/domain.js';
@@ -116,6 +120,17 @@ async function main(): Promise<void> {
     }
   }, 60_000);
   targetInsightsCheckpointInterval.unref();
+  const automationWorkerInterval = setInterval(async () => {
+    try {
+      await runWorkflowScheduleTick();
+      await runAutomationTriggerTick();
+      await runAutomationOutboxTick();
+      await refreshAutomationMetricsSnapshot();
+    } catch (err) {
+      logger.warn({ err }, 'Automation worker tick failed');
+    }
+  }, config.AUTOMATION_WORKER_INTERVAL_MS);
+  automationWorkerInterval.unref();
 
   server.on('upgrade', (request, socket, head) => {
     const handled = agentGateway.handleUpgrade(request, socket, head);
@@ -148,6 +163,7 @@ async function main(): Promise<void> {
     clearInterval(conversationRetentionInterval);
     clearInterval(approvalTimeoutInterval);
     clearInterval(targetInsightsCheckpointInterval);
+    clearInterval(automationWorkerInterval);
     const forceExit = setTimeout(() => {
       logger.error('Forced control plane shutdown after timeout');
       process.exit(1);

@@ -8,6 +8,7 @@ import { TargetFindingInput, TargetInventoryItemInput } from './repository-targe
 import { replaceTargetInventorySnapshot } from './repository-target-inventory.js';
 import { TargetRow, toIso } from './repository-mappers.js';
 import { withTransaction } from './repository-transaction.js';
+import { enqueueTargetAutomationEvent } from './repository-automation-events.js';
 import { reconcileTargetIssues } from './repository-target-issues.js';
 import { assertWorkspaceTargetQuota } from './repository-quotas.js';
 import { upsertTargetMetricSample } from './repository-target-metrics.js';
@@ -350,6 +351,14 @@ export async function upsertVirtualMachineSnapshot(snapshot: VirtualMachineSnaps
       targetId: vm.id,
       snapshotTs: canonicalSnapshot.timestamp,
       observations: deriveVirtualMachineIssueObservations(vm, canonicalSnapshot)
+    });
+    await enqueueTargetAutomationEvent(client, {
+      workspaceId: vm.workspaceId,
+      targetId: vm.id,
+      targetType: 'virtual_machine',
+      eventType: 'target.snapshot.updated.v1',
+      occurrenceKey: canonicalSnapshot.timestamp,
+      occurredAt: canonicalSnapshot.timestamp
     });
   });
 }

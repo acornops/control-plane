@@ -26,6 +26,40 @@
 - `LLM_GATEWAY_ADMIN_TOKEN`
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`
 
+## Automation Runtime
+
+Production defaults keep new automation dispatch disabled until migrations and
+template backfill are verified:
+
+```bash
+AUTOMATION_RUNTIME_MODE=off
+AUTOMATION_CANARY_WORKSPACE_IDS=
+AUTOMATION_WORKER_INTERVAL_MS=1000
+AGENT_WRITE_CONFIRMATION_TIMEOUT_SECONDS=900
+```
+
+Use `off`, then `shadow`, then `canary` with an explicit workspace allow-list,
+and finally `on`. A run is acknowledged only after its Postgres run record and
+dispatch-outbox entry commit. Postgres row claims are authoritative; Redis
+leases reduce duplicate work but do not own scheduler correctness.
+
+`GET /api/v1/workspaces/{workspaceId}/automation/diagnostics` reports the
+workspace's runtime mode, outbox depth and age, active Agent and Workflow run
+states, trigger delivery state, scheduler lag, pending approval age, template
+readiness reasons, and retained report-source count. It requires workspace read
+access. Keep this dependency view separate from `/ready`: a disconnected
+external MCP server makes affected templates `needs_setup` or `blocked`, but it
+must not remove the control plane from service.
+
+The `/metrics` endpoint exposes low-cardinality `control_plane_automation_*`
+counters and gauges for dispatch, triggers, approvals, terminal outcomes, PDF
+rendering, MCP readiness failures, backlog age, scheduler lag, active runs, and
+template readiness. Load the deployment rule group at
+`observability/prometheus/alerts/control-plane-automation.rules.yaml`. Alert at
+minimum when acknowledged dispatch is older than 30 seconds, scheduler lag is
+over 60 seconds, an approval remains pending past 15 minutes, or any run enters
+`needs_review`.
+
 Generated AgentK install commands use the latest chart release by default,
 including experimental releases. Set `AGENT_HELM_CHART_VERSION` when an
 environment needs to pin an exact, tested chart version.
@@ -168,8 +202,9 @@ Kubernetes deployments run this through the Helm migration Job:
 node dist/scripts/control-plane-db.js migrate
 ```
 
-Pre-release deployments may rewrite the schema baseline directly; reset
-disposable databases when a local volume has already applied an older baseline.
+Automation migrations are additive and forward-compatible. Runtime rollback is
+performed by setting `AUTOMATION_RUNTIME_MODE=off` and restoring the previous
+images; do not roll back the schema.
 
 ## Failure Modes
 
@@ -178,6 +213,9 @@ disposable databases when a local volume has already applied an older baseline.
 - Agent appears disconnected: verify the agent WebSocket reaches `/api/v1/agent/connect` on the same public platform host over HTTPS/WSS. In production, the control plane rejects agent upgrades unless TLS is terminated directly or the edge proxy forwards `X-Forwarded-Proto: https` or `wss`.
 - Multi-replica inconsistency: verify all pods share the same `REDIS_URL` and have unique `CONTROL_PLANE_INSTANCE_ID` values.
 - Scheduler lease renewal warnings: verify Redis latency/availability. The current task is allowed to finish, but another pod may take the next lease if renewal was lost.
+- Automation dispatch backlog: inspect the workspace automation diagnostics and `automation_dispatch_outbox`; do not delete acknowledged entries. Restore the execution engine or dependency and let workers reclaim them.
+- Run in `needs_review`: an uncertain write or exhausted dispatch retry requires an authorized operator decision. Do not automatically replay the write.
+- Approval older than 15 minutes: verify the approval-expiry worker is running on every control-plane replica and Postgres time is correct.
 
 ## Required Validation
 

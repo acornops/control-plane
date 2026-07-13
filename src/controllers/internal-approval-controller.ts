@@ -1,14 +1,91 @@
 import { NextFunction, Request, Response } from 'express';
 import { config } from '../config.js';
+import { incrementAutomationApproval } from '../metrics.js';
 import { recordApprovalActivity, recordRunStatusChangedActivity } from '../services/target-chat-activity-events.js';
 import { webhooks } from '../services/webhooks.js';
 import { repo } from '../store/repository.js';
+import {
+  createAutomationRunApproval,
+  deleteAutomationRunContinuation,
+  expireAutomationRunApproval,
+  getAutomationRunApproval,
+  getAutomationRunContinuation,
+  markAutomationApprovalExecutionFinished,
+  markAutomationApprovalExecutionStarted,
+  type AutomationApprovalSource
+} from '../store/repository-automation-approvals.js';
+import { getAgentActivityRecord } from '../store/repository-agents.js';
+import { getWorkflowRun } from '../store/repository-workflows.js';
 import { KUBERNETES_TARGET_TYPE } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
+
+async function resolveAutomationRun(runId: string) {
+  const workflowRun = await getWorkflowRun(runId);
+  if (workflowRun) {
+    return {
+      sourceType: 'workflow' as const,
+      sourceId: workflowRun.executionId,
+      workspaceId: workflowRun.workspaceId,
+      targetId: workflowRun.targetId,
+      targetType: workflowRun.targetType,
+      requestedBy: workflowRun.createdBy,
+      status: workflowRun.status,
+      toolOperations: workflowRun.compiledAccessScope.toolOperations
+    };
+  }
+  const agentRun = await getAgentActivityRecord(runId);
+  if (agentRun) {
+    return {
+      sourceType: 'agent' as const,
+      sourceId: agentRun.agentId,
+      workspaceId: agentRun.workspaceId,
+      targetId: agentRun.targetId,
+      targetType: agentRun.targetType,
+      requestedBy: agentRun.compiledScope.actor.userId,
+      status: agentRun.status,
+      toolOperations: agentRun.compiledScope.toolOperations
+    };
+  }
+  return null;
+}
 
 export async function createToolApproval(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
+    const automationRun = await resolveAutomationRun(runId);
+    if (automationRun) {
+      if (automationRun.status !== 'running' && automationRun.status !== 'waiting_for_approval') {
+        res.status(409).json({ error: { code: 'RUN_NOT_ACTIVE', message: 'Run is not active for an approval interrupt', retryable: false } });
+        return;
+      }
+      if (automationRun.toolOperations[req.body.toolName] !== 'write') {
+        res.status(400).json({ error: { code: 'WRITE_TOOL_NOT_GRANTED', message: 'Run is not granted this write tool', retryable: false } });
+        return;
+      }
+      if (!req.body.continuation) {
+        res.status(400).json({ error: { code: 'CONTINUATION_REQUIRED', message: 'A durable continuation is required before requesting approval', retryable: false } });
+        return;
+      }
+      const approval = await createAutomationRunApproval({
+        workspaceId: automationRun.workspaceId,
+        sourceType: automationRun.sourceType,
+        sourceId: automationRun.sourceId,
+        runId,
+        targetId: automationRun.targetId,
+        targetType: automationRun.targetType,
+        approvalKind: 'tool_write',
+        toolCallId: req.body.toolCallId,
+        toolName: req.body.toolName,
+        summary: req.body.summary || `Approve write tool: ${req.body.toolName}`,
+        arguments: req.body.arguments || {},
+        requestedBy: automationRun.requestedBy,
+        expiresAt: new Date(Date.now() + config.AGENT_WRITE_CONFIRMATION_TIMEOUT_SECONDS * 1000).toISOString(),
+        continuationState: req.body.continuation
+      });
+      incrementAutomationApproval('tool_write', 'requested');
+      res.status(201).json(approval);
+      return;
+    }
     const run = await repo.getRun(runId);
     if (!run) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Run not found', retryable: false } });
@@ -62,6 +139,24 @@ export async function createToolApproval(req: Request, res: Response, next: Next
 export async function getRunContinuation(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
+    const automationRun = await resolveAutomationRun(runId);
+    if (automationRun) {
+      const continuation = await getAutomationRunContinuation(automationRun.sourceType, runId);
+      if (!continuation) {
+        res.status(200).json(null);
+        return;
+      }
+      let approval = await getAutomationRunApproval(continuation.approvalId);
+      if (!approval) {
+        res.status(404).json({ error: { code: 'APPROVAL_NOT_FOUND', message: 'Approval not found', retryable: false } });
+        return;
+      }
+      if (approval.status === 'pending' && new Date(approval.expiresAt).getTime() <= Date.now()) {
+        approval = (await expireAutomationRunApproval(approval.id)) || approval;
+      }
+      res.status(200).json({ ...continuation, approval });
+      return;
+    }
     const continuation = await repo.getRunContinuation(runId);
     if (!continuation) {
       res.status(200).json(null);
@@ -92,6 +187,20 @@ export async function markToolApprovalExecutionStarted(req: Request, res: Respon
   try {
     const runId = toSingleParam(req.params.runId);
     const approvalId = toSingleParam(req.params.approvalId);
+    const automationRun = await resolveAutomationRun(runId);
+    if (automationRun) {
+      const approval = await getAutomationRunApproval(approvalId);
+      if (!approval || approval.runId !== runId || approval.sourceType !== automationRun.sourceType) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Approval not found', retryable: false } });
+        return;
+      }
+      if (approval.status !== 'approved') {
+        res.status(409).json({ error: { code: 'APPROVAL_NOT_GRANTED', message: 'Write approval was not granted', retryable: false }, approval });
+        return;
+      }
+      res.status(200).json(await markAutomationApprovalExecutionStarted(approval.id));
+      return;
+    }
     const approval = await repo.getRunToolApproval(approvalId);
     if (!approval || approval.runId !== runId) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Approval not found', retryable: false } });
@@ -108,6 +217,20 @@ export async function markToolApprovalExecutionFinished(req: Request, res: Respo
   try {
     const runId = toSingleParam(req.params.runId);
     const approvalId = toSingleParam(req.params.approvalId);
+    const automationRun = await resolveAutomationRun(runId);
+    if (automationRun) {
+      const approval = await getAutomationRunApproval(approvalId);
+      if (!approval || approval.runId !== runId || approval.sourceType !== automationRun.sourceType) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Approval not found', retryable: false } });
+        return;
+      }
+      res.status(200).json(await markAutomationApprovalExecutionFinished(
+        approval.id,
+        req.body.result,
+        Boolean(req.body.isError)
+      ));
+      return;
+    }
     const approval = await repo.getRunToolApproval(approvalId);
     if (!approval || approval.runId !== runId) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Approval not found', retryable: false } });
@@ -127,6 +250,12 @@ export async function markToolApprovalExecutionFinished(req: Request, res: Respo
 export async function consumeRunContinuation(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
+    const automationRun = await resolveAutomationRun(runId);
+    if (automationRun) {
+      await deleteAutomationRunContinuation(automationRun.sourceType as AutomationApprovalSource, runId);
+      res.status(204).send();
+      return;
+    }
     await repo.deleteRunContinuation(runId);
     res.status(204).send();
   } catch (err) {

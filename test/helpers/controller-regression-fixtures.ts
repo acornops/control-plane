@@ -3,17 +3,21 @@ import { repo } from '../../src/store/repository.js';
 import { defaultAgentDefinitions } from '../../src/store/repository-agents.js';
 import { configureWorkflowMcpRepositoryForTests } from '../../src/store/repository-workflow-mcp.js';
 import { configureWorkflowOptionsCatalogLoaderForTests } from '../../src/store/repository-workflow-options.js';
+import { configureWorkflowBuiltInMcpCatalogForTests } from '../../src/services/workflow-built-in-mcp-catalog.js';
 import type { WorkflowMcpServerRecord } from '../../src/store/repository-workflows.js';
 import type {
-  ChatSession,
-  Cluster,
-  Message,
-  Role,
-  Run,
-  RunToolApproval,
-  TargetSummary,
-  WebhookSubscription
+  Role
 } from '../../src/types/domain.js';
+import { createCluster, createTarget } from './controller-regression-records.js';
+export {
+  createApproval,
+  createCluster,
+  createMessage,
+  createRun,
+  createSessionRecord,
+  createTarget,
+  createWebhookSubscription
+} from './controller-regression-records.js';
 
 const originals = {
   getWorkspaceSummaryForUser: repo.getWorkspaceSummaryForUser,
@@ -78,8 +82,9 @@ const canonicalWorkflowMcpServers: Array<Omit<WorkflowMcpServerRecord, 'workspac
   id: 'acornops-cluster-agent', scope: 'workspace', name: 'Cluster agent', url: 'builtin://cluster-agent', enabled: true,
   authType: 'none', credentialConfigured: false, publicHeaders: {}, status: 'connected', createdBy: 'test',
   tools: [
-    { name: 'inventory.resources.list', title: 'List resources', capability: 'read', enabled: true }, { name: 'events.search', title: 'Search events', capability: 'read', enabled: true },
-    { name: 'logs.summarize', title: 'Summarize logs', capability: 'read', enabled: true }, { name: 'metrics.query', title: 'Query metrics', capability: 'read', enabled: true }
+    { name: 'get_resource', title: 'Get resource', capability: 'read', enabled: true },
+    { name: 'get_resource_logs', title: 'Get resource logs', capability: 'read', enabled: true },
+    { name: 'list_resources', title: 'List resources', capability: 'read', enabled: true }
   ]
 }, {
   id: 'workspace-chat', scope: 'workspace', name: 'Workspace chat', url: 'builtin://workspace-chat', enabled: true,
@@ -93,6 +98,7 @@ const canonicalWorkflowMcpServers: Array<Omit<WorkflowMcpServerRecord, 'workspac
 
 export function restoreControllerRegressionState(): void {
   configureWorkflowOptionsCatalogLoaderForTests();
+  configureWorkflowBuiltInMcpCatalogForTests();
   configureWorkflowMcpRepositoryForTests();
   repo.getWorkspaceSummaryForUser = originals.getWorkspaceSummaryForUser;
   repo.getWorkspaceRole = originals.getWorkspaceRole;
@@ -142,12 +148,12 @@ export function restoreControllerRegressionState(): void {
   repo.deleteWorkspace = originals.deleteWorkspace;
   mock.restoreAll();
 }
-
 export function createResponse() {
   return {
     statusCode: 200,
     body: undefined as unknown,
     sent: false,
+    headers: new Map<string, string>(),
     status(code: number) {
       this.statusCode = code;
       return this;
@@ -160,10 +166,13 @@ export function createResponse() {
       this.sent = true;
       this.body = payload;
       return this;
+    },
+    setHeader(name: string, value: string) {
+      this.headers.set(name.toLowerCase(), value);
+      return this;
     }
   };
 }
-
 export function createRequest(params: Record<string, string>, body: Record<string, unknown> = {}) {
   return {
     params,
@@ -175,7 +184,6 @@ export function createRequest(params: Record<string, string>, body: Record<strin
     }
   };
 }
-
 export async function callController(
   handler: (req: never, res: never, next: (err?: unknown) => void) => Promise<void>,
   req: ReturnType<typeof createRequest>
@@ -238,20 +246,37 @@ export function installWorkspace(role: Role | null): void {
     },
     tools: async (_workspaceId, serverId) => mcpServers.get(serverId)?.tools || null
   });
+  configureWorkflowBuiltInMcpCatalogForTests(async () => ({
+    server: {
+      id: 'acornops-cluster-agent',
+      name: 'AcornOps Kubernetes Tools',
+      enabled: true,
+      targetIds: ['cluster-1']
+    },
+    tools: [
+      { name: 'get_resource', capability: 'read', inputSchema: { type: 'object' }, enabled: true, targetIds: ['cluster-1'] },
+      { name: 'get_resource_logs', capability: 'read', inputSchema: { type: 'object' }, enabled: true, targetIds: ['cluster-1'] },
+      { name: 'list_resources', capability: 'read', inputSchema: { type: 'object' }, enabled: true, targetIds: ['cluster-1'] }
+    ]
+  }));
   configureWorkflowOptionsCatalogLoaderForTests(async (workspaceId) => {
     const agents = defaultAgentDefinitions(workspaceId).filter((agent) => agent.kind === 'specialist_agent');
-    const servers = [...mcpServers.values()];
+    const servers = [...mcpServers.values()].filter((server) => server.id === 'acornops-cluster-agent');
     return {
-      clusters: [],
+      clusters: [{ value: 'cluster-1', label: 'Test cluster', provenance: { source: 'target' as const, targetId: 'cluster-1', targetName: 'Test cluster' } }],
       mcpServers: servers.map((server) => ({ value: server.id, label: server.name, disabled: !server.enabled })),
-      mcpTools: servers.flatMap((server) => server.tools.map((tool) => ({
-        value: tool.name, label: tool.title, disabled: !server.enabled || !tool.enabled
-      }))),
       skills: [
         { value: 'acornops-observability', label: 'AcornOps observability' },
         { value: 'acornops-cross-repo-change', label: 'Cross-repo change' },
         { value: 'acornops-open-pr', label: 'Open PR' },
         { value: 'acornops-target-boundary-design', label: 'Target boundary design' }
+      ],
+      mcpTools: [
+        ...servers.flatMap((server) => server.tools.map((tool) => ({
+          value: tool.name, label: tool.title, disabled: !server.enabled || !tool.enabled
+        }))),
+        { value: 'chat.sessions.read_selected', label: 'Read selected chats' },
+        { value: 'reports.pdf.generate', label: 'Generate incident report PDF' }
       ],
       agents: agents.map((agent) => ({ value: agent.id, label: agent.name })),
       chatSessions: [],
@@ -260,7 +285,7 @@ export function installWorkspace(role: Role | null): void {
       runtimeLimits: [],
       retentionPolicies: [],
       sourceAvailability: {
-        clusters: { status: 'empty' },
+        clusters: { status: 'available' },
         mcpServers: { status: 'available' }, mcpTools: { status: 'available' },
         skills: { status: 'available' }, agents: { status: 'available' }, chatSessions: { status: 'empty' }
       }
@@ -324,124 +349,4 @@ export function createWorkspaceAiCredentialStatusResponse(workspaceId = 'workspa
 
 export function isWorkspaceAiCredentialStatusRequest(input: unknown): boolean {
   return String(input).includes('/api/v1/internal/llm/provider-credentials?');
-}
-
-export function createCluster(): Cluster {
-  return {
-    id: 'cluster-1',
-    workspaceId: 'workspace-1',
-    name: 'cluster',
-    status: 'online',
-    namespaceInclude: [],
-    namespaceExclude: [],
-    writeConfirmationPolicy: {
-      effectiveRequired: false,
-      overrideRequired: null,
-      source: 'deployment_default'
-    },
-    createdAt: '2026-05-24T00:00:00.000Z',
-    updatedAt: '2026-05-24T00:00:00.000Z'
-  };
-}
-
-export function createTarget(overrides: Partial<TargetSummary> = {}): TargetSummary {
-  return {
-    id: 'cluster-1',
-    workspaceId: 'workspace-1',
-    targetType: 'kubernetes',
-    name: 'cluster',
-    status: 'online',
-    metadata: {},
-    createdAt: '2026-05-24T00:00:00.000Z',
-    updatedAt: '2026-05-24T00:00:00.000Z',
-    ...overrides
-  };
-}
-
-export function createSessionRecord(overrides: Partial<ChatSession> = {}): ChatSession {
-  return {
-    id: 'session-1',
-    workspaceId: 'workspace-1',
-    targetId: 'cluster-1',
-    targetType: 'kubernetes',
-    clusterId: 'cluster-1',
-    createdBy: 'user-1',
-    title: 'Session',
-    status: 'open',
-    createdAt: '2026-05-24T00:00:00.000Z',
-    updatedAt: '2026-05-24T00:00:00.000Z',
-    lastMessageAt: '2026-05-24T00:00:00.000Z',
-    expiresAt: '2026-05-25T00:00:00.000Z',
-    ...overrides
-  };
-}
-
-export function createRun(overrides: Partial<Run> = {}): Run {
-  return {
-    id: 'run-1',
-    workspaceId: 'workspace-1',
-    targetId: 'cluster-1',
-    targetType: 'kubernetes',
-    clusterId: 'cluster-1',
-    sessionId: 'session-1',
-    messageId: 'message-1',
-    llmProvider: 'gemini',
-    llmModel: 'gemini-2.0-flash',
-    toolAccessMode: 'read_write',
-    status: 'completed',
-    requestedAt: '2026-05-24T00:00:00.000Z',
-    ...overrides
-  };
-}
-
-export function createMessage(overrides: Partial<Message> = {}): Message {
-  return {
-    id: 'message-1',
-    sessionId: 'session-1',
-    runId: 'run-1',
-    role: 'user',
-    kind: 'user',
-    content: 'diagnose',
-    createdAt: '2026-05-24T00:00:00.000Z',
-    ...overrides
-  };
-}
-
-export function createApproval(overrides: Partial<RunToolApproval> = {}): RunToolApproval {
-  return {
-    id: 'approval-1',
-    runId: 'run-1',
-    workspaceId: 'workspace-1',
-    clusterId: 'cluster-1',
-    targetId: 'cluster-1',
-    targetType: 'kubernetes',
-    toolCallId: 'call-1',
-    toolName: 'restart_workload',
-    summary: 'Restart workload default/api.',
-    arguments: {},
-    status: 'pending',
-    executionStatus: 'not_started',
-    requestedBy: 'requester-1',
-    createdAt: '2026-05-24T00:00:00.000Z',
-    updatedAt: '2026-05-24T00:00:00.000Z',
-    expiresAt: '2026-05-25T00:00:00.000Z',
-    ...overrides
-  };
-}
-
-export function createWebhookSubscription(): WebhookSubscription {
-  return {
-    id: 'webhook-1',
-    workspaceId: 'workspace-1',
-    targetId: 'cluster-1',
-    name: 'Webhook',
-    url: 'https://example.test/webhook',
-    eventTypes: ['run.created.v1'],
-    enabled: true,
-    secretCiphertext: 'ciphertext',
-    secretKeyId: 'default',
-    createdBy: 'user-1',
-    createdAt: '2026-05-24T00:00:00.000Z',
-    updatedAt: '2026-05-24T00:00:00.000Z'
-  };
 }

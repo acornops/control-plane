@@ -3,23 +3,22 @@ import { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { compileAgentRunScope, AgentAccessDeniedError } from '../services/agent-access.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
-import { deletePersistedAgentDefinition, persistAgentDefinition } from '../store/repository-workflow-options.js';
+import { incrementAutomationApproval } from '../metrics.js';
 import {
-  createAgentActivityRecord,
+  createAgentRunActivity,
   createAgentDefinition,
-  createAgentTrigger as createStoredAgentTrigger,
   createAgentVersionSnapshot,
   deleteAgentDefinition,
-  deleteAgentTrigger as deleteStoredAgentTrigger,
   getAgentDefinition,
   listAgentActivityRecords,
   listAgentDefinitions,
   listAgentVersionSnapshots,
   restoreAgentVersionSnapshot,
-  updateAgentDefinition,
-  updateAgentTrigger as updateStoredAgentTrigger
+  updateAgentDefinition
 } from '../store/repository-agents.js';
 import type { AgentDefinition } from '../types/agents.js';
+import type { TargetType } from '../types/domain.js';
+import { repo } from '../store/repository.js';
 import { toSingleParam } from '../utils/params.js';
 import { containsSearchText, makeQuerySignature, normalizeSearchQuery, pageArray, parseBoundedLimit } from '../utils/pagination.js';
 import {
@@ -32,7 +31,6 @@ import {
   normalizeTargetScope,
   normalizeTrustPolicy,
   stringList,
-  triggerType,
   workflowsUsingAgent
 } from './agent-controller-helpers.js';
 
@@ -55,7 +53,6 @@ function requireAgentWorkspaceId(req: AuthenticatedRequest, res: Response): stri
   }
   return workspaceId;
 }
-
 
 async function auditAgentDefinitionMutation(
   req: AuthenticatedRequest,
@@ -91,9 +88,9 @@ export async function listAgents(req: AuthenticatedRequest, res: Response, next:
     const includeInactive = req.query.includeInactive === 'true' || req.query.includeInactive === '1';
     const q = normalizeSearchQuery(req.query.q);
     const signature = makeQuerySignature({ workspaceId, includeInactive, q });
-    const rows = listAgentDefinitions(workspaceId, { includeInactive })
-      .filter((agent) => containsSearchText([agent.name, agent.description, agent.status, agent.ownerUserId], q))
-      .map(agentResponse);
+    const agents = (await listAgentDefinitions(workspaceId, { includeInactive }))
+      .filter((agent) => containsSearchText([agent.name, agent.description, agent.status, agent.ownerUserId], q));
+    const rows = await Promise.all(agents.map(agentResponse));
     res.status(200).json(pageArray(rows, {
       limit: parseBoundedLimit(req.query.limit),
       cursor: req.query.cursor,
@@ -110,12 +107,12 @@ export async function getAgent(req: AuthenticatedRequest, res: Response, next: N
     if (!workspaceId) return;
     const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
-    const agent = getAgentDefinition(workspaceId, toSingleParam(req.params.agentId));
+    const agent = await getAgentDefinition(workspaceId, toSingleParam(req.params.agentId));
     if (!agent) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
       return;
     }
-    res.status(200).json({ agent: agentResponse(agent) });
+    res.status(200).json({ agent: await agentResponse(agent) });
   } catch (err) {
     next(err);
   }
@@ -156,7 +153,7 @@ export async function createAgent(req: AuthenticatedRequest, res: Response, next
       badRequest(res, 'AGENT_OPTION_INVALID', 'Agent references unknown or disabled server-owned options.', optionErrors);
       return;
     }
-    const agent = createAgentDefinition({
+    const agent = await createAgentDefinition({
       workspaceId,
       name,
       description: typeof body.description === 'string' ? body.description : undefined,
@@ -172,7 +169,6 @@ export async function createAgent(req: AuthenticatedRequest, res: Response, next
       trustPolicy,
       targetScope
     });
-    await persistAgentDefinition(agent);
     await recordWorkspaceAuditEvent({
       workspaceId,
       category: 'run',
@@ -185,7 +181,7 @@ export async function createAgent(req: AuthenticatedRequest, res: Response, next
       summary: 'Agent definition created',
       metadata: { agentId: agent.id, agentVersion: agent.version }
     });
-    res.status(201).json({ agent: agentResponse(agent) });
+    res.status(201).json({ agent: await agentResponse(agent) });
   } catch (err) {
     next(err);
   }
@@ -197,7 +193,7 @@ export async function updateAgent(req: AuthenticatedRequest, res: Response, next
     if (!workspaceId) return;
     const authz = await requireWorkspaceCapability(req, res, workspaceId, 'manage_agents', 'No permission to manage agents');
     if (!authz) return;
-    const current = getAgentDefinition(workspaceId, toSingleParam(req.params.agentId));
+    const current = await getAgentDefinition(workspaceId, toSingleParam(req.params.agentId));
     if (!current) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
       return;
@@ -213,7 +209,7 @@ export async function updateAgent(req: AuthenticatedRequest, res: Response, next
       return;
     }
     const providerType = patch.providerType || current.providerType;
-    const updated = updateAgentDefinition(workspaceId, current.id, {
+    const updated = await updateAgentDefinition(workspaceId, current.id, {
       ...patch,
       trustPolicy: patch.trustPolicy ? normalizeTrustPolicy(patch.trustPolicy, providerType) : patch.providerType === 'external' ? normalizeTrustPolicy(undefined, 'external') : undefined,
       approvalPolicy: patch.approvalPolicy ? normalizeApprovalPolicy(patch.approvalPolicy) : undefined,
@@ -223,9 +219,8 @@ export async function updateAgent(req: AuthenticatedRequest, res: Response, next
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
       return;
     }
-    await persistAgentDefinition(updated);
     await auditAgentDefinitionMutation(req, updated, 'agent.definition_updated.v1', 'Agent definition updated');
-    res.status(200).json({ agent: agentResponse(updated) });
+    res.status(200).json({ agent: await agentResponse(updated) });
   } catch (err) {
     next(err);
   }
@@ -238,7 +233,7 @@ export async function deleteAgent(req: AuthenticatedRequest, res: Response, next
     const authz = await requireWorkspaceCapability(req, res, workspaceId, 'manage_agents', 'No permission to manage agents');
     if (!authz) return;
     const agentId = toSingleParam(req.params.agentId);
-    const current = getAgentDefinition(workspaceId, agentId);
+    const current = await getAgentDefinition(workspaceId, agentId);
     if (!current) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
       return;
@@ -247,7 +242,7 @@ export async function deleteAgent(req: AuthenticatedRequest, res: Response, next
       res.status(409).json({ error: { code: 'SYSTEM_AGENT_IMMUTABLE', message: 'System agent templates cannot be deleted.', retryable: false } });
       return;
     }
-    const assignedWorkflows = workflowsUsingAgent(workspaceId, agentId);
+    const assignedWorkflows = await workflowsUsingAgent(workspaceId, agentId);
     if (assignedWorkflows.length > 0) {
       res.status(409).json({
         error: {
@@ -259,8 +254,7 @@ export async function deleteAgent(req: AuthenticatedRequest, res: Response, next
       });
       return;
     }
-    deleteAgentDefinition(workspaceId, agentId);
-    await deletePersistedAgentDefinition(workspaceId, agentId);
+    await deleteAgentDefinition(workspaceId, agentId);
     await recordWorkspaceAuditEvent({
       workspaceId,
       category: 'run',
@@ -285,12 +279,12 @@ export async function createAgentVersion(req: AuthenticatedRequest, res: Respons
     if (!workspaceId) return;
     const authz = await requireWorkspaceCapability(req, res, workspaceId, 'manage_agents', 'No permission to manage agents');
     if (!authz) return;
-    const version = createAgentVersionSnapshot(workspaceId, toSingleParam(req.params.agentId), req.auth.userId);
+    const version = await createAgentVersionSnapshot(workspaceId, toSingleParam(req.params.agentId), req.auth.userId);
     if (!version) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
       return;
     }
-    const agent = getAgentDefinition(workspaceId, toSingleParam(req.params.agentId));
+    const agent = await getAgentDefinition(workspaceId, toSingleParam(req.params.agentId));
     if (agent) {
       await auditAgentDefinitionMutation(req, agent, 'agent.version_snapshot_created.v1', 'Agent version snapshot created', { snapshotId: version.id });
     }
@@ -306,14 +300,14 @@ export async function listAgentVersions(req: AuthenticatedRequest, res: Response
     if (!workspaceId) return;
     const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
-    const agent = getAgentDefinition(workspaceId, toSingleParam(req.params.agentId));
+    const agent = await getAgentDefinition(workspaceId, toSingleParam(req.params.agentId));
     if (!agent) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
       return;
     }
     const q = normalizeSearchQuery(req.query.q);
     const signature = makeQuerySignature({ workspaceId, agentId: agent.id, q });
-    const rows = listAgentVersionSnapshots(workspaceId, agent.id)
+    const rows = (await listAgentVersionSnapshots(workspaceId, agent.id))
       .filter((version) => containsSearchText([version.version, version.createdBy, version.createdAt], q));
     res.status(200).json(pageArray(rows, {
       limit: parseBoundedLimit(req.query.limit), cursor: req.query.cursor, signature
@@ -329,7 +323,7 @@ export async function restoreAgentVersion(req: AuthenticatedRequest, res: Respon
     if (!workspaceId) return;
     const authz = await requireWorkspaceCapability(req, res, workspaceId, 'manage_agents', 'No permission to manage agents');
     if (!authz) return;
-    const restored = restoreAgentVersionSnapshot(
+    const restored = await restoreAgentVersionSnapshot(
       workspaceId,
       toSingleParam(req.params.agentId),
       toSingleParam(req.params.versionId)
@@ -338,11 +332,10 @@ export async function restoreAgentVersion(req: AuthenticatedRequest, res: Respon
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent version not found', retryable: false } });
       return;
     }
-    await persistAgentDefinition(restored);
     await auditAgentDefinitionMutation(req, restored, 'agent.version_restored.v1', 'Agent version restored', {
       restoredVersionId: toSingleParam(req.params.versionId)
     });
-    res.status(200).json({ agent: agentResponse(restored) });
+    res.status(200).json({ agent: await agentResponse(restored) });
   } catch (err) {
     next(err);
   }
@@ -354,7 +347,7 @@ export async function testAgent(req: AuthenticatedRequest, res: Response, next: 
     if (!workspaceId) return;
     const authz = await requireWorkspaceCapability(req, res, workspaceId, 'manage_agents', 'No permission to test agents');
     if (!authz) return;
-    const agent = getAgentDefinition(workspaceId, toSingleParam(req.params.agentId));
+    const agent = await getAgentDefinition(workspaceId, toSingleParam(req.params.agentId));
     if (!agent) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
       return;
@@ -371,17 +364,9 @@ export async function testAgent(req: AuthenticatedRequest, res: Response, next: 
       approvedContextGrants,
       triggerId: typeof body.triggerId === 'string' ? body.triggerId : undefined
     });
-    const activity = createAgentActivityRecord({
-      agent,
-      triggerId: compiledScope.triggerId,
-      status: 'queued',
-      triggeredBy: { type: 'user', userId: req.auth.userId },
-      inputContext: body.inputContext && typeof body.inputContext === 'object' && !Array.isArray(body.inputContext)
-        ? body.inputContext as Record<string, unknown>
-        : {},
-      compiledScope
-    });
-    res.status(202).json({ activity, compiledScope });
+    res.setHeader('Deprecation', 'true');
+    res.setHeader('Sunset', 'Wed, 31 Dec 2026 23:59:59 GMT');
+    res.status(200).json({ compiledScope, executing: false, deprecated: true });
   } catch (err) {
     if (err instanceof AgentAccessDeniedError) {
       res.status(403).json({
@@ -401,6 +386,85 @@ export async function testAgent(req: AuthenticatedRequest, res: Response, next: 
   }
 }
 
+export async function runAgent(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const workspaceId = toSingleParam(req.params.workspaceId);
+    const agentId = toSingleParam(req.params.agentId);
+    const authz = await requireWorkspaceDataRead(req, res, workspaceId, 'No access to Agent');
+    if (!authz) return;
+    const agent = await getAgentDefinition(workspaceId, agentId);
+    if (!agent) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
+      return;
+    }
+    const body = bodyRecord(req.body);
+    const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
+    if (!prompt) {
+      badRequest(res, 'AGENT_PROMPT_REQUIRED', 'prompt is required.');
+      return;
+    }
+    const targetId = typeof body.targetId === 'string' ? body.targetId.trim() : undefined;
+    let targetType: TargetType | undefined;
+    if (agent.targetScope.type === 'selected_target' && !targetId) {
+      badRequest(res, 'AGENT_TARGET_REQUIRED', 'This Agent requires a selected target.');
+      return;
+    }
+    if (targetId) {
+      const target = await repo.getTarget(workspaceId, targetId);
+      if (!target || target.status === 'offline') {
+        res.status(409).json({ error: { code: 'AGENT_TARGET_NOT_READY', message: 'The selected target is missing or offline.', retryable: false } });
+        return;
+      }
+      if (agent.targetScope.targetTypes?.length && !agent.targetScope.targetTypes.includes(target.targetType)) {
+        badRequest(res, 'AGENT_TARGET_TYPE_INVALID', 'The selected target type is not allowed for this Agent.');
+        return;
+      }
+      targetType = target.targetType;
+    }
+    if (agent.readiness.status === 'blocked' || (agent.id === 'agent-release-coordinator' && agent.readiness.status !== 'ready')) {
+      res.status(409).json({
+        error: { code: 'AGENT_NOT_READY', message: agent.readiness.reasons[0] || 'Agent prerequisites are not ready.', retryable: false,
+          details: { readiness: agent.readiness } }
+      });
+      return;
+    }
+    const approvedContextGrants = stringList(body.approvedContextGrants) || [];
+    const compiledScope = compileAgentRunScope({
+      agent,
+      actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
+      approvedContextGrants,
+      triggerId: typeof body.triggerId === 'string' ? body.triggerId : undefined
+    });
+    const activity = await createAgentRunActivity({
+      agent,
+      triggerId: compiledScope.triggerId,
+      triggeredBy: { type: 'user', userId: req.auth.userId },
+      prompt,
+      inputContext: body.inputContext && typeof body.inputContext === 'object' && !Array.isArray(body.inputContext)
+        ? body.inputContext as Record<string, unknown> : {},
+      compiledScope,
+      clientRequestId: typeof body.clientRequestId === 'string' ? body.clientRequestId : undefined,
+      targetId,
+      targetType
+    });
+    if (activity.status === 'waiting_for_approval') incrementAutomationApproval('pre_step', 'requested');
+    await recordWorkspaceAuditEvent({
+      workspaceId, category: 'run', eventType: 'agent.run_created.v1', operation: 'write',
+      actorUserId: req.auth.userId, objectType: 'agent_run', objectId: activity.id,
+      objectName: agent.name, summary: 'Agent run created',
+      metadata: { agentId, agentVersion: agent.version, triggerId: activity.triggerId || null, targetId: targetId || null }
+    });
+    res.status(202).json({ runId: activity.id, activityId: activity.id, source: 'agent', status: activity.status });
+  } catch (err) {
+    if (err instanceof AgentAccessDeniedError) {
+      res.status(403).json({ error: { code: err.code, message: err.message, retryable: false,
+        details: { missingPermissions: err.missingPermissions, missingContextGrants: err.missingContextGrants } } });
+      return;
+    }
+    next(err);
+  }
+}
+
 export async function listAgentActivity(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const workspaceId = requireAgentWorkspaceId(req, res);
@@ -410,105 +474,11 @@ export async function listAgentActivity(req: AuthenticatedRequest, res: Response
     const agentId = toSingleParam(req.params.agentId);
     const q = normalizeSearchQuery(req.query.q);
     const signature = makeQuerySignature({ workspaceId, agentId, q });
-    const rows = listAgentActivityRecords(workspaceId, agentId)
+    const rows = (await listAgentActivityRecords(workspaceId, agentId))
       .filter((activity) => containsSearchText([activity.status, activity.triggeredBy.type, activity.createdAt], q));
     res.status(200).json(pageArray(rows, {
       limit: parseBoundedLimit(req.query.limit), cursor: req.query.cursor, signature
     }));
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function createAgentTrigger(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const workspaceId = requireAgentWorkspaceId(req, res);
-    if (!workspaceId) return;
-    const authz = await requireWorkspaceCapability(req, res, workspaceId, 'manage_agents', 'No permission to manage agent triggers');
-    if (!authz) return;
-    const body = bodyRecord(req.body);
-    const trigger = createStoredAgentTrigger(workspaceId, toSingleParam(req.params.agentId), {
-      type: triggerType(body.type),
-      enabled: body.enabled !== false,
-      name: typeof body.name === 'string' ? body.name : undefined,
-      schedule: body.schedule && typeof body.schedule === 'object' && !Array.isArray(body.schedule)
-        ? body.schedule as { cron: string; timezone: string }
-        : undefined,
-      eventFilter: body.eventFilter && typeof body.eventFilter === 'object' && !Array.isArray(body.eventFilter)
-        ? body.eventFilter as Record<string, unknown>
-        : undefined
-    });
-    if (!trigger) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
-      return;
-    }
-    const agent = getAgentDefinition(workspaceId, toSingleParam(req.params.agentId));
-    if (agent) {
-      await auditAgentDefinitionMutation(req, agent, 'agent.trigger_created.v1', 'Agent trigger created', {
-        triggerId: trigger.id,
-        triggerType: trigger.type,
-        triggerEnabled: trigger.enabled
-      });
-    }
-    res.status(201).json({ trigger });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function updateAgentTrigger(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const workspaceId = requireAgentWorkspaceId(req, res);
-    if (!workspaceId) return;
-    const authz = await requireWorkspaceCapability(req, res, workspaceId, 'manage_agents', 'No permission to manage agent triggers');
-    if (!authz) return;
-    const body = bodyRecord(req.body);
-    const trigger = updateStoredAgentTrigger(workspaceId, toSingleParam(req.params.agentId), toSingleParam(req.params.triggerId), {
-      type: typeof body.type === 'string' ? triggerType(body.type) : undefined,
-      enabled: typeof body.enabled === 'boolean' ? body.enabled : undefined,
-      name: typeof body.name === 'string' ? body.name : undefined,
-      schedule: body.schedule && typeof body.schedule === 'object' && !Array.isArray(body.schedule)
-        ? body.schedule as { cron: string; timezone: string }
-        : undefined,
-      eventFilter: body.eventFilter && typeof body.eventFilter === 'object' && !Array.isArray(body.eventFilter)
-        ? body.eventFilter as Record<string, unknown>
-        : undefined
-    });
-    if (!trigger) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent trigger not found', retryable: false } });
-      return;
-    }
-    const agent = getAgentDefinition(workspaceId, toSingleParam(req.params.agentId));
-    if (agent) {
-      await auditAgentDefinitionMutation(req, agent, 'agent.trigger_updated.v1', 'Agent trigger updated', {
-        triggerId: trigger.id,
-        triggerType: trigger.type,
-        triggerEnabled: trigger.enabled
-      });
-    }
-    res.status(200).json({ trigger });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function deleteAgentTrigger(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const workspaceId = requireAgentWorkspaceId(req, res);
-    if (!workspaceId) return;
-    const authz = await requireWorkspaceCapability(req, res, workspaceId, 'manage_agents', 'No permission to manage agent triggers');
-    if (!authz) return;
-    if (!deleteStoredAgentTrigger(workspaceId, toSingleParam(req.params.agentId), toSingleParam(req.params.triggerId))) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent trigger not found', retryable: false } });
-      return;
-    }
-    const agent = getAgentDefinition(workspaceId, toSingleParam(req.params.agentId));
-    if (agent) {
-      await auditAgentDefinitionMutation(req, agent, 'agent.trigger_deleted.v1', 'Agent trigger deleted', {
-        triggerId: toSingleParam(req.params.triggerId)
-      });
-    }
-    res.status(204).send();
   } catch (err) {
     next(err);
   }

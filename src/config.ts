@@ -37,7 +37,6 @@ function emptyStringToUndefined(value: unknown): unknown {
   }
   return value;
 }
-
 function envBoolean(defaultValue: boolean): z.ZodEffects<z.ZodBoolean, boolean, unknown> {
   return z.preprocess((value) => {
     if (value === undefined || value === '') {
@@ -51,7 +50,6 @@ function envBoolean(defaultValue: boolean): z.ZodEffects<z.ZodBoolean, boolean, 
     return value;
   }, z.boolean());
 }
-
 function optionalEnvBoolean(): z.ZodEffects<z.ZodOptional<z.ZodBoolean>, boolean | undefined, unknown> {
   return z.preprocess((value) => {
     if (value === undefined || value === '') {
@@ -65,7 +63,6 @@ function optionalEnvBoolean(): z.ZodEffects<z.ZodOptional<z.ZodBoolean>, boolean
     return value;
   }, z.boolean().optional());
 }
-
 function isUnsafeSecretValue(value: string | undefined, minimumLength = 32): boolean {
   if (!value) {
     return true;
@@ -255,6 +252,12 @@ const envSchema = z.object({
   EXECUTION_ENGINE_BASE_URL: z.string().url().default('http://localhost:8080'),
   EXECUTION_ENGINE_DISPATCH_TOKEN: z.string().default('dev_execution_engine_dispatch_token'),
   EXECUTION_ENGINE_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
+  AUTOMATION_RUNTIME_MODE: z.enum(['off', 'shadow', 'canary', 'on']).default('off'),
+  AUTOMATION_CANARY_WORKSPACE_IDS: z.string().default(''),
+  AUTOMATION_WORKER_INTERVAL_MS: z.coerce.number().int().min(250).default(1000),
+  REPORT_SOURCE_MAX_BYTES: z.coerce.number().int().positive().default(262144),
+  REPORT_PDF_MAX_BYTES: z.coerce.number().int().positive().default(5242880),
+  REPORT_RENDER_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
 
   INTERNAL_TRANSPORT_TLS_ENABLED: envBoolean(false),
   INTERNAL_TRANSPORT_TLS_REQUIRE_CLIENT_CERT: envBoolean(true),
@@ -293,7 +296,7 @@ const envSchema = z.object({
   AGENT_MAX_DUPLICATE_TOOL_CALLS: z.coerce.number().int().positive().default(2),
   AGENT_TOOL_DEFAULT_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
   AGENT_WRITE_CONFIRMATION_REQUIRED: envBoolean(true),
-  AGENT_WRITE_CONFIRMATION_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(300),
+  AGENT_WRITE_CONFIRMATION_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(900),
   BUILTIN_MCP_SERVER_NAME: z.preprocess(
     emptyStringToUndefined,
     z.string().min(1).default('acornops-cluster-agent')
@@ -533,10 +536,8 @@ const envSchema = z.object({
     value.CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED ?? value.NODE_ENV === 'production',
   AGENT_WS_REQUIRE_SECURE_TRANSPORT: value.AGENT_WS_REQUIRE_SECURE_TRANSPORT ?? value.NODE_ENV === 'production'
 }));
-
 export type AppConfig = z.infer<typeof envSchema>;
 export function parseAppConfig(env: NodeJS.ProcessEnv): AppConfig { return envSchema.parse(env); }
-
 export const config: AppConfig = (() => {
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {

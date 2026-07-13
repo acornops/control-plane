@@ -33,7 +33,13 @@ const files = migrationFiles();
 assert.deepEqual(files, [
   '001_initial_schema.sql',
   '002_agents_workflows.sql',
-  '003_workflow_option_catalogs.sql'
+  '003_workflow_option_catalogs.sql',
+  '004_durable_automation_runtime.sql',
+  '005_automation_approvals.sql',
+  '006_agent_activity_statuses.sql',
+  '007_system_skill_seeding.sql',
+  '008_cluster_triage_builtin_tools.sql',
+  '009_workflow_prompt_references.sql'
 ]);
 for (const file of files) {
   assert(/^\d{3,}_[a-z0-9_]+\.sql$/.test(file), `invalid migration filename ${file}`);
@@ -43,6 +49,12 @@ for (const file of files) {
 const initial = read('migrations/control-plane/001_initial_schema.sql');
 const agentsWorkflows = read('migrations/control-plane/002_agents_workflows.sql');
 const workflowOptionCatalogs = read('migrations/control-plane/003_workflow_option_catalogs.sql');
+const durableAutomationRuntime = read('migrations/control-plane/004_durable_automation_runtime.sql');
+const automationApprovals = read('migrations/control-plane/005_automation_approvals.sql');
+const agentActivityStatuses = read('migrations/control-plane/006_agent_activity_statuses.sql');
+const systemSkillSeeding = read('migrations/control-plane/007_system_skill_seeding.sql');
+const clusterTriageBuiltInTools = read('migrations/control-plane/008_cluster_triage_builtin_tools.sql');
+const workflowPromptReferences = read('migrations/control-plane/009_workflow_prompt_references.sql');
 for (const table of [
   'agent_definitions',
   'agent_triggers',
@@ -75,6 +87,66 @@ for (const needle of [
   'workflow_schedules_due_idx'
 ]) {
   assert(agentsWorkflows.includes(needle), `agents/workflows migration must preserve ${needle}`);
+}
+for (const table of [
+  'workflow_executions',
+  'workflow_run_events',
+  'agent_run_events',
+  'automation_dispatch_outbox',
+  'automation_trigger_events',
+  'automation_trigger_deliveries',
+  'workflow_reports'
+]) {
+  assert(durableAutomationRuntime.includes(`CREATE TABLE IF NOT EXISTS ${table}`), `durable automation migration must create ${table}`);
+}
+for (const needle of [
+  'FOR EACH ROW EXECUTE FUNCTION seed_workspace_automation_templates_trigger()',
+  'workflow_runs_execution_step_attempt_unique',
+  'automation_dispatch_outbox_claim_idx',
+  'workflow_approvals_expiry_idx'
+]) {
+  assert(durableAutomationRuntime.includes(needle), `durable automation migration must preserve ${needle}`);
+}
+for (const table of ['automation_run_approvals', 'automation_run_continuations']) {
+  assert(automationApprovals.includes(`CREATE TABLE IF NOT EXISTS ${table}`), `automation approval migration must create ${table}`);
+}
+for (const needle of [
+  'automation_run_approvals_expiry_idx',
+  "'waiting_for_approval'",
+  "'needs_review'"
+]) {
+  assert(automationApprovals.includes(needle), `automation approval migration must preserve ${needle}`);
+}
+for (const needle of ['agent_definitions_last_status_check', "'waiting_for_approval'", "'needs_review'"]) {
+  assert(agentActivityStatuses.includes(needle), `agent activity status migration must preserve ${needle}`);
+}
+for (const needle of [
+  'seed_workspace_system_skills',
+  'workspaces_seed_system_skills',
+  'FOR EACH ROW EXECUTE FUNCTION seed_workspace_system_skills_trigger()'
+]) {
+  assert(systemSkillSeeding.includes(needle), `system skill seeding migration must preserve ${needle}`);
+}
+for (const needle of [
+  'seed_workspace_cluster_triage_v2',
+  'workspaces_seed_cluster_triage_v2',
+  '"get_resource"',
+  '"get_resource_logs"',
+  '"list_resources"',
+  '"type":"cluster"',
+  '"chat.sessions.read_selected"',
+  '"reports.pdf.generate"',
+  'Add and assign a GitHub or GitLab MCP integration.'
+]) {
+  assert(clusterTriageBuiltInTools.includes(needle), `cluster triage built-in tools migration must preserve ${needle}`);
+}
+for (const needle of [
+  'seed_workspace_workflow_prompt_references_v3',
+  'workspaces_seed_workflow_prompt_references_v3',
+  '@cluster[Cluster name]',
+  '@chat[Incident chat title]'
+]) {
+  assert(workflowPromptReferences.includes(needle), `workflow prompt reference migration must preserve ${needle}`);
 }
 for (const table of [
   'users',

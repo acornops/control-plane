@@ -73,7 +73,12 @@ export const runCommitSchema = z.object({
   timing: z.object({
     started_at: z.string().datetime({ offset: true }),
     ended_at: z.string().datetime({ offset: true })
-  })
+  }),
+  output_artifacts: z.array(z.object({
+    id: z.string().min(1).max(128),
+    type: z.string().min(1).max(64),
+    title: z.string().min(1).max(240)
+  })).max(50).optional()
 });
 
 export const postMessageSchema = z.object({

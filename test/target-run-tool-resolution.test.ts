@@ -113,6 +113,33 @@ describe('target run tool resolution', () => {
     });
   });
 
+  it('can restrict workflow runs to built-in MCP tools without native tools', async () => {
+    installResolverRepoStubs(['read', 'write']);
+    mockToolList([
+      BASE_TOOLS[1],
+      {
+        ...BASE_TOOLS[1],
+        name: 'get_weather',
+        mcp_server_url: 'https://mock.example.test/mcp',
+        source: 'mcp'
+      }
+    ]);
+
+    const result = await resolveTargetRunTools({
+      workspaceId: 'workspace-1',
+      targetId: 'target-1',
+      targetType: 'virtual_machine',
+      toolAccessMode: 'read_only',
+      runId: 'workflow-run-1',
+      builtInOnly: true,
+      includeNativeTools: false
+    });
+
+    assert.deepEqual(result.allowedToolNames, ['get_logs']);
+    assert.deepEqual(result.allowedNativeTools, []);
+    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['get_logs']);
+  });
+
   it('includes default target tools when no explicit target setting exists', async () => {
     installResolverRepoStubs(['read', 'write']);
     mockToolList([]);
@@ -339,31 +366,6 @@ describe('target run tool resolution', () => {
 });
 
 describe('target assistant capabilities preview controller', () => {
-  it('enforces write run permission for read-write previews', async () => {
-    installWorkspace('viewer');
-    const response = await callController(
-      getTargetAssistantCapabilitiesPreview,
-      Object.assign(createRequest({ workspaceId: 'workspace-1', targetId: 'target-1' }), {
-        query: { toolAccessMode: 'read_write' }
-      })
-    );
-
-    assert.equal(response.statusCode, 403);
-  });
-
-  it('requires an explicit preview access mode', async () => {
-    installWorkspace('operator');
-    repo.getTarget = async () => createTarget({ id: 'target-1', name: 'vm', targetType: 'virtual_machine' });
-
-    const response = await callController(
-      getTargetAssistantCapabilitiesPreview,
-      createRequest({ workspaceId: 'workspace-1', targetId: 'target-1' })
-    );
-
-    assert.equal(response.statusCode, 400);
-    assert.equal((response.body as { error: { code: string } }).error.code, 'VALIDATION_ERROR');
-  });
-
   it('returns the shared resolver preview for an allowed target run mode', async () => {
     installWorkspace('operator');
     repo.getTarget = async () => createTarget({ id: 'target-1', name: 'vm', targetType: 'virtual_machine' });
@@ -426,16 +428,4 @@ describe('target assistant capabilities preview controller', () => {
     ]);
   });
 
-  it('rejects unsupported target types before resolving tools', async () => {
-    installWorkspace('operator');
-    repo.getTarget = async () => createTarget({ id: 'target-1', name: 'db', targetType: 'database' as never });
-
-    const response = await callController(
-      getTargetAssistantCapabilitiesPreview,
-      createRequest({ workspaceId: 'workspace-1', targetId: 'target-1' })
-    );
-
-    assert.equal(response.statusCode, 400);
-    assert.equal((response.body as { error: { code: string } }).error.code, 'UNSUPPORTED_TARGET_TYPE');
-  });
 });

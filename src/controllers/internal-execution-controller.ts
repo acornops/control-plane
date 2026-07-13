@@ -1,22 +1,23 @@
 import { NextFunction, Request, Response } from 'express';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
+import { incrementAutomationTerminalOutcome } from '../metrics.js';
 import { incrementTargetInsightsRetrieval, incrementRunEventsIngested } from '../metrics.js';
 import { publishRunEvents } from '../services/control-plane-coordination.js';
 import { TARGET_INSIGHTS_TOOL_ID, normalizeTargetInsightsConfig } from '../services/target-insights/config.js';
 import { recordTargetChatActivityEvent } from '../services/target-chat-activity-events.js';
 import { emitRunStatusTransition } from '../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
+import { advanceWorkflowExecution } from '../services/workflow-state-machine.js';
 import { repo } from '../store/repository.js';
 import {
   appendWorkflowRunEvents,
   getWorkflowRun,
-  getWorkflowSession,
-  listWorkflowMessages,
   updateWorkflowRun,
   upsertWorkflowAssistantFinalMessage,
 } from '../store/repository-workflows.js';
 import { runtime } from '../store/runtime.js';
+import { appendAgentRunEvents, getAgentActivityRecord, listAgentRunEvents, updateAgentActivityRecord } from '../store/repository-agents.js';
 import { RunEvent } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
 import {
@@ -28,6 +29,7 @@ import {
 
 export { bootstrap } from './internal-execution-bootstrap.js';
 export { summarizeRunEventCounts } from './internal-execution-events.js';
+export { getAgentRunContext, getWorkflowSessionContext } from './internal-automation-context-controller.js';
 
 function buildTargetInsightsContextMessage(snippets: Awaited<ReturnType<typeof repo.searchTargetInsightsSnippets>>): string {
   return [
@@ -164,58 +166,10 @@ export async function getSessionContext(req: Request, res: Response, next: NextF
   }
 }
 
-export async function getWorkflowSessionContext(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const sessionId = toSingleParam(req.params.sessionId);
-    const runId = String(req.query.run_id || '');
-    const session = getWorkflowSession(sessionId);
-
-    if (!session) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow session not found', retryable: false } });
-      return;
-    }
-
-    if (runId) {
-      const run = getWorkflowRun(runId);
-      if (!run || run.workflowSessionId !== sessionId) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow run not found for session', retryable: false } });
-        return;
-      }
-    }
-
-    const messages = listWorkflowMessages(sessionId);
-    const context = {
-      messages: [
-        {
-          role: 'system',
-          content: [
-            config.AGENT_SYSTEM_INSTRUCTION,
-            'You are executing a workspace-scoped workflow. Use only the compiled workflow grants provided by control-plane.',
-            `Workflow access scope: ${JSON.stringify({
-              workflowId: session.compiledAccessScope.workflowId,
-              mode: session.compiledAccessScope.mode,
-              tools: session.compiledAccessScope.tools,
-              contextGrants: session.compiledAccessScope.contextGrants,
-              approvalGates: session.compiledAccessScope.approvalGates
-            })}`
-          ].join('\n\n')
-        },
-        ...messages.map((message) => ({ role: message.role, content: message.content }))
-      ],
-      summaries: [],
-      attachments: []
-    };
-
-    res.status(200).json(context);
-  } catch (err) {
-    next(err);
-  }
-}
-
 export async function ingestRunEvents(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
-    const workflowRun = getWorkflowRun(runId);
+    const workflowRun = await getWorkflowRun(runId);
     if (workflowRun) {
       let currentRun = workflowRun;
       const incomingEvents = Array.isArray(req.body.events) ? req.body.events as RunEvent[] : [];
@@ -238,7 +192,7 @@ export async function ingestRunEvents(req: Request, res: Response, next: NextFun
         res.status(200).json({ status: 'ok', accepted: 0 });
         return;
       }
-      const accepted = appendWorkflowRunEvents(currentRun.id, acceptedEvents);
+      const accepted = await appendWorkflowRunEvents(currentRun.id, acceptedEvents);
       const buffered = runtime.appendRunEvents(currentRun.id, accepted);
       const bufferedEventCounts = summarizeRunEventCounts(buffered);
       for (const [eventType, count] of bufferedEventCounts.entries()) {
@@ -250,23 +204,38 @@ export async function ingestRunEvents(req: Request, res: Response, next: NextFun
           continue;
         }
         if (event.type === 'run_started') {
-          currentRun = updateWorkflowRun(currentRun.id, { status: 'running', startedAt: currentRun.startedAt || new Date().toISOString() }) || currentRun;
+          currentRun = await updateWorkflowRun(currentRun.id, { status: 'running', startedAt: currentRun.startedAt || new Date().toISOString() }) || currentRun;
         } else if (event.type === 'tool_approval_requested') {
-          currentRun = updateWorkflowRun(currentRun.id, { status: 'waiting_for_approval' }) || currentRun;
+          currentRun = await updateWorkflowRun(currentRun.id, { status: 'waiting_for_approval' }) || currentRun;
         } else if (event.type === 'run_failed') {
-          currentRun = updateWorkflowRun(currentRun.id, {
+          currentRun = await updateWorkflowRun(currentRun.id, {
             status: 'failed',
             errorCode: String((event.payload.code as string | undefined) || 'RUN_FAILED'),
             errorMessage: String((event.payload.message as string | undefined) || 'Run failed'),
             endedAt: new Date().toISOString()
           }) || currentRun;
         } else if (event.type === 'run_cancelled') {
-          currentRun = updateWorkflowRun(currentRun.id, { status: 'cancelled', endedAt: new Date().toISOString() }) || currentRun;
+          currentRun = await updateWorkflowRun(currentRun.id, { status: 'cancelled', endedAt: new Date().toISOString() }) || currentRun;
         }
         runtime.runStreams.emit(`run:${currentRun.id}`, { event });
       }
 
       res.status(200).json({ status: 'ok', accepted: buffered.length });
+      return;
+    }
+    const agentRun = await getAgentActivityRecord(runId);
+    if (agentRun) {
+      const incomingEvents = Array.isArray(req.body.events) ? req.body.events as RunEvent[] : [];
+      const accepted = await appendAgentRunEvents(agentRun, incomingEvents);
+      for (const event of accepted) {
+        if (event.type === 'run_started') await updateAgentActivityRecord(runId, { status: 'running', startedAt: agentRun.startedAt || new Date().toISOString() });
+        else if (event.type === 'tool_approval_requested') await updateAgentActivityRecord(runId, { status: 'waiting_for_approval' });
+        else if (event.type === 'run_failed') await updateAgentActivityRecord(runId, { status: 'failed', endedAt: new Date().toISOString(),
+          errorCode: String(event.payload.code || 'RUN_FAILED'), errorMessage: String(event.payload.message || 'Run failed') });
+        else if (event.type === 'run_cancelled') await updateAgentActivityRecord(runId, { status: 'cancelled', endedAt: new Date().toISOString() });
+        runtime.runStreams.emit(`run:${runId}`, { event });
+      }
+      res.status(200).json({ status: 'ok', accepted: accepted.length });
       return;
     }
     const run = await repo.getRun(runId);
@@ -353,10 +322,16 @@ export async function ingestRunEvents(req: Request, res: Response, next: NextFun
 export async function getRunEventCursor(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
-    const workflowRun = getWorkflowRun(runId);
+    const workflowRun = await getWorkflowRun(runId);
     if (workflowRun) {
       const latestSeq = Math.max(0, ...(workflowRun.events || runtime.getRunEvents(workflowRun.id)).map((event) => event.seq));
       res.status(200).json({ latestSeq });
+      return;
+    }
+    const agentRun = await getAgentActivityRecord(runId);
+    if (agentRun) {
+      const events = await listAgentRunEvents(runId);
+      res.status(200).json({ latestSeq: Math.max(0, ...events.map((event) => event.seq)) });
       return;
     }
     const run = await repo.getRun(runId);
@@ -377,7 +352,7 @@ export async function getRunEventCursor(req: Request, res: Response, next: NextF
 export async function commitRun(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
-    const workflowRun = getWorkflowRun(runId);
+    const workflowRun = await getWorkflowRun(runId);
     if (workflowRun) {
       if (isTerminalRunStatus(workflowRun.status)) {
         res.status(200).json({ status: 'ok', terminal: true });
@@ -387,7 +362,7 @@ export async function commitRun(req: Request, res: Response, next: NextFunction)
         ? { ...req.body.assistant_message, content: '' }
         : req.body.assistant_message;
 
-      const updatedRun = updateWorkflowRun(workflowRun.id, {
+      const updatedRun = await updateWorkflowRun(workflowRun.id, {
         status: req.body.status,
         startedAt: req.body.timing.started_at,
         endedAt: req.body.timing.ended_at,
@@ -397,7 +372,7 @@ export async function commitRun(req: Request, res: Response, next: NextFunction)
 
       const committedContent = String(assistantMessage?.content || '').trim();
       if (committedContent) {
-        upsertWorkflowAssistantFinalMessage({
+        await upsertWorkflowAssistantFinalMessage({
           sessionId: workflowRun.workflowSessionId,
           runId: workflowRun.id,
           workspaceId: workflowRun.workspaceId,
@@ -405,7 +380,7 @@ export async function commitRun(req: Request, res: Response, next: NextFunction)
           content: committedContent
         });
       } else if (req.body.status === 'failed' || req.body.status === 'cancelled') {
-        upsertWorkflowAssistantFinalMessage({
+        await upsertWorkflowAssistantFinalMessage({
           sessionId: workflowRun.workflowSessionId,
           runId: workflowRun.id,
           workspaceId: workflowRun.workspaceId,
@@ -431,7 +406,34 @@ export async function commitRun(req: Request, res: Response, next: NextFunction)
           status: req.body.status
         }
       });
-
+      const transition = await advanceWorkflowExecution(
+        updatedRun,
+        req.body.status,
+        Array.isArray(req.body.output_artifacts) ? req.body.output_artifacts : []
+      );
+      incrementAutomationTerminalOutcome('workflow', req.body.status);
+      res.status(200).json({ status: 'ok', executionStatus: transition.executionStatus, nextRunId: transition.nextRunId });
+      return;
+    }
+    const agentRun = await getAgentActivityRecord(runId);
+    if (agentRun) {
+      if (agentRun.endedAt) {
+        res.status(200).json({ status: 'ok', terminal: true });
+        return;
+      }
+      await updateAgentActivityRecord(runId, {
+        status: req.body.status,
+        startedAt: req.body.timing.started_at,
+        endedAt: req.body.timing.ended_at,
+        usage: req.body.usage,
+        assistantMessage: req.body.status === 'cancelled' ? { ...req.body.assistant_message, content: '' } : req.body.assistant_message
+      });
+      await recordWorkspaceAuditEvent({
+        workspaceId: agentRun.workspaceId, category: 'run', eventType: 'agent.run_committed.v1', operation: 'write',
+        actorType: 'system', objectType: 'agent_run', objectId: agentRun.id, objectName: agentRun.agentId,
+        summary: 'Agent run output committed', metadata: { agentId: agentRun.agentId, agentVersion: agentRun.agentVersion, status: req.body.status }
+      });
+      incrementAutomationTerminalOutcome('agent', req.body.status);
       res.status(200).json({ status: 'ok' });
       return;
     }
@@ -493,7 +495,7 @@ export async function commitRun(req: Request, res: Response, next: NextFunction)
 export async function getRunCommit(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
-    const workflowRun = getWorkflowRun(runId);
+    const workflowRun = await getWorkflowRun(runId);
     if (workflowRun) {
       if (!workflowRun.endedAt) {
         res.status(200).json({});
@@ -508,6 +510,13 @@ export async function getRunCommit(req: Request, res: Response, next: NextFuncti
           ended_at: workflowRun.endedAt
         }
       });
+      return;
+    }
+    const agentRun = await getAgentActivityRecord(runId);
+    if (agentRun) {
+      if (!agentRun.endedAt) { res.status(200).json({}); return; }
+      res.status(200).json({ status: agentRun.status, assistant_message: agentRun.assistantMessage,
+        usage: agentRun.usage, timing: { started_at: agentRun.startedAt, ended_at: agentRun.endedAt } });
       return;
     }
     const run = await repo.getRun(runId);

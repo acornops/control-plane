@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { defaultWorkflowDefinitions } from './repository-workflow-defaults.js';
+import type { QueryResultRow } from 'pg';
+import { db } from '../infra/db.js';
 import { resetWorkflowRunRepositoryForTests } from './repository-workflow-runs.js';
-export type { WorkflowApprovalRecord, WorkflowMessageRecord, WorkflowRunRecord, WorkflowSessionRecord } from './repository-workflow-runs.js';
-export { appendWorkflowRunEvents, createWorkflowRun, createWorkflowSession, createWorkflowUserMessage, decideWorkflowRunApproval, getWorkflowRun, getWorkflowRunApproval, getWorkflowSession, listWorkflowApprovalsForWorkspace, listWorkflowMessages, listWorkflowRunApprovals, listWorkflowRunsForSession, listWorkflowSessions, updateWorkflowRun, upsertWorkflowAssistantFinalMessage } from './repository-workflow-runs.js';
+export type { WorkflowApprovalRecord, WorkflowExecutionRecord, WorkflowMessageRecord, WorkflowRunRecord, WorkflowSessionRecord } from './repository-workflow-runs.js';
+export { appendWorkflowRunEvents, createWorkflowExecution, createWorkflowRun, createWorkflowSession, createWorkflowUserMessage, decideWorkflowRunApproval, getWorkflowRun, getWorkflowRunApproval, getWorkflowSession, listWorkflowApprovalsForWorkspace, listWorkflowMessages, listWorkflowRunApprovals, listWorkflowRunsForSession, listWorkflowSessions, updateWorkflowRun, upsertWorkflowAssistantFinalMessage } from './repository-workflow-runs.js';
 export { getWorkflowOptionsCatalog } from './repository-workflow-options.js';
 export { createWorkflowMcpServer, deleteWorkflowMcpServer, listWorkflowMcpServerTools, listWorkflowMcpServers, testWorkflowMcpServerConnection, updateWorkflowMcpServer } from './repository-workflow-mcp.js';
 import type {
@@ -12,8 +13,6 @@ import type {
   WorkflowInputDefinition,
   WorkflowStepDefinition
 } from '../types/workflows.js';
-
-const workflowDefinitionsByWorkspace = new Map<string, Map<string, WorkflowDefinitionForAccess>>();
 
 export interface WorkflowMcpToolRecord {
   name: string;
@@ -104,54 +103,32 @@ export interface CreateWorkflowDefinitionInput {
   createdBy: string;
 }
 
-function cloneWorkflowDefinition(definition: WorkflowDefinitionForAccess): WorkflowDefinitionForAccess {
+type WorkflowRow = QueryResultRow;
+const iso = (value: unknown): string | undefined => value ? new Date(value as string).toISOString() : undefined;
+
+function mapWorkflowDefinition(row: WorkflowRow): WorkflowDefinitionForAccess {
   return {
-    ...definition,
-    tags: [...(definition.tags || [])],
-    inputs: (definition.inputs || []).map((input) => ({ ...input })),
-    enabledMcpServers: [...(definition.enabledMcpServers || [])],
-    enabledSkills: [...(definition.enabledSkills || [])],
-    requiredPermissions: [...definition.requiredPermissions],
-    policy: {
-      ...definition.policy,
-      approvalRequirements: [...definition.policy.approvalRequirements]
-    },
-    steps: definition.steps.map((step) => ({
-      ...step,
-      requiredInputs: [...step.requiredInputs],
-      agentIds: step.agentIds ? [...step.agentIds] : undefined,
-      targetBinding: step.targetBinding ? { ...step.targetBinding } : undefined,
-      enabledSkills: [...step.enabledSkills],
-      allowedMcpServers: [...step.allowedMcpServers],
-      allowedTools: [...step.allowedTools],
-      contextGrants: [...step.contextGrants],
-      outputArtifacts: (step.outputArtifacts || []).map((artifact) => ({ ...artifact }))
-    }))
+    id: row.id, workspaceId: row.workspace_id, version: row.version, source: row.source,
+    templateId: row.template_id || undefined, name: row.name, description: row.description || undefined,
+    status: row.status, category: row.category, orchestratorAgentId: row.orchestrator_agent_id,
+    tags: row.tags || [], inputs: row.inputs || [], enabledMcpServers: row.enabled_mcp_servers || [],
+    enabledSkills: row.enabled_skills || [], requiredPermissions: row.required_permissions || [],
+    policy: row.policy, steps: row.steps, starterPrompt: row.starter_prompt || undefined,
+    createdBy: row.created_by, createdAt: iso(row.created_at), updatedAt: iso(row.updated_at),
+    readiness: { status: row.readiness_status || 'needs_setup', reasons: row.readiness_reasons || [] }
   };
 }
 
-function nowIso(): string {
-  return new Date().toISOString();
+export async function listWorkflowDefinitions(workspaceId: string): Promise<WorkflowDefinitionForAccess[]> {
+  const result = await db.query<WorkflowRow>(
+    'SELECT * FROM workflow_definitions WHERE workspace_id=$1 ORDER BY updated_at DESC,id', [workspaceId]
+  );
+  return result.rows.map(mapWorkflowDefinition);
 }
 
-function definitionsForWorkspace(workspaceId: string): Map<string, WorkflowDefinitionForAccess> {
-  const existing = workflowDefinitionsByWorkspace.get(workspaceId);
-  if (existing) return existing;
-  const definitions = new Map<string, WorkflowDefinitionForAccess>();
-  for (const definition of defaultWorkflowDefinitions(workspaceId)) {
-    definitions.set(definition.id, definition);
-  }
-  workflowDefinitionsByWorkspace.set(workspaceId, definitions);
-  return definitions;
-}
-
-export function listWorkflowDefinitions(workspaceId: string): WorkflowDefinitionForAccess[] {
-  return [...definitionsForWorkspace(workspaceId).values()].map(cloneWorkflowDefinition);
-}
-
-export function getWorkflowDefinition(workspaceId: string, workflowId: string): WorkflowDefinitionForAccess | null {
-  const definition = definitionsForWorkspace(workspaceId).get(workflowId);
-  return definition ? cloneWorkflowDefinition(definition) : null;
+export async function getWorkflowDefinition(workspaceId: string, workflowId: string): Promise<WorkflowDefinitionForAccess | null> {
+  const result = await db.query<WorkflowRow>('SELECT * FROM workflow_definitions WHERE workspace_id=$1 AND id=$2', [workspaceId, workflowId]);
+  return result.rowCount ? mapWorkflowDefinition(result.rows[0]) : null;
 }
 
 function uniqueSorted(values: string[]): string[] {
@@ -179,20 +156,13 @@ function updateStepScope(step: WorkflowStepDefinition, update: NonNullable<Workf
   };
 }
 
-export function createWorkflowDefinition(input: CreateWorkflowDefinitionInput): WorkflowDefinitionForAccess {
-  const now = nowIso();
+export async function createWorkflowDefinition(input: CreateWorkflowDefinitionInput): Promise<WorkflowDefinitionForAccess> {
   const id = input.name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 48) || `workflow-${randomUUID()}`;
-  const definitions = definitionsForWorkspace(input.workspaceId);
-  let candidateId = id;
-  let suffix = 2;
-  while (definitions.has(candidateId)) {
-    candidateId = `${id}-${suffix}`;
-    suffix += 1;
-  }
+  const candidateId = `${id}-${randomUUID().slice(0, 8)}`;
   const definition: WorkflowDefinitionForAccess = {
     id: candidateId,
     workspaceId: input.workspaceId,
@@ -225,21 +195,30 @@ export function createWorkflowDefinition(input: CreateWorkflowDefinitionInput): 
       outputArtifacts: (step.outputArtifacts || []).map((artifact) => ({ ...artifact }))
     })),
     createdBy: input.createdBy,
-    createdAt: now,
-    updatedAt: now,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     starterPrompt: input.starterPrompt?.trim()
   };
-  definitions.set(definition.id, definition);
-  return cloneWorkflowDefinition(definition);
+  const result = await db.query<WorkflowRow>(
+    `INSERT INTO workflow_definitions (
+      workspace_id,id,version,source,name,description,status,category,orchestrator_agent_id,tags,inputs,
+      enabled_mcp_servers,enabled_skills,required_permissions,policy,steps,starter_prompt,created_by,
+      readiness_status,readiness_reasons
+     ) VALUES ($1,$2,1,'user',$3,$4,'draft',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'ready','[]') RETURNING *`,
+    [input.workspaceId, definition.id, definition.name, definition.description || null, definition.category,
+     definition.orchestratorAgentId, JSON.stringify(definition.tags), JSON.stringify(definition.inputs), JSON.stringify(definition.enabledMcpServers),
+     JSON.stringify(definition.enabledSkills), JSON.stringify(definition.requiredPermissions), definition.policy, JSON.stringify(definition.steps),
+     definition.starterPrompt || null, input.createdBy]
+  );
+  return mapWorkflowDefinition(result.rows[0]);
 }
 
-export function updateWorkflowDefinitionScope(
+export async function updateWorkflowDefinitionScope(
   workspaceId: string,
   workflowId: string,
   update: WorkflowDefinitionScopeUpdate
-): WorkflowDefinitionForAccess | null {
-  const definitions = definitionsForWorkspace(workspaceId);
-  const current = definitions.get(workflowId);
+): Promise<WorkflowDefinitionForAccess | null> {
+  const current = await getWorkflowDefinition(workspaceId, workflowId);
   if (!current) {
     return null;
   }
@@ -273,22 +252,27 @@ export function updateWorkflowDefinitionScope(
       return stepUpdate ? updateStepScope(step, stepUpdate) : step;
     }),
     starterPrompt: typeof update.starterPrompt === 'string' ? update.starterPrompt.trim() : current.starterPrompt,
-    updatedAt: nowIso()
+    updatedAt: new Date().toISOString()
   };
-  definitions.set(workflowId, updated);
-  return cloneWorkflowDefinition(updated);
+  const result = await db.query<WorkflowRow>(
+    `UPDATE workflow_definitions SET version=version+1,name=$3,description=$4,status=$5,category=$6,tags=$7,
+      inputs=$8,enabled_mcp_servers=$9,enabled_skills=$10,required_permissions=$11,policy=$12,steps=$13,
+      starter_prompt=$14,updated_at=NOW() WHERE workspace_id=$1 AND id=$2 RETURNING *`,
+    [workspaceId, workflowId, updated.name, updated.description || null, updated.status, updated.category,
+     JSON.stringify(updated.tags || []), JSON.stringify(updated.inputs || []), JSON.stringify(updated.enabledMcpServers || []), JSON.stringify(updated.enabledSkills || []),
+     JSON.stringify(updated.requiredPermissions), updated.policy, JSON.stringify(updated.steps), updated.starterPrompt || null]
+  );
+  return result.rowCount ? mapWorkflowDefinition(result.rows[0]) : null;
 }
 
-export function deleteWorkflowDefinition(workspaceId: string, workflowId: string): 'deleted' | 'system' | 'not_found' {
-  const definitions = definitionsForWorkspace(workspaceId);
-  const current = definitions.get(workflowId);
+export async function deleteWorkflowDefinition(workspaceId: string, workflowId: string): Promise<'deleted' | 'system' | 'not_found'> {
+  const current = await getWorkflowDefinition(workspaceId, workflowId);
   if (!current) return 'not_found';
   if ((current.source || 'system') === 'system') return 'system';
-  definitions.delete(workflowId);
+  await db.query('DELETE FROM workflow_definitions WHERE workspace_id=$1 AND id=$2', [workspaceId, workflowId]);
   return 'deleted';
 }
 
 export function resetWorkflowRepositoryForTests(): void {
   resetWorkflowRunRepositoryForTests();
-  workflowDefinitionsByWorkspace.clear();
 }

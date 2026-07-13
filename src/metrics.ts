@@ -24,6 +24,15 @@ const targetInsightsCheckpointPatchCounts = new Map<string, number>();
 const workflowRepositoryFailures = new Map<string, number>();
 const workflowCatalogSourceAvailability = new Map<string, number>();
 const workflowSchedulePreviewDurations = new Map<string, number>();
+const automationDispatches = new Map<string, number>();
+const automationDispatchDurations = new Map<string, number>();
+const automationTriggers = new Map<string, number>();
+const automationApprovals = new Map<string, number>();
+const automationTerminalOutcomes = new Map<string, number>();
+const automationPdfRenders = new Map<string, number>();
+const automationPdfRenderDurations = new Map<string, number>();
+const automationMcpFailures = new Map<string, number>();
+let automationGauges: Record<string, number> = {};
 let adminMutations = 0;
 let adminAuditWriteFailures = 0;
 
@@ -108,6 +117,44 @@ export function observeWorkflowSchedulePreviewDurationMs(status: 'valid' | 'inva
       increment(workflowSchedulePreviewDurations, `${status}:${bucket === Number.POSITIVE_INFINITY ? '+Inf' : bucket}`);
     }
   }
+}
+
+export function incrementAutomationDispatch(source: string, outcome: string): void {
+  increment(automationDispatches, `${source}:${outcome}`);
+}
+
+export function observeAutomationDispatchDurationMs(source: string, outcome: string, durationMs: number): void {
+  for (const bucket of [100, 500, 1000, 5000, 15000, 30000, Number.POSITIVE_INFINITY]) {
+    if (durationMs <= bucket) increment(automationDispatchDurations, `${source}:${outcome}:${bucket === Number.POSITIVE_INFINITY ? '+Inf' : bucket}`);
+  }
+}
+
+export function incrementAutomationTrigger(triggerType: string, outcome: string): void {
+  increment(automationTriggers, `${triggerType}:${outcome}`);
+}
+
+export function incrementAutomationApproval(kind: string, outcome: string): void {
+  increment(automationApprovals, `${kind}:${outcome}`);
+}
+
+export function incrementAutomationTerminalOutcome(source: string, status: string): void {
+  increment(automationTerminalOutcomes, `${source}:${status}`);
+}
+
+export function incrementAutomationMcpFailure(operation: string): void {
+  increment(automationMcpFailures, operation);
+}
+
+export function observeAutomationPdfRender(outcome: string, durationMs: number, outputBytes = 0): void {
+  increment(automationPdfRenders, `${outcome}:renders`);
+  increment(automationPdfRenders, `${outcome}:bytes`, outputBytes);
+  for (const bucket of [100, 500, 1000, 5000, 15000, 30000, Number.POSITIVE_INFINITY]) {
+    if (durationMs <= bucket) increment(automationPdfRenderDurations, `${outcome}:${bucket === Number.POSITIVE_INFINITY ? '+Inf' : bucket}`);
+  }
+}
+
+export function setAutomationGauges(snapshot: Record<string, number>): void {
+  automationGauges = { ...snapshot };
 }
 
 export function renderControlPlaneMetrics(): string {
@@ -213,6 +260,59 @@ export function renderControlPlaneMetrics(): string {
     ...Array.from(workflowSchedulePreviewDurations.entries()).map(([key, value]) => {
       const [status, le] = key.split(':');
       return metricLine('control_plane_workflow_schedule_preview_duration_ms_bucket', { ...serviceLabels, status, le }, value);
+    }),
+    '# HELP control_plane_automation_dispatch_total Durable automation dispatch outcomes.',
+    '# TYPE control_plane_automation_dispatch_total counter',
+    ...Array.from(automationDispatches.entries()).map(([key, value]) => {
+      const [source, outcome] = key.split(':');
+      return metricLine('control_plane_automation_dispatch_total', { ...serviceLabels, source, outcome }, value);
+    }),
+    '# HELP control_plane_automation_dispatch_duration_ms_bucket Automation dispatch latency buckets.',
+    '# TYPE control_plane_automation_dispatch_duration_ms_bucket counter',
+    ...Array.from(automationDispatchDurations.entries()).map(([key, value]) => {
+      const [source, outcome, le] = key.split(':');
+      return metricLine('control_plane_automation_dispatch_duration_ms_bucket', { ...serviceLabels, source, outcome, le }, value);
+    }),
+    '# HELP control_plane_automation_trigger_total Durable trigger delivery outcomes.',
+    '# TYPE control_plane_automation_trigger_total counter',
+    ...Array.from(automationTriggers.entries()).map(([key, value]) => {
+      const [triggerType, outcome] = key.split(':');
+      return metricLine('control_plane_automation_trigger_total', { ...serviceLabels, trigger_type: triggerType, outcome }, value);
+    }),
+    '# HELP control_plane_automation_approval_total Durable automation approval outcomes.',
+    '# TYPE control_plane_automation_approval_total counter',
+    ...Array.from(automationApprovals.entries()).map(([key, value]) => {
+      const [kind, outcome] = key.split(':');
+      return metricLine('control_plane_automation_approval_total', { ...serviceLabels, kind, outcome }, value);
+    }),
+    '# HELP control_plane_automation_terminal_outcomes_total Agent and Workflow terminal outcomes.',
+    '# TYPE control_plane_automation_terminal_outcomes_total counter',
+    ...Array.from(automationTerminalOutcomes.entries()).map(([key, value]) => {
+      const [source, status] = key.split(':');
+      return metricLine('control_plane_automation_terminal_outcomes_total', { ...serviceLabels, source, status }, value);
+    }),
+    '# HELP control_plane_automation_pdf_render_total PDF render outcomes and output bytes.',
+    '# TYPE control_plane_automation_pdf_render_total counter',
+    ...Array.from(automationPdfRenders.entries()).map(([key, value]) => {
+      const [outcome, measure] = key.split(':');
+      return metricLine('control_plane_automation_pdf_render_total', { ...serviceLabels, outcome, measure }, value);
+    }),
+    '# HELP control_plane_automation_pdf_render_duration_ms_bucket PDF render latency buckets.',
+    '# TYPE control_plane_automation_pdf_render_duration_ms_bucket counter',
+    ...Array.from(automationPdfRenderDurations.entries()).map(([key, value]) => {
+      const [outcome, le] = key.split(':');
+      return metricLine('control_plane_automation_pdf_render_duration_ms_bucket', { ...serviceLabels, outcome, le }, value);
+    }),
+    '# HELP control_plane_automation_mcp_failures_total Automation MCP dependency failures by safe operation.',
+    '# TYPE control_plane_automation_mcp_failures_total counter',
+    ...Array.from(automationMcpFailures.entries()).map(([operation, value]) =>
+      metricLine('control_plane_automation_mcp_failures_total', { ...serviceLabels, operation }, value)
+    ),
+    '# HELP control_plane_automation_runtime Automation runtime gauges; labels identify the measured resource and state.',
+    '# TYPE control_plane_automation_runtime gauge',
+    ...Object.entries(automationGauges).map(([key, value]) => {
+      const [resource, state = 'all'] = key.split(':');
+      return metricLine('control_plane_automation_runtime', { ...serviceLabels, resource, state }, value);
     })
   ];
   return `${lines.join('\n')}\n`;

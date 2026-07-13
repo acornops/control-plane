@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it } from 'node:test';
+import { after, afterEach, beforeEach, describe, it, mock } from 'node:test';
 import {
   callMcpTool,
   operationForToolCall,
@@ -7,21 +7,30 @@ import {
   stableAgentRequestId
 } from '../src/controllers/internal-mcp-bridge-controller.js';
 import { AgentToolCallError } from '../src/agent/types.js';
+import { agentGateway } from '../src/agent/ws-server.js';
 import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
 import { repo } from '../src/store/repository.js';
 import { listAgentDefinitions } from '../src/store/repository-agents.js';
 import {
-  createWorkflowRun,
+  createWorkflowExecution,
   createWorkflowSession,
-  createWorkflowUserMessage,
   getWorkflowDefinition,
-  resetWorkflowRepositoryForTests,
   updateWorkflowRun
 } from '../src/store/repository-workflows.js';
+import {
+  closeAutomationDatabaseFixtures,
+  resetAutomationDatabaseFixtures
+} from './helpers/automation-database-fixtures.js';
 
+beforeEach(resetAutomationDatabaseFixtures);
+after(closeAutomationDatabaseFixtures);
+const originalGetTarget = repo.getTarget;
+const originalInsertWorkspaceAuditEvent = repo.insertWorkspaceAuditEvent;
 afterEach(() => {
-  resetWorkflowRepositoryForTests();
+  mock.restoreAll();
+  repo.getTarget = originalGetTarget;
+  repo.insertWorkspaceAuditEvent = originalInsertWorkspaceAuditEvent;
 });
 
 function createResponseWithClaims(claims: Record<string, unknown>) {
@@ -82,12 +91,13 @@ describe('internal MCP bridge audit classification', () => {
     });
   });
 
-  it('executes workspace workflow tools from the server-compiled run scope without a target', async () => {
-    const workflow = getWorkflowDefinition('workspace-1', 'cluster-triage');
+  it('routes target-scoped workflow tools through the built-in AgentK bridge', async () => {
+    const workflow = await getWorkflowDefinition('workspace-1', 'cluster-triage');
     assert.ok(workflow);
+    const agents = await listAgentDefinitions(workflow.workspaceId);
     const compiledAccessScope = compileWorkflowAccessScope({
       workflow,
-      agents: listAgentDefinitions(workflow.workspaceId),
+      agents,
       actor: {
         userId: 'user-1',
         role: 'operator',
@@ -95,10 +105,20 @@ describe('internal MCP bridge audit classification', () => {
       },
       approvedContextGrants: ['workspace_metadata', 'target_inventory']
     });
-    const session = createWorkflowSession({ workflow, createdBy: 'user-1', compiledAccessScope });
-    const message = createWorkflowUserMessage({ session, content: 'Triage cluster', inputs: { clusterId: 'cluster-primary' } });
-    const run = updateWorkflowRun(
-      createWorkflowRun({ session, message, workflowStepId: 'collect-cluster-signals' }).id,
+    const session = await createWorkflowSession({ workflow, createdBy: 'user-1', compiledAccessScope });
+    const agent = agents.find((candidate) => candidate.id === 'agent-cluster-triage');
+    assert.ok(agent);
+    const created = await createWorkflowExecution({
+      workflow,
+      session,
+      content: 'Triage cluster',
+      inputs: { targetId: 'cluster-primary' },
+      targetId: 'cluster-primary',
+      targetType: 'kubernetes',
+      agentSnapshot: agent as unknown as Record<string, unknown>
+    });
+    const run = await updateWorkflowRun(
+      created.run.id,
       { status: 'running' }
     );
     assert.ok(run);
@@ -110,6 +130,64 @@ describe('internal MCP bridge audit classification', () => {
       auditMetadata = event.metadata || {};
       return null;
     };
+    repo.getTarget = async () => ({
+      id: 'cluster-primary', workspaceId: 'workspace-1', targetType: 'kubernetes', name: 'Primary',
+      status: 'online', metadata: {}, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z'
+    });
+    mock.method(agentGateway, 'callAgentTool', async () => ({ items: [{ kind: 'Pod', name: 'api-1' }] }));
+
+    const response = await callMcpBridge(
+      {
+        runId: run.id,
+        workspaceId: run.workspaceId,
+        sessionId: run.workflowSessionId,
+        scopeType: 'target',
+        targetId: 'cluster-primary',
+        targetType: 'kubernetes',
+        allowedTools: ['list_resources'],
+        allowedToolOperations: { list_resources: 'read' },
+        contextGrants: []
+      },
+      { name: 'list_resources', arguments: { kind: 'Pod' }, toolCallId: 'call-1' }
+    );
+
+    assert.equal(response.statusCode, 200);
+    const content = (response.body as { content: Array<{ text: string }>; isError: boolean }).content;
+    const payload = JSON.parse(content[0].text) as { items: Array<{ name: string }> };
+    assert.equal((response.body as { isError: boolean }).isError, false);
+    assert.equal(payload.items[0].name, 'api-1');
+    assert.equal(auditOperation, 'read');
+    assert.equal(auditMetadata.source, 'builtin_mcp_bridge');
+    assert.equal(auditMetadata.workflowId, 'cluster-triage');
+    assert.equal(auditMetadata.workflowRunId, run.workflowRunId);
+  });
+
+  it('generates an incident report artifact with the built-in workflow tool', async () => {
+    const workflow = await getWorkflowDefinition('workspace-1', 'incident-report-pdf');
+    assert.ok(workflow);
+    const agents = await listAgentDefinitions(workflow.workspaceId);
+    const compiledAccessScope = compileWorkflowAccessScope({
+      workflow,
+      agents,
+      actor: {
+        userId: 'user-1',
+        role: 'operator',
+        permissions: getWorkspacePermissions('operator')
+      },
+      approvedContextGrants: ['selected_chat_sessions']
+    });
+    const session = await createWorkflowSession({ workflow, createdBy: 'user-1', compiledAccessScope });
+    const agent = agents.find((candidate) => candidate.id === 'agent-incident-reporter');
+    assert.ok(agent);
+    const created = await createWorkflowExecution({
+      workflow,
+      session,
+      content: 'Generate incident report',
+      inputs: { chatSessionIds: ['chat-1'] },
+      agentSnapshot: agent as unknown as Record<string, unknown>
+    });
+    const run = await updateWorkflowRun(created.run.id, { status: 'running' });
+    assert.ok(run);
 
     const response = await callMcpBridge(
       {
@@ -121,22 +199,23 @@ describe('internal MCP bridge audit classification', () => {
         workflowRunId: run.workflowRunId,
         workflowSessionId: run.workflowSessionId,
         workflowStepId: run.workflowStepId,
-        allowedTools: ['metrics.query'],
-        allowedToolOperations: { 'metrics.query': 'read' },
+        allowedTools: ['reports.pdf.generate'],
+        allowedToolOperations: { 'reports.pdf.generate': 'read' },
         contextGrants: run.compiledAccessScope.contextGrants
       },
-      { name: 'metrics.query', arguments: {} }
+      {
+        name: 'reports.pdf.generate',
+        arguments: { title: 'Payments incident', markdown: '# Payments incident\n\nRecovered.' }
+      }
     );
 
     assert.equal(response.statusCode, 200);
-    const content = (response.body as { content: Array<{ text: string }>; isError: boolean }).content;
-    const payload = JSON.parse(content[0].text) as { tool: string; workflowId: string; scopeType: string };
-    assert.equal((response.body as { isError: boolean }).isError, false);
-    assert.equal(payload.scopeType, 'workspace');
-    assert.equal(payload.workflowId, 'cluster-triage');
-    assert.equal(payload.tool, 'metrics.query');
-    assert.equal(auditOperation, 'read');
-    assert.equal(auditMetadata.source, 'workflow_mcp_bridge');
-    assert.equal(auditMetadata.workflowRunId, run.workflowRunId);
+    const content = (response.body as { content: Array<{ text: string }> }).content;
+    const payload = JSON.parse(content[0].text) as {
+      artifact: { id: string; type: string; mediaType: string; downloadPath: string };
+    };
+    assert.equal(payload.artifact.type, 'pdf');
+    assert.equal(payload.artifact.mediaType, 'application/pdf');
+    assert.equal(payload.artifact.downloadPath, `/api/v1/workflow-reports/${payload.artifact.id}/download`);
   });
 });

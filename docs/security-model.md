@@ -26,6 +26,8 @@
 - Treat external integration `intlink_` link tokens as short-lived bearer secrets. Store them only as hashes, invalidate older pending tokens when a new token is issued for the same external user, never log them, and never return browser cookies or OIDC provider tokens to external integration clients.
 - Treat raw external integration client tokens as operator secrets. Commit only descriptor examples with SHA-256 hashes, never raw client tokens, and never return raw client tokens in API responses or audit metadata.
 - Treat MCP `publicHeaders` as visible non-secret metadata only; credential-like, hop-by-hop, and platform routing headers must be rejected before forwarding to the gateway.
+- Treat Agent webhook HMAC secrets as one-time-disclosed credentials. Persist only encrypted secret material, validate the signed raw body and timestamp, and deduplicate durable event IDs before dispatch.
+- Never log Agent or Workflow prompts, chat bodies, tool arguments, webhook payloads, report source, PDF contents, credentials, or continuation state. Audit stable IDs, actors, capability snapshots, decisions, and terminal outcomes.
 
 ## High-Risk Changes
 
@@ -36,6 +38,7 @@
   agent-key rotation behavior
 - Internal execution auth or llm-gateway admin auth
 - Cross-workspace, cross-target, or cross-cluster data access logic
+- Agent/Workflow version, step, target, context-grant, tool-operation, approval, or idempotency claims
 
 ## Authorization
 
@@ -60,6 +63,9 @@
 - AgentK `patch_resource` remains a run-authorized write. The control plane
   forwards its semantic arguments but cannot expand AgentK's local patch-kind
   maximum or Kubernetes RBAC.
+- Every automation callback and tool call must bind the workspace, Agent
+  version, Workflow execution, step attempt, target, exact tool operation,
+  approved context grants, and approval state from signed server claims.
 
 ## Admin Audit
 

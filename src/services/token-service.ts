@@ -30,9 +30,9 @@ export interface TargetRunScopeClaims extends BaseRunScopeClaims {
 
 export interface WorkflowRunScopeClaims extends BaseRunScopeClaims {
   scopeType: 'workspace';
-  workflowId: string;
-  workflowRunId: string;
-  workflowSessionId: string;
+  workflowId?: string;
+  workflowRunId?: string;
+  workflowSessionId?: string;
   workflowStepId?: string;
   agentId?: string;
   agentVersion?: number;
@@ -246,9 +246,9 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
     }
     return {
       ...baseClaims,
-      workflowId: stringClaim(payload, 'workflow_id'),
-      workflowRunId: stringClaim(payload, 'workflow_run_id'),
-      workflowSessionId: stringClaim(payload, 'workflow_session_id'),
+      workflowId: optionalStringClaim(payload, 'workflow_id'),
+      workflowRunId: optionalStringClaim(payload, 'workflow_run_id'),
+      workflowSessionId: optionalStringClaim(payload, 'workflow_session_id'),
       workflowStepId: optionalStringClaim(payload, 'workflow_step_id'),
       agentId: optionalStringClaim(payload, 'agent_id'),
       agentVersion: optionalNumberClaim(payload, 'agent_version'),

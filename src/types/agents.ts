@@ -10,9 +10,8 @@ export type AgentTriggerType =
   | 'workflow_step'
   | 'schedule'
   | 'webhook'
-  | 'audit_event'
-  | 'target_event'
-  | 'external_adapter';
+  | 'target_event';
+export type AutomationReadinessStatus = 'ready' | 'needs_setup' | 'blocked';
 
 export interface AgentTriggerDefinition {
   id: string;
@@ -47,7 +46,7 @@ export interface AgentTargetScope {
 export interface AgentActivitySummary {
   runCount: number;
   lastRunAt?: string;
-  lastStatus?: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  lastStatus?: AgentActivityRecord['status'];
 }
 
 export interface AgentCapability {
@@ -84,6 +83,10 @@ export interface AgentDefinition {
   trustPolicy: AgentTrustPolicy;
   triggers: AgentTriggerDefinition[];
   activity: AgentActivitySummary;
+  readiness: {
+    status: AutomationReadinessStatus;
+    reasons: string[];
+  };
 }
 
 export type AgentDefinitionResponse = AgentDefinition & {
@@ -107,7 +110,12 @@ export interface AgentActivityRecord {
   workspaceId: string;
   agentVersion: number;
   triggerId?: string;
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  clientRequestId?: string;
+  targetId?: string;
+  targetType?: TargetType;
+  idempotencyKey?: string;
+  agentSnapshot?: AgentDefinition;
+  status: 'queued' | 'running' | 'waiting_for_approval' | 'needs_review' | 'completed' | 'failed' | 'cancelled';
   triggeredBy: {
     type: 'user' | 'workflow' | 'schedule' | 'webhook' | 'system';
     userId?: string;
@@ -128,6 +136,12 @@ export interface AgentActivityRecord {
   }>;
   createdAt: string;
   updatedAt: string;
+  startedAt?: string;
+  endedAt?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  assistantMessage?: { content: string; format?: string };
+  usage?: unknown;
 }
 
 export interface AgentAccessActor {

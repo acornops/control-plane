@@ -45,7 +45,9 @@ function uniqueSorted(values: Iterable<string>): string[] {
 }
 
 function compileToolOperations(tools: string[]): Record<string, WorkspaceAuditOperation> {
-  return Object.fromEntries(tools.map((tool) => [tool, 'read' as WorkspaceAuditOperation]));
+  return Object.fromEntries(tools.map((tool) => [tool,
+    /(?:\.create|\.update|\.delete|\.write|\.generate)$/.test(tool) ? 'write' : 'read'
+  ] as const));
 }
 
 function approvalGatesFor(agent: AgentDefinition): string[] {
@@ -61,7 +63,11 @@ export function compileAgentRunScope(input: CompileAgentRunScopeInput): Compiled
     throw new AgentAccessDeniedError('AGENT_DISABLED', 'Agent is not active.');
   }
 
-  const missingPermissions = (['read_workspace_data', 'create_read_only_runs'] as WorkspaceCapability[])
+  const operations = compileToolOperations(input.agent.tools);
+  const runCapability: WorkspaceCapability = Object.values(operations).includes('write')
+    ? 'create_read_write_runs'
+    : 'create_read_only_runs';
+  const missingPermissions = (['read_workspace_data', runCapability] as WorkspaceCapability[])
     .filter((permission) => !input.actor.permissions[permission]);
   if (missingPermissions.length > 0) {
     throw new AgentAccessDeniedError(

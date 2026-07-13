@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it } from 'node:test';
+import { after, afterEach, beforeEach, describe, it } from 'node:test';
 import {
   createWorkflow,
   createWorkflowMcpServerForWorkspace,
@@ -15,7 +15,6 @@ import {
   BUILT_IN_ROLE_TEMPLATES,
   configureRoleTemplates
 } from '../src/auth/authorization.js';
-import { resetWorkflowRepositoryForTests } from '../src/store/repository-workflows.js';
 import type { WorkflowDefinitionForAccess } from '../src/types/workflows.js';
 import {
   callController,
@@ -23,12 +22,18 @@ import {
   installWorkspace,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
+import { closeAutomationDatabaseFixtures, resetAutomationDatabaseFixtures } from './helpers/automation-database-fixtures.js';
+
+beforeEach(async () => {
+  await resetAutomationDatabaseFixtures();
+});
 
 afterEach(() => {
-  resetWorkflowRepositoryForTests();
   restoreControllerRegressionState();
   configureRoleTemplates(Object.values(BUILT_IN_ROLE_TEMPLATES));
 });
+
+after(closeAutomationDatabaseFixtures);
 
 describe('workflows management controller', () => {
   it('requires manage_workflows before editing workflow definitions', async () => {
@@ -113,7 +118,7 @@ describe('workflows management controller', () => {
     assert.equal((created.body as { error: { code: string } }).error.code, 'WORKFLOW_OPTION_INVALID');
   });
 
-  it('returns server option catalogs for dropdown-backed workflow authoring', async () => {
+  it('returns server option catalogs for governed workflow capability authoring', async () => {
     installWorkspace('admin');
 
     const response = await callController(listWorkflowOptions, createRequest({ workspaceId: 'workspace-1' }));
@@ -127,10 +132,11 @@ describe('workflows management controller', () => {
       outputFormats: Array<{ value: string }>;
       sourceAvailability: Record<string, { status: string }>;
     };
-    assert.deepEqual(body.clusters, []);
-    assert.equal(body.sourceAvailability.clusters.status, 'empty');
-    assert.ok(body.mcpServers.some((option) => option.value === 'github'));
-    assert.ok(body.mcpTools.some((option) => option.value === 'github.prs.create'));
+    assert.deepEqual(body.clusters.map((option) => option.value), ['cluster-1']);
+    assert.equal(body.sourceAvailability.clusters.status, 'available');
+    assert.ok(body.mcpServers.some((option) => option.value === 'acornops-cluster-agent'));
+    assert.ok(body.mcpTools.some((option) => option.value === 'get_resource'));
+    assert.ok(body.mcpTools.some((option) => option.value === 'reports.pdf.generate'));
     assert.ok(body.skills.some((option) => option.value === 'acornops-observability'));
     assert.ok(body.outputFormats.some((option) => option.value === 'pdf'));
   });
@@ -145,7 +151,7 @@ describe('workflows management controller', () => {
         description: 'Generate a tailored incident report from selected chats.',
         category: 'incident-review',
         tags: ['incident', 'custom'],
-        enabledMcpServers: ['workspace-chat', 'artifact-writer'],
+        enabledMcpServers: [],
         enabledSkills: ['acornops-observability'],
         inputs: [
           { name: 'chatSessions', label: 'Incident chats', type: 'chat_session_list', required: true, optionSource: 'chatSessions' },
@@ -162,6 +168,7 @@ describe('workflows management controller', () => {
             id: 'write-report',
             title: 'Write report',
             requiredInputs: ['chatSessions', 'outputFormat'],
+            agentIds: ['agent-incident-reporter'],
             enabledSkills: [],
             allowedMcpServers: [],
             allowedTools: ['chat.sessions.read_selected', 'reports.pdf.generate'],

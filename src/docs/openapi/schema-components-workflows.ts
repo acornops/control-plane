@@ -12,7 +12,7 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         id: { type: 'string' },
         title: { type: 'string' },
         requiredInputs: stringArray,
-        agentIds: stringArray,
+        agentIds: { type: 'array', minItems: 1, maxItems: 1, items: { type: 'string' } },
         enabledSkills: stringArray,
         allowedMcpServers: stringArray,
         allowedTools: stringArray,
@@ -44,6 +44,9 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         starterPrompt: { type: 'string' },
         createdAt: dateTime,
         updatedAt: dateTime
+        ,readiness: { type: 'object', required: ['status', 'reasons'], properties: {
+          status: { type: 'string', enum: ['ready', 'needs_setup', 'blocked'] }, reasons: stringArray
+        } }
       },
       additionalProperties: true
     },
@@ -235,7 +238,7 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
       properties: {
         approvalId: uuid,
         runId: uuid,
-        source: { type: 'string', enum: ['target_tool', 'workflow_gate'] },
+        source: { type: 'string', enum: ['target_tool', 'workflow_gate', 'agent_gate', 'agent_tool', 'workflow_tool'] },
         workflowId,
         targetId: uuid,
         targetType: { type: 'string' },

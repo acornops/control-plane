@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import { db } from '../src/infra/db.js';
+import { configureWorkflowBuiltInMcpCatalogForTests } from '../src/services/workflow-built-in-mcp-catalog.js';
 import { getWorkflowOptionsCatalog } from '../src/store/repository-workflow-options.js';
 import { configureWorkflowMcpRepositoryForTests } from '../src/store/repository-workflow-mcp.js';
 
 afterEach(() => {
   mock.restoreAll();
+  configureWorkflowBuiltInMcpCatalogForTests();
   configureWorkflowMcpRepositoryForTests();
 });
 
@@ -14,7 +16,14 @@ function result<T>(rows: T[]) {
 }
 
 describe('workflow option catalog repository', () => {
-  it('loads durable workspace-scoped options with stable provenance', async () => {
+  it('loads built-in tools plus explicitly user-configured workspace MCP tools', async () => {
+    configureWorkflowBuiltInMcpCatalogForTests(async () => ({
+      server: { id: 'acornops-cluster-agent', name: 'AcornOps Kubernetes Tools', enabled: true, targetIds: ['cluster-1'] },
+      tools: [{
+        name: 'list_resources', description: 'List Kubernetes resources', capability: 'read',
+        inputSchema: { type: 'object' }, enabled: true, targetIds: ['cluster-1']
+      }]
+    }));
     configureWorkflowMcpRepositoryForTests({
       list: async () => [{
         id: 'generic-mcp', workspaceId: 'workspace-1', scope: 'workspace', name: 'Generic MCP',
@@ -29,7 +38,10 @@ describe('workflow option catalog repository', () => {
     mock.method(db, 'query', async (sql: string, params?: unknown[]) => {
       if (params?.length) observedWorkspaceIds.push(params[0]);
       if (sql.includes('FROM targets') && sql.includes("target_type = 'kubernetes'")) {
-        return result([{ id: 'cluster-1', name: 'Production', status: 'online' }]);
+        return result([{
+          id: 'cluster-1', workspace_id: 'workspace-1', target_type: 'kubernetes', name: 'Production',
+          status: 'online', metadata: {}, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z'
+        }]);
       }
       if (sql.includes("'workspace'::text AS source_kind")) {
         return result([
@@ -52,8 +64,14 @@ describe('workflow option catalog repository', () => {
     assert.deepEqual(catalog.clusters[0].provenance, {
       source: 'target', targetId: 'cluster-1', targetName: 'Production'
     });
-    assert.equal(catalog.mcpServers[0].disabled, true);
-    assert.equal(catalog.mcpTools[0].disabled, true);
+    assert.equal(catalog.mcpServers[0].value, 'acornops-cluster-agent');
+    assert.equal(catalog.mcpServers[0].disabled, false);
+    assert.equal(catalog.mcpServers[0].provenance?.source, 'target');
+    assert.deepEqual(catalog.mcpServers.map((server) => server.value), ['acornops-cluster-agent', 'generic-mcp']);
+    assert.deepEqual(catalog.mcpTools.map((tool) => tool.value), [
+      'list_resources', 'chat.sessions.read_selected', 'reports.pdf.generate', 'records.list'
+    ]);
+    assert.equal(catalog.mcpTools.find((tool) => tool.value === 'records.list')?.disabled, true);
     assert.equal(catalog.agents[0].disabled, true);
     assert.equal(catalog.skills[1].value, 'target:cluster-1:target-skill');
     assert.equal(catalog.chatSessions[0].value, 'session-1');
@@ -80,11 +98,11 @@ describe('workflow option catalog repository', () => {
     assert.equal(catalog.sourceAvailability.clusters.errorCode, 'DATABASE_57P01');
     assert.equal(catalog.sourceAvailability.clusters.retryable, true);
     assert.equal(catalog.sourceAvailability.chatSessions.status, 'empty');
-    assert.equal(catalog.sourceAvailability.mcpServers.status, 'empty');
+    assert.equal(catalog.sourceAvailability.mcpServers.status, 'error');
     assert.deepEqual(catalog.clusters, []);
   });
 
-  it('seeds system agents, workflows, and shared skills idempotently', async () => {
+  it('keeps catalog reads free of lazy template or skill seeding', async () => {
     configureWorkflowMcpRepositoryForTests({
       list: async () => [], create: async () => { throw new Error('unused'); }, update: async () => null,
       delete: async () => false, test: async () => null, tools: async () => []
@@ -98,9 +116,11 @@ describe('workflow option catalog repository', () => {
     await getWorkflowOptionsCatalog('workspace-seed');
 
     for (const table of ['agent_definitions', 'workflow_definitions', 'workspace_skills']) {
-      const inserts = statements.filter((sql) => sql.includes(`INSERT INTO ${table}`));
-      assert(inserts.length > 0, `expected seed inserts for ${table}`);
-      assert(inserts.every((sql) => sql.includes('ON CONFLICT')));
+      assert.equal(
+        statements.some((sql) => sql.includes(`INSERT INTO ${table}`)),
+        false,
+        `catalog reads must not lazily seed ${table}`
+      );
     }
   });
 });
