@@ -63,6 +63,12 @@ over 60 seconds, an approval remains pending past 15 minutes, or any run enters
 Generated AgentK install commands use the latest chart release by default,
 including experimental releases. Set `AGENT_HELM_CHART_VERSION` when an
 environment needs to pin an exact, tested chart version.
+`AGENT_HELM_VALUES_JSON` supplies platform-default downstream chart values,
+such as an internal image mirror, as a JSON object. Generated identity,
+connectivity, namespace-scope, and write-mode paths cannot be overridden.
+`AGENT_HELM_ADDITIONAL_CA_FILE_PATH` adds a `--set-file` argument for a public
+PEM CA bundle; this path is resolved on the operator machine that executes the
+generated command.
 
 For multi-pod deployments, set a unique `CONTROL_PLANE_INSTANCE_ID` per pod.
 The platform Helm chart sets it from the Kubernetes pod name. Production also

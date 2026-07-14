@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { accessSync, constants } from 'node:fs';
 import { z } from 'zod';
 import { agentTransportConfigFields, validateAgentTransportConfig } from './config-agent-transport.js';
+import { agentHelmConfigFields, parseAgentHelmValues, validateAgentHelmConfig } from './config-agent-helm.js';
 import { configureWorkspaceRoleTemplates } from './auth/role-template-config.js';
 import { DEFAULT_LLM_ALLOWED_PROVIDER_MODELS, validateLlmPolicyConfig } from './config-llm-policy.js';
 import {
@@ -199,10 +200,7 @@ const envSchema = z.object({
   SEED_DEVELOPMENT_DATA: envBoolean(true),
   SEED_AGENT_KEY: z.string().optional(),
   SEED_VM_AGENT_KEY: z.string().optional(),
-  AGENT_HELM_RELEASE_NAME: z.preprocess(emptyStringToUndefined, z.string().min(1).default('acornops-agentk')),
-  AGENT_HELM_CHART_REF: z.preprocess(emptyStringToUndefined, z.string().min(1).default('oci://ghcr.io/acornops/charts/acornops-agentk')),
-  AGENT_HELM_CHART_VERSION: z.preprocess(emptyStringToUndefined, z.string().min(1).optional()),
-  AGENT_HELM_NAMESPACE: z.preprocess(emptyStringToUndefined, z.string().min(1).default('acornops-agentk')),
+  ...agentHelmConfigFields,
 
   OIDC_PROVIDER_NAME: z.string().default('oidc'),
   OIDC_ISSUER_URL: z.string().url().default('http://localhost:8080/realms/acornops'),
@@ -350,6 +348,7 @@ const envSchema = z.object({
   }
   validateAgentTransportConfig(ctx, value);
   validateLlmPolicyConfig(ctx, value);
+  validateAgentHelmConfig(ctx, value);
   try {
     parseWorkspacePlansConfig(value.WORKSPACE_PLANS_CONFIG_JSON);
   } catch (err) {
@@ -529,6 +528,7 @@ const envSchema = z.object({
   ADMIN_TOKEN_DESCRIPTORS: parseAdminTokenDescriptors(value.CONTROL_PLANE_ADMIN_TOKENS_JSON, value.NODE_ENV),
   EXTERNAL_INTEGRATION_CLIENTS: parseExternalIntegrationClientDescriptors(value.EXTERNAL_INTEGRATION_CLIENTS_JSON, value.NODE_ENV),
   WORKSPACE_PLANS: parseWorkspacePlansConfig(value.WORKSPACE_PLANS_CONFIG_JSON),
+  AGENT_HELM_VALUES: parseAgentHelmValues(value.AGENT_HELM_VALUES_JSON, value.AGENT_HELM_ADDITIONAL_CA_FILE_PATH),
   SESSION_MAX_AGE_SECONDS: value.SESSION_MAX_AGE_SECONDS ?? value.SESSION_TTL_SECONDS ?? 604800,
   PASSWORD_SIGNUP_ENABLED: value.PASSWORD_SIGNUP_ENABLED ?? value.NODE_ENV !== 'production',
   PERSIST_RUN_EVENTS: value.PERSIST_RUN_EVENTS ?? value.NODE_ENV === 'production',

@@ -5,7 +5,8 @@ import {
   buildAgentInstallInstructions,
   parseAgentAccessMode
 } from '../src/controllers/workspaces/kubernetes-cluster-request-utils.js';
-import { config } from '../src/config.js';
+import { parseAgentHelmValues, type AgentHelmValues } from '../src/config-agent-helm.js';
+import { config, parseAppConfig } from '../src/config.js';
 import { registerClusterSchema } from '../src/types/contracts.js';
 import type { KubernetesCluster } from '../src/types/domain.js';
 
@@ -25,7 +26,11 @@ const cluster: KubernetesCluster = {
   updatedAt: '2026-06-30T00:00:00.000Z'
 };
 
-const mutableConfig = config as typeof config & { AGENT_HELM_CHART_VERSION?: string };
+const mutableConfig = config as typeof config & {
+  AGENT_HELM_CHART_VERSION?: string;
+  AGENT_HELM_VALUES: AgentHelmValues;
+  AGENT_HELM_ADDITIONAL_CA_FILE_PATH?: string;
+};
 
 describe('Kubernetes cluster install instructions', () => {
   it('keeps generated install commands read-only by default', () => {
@@ -53,6 +58,89 @@ describe('Kubernetes cluster install instructions', () => {
     } finally {
       mutableConfig.AGENT_HELM_CHART_VERSION = previousVersion;
     }
+  });
+
+  it('adds configured chart values and an operator-local CA file safely', () => {
+    const previousValues = mutableConfig.AGENT_HELM_VALUES;
+    const previousCaFilePath = mutableConfig.AGENT_HELM_ADDITIONAL_CA_FILE_PATH;
+    mutableConfig.AGENT_HELM_VALUES = {
+      image: {
+        repository: 'docker.artifact.internal.org/ghcr.io/acornops/agentk',
+        tag: '0.0.1-experimental.7'
+      },
+      imagePullSecrets: [{ name: 'internal-registry' }]
+    };
+    mutableConfig.AGENT_HELM_ADDITIONAL_CA_FILE_PATH = "/opt/acornops trust/org,team's-ca.pem";
+    try {
+      const instructions = buildAgentInstallInstructions(cluster, 'agent-key');
+
+      assert.match(
+        instructions.command,
+        /--set-json image='{"repository":"docker\.artifact\.internal\.org\/ghcr\.io\/acornops\/agentk","tag":"0\.0\.1-experimental\.7"}'/
+      );
+      assert.match(
+        instructions.command,
+        /--set-json imagePullSecrets='\[{"name":"internal-registry"}\]'/
+      );
+      assert.ok(
+        instructions.command.includes(
+          "--set-file config.tls.additionalCaBundle.inlinePem='/opt/acornops trust/org\\,team'\\''s-ca.pem'"
+        ),
+        'CA file path should be escaped for Helm parsing and shell execution'
+      );
+      assert.ok(
+        instructions.command.indexOf('--set-json image=') < instructions.command.indexOf('--set-string config.agentKey='),
+        'control-plane-owned values should be rendered after platform defaults'
+      );
+    } finally {
+      mutableConfig.AGENT_HELM_VALUES = previousValues;
+      mutableConfig.AGENT_HELM_ADDITIONAL_CA_FILE_PATH = previousCaFilePath;
+    }
+  });
+
+  it('parses safe downstream chart values and rejects owned paths', () => {
+    assert.deepEqual(
+      parseAgentHelmValues('{"image":{"repository":"registry.internal/agentk"},"replicaCount":2}'),
+      { image: { repository: 'registry.internal/agentk' }, replicaCount: 2 }
+    );
+    assert.throws(
+      () => parseAgentHelmValues('{"config":{"agentKey":"override"}}'),
+      /must not override control-plane-owned value config\.agentKey/
+    );
+    assert.throws(
+      () => parseAgentHelmValues('{"rbac":{"write":{"enabled":true}}}'),
+      /must not override control-plane-owned value rbac\.write\.enabled/
+    );
+    assert.throws(
+      () => parseAgentHelmValues('{"bad.key":true}'),
+      /contains an invalid top-level key/
+    );
+  });
+
+  it('loads generated install defaults from the control-plane environment', () => {
+    const parsed = parseAppConfig({
+      NODE_ENV: 'test',
+      AGENT_HELM_VALUES_JSON: '{"image":{"repository":"registry.internal/agentk"}}',
+      AGENT_HELM_ADDITIONAL_CA_FILE_PATH: '/opt/acornops/ca.pem'
+    });
+
+    assert.deepEqual(parsed.AGENT_HELM_VALUES, {
+      image: { repository: 'registry.internal/agentk' }
+    });
+    assert.equal(parsed.AGENT_HELM_ADDITIONAL_CA_FILE_PATH, '/opt/acornops/ca.pem');
+  });
+
+  it('rejects conflicting CA sources and malformed values JSON', () => {
+    assert.throws(
+      () => parseAgentHelmValues('{"config":{"tls":{"additionalCaBundle":{"configMapKeyRef":{"name":"ca","key":"ca.crt"}}}}}', '/ca.pem'),
+      /must not configure config\.tls\.additionalCaBundle/
+    );
+    assert.throws(() => parseAgentHelmValues('[]'), /must be a JSON object/);
+    assert.throws(() => parseAgentHelmValues('{'), /must be valid JSON/);
+    assert.throws(
+      () => parseAppConfig({ NODE_ENV: 'test', AGENT_HELM_VALUES_JSON: '{' }),
+      /AGENT_HELM_VALUES_JSON must be valid JSON/
+    );
   });
 
   it('adds the chart write RBAC flag for read-write installs', () => {

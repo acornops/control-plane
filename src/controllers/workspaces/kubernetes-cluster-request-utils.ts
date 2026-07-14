@@ -87,6 +87,11 @@ function helmSetBool(path: string, value: boolean): string {
   return `  --set ${path}=${value ? 'true' : 'false'}`;
 }
 
+function helmSetFile(path: string, filePath: string): string {
+  const escapedFilePath = filePath.replace(/\\/g, '\\\\').replace(/,/g, '\\,');
+  return `  --set-file ${path}=${toShellSingleQuoted(escapedFilePath)}`;
+}
+
 export function parseAgentAccessMode(value: unknown): AgentAccessMode {
   return value === 'read_write' ? 'read_write' : 'read_only';
 }
@@ -112,14 +117,22 @@ export function buildAgentInstallInstructions(
       ? `  --version ${toShellSingleQuoted(config.AGENT_HELM_CHART_VERSION)}`
       : '  --devel',
     `  --namespace ${toShellSingleQuoted(config.AGENT_HELM_NAMESPACE)}`,
-    '  --create-namespace',
+    '  --create-namespace'
+  ];
+  for (const [key, value] of Object.entries(config.AGENT_HELM_VALUES).sort(([left], [right]) => left.localeCompare(right))) {
+    lines.push(helmSetJson(key, value));
+  }
+  if (config.AGENT_HELM_ADDITIONAL_CA_FILE_PATH) {
+    lines.push(helmSetFile('config.tls.additionalCaBundle.inlinePem', config.AGENT_HELM_ADDITIONAL_CA_FILE_PATH));
+  }
+  lines.push(
     helmSetString('clusterName', cluster.name),
     helmSetString('config.platformUrl', config.CONTROL_PLANE_BASE_URL),
     helmSetString('config.clusterId', cluster.id),
     helmSetString('config.agentKey', agentKey),
     helmSetJson('namespaceScope.include', include),
     helmSetJson('namespaceScope.exclude', exclude)
-  ];
+  );
   if (agentAccessMode === 'read_write') {
     lines.push(helmSetBool('rbac.write.enabled', true));
   }
