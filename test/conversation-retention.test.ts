@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   purgeOrphanedSkillSnapshotBlobs,
+  purgeExpiredToolResultArtifacts,
   purgeOldTargetMetricHistory,
   purgeOldWorkspaceAuditEvents,
   runControlPlaneRetentionSweep
@@ -75,6 +76,18 @@ describe('conversation retention service', () => {
     }
   });
 
+  it('purges expired tool result artifacts in bounded batches', async () => {
+    const originalPurge = repo.purgeExpiredToolResultArtifacts;
+    let calls = 0;
+    repo.purgeExpiredToolResultArtifacts = async () => (++calls === 1 ? 500 : 3);
+    try {
+      assert.equal(await purgeExpiredToolResultArtifacts(), 503);
+      assert.equal(calls, 2);
+    } finally {
+      repo.purgeExpiredToolResultArtifacts = originalPurge;
+    }
+  });
+
   it('continues later retention tasks when one cleanup task fails', async () => {
     const calls: string[] = [];
 
@@ -102,6 +115,10 @@ describe('conversation retention service', () => {
       skillSnapshotBlobs: async () => {
         calls.push('skill_snapshot_blobs');
         return 0;
+      },
+      toolResultArtifacts: async () => {
+        calls.push('tool_result_artifacts');
+        return 0;
       }
     });
 
@@ -111,7 +128,8 @@ describe('conversation retention service', () => {
       'workspace_audit_events',
       'external_integration_link_tokens',
       'target_metric_history',
-      'skill_snapshot_blobs'
+      'skill_snapshot_blobs',
+      'tool_result_artifacts'
     ]);
   });
 });

@@ -29,7 +29,8 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       tools,
       servers: [],
       overrides: {},
-      targetSupportsWrite: true
+      targetSupportsWrite: true,
+      targetAgentConnected: true
     });
 
     assert.equal(catalog.permissions.canEdit, true);
@@ -106,7 +107,8 @@ describe('composeKubernetesClusterToolsCatalog', () => {
         }
       ],
       overrides: {},
-      targetSupportsWrite: true
+      targetSupportsWrite: true,
+      targetAgentConnected: true
     });
 
     assert.equal(catalog.servers[0]?.type, 'builtin');
@@ -173,7 +175,8 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       tools,
       servers,
       overrides: { 'a-write': true },
-      targetSupportsWrite: true
+      targetSupportsWrite: true,
+      targetAgentConnected: true
     });
 
     assert.deepEqual(
@@ -233,7 +236,8 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       ],
       servers: [],
       overrides: {},
-      targetSupportsWrite: true
+      targetSupportsWrite: true,
+      targetAgentConnected: true
     });
 
     const syntheticServer = catalog.servers.find((server) => server.name === 'remote-mcp-server');
@@ -266,6 +270,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       servers: [],
       overrides: {},
       targetSupportsWrite: true,
+      targetAgentConnected: true,
       tools: [
         {
           name: 'restart_service',
@@ -302,6 +307,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       servers: [],
       overrides: {},
       targetSupportsWrite: false,
+      targetAgentConnected: true,
       tools: [
         {
           name: 'restart_workload',
@@ -355,5 +361,31 @@ describe('composeKubernetesClusterToolsCatalog', () => {
         effectiveDisabledReason: 'agent_write_disabled'
       }
     ]);
+  });
+
+  it('marks built-in tools unavailable while the target agent is disconnected', () => {
+    const catalog = composeKubernetesClusterToolsCatalog({
+      workspaceId: 'ws-5',
+      clusterId: 'cluster-5',
+      canEdit: true,
+      servers: [],
+      overrides: {},
+      targetSupportsWrite: true,
+      targetAgentConnected: false,
+      tools: [{
+        name: 'get_resource',
+        mcp_server_url: config.BUILTIN_MCP_SERVER_URL,
+        timeout_ms: 12000,
+        description: 'Get a resource',
+        capability: 'read',
+        version: 'v1',
+        source: 'builtin',
+        enabled: true
+      }]
+    });
+
+    assert.equal(catalog.servers[0]?.connectionStatus, 'error');
+    assert.equal(catalog.servers[0]?.tools[0]?.enabledEffective, false);
+    assert.equal(catalog.servers[0]?.tools[0]?.effectiveDisabledReason, 'agent_disconnected');
   });
 });

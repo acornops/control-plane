@@ -10,7 +10,7 @@
 - Agent disconnects make cluster state stale.
 - Pending write approvals can pause runs in `waiting_for_approval`; decisions resume the stored continuation, while expiry fails the attempt without granting the capability.
 - llm-gateway admin sync failures create tool-catalog drift.
-- If `PERSIST_RUN_EVENTS` is disabled outside local development, control-plane restarts lose trace replay history.
+- If `PERSIST_RUN_EVENTS` is disabled, control-plane restarts and bounded in-memory eviction lose trace replay history. Canonical local, staging, and production configurations keep it enabled; disable it only in isolated tests that do not validate traces.
 
 ## Required Validation
 

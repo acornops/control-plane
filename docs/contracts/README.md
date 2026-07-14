@@ -41,6 +41,21 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Built-in tool calls preserve the run-scoped model tool call ID as a stable,
   hashed agent JSON-RPC request ID for write idempotency.
 - Kubernetes agent handshakes use exactly `agentType: agentk`; the legacy `k8s_agent` value is not supported.
+- Kubernetes built-in calls must preserve the strict AgentK MCP envelope. Raw
+  AgentV read-only results are wrapped as MCP content by the bridge and remain
+  ineligible for full-result artifact retention.
+- Calls that cannot be dispatched because the target agent is disconnected
+  return HTTP 503 with retryable `TARGET_AGENT_UNAVAILABLE` and
+  `outcome: not_started`; arbitrary upstream bodies remain hidden.
+- AgentK catalog synchronization fails closed when any tool omits a valid
+  output schema or artifact policy. AgentV and other non-AgentK built-ins are
+  registered with artifact retention disabled regardless of producer metadata.
+- Run events retain compact tool evidence only. Trusted complete redacted tool
+  results are stored as gzip artifacts for seven days, remain outside SSE,
+  require workspace data-read authorization, return `Cache-Control: no-store`,
+  and create an audit event when viewed.
+  See [Tool Result Artifacts](/docs/design-docs/tool-result-artifacts.md) for the
+  storage, idempotency, and access invariants.
 
 ## Boundary Notes
 

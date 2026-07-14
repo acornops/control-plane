@@ -3,10 +3,11 @@ import { after, afterEach, beforeEach, describe, it, mock } from 'node:test';
 import {
   callMcpTool,
   operationForToolCall,
+  normalizeTargetAgentToolResult,
   publicAgentToolError,
   stableAgentRequestId
 } from '../src/controllers/internal-mcp-bridge-controller.js';
-import { AgentToolCallError } from '../src/agent/types.js';
+import { AgentToolCallError, AgentUnavailableError } from '../src/agent/types.js';
 import { agentGateway } from '../src/agent/ws-server.js';
 import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
@@ -81,6 +82,11 @@ describe('internal MCP bridge audit classification', () => {
   });
 
   it('exposes only sanitized AgentK timeout receipt fields', () => {
+    assert.deepEqual(publicAgentToolError(new AgentUnavailableError()), {
+      code: 'TARGET_AGENT_UNAVAILABLE',
+      message: 'Target agent is temporarily unavailable',
+      outcome: 'not_started'
+    });
     assert.deepEqual(publicAgentToolError(new AgentToolCallError('Tool timed out', -32003, {
       code: 'TOOL_TIMEOUT', outcome: 'unknown', operationId: 'operation-1', internal: 'drop-me'
     })), {
@@ -88,6 +94,32 @@ describe('internal MCP bridge audit classification', () => {
     });
     assert.deepEqual(publicAgentToolError(new AgentToolCallError('raw upstream body', -32603)), {
       code: 'AGENT_TOOL_ERROR', message: 'Agent tool call failed'
+    });
+  });
+
+  it('keeps AgentK strict while wrapping AgentV raw results for structural fallback', () => {
+    const rawVmResult = { services: [{ name: 'nginx', status: 'running' }] };
+    assert.deepEqual(normalizeTargetAgentToolResult(rawVmResult, 'virtual_machine'), {
+      content: [{ type: 'text', text: JSON.stringify(rawVmResult) }],
+      structuredContent: { schemaVersion: 'acornops.full-tool-result.v1', data: rawVmResult },
+      isError: false,
+    });
+    assert.throws(
+      () => normalizeTargetAgentToolResult({ items: [] }, 'kubernetes'),
+      /AgentK returned an invalid MCP tool result/
+    );
+    const agentk = {
+      content: [{ type: 'text', text: '{}' }],
+      structuredContent: { schemaVersion: 'acornops.full-tool-result.v1', data: {} },
+      isError: false,
+    };
+    assert.equal(normalizeTargetAgentToolResult(agentk, 'kubernetes'), agentk);
+
+    const rawVmContent = { content: [{ name: 'journal', value: 'warning' }], status: 'degraded' };
+    assert.deepEqual(normalizeTargetAgentToolResult(rawVmContent, 'virtual_machine'), {
+      content: [{ type: 'text', text: JSON.stringify(rawVmContent) }],
+      structuredContent: { schemaVersion: 'acornops.full-tool-result.v1', data: rawVmContent },
+      isError: false,
     });
   });
 
@@ -134,7 +166,14 @@ describe('internal MCP bridge audit classification', () => {
       id: 'cluster-primary', workspaceId: 'workspace-1', targetType: 'kubernetes', name: 'Primary',
       status: 'online', metadata: {}, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z'
     });
-    mock.method(agentGateway, 'callAgentTool', async () => ({ items: [{ kind: 'Pod', name: 'api-1' }] }));
+    mock.method(agentGateway, 'callAgentMcpTool', async () => ({
+      content: [{ type: 'text', text: JSON.stringify({ items: [{ kind: 'Pod', name: 'api-1' }] }) }],
+      structuredContent: {
+        schemaVersion: 'acornops.full-tool-result.v1',
+        data: { items: [{ kind: 'Pod', name: 'api-1' }] }
+      },
+      isError: false
+    }));
 
     const response = await callMcpBridge(
       {

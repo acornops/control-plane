@@ -33,6 +33,10 @@ const automationPdfRenders = new Map<string, number>();
 const automationPdfRenderDurations = new Map<string, number>();
 const automationMcpFailures = new Map<string, number>();
 let automationGauges: Record<string, number> = {};
+const toolResultArtifactEvents = new Map<string, number>();
+const toolResultArtifactSizes = new Map<string, number>();
+const toolResultArtifactSizeCounts = new Map<string, number>();
+const toolResultArtifactSizeSums = new Map<string, number>();
 let adminMutations = 0;
 let adminAuditWriteFailures = 0;
 
@@ -155,6 +159,18 @@ export function observeAutomationPdfRender(outcome: string, durationMs: number, 
 
 export function setAutomationGauges(snapshot: Record<string, number>): void {
   automationGauges = { ...snapshot };
+}
+
+export function incrementToolResultArtifactEvent(event: string, count = 1): void {
+  increment(toolResultArtifactEvents, event, count);
+}
+
+export function observeToolResultArtifactBytes(view: 'compressed' | 'uncompressed', bytes: number): void {
+  for (const bucket of [1024, 16_384, 65_536, 262_144, 1_048_576, 2_097_152, Number.POSITIVE_INFINITY]) {
+    if (bytes <= bucket) increment(toolResultArtifactSizes, `${view}:${bucket === Number.POSITIVE_INFINITY ? '+Inf' : bucket}`);
+  }
+  increment(toolResultArtifactSizeCounts, view);
+  increment(toolResultArtifactSizeSums, view, bytes);
 }
 
 export function renderControlPlaneMetrics(): string {
@@ -313,7 +329,24 @@ export function renderControlPlaneMetrics(): string {
     ...Object.entries(automationGauges).map(([key, value]) => {
       const [resource, state = 'all'] = key.split(':');
       return metricLine('control_plane_automation_runtime', { ...serviceLabels, resource, state }, value);
-    })
+    }),
+    '# HELP control_plane_tool_result_artifact_events_total Tool result artifact lifecycle outcomes.',
+    '# TYPE control_plane_tool_result_artifact_events_total counter',
+    ...Array.from(toolResultArtifactEvents.entries()).map(([event, value]) =>
+      metricLine('control_plane_tool_result_artifact_events_total', { ...serviceLabels, event }, value)
+    ),
+    '# HELP control_plane_tool_result_artifact_bytes Tool result artifact size by stored view.',
+    '# TYPE control_plane_tool_result_artifact_bytes histogram',
+    ...Array.from(toolResultArtifactSizes.entries()).map(([key, value]) => {
+      const [view, le] = key.split(':');
+      return metricLine('control_plane_tool_result_artifact_bytes_bucket', { ...serviceLabels, view, le }, value);
+    }),
+    ...Array.from(toolResultArtifactSizeSums.entries()).map(([view, value]) =>
+      metricLine('control_plane_tool_result_artifact_bytes_sum', { ...serviceLabels, view }, value)
+    ),
+    ...Array.from(toolResultArtifactSizeCounts.entries()).map(([view, value]) =>
+      metricLine('control_plane_tool_result_artifact_bytes_count', { ...serviceLabels, view }, value)
+    )
   ];
   return `${lines.join('\n')}\n`;
 }

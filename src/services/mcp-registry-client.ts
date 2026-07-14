@@ -12,6 +12,8 @@ export interface McpToolConfig {
   version?: string;
   source?: 'mcp' | 'builtin';
   input_schema?: Record<string, unknown>;
+  output_schema?: Record<string, unknown>;
+  artifact_policy?: 'never' | 'if_detailed' | 'always';
   enabled: boolean;
 }
 
@@ -72,6 +74,8 @@ export interface UpsertTargetMcpServerInput {
     version?: string;
     source?: 'mcp' | 'builtin';
     inputSchema?: Record<string, unknown>;
+    outputSchema?: Record<string, unknown>;
+    artifactPolicy?: 'never' | 'if_detailed' | 'always';
     enabled?: boolean;
   }>;
 }
@@ -99,6 +103,8 @@ export interface UpdateTargetMcpServerInput {
     version?: string;
     source?: 'mcp' | 'builtin';
     inputSchema?: Record<string, unknown>;
+    outputSchema?: Record<string, unknown>;
+    artifactPolicy?: 'never' | 'if_detailed' | 'always';
     enabled?: boolean;
   }>;
   removeTools?: string[];
@@ -185,6 +191,8 @@ function toGatewayToolPayload(tool: {
   version?: string;
   source?: 'mcp' | 'builtin';
   inputSchema?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  artifactPolicy?: 'never' | 'if_detailed' | 'always';
   enabled?: boolean;
 }) {
   return {
@@ -195,6 +203,8 @@ function toGatewayToolPayload(tool: {
     version: tool.version,
     source: tool.source,
     input_schema: tool.inputSchema,
+    output_schema: tool.outputSchema,
+    artifact_policy: tool.artifactPolicy,
     enabled: tool.enabled ?? true
   };
 }

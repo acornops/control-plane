@@ -24,7 +24,9 @@ export interface AgentToolDefinition {
   name: string;
   description: string;
   capability?: 'read' | 'write';
-  input_schema?: Record<string, unknown>;
+  inputSchema?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  artifactPolicy?: 'never' | 'if_detailed' | 'always';
   timeout_ms?: number;
   version?: string;
   deprecated?: boolean;
@@ -39,5 +41,13 @@ export class AgentToolCallError extends Error {
   ) {
     super(message);
     this.name = 'AgentToolCallError';
+  }
+}
+
+/** The target agent was unavailable before the command could be dispatched. */
+export class AgentUnavailableError extends Error {
+  constructor() {
+    super('Target agent is temporarily unavailable');
+    this.name = 'AgentUnavailableError';
   }
 }

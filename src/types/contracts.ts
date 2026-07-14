@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import { TARGET_TYPES } from './domain.js';
+import { runEventSchema, runEventsBatchSchema } from './run-events-contract.js';
+
+export { runEventSchema, runEventsBatchSchema };
 
 const uuidV4Pattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const uuidV4Schema = z.string().regex(uuidV4Pattern, 'must be a UUIDv4');
@@ -23,17 +26,22 @@ export const runRequestSchema = z.object({
   requested_at: z.string().datetime()
 });
 
-export const runEventSchema = z.object({
-  schema_version: z.literal(1),
-  run_id: uuidV4Schema,
-  seq: z.number().int().positive(),
-  ts: z.string().datetime(),
-  type: z.string().min(1),
-  payload: z.record(z.unknown())
-});
-
-export const runEventsBatchSchema = z.object({
-  events: z.array(runEventSchema)
+export const toolResultArtifactCreateSchema = z.object({
+  callId: z.string().min(1).max(256),
+  toolName: z.string().min(1).max(128),
+  result: z.unknown(),
+  contentType: z.enum(['application/json', 'text/plain']).optional().default('application/json')
+}).strict().superRefine((value, ctx) => {
+  if (!Object.prototype.hasOwnProperty.call(value, 'result')) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['result'], message: 'result is required' });
+  }
+  if (value.contentType === 'text/plain' && typeof value.result !== 'string') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['result'],
+      message: 'plain-text artifacts require a string result'
+    });
+  }
 });
 
 export const createToolApprovalSchema = z.object({

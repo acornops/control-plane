@@ -65,6 +65,7 @@ const sessionRoutes = read('src/routes/sessions.ts');
 const runRoutes = read('src/routes/runs.ts');
 const internalRoutes = read('src/routes/internal-execution.ts');
 const contracts = read('src/types/contracts.ts');
+const runEventsContract = read('src/types/run-events-contract.ts');
 const configSource = read('src/config.ts');
 const mcpRegistryClient = read('src/services/mcp-registry-client.ts');
 const wsServer = read('src/agent/ws-server.ts');
@@ -290,6 +291,7 @@ for (const [docPath, routeNeedle, source, label] of [
   ['`POST /api/v1/sessions/{sessionId}/messages`', "sessionsRouter.post('/sessions/:sessionId/messages'", sessionRoutes, 'Post message route'],
   ['`GET /api/v1/runs/{runId}`', "runsRouter.get('/runs/:runId'", runRoutes, 'Get run route'],
   ['`GET /api/v1/runs/{runId}/events`', "runsRouter.get('/runs/:runId/events'", runRoutes, 'Run events route'],
+  ['`GET /api/v1/runs/{runId}/tool-result-artifacts/{artifactId}`', "runsRouter.get('/runs/:runId/tool-result-artifacts/:artifactId'", runRoutes, 'Tool result artifact route'],
   ['`GET /api/v1/runs/{runId}/stream`', "runsRouter.get('/runs/:runId/stream'", runRoutes, 'Run stream route'],
   ['`GET /api/v1/runs/{runId}/approvals`', "runsRouter.get('/runs/:runId/approvals'", runRoutes, 'Run approvals route'],
   ['`POST /api/v1/runs/{runId}/approvals/{approvalId}/decision`', "'/runs/:runId/approvals/:approvalId/decision'", runRoutes, 'Run approval decision route'],
@@ -302,6 +304,7 @@ for (const [docPath, routeNeedle, source, label] of [
   ['`DELETE /internal/v1/runs/{runId}/continuation`', "internalExecutionRouter.delete(\n  '/runs/:runId/continuation'", internalRoutes, 'Internal consume continuation route'],
   ['`GET /internal/v1/sessions/{sessionId}/context?run_id=<runId>`', "internalExecutionRouter.get('/sessions/:sessionId/context'", internalRoutes, 'Context route'],
   ['`POST /internal/v1/runs/{runId}/events`', "internalExecutionRouter.post(\n  '/runs/:runId/events'", internalRoutes, 'Run ingest route'],
+  ['`POST /internal/v1/runs/{runId}/tool-result-artifacts`', "internalExecutionRouter.post(\n  '/runs/:runId/tool-result-artifacts'", internalRoutes, 'Tool result artifact ingest route'],
   ['`POST /internal/v1/runs/{runId}/commit`', "internalExecutionRouter.post(\n  '/runs/:runId/commit'", internalRoutes, 'Run commit route'],
   ['`POST /internal/v1/mcp/tools/call`', "internalExecutionRouter.post(\n  '/mcp/tools/call'", internalRoutes, 'Builtin MCP call route'],
   ['`GET /api/v1/workspaces/{workspaceId}/webhooks`', "webhooksRouter.get('/workspaces/:workspaceId/webhooks'", webhookRoutes, 'List webhooks route'],
@@ -464,6 +467,15 @@ for (const contractToken of [
 for (const eventType of executionEngineContract.eventTypes) {
   expectIncludes(manifestText, eventType, 'Execution-engine event manifest');
 }
+for (const field of [
+  ...executionEngineContract.toolCallCompletedPayloadFields,
+  ...executionEngineContract.toolCallCompletedContextMetaFields,
+  ...executionEngineContract.toolCallCompletedArtifactFields
+]) {
+  expectIncludes(runEventsContract, field.replace(/\?$/, ''), 'Tool completion event field');
+}
+expect(executionEngineContract.toolCallCompletedResultMaxBytes === 12 * 1024, 'Tool completion event byte limit');
+expectIncludes(runEventsContract, 'MAX_MODEL_CONTEXT_BYTES = 12 * 1024', 'Tool completion event byte limit implementation');
 
 expectIncludes(doc, executionEngineContract.dispatchAuth, 'Execution-engine dispatch auth doc');
 expectIncludes(configSource, 'EXECUTION_ENGINE_DISPATCH_TOKEN', 'Execution-engine dispatch token config');

@@ -3,7 +3,7 @@ import { config } from '../config.js';
 import { KUBERNETES_TARGET_TYPE, TargetType } from '../types/domain.js';
 import { McpServerConfig, McpToolConfig } from './mcp-registry-client.js';
 
-type EffectiveDisabledReason = 'server_disabled' | 'agent_write_disabled' | null;
+type EffectiveDisabledReason = 'server_disabled' | 'agent_disconnected' | 'agent_write_disabled' | null;
 
 export function getMcpCatalogEditableRoles(): string[] {
   return listConfiguredRoleTemplates()
@@ -132,6 +132,7 @@ export function composeKubernetesClusterToolsCatalog(params: {
   servers: McpServerConfig[];
   overrides: Record<string, boolean>;
   targetSupportsWrite: boolean;
+  targetAgentConnected: boolean;
 }): KubernetesClusterToolCatalogResponse {
   const catalog = composeTargetToolsCatalog({
     workspaceId: params.workspaceId,
@@ -141,7 +142,8 @@ export function composeKubernetesClusterToolsCatalog(params: {
     tools: params.tools,
     servers: params.servers,
     overrides: params.overrides,
-    targetSupportsWrite: params.targetSupportsWrite
+    targetSupportsWrite: params.targetSupportsWrite,
+    targetAgentConnected: params.targetAgentConnected
   });
   return {
     workspaceId: catalog.workspaceId,
@@ -160,8 +162,18 @@ export function composeTargetToolsCatalog(params: {
   servers: McpServerConfig[];
   overrides: Record<string, boolean>;
   targetSupportsWrite: boolean;
+  targetAgentConnected: boolean;
 }): TargetToolCatalogResponse {
-  const { workspaceId, targetId, targetType, canEdit, tools, overrides, targetSupportsWrite } = params;
+  const {
+    workspaceId,
+    targetId,
+    targetType,
+    canEdit,
+    tools,
+    overrides,
+    targetSupportsWrite,
+    targetAgentConnected
+  } = params;
 
   const serverByUrl = new Map<string, McpServerConfig>();
   for (const server of params.servers) {
@@ -206,6 +218,8 @@ export function composeTargetToolsCatalog(params: {
         const capability = normalizeCapability(tool.capability);
         const effectiveDisabledReason: EffectiveDisabledReason = !server.enabled && enabledConfigured
           ? 'server_disabled'
+          : isBuiltin && enabledConfigured && !targetAgentConnected
+            ? 'agent_disconnected'
           : capability === 'write' && enabledConfigured && !targetSupportsWrite
             ? 'agent_write_disabled'
             : null;
@@ -237,7 +251,7 @@ export function composeTargetToolsCatalog(params: {
       authType: server.auth_type,
       publicHeaders: server.public_headers ?? {},
       connectionStatus: isBuiltin
-        ? 'ok'
+        ? targetAgentConnected ? 'ok' : 'error'
         : server.connection_status === 'ok' || server.connection_status === 'error'
           ? server.connection_status
           : 'unknown',

@@ -18,7 +18,9 @@ describe('syncTargetBuiltInTools', () => {
         capability: 'write' as const,
         timeout_ms: 12000,
         version: 'v2',
-        input_schema: { type: 'object' }
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+        artifactPolicy: 'always' as const
       },
       {
         name: '_acornops_load_skill',
@@ -72,6 +74,8 @@ describe('syncTargetBuiltInTools', () => {
     const tools = createdBody?.tools as Array<Record<string, unknown>>;
     assert.equal(tools.some((tool) => tool.name === '_acornops_load_skill'), false);
     assert.equal(tools.find((tool) => tool.name === 'restart_service')?.capability, 'write');
+    assert.equal(tools.find((tool) => tool.name === 'restart_service')?.output_schema, undefined);
+    assert.equal(tools.find((tool) => tool.name === 'restart_service')?.artifact_policy, 'never');
     assert.equal(tools.find((tool) => tool.name === 'get_logs')?.capability, 'read');
   });
 
@@ -100,8 +104,14 @@ describe('syncTargetBuiltInTools', () => {
 
   it('adds patch_resource and removes stale mutation tools when AgentK discovery changes', async () => {
     mock.method(agentGateway, 'listAgentTools', async () => [
-      { name: 'list_resources', description: 'List resources', capability: 'read' as const },
-      { name: 'patch_resource', description: 'Patch one resource', capability: 'write' as const },
+      {
+        name: 'list_resources', description: 'List resources', capability: 'read' as const,
+        outputSchema: { type: 'object' }, artifactPolicy: 'always' as const,
+      },
+      {
+        name: 'patch_resource', description: 'Patch one resource', capability: 'write' as const,
+        outputSchema: { type: 'object' }, artifactPolicy: 'never' as const,
+      },
     ]);
     mock.method(webhooks, 'emit', () => undefined);
     let patchBody: Record<string, unknown> | undefined;
@@ -138,5 +148,15 @@ describe('syncTargetBuiltInTools', () => {
     assert.deepEqual(result.addedTools, ['patch_resource']);
     assert.deepEqual(result.removedTools, ['apply_remediation', 'simulate_patch']);
     assert.deepEqual(patchBody?.remove_tools, ['apply_remediation', 'simulate_patch']);
+  });
+
+  it('fails AgentK synchronization when the result contract is incomplete', async () => {
+    mock.method(agentGateway, 'listAgentTools', async () => [{
+      name: 'get_resource', description: 'Get a resource', capability: 'read' as const,
+    }]);
+    const result = await syncTargetBuiltInTools('ws-1', 'cluster-1', 'kubernetes');
+
+    assert.equal(result.ok, false);
+    assert.match(result.error || '', /missing a valid output schema/);
   });
 });

@@ -7,9 +7,11 @@ import {
   EXAMPLE_USER_ID,
   EXAMPLE_WORKSPACE_ID
 } from '../../constants/dev-defaults.js';
+import { buildToolResultArtifactPaths } from './tool-result-artifact-paths.js';
 
 export function buildSessionRunPaths(): Record<string, unknown> {
   return {
+      ...buildToolResultArtifactPaths(),
       '/api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions': {
         get: {
           tags: ['sessions'],

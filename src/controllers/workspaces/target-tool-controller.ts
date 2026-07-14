@@ -1,4 +1,5 @@
 import { NextFunction, Response } from 'express';
+import { agentGateway } from '../../agent/ws-server.js';
 import { AuthenticatedRequest } from '../../auth/middleware.js';
 import { requireTargetAccess } from '../../auth/workspace-authorization.js';
 import { composeTargetToolsCatalog } from '../../services/kubernetes-cluster-tools-catalog.js';
@@ -66,14 +67,15 @@ export async function listTargetMcpCatalog(
     if (!access) {
       return;
     }
-    const [tools, servers, overrides, agentRegistration] = await Promise.all([
+    const [tools, servers, overrides, agentRegistration, targetAgentConnected] = await Promise.all([
       listTargetMcpTools(workspaceId, targetId, access.target.targetType, {
         includeServerDisabled: true,
         includeDisabled: true
       }),
       listGatewayTargetMcpServers(workspaceId, targetId, access.target.targetType),
       repo.listTargetToolOverrides(targetId),
-      repo.getTargetAgentRegistration(targetId)
+      repo.getTargetAgentRegistration(targetId),
+      agentGateway.isAgentConnected(targetId)
     ]);
     const catalog = composeTargetToolsCatalog({
       workspaceId,
@@ -83,7 +85,8 @@ export async function listTargetMcpCatalog(
       tools,
       servers,
       overrides,
-      targetSupportsWrite: Boolean(agentRegistration?.capabilities?.includes('write'))
+      targetSupportsWrite: Boolean(agentRegistration?.capabilities?.includes('write')),
+      targetAgentConnected
     });
     const q = normalizeSearchQuery(req.query.q);
     const signature = makeQuerySignature({ q });
@@ -143,14 +146,15 @@ export async function listTargetMcpServerTools(req: AuthenticatedRequest, res: R
       return;
     }
 
-    const [tools, servers, overrides, agentRegistration] = await Promise.all([
+    const [tools, servers, overrides, agentRegistration, targetAgentConnected] = await Promise.all([
       listTargetMcpTools(workspaceId, targetId, access.target.targetType, {
         includeServerDisabled: true,
         includeDisabled: true
       }),
       listGatewayTargetMcpServers(workspaceId, targetId, access.target.targetType),
       repo.listTargetToolOverrides(targetId),
-      repo.getTargetAgentRegistration(targetId)
+      repo.getTargetAgentRegistration(targetId),
+      agentGateway.isAgentConnected(targetId)
     ]);
     const catalog = composeTargetToolsCatalog({
       workspaceId,
@@ -160,7 +164,8 @@ export async function listTargetMcpServerTools(req: AuthenticatedRequest, res: R
       tools,
       servers,
       overrides,
-      targetSupportsWrite: Boolean(agentRegistration?.capabilities?.includes('write'))
+      targetSupportsWrite: Boolean(agentRegistration?.capabilities?.includes('write')),
+      targetAgentConnected
     });
     const server = catalog.servers.find((item) => item.id === serverId);
     if (!server) {

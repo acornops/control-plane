@@ -6,6 +6,7 @@ import {
   incrementTargetInsightsRetrieval,
   observeApprovalInboxQueryDurationMs,
   observeTargetInsightsCheckpointDurationMs,
+  observeToolResultArtifactBytes,
   recordTargetInsightsCheckpointPatchCount,
   renderControlPlaneMetrics
 } from '../src/metrics.js';
@@ -44,5 +45,15 @@ describe('control-plane metrics', () => {
     assert.match(payload, /control_plane_approval_inbox_queries_total\{[^}]*status="pending",outcome="success"[^}]*\}/);
     assert.match(payload, /control_plane_approval_inbox_query_duration_ms_bucket\{[^}]*status="pending",outcome="success",le="100"[^}]*\}/);
     assert.doesNotMatch(payload, /workspace[_-]?id=/i);
+  });
+
+  it('renders artifact sizes as a complete Prometheus histogram', () => {
+    observeToolResultArtifactBytes('uncompressed', 2048);
+    const payload = renderControlPlaneMetrics();
+
+    assert.match(payload, /# TYPE control_plane_tool_result_artifact_bytes histogram/);
+    assert.match(payload, /control_plane_tool_result_artifact_bytes_bucket\{[^}]*view="uncompressed",le="16384"[^}]*\} 1/);
+    assert.match(payload, /control_plane_tool_result_artifact_bytes_sum\{[^}]*view="uncompressed"[^}]*\} 2048/);
+    assert.match(payload, /control_plane_tool_result_artifact_bytes_count\{[^}]*view="uncompressed"[^}]*\} 1/);
   });
 });

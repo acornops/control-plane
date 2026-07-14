@@ -87,6 +87,7 @@ import {
 } from './repository-target-tools.js';
 import * as repositoryTargetInsights from './repository-target-insights.js';
 import * as repositoryTargetInsightsCheckpoints from './repository-target-insights-checkpoints.js';
+import * as toolResultArtifacts from './repository-tool-result-artifacts.js';
 import {
   countEnabledTargetSkills as countEnabledTargetSkillsRecord,
   createTargetSkill as createTargetSkillRecord,
@@ -458,20 +459,19 @@ export class Repository {
   createTargetSkill = createTargetSkillRecord;
 
   updateTargetSkill = updateTargetSkillRecord;
-
   updateTargetSkillEnabled = updateTargetSkillEnabledRecord;
 
   deleteTargetSkill = deleteTargetSkillRecord;
-
   countEnabledTargetSkills = countEnabledTargetSkillsRecord;
-
   listEnabledValidTargetSkills = listEnabledValidTargetSkillsRecord;
   listEnabledValidTargetSkillSummaries = listEnabledValidTargetSkillSummariesRecord;
   createRunSkillSnapshot = runSkillSnapshots.createRunSkillSnapshot;
   getRunSkillCatalog = runSkillSnapshots.getRunSkillCatalog;
   getRunSkillSnapshot = runSkillSnapshots.getRunSkillSnapshot;
   purgeOrphanedSkillSnapshotBlobs = runSkillSnapshots.purgeOrphanedSkillSnapshotBlobs;
-
+  upsertToolResultArtifact = toolResultArtifacts.upsertToolResultArtifact;
+  getToolResultArtifact = toolResultArtifacts.getToolResultArtifact;
+  purgeExpiredToolResultArtifacts = toolResultArtifacts.purgeExpiredToolResultArtifacts;
   createWebhookSubscription = createWebhookSubscriptionRecord;
 
   listWebhookSubscriptions = listWebhookSubscriptionsRecord;

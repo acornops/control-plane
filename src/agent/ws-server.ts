@@ -18,10 +18,8 @@ import { handleAgentHandshake } from './handshake.js';
 import { AGENT_COMMAND_TIMEOUT_MS, sendLocalJsonRpc } from './local-jsonrpc.js';
 import { decodeAgentMessage } from './message-utils.js';
 import { markConnectionOfflineIfUnowned } from './offline-reconciliation.js';
-import {
-  setBuiltInToolSyncSchedulerForTests as setBuiltInToolSyncSchedulerForTestsInternal
-} from './tool-sync-scheduler.js';
-import { AgentConnection, AgentToolCallError, AgentToolDefinition, BuiltInToolSyncScheduler } from './types.js';
+import { setBuiltInToolSyncSchedulerForTests as setBuiltInToolSyncSchedulerForTestsInternal } from './tool-sync-scheduler.js';
+import { AgentConnection, AgentToolCallError, AgentToolDefinition, AgentUnavailableError, BuiltInToolSyncScheduler } from './types.js';
 import {
   AgentRpcRequest,
   AgentRpcResponse,
@@ -36,6 +34,19 @@ import {
 } from '../services/control-plane-coordination.js';
 
 export type { AgentToolDefinition } from './types.js';
+
+/** Distinguish an MCP CallToolResult from a domain object that happens to contain `content`. */
+export function isMcpToolResultEnvelope(result: unknown): result is Record<string, unknown> {
+  if (!result || typeof result !== 'object') return false;
+  const value = result as Record<string, unknown>;
+  if (!Array.isArray(value.content)) return false;
+  const hasEnvelopeMarker = Object.prototype.hasOwnProperty.call(value, 'isError')
+    || (value.structuredContent !== null && typeof value.structuredContent === 'object')
+    || (value._meta !== null && typeof value._meta === 'object');
+  return hasEnvelopeMarker && value.content.every((block) => (
+    Boolean(block) && typeof block === 'object' && typeof (block as { type?: unknown }).type === 'string'
+  ));
+}
 
 function forwardedProto(request: IncomingMessage): string {
   const raw = request.headers['x-forwarded-proto'];
@@ -126,11 +137,36 @@ export class AgentGateway {
     });
   }
 
-  async callAgentTool(clusterId: string, toolName: string, args: Record<string, unknown>, requestId?: string): Promise<unknown> {
+  async callAgentMcpTool(clusterId: string, toolName: string, args: Record<string, unknown>, requestId?: string): Promise<unknown> {
     return this.sendJsonRpc(clusterId, 'tools/call', {
       name: toolName,
       arguments: args
     }, requestId);
+  }
+
+  /** Call an Agent tool for a direct API consumer and unwrap its complete structured result. */
+  async callAgentTool(clusterId: string, toolName: string, args: Record<string, unknown>, requestId?: string): Promise<unknown> {
+    const result = await this.callAgentMcpTool(clusterId, toolName, args, requestId);
+    if (isMcpToolResultEnvelope(result)) {
+      if ((result as { isError?: unknown }).isError === true) {
+        const structured = (result as { structuredContent?: { data?: unknown } }).structuredContent;
+        const data = structured?.data && typeof structured.data === 'object'
+          ? structured.data as Record<string, unknown>
+          : undefined;
+        throw new AgentToolCallError(
+          typeof data?.message === 'string' ? data.message : 'Agent tool call failed',
+          -32000,
+          data
+        );
+      }
+      const structured = (result as { structuredContent?: unknown }).structuredContent;
+      if (structured && typeof structured === 'object' &&
+          (structured as { schemaVersion?: unknown }).schemaVersion === 'acornops.full-tool-result.v1' &&
+          Object.prototype.hasOwnProperty.call(structured, 'data')) {
+        return (structured as { data: unknown }).data;
+      }
+    }
+    return result;
   }
 
   async listAgentTools(clusterId: string): Promise<AgentToolDefinition[]> {
@@ -138,7 +174,17 @@ export class AgentGateway {
       tools?: AgentToolDefinition[];
     };
     const tools = Array.isArray(result?.tools) ? result.tools : [];
-    return tools.filter((tool) => typeof tool?.name === 'string' && typeof tool?.description === 'string');
+    return tools
+      .filter((tool) => typeof tool?.name === 'string' && typeof tool?.description === 'string')
+      .map((tool) => {
+        const legacyInput = (tool as AgentToolDefinition & { input_schema?: unknown }).input_schema;
+        return {
+          ...tool,
+          inputSchema: tool.inputSchema || (
+            legacyInput && typeof legacyInput === 'object' ? legacyInput as Record<string, unknown> : undefined
+          ),
+        };
+      });
   }
 
   async disconnectCluster(clusterId: string, reason = 'Agent connection closed'): Promise<boolean> {
@@ -159,7 +205,13 @@ export class AgentGateway {
   async sendJsonRpc(clusterId: string, method: string, params: Record<string, unknown>, requestId?: string): Promise<unknown> {
     return this.sendJsonRpcWithRetry(clusterId, method, params, true, requestId);
   }
-
+  async isAgentConnected(clusterId: string): Promise<boolean> {
+    const conn = getAgentConnection(clusterId);
+    if (conn?.ws.readyState === WebSocket.OPEN) return !distributedRoutingEnabled()
+      || await isCurrentAgentOwner(clusterId, conn.connectionId);
+    if (!distributedRoutingEnabled()) return false;
+    return Boolean(await getAgentOwner(clusterId));
+  }
   private async sendJsonRpcWithRetry(
     clusterId: string,
     method: string,
@@ -176,19 +228,19 @@ export class AgentGateway {
     }
 
     if (!distributedRoutingEnabled()) {
-      throw new Error('Agent is not connected');
+      throw new AgentUnavailableError();
     }
 
     const owner = await getAgentOwner(clusterId);
     if (!owner) {
-      throw new Error('Agent is not connected');
+      throw new AgentUnavailableError();
     }
     if (owner.instanceId === controlPlaneInstanceId()) {
       if (retryOnOwnerMismatch) {
         await clearAgentOwnerIfCurrent(clusterId, owner.connectionId);
         return this.sendJsonRpcWithRetry(clusterId, method, params, false, requestId);
       }
-      throw new Error('Agent is not connected');
+      throw new AgentUnavailableError();
     }
 
     const response = await requestRemoteAgentRpc(owner, {
@@ -205,6 +257,7 @@ export class AgentGateway {
       if (response.agentError) {
         throw new AgentToolCallError(response.agentError.message, response.agentError.rpcCode, response.agentError.data);
       }
+      if (response.code === 'AGENT_UNAVAILABLE') throw new AgentUnavailableError();
       throw new Error(response.error || 'Agent command failed');
     }
     return response.result;

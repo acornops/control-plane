@@ -1,19 +1,35 @@
 import { createHash } from 'node:crypto';
 import { NextFunction, Request, Response } from 'express';
 import type { QueryResultRow } from 'pg';
-import { agentGateway } from '../agent/ws-server.js';
+import { agentGateway, isMcpToolResultEnvelope } from '../agent/ws-server.js';
 import { type VerifiedRunScopeClaims } from '../services/token-service.js';
 import { webhooks } from '../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { repo } from '../store/repository.js';
 import { getWorkflowRun, WorkflowRunRecord } from '../store/repository-workflows.js';
 import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE } from '../types/domain.js';
-import { AgentToolCallError } from '../agent/types.js';
+import { AgentToolCallError, AgentUnavailableError } from '../agent/types.js';
 import { getAgentActivityRecord } from '../store/repository-agents.js';
 import { db } from '../infra/db.js';
 import { createWorkflowReport } from '../store/repository-workflow-reports.js';
 
 const ACTIVE_TOOL_RUN_STATUSES = new Set(['dispatching', 'running', 'waiting_for_approval']);
+
+export function normalizeTargetAgentToolResult(result: unknown, targetType: string): Record<string, unknown> {
+  const value = result && typeof result === 'object' ? result as Record<string, unknown> : null;
+  const hasMcpContent = isMcpToolResultEnvelope(value);
+  const hasStructuredContent = value && value.structuredContent && typeof value.structuredContent === 'object';
+  if (targetType === KUBERNETES_TARGET_TYPE) {
+    if (!hasMcpContent || !hasStructuredContent) throw new Error('AgentK returned an invalid MCP tool result');
+    return value!;
+  }
+  if (hasMcpContent) return value!;
+  return {
+    content: [{ type: 'text', text: JSON.stringify(result ?? null) }],
+    structuredContent: { schemaVersion: 'acornops.full-tool-result.v1', data: result },
+    isError: false,
+  };
+}
 
 export function stableAgentRequestId(runId: string, toolCallId: unknown): string | undefined {
   if (typeof toolCallId !== 'string' || toolCallId.length === 0) return undefined;
@@ -21,6 +37,13 @@ export function stableAgentRequestId(runId: string, toolCallId: unknown): string
 }
 
 export function publicAgentToolError(err: unknown): Record<string, unknown> {
+  if (err instanceof AgentUnavailableError) {
+    return {
+      code: 'TARGET_AGENT_UNAVAILABLE',
+      message: err.message,
+      outcome: 'not_started'
+    };
+  }
   if (!(err instanceof AgentToolCallError) || typeof err.data?.code !== 'string') {
     return { code: 'AGENT_TOOL_ERROR', message: 'Agent tool call failed' };
   }
@@ -281,13 +304,14 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
       ? operationForWorkflowToolCall(workflowRun, toolName)
       : operationForToolCall(claims, toolName);
     try {
-      const result = await agentGateway.callAgentTool(
+      const agentResult = await agentGateway.callAgentMcpTool(
         boundTargetId,
         toolName,
         args,
         stableAgentRequestId(claims.runId, req.body.toolCallId)
       );
-      const text = typeof result === 'string' ? result : JSON.stringify(result);
+      const result = normalizeTargetAgentToolResult(agentResult, targetType);
+      const isError = (result as { isError?: unknown }).isError === true;
       webhooks.emit({
         type: 'tool.called.v1',
         workspaceId,
@@ -306,7 +330,7 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
             workflowStepId: workflowRun.workflowStepId || null
           } : {}),
           durationMs: Date.now() - startedAt,
-          isError: false
+          isError
         }
       });
       await recordWorkspaceAuditEvent({
@@ -332,13 +356,10 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
             workflowStepId: workflowRun.workflowStepId || null
           } : {}),
           durationMs: Date.now() - startedAt,
-          isError: false
+          isError
         }
       });
-      res.status(200).json({
-        content: [{ type: 'text', text }],
-        isError: false
-      });
+      res.status(200).json(result);
       return;
     } catch (err) {
       const publicError = publicAgentToolError(err);
@@ -379,9 +400,12 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
           isError: true
         }
       });
-      res.status(200).json({
-        content: [{ type: 'text', text: JSON.stringify(publicError) }],
-        isError: true
+      const unavailable = publicError.code === 'TARGET_AGENT_UNAVAILABLE';
+      res.status(unavailable ? 503 : 502).json({
+        error: {
+          ...publicError,
+          retryable: unavailable || publicError.code === 'TOOL_TIMEOUT' || publicError.code === 'AGENT_TOOL_ERROR'
+        }
       });
       return;
     }

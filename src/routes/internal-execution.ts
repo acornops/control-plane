@@ -4,13 +4,15 @@ import * as internalApprovalController from '../controllers/internal-approval-co
 import * as internalExecutionController from '../controllers/internal-execution-controller.js';
 import * as internalMcpBridgeController from '../controllers/internal-mcp-bridge-controller.js';
 import * as internalToolingController from '../controllers/internal-tooling-controller.js';
+import * as toolResultArtifactController from '../controllers/tool-result-artifact-controller.js';
 import {
   createToolApprovalSchema,
   internalMcpToolCallSchema,
   internalToolingSyncSchema,
   toolApprovalExecutionFinishedSchema,
   runCommitSchema,
-  runEventsBatchSchema
+  runEventsBatchSchema,
+  toolResultArtifactCreateSchema
 } from '../types/contracts.js';
 import { validateBody } from '../utils/http.js';
 
@@ -53,6 +55,12 @@ internalExecutionRouter.post(
   requireServiceToken,
   validateBody(runEventsBatchSchema),
   internalExecutionController.ingestRunEvents
+);
+internalExecutionRouter.post(
+  '/runs/:runId/tool-result-artifacts',
+  requireServiceToken,
+  validateBody(toolResultArtifactCreateSchema),
+  toolResultArtifactController.createToolResultArtifact
 );
 internalExecutionRouter.get(
   '/runs/:runId/event-cursor',

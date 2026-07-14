@@ -157,7 +157,7 @@ describe('control-plane agent RPC routing', () => {
     });
     const gateway = new AgentGateway();
 
-    await assert.rejects(gateway.sendJsonRpc('cluster-remote', 'tools/list', {}, 'tool_remote123'), /Agent is not connected/);
+    await assert.rejects(gateway.sendJsonRpc('cluster-remote', 'tools/list', {}, 'tool_remote123'), /temporarily unavailable/);
 
     assert.equal(published.length, 1);
     assert.equal(published[0]!.channel, 'cp:agent:rpc:cp-test-b');
@@ -179,7 +179,7 @@ describe('control-plane agent RPC routing', () => {
     installRedisStore(new Map<string, string>());
     const gateway = new AgentGateway();
 
-    await assert.rejects(gateway.sendJsonRpc('cluster-missing', 'tools/list', {}), /Agent is not connected/);
+    await assert.rejects(gateway.sendJsonRpc('cluster-missing', 'tools/list', {}), /temporarily unavailable/);
   });
 
   it('clears a stale local owner record and retries once before failing', async () => {
@@ -193,7 +193,7 @@ describe('control-plane agent RPC routing', () => {
     });
     const gateway = new AgentGateway();
 
-    await assert.rejects(gateway.sendJsonRpc('cluster-local-stale', 'tools/list', {}), /Agent is not connected/);
+    await assert.rejects(gateway.sendJsonRpc('cluster-local-stale', 'tools/list', {}), /temporarily unavailable/);
 
     assert.equal(store.has(agentOwnerKey('cluster-local-stale')), false);
     assert.equal(evalCalls.some((call) => call.kind === 'owner-delete' && call.key === agentOwnerKey('cluster-local-stale')), true);
