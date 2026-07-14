@@ -38,6 +38,14 @@ export function isTerminalRunStatus(status: string): boolean {
   return TERMINAL_RUN_STATUSES.has(status);
 }
 
+export function shouldReconcileFailedRunCommit(
+  currentStatus: string,
+  commitStatus: string,
+  hasAssistantMessage: boolean
+): boolean {
+  return currentStatus === 'failed' && commitStatus === 'failed' && !hasAssistantMessage;
+}
+
 export function acceptsExecutionRunEvent(status: string, event: RunEvent): boolean {
   if (isTerminalRunStatus(status)) {
     return false;

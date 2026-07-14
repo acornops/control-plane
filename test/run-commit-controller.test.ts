@@ -90,3 +90,51 @@ test('run commit controller persists completed commits that use UTC offset times
   assert.equal(updateEndedAt, '2026-06-22T14:45:15.000000+00:00');
   assert.equal(upsertedContent, 'done');
 });
+
+test('run commit controller reconciles a matching failed commit after the failure event made the run terminal', async () => {
+  let update: Parameters<typeof repo.updateRun>[1] | undefined;
+  let persistedAssistantMessage: { content: string; format: 'markdown' } | undefined;
+  const upsertedContents: string[] = [];
+
+  repo.getRun = async () => createRun({
+    status: 'failed',
+    errorCode: 'OPENAI_ERROR',
+    errorMessage: 'Provider temporarily unavailable',
+    assistantMessage: persistedAssistantMessage
+  });
+  repo.updateRun = async (_runId, nextUpdate) => {
+    update = nextUpdate;
+    persistedAssistantMessage = nextUpdate.assistantMessage;
+    return createRun({
+      status: 'failed',
+      errorCode: 'OPENAI_ERROR',
+      errorMessage: 'Provider temporarily unavailable',
+      assistantMessage: nextUpdate.assistantMessage
+    });
+  };
+  repo.upsertAssistantFinalMessage = async (_sessionId, _runId, content) => {
+    upsertedContents.push(content);
+    return createMessage({ role: 'assistant', kind: 'assistant_final', content });
+  };
+
+  const request = createRequest({ runId: 'run-1' }, {
+    status: 'failed',
+    assistant_message: { content: '', format: 'markdown' },
+    usage: { input_tokens: 3, output_tokens: 0, tool_calls: 0 },
+    timing: {
+      started_at: '2026-06-22T14:45:00.000000+00:00',
+      ended_at: '2026-06-22T14:45:15.000000+00:00'
+    }
+  });
+  const response = await callController(commitRun, request);
+  const repeatedResponse = await callController(commitRun, request);
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.body, { status: 'ok', terminal: true });
+  assert.deepEqual(repeatedResponse.body, { status: 'ok', terminal: true });
+  assert.deepEqual(update?.usage, { input_tokens: 3, output_tokens: 0, tool_calls: 0 });
+  assert.deepEqual(update?.assistantMessage, { content: '', format: 'markdown' });
+  assert.deepEqual(upsertedContents, [
+    'I could not complete the troubleshooting run.\n\nProvider temporarily unavailable'
+  ]);
+});

@@ -5,7 +5,6 @@ import { incrementAutomationTerminalOutcome } from '../metrics.js';
 import { incrementTargetInsightsRetrieval, incrementRunEventsIngested } from '../metrics.js';
 import { publishRunEvents } from '../services/control-plane-coordination.js';
 import { TARGET_INSIGHTS_TOOL_ID, normalizeTargetInsightsConfig } from '../services/target-insights/config.js';
-import { recordTargetChatActivityEvent } from '../services/target-chat-activity-events.js';
 import { emitRunStatusTransition } from '../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { advanceWorkflowExecution } from '../services/workflow-state-machine.js';
@@ -24,8 +23,10 @@ import {
   acceptsExecutionRunEvent,
   buildTerminalFailureMessage,
   isTerminalRunStatus,
+  shouldReconcileFailedRunCommit,
   summarizeRunEventCounts
 } from './internal-execution-events.js';
+import { commitTargetAssistantFinalMessage } from './internal-target-run-commit.js';
 
 export { bootstrap } from './internal-execution-bootstrap.js';
 export { summarizeRunEventCounts } from './internal-execution-events.js';
@@ -442,14 +443,33 @@ export async function commitRun(req: Request, res: Response, next: NextFunction)
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Run not found', retryable: false } });
       return;
     }
-    if (isTerminalRunStatus(run.status)) {
-      res.status(200).json({ status: 'ok', terminal: true });
-      return;
-    }
-
     const assistantMessage = req.body.status === 'cancelled'
       ? { ...req.body.assistant_message, content: '' }
       : req.body.assistant_message;
+    if (isTerminalRunStatus(run.status)) {
+      if (shouldReconcileFailedRunCommit(run.status, req.body.status, Boolean(run.assistantMessage))) {
+        const committedContent = String(assistantMessage?.content || '').trim();
+        await commitTargetAssistantFinalMessage(
+          run,
+          req.body.status,
+          committedContent || buildTerminalFailureMessage('failed', run.errorMessage)
+        );
+        await repo.updateRun(run.id, {
+          startedAt: run.startedAt || req.body.timing.started_at,
+          endedAt: run.endedAt || req.body.timing.ended_at,
+          usage: req.body.usage,
+          assistantMessage
+        });
+        logger.info(
+          { runId: run.id, workspaceId: run.workspaceId, status: run.status },
+          'Reconciled terminal details for failed target run'
+        );
+        res.status(200).json({ status: 'ok', terminal: true });
+        return;
+      }
+      res.status(200).json({ status: 'ok', terminal: true });
+      return;
+    }
 
     const updatedRun = await repo.updateRun(run.id, {
       status: req.body.status,
@@ -460,30 +480,12 @@ export async function commitRun(req: Request, res: Response, next: NextFunction)
     });
     emitRunStatusTransition(run, updatedRun);
 
-    const commitAssistantFinalMessage = async (content: string) => {
-      const message = await repo.upsertAssistantFinalMessage(run.sessionId, run.id, content);
-      await recordTargetChatActivityEvent({
-        workspaceId: run.workspaceId,
-        targetId: run.targetId,
-        targetType: run.targetType,
-        sessionId: run.sessionId,
-        runId: run.id,
-        messageId: message.id,
-        type: 'assistant_message.committed',
-        payload: {
-          status: req.body.status,
-          contentLength: content.length,
-          committedAt: new Date().toISOString()
-        }
-      });
-    };
-
     const committedContent = String(assistantMessage?.content || '').trim();
     if (committedContent) {
-      await commitAssistantFinalMessage(committedContent);
+      await commitTargetAssistantFinalMessage(run, req.body.status, committedContent);
     } else if (req.body.status === 'failed' || req.body.status === 'cancelled') {
       const failureMessage = buildTerminalFailureMessage(req.body.status, updatedRun?.errorMessage || run.errorMessage);
-      await commitAssistantFinalMessage(failureMessage);
+      await commitTargetAssistantFinalMessage(run, req.body.status, failureMessage);
     }
 
     res.status(200).json({ status: 'ok' });
