@@ -31,6 +31,10 @@ describe('Kubernetes cluster install instructions', () => {
   it('keeps generated install commands read-only by default', () => {
     const instructions = buildAgentInstallInstructions(cluster, 'agent-key');
 
+    assert.equal(instructions.releaseName, 'acornops-agentk');
+    assert.equal(instructions.namespace, 'acornops-agentk');
+    assert.match(instructions.command, /^helm upgrade --install 'acornops-agentk'/);
+    assert.match(instructions.command, /--namespace 'acornops-agentk'/);
     assert.doesNotMatch(instructions.command, /rbac\.write\.enabled=true/);
     assert.match(instructions.command, /--devel/);
     assert.doesNotMatch(instructions.command, /--version/);

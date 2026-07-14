@@ -199,10 +199,10 @@ const envSchema = z.object({
   SEED_DEVELOPMENT_DATA: envBoolean(true),
   SEED_AGENT_KEY: z.string().optional(),
   SEED_VM_AGENT_KEY: z.string().optional(),
-  AGENT_HELM_RELEASE_NAME: z.preprocess(emptyStringToUndefined, z.string().min(1).default('acornops-agent')),
+  AGENT_HELM_RELEASE_NAME: z.preprocess(emptyStringToUndefined, z.string().min(1).default('acornops-agentk')),
   AGENT_HELM_CHART_REF: z.preprocess(emptyStringToUndefined, z.string().min(1).default('oci://ghcr.io/acornops/charts/acornops-agentk')),
   AGENT_HELM_CHART_VERSION: z.preprocess(emptyStringToUndefined, z.string().min(1).optional()),
-  AGENT_HELM_NAMESPACE: z.preprocess(emptyStringToUndefined, z.string().min(1).default('acornops')),
+  AGENT_HELM_NAMESPACE: z.preprocess(emptyStringToUndefined, z.string().min(1).default('acornops-agentk')),
 
   OIDC_PROVIDER_NAME: z.string().default('oidc'),
   OIDC_ISSUER_URL: z.string().url().default('http://localhost:8080/realms/acornops'),
