@@ -26,6 +26,14 @@
 - `LLM_GATEWAY_ADMIN_TOKEN`
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`
 
+## Additional CA Trust
+
+Set both `ADDITIONAL_CA_BUNDLE_FILE` and `NODE_EXTRA_CA_CERTS` to the same
+read-only PEM bundle when outbound TLS dependencies use an organization CA.
+Node.js extends its public roots process-wide; the application validates that
+the configured file is readable at startup. This does not enable TLS for
+plaintext database, Redis, or internal-service URLs.
+
 ## Automation Runtime
 
 Production defaults keep new automation dispatch disabled until migrations and

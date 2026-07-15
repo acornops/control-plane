@@ -1,5 +1,6 @@
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
+import { Readable } from 'node:stream';
 import type { RequestOptions } from 'node:https';
 import { URL } from 'node:url';
 import { config } from '../config.js';
@@ -8,6 +9,7 @@ import { internalClientTlsOptions } from '../infra/internal-tls.js';
 export interface InternalHttpResponse {
   ok: boolean;
   status: number;
+  body: ReadableStream<Uint8Array> | null;
   text(): Promise<string>;
   json(): Promise<unknown>;
 }
@@ -40,17 +42,26 @@ export async function internalFetch(url: string, init: RequestInit = {}, timeout
 
   return await new Promise<InternalHttpResponse>((resolve, reject) => {
     const req = (parsed.protocol === 'https:' ? httpsRequest : httpRequest)(options, (res) => {
-      const chunks: Buffer[] = [];
-      res.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
-      res.on('end', () => {
-        const payload = Buffer.concat(chunks).toString('utf8');
-        const status = res.statusCode || 0;
-        resolve({
-          ok: status >= 200 && status < 300,
-          status,
-          text: async () => payload,
-          json: async () => JSON.parse(payload)
-        });
+      const status = res.statusCode || 500;
+      const body = [204, 205, 304].includes(status) ? null : (Readable.toWeb(res) as ReadableStream<Uint8Array>);
+      const responseHeaders = new Headers();
+      for (const [name, value] of Object.entries(res.headers)) {
+        if (Array.isArray(value)) {
+          for (const item of value) responseHeaders.append(name, item);
+        } else if (value !== undefined) {
+          responseHeaders.set(name, String(value));
+        }
+      }
+      const response = new Response(body, {
+        status,
+        headers: responseHeaders
+      });
+      resolve({
+        ok: response.ok,
+        status: response.status,
+        body: response.body,
+        text: () => response.text(),
+        json: () => response.json()
       });
     });
     const abortRequest = () => req.destroy(new Error('Internal request aborted'));

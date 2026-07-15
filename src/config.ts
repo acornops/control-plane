@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { accessSync, constants } from 'node:fs';
 import { z } from 'zod';
 import { agentTransportConfigFields, validateAgentTransportConfig } from './config-agent-transport.js';
 import { agentHelmConfigFields, parseAgentHelmValues, validateAgentHelmConfig } from './config-agent-helm.js';
@@ -16,6 +15,7 @@ import {
   parseExternalIntegrationClientDescriptors,
   type ExternalIntegrationClientDescriptor
 } from './config-external-integrations.js';
+import { requireReadableFile, validateOptionalReadableFile } from './config-readable-file.js';
 export { ADMIN_SCOPE_VALUES, parseAdminTokenDescriptors, parseWorkspacePlansConfig } from './config-admin.js';
 export type { AdminScope, AdminTokenDescriptor, WorkspacePlanDefinition } from './config-admin.js';
 export { parseExternalIntegrationClientDescriptors } from './config-external-integrations.js';
@@ -92,18 +92,6 @@ function addConfigIssue(ctx: z.RefinementCtx, field: string, message: string): v
     path: [field],
     message
   });
-}
-
-function requireReadableFile(ctx: z.RefinementCtx, field: string, value: string | undefined): void {
-  if (!value) {
-    addConfigIssue(ctx, field, `${field} is required when internal transport TLS is enabled`);
-    return;
-  }
-  try {
-    accessSync(value, constants.R_OK);
-  } catch {
-    addConfigIssue(ctx, field, `${field} must point to a readable file when internal transport TLS is enabled`);
-  }
 }
 
 function databasePassword(value: string): string | undefined {
@@ -262,6 +250,7 @@ const envSchema = z.object({
   INTERNAL_TRANSPORT_TLS_CERT_FILE: optionalStringFromEnv,
   INTERNAL_TRANSPORT_TLS_KEY_FILE: optionalStringFromEnv,
   CONTROL_PLANE_INTERNAL_TRANSPORT_PORT: z.coerce.number().int().positive().default(8443),
+  ADDITIONAL_CA_BUNDLE_FILE: optionalStringFromEnv,
 
   DATABASE_URL: z
     .string()
@@ -349,6 +338,7 @@ const envSchema = z.object({
   validateAgentTransportConfig(ctx, value);
   validateLlmPolicyConfig(ctx, value);
   validateAgentHelmConfig(ctx, value);
+  validateOptionalReadableFile(ctx, 'ADDITIONAL_CA_BUNDLE_FILE', value.ADDITIONAL_CA_BUNDLE_FILE);
   try {
     parseWorkspacePlansConfig(value.WORKSPACE_PLANS_CONFIG_JSON);
   } catch (err) {

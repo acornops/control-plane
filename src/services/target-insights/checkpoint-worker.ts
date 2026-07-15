@@ -11,6 +11,7 @@ import { withTransaction } from '../../store/repository-transaction.js';
 import { TargetType } from '../../types/domain.js';
 import { TargetInsightsEntry, TargetInsightsEntryPatch } from '../../types/target-insights.js';
 import { isModelAllowedForProvider } from '../llm-policy.js';
+import { internalFetch } from '../internal-http-client.js';
 import { gatewayTokenService } from '../token-service.js';
 import { resolveWorkspaceLlmSettings } from '../workspace-ai-resolution.js';
 import { recordTargetInsightsAudit } from './audit.js';
@@ -201,7 +202,7 @@ async function streamGatewayJsonPatch(input: {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.LLM_GATEWAY_TIMEOUT_MS);
   try {
-    const response = await fetch(`${config.LLM_GATEWAY_URL}/api/v1/llm/generations:stream`, {
+    const response = await internalFetch(`${config.LLM_GATEWAY_URL}/api/v1/llm/generations:stream`, {
       method: 'POST',
       signal: controller.signal,
       headers: {
@@ -238,7 +239,7 @@ async function streamGatewayJsonPatch(input: {
           }
         ]
       })
-    });
+    }, config.LLM_GATEWAY_TIMEOUT_MS);
     if (!response.ok || !response.body) {
       throw new Error(`llm-gateway returned ${response.status}`);
     }

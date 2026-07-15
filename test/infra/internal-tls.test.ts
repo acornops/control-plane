@@ -12,6 +12,7 @@ const mutableConfig = config as typeof config & {
   INTERNAL_TRANSPORT_TLS_CA_FILE?: string;
   INTERNAL_TRANSPORT_TLS_CERT_FILE?: string;
   INTERNAL_TRANSPORT_TLS_KEY_FILE?: string;
+  ADDITIONAL_CA_BUNDLE_FILE?: string;
 };
 
 const original = {
@@ -19,7 +20,8 @@ const original = {
   requireClientCert: config.INTERNAL_TRANSPORT_TLS_REQUIRE_CLIENT_CERT,
   caFile: config.INTERNAL_TRANSPORT_TLS_CA_FILE,
   certFile: config.INTERNAL_TRANSPORT_TLS_CERT_FILE,
-  keyFile: config.INTERNAL_TRANSPORT_TLS_KEY_FILE
+  keyFile: config.INTERNAL_TRANSPORT_TLS_KEY_FILE,
+  additionalCaFile: config.ADDITIONAL_CA_BUNDLE_FILE
 };
 
 function writeTlsFiles() {
@@ -27,10 +29,12 @@ function writeTlsFiles() {
   const caFile = join(dir, 'ca.crt');
   const certFile = join(dir, 'tls.crt');
   const keyFile = join(dir, 'tls.key');
+  const additionalCaFile = join(dir, 'additional-ca.crt');
   writeFileSync(caFile, 'test ca');
   writeFileSync(certFile, 'test cert');
   writeFileSync(keyFile, 'test key');
-  return { caFile, certFile, keyFile };
+  writeFileSync(additionalCaFile, 'additional ca');
+  return { caFile, certFile, keyFile, additionalCaFile };
 }
 
 afterEach(() => {
@@ -39,6 +43,7 @@ afterEach(() => {
   mutableConfig.INTERNAL_TRANSPORT_TLS_CA_FILE = original.caFile;
   mutableConfig.INTERNAL_TRANSPORT_TLS_CERT_FILE = original.certFile;
   mutableConfig.INTERNAL_TRANSPORT_TLS_KEY_FILE = original.keyFile;
+  mutableConfig.ADDITIONAL_CA_BUNDLE_FILE = original.additionalCaFile;
 });
 
 describe('internal TLS client options', () => {
@@ -49,10 +54,11 @@ describe('internal TLS client options', () => {
     mutableConfig.INTERNAL_TRANSPORT_TLS_CA_FILE = files.caFile;
     mutableConfig.INTERNAL_TRANSPORT_TLS_CERT_FILE = files.certFile;
     mutableConfig.INTERNAL_TRANSPORT_TLS_KEY_FILE = files.keyFile;
+    mutableConfig.ADDITIONAL_CA_BUNDLE_FILE = files.additionalCaFile;
 
     const options = internalClientTlsOptions();
 
-    assert.ok(options.ca);
+    assert.deepEqual(options.ca, [Buffer.from('test ca'), Buffer.from('additional ca')]);
     assert.equal(options.cert, undefined);
     assert.equal(options.key, undefined);
   });

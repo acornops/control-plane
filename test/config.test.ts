@@ -151,6 +151,7 @@ describe('parseAppConfig production validation', () => {
     assert.deepEqual(nullConfig.WORKSPACE_ROLE_TEMPLATES.map((role) => role.key), ['owner', 'admin', 'operator', 'viewer', 'auditor']);
     assert.equal(config.INTERNAL_TRANSPORT_TLS_ENABLED, false);
     assert.equal(config.INTERNAL_TRANSPORT_TLS_REQUIRE_CLIENT_CERT, true);
+    assert.equal(config.ADDITIONAL_CA_BUNDLE_FILE, undefined);
   });
 
   it('requires readable TLS files and HTTPS internal URLs when internal transport TLS is enabled', () => {
