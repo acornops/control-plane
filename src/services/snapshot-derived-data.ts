@@ -115,12 +115,24 @@ function resourceId(kind: string, item: Record<string, unknown>): string {
   return text(item.uid) || `${kind}/${text(item.namespace, 'default')}/${text(item.name, 'unknown')}`;
 }
 
+const criticalPodContainerReasons = new Set([
+  'crashloopbackoff',
+  'imagepullbackoff',
+  'errimagepull',
+  'oomkilled',
+  'createcontainerconfigerror'
+]);
+
+function getPodCriticalReason(pod: Record<string, unknown>): string | undefined {
+  return getPodWaitingReasons(pod).find((reason) => criticalPodContainerReasons.has(reason.toLowerCase()));
+}
+
 function inferResourceStatus(kind: string, item: Record<string, unknown>): string {
   if (kind === 'Node') {
     const ready = toArray((item.status as Record<string, unknown> | undefined)?.conditions).find((condition) => condition.type === 'Ready');
     return String(ready?.status || '').toLowerCase() === 'true' ? 'Ready' : 'NotReady';
   }
-  if (kind === 'Pod') return text(item.phase, 'Unknown');
+  if (kind === 'Pod') return getPodCriticalReason(item) || text(item.phase, 'Unknown');
   if (kind === 'Namespace') return text(item.status, 'Unknown');
   if (kind === 'PersistentVolumeClaim') return text(item.status, 'Unknown');
   const replicas = Number(item.replicas ?? 0);
@@ -131,7 +143,8 @@ function inferResourceStatus(kind: string, item: Record<string, unknown>): strin
 }
 
 export function isResourceAttentionStatus(status: string | undefined): boolean {
-  return /failed|crash|notready|pending|error/i.test(status || '');
+  const normalized = String(status || '').toLowerCase();
+  return criticalPodContainerReasons.has(normalized) || /failed|crash|notready|pending|error|unknown/i.test(normalized);
 }
 
 function pushResources(
@@ -242,17 +255,13 @@ function listSnapshotResourceFindings(cluster: KubernetesCluster, snapshot: Clus
     const name = text(pod.name);
     if (!name) continue;
     const namespace = text(pod.namespace, 'default');
-    const reasons = getPodWaitingReasons(pod);
-    const normalizedReasons = reasons.map((reason) => reason.toLowerCase());
     const phase = text(pod.phase, 'Unknown');
     const normalizedPhase = phase.toLowerCase();
     const restartCount = getPodRestartCount(pod);
-    const hasCriticalReason = normalizedReasons.some((reason) =>
-      ['crashloopbackoff', 'imagepullbackoff', 'errimagepull', 'oomkilled', 'createcontainerconfigerror'].includes(reason)
-    );
+    const criticalReason = getPodCriticalReason(pod);
 
-    if (hasCriticalReason || normalizedPhase === 'failed') {
-      const reason = reasons[0] || phase;
+    if (criticalReason || normalizedPhase === 'failed') {
+      const reason = criticalReason || phase;
       const restartDetail = restartCount > 0 ? ` Restart count: ${restartCount}.` : '';
       findings.push(buildSnapshotFinding({
         id: `snapshot-pod-${namespace}-${name}`,

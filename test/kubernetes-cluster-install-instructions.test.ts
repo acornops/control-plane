@@ -45,6 +45,8 @@ describe('Kubernetes cluster install instructions', () => {
     assert.doesNotMatch(instructions.command, /--version/);
     assert.match(instructions.command, /--set-string config\.agentKey='agent-key'/);
     assert.match(instructions.command, /--set-json namespaceScope\.include='\["payments","shared"\]'/);
+    assert.match(instructions.command, /--set-json namespaceScope\.exclude='\["sandbox"\]'/);
+    assert.doesNotMatch(instructions.command, /config\.watchNamespaces/);
   });
 
   it('pins the chart only when a version is configured', () => {

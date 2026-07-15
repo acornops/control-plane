@@ -136,10 +136,6 @@ export function buildAgentInstallInstructions(
   if (agentAccessMode === 'read_write') {
     lines.push(helmSetBool('rbac.write.enabled', true));
   }
-  if (watchNamespaces.length > 0) {
-    lines.push(helmSetString('config.watchNamespaces', watchNamespaces.join(',')));
-  }
-
   return {
     command: lines.join(' \\\n'),
     releaseName: config.AGENT_HELM_RELEASE_NAME,

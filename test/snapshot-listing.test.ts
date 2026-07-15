@@ -197,6 +197,71 @@ describe('snapshot listing findings', () => {
     assert.equal(derived.summary.findingCount, 1);
   });
 
+  it('indexes critical pod container reasons as attention states', () => {
+    const snapshot: ClusterSnapshot = {
+      clusterId: cluster.id,
+      workspaceId: cluster.workspaceId,
+      timestamp: '2026-05-10T12:00:00.000Z',
+      data: {
+        resources: {
+          pods: [
+            {
+              uid: 'pod-uid-1',
+              name: 'demo-crashing-pod',
+              namespace: 'default',
+              phase: 'Running',
+              containerStatuses: [
+                {
+                  name: 'app',
+                  ready: false,
+                  state: { waiting: { reason: 'CrashLoopBackOff' } }
+                }
+              ]
+            },
+            {
+              uid: 'pod-uid-2',
+              name: 'demo-image-pull-pod',
+              namespace: 'default',
+              phase: 'Pending',
+              containerStatuses: [
+                {
+                  name: 'app',
+                  ready: false,
+                  state: { waiting: { reason: 'ImagePullBackOff' } }
+                }
+              ]
+            },
+            {
+              uid: 'pod-uid-3',
+              name: 'demo-unknown-pod',
+              namespace: 'default',
+              phase: 'Unknown'
+            }
+          ]
+        },
+        events: []
+      }
+    };
+
+    const resources = deriveSnapshotRows(cluster, snapshot).resources;
+
+    assert.deepEqual(
+      resources.map((resource) => ({
+        name: resource.name,
+        status: resource.status,
+        needsAttention: resource.needsAttention
+      })),
+      [
+        { name: 'demo-crashing-pod', status: 'CrashLoopBackOff', needsAttention: true },
+        { name: 'demo-image-pull-pod', status: 'ImagePullBackOff', needsAttention: true },
+        { name: 'demo-unknown-pod', status: 'Unknown', needsAttention: true }
+      ]
+    );
+    assert.match(resources[0].searchText, /crashloopbackoff/);
+    assert.match(resources[1].searchText, /imagepullbackoff/);
+    assert.match(resources[2].searchText, /unknown/);
+  });
+
   it('keeps critical snapshot findings ahead of warning events', () => {
     const snapshot: ClusterSnapshot = {
       clusterId: cluster.id,
