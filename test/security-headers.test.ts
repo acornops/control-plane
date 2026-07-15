@@ -3,7 +3,8 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { describe, it } from 'node:test';
 import { createApp } from '../src/app.js';
-import { renderSwaggerUiHtml } from '../src/docs/swagger-ui.js';
+import { config } from '../src/config.js';
+import { renderSwaggerUiHtml, SWAGGER_UI_ASSET_BASE_PATH } from '../src/docs/swagger-ui.js';
 
 async function withTestServer<T>(run: (baseUrl: string) => Promise<T>): Promise<T> {
   const app = createApp();
@@ -57,7 +58,41 @@ describe('security headers', () => {
   it('renders API docs scripts with a CSP nonce hook', () => {
     const html = renderSwaggerUiHtml('/openapi.json', 'test-nonce');
 
-    assert.match(html, /script nonce="test-nonce" src="https:\/\/unpkg\.com\/swagger-ui-dist@5\.20\.2\/swagger-ui-bundle\.js"/);
+    assert.match(html, new RegExp(`href="${SWAGGER_UI_ASSET_BASE_PATH}/swagger-ui\\.css"`));
+    assert.match(html, new RegExp(`src="${SWAGGER_UI_ASSET_BASE_PATH}/swagger-ui-bundle\\.js"`));
     assert.match(html, /<script nonce="test-nonce">/);
+    assert.doesNotMatch(html, /https?:\/\//);
+  });
+
+  it('serves versioned Swagger UI assets locally under a self-only CSP', async () => {
+    const apiDocsEnabled = config.ENABLE_API_DOCS;
+    config.ENABLE_API_DOCS = true;
+    try {
+      await withTestServer(async (baseUrl) => {
+        const docs = await fetch(`${baseUrl}/docs`);
+        const html = await docs.text();
+        const policy = docs.headers.get('content-security-policy') || '';
+
+        assert.equal(docs.status, 200);
+        assert.match(policy, /script-src 'self' 'nonce-[^']+'/);
+        assert.match(policy, /style-src 'self'/);
+        assert.match(policy, /style-src-attr 'unsafe-inline'/);
+        assert.doesNotMatch(policy, /https?:\/\//);
+        assert.doesNotMatch(html, /unpkg\.com/);
+
+        for (const [assetName, contentType] of [
+          ['swagger-ui.css', 'text/css'],
+          ['swagger-ui-bundle.js', 'text/javascript']
+        ] as const) {
+          const response = await fetch(`${baseUrl}${SWAGGER_UI_ASSET_BASE_PATH}/${assetName}`);
+          assert.equal(response.status, 200);
+          assert.match(response.headers.get('content-type') || '', new RegExp(contentType));
+          assert.match(response.headers.get('cache-control') || '', /immutable/);
+          assert.ok((await response.text()).length > 1000);
+        }
+      });
+    } finally {
+      config.ENABLE_API_DOCS = apiDocsEnabled;
+    }
   });
 });

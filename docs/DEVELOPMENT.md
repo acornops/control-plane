@@ -59,6 +59,8 @@ Important local and production variables:
 - `LLM_GATEWAY_URL`
 - `LLM_GATEWAY_ADMIN_TOKEN`
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`
+- `WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON` (default `[]`; exact hostnames or
+  leading `*.example.com` wildcard patterns)
 
 GitHub and GitLab skill imports are fetched in the management console. The
 control plane only receives the resolved Markdown snapshot plus informational

@@ -16,6 +16,7 @@ import {
   type ExternalIntegrationClientDescriptor
 } from './config-external-integrations.js';
 import { requireReadableFile, validateOptionalReadableFile } from './config-readable-file.js';
+import { parseWebhookAllowedPrivateHostsJson, webhookAllowedPrivateHostsJsonError } from './config-webhook-egress.js';
 export { ADMIN_SCOPE_VALUES, parseAdminTokenDescriptors, parseWorkspacePlansConfig } from './config-admin.js';
 export type { AdminScope, AdminTokenDescriptor, WorkspacePlanDefinition } from './config-admin.js';
 export { parseExternalIntegrationClientDescriptors } from './config-external-integrations.js';
@@ -304,6 +305,7 @@ const envSchema = z.object({
   GATEWAY_VERIFICATION_JWKS_JSON: optionalStringFromEnv,
 
   WEBHOOK_DELIVERY_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
+  WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON: z.string().default('[]'),
   WEBHOOK_HISTORY_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   WEBHOOK_SECRET_ENCRYPTION_KEY: optionalStringFromEnv,
   WEBHOOK_SECRET_KEY_ID: z.string().default('default')
@@ -339,6 +341,10 @@ const envSchema = z.object({
   validateLlmPolicyConfig(ctx, value);
   validateAgentHelmConfig(ctx, value);
   validateOptionalReadableFile(ctx, 'ADDITIONAL_CA_BUNDLE_FILE', value.ADDITIONAL_CA_BUNDLE_FILE);
+  const webhookEgressError = webhookAllowedPrivateHostsJsonError(value.WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON);
+  if (webhookEgressError) {
+    addConfigIssue(ctx, 'WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON', webhookEgressError);
+  }
   try {
     parseWorkspacePlansConfig(value.WORKSPACE_PLANS_CONFIG_JSON);
   } catch (err) {
@@ -524,7 +530,10 @@ const envSchema = z.object({
   PERSIST_RUN_EVENTS: value.PERSIST_RUN_EVENTS ?? value.NODE_ENV === 'production',
   CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED:
     value.CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED ?? value.NODE_ENV === 'production',
-  AGENT_WS_REQUIRE_SECURE_TRANSPORT: value.AGENT_WS_REQUIRE_SECURE_TRANSPORT ?? value.NODE_ENV === 'production'
+  AGENT_WS_REQUIRE_SECURE_TRANSPORT: value.AGENT_WS_REQUIRE_SECURE_TRANSPORT ?? value.NODE_ENV === 'production',
+  WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS: parseWebhookAllowedPrivateHostsJson(
+    value.WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON
+  )
 }));
 export type AppConfig = z.infer<typeof envSchema>;
 export function parseAppConfig(env: NodeJS.ProcessEnv): AppConfig { return envSchema.parse(env); }

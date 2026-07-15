@@ -6,7 +6,12 @@ import { csrfProtection } from './auth/csrf.js';
 import { corsOriginOption } from './auth/origins.js';
 import { config } from './config.js';
 import { buildOpenApiDocument } from './docs/openapi.js';
-import { renderSwaggerUiHtml } from './docs/swagger-ui.js';
+import {
+  renderSwaggerUiHtml,
+  SWAGGER_UI_ASSET_BASE_PATH,
+  SWAGGER_UI_ASSET_NAMES,
+  swaggerUiAssetFile
+} from './docs/swagger-ui.js';
 import { checkDatabaseHealth } from './infra/db.js';
 import { checkRedisHealth } from './infra/redis.js';
 import { logger } from './logger.js';
@@ -41,8 +46,9 @@ function docsContentSecurityPolicy(nonce: string): string {
     "base-uri 'none'",
     "frame-ancestors 'none'",
     "form-action 'none'",
-    `script-src 'self' https://unpkg.com 'nonce-${nonce}'`,
-    "style-src 'self' https://unpkg.com",
+    `script-src 'self' 'nonce-${nonce}'`,
+    "style-src 'self'",
+    "style-src-attr 'unsafe-inline'",
     "img-src 'self' data:",
     "connect-src 'self'"
   ].join('; ');
@@ -94,6 +100,12 @@ export function createApp() {
   });
 
   if (config.ENABLE_API_DOCS) {
+    for (const assetName of SWAGGER_UI_ASSET_NAMES) {
+      app.get(`${SWAGGER_UI_ASSET_BASE_PATH}/${assetName}`, (_req, res) => {
+        res.sendFile(swaggerUiAssetFile(assetName), { immutable: true, maxAge: '1y' });
+      });
+    }
+
     app.get('/openapi.json', (_req, res) => {
       res.status(200).json(openApiDocument);
     });

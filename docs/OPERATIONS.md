@@ -4,7 +4,9 @@
 
 - `GET /health` is liveness only.
 - `GET /ready` gates production traffic and checks Postgres plus Redis.
-- API docs must stay disabled in production unless deliberately enabled for a private environment.
+- API docs must stay disabled in production unless deliberately enabled for a
+  private environment. When enabled, the pinned Swagger UI assets are served
+  locally and require no CDN or internet access.
 - Kubernetes control-plane replicas default to `3`; Redis coordinates agent WebSocket ownership, cross-pod JSON-RPC routing, run event fanout, and renewed scheduler leases.
 - On SIGTERM/SIGINT, the agent gateway stops accepting upgrades, closes active agent WebSockets, rejects pending local commands, and releases ownership before Postgres/Redis clients close.
 
@@ -25,6 +27,33 @@
 - `EXECUTION_ENGINE_DISPATCH_TOKEN`
 - `LLM_GATEWAY_ADMIN_TOKEN`
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`
+- `WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON` (default `[]`)
+
+## Private Webhook Destinations
+
+Outbound webhooks allow public HTTPS destinations by default and block private,
+local, and reserved address ranges. `WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON`
+adds operator-controlled exceptions for hostnames that resolve to RFC1918 IPv4,
+RFC6598 shared, or IPv6 unique-local addresses:
+
+```bash
+WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON='["hooks.example.org","*.webhooks.example.org"]'
+```
+
+An exact hostname matches only itself. A leading `*.` pattern matches descendants
+at any depth but not the apex; list the apex separately when required. The setting
+does not restrict public webhook destinations. Invalid patterns fail startup.
+IP-literal URLs and loopback, link-local, metadata, multicast, unspecified, and
+reserved addresses remain blocked even for matching hostnames. Delivery resolves
+every A/AAAA result, rejects the complete request if any result is unsafe, pins
+the selected address, preserves the configured hostname for TLS verification,
+and does not follow
+redirects.
+
+This application setting does not grant packet reachability. Kubernetes
+deployments must also configure the platform chart's
+`networkPolicies.webhooks.to` peers and ports, and private PKI deployments must
+provide the control-plane additional CA bundle.
 
 ## Additional CA Trust
 

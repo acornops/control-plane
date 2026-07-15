@@ -83,4 +83,8 @@
 ## Browser Headers
 
 - API responses set a restrictive CSP, `X-Content-Type-Options: nosniff`, frame denial, no-referrer policy, and a deny-by-default permissions policy.
-- The optional Swagger UI route uses a nonce-based CSP when API docs are explicitly enabled.
+- The optional Swagger UI route uses a nonce-based, same-origin-only CSP and
+  serves its pinned Swagger UI assets from the control-plane package when API
+  docs are explicitly enabled. It has no runtime CDN dependency. CSP permits
+  inline style attributes only on this optional documentation page because the
+  pinned Swagger renderer generates them; inline scripts still require a nonce.

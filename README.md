@@ -143,7 +143,10 @@ When `--profile integration` is enabled:
 - LLM gateway Swagger UI: `http://localhost:8001/docs`
 - Mock MCP: `http://localhost:8002`
 
-API docs exposure is controlled by `ENABLE_API_DOCS` (enabled by default in local override, disabled by default in base/production compose).
+API docs exposure is controlled by `ENABLE_API_DOCS` (enabled by default in
+local override, disabled by default in base/production compose). Swagger UI
+assets are pinned in the application dependencies and served by the control
+plane itself, so the docs do not require internet or CDN access at runtime.
 
 ## Start Full AcornOps Stack
 

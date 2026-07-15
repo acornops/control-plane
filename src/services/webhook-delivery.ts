@@ -2,27 +2,33 @@ import dns from 'node:dns/promises';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
+import { config } from '../config.js';
+import { webhookPrivateHostMatches } from '../config-webhook-egress.js';
 
-const blockedAddresses = new net.BlockList();
+const hardBlockedIpv4Addresses = new net.BlockList();
+const hardBlockedIpv6Addresses = new net.BlockList();
+const privateIpv4Addresses = new net.BlockList();
+const privateIpv6Addresses = new net.BlockList();
 
 for (const [address, prefix] of [
   ['0.0.0.0', 8],
-  ['10.0.0.0', 8],
-  ['100.64.0.0', 10],
   ['127.0.0.0', 8],
   ['169.254.0.0', 16],
-  ['172.16.0.0', 12],
   ['192.0.0.0', 24],
   ['192.0.2.0', 24],
-  ['192.168.0.0', 16],
   ['198.18.0.0', 15],
   ['198.51.100.0', 24],
   ['203.0.113.0', 24],
   ['224.0.0.0', 4],
   ['240.0.0.0', 4]
 ] as const) {
-  blockedAddresses.addSubnet(address, prefix, 'ipv4');
+  hardBlockedIpv4Addresses.addSubnet(address, prefix, 'ipv4');
 }
+
+privateIpv4Addresses.addSubnet('10.0.0.0', 8, 'ipv4');
+privateIpv4Addresses.addSubnet('100.64.0.0', 10, 'ipv4');
+privateIpv4Addresses.addSubnet('172.16.0.0', 12, 'ipv4');
+privateIpv4Addresses.addSubnet('192.168.0.0', 16, 'ipv4');
 
 for (const [address, prefix] of [
   ['::', 128],
@@ -33,12 +39,13 @@ for (const [address, prefix] of [
   ['2001:2::', 48],
   ['2001:db8::', 32],
   ['2002::', 16],
-  ['fc00::', 7],
   ['fe80::', 10],
   ['ff00::', 8]
 ] as const) {
-  blockedAddresses.addSubnet(address, prefix, 'ipv6');
+  hardBlockedIpv6Addresses.addSubnet(address, prefix, 'ipv6');
 }
+
+privateIpv6Addresses.addSubnet('fc00::', 7, 'ipv6');
 
 const blockedHostnames = new Set(['localhost', 'metadata', 'metadata.google.internal']);
 
@@ -69,25 +76,40 @@ export class WebhookDeliveryPolicyError extends Error {
   }
 }
 
-function isBlockedHostname(hostname: string): boolean {
-  const normalized = hostname.toLowerCase();
+function isHardBlockedHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/\.$/, '');
   return (
     blockedHostnames.has(normalized) ||
     normalized.endsWith('.localhost') ||
-    normalized.endsWith('.local') ||
-    normalized.endsWith('.internal')
+    normalized.endsWith('.metadata.google.internal')
   );
+}
+
+function isPrivateHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/\.$/, '');
+  return normalized.endsWith('.local') || normalized.endsWith('.internal');
 }
 
 function urlHostname(url: URL): string {
   return url.hostname.replace(/^\[(.*)]$/, '$1');
 }
 
-function isBlockedAddress(address: string, family: 4 | 6): boolean {
-  return blockedAddresses.check(address, family === 4 ? 'ipv4' : 'ipv6');
+function isHardBlockedAddress(address: string, family: 4 | 6): boolean {
+  return family === 4
+    ? hardBlockedIpv4Addresses.check(address, 'ipv4')
+    : hardBlockedIpv6Addresses.check(address, 'ipv6');
 }
 
-export function validateWebhookDeliveryUrl(rawUrl: string): URL {
+function isPrivateAddress(address: string, family: 4 | 6): boolean {
+  return family === 4
+    ? privateIpv4Addresses.check(address, 'ipv4')
+    : privateIpv6Addresses.check(address, 'ipv6');
+}
+
+export function validateWebhookDeliveryUrl(
+  rawUrl: string,
+  allowedPrivateHosts: readonly string[] = config.WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS
+): URL {
   let url: URL;
   try {
     url = new URL(rawUrl);
@@ -101,17 +123,38 @@ export function validateWebhookDeliveryUrl(rawUrl: string): URL {
   if (url.username || url.password) {
     throw new WebhookDeliveryPolicyError('Webhook URL must not include credentials');
   }
-  if (isBlockedHostname(urlHostname(url))) {
+  const hostname = urlHostname(url);
+  if (net.isIP(hostname) !== 0) {
+    throw new WebhookDeliveryPolicyError('Webhook URL must use a DNS hostname');
+  }
+  if (isHardBlockedHostname(hostname)) {
     throw new WebhookDeliveryPolicyError('Webhook hostname is not allowed');
+  }
+  if (isPrivateHostname(hostname) && !webhookPrivateHostMatches(hostname, allowedPrivateHosts)) {
+    throw new WebhookDeliveryPolicyError('Webhook private hostname is not allowed');
   }
 
   return url;
 }
 
-export async function resolveWebhookEndpoint(rawUrl: string): Promise<ResolvedWebhookEndpoint> {
-  const url = validateWebhookDeliveryUrl(rawUrl);
+type WebhookDnsLookup = (
+  hostname: string,
+  options: { all: true; verbatim: true }
+) => Promise<Array<{ address: string; family: number }>>;
+
+export async function resolveWebhookEndpoint(
+  rawUrl: string,
+  options: {
+    allowedPrivateHosts?: readonly string[];
+    lookup?: WebhookDnsLookup;
+  } = {}
+): Promise<ResolvedWebhookEndpoint> {
+  const allowedPrivateHosts = options.allowedPrivateHosts ?? config.WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS;
+  const url = validateWebhookDeliveryUrl(rawUrl, allowedPrivateHosts);
   const hostname = urlHostname(url);
-  const resolved = await dns.lookup(hostname, { all: true, verbatim: true });
+  const lookup: WebhookDnsLookup = options.lookup ?? ((lookupHostname, lookupOptions) =>
+    dns.lookup(lookupHostname, lookupOptions));
+  const resolved = await lookup(hostname, { all: true, verbatim: true });
   if (resolved.length === 0) {
     throw new WebhookDeliveryPolicyError('Webhook hostname did not resolve');
   }
@@ -121,8 +164,14 @@ export async function resolveWebhookEndpoint(rawUrl: string): Promise<ResolvedWe
       throw new WebhookDeliveryPolicyError('Webhook hostname resolved to an unsupported address family');
     }
     const family = record.family === 4 ? 4 : 6;
-    if (isBlockedAddress(record.address, family)) {
-      throw new WebhookDeliveryPolicyError('Webhook hostname resolved to a blocked address');
+    if (isHardBlockedAddress(record.address, family)) {
+      throw new WebhookDeliveryPolicyError('Webhook hostname resolved to a blocked local or reserved address');
+    }
+    if (
+      isPrivateAddress(record.address, family) &&
+      !webhookPrivateHostMatches(hostname, allowedPrivateHosts)
+    ) {
+      throw new WebhookDeliveryPolicyError('Webhook hostname resolved to a blocked private address');
     }
   }
 

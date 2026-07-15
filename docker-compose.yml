@@ -65,6 +65,7 @@ services:
       GATEWAY_TOKEN_TTL_SECONDS: 900
       GATEWAY_SIGNING_KID: cp-rs256-1
       WEBHOOK_SECRET_ENCRYPTION_KEY: ${WEBHOOK_SECRET_ENCRYPTION_KEY:-change-me}
+      WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON: ${WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON:-[]}
     depends_on:
       cp-postgres:
         condition: service_healthy
