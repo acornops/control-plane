@@ -302,8 +302,8 @@ const envSchema = z.object({
   GATEWAY_SIGNING_PRIVATE_KEY_PEM: optionalStringFromEnv,
   GATEWAY_SIGNING_PRIVATE_KEY_PEM_B64: optionalStringFromEnv,
   GATEWAY_VERIFICATION_JWKS_JSON: optionalStringFromEnv,
-
   WEBHOOK_DELIVERY_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
+  WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY: envBoolean(false),
   WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON: z.string().default('[]'),
   WEBHOOK_HISTORY_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   WEBHOOK_SECRET_ENCRYPTION_KEY: optionalStringFromEnv,
@@ -530,6 +530,7 @@ const envSchema = z.object({
   CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED:
     value.CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED ?? value.NODE_ENV === 'production',
   AGENT_WS_REQUIRE_SECURE_TRANSPORT: value.AGENT_WS_REQUIRE_SECURE_TRANSPORT ?? value.NODE_ENV === 'production',
+  WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY: value.NODE_ENV !== 'production' && value.WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY,
   WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS: parseWebhookAllowedPrivateHostsJson(
     value.WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON
   )

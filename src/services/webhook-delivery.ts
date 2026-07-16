@@ -90,6 +90,10 @@ function isPrivateHostname(hostname: string): boolean {
   return normalized.endsWith('.local') || normalized.endsWith('.internal');
 }
 
+function allowInsecureDevDelivery(): boolean {
+  return config.NODE_ENV !== 'production' && config.WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY;
+}
+
 function urlHostname(url: URL): string {
   return url.hostname.replace(/^\[(.*)]$/, '$1');
 }
@@ -117,20 +121,21 @@ export function validateWebhookDeliveryUrl(
     throw new WebhookDeliveryPolicyError('Webhook URL is invalid');
   }
 
-  if (url.protocol !== 'https:') {
+  const allowInsecure = allowInsecureDevDelivery();
+  if (url.protocol !== 'https:' && !(allowInsecure && url.protocol === 'http:')) {
     throw new WebhookDeliveryPolicyError('Webhook URL must use https');
   }
   if (url.username || url.password) {
     throw new WebhookDeliveryPolicyError('Webhook URL must not include credentials');
   }
   const hostname = urlHostname(url);
-  if (net.isIP(hostname) !== 0) {
+  if (!allowInsecure && net.isIP(hostname) !== 0) {
     throw new WebhookDeliveryPolicyError('Webhook URL must use a DNS hostname');
   }
-  if (isHardBlockedHostname(hostname)) {
+  if (!allowInsecure && isHardBlockedHostname(hostname)) {
     throw new WebhookDeliveryPolicyError('Webhook hostname is not allowed');
   }
-  if (isPrivateHostname(hostname) && !webhookPrivateHostMatches(hostname, allowedPrivateHosts)) {
+  if (!allowInsecure && isPrivateHostname(hostname) && !webhookPrivateHostMatches(hostname, allowedPrivateHosts)) {
     throw new WebhookDeliveryPolicyError('Webhook private hostname is not allowed');
   }
 
@@ -164,10 +169,11 @@ export async function resolveWebhookEndpoint(
       throw new WebhookDeliveryPolicyError('Webhook hostname resolved to an unsupported address family');
     }
     const family = record.family === 4 ? 4 : 6;
-    if (isHardBlockedAddress(record.address, family)) {
+    if (!allowInsecureDevDelivery() && isHardBlockedAddress(record.address, family)) {
       throw new WebhookDeliveryPolicyError('Webhook hostname resolved to a blocked local or reserved address');
     }
     if (
+      !allowInsecureDevDelivery() &&
       isPrivateAddress(record.address, family) &&
       !webhookPrivateHostMatches(hostname, allowedPrivateHosts)
     ) {

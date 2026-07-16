@@ -252,7 +252,8 @@ for (const needle of [
   'workspace_audit_events_operation_check',
   "operation TEXT NOT NULL",
   "CHECK (operation IN ('read', 'write'))",
-  "actor_type IN ('user', 'system', 'admin_token')",
+  "actor_type IN ('user', 'system', 'admin_token', 'external_integration')",
+  "actor_type = 'external_integration' AND actor_user_id IS NOT NULL AND actor_token_id IS NOT NULL",
   'actor_token_id TEXT NULL',
   'workspace_audit_events_user_actor_check',
   'workspace_audit_events_metadata_object_check',
@@ -473,6 +474,7 @@ async function runSqlChecks(databaseUrl) {
       ['external_integration_user_links', 'external_display_name'],
       ['external_integration_user_links', 'last_authenticated_at'],
       ['external_integration_user_links', 'revoked_at'],
+      ['external_webhook_route_connections', 'external_integration_user_link_id'],
       ['chat_activity_events', 'payload'],
       ['account_audit_events', 'metadata']
     ]) {

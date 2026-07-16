@@ -382,6 +382,13 @@
         "POST /api/v1/auth/external-integrations/resolve",
         "POST /api/v1/auth/external-integrations/revoke"
       ],
+      "webhookRoutePaths": [
+        "POST /api/v1/external-integrations/webhook-routes/connect",
+        "GET /api/v1/external-integrations/webhook-routes/status"
+      ],
+      "webhookRouteStatusValues": ["unconfigured", "configured", "connected"],
+      "webhookRouteResponseFields": ["status", "connectedAt", "lastSyncedAt", "subscriptions[].{workspaceId,workspaceName,webhookId,name,targetId,eventTypes,enabled,status,updatedAt}"],
+      "webhookRouteConnectSecretPolicy": "POST /api/v1/external-integrations/webhook-routes/connect rotates matching webhook signing secrets and returns signingSecret only in that connect response. GET /api/v1/external-integrations/webhook-routes/status never returns signing secrets.",
       "identityRequestFields": ["externalUserId", "externalDisplayName"],
       "createResponseFields": ["linkUrl", "expiresAt"],
       "resolveStatusValues": ["linked", "unlinked"],
@@ -394,6 +401,10 @@
       "linkedBotPaths": [
         "GET /api/v1/workspaces",
         "GET /api/v1/workspaces/{workspaceId}",
+        "GET /api/v1/workspaces/{workspaceId}/workflows",
+        "GET /api/v1/workflows/{workflowId}",
+        "POST /api/v1/workflows/{workflowId}/sessions",
+        "POST /api/v1/workflow-sessions/{sessionId}/messages",
         "GET /api/v1/workspaces/{workspaceId}/issues",
         "GET /api/v1/workspaces/{workspaceId}/issues/{issueId}",
         "GET /api/v1/workspaces/{workspaceId}/issues/{issueId}/observations",
@@ -412,6 +423,7 @@
         "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions",
         "POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions",
         "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity",
+        "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity/stream",
         "GET /api/v1/sessions/{sessionId}",
         "GET /api/v1/sessions/{sessionId}/messages",
         "POST /api/v1/sessions/{sessionId}/messages",

@@ -39,6 +39,13 @@ import { toSingleParam } from '../utils/params.js';
 import { containsSearchText, makeQuerySignature, normalizeSearchQuery, pageArray, parseBoundedLimit } from '../utils/pagination.js';
 import { mapGatewayError } from './workspaces/common.js';
 import { requestWorkflowScopeUpdate } from './workflow-request-parsers.js';
+import {
+  externalWorkflowBlocker,
+  isExternalIntegrationRequest,
+  isExternallyRunnableWorkflow,
+  validateApprovedContextGrants,
+  workflowAuditActor
+} from './workflow-external-access.js';
 
 const WORKFLOW_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
 
@@ -112,6 +119,7 @@ export async function listWorkflows(req: AuthenticatedRequest, res: Response, ne
     const q = normalizeSearchQuery(req.query.q);
     const signature = makeQuerySignature({ workspaceId, q });
     const rows = (await listWorkflowDefinitions(workspaceId))
+      .filter((workflow) => !isExternalIntegrationRequest(req) || isExternallyRunnableWorkflow(workflow, authz))
       .filter((workflow) => containsSearchText([workflow.name, workflow.description, workflow.category, workflow.status], q));
     res.status(200).json(pageArray(rows, {
       limit: parseBoundedLimit(req.query.limit), cursor: req.query.cursor, signature
@@ -133,6 +141,13 @@ export async function getWorkflow(req: AuthenticatedRequest, res: Response, next
     }
     const authz = await requireWorkspaceDataRead(req, res, workflow.workspaceId);
     if (!authz) return;
+    if (isExternalIntegrationRequest(req)) {
+      const blocker = externalWorkflowBlocker(workflow, authz);
+      if (blocker) {
+        res.status(403).json({ error: { code: 'WORKFLOW_NOT_AVAILABLE_FOR_EXTERNAL_INTEGRATION', message: blocker, retryable: false } });
+        return;
+      }
+    }
     res.status(200).json({ workflow });
   } catch (err) {
     next(err);
@@ -151,10 +166,44 @@ export async function createSession(req: AuthenticatedRequest, res: Response, ne
     }
     const authz = await requireWorkspaceDataRead(req, res, workflow.workspaceId);
     if (!authz) return;
+    if (workflow.status !== 'active') {
+      res.status(403).json({ error: { code: 'WORKFLOW_NOT_ACTIVE', message: 'Only active workflows can create new sessions.', retryable: false } });
+      return;
+    }
+    const sessionAuthz = await requireWorkspaceCapability(
+      req,
+      res,
+      workflow.workspaceId,
+      'create_sessions',
+      'No permission to create workflow sessions'
+    );
+    if (!sessionAuthz) return;
+    if (isExternalIntegrationRequest(req)) {
+      const blocker = externalWorkflowBlocker(workflow, sessionAuthz);
+      if (blocker) {
+        res.status(403).json({ error: { code: 'WORKFLOW_NOT_AVAILABLE_FOR_EXTERNAL_INTEGRATION', message: blocker, retryable: false } });
+        return;
+      }
+    }
 
     const approvedContextGrants = Array.isArray(req.body.approvedContextGrants)
-      ? req.body.approvedContextGrants.filter((grant: unknown): grant is string => typeof grant === 'string')
+      ? req.body.approvedContextGrants
+        .filter((grant: unknown): grant is string => typeof grant === 'string')
+        .map((grant: string) => grant.trim())
+        .filter(Boolean)
       : [];
+    const grantValidation = validateApprovedContextGrants(workflow, approvedContextGrants);
+    if (grantValidation.extra.length > 0) {
+      res.status(400).json({
+        error: {
+          code: 'WORKFLOW_CONTEXT_GRANT_UNKNOWN',
+          message: 'approvedContextGrants includes grants that are not required by this workflow.',
+          retryable: false,
+          details: { extraContextGrants: grantValidation.extra }
+        }
+      });
+      return;
+    }
 
     let compiledAccessScope;
     try {
@@ -205,7 +254,7 @@ export async function createSession(req: AuthenticatedRequest, res: Response, ne
       category: 'run',
       eventType: 'workflow.session_created.v1',
       operation: 'write',
-      actorUserId: req.auth.userId,
+      ...workflowAuditActor(req),
       objectType: 'workflow_session',
       objectId: session.id,
       objectName: workflow.name,
@@ -258,6 +307,22 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
     }
     const authz = await requireWorkspaceDataRead(req, res, session.workspaceId);
     if (!authz) return;
+    const workflow = await getWorkflowDefinition(session.workspaceId, session.workflowId);
+    if (!workflow) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
+      return;
+    }
+    if (workflow.status !== 'active') {
+      res.status(403).json({ error: { code: 'WORKFLOW_NOT_ACTIVE', message: 'Only active workflows can create new runs.', retryable: false } });
+      return;
+    }
+    if (isExternalIntegrationRequest(req)) {
+      const blocker = externalWorkflowBlocker(workflow, authz);
+      if (blocker) {
+        res.status(403).json({ error: { code: 'WORKFLOW_NOT_AVAILABLE_FOR_EXTERNAL_INTEGRATION', message: blocker, retryable: false } });
+        return;
+      }
+    }
 
     const requiredCapability = session.compiledAccessScope.mode === 'read_write'
       ? 'create_read_write_runs'
@@ -277,11 +342,6 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       return;
     }
 
-    const workflow = await getWorkflowDefinition(session.workspaceId, session.workflowId);
-    if (!workflow) {
-      res.status(409).json({ error: { code: 'WORKFLOW_VERSION_UNAVAILABLE', message: 'Workflow definition is unavailable.', retryable: false } });
-      return;
-    }
     const firstStep = workflow.steps[0];
     if (!firstStep || firstStep.agentIds?.length !== 1) {
       res.status(409).json({ error: { code: 'WORKFLOW_STEP_AGENT_INVALID', message: 'Each executable workflow step must select exactly one active Agent.', retryable: false } });
@@ -353,7 +413,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       category: 'run',
       eventType: 'workflow.run_created.v1',
       operation: 'write',
-      actorUserId: req.auth.userId,
+      ...workflowAuditActor(req),
       objectType: 'workflow_run',
       objectId: run.id,
       objectName: session.workflowId,

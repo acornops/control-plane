@@ -103,6 +103,42 @@ Response:
 
 Treat `linkUrl` as a short-lived bearer secret. Do not log the full URL or token.
 
+## External Webhook Routes
+
+Bots that generate a stable delivery URL per external user or destination can
+ask the linked AcornOps user to create workspace webhook subscriptions for that
+URL. After setup, the bot can claim current subscription metadata with:
+
+```http
+POST {ACORNOPS_API_BASE_URL}/api/v1/external-integrations/webhook-routes/connect
+Authorization: Bearer {EXTERNAL_INTEGRATION_CLIENT_TOKEN}
+x-acornops-external-user-id: {externalUserId}
+Content-Type: application/json
+```
+
+```json
+{
+  "deliveryUrl": "https://bot.example.com/acornops/webhooks/routes/route-token"
+}
+```
+
+AcornOps returns only subscriptions created by the linked AcornOps user for that
+exact delivery URL where the user still has `permissions.manage_webhooks`. Each
+successful connect rotates the matching webhook signing secrets and returns the
+fresh `signingSecret` values once in the connect response.
+
+Use status to refresh live state without secret material:
+
+```http
+GET {ACORNOPS_API_BASE_URL}/api/v1/external-integrations/webhook-routes/status?deliveryUrl={url-encoded-delivery-url}
+Authorization: Bearer {EXTERNAL_INTEGRATION_CLIENT_TOKEN}
+x-acornops-external-user-id: {externalUserId}
+```
+
+Status responses use `unconfigured`, `configured`, or `connected`. They include
+current workspace, event, enabled, and webhook identifiers, but never include
+signing secrets.
+
 ## Authorization Model
 
 Bot calls are default-deny. The external integration credential can only use
@@ -184,6 +220,11 @@ Authorization: Bearer {EXTERNAL_INTEGRATION_CLIENT_TOKEN}
 x-acornops-external-user-id: {externalUserId}
 ```
 
+These endpoints cover workspace and target reads, target-scoped read-only
+assistant troubleshooting runs, and active read-only workflows that do not
+require approval gates. External integrations cannot create, edit, schedule,
+cancel, or approve workflows.
+
 ### Workspace Discovery
 
 List workspaces:
@@ -225,6 +266,79 @@ Workspace summary items include:
 
 For bot calls, `memberCount` and `quota.members.used` are redacted because the
 bot does not have `read_members`.
+
+### Workflow Launches
+
+The bot can list active read-only workflows that the linked user and approved
+workspace grant can run:
+
+```http
+GET {ACORNOPS_API_BASE_URL}/api/v1/workspaces/{workspaceId}/workflows
+Authorization: Bearer {EXTERNAL_INTEGRATION_CLIENT_TOKEN}
+x-acornops-external-user-id: {externalUserId}
+```
+
+External integrations only receive workflows that:
+
+- are `active`.
+- use `policy.mode: "read_only"`.
+- have no `policy.approvalRequirements` and no `steps[].approvalRequired`.
+- are permitted by the linked user role, registered client allowlist, and
+  user-approved workspace grant.
+
+Create a workflow session before launching a run:
+
+```http
+POST {ACORNOPS_API_BASE_URL}/api/v1/workflows/{workflowId}/sessions
+Authorization: Bearer {EXTERNAL_INTEGRATION_CLIENT_TOKEN}
+x-acornops-external-user-id: {externalUserId}
+Content-Type: application/json
+```
+
+```json
+{
+  "workspaceId": "workspace-id",
+  "approvedContextGrants": ["workspace_metadata", "target_inventory"]
+}
+```
+
+`approvedContextGrants` must exactly match the workflow context required for
+the run: take the unique union of `steps[].contextGrants` from the selected
+workflow definition. Missing grants return `WORKFLOW_CONTEXT_GRANT_DENIED`.
+Unknown extra grants return `WORKFLOW_CONTEXT_GRANT_UNKNOWN`.
+
+Post the launch message to create the run:
+
+```http
+POST {ACORNOPS_API_BASE_URL}/api/v1/workflow-sessions/{sessionId}/messages
+Authorization: Bearer {EXTERNAL_INTEGRATION_CLIENT_TOKEN}
+x-acornops-external-user-id: {externalUserId}
+Content-Type: application/json
+```
+
+```json
+{
+  "workspaceId": "workspace-id",
+  "content": "Triage the selected cluster. Start by showing the compiled read scope.",
+  "inputs": {}
+}
+```
+
+Response:
+
+```json
+{
+  "message_id": "workflow-message-id",
+  "run_id": "run-id",
+  "workflow_run_id": "workflow-run-id",
+  "status": "queued",
+  "compiledAccessScope": {}
+}
+```
+
+Use `run_id` with the generic run observation endpoints below. For final
+workflow output, fetch `GET /api/v1/runs/{runId}` after a terminal stream event
+and read `assistantMessage.content`.
 
 ### Example Adapter Command Mapping
 
@@ -754,6 +868,19 @@ Response:
 
 `windowSeconds` is clamped between 60 and 3600.
 
+The bot can also stream future target chat activity events:
+
+```http
+GET {ACORNOPS_API_BASE_URL}/api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity/stream
+Accept: text/event-stream
+Authorization: Bearer {EXTERNAL_INTEGRATION_CLIENT_TOKEN}
+x-acornops-external-user-id: {externalUserId}
+```
+
+The SSE stream emits `chat_activity` events. It supports `Last-Event-ID` and the
+optional `after` query parameter for resume replay. Connections without a resume
+cursor are live-only.
+
 ## Disallowed Endpoints
 
 The bot must not call these endpoint families with external integration
@@ -765,6 +892,10 @@ credentials:
 - agent-key rotation endpoints
 - pod log and VM log endpoints
 - MCP server, MCP tool, and target tool mutation endpoints
+- workflow definition mutation, workflow schedules, workflow-scoped MCP,
+  workspace approval inbox endpoints, workflow run cancellation, workflow
+  approval decisions, read-write workflows, paused/draft workflows, and
+  approval-gated workflows
 - `DELETE /api/v1/sessions/{sessionId}`
 - `POST /api/v1/runs/{runId}/cancel`
 - `POST /api/v1/runs/{runId}/approvals/{approvalId}/decision`

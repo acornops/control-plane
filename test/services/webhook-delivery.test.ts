@@ -1,12 +1,18 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { afterEach, describe, it } from 'node:test';
+import { config } from '../../src/config.js';
 import {
   resolveWebhookEndpoint,
   validateWebhookDeliveryUrl,
   WebhookDeliveryPolicyError
 } from '../../src/services/webhook-delivery.js';
 
+const originalAllowInsecureDevDelivery = config.WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY;
+
 describe('webhook delivery policy', () => {
+  afterEach(() => {
+    config.WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY = originalAllowInsecureDevDelivery;
+  });
   it('requires https webhook URLs without embedded credentials', () => {
     assert.throws(() => validateWebhookDeliveryUrl('http://example.com/hook'), WebhookDeliveryPolicyError);
     assert.throws(() => validateWebhookDeliveryUrl('https://user:pass@example.com/hook'), WebhookDeliveryPolicyError);
@@ -37,6 +43,17 @@ describe('webhook delivery policy', () => {
       () => validateWebhookDeliveryUrl('https://unlisted.internal/events', patterns),
       WebhookDeliveryPolicyError
     );
+  });
+
+  it('allows local HTTP delivery only when the explicit dev smoke-test flag is enabled', async () => {
+    config.WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY = true;
+    assert.equal(
+      validateWebhookDeliveryUrl('http://host.docker.internal:8077/acornops/webhooks/routes/route-token').toString(),
+      'http://host.docker.internal:8077/acornops/webhooks/routes/route-token'
+    );
+    assert.throws(() => validateWebhookDeliveryUrl('http://user:pass@host.docker.internal:8077/hook'), WebhookDeliveryPolicyError);
+    const endpoint = await resolveWebhookEndpoint('http://127.0.0.1:8077/hook');
+    assert.equal(endpoint.address, '127.0.0.1');
   });
 
   it('rejects direct private, link-local, and documentation addresses', async () => {

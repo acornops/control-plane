@@ -83,6 +83,8 @@ export function schemaForOperation(method: string, path: string, statusCode: str
     'GET /api/v1/workspaces/{workspaceId}/webhooks/{webhookId}': 'WebhookSubscription',
     'PATCH /api/v1/workspaces/{workspaceId}/webhooks/{webhookId}': 'WebhookSubscription',
     'GET /api/v1/workspaces/{workspaceId}/webhooks/{webhookId}/history': 'WebhookHistoryPage',
+    'POST /api/v1/external-integrations/webhook-routes/connect': 'ExternalWebhookRouteConnection',
+    'GET /api/v1/external-integrations/webhook-routes/status': 'ExternalWebhookRouteConnection',
     'GET /api/v1/workspaces/{workspaceId}/targets': 'TargetPage',
     'GET /api/v1/workspaces/{workspaceId}/targets/{targetId}': 'TargetSummary',
     'GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/issues/summary': 'TargetIssueSummary',

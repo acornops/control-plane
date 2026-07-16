@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isValidWebhookUrl } from '../utils/webhook-url.js';
 import { TARGET_TYPES } from './domain.js';
 import { runEventSchema, runEventsBatchSchema } from './run-events-contract.js';
 
@@ -510,10 +511,7 @@ export const webhookEventTypes = [
 export const webhookEventTypeSchema = z.enum(webhookEventTypes);
 
 const webhookUrlSchema = z.string().url().refine(
-  (value) => {
-    const url = new URL(value);
-    return url.protocol === 'https:' && !url.username && !url.password;
-  },
+  (value) => isValidWebhookUrl(value),
   {
     message: 'webhook URL must use https and must not include credentials'
   }
@@ -536,6 +534,10 @@ export const updateWebhookSubscriptionSchema = z.object({
 }).strict().refine((input) => Object.keys(input).length > 0, {
   message: 'at least one field is required'
 });
+
+export const webhookRouteConnectSchema = z.object({
+  deliveryUrl: webhookUrlSchema
+}).strict();
 
 export type RunRequest = z.infer<typeof runRequestSchema>;
 export type RunEvent = z.infer<typeof runEventSchema>;

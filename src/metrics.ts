@@ -37,6 +37,8 @@ const toolResultArtifactEvents = new Map<string, number>();
 const toolResultArtifactSizes = new Map<string, number>();
 const toolResultArtifactSizeCounts = new Map<string, number>();
 const toolResultArtifactSizeSums = new Map<string, number>();
+const externalWebhookRouteRequests = new Map<string, number>();
+const externalWebhookRouteSecretRotations = new Map<string, number>();
 let adminMutations = 0;
 let adminAuditWriteFailures = 0;
 
@@ -171,6 +173,14 @@ export function observeToolResultArtifactBytes(view: 'compressed' | 'uncompresse
   }
   increment(toolResultArtifactSizeCounts, view);
   increment(toolResultArtifactSizeSums, view, bytes);
+}
+
+export function incrementExternalWebhookRouteRequest(operation: 'connect' | 'status', status: string, count = 1): void {
+  increment(externalWebhookRouteRequests, `${operation}:${status}`, count);
+}
+
+export function incrementExternalWebhookRouteSecretRotations(integrationClientId: string, count = 1): void {
+  increment(externalWebhookRouteSecretRotations, integrationClientId, count);
 }
 
 export function renderControlPlaneMetrics(): string {
@@ -346,6 +356,17 @@ export function renderControlPlaneMetrics(): string {
     ),
     ...Array.from(toolResultArtifactSizeCounts.entries()).map(([view, value]) =>
       metricLine('control_plane_tool_result_artifact_bytes_count', { ...serviceLabels, view }, value)
+    ),
+    '# HELP control_plane_external_webhook_route_requests_total External webhook route connect/status requests by operation and status.',
+    '# TYPE control_plane_external_webhook_route_requests_total counter',
+    ...Array.from(externalWebhookRouteRequests.entries()).map(([key, value]) => {
+      const [operation, status] = key.split(':');
+      return metricLine('control_plane_external_webhook_route_requests_total', { ...serviceLabels, operation, status }, value);
+    }),
+    '# HELP control_plane_external_webhook_route_secret_rotations_total Webhook signing secrets rotated by external route connect.',
+    '# TYPE control_plane_external_webhook_route_secret_rotations_total counter',
+    ...Array.from(externalWebhookRouteSecretRotations.entries()).map(([integrationClientId, value]) =>
+      metricLine('control_plane_external_webhook_route_secret_rotations_total', { ...serviceLabels, integration_client_id: integrationClientId }, value)
     )
   ];
   return `${lines.join('\n')}\n`;

@@ -124,6 +124,56 @@ describe('workspace audit repository helpers', () => {
     assert.deepEqual(JSON.parse(capturedParams[12] as string), { token: '[redacted]' });
   });
 
+  it('retains linked user and integration client attribution for external integration actors', async () => {
+    let capturedParams: unknown[] = [];
+    const queryable = {
+      async query(_sql: string, params?: unknown[]) {
+        capturedParams = params || [];
+        return {
+          rows: [{
+            id: 'audit-external-1',
+            workspace_id: 'ws-1',
+            category: 'run',
+            event_type: 'workflow.run_created.v1',
+            operation: 'write',
+            actor_type: 'external_integration',
+            actor_user_id: 'user-1',
+            actor_token_id: 'integration-client-1',
+            actor_email: null,
+            actor_display_name: null,
+            object_type: 'workflow_run',
+            object_id: 'run-1',
+            object_name: null,
+            summary: 'Workflow run created',
+            metadata: {},
+            occurred_at: '2026-06-01T00:00:00.000Z'
+          }]
+        };
+      }
+    };
+
+    const event = await insertWorkspaceAuditEvent({
+      workspaceId: 'ws-1',
+      category: 'run',
+      eventType: 'workflow.run_created.v1',
+      operation: 'write',
+      actorType: 'external_integration',
+      actorUserId: 'user-1',
+      actorTokenId: 'integration-client-1',
+      objectType: 'workflow_run',
+      objectId: 'run-1',
+      summary: 'Workflow run created'
+    }, queryable, 'write_only');
+
+    assert.equal(capturedParams[6], 'user-1');
+    assert.equal(capturedParams[7], 'integration-client-1');
+    assert.deepEqual(event?.actor, {
+      type: 'external_integration',
+      userId: 'user-1',
+      tokenId: 'integration-client-1'
+    });
+  });
+
   it('purges old workspace audit events with defensive retention and batch limits', async () => {
     let capturedParams: unknown[] = [];
     const queryable = {

@@ -1,5 +1,6 @@
 import { dateTime, JsonSchema, jsonObject, pageOf, schemaRef, stringArray, uuid } from './schema-types.js';
 import { targetSummarySchema, runSchema, userSchema } from './schema-components-common.js';
+import { externalWebhookRouteSchemas } from './schema-components-webhook-routes.js';
 
 export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
   return {
@@ -536,6 +537,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: true
     },
-    WebhookHistoryPage: pageOf('WebhookHistory')
+    WebhookHistoryPage: pageOf('WebhookHistory'),
+    ...externalWebhookRouteSchemas
   };
 }

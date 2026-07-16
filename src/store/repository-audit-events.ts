@@ -21,7 +21,7 @@ interface WorkspaceAuditEventRow {
   category: WorkspaceAuditCategory;
   event_type: string;
   operation: 'read' | 'write';
-  actor_type: 'user' | 'system' | 'admin_token';
+  actor_type: 'user' | 'system' | 'admin_token' | 'external_integration';
   actor_user_id: string | null;
   actor_token_id: string | null;
   actor_email: string | null;
@@ -147,8 +147,8 @@ export async function insertWorkspaceAuditEvent(
       input.eventType,
       input.operation,
       actorType,
-      actorType === 'user' ? input.actorUserId || null : null,
-      actorType === 'admin_token' ? input.actorTokenId || null : null,
+      actorType === 'user' || actorType === 'external_integration' ? input.actorUserId || null : null,
+      actorType === 'admin_token' || actorType === 'external_integration' ? input.actorTokenId || null : null,
       input.objectType,
       input.objectId || null,
       input.objectName || null,

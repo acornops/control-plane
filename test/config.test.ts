@@ -54,15 +54,15 @@ function fieldErrors(error: unknown): Record<string, string[] | undefined> {
 
 describe('parseAppConfig production validation', () => {
   it('accepts generated production secrets and browser-facing https URLs', () => {
-    const config = parseAppConfig(productionEnv());
+    const config = parseAppConfig(productionEnv({ WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY: 'true' }));
 
     assert.equal(config.NODE_ENV, 'production');
     assert.equal(config.PERSIST_RUN_EVENTS, true);
     assert.equal(config.CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED, true);
     assert.equal(config.AGENT_WS_REQUIRE_SECURE_TRANSPORT, true);
+    assert.equal(config.WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY, false);
     assert.equal(config.PASSWORD_AUTH_ENABLED, true);
   });
-
   it('accepts cluster-local OIDC issuer URLs when a public issuer is configured', () => {
     const config = parseAppConfig(productionEnv({
       OIDC_ISSUER_URL: 'http://acornops-keycloak.acornops-identity.svc.cluster.local/realms/acornops',
@@ -133,7 +133,6 @@ describe('parseAppConfig production validation', () => {
   it('keeps development defaults usable for local workflows', () => {
     const config = parseAppConfig({});
     const nullConfig = parseAppConfig({ WORKSPACE_ROLES_CONFIG_JSON: 'null' });
-
     assert.equal(config.NODE_ENV, 'development');
     assert.equal(config.ORCH_SERVICE_TOKEN, 'dev_orchestrator_token');
     assert.equal(config.EXTERNAL_INTEGRATION_CLIENTS[0].id, 'dev-client');
@@ -141,6 +140,7 @@ describe('parseAppConfig production validation', () => {
     assert.equal(config.MANAGEMENT_CONSOLE_BASE_URL, 'http://localhost:3000');
     assert.equal(config.CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED, false);
     assert.equal(config.AGENT_WS_REQUIRE_SECURE_TRANSPORT, false);
+    assert.equal(parseAppConfig({ WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY: 'true' }).WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY, true);
     assert.equal(config.PASSWORD_SIGNUP_ENABLED, true);
     assert.equal(config.SESSION_MAX_AGE_SECONDS, 604800);
     assert.equal(config.SESSION_IDLE_TIMEOUT_SECONDS, 86400);

@@ -6,6 +6,7 @@ import { repo } from '../store/repository.js';
 import { WebhookHistory, WebhookSubscription } from '../types/domain.js';
 import { encryptWebhookSecret, generateWebhookSecret } from '../utils/crypto.js';
 import { toSingleParam } from '../utils/params.js';
+import { canonicalizeWebhookUrl } from '../utils/webhook-url.js';
 
 function serializeWebhook(subscription: WebhookSubscription): Record<string, unknown> {
   return {
@@ -109,7 +110,7 @@ export async function createWebhook(req: AuthenticatedRequest, res: Response, ne
       workspaceId,
       targetId: req.body.targetId || null,
       name: req.body.name,
-      url: req.body.url,
+      url: canonicalizeWebhookUrl(req.body.url),
       eventTypes: req.body.eventTypes,
       enabled: req.body.enabled ?? true,
       secretCiphertext: encryptWebhookSecret(secret),
@@ -172,7 +173,7 @@ export async function updateWebhook(req: AuthenticatedRequest, res: Response, ne
       enabled?: boolean;
     } = {
       name: req.body.name,
-      url: req.body.url,
+      url: req.body.url ? canonicalizeWebhookUrl(req.body.url) : undefined,
       eventTypes: req.body.eventTypes,
       enabled: req.body.enabled
     };

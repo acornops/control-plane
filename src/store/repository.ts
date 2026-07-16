@@ -152,13 +152,16 @@ import {
 } from './repository-run-approvals.js';
 import {
   createWebhookSubscription as createWebhookSubscriptionRecord,
+  connectExternalWebhookRoute as connectExternalWebhookRouteRecord,
   deleteWebhookSubscription as deleteWebhookSubscriptionRecord,
   getWebhookSubscription as getWebhookSubscriptionRecord,
   insertWebhookHistory as insertWebhookHistoryRecord,
   listMatchingWebhookSubscriptions as listMatchingWebhookSubscriptionsRecord,
+  listWebhookSubscriptionsForExternalRoute as listWebhookSubscriptionsForExternalRouteRecord,
   listWebhookHistory as listWebhookHistoryRecord,
   listWebhookSubscriptions as listWebhookSubscriptionsRecord,
   purgeOldWebhookHistory as purgeOldWebhookHistoryRecord,
+  touchExternalWebhookRouteConnection as touchExternalWebhookRouteConnectionRecord,
   updateWebhookSubscription as updateWebhookSubscriptionRecord
 } from './repository-webhooks.js';
 import { getTarget as getTargetRecord, listTargets as listTargetsRecord } from './repository-targets.js';
@@ -471,21 +474,16 @@ export class Repository {
   getToolResultArtifact = toolResultArtifacts.getToolResultArtifact;
   purgeExpiredToolResultArtifacts = toolResultArtifacts.purgeExpiredToolResultArtifacts;
   createWebhookSubscription = createWebhookSubscriptionRecord;
-
+  connectExternalWebhookRoute = connectExternalWebhookRouteRecord;
   listWebhookSubscriptions = listWebhookSubscriptionsRecord;
-
   getWebhookSubscription = getWebhookSubscriptionRecord;
-
   updateWebhookSubscription = updateWebhookSubscriptionRecord;
-
   deleteWebhookSubscription = deleteWebhookSubscriptionRecord;
-
   listMatchingWebhookSubscriptions = listMatchingWebhookSubscriptionsRecord;
-
+  listWebhookSubscriptionsForExternalRoute = listWebhookSubscriptionsForExternalRouteRecord;
+  touchExternalWebhookRouteConnection = touchExternalWebhookRouteConnectionRecord;
   insertWebhookHistory = insertWebhookHistoryRecord;
-
   listWebhookHistory = listWebhookHistoryRecord;
-
   purgeOldWebhookHistory = purgeOldWebhookHistoryRecord;
 
   insertWorkspaceAuditEvent = insertWorkspaceAuditEventRecord;

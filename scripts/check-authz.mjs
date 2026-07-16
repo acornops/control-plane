@@ -120,7 +120,7 @@ function routeCalls(source) {
 }
 
 function isRouteActorMiddleware(candidate) {
-  return /\brequireActor\s*\(\s*\[\s*'user'\s*(?:,\s*'externalIntegration'\s*)?\]\s*\)/.test(candidate);
+  return /\brequireActor\s*\(\s*\[\s*(?:'externalIntegration'|'user'\s*(?:,\s*'externalIntegration'\s*)?)\]\s*\)/.test(candidate);
 }
 
 const authorization = read('src/auth/authorization.ts');

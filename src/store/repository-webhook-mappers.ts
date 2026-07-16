@@ -1,4 +1,5 @@
 import {
+  ExternalWebhookRouteConnection,
   WebhookHistory,
   WebhookHistoryStatus,
   WebhookSubscription
@@ -37,6 +38,16 @@ export interface WebhookHistoryRow {
   sent_at: Date | string;
 }
 
+export interface ExternalWebhookRouteConnectionRow {
+  external_integration_user_link_id: string;
+  integration_client_id: string;
+  provider: string;
+  external_user_id: string;
+  delivery_url: string;
+  connected_at: Date | string;
+  last_synced_at: Date | string;
+}
+
 export function mapWebhookSubscription(row: WebhookSubscriptionRow): WebhookSubscription {
   return {
     id: row.id,
@@ -51,6 +62,18 @@ export function mapWebhookSubscription(row: WebhookSubscriptionRow): WebhookSubs
     createdBy: row.created_by,
     createdAt: toIso(row.created_at)!,
     updatedAt: toIso(row.updated_at)!
+  };
+}
+
+export function mapExternalWebhookRouteConnection(row: ExternalWebhookRouteConnectionRow): ExternalWebhookRouteConnection {
+  return {
+    externalIntegrationUserLinkId: row.external_integration_user_link_id,
+    integrationClientId: row.integration_client_id,
+    provider: row.provider,
+    externalUserId: row.external_user_id,
+    deliveryUrl: row.delivery_url,
+    connectedAt: toIso(row.connected_at)!,
+    lastSyncedAt: toIso(row.last_synced_at)!
   };
 }
 

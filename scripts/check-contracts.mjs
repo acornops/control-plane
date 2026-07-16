@@ -318,7 +318,9 @@ for (const [docPath, routeNeedle, source, label] of [
   ['`GET /api/v1/workspaces/{workspaceId}/webhooks/{webhookId}`', "webhooksRouter.get('/workspaces/:workspaceId/webhooks/:webhookId'", webhookRoutes, 'Get webhook route'],
   ['`PATCH /api/v1/workspaces/{workspaceId}/webhooks/{webhookId}`', "webhooksRouter.patch('/workspaces/:workspaceId/webhooks/:webhookId'", webhookRoutes, 'Patch webhook route'],
   ['`DELETE /api/v1/workspaces/{workspaceId}/webhooks/{webhookId}`', "webhooksRouter.delete('/workspaces/:workspaceId/webhooks/:webhookId'", webhookRoutes, 'Delete webhook route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/webhooks/{webhookId}/history`', "'/workspaces/:workspaceId/webhooks/:webhookId/history'", webhookRoutes, 'Webhook history route']
+  ['`GET /api/v1/workspaces/{workspaceId}/webhooks/{webhookId}/history`', "'/workspaces/:workspaceId/webhooks/:webhookId/history'", webhookRoutes, 'Webhook history route'],
+  ['`POST /api/v1/external-integrations/webhook-routes/connect`', "'/external-integrations/webhook-routes/connect'", webhookRoutes, 'External webhook route connect route'],
+  ['`GET /api/v1/external-integrations/webhook-routes/status`', "'/external-integrations/webhook-routes/status'", webhookRoutes, 'External webhook route status route']
 ]) {
   expectIncludes(manifestText, docToken(docPath), `${label} manifest`);
   expectIncludes(source, routeNeedle, `${label} implementation`);
@@ -374,6 +376,7 @@ for (const contractPath of [
   ...managementConsoleContract.plannedWorkflowPaths,
   ...managementConsoleContract.webhookPaths,
   ...externalIntegrationClientContract.authPaths,
+  ...externalIntegrationClientContract.webhookRoutePaths,
   ...executionEngineContract.controlPlanePaths,
   llmGatewayContract.jwksPath,
   llmGatewayContract.builtinBridge.callPath

@@ -11,6 +11,7 @@ export type RunStatus =
 export type ToolAccessMode = 'read_only' | 'read_write';
 export const TARGET_TYPES = ['kubernetes', 'virtual_machine'] as const;
 export type TargetType = typeof TARGET_TYPES[number];
+export type { ExternalWebhookRouteConnection } from './external-webhooks.js';
 export const KUBERNETES_TARGET_TYPE: TargetType = 'kubernetes';
 export const VIRTUAL_MACHINE_TARGET_TYPE: TargetType = 'virtual_machine';
 export const TARGET_TYPE_DISPLAY_LIST = TARGET_TYPES.join(', ');
@@ -245,7 +246,7 @@ export type WorkspaceAuditOperation = 'read' | 'write';
 export type WorkspaceAuditLoggingMode = 'read_write' | 'write_only' | 'disabled';
 
 export interface WorkspaceAuditActor {
-  type: 'user' | 'system' | 'admin_token';
+  type: 'user' | 'system' | 'admin_token' | 'external_integration';
   userId?: string;
   tokenId?: string;
   email?: string;
@@ -278,7 +279,7 @@ export interface WorkspaceAuditEventInput {
   operation: WorkspaceAuditOperation;
   actorUserId?: string | null;
   actorTokenId?: string | null;
-  actorType?: 'user' | 'system' | 'admin_token';
+  actorType?: 'user' | 'system' | 'admin_token' | 'external_integration';
   objectType: string;
   objectId?: string | null;
   objectName?: string | null;

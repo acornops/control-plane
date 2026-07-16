@@ -536,6 +536,17 @@ CREATE TABLE IF NOT EXISTS webhook_subscriptions (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS external_webhook_route_connections (
+  external_integration_user_link_id TEXT NOT NULL REFERENCES external_integration_user_links(id) ON DELETE CASCADE,
+  integration_client_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  external_user_id TEXT NOT NULL,
+  delivery_url TEXT NOT NULL,
+  connected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (external_integration_user_link_id, delivery_url)
+);
+
 CREATE TABLE IF NOT EXISTS webhook_history (
   id TEXT PRIMARY KEY,
   subscription_id TEXT NOT NULL,
@@ -573,12 +584,13 @@ CREATE TABLE IF NOT EXISTS workspace_audit_events (
   CONSTRAINT workspace_audit_events_operation_check
     CHECK (operation IN ('read', 'write')),
   CONSTRAINT workspace_audit_events_actor_type_check
-    CHECK (actor_type IN ('user', 'system', 'admin_token')),
+    CHECK (actor_type IN ('user', 'system', 'admin_token', 'external_integration')),
   CONSTRAINT workspace_audit_events_user_actor_check
     CHECK (
       (actor_type = 'system' AND actor_user_id IS NULL AND actor_token_id IS NULL)
       OR (actor_type = 'user' AND actor_user_id IS NOT NULL AND actor_token_id IS NULL)
       OR (actor_type = 'admin_token' AND actor_user_id IS NULL AND actor_token_id IS NOT NULL)
+      OR (actor_type = 'external_integration' AND actor_user_id IS NOT NULL AND actor_token_id IS NOT NULL)
     ),
   CONSTRAINT workspace_audit_events_metadata_object_check
     CHECK (jsonb_typeof(metadata) = 'object')
@@ -920,6 +932,12 @@ CREATE INDEX IF NOT EXISTS idx_webhook_subscriptions_workspace_enabled
 
 CREATE INDEX IF NOT EXISTS idx_webhook_subscriptions_workspace_target
   ON webhook_subscriptions (workspace_id, target_id);
+
+CREATE INDEX IF NOT EXISTS idx_webhook_subscriptions_created_by_url
+  ON webhook_subscriptions (created_by, url);
+
+CREATE INDEX IF NOT EXISTS idx_external_webhook_route_connections_identity
+  ON external_webhook_route_connections (external_integration_user_link_id, integration_client_id, provider, external_user_id);
 
 CREATE INDEX IF NOT EXISTS idx_webhook_history_subscription_sent_at
   ON webhook_history (subscription_id, sent_at DESC);
