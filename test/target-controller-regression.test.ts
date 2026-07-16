@@ -181,7 +181,15 @@ describe('target controller regressions', () => {
     );
 
     assert.equal(allowed.statusCode, 202);
-    assert.deepEqual(allowed.body, { message_id: 'message-1', run_id: 'run-1' });
+    assert.deepEqual(allowed.body, {
+      message_id: 'message-1',
+      run_id: 'run-1',
+      runtimeSelection: {
+        provider: 'gemini',
+        model: 'gemini-2.0-flash',
+        reasoningEffort: 'low'
+      }
+    });
   });
 
   it('records durable target chat activity after deleting a session', async () => {

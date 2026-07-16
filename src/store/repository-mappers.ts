@@ -2,7 +2,7 @@ import { getConfiguredRoleTemplate, getWorkspacePermissions, isSupportedRole } f
 import { config } from '../config.js';
 import { ChatSession, KubernetesCluster, KUBERNETES_TARGET_TYPE, Message, Role, Run, RunContinuation, RunEvent, RunToolApproval, TargetAgentRegistration, TargetSummary, User, Workspace, WorkspaceInvitation, WorkspaceMembership, WorkspaceSummary } from '../types/domain.js';
 import { buildWorkspaceQuota, resolveWorkspacePlan } from './repository-quotas.js';
-
+import { mapLastRuntimeSelection, SessionRuntimeSelectionRow } from './repository-session-runtime.js';
 export const toIso = (value: Date | string | null | undefined): string | undefined =>
   !value ? undefined : typeof value === 'string' ? value : value.toISOString();
 const nullableNumber = (value: number | string | null | undefined): number | null => value == null ? null : Number(value);
@@ -94,7 +94,7 @@ export interface TargetRow {
   updated_at: Date | string;
 }
 
-export interface SessionRow {
+export interface SessionRow extends SessionRuntimeSelectionRow {
   id: string;
   workspace_id: string;
   target_id: string;
@@ -435,6 +435,7 @@ export function mapSession(row: SessionRow): ChatSession {
     createdAt: toIso(row.created_at)!,
     updatedAt: toIso(row.updated_at)!,
     lastMessageAt: toIso(row.last_message_at)!,
+    lastRuntimeSelection: mapLastRuntimeSelection(row),
     expiresAt: toIso(row.expires_at)!,
     deletedAt: toIso(row.deleted_at)
   };

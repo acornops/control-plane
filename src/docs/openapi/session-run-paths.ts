@@ -200,7 +200,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
             }
           },
           responses: {
-            '202': { description: 'Run accepted for processing.' },
+            '202': { description: 'Run accepted for processing. The response includes the provider, model, and reasoning effort frozen on the accepted run.' },
             '400': { description: 'Invalid AI runtime selection, disallowed model/provider, missing provider credential, or unsupported target type.' },
             '403': { description: 'CONVERSATION_OWNER_REQUIRED when the authenticated user did not create the conversation, or FORBIDDEN when the owner lacks run creation permission.' }
           }

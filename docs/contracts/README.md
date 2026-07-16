@@ -33,6 +33,9 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Roles with `permissions.manage_target_insights` may mutate Target Insights entries and Target Insights tool settings.
 - Roles without the relevant management capability are read-only for that configuration surface.
 - Chat and run creation must preserve `sessionPolicy.allowedTools` and `sessionPolicy.writeEnabled`.
+- Chat session responses derive `lastRuntimeSelection` from the newest accepted
+  run snapshot regardless of its eventual terminal status; empty sessions omit
+  it, and message acceptance echoes the runtime frozen on that run.
 - Agent handshake responses always include a complete `sessionPolicy`; AgentK rejects tool calls until it is installed.
 - The Kubernetes built-in catalog contains `list_resources`, `get_resource`,
   `get_resource_logs`, `restart_workload`, `scale_workload`, and `patch_resource`.

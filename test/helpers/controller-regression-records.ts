@@ -37,7 +37,8 @@ export function createRun(overrides: Partial<Run> = {}): Run {
   return {
     id: 'run-1', workspaceId: 'workspace-1', targetId: 'cluster-1', targetType: 'kubernetes',
     clusterId: 'cluster-1', sessionId: 'session-1', messageId: 'message-1', llmProvider: 'gemini',
-    llmModel: 'gemini-2.0-flash', toolAccessMode: 'read_write', status: 'completed',
+    llmModel: 'gemini-2.0-flash', llmReasoningSummaryMode: 'auto', llmReasoningEffort: 'low',
+    toolAccessMode: 'read_write', status: 'completed',
     requestedAt: '2026-05-24T00:00:00.000Z', ...overrides
   };
 }

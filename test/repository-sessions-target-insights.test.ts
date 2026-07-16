@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import { db } from '../src/infra/db.js';
 import { logger } from '../src/logger.js';
-import { upsertAssistantFinalMessage } from '../src/store/repository-sessions.js';
+import { listSessionsByTarget, upsertAssistantFinalMessage } from '../src/store/repository-sessions.js';
 
 afterEach(() => {
   mock.restoreAll();
@@ -75,5 +75,22 @@ describe('session repository Target Insights scheduling', () => {
     assert.equal(queries.includes('COMMIT'), true);
     assert.equal(queries.includes('ROLLBACK'), false);
     assert.equal(warn.mock.callCount(), 1);
+  });
+});
+
+describe('session repository runtime selection', () => {
+  it('joins the newest accepted run deterministically for session responses', async () => {
+    let query = '';
+    mock.method(db, 'query', async (sql: string) => {
+      query = sql;
+      return { rowCount: 0, rows: [] };
+    });
+
+    const page = await listSessionsByTarget('workspace-1', 'target-1');
+
+    assert.deepEqual(page.items, []);
+    assert.match(query, /LEFT JOIN LATERAL/);
+    assert.match(query, /ORDER BY r\.requested_at DESC, r\.id DESC/);
+    assert.match(query, /latest_run\.llm_reasoning_effort AS last_llm_reasoning_effort/);
   });
 });

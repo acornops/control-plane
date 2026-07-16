@@ -4,12 +4,24 @@ import {
   isSupportedLlmProvider,
   parseAllowedReasoningEfforts
 } from '../services/llm-policy.js';
-import { LlmProvider, ReasoningEffort } from '../types/domain.js';
+import { LlmProvider, ReasoningEffort, Run } from '../types/domain.js';
 
 export interface RequestedLlmSelection {
   provider?: LlmProvider;
   model?: string;
   reasoningEffort?: ReasoningEffort;
+}
+
+export function acceptedMessageResponse(messageId: string, run: Run) {
+  return {
+    message_id: messageId,
+    run_id: run.id,
+    runtimeSelection: {
+      provider: run.llmProvider,
+      model: run.llmModel,
+      reasoningEffort: run.llmReasoningEffort
+    }
+  };
 }
 
 function rejectInvalidLlmSelection(res: Response, message: string): void {

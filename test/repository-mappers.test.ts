@@ -146,6 +146,32 @@ describe('repository mappers', () => {
     });
   });
 
+  it('maps the latest accepted runtime when the repository query joins a run', () => {
+    const session = mapSession({
+      id: 'session-1',
+      workspace_id: 'workspace-1',
+      target_id: 'target-1',
+      target_type: 'virtual_machine',
+      created_by: 'user-1',
+      title: 'VM session',
+      status: 'open',
+      created_at: '2026-05-24T00:00:00.000Z',
+      updated_at: '2026-05-24T00:00:00.000Z',
+      last_message_at: '2026-05-24T00:00:00.000Z',
+      last_llm_provider: 'openai',
+      last_llm_model: 'gpt-5.5',
+      last_llm_reasoning_effort: 'high',
+      expires_at: '2026-05-25T00:00:00.000Z',
+      deleted_at: null
+    });
+
+    assert.deepEqual(session.lastRuntimeSelection, {
+      provider: 'openai',
+      model: 'gpt-5.5',
+      reasoningEffort: 'high'
+    });
+  });
+
   it('maps target agent registration type from the joined target row', () => {
     const row: TargetAgentRegistrationRow = {
       target_id: 'target-1',

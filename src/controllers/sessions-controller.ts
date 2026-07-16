@@ -37,7 +37,7 @@ import {
   parseBoundedLimit
 } from '../utils/pagination.js';
 import { mapGatewayError } from './workspaces/common.js';
-import { parseRequestedLlmSelection } from './session-llm-selection.js';
+import { acceptedMessageResponse, parseRequestedLlmSelection } from './session-llm-selection.js';
 
 function enqueueRunDispatch(run: Run): void {
   queueMicrotask(async () => {
@@ -391,7 +391,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
     if (req.body.clientMessageId) {
       const existing = await repo.findRunByClientMessageId(session.id, req.body.clientMessageId);
       if (existing) {
-        res.status(202).json({ message_id: existing.message.id, run_id: existing.run.id });
+        res.status(202).json(acceptedMessageResponse(existing.message.id, existing.run));
         return;
       }
     }
@@ -532,7 +532,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       });
       enqueueRunDispatch(created.run);
     }
-    res.status(202).json({ message_id: created.message.id, run_id: created.run.id });
+    res.status(202).json(acceptedMessageResponse(created.message.id, created.run));
   } catch (err) {
     if (err instanceof LlmGatewayHttpError) {
       const mapped = mapGatewayError(err, { upstreamMessage: 'Failed to check workspace AI provider settings with llm-gateway' });

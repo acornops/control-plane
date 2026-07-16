@@ -3,6 +3,16 @@ import { targetSummarySchema, runSchema, userSchema } from './schema-components-
 
 export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
   return {
+    ChatRuntimeSelection: {
+      type: 'object',
+      required: ['provider', 'model', 'reasoningEffort'],
+      properties: {
+        provider: { type: 'string', enum: ['openai', 'anthropic', 'gemini'] },
+        model: { type: 'string' },
+        reasoningEffort: { type: 'string', enum: ['off', 'low', 'medium', 'high'] }
+      },
+      additionalProperties: false
+    },
     TargetSummary: targetSummarySchema,
     TargetPage: pageOf('TargetSummary'),
     SnapshotReference: {
@@ -189,6 +199,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         title: { type: 'string' },
         createdBy: uuid,
         createdByUser: userSchema,
+        lastRuntimeSelection: schemaRef('ChatRuntimeSelection'),
         createdAt: dateTime,
         updatedAt: dateTime
       },
@@ -211,10 +222,11 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
     ChatMessagePage: pageOf('ChatMessage'),
     MessageAccepted: {
       type: 'object',
-      required: ['message_id', 'run_id'],
+      required: ['message_id', 'run_id', 'runtimeSelection'],
       properties: {
         message_id: uuid,
-        run_id: uuid
+        run_id: uuid,
+        runtimeSelection: schemaRef('ChatRuntimeSelection')
       }
     },
     TargetChatActivity: {

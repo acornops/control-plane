@@ -71,7 +71,11 @@ describe('workspace AI settings run creation', () => {
     );
 
     assert.equal(response.statusCode, 202);
-    assert.deepEqual(response.body, { message_id: 'existing-message', run_id: 'existing-run' });
+    assert.deepEqual(response.body, {
+      message_id: 'existing-message',
+      run_id: 'existing-run',
+      runtimeSelection: { provider: 'gemini', model: 'gemini-2.0-flash', reasoningEffort: 'low' }
+    });
     assert.equal(attemptedRunCreate, false);
   });
 
@@ -104,6 +108,11 @@ describe('workspace AI settings run creation', () => {
     assert.equal(createdRunInput?.llmProvider, 'openai');
     assert.equal(createdRunInput?.llmModel, 'gpt-5.5');
     assert.equal(createdRunInput?.targetType, 'kubernetes');
+    assert.deepEqual((response.body as { runtimeSelection: unknown }).runtimeSelection, {
+      provider: 'openai',
+      model: 'gpt-5.5',
+      reasoningEffort: 'low'
+    });
   });
 
   it('freezes per-message provider, model, and reasoning effort overrides on newly created runs', async () => {
@@ -156,6 +165,11 @@ describe('workspace AI settings run creation', () => {
     assert.equal(createdRunInput?.llmProvider, 'gemini');
     assert.equal(createdRunInput?.llmModel, 'gemini-2.0-flash');
     assert.equal(createdRunInput?.llmReasoningEffort, 'high');
+    assert.deepEqual((response.body as { runtimeSelection: unknown }).runtimeSelection, {
+      provider: 'gemini',
+      model: 'gemini-2.0-flash',
+      reasoningEffort: 'high'
+    });
   });
 
   it('rejects per-message model overrides that omit provider', async () => {
@@ -304,7 +318,11 @@ describe('workspace AI settings run creation', () => {
     );
 
     assert.equal(response.statusCode, 202);
-    assert.deepEqual(response.body, { message_id: 'existing-message', run_id: 'existing-run' });
+    assert.deepEqual(response.body, {
+      message_id: 'existing-message',
+      run_id: 'existing-run',
+      runtimeSelection: { provider: 'gemini', model: 'gemini-2.0-flash', reasoningEffort: 'low' }
+    });
     assert.equal(attemptedRunCreate, false);
   });
 

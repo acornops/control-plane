@@ -357,6 +357,11 @@ export interface ChatSession {
   createdAt: string;
   updatedAt: string;
   lastMessageAt: string;
+  lastRuntimeSelection?: {
+    provider: LlmProvider;
+    model: string;
+    reasoningEffort: ReasoningEffort;
+  };
   expiresAt: string;
   deletedAt?: string;
 }

@@ -40,7 +40,8 @@ assert.deepEqual(files, [
   '007_system_skill_seeding.sql',
   '008_cluster_triage_builtin_tools.sql',
   '009_workflow_prompt_references.sql',
-  '010_tool_result_artifacts.sql'
+  '010_tool_result_artifacts.sql',
+  '011_chat_runtime_selection.sql'
 ]);
 for (const file of files) {
   assert(/^\d{3,}_[a-z0-9_]+\.sql$/.test(file), `invalid migration filename ${file}`);
@@ -57,8 +58,10 @@ const systemSkillSeeding = read('migrations/control-plane/007_system_skill_seedi
 const clusterTriageBuiltInTools = read('migrations/control-plane/008_cluster_triage_builtin_tools.sql');
 const workflowPromptReferences = read('migrations/control-plane/009_workflow_prompt_references.sql');
 const toolResultArtifacts = read('migrations/control-plane/010_tool_result_artifacts.sql');
+const chatRuntimeSelection = read('migrations/control-plane/011_chat_runtime_selection.sql');
 assert(toolResultArtifacts.includes('CREATE TABLE IF NOT EXISTS run_tool_result_artifacts'));
 assert(toolResultArtifacts.includes('ON DELETE CASCADE'));
+assert(chatRuntimeSelection.includes('ON runs (session_id, requested_at DESC, id DESC)'));
 for (const table of [
   'agent_definitions',
   'agent_triggers',
