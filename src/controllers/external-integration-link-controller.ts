@@ -6,8 +6,18 @@ import {
   hashExternalIntegrationLinkToken
 } from '../auth/external-integration-link.js';
 import { AuthenticatedRequest } from '../auth/middleware.js';
+import {
+  assertExternalIntegrationWorkspaceCapabilities,
+  getWorkspacePermissions,
+  type WorkspaceCapability
+} from '../auth/authorization.js';
+import { config, type ExternalIntegrationClientDescriptor } from '../config.js';
 import { repo } from '../store/repository.js';
-import type { ExternalIntegrationUserLinkSummary } from '../store/repository-external-integration-links.js';
+import type {
+  ExternalIntegrationGrantableWorkspace,
+  ExternalIntegrationUserLinkSummary,
+  ExternalIntegrationWorkspaceGrantInput
+} from '../store/repository-external-integration-links.js';
 
 const externalIntegrationIdentitySchema = z.object({
   externalUserId: z.string().trim().min(1).max(128),
@@ -24,6 +34,20 @@ const externalIntegrationLinkTokenSchema = z.object({
   token: z.string().trim().min(1).max(256)
 }).strict();
 
+const externalIntegrationWorkspaceGrantSchema = z.object({
+  workspaceId: z.string().trim().min(1).max(128),
+  capabilities: z.array(z.string().trim().min(1)).max(20)
+}).strict();
+
+const externalIntegrationLinkCompletionSchema = z.object({
+  token: z.string().trim().min(1).max(256),
+  workspaceGrants: z.array(externalIntegrationWorkspaceGrantSchema).max(250).optional()
+}).strict();
+
+const externalIntegrationWorkspaceGrantsUpdateSchema = z.object({
+  workspaceGrants: z.array(externalIntegrationWorkspaceGrantSchema).max(250)
+}).strict();
+
 function rejectInvalidIdentity(res: Response): void {
   res.status(400).json({
     error: {
@@ -36,6 +60,78 @@ function rejectInvalidIdentity(res: Response): void {
 
 function externalIdentityObjectId(link: Pick<ExternalIntegrationUserLinkSummary, 'integrationClientId' | 'provider' | 'externalUserId'>): string {
   return `${link.integrationClientId}:${link.provider}:${link.externalUserId}`;
+}
+
+function clientForLink(input: { integrationClientId: string; provider: string }): ExternalIntegrationClientDescriptor | null {
+  return config.EXTERNAL_INTEGRATION_CLIENTS.find((client) => (
+    client.enabled && client.id === input.integrationClientId && client.provider === input.provider
+  )) || null;
+}
+
+function grantableCapabilitiesForRole(role: string, client: ExternalIntegrationClientDescriptor): WorkspaceCapability[] {
+  const rolePermissions = getWorkspacePermissions(role);
+  return client.allowedCapabilities.filter((capability) => rolePermissions[capability]);
+}
+
+function normalizeRequestedWorkspaceGrants(
+  requestedGrants: Array<{ workspaceId: string; capabilities: string[] }> | undefined,
+  grantableWorkspaces: ExternalIntegrationGrantableWorkspace[],
+  client: ExternalIntegrationClientDescriptor
+): ExternalIntegrationWorkspaceGrantInput[] {
+  const grantableByWorkspaceId = new Map(grantableWorkspaces.map((workspace) => [workspace.workspaceId, workspace]));
+  const seenWorkspaceIds = new Set<string>();
+  const normalized: ExternalIntegrationWorkspaceGrantInput[] = [];
+  for (const grant of requestedGrants || []) {
+    if (seenWorkspaceIds.has(grant.workspaceId)) {
+      throw new Error(`Duplicate external integration workspace grant: ${grant.workspaceId}`);
+    }
+    seenWorkspaceIds.add(grant.workspaceId);
+    const workspace = grantableByWorkspaceId.get(grant.workspaceId);
+    if (!workspace) {
+      throw new Error(`External integration workspace grant is not available: ${grant.workspaceId}`);
+    }
+    const requestedCapabilities = assertExternalIntegrationWorkspaceCapabilities(grant.capabilities);
+    if (!requestedCapabilities.length) {
+      continue;
+    }
+    const grantableCapabilities = new Set(grantableCapabilitiesForRole(workspace.role, client));
+    for (const capability of requestedCapabilities) {
+      if (!grantableCapabilities.has(capability)) {
+        throw new Error(`External integration workspace capability is not grantable: ${capability}`);
+      }
+    }
+    normalized.push({
+      workspaceId: grant.workspaceId,
+      capabilities: requestedCapabilities
+    });
+  }
+  return normalized;
+}
+
+function mapGrantableWorkspaces(
+  workspaces: ExternalIntegrationGrantableWorkspace[],
+  client: ExternalIntegrationClientDescriptor
+): Array<ExternalIntegrationGrantableWorkspace & { grantableCapabilities: WorkspaceCapability[] }> {
+  return workspaces.map((workspace) => {
+    const grantableCapabilities = grantableCapabilitiesForRole(workspace.role, client);
+    const allowedGrantableCapabilities = new Set(grantableCapabilities);
+    return {
+      ...workspace,
+      grantableCapabilities,
+      grantedCapabilities: workspace.grantedCapabilities.filter((capability) => allowedGrantableCapabilities.has(capability))
+    };
+  });
+}
+
+function applySavedGrantsToGrantableWorkspaces(
+  workspaces: ExternalIntegrationGrantableWorkspace[],
+  grants: Array<{ workspaceId: string; capabilities: WorkspaceCapability[] }>
+): ExternalIntegrationGrantableWorkspace[] {
+  const capabilitiesByWorkspaceId = new Map(grants.map((grant) => [grant.workspaceId, grant.capabilities]));
+  return workspaces.map((workspace) => ({
+    ...workspace,
+    grantedCapabilities: capabilitiesByWorkspaceId.get(workspace.workspaceId) || []
+  }));
 }
 
 async function recordExternalIntegrationAudit(input: {
@@ -140,19 +236,30 @@ export async function previewExternalIntegrationLinkRequest(req: AuthenticatedRe
     }
     const user = await repo.getUserById(req.auth.userId);
     const preview = await repo.previewExternalIntegrationLinkToken(hashExternalIntegrationLinkToken(parsed.data.token));
-    if (!user || !preview) {
+    const client = preview ? clientForLink({
+      integrationClientId: preview.integrationClientId,
+      provider: preview.provider
+    }) : null;
+    if (!user || !preview || !client) {
       res.status(410).json({
         error: { code: 'EXTERNAL_INTEGRATION_LINK_EXPIRED', message: 'External integration link token is expired or unavailable', retryable: false }
       });
       return;
     }
+    const grantableWorkspaces = await repo.listExternalIntegrationGrantableWorkspaces({
+      integrationClientId: preview.integrationClientId,
+      provider: preview.provider,
+      externalUserId: preview.externalUserId,
+      acornopsUserId: user.id
+    });
     res.status(200).json({
       ...preview,
       signedInUser: {
         id: user.id,
         email: user.email,
         displayName: user.displayName
-      }
+      },
+      grantableWorkspaces: mapGrantableWorkspaces(grantableWorkspaces, client)
     });
   } catch (err) {
     next(err);
@@ -161,30 +268,66 @@ export async function previewExternalIntegrationLinkRequest(req: AuthenticatedRe
 
 export async function completeExternalIntegrationLinkRequest(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const parsed = externalIntegrationLinkTokenSchema.safeParse(req.body || {});
+    const parsed = externalIntegrationLinkCompletionSchema.safeParse(req.body || {});
     if (!parsed.success) {
       res.status(400).json({
-        error: { code: 'INVALID_REQUEST', message: 'token is required as a bounded string', retryable: false }
+        error: { code: 'INVALID_REQUEST', message: 'token and workspaceGrants are required in the expected shape', retryable: false }
       });
       return;
     }
     const user = await repo.getUserById(req.auth.userId);
-    const link = user ? await completeExternalIntegrationLink(parsed.data.token, user) : null;
-    if (!user || !link) {
+    const preview = await repo.previewExternalIntegrationLinkToken(hashExternalIntegrationLinkToken(parsed.data.token));
+    const client = preview ? clientForLink({
+      integrationClientId: preview.integrationClientId,
+      provider: preview.provider
+    }) : null;
+    if (!user || !preview || !client) {
       res.status(410).json({
         error: { code: 'EXTERNAL_INTEGRATION_LINK_EXPIRED', message: 'External integration link token is expired or unavailable', retryable: false }
       });
       return;
     }
+    const grantableWorkspaces = await repo.listExternalIntegrationGrantableWorkspaces({
+      integrationClientId: preview.integrationClientId,
+      provider: preview.provider,
+      externalUserId: preview.externalUserId,
+      acornopsUserId: user.id
+    });
+    let workspaceGrants: ExternalIntegrationWorkspaceGrantInput[];
+    try {
+      workspaceGrants = normalizeRequestedWorkspaceGrants(parsed.data.workspaceGrants, grantableWorkspaces, client);
+    } catch (error) {
+      res.status(400).json({
+        error: {
+          code: 'INVALID_EXTERNAL_INTEGRATION_GRANTS',
+          message: error instanceof Error ? error.message : 'Invalid external integration workspace grants',
+          retryable: false
+        }
+      });
+      return;
+    }
+    const link = await completeExternalIntegrationLink(parsed.data.token, user);
+    if (!link) {
+      res.status(410).json({
+        error: { code: 'EXTERNAL_INTEGRATION_LINK_EXPIRED', message: 'External integration link token is expired or unavailable', retryable: false }
+      });
+      return;
+    }
+    const grants = await repo.replaceExternalIntegrationWorkspaceGrants({
+      linkId: link.id,
+      grantedByUserId: user.id,
+      grants: workspaceGrants
+    });
+    const linkWithGrants = { ...link, grants };
     await recordExternalIntegrationAudit({
       userId: user.id,
       actorType: 'user',
       actorUserId: user.id,
       eventType: 'external_integration.link.completed.v1',
       summary: 'External integration account link completed',
-      link
+      link: linkWithGrants
     });
-    res.status(200).json({ status: 'linked', link });
+    res.status(200).json({ status: 'linked', link: linkWithGrants });
   } catch (err) {
     next(err);
   }
@@ -192,7 +335,89 @@ export async function completeExternalIntegrationLinkRequest(req: AuthenticatedR
 
 export async function listExternalIntegrationLinks(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    res.status(200).json({ links: await repo.listExternalIntegrationUserLinks(req.auth.userId) });
+    const links = await repo.listExternalIntegrationUserLinks(req.auth.userId);
+    const linksWithGrantableWorkspaces = await Promise.all(links.map(async (link) => {
+      const client = clientForLink(link);
+      if (!client) return { ...link, grantableWorkspaces: [] };
+      const grantableWorkspaces = await repo.listExternalIntegrationGrantableWorkspaces({
+        integrationClientId: link.integrationClientId,
+        provider: link.provider,
+        externalUserId: link.externalUserId,
+        acornopsUserId: req.auth.userId
+      });
+      return {
+        ...link,
+        grantableWorkspaces: mapGrantableWorkspaces(grantableWorkspaces, client)
+      };
+    }));
+    res.status(200).json({ links: linksWithGrantableWorkspaces });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function replaceExternalIntegrationLinkGrants(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const linkId = typeof req.params.linkId === 'string' ? req.params.linkId.trim() : '';
+    const parsed = externalIntegrationWorkspaceGrantsUpdateSchema.safeParse(req.body || {});
+    if (!linkId || !parsed.success) {
+      res.status(400).json({
+        error: { code: 'INVALID_REQUEST', message: 'linkId and workspaceGrants are required in the expected shape', retryable: false }
+      });
+      return;
+    }
+    const links = await repo.listExternalIntegrationUserLinks(req.auth.userId);
+    const link = links.find((item) => item.id === linkId);
+    if (!link) {
+      res.status(404).json({ error: { code: 'EXTERNAL_INTEGRATION_LINK_NOT_FOUND', message: 'External integration link not found', retryable: false } });
+      return;
+    }
+    const client = clientForLink(link);
+    if (!client) {
+      res.status(404).json({ error: { code: 'EXTERNAL_INTEGRATION_LINK_NOT_FOUND', message: 'External integration link not found', retryable: false } });
+      return;
+    }
+    const grantableWorkspaces = await repo.listExternalIntegrationGrantableWorkspaces({
+      integrationClientId: link.integrationClientId,
+      provider: link.provider,
+      externalUserId: link.externalUserId,
+      acornopsUserId: req.auth.userId
+    });
+    let workspaceGrants: ExternalIntegrationWorkspaceGrantInput[];
+    try {
+      workspaceGrants = normalizeRequestedWorkspaceGrants(parsed.data.workspaceGrants, grantableWorkspaces, client);
+    } catch (error) {
+      res.status(400).json({
+        error: {
+          code: 'INVALID_EXTERNAL_INTEGRATION_GRANTS',
+          message: error instanceof Error ? error.message : 'Invalid external integration workspace grants',
+          retryable: false
+        }
+      });
+      return;
+    }
+    const grants = await repo.replaceExternalIntegrationWorkspaceGrants({
+      linkId,
+      grantedByUserId: req.auth.userId,
+      grants: workspaceGrants
+    });
+    const linkWithGrants = {
+      ...link,
+      grants,
+      grantableWorkspaces: mapGrantableWorkspaces(
+        applySavedGrantsToGrantableWorkspaces(grantableWorkspaces, grants),
+        client
+      )
+    };
+    await recordExternalIntegrationAudit({
+      userId: req.auth.userId,
+      actorType: 'user',
+      actorUserId: req.auth.userId,
+      eventType: 'external_integration.link.grants_updated.v1',
+      summary: 'External integration workspace grants updated',
+      link: linkWithGrants
+    });
+    res.status(200).json({ link: linkWithGrants });
   } catch (err) {
     next(err);
   }

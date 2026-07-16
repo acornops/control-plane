@@ -60,7 +60,13 @@ const compactWorkspaceRoutes = expandedWorkspaceRoutes
   .replaceAll("workspacesRouter.patch(\n  '", "workspacesRouter.patch('")
   .replaceAll("workspacesRouter.delete(\n  '", "workspacesRouter.delete('");
 const workspaceRoutes = `${workspaceRouteSources}\n${expandedWorkspaceRoutes}\n${compactWorkspaceRoutes}`;
-const webhookRoutes = read('src/routes/webhooks.ts');
+const rawWebhookRoutes = read('src/routes/webhooks.ts');
+const compactWebhookRoutes = rawWebhookRoutes
+  .replaceAll("webhooksRouter.get(\n  '", "webhooksRouter.get('")
+  .replaceAll("webhooksRouter.post(\n  '", "webhooksRouter.post('")
+  .replaceAll("webhooksRouter.patch(\n  '", "webhooksRouter.patch('")
+  .replaceAll("webhooksRouter.delete(\n  '", "webhooksRouter.delete('");
+const webhookRoutes = `${rawWebhookRoutes}\n${compactWebhookRoutes}`;
 const sessionRoutes = read('src/routes/sessions.ts');
 const runRoutes = read('src/routes/runs.ts');
 const internalRoutes = read('src/routes/internal-execution.ts');
@@ -241,14 +247,14 @@ for (const [docPath, routeNeedle, source, label] of [
   ['`DELETE /api/v1/workspaces/{workspaceId}`', "workspacesRouter.delete('/workspaces/:workspaceId'", workspaceRoutes, 'Delete workspace route'],
   ['`GET /api/v1/workspaces/{workspaceId}/members`', "workspacesRouter.get('/workspaces/:workspaceId/members'", workspaceRoutes, 'List workspace members route'],
   ['`GET /api/v1/workspaces/{workspaceId}/audit-log`', "workspacesRouter.get('/workspaces/:workspaceId/audit-log'", workspaceRoutes, 'List workspace audit log route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/invitations`', "workspacesRouter.get(\n  '/workspaces/:workspaceId/invitations'", workspaceRoutes, 'List workspace invitation route'],
-  ['`POST /api/v1/workspaces/{workspaceId}/invitations`', "workspacesRouter.post(\n  '/workspaces/:workspaceId/invitations'", workspaceRoutes, 'Create workspace invitation route'],
-  ['`DELETE /api/v1/workspaces/{workspaceId}/invitations/{invitationId}`', "workspacesRouter.delete(\n  '/workspaces/:workspaceId/invitations/:invitationId'", workspaceRoutes, 'Revoke workspace invitation route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/invitations`', "workspacesRouter.get('/workspaces/:workspaceId/invitations'", workspaceRoutes, 'List workspace invitation route'],
+  ['`POST /api/v1/workspaces/{workspaceId}/invitations`', "workspacesRouter.post('/workspaces/:workspaceId/invitations'", workspaceRoutes, 'Create workspace invitation route'],
+  ['`DELETE /api/v1/workspaces/{workspaceId}/invitations/{invitationId}`', "workspacesRouter.delete('/workspaces/:workspaceId/invitations/:invitationId'", workspaceRoutes, 'Revoke workspace invitation route'],
   ['`GET /api/v1/workspace-invitations/{token}`', "workspacesRouter.get('/workspace-invitations/:token'", workspaceRoutes, 'Get workspace invitation route'],
-  ['`POST /api/v1/workspace-invitations/{token}/accept`', "workspacesRouter.post(\n  '/workspace-invitations/:token/accept'", workspaceRoutes, 'Accept workspace invitation route'],
-  ['`POST /api/v1/workspaces/{workspaceId}/members`', "workspacesRouter.post(\n  '/workspaces/:workspaceId/members'", workspaceRoutes, 'Add workspace member route'],
-  ['`PATCH /api/v1/workspaces/{workspaceId}/members/{userId}`', "workspacesRouter.patch(\n  '/workspaces/:workspaceId/members/:userId'", workspaceRoutes, 'Update workspace member route'],
-  ['`DELETE /api/v1/workspaces/{workspaceId}/members/{userId}`', "workspacesRouter.delete(\n  '/workspaces/:workspaceId/members/:userId'", workspaceRoutes, 'Delete workspace member route'],
+  ['`POST /api/v1/workspace-invitations/{token}/accept`', "workspacesRouter.post('/workspace-invitations/:token/accept'", workspaceRoutes, 'Accept workspace invitation route'],
+  ['`POST /api/v1/workspaces/{workspaceId}/members`', "workspacesRouter.post('/workspaces/:workspaceId/members'", workspaceRoutes, 'Add workspace member route'],
+  ['`PATCH /api/v1/workspaces/{workspaceId}/members/{userId}`', "workspacesRouter.patch('/workspaces/:workspaceId/members/:userId'", workspaceRoutes, 'Update workspace member route'],
+  ['`DELETE /api/v1/workspaces/{workspaceId}/members/{userId}`', "workspacesRouter.delete('/workspaces/:workspaceId/members/:userId'", workspaceRoutes, 'Delete workspace member route'],
   ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters`', "workspacesRouter.get('/workspaces/:workspaceId/kubernetes-clusters'", workspaceRoutes, 'List clusters route'],
   ['`GET /api/v1/workspaces/{workspaceId}/issues`', "workspacesRouter.get('/workspaces/:workspaceId/issues'", workspaceRoutes, 'List issues route'],
   ['`GET /api/v1/workspaces/{workspaceId}/issues/{issueId}`', "workspacesRouter.get('/workspaces/:workspaceId/issues/:issueId'", workspaceRoutes, 'Get issue route'],
@@ -258,11 +264,11 @@ for (const [docPath, routeNeedle, source, label] of [
   ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/resources`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/resources'", workspaceRoutes, 'List cluster resources route'],
   [
     '`POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters`',
-    "workspacesRouter.post(\n  '/workspaces/:workspaceId/kubernetes-clusters'",
+    "workspacesRouter.post('/workspaces/:workspaceId/kubernetes-clusters'",
     workspaceRoutes,
     'Register cluster route'
   ],
-  ['`PATCH /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}`', "workspacesRouter.patch(\n  '/workspaces/:workspaceId/kubernetes-clusters/:clusterId'", workspaceRoutes, 'Patch cluster route'],
+  ['`PATCH /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}`', "workspacesRouter.patch('/workspaces/:workspaceId/kubernetes-clusters/:clusterId'", workspaceRoutes, 'Patch cluster route'],
   ['`DELETE /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}`', "workspacesRouter.delete('/workspaces/:workspaceId/kubernetes-clusters/:clusterId'", workspaceRoutes, 'Delete cluster route'],
   ['`POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/rotate-agent-key`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/rotate-agent-key'", workspaceRoutes, 'Rotate agent-key route'],
   ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/pods/{namespace}/{podName}/logs`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/pods/:namespace/:podName/logs'", workspaceRoutes, 'Pod logs route'],
@@ -308,9 +314,9 @@ for (const [docPath, routeNeedle, source, label] of [
   ['`POST /internal/v1/runs/{runId}/commit`', "internalExecutionRouter.post(\n  '/runs/:runId/commit'", internalRoutes, 'Run commit route'],
   ['`POST /internal/v1/mcp/tools/call`', "internalExecutionRouter.post(\n  '/mcp/tools/call'", internalRoutes, 'Builtin MCP call route'],
   ['`GET /api/v1/workspaces/{workspaceId}/webhooks`', "webhooksRouter.get('/workspaces/:workspaceId/webhooks'", webhookRoutes, 'List webhooks route'],
-  ['`POST /api/v1/workspaces/{workspaceId}/webhooks`', "webhooksRouter.post(\n  '/workspaces/:workspaceId/webhooks'", webhookRoutes, 'Create webhook route'],
+  ['`POST /api/v1/workspaces/{workspaceId}/webhooks`', "webhooksRouter.post('/workspaces/:workspaceId/webhooks'", webhookRoutes, 'Create webhook route'],
   ['`GET /api/v1/workspaces/{workspaceId}/webhooks/{webhookId}`', "webhooksRouter.get('/workspaces/:workspaceId/webhooks/:webhookId'", webhookRoutes, 'Get webhook route'],
-  ['`PATCH /api/v1/workspaces/{workspaceId}/webhooks/{webhookId}`', "webhooksRouter.patch(\n  '/workspaces/:workspaceId/webhooks/:webhookId'", webhookRoutes, 'Patch webhook route'],
+  ['`PATCH /api/v1/workspaces/{workspaceId}/webhooks/{webhookId}`', "webhooksRouter.patch('/workspaces/:workspaceId/webhooks/:webhookId'", webhookRoutes, 'Patch webhook route'],
   ['`DELETE /api/v1/workspaces/{workspaceId}/webhooks/{webhookId}`', "webhooksRouter.delete('/workspaces/:workspaceId/webhooks/:webhookId'", webhookRoutes, 'Delete webhook route'],
   ['`GET /api/v1/workspaces/{workspaceId}/webhooks/{webhookId}/history`', "'/workspaces/:workspaceId/webhooks/:webhookId/history'", webhookRoutes, 'Webhook history route']
 ]) {

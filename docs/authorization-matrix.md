@@ -8,7 +8,7 @@ Capability ids: `read_workspace_data`, `read_members`, `read_audit_log`, `delete
 
 ## Auth Layering
 
-The intended request flow is `credential -> identity -> workspace authorization -> effective permissions`. Today the only user credential is a session cookie, `requireUser` converts it into `req.auth`, and workspace authorization maps the authenticated user role to effective permissions. Future PAT or OIDC access-token support should add credential variants and permission narrowing in `src/auth/workspace-authorization.ts`; controllers must continue to consume `req.auth` plus centralized workspace authorization helpers.
+The intended request flow is `credential -> identity -> workspace authorization -> effective permissions`. Today the primary user credential is a session cookie, `requireActor(['user'])` converts it into `req.auth`, and workspace authorization maps the authenticated user role to effective permissions. Linked external integration credentials resolve to the linked AcornOps user plus the durable external integration link; their effective permissions are the linked user role intersected with the registered client capability ceiling and the user-approved workspace grant. Future PAT or OIDC access-token support should add credential variants and permission narrowing in `src/auth/workspace-authorization.ts`; controllers must continue to consume `req.auth` plus centralized workspace authorization helpers.
 
 | Capability | Owner | Admin | Operator | Viewer | Auditor |
 | --- | --- | --- | --- | --- | --- |

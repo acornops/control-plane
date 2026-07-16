@@ -18,6 +18,7 @@ export function schemaForOperation(method: string, path: string, statusCode: str
     'POST /api/v1/auth/external-integrations/link/preview': 'ExternalIntegrationLinkPreview',
     'POST /api/v1/auth/external-integrations/link/complete': 'ExternalIntegrationLinkCompletion',
     'GET /api/v1/auth/external-integrations/links': 'ExternalIntegrationLinkList',
+    'PATCH /api/v1/auth/external-integrations/links/{linkId}/grants': 'ExternalIntegrationLinkGrantUpdate',
     'POST /api/v1/auth/external-integrations/links/unlink': 'ExternalIntegrationLinkRevocation',
     'POST /api/v1/auth/external-integrations/resolve': 'ExternalIntegrationLinkResolution',
     'POST /api/v1/auth/external-integrations/revoke': 'ExternalIntegrationLinkRevocation',

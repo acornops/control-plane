@@ -25,7 +25,10 @@ const routeSources = [read('src/routes/workspaces.ts'), readTree('src/routes/wor
 const routes = routeSources
   .replaceAll('router.', 'workspacesRouter.')
   .replace(/\n\s+'/g, "\n  '")
-  .replaceAll("workspacesRouter.get(\n  '", "workspacesRouter.get('");
+  .replaceAll("workspacesRouter.get(\n  '", "workspacesRouter.get('")
+  .replaceAll("workspacesRouter.post(\n  '", "workspacesRouter.post('")
+  .replaceAll("workspacesRouter.patch(\n  '", "workspacesRouter.patch('")
+  .replaceAll("workspacesRouter.delete(\n  '", "workspacesRouter.delete('");
 const controller = [
   read('src/controllers/workspaces-controller.ts'),
   read('src/controllers/workspaces/members-controller.ts'),
@@ -44,9 +47,9 @@ const authzDoc = read('docs/authorization-matrix.md');
 
 for (const routeNeedle of [
   "workspacesRouter.get('/workspaces/:workspaceId/members'",
-  "workspacesRouter.post(\n  '/workspaces/:workspaceId/members'",
-  "workspacesRouter.patch(\n  '/workspaces/:workspaceId/members/:userId'",
-  "workspacesRouter.delete(\n  '/workspaces/:workspaceId/members/:userId'"
+  "workspacesRouter.post('/workspaces/:workspaceId/members'",
+  "workspacesRouter.patch('/workspaces/:workspaceId/members/:userId'",
+  "workspacesRouter.delete('/workspaces/:workspaceId/members/:userId'"
 ]) {
   assert(routes.includes(routeNeedle), `workspace membership route missing ${routeNeedle}`);
 }

@@ -23,6 +23,7 @@ const originalListWorkspaceIssues = repo.listWorkspaceIssues;
 const originalSummarizeTargetIssues = repo.summarizeTargetIssues;
 const originalGetTargetIssue = repo.getTargetIssue;
 const originalListTargetIssueObservations = repo.listTargetIssueObservations;
+const originalGetExternalIntegrationWorkspaceGrant = repo.getExternalIntegrationWorkspaceGrant;
 
 afterEach(() => {
   repo.getWorkspaceRole = originalGetWorkspaceRole;
@@ -35,6 +36,7 @@ afterEach(() => {
   repo.summarizeTargetIssues = originalSummarizeTargetIssues;
   repo.getTargetIssue = originalGetTargetIssue;
   repo.listTargetIssueObservations = originalListTargetIssueObservations;
+  repo.getExternalIntegrationWorkspaceGrant = originalGetExternalIntegrationWorkspaceGrant;
 });
 
 function createRequest(query: Record<string, string | undefined> = {}) {
@@ -51,6 +53,36 @@ function createRequest(query: Record<string, string | undefined> = {}) {
     },
     query
   };
+}
+
+function createExternalIntegrationRequest(query: Record<string, string | undefined> = {}) {
+  return {
+    auth: {
+      userId: 'user-1',
+      credential: {
+        type: 'external_integration' as const,
+        linkId: 'link-1',
+        integrationId: 'external-chat',
+        provider: 'external',
+        externalUserId: 'external-user-1'
+      }
+    },
+    params: {
+      workspaceId: 'workspace-1',
+      clusterId: 'cluster-1'
+    },
+    query
+  };
+}
+
+function installExternalIntegrationGrant(): void {
+  repo.getExternalIntegrationWorkspaceGrant = async () => ({
+    workspaceId: 'workspace-1',
+    capabilities: ['read_workspace_data', 'create_sessions', 'create_read_only_runs'],
+    grantedByUserId: 'user-1',
+    createdAt: '2026-06-01T00:00:00.000Z',
+    updatedAt: '2026-06-01T00:00:00.000Z'
+  });
 }
 
 function createResponse() {
@@ -123,7 +155,8 @@ describe('normalized snapshot controller reads', () => {
     assert.deepEqual((res.body as { items: Array<{ id: string }> }).items.map((item) => item.id), ['pod-1']);
   });
 
-  it('lists workspace issues through durable issue rows without scanning clusters', async () => {
+  it('lists workspace issues through durable issue rows for external integrations', async () => {
+    installExternalIntegrationGrant();
     repo.getWorkspaceRole = async () => 'viewer';
     repo.listClusters = async () => {
       throw new Error('workspace issues should not scan clusters');
@@ -166,7 +199,7 @@ describe('normalized snapshot controller reads', () => {
     const res = createResponse();
 
     await listWorkspaceIssues(
-      createRequest({ severity: 'critical', targetId: 'cluster-1' }) as never,
+      createExternalIntegrationRequest({ severity: 'critical', targetId: 'cluster-1' }) as never,
       res as never,
       (err?: unknown) => {
         if (err) throw err;
@@ -282,6 +315,117 @@ describe('normalized snapshot controller reads', () => {
 
     assert.equal(res.statusCode, 200);
     assert.equal((res.body as { items: Array<{ summary: { resourceCount: number } }> }).items[0].summary.resourceCount, 7);
+  });
+
+  it('allows external integration credentials to list clusters through workspace data reads', async () => {
+    installExternalIntegrationGrant();
+    repo.getWorkspaceRole = async () => 'owner';
+    repo.listClusters = async () => ({
+      items: [createCluster()],
+      nextCursor: undefined
+    });
+    repo.listClusterSnapshotSummaries = async () => new Map([
+      [
+        'cluster-1',
+        {
+          latestSnapshot: '2026-06-01T00:00:00.000Z',
+          summary: {
+            resourceCount: 3,
+            findingCount: 1,
+            criticalFindingCount: 0,
+            namespaceCount: 1,
+            nodeCount: 1,
+            resourceFamilyCounts: {
+              workloads: 2,
+              network: 1,
+              storage: 0,
+              cluster: 0
+            },
+            resourceKindCounts: {
+              Pod: 2,
+              Service: 1
+            }
+          }
+        }
+      ]
+    ]);
+    const res = createResponse();
+
+    await listClusters(createExternalIntegrationRequest() as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual((res.body as { items: Array<{ id: string; summary: { resourceCount: number } }> }).items, [
+      {
+        ...createCluster(),
+        latestSnapshot: '2026-06-01T00:00:00.000Z',
+        summary: {
+          resourceCount: 3,
+          findingCount: 1,
+          criticalFindingCount: 0,
+          namespaceCount: 1,
+          nodeCount: 1,
+          resourceFamilyCounts: {
+            workloads: 2,
+            network: 1,
+            storage: 0,
+            cluster: 0
+          },
+          resourceKindCounts: {
+            Pod: 2,
+            Service: 1
+          }
+        }
+      }
+    ]);
+  });
+
+  it('allows external integration credentials to read cluster resources', async () => {
+    installExternalIntegrationGrant();
+    repo.getWorkspaceRole = async () => 'owner';
+    repo.getCluster = async () => createCluster();
+    repo.listClusterSnapshotResources = async (clusterId) => ({
+      items: [
+        {
+          id: 'pod-1',
+          family: 'workloads',
+          kind: 'Pod',
+          name: 'pod-1',
+          namespace: 'default',
+          status: 'Running',
+          clusterId,
+          clusterName: 'cluster-1',
+          item: {}
+        }
+      ],
+      nextCursor: undefined
+    });
+    const resources = createResponse();
+    await listClusterResources(createExternalIntegrationRequest() as never, resources as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.equal(resources.statusCode, 200);
+    assert.equal((resources.body as { items: Array<{ id: string }> }).items[0].id, 'pod-1');
+  });
+
+  it('rejects external integration cluster lists when the linked role cannot read workspace data', async () => {
+    installExternalIntegrationGrant();
+    repo.getWorkspaceRole = async () => 'auditor';
+    repo.listClusters = async () => {
+      throw new Error('cluster list should not run without workspace data access');
+    };
+    const res = createResponse();
+
+    await listClusters(createExternalIntegrationRequest() as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.equal(res.statusCode, 403);
+    assert.deepEqual(res.body, {
+      error: { code: 'FORBIDDEN', message: 'No access to workspace data', retryable: false }
+    });
   });
 
   it('rejects resource cursors with mismatched filter signatures before repository reads', async () => {

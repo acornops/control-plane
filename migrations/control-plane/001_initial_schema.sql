@@ -88,6 +88,17 @@ CREATE TABLE IF NOT EXISTS workspaces (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS external_integration_workspace_grants (
+  id TEXT PRIMARY KEY,
+  external_integration_user_link_id TEXT NOT NULL REFERENCES external_integration_user_links(id) ON DELETE CASCADE,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  capabilities TEXT[] NOT NULL DEFAULT '{}',
+  granted_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (external_integration_user_link_id, workspace_id)
+);
+
 CREATE TABLE IF NOT EXISTS workspace_quota_overrides (
   workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
   members INTEGER NULL CHECK (members IS NULL OR members > 0),
@@ -736,6 +747,12 @@ CREATE INDEX IF NOT EXISTS idx_external_integration_user_links_active
 
 CREATE INDEX IF NOT EXISTS idx_external_integration_user_links_user_active
   ON external_integration_user_links (acornops_user_id, revoked_at, expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_external_integration_workspace_grants_workspace
+  ON external_integration_workspace_grants (workspace_id);
+
+CREATE INDEX IF NOT EXISTS idx_external_integration_workspace_grants_link
+  ON external_integration_workspace_grants (external_integration_user_link_id);
 
 CREATE INDEX IF NOT EXISTS idx_workspaces_created_id
   ON workspaces (created_at ASC, id ASC);
