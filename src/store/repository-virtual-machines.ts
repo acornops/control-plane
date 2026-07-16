@@ -314,7 +314,8 @@ export async function upsertVirtualMachineSnapshot(snapshot: VirtualMachineSnaps
     const previousSnapshotResult = await client.query<PreviousSnapshotRow>(
       `SELECT snapshot_ts
        FROM target_snapshots
-       WHERE target_id = $1`,
+       WHERE target_id = $1
+       FOR UPDATE`,
       [vm.id]
     );
     const previousTimestamp = previousSnapshotResult.rows.length > 0

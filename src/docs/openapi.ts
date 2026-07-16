@@ -45,7 +45,7 @@ export function buildOpenApiDocument(baseUrl: string, sessionCookieName: string)
       { name: 'health', description: 'Health and readiness endpoints.' },
       { name: 'auth', description: 'OIDC, password, browser session, and external integration account link endpoints.' },
       { name: 'workspaces', description: 'Workspace, target, Kubernetes cluster, and VM management endpoints.' },
-      { name: 'webhooks', description: 'Best-effort webhook subscription and delivery history endpoints.' },
+      { name: 'webhooks', description: 'Durable webhook subscriptions, lifecycle-aware delivery, and attempt history.' },
       { name: 'sessions', description: 'Session and message endpoints.' },
       { name: 'runs', description: 'Run query, cancel, and stream endpoints.' },
       { name: 'workflows', description: 'Workspace workflow definitions, schedules, sessions, and approval inbox endpoints.' },

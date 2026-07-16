@@ -38,7 +38,15 @@ const toolResultArtifactSizes = new Map<string, number>();
 const toolResultArtifactSizeCounts = new Map<string, number>();
 const toolResultArtifactSizeSums = new Map<string, number>();
 const externalWebhookRouteRequests = new Map<string, number>();
-const externalWebhookRouteSecretRotations = new Map<string, number>();
+const webhookEventsEnqueued = new Map<string, number>();
+const webhookDeliveryAttempts = new Map<string, number>();
+const webhookDeliveryDurations = new Map<string, number>();
+const webhookDeliveryTerminal = new Map<string, number>();
+let externalWebhookRouteSecretRotations = 0;
+let webhookOversizeRejections = 0;
+let webhookLeaseRecoveries = 0;
+let webhookOldestJobAgeSeconds = 0;
+const webhookQueueDepth = new Map<string, number>();
 let adminMutations = 0;
 let adminAuditWriteFailures = 0;
 
@@ -179,8 +187,45 @@ export function incrementExternalWebhookRouteRequest(operation: 'connect' | 'sta
   increment(externalWebhookRouteRequests, `${operation}:${status}`, count);
 }
 
-export function incrementExternalWebhookRouteSecretRotations(integrationClientId: string, count = 1): void {
-  increment(externalWebhookRouteSecretRotations, integrationClientId, count);
+export function incrementExternalWebhookRouteSecretRotations(_integrationClientId: string, count = 1): void {
+  externalWebhookRouteSecretRotations += count;
+}
+
+export function incrementWebhookEventEnqueued(eventType: string): void {
+  increment(webhookEventsEnqueued, eventType);
+}
+
+export function incrementWebhookOversizeRejection(): void {
+  webhookOversizeRejections += 1;
+}
+
+export function recordWebhookDeliveryAttempt(outcome: string, durationMs: number): void {
+  increment(webhookDeliveryAttempts, outcome);
+  for (const bucket of [100, 500, 1000, 5000, 10000, Number.POSITIVE_INFINITY]) {
+    if (durationMs <= bucket) {
+      increment(webhookDeliveryDurations, `${outcome}:${bucket === Number.POSITIVE_INFINITY ? '+Inf' : bucket}`);
+    }
+  }
+}
+
+export function incrementWebhookDeliveryTerminal(status: 'retrying' | 'superseded' | 'cancelled' | 'failed'): void {
+  increment(webhookDeliveryTerminal, status);
+}
+
+export function incrementWebhookLeaseRecovery(): void {
+  webhookLeaseRecoveries += 1;
+}
+
+export function setWebhookQueueMetrics(input: {
+  pending: number;
+  retrying: number;
+  paused: number;
+  oldestAgeSeconds: number;
+}): void {
+  webhookQueueDepth.set('pending', input.pending);
+  webhookQueueDepth.set('retrying', input.retrying);
+  webhookQueueDepth.set('paused', input.paused);
+  webhookOldestJobAgeSeconds = input.oldestAgeSeconds;
 }
 
 export function renderControlPlaneMetrics(): string {
@@ -365,9 +410,42 @@ export function renderControlPlaneMetrics(): string {
     }),
     '# HELP control_plane_external_webhook_route_secret_rotations_total Webhook signing secrets rotated by external route connect.',
     '# TYPE control_plane_external_webhook_route_secret_rotations_total counter',
-    ...Array.from(externalWebhookRouteSecretRotations.entries()).map(([integrationClientId, value]) =>
-      metricLine('control_plane_external_webhook_route_secret_rotations_total', { ...serviceLabels, integration_client_id: integrationClientId }, value)
-    )
+    metricLine('control_plane_external_webhook_route_secret_rotations_total', serviceLabels, externalWebhookRouteSecretRotations),
+    '# HELP control_plane_webhook_events_enqueued_total Durable webhook events enqueued by event type.',
+    '# TYPE control_plane_webhook_events_enqueued_total counter',
+    ...Array.from(webhookEventsEnqueued.entries()).map(([eventType, value]) =>
+      metricLine('control_plane_webhook_events_enqueued_total', { ...serviceLabels, event_type: eventType }, value)
+    ),
+    '# HELP control_plane_webhook_delivery_attempts_total Webhook delivery attempts by low-cardinality outcome.',
+    '# TYPE control_plane_webhook_delivery_attempts_total counter',
+    ...Array.from(webhookDeliveryAttempts.entries()).map(([outcome, value]) =>
+      metricLine('control_plane_webhook_delivery_attempts_total', { ...serviceLabels, outcome }, value)
+    ),
+    '# HELP control_plane_webhook_delivery_duration_ms_bucket Webhook delivery duration bucket counts by outcome.',
+    '# TYPE control_plane_webhook_delivery_duration_ms_bucket counter',
+    ...Array.from(webhookDeliveryDurations.entries()).map(([key, value]) => {
+      const [outcome, le] = key.split(':');
+      return metricLine('control_plane_webhook_delivery_duration_ms_bucket', { ...serviceLabels, outcome, le }, value);
+    }),
+    '# HELP control_plane_webhook_delivery_terminal_total Webhook retry and terminal transitions by status.',
+    '# TYPE control_plane_webhook_delivery_terminal_total counter',
+    ...Array.from(webhookDeliveryTerminal.entries()).map(([status, value]) =>
+      metricLine('control_plane_webhook_delivery_terminal_total', { ...serviceLabels, status }, value)
+    ),
+    '# HELP control_plane_webhook_oversize_rejections_total Webhook event envelopes rejected for exceeding the size limit.',
+    '# TYPE control_plane_webhook_oversize_rejections_total counter',
+    metricLine('control_plane_webhook_oversize_rejections_total', serviceLabels, webhookOversizeRejections),
+    '# HELP control_plane_webhook_jobs Webhook jobs by nonterminal queue state.',
+    '# TYPE control_plane_webhook_jobs gauge',
+    ...Array.from(webhookQueueDepth.entries()).map(([status, value]) =>
+      metricLine('control_plane_webhook_jobs', { ...serviceLabels, status }, value)
+    ),
+    '# HELP control_plane_webhook_oldest_job_age_seconds Age of the oldest nonterminal webhook job.',
+    '# TYPE control_plane_webhook_oldest_job_age_seconds gauge',
+    metricLine('control_plane_webhook_oldest_job_age_seconds', serviceLabels, webhookOldestJobAgeSeconds),
+    '# HELP control_plane_webhook_lease_recoveries_total Expired webhook processing leases reclaimed.',
+    '# TYPE control_plane_webhook_lease_recoveries_total counter',
+    metricLine('control_plane_webhook_lease_recoveries_total', serviceLabels, webhookLeaseRecoveries)
   ];
   return `${lines.join('\n')}\n`;
 }

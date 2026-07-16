@@ -60,6 +60,7 @@ export interface WebhookDeliveryRequest {
 export interface WebhookDeliveryResponse {
   status: number;
   ok: boolean;
+  retryAfter?: string;
 }
 
 interface ResolvedWebhookEndpoint {
@@ -226,7 +227,11 @@ async function deliverWebhookRequest(request: WebhookDeliveryRequest): Promise<W
       (res) => {
         const status = res.statusCode ?? 0;
         res.resume();
-        res.on('end', () => resolve({ status, ok: status >= 200 && status < 300 }));
+        res.on('end', () => resolve({
+          status,
+          ok: status >= 200 && status < 300,
+          retryAfter: typeof res.headers['retry-after'] === 'string' ? res.headers['retry-after'] : undefined
+        }));
         res.on('error', reject);
       }
     );

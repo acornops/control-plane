@@ -41,7 +41,8 @@ assert.deepEqual(files, [
   '008_cluster_triage_builtin_tools.sql',
   '009_workflow_prompt_references.sql',
   '010_tool_result_artifacts.sql',
-  '011_chat_runtime_selection.sql'
+  '011_chat_runtime_selection.sql',
+  '012_durable_issue_webhooks.sql'
 ]);
 for (const file of files) {
   assert(/^\d{3,}_[a-z0-9_]+\.sql$/.test(file), `invalid migration filename ${file}`);
@@ -59,9 +60,17 @@ const clusterTriageBuiltInTools = read('migrations/control-plane/008_cluster_tri
 const workflowPromptReferences = read('migrations/control-plane/009_workflow_prompt_references.sql');
 const toolResultArtifacts = read('migrations/control-plane/010_tool_result_artifacts.sql');
 const chatRuntimeSelection = read('migrations/control-plane/011_chat_runtime_selection.sql');
+const durableIssueWebhooks = read('migrations/control-plane/012_durable_issue_webhooks.sql');
+const schema = `${initial}\n${durableIssueWebhooks}`;
 assert(toolResultArtifacts.includes('CREATE TABLE IF NOT EXISTS run_tool_result_artifacts'));
 assert(toolResultArtifacts.includes('ON DELETE CASCADE'));
 assert(chatRuntimeSelection.includes('ON runs (session_id, requested_at DESC, id DESC)'));
+for (const table of ['webhook_outbox_events', 'webhook_delivery_jobs']) {
+  assert(
+    durableIssueWebhooks.includes(`CREATE TABLE IF NOT EXISTS ${table}`),
+    `durable webhook migration must create ${table}`
+  );
+}
 for (const table of [
   'agent_definitions',
   'agent_triggers',
@@ -304,6 +313,12 @@ for (const needle of [
   "severity TEXT NOT NULL CHECK (severity IN ('critical', 'warning', 'info'))",
   'CREATE TABLE IF NOT EXISTS target_issues',
   'CREATE TABLE IF NOT EXISTS target_issue_observations',
+  'lifecycle_version INTEGER NOT NULL DEFAULT 0',
+  'CREATE TABLE IF NOT EXISTS webhook_outbox_events',
+  'CREATE TABLE IF NOT EXISTS webhook_delivery_jobs',
+  'idx_webhook_delivery_jobs_due',
+  'idx_webhook_delivery_jobs_subscription',
+  'idx_webhook_outbox_events_subject',
   'idx_target_issues_workspace_order',
   'idx_target_issue_observations_issue_ts',
   'CREATE TABLE IF NOT EXISTS target_metric_history',
@@ -326,7 +341,7 @@ for (const needle of [
   'admin_audit_events_token_idx',
   'admin_audit_events_action_idx'
 ]) {
-  assert(initial.includes(needle), `initial migration missing ${needle}`);
+  assert(schema.includes(needle), `migration schema missing ${needle}`);
 }
 const chatActivityTable = initial.slice(
   initial.indexOf('CREATE TABLE IF NOT EXISTS chat_activity_events'),

@@ -28,6 +28,7 @@ export interface TargetIssue {
   occurrenceCount: number;
   reopenedCount: number;
   cleanSnapshotCount: number;
+  lifecycleVersion: number;
   latestEvidence: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;

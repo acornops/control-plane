@@ -531,8 +531,12 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         id: uuid,
         webhookId: uuid,
         eventType: { type: 'string' },
-        status: { type: 'string', enum: ['success', 'failed'] },
+        status: { type: 'string', enum: ['success', 'failed', 'paused', 'superseded', 'cancelled'] },
         responseStatus: { type: 'integer' },
+        attemptNumber: { type: 'integer', minimum: 0 },
+        willRetry: { type: 'boolean' },
+        nextAttemptAt: dateTime,
+        terminalReason: { type: 'string' },
         deliveredAt: dateTime
       },
       additionalProperties: true

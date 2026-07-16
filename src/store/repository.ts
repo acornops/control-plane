@@ -164,6 +164,7 @@ import {
   touchExternalWebhookRouteConnection as touchExternalWebhookRouteConnectionRecord,
   updateWebhookSubscription as updateWebhookSubscriptionRecord
 } from './repository-webhooks.js';
+import * as repositoryWebhookOutbox from './repository-webhook-outbox.js';
 import { getTarget as getTargetRecord, listTargets as listTargetsRecord } from './repository-targets.js';
 import {
   insertWorkspaceAuditEvent as insertWorkspaceAuditEventRecord,
@@ -419,9 +420,7 @@ export class Repository {
   summarizeTargetIssues = summarizeTargetIssuesRecord;
   getTargetIssue = getTargetIssueRecord;
   listTargetIssueObservations = listTargetIssueObservationsRecord;
-
   listTargetMetricHistory = listTargetMetricHistoryRecord;
-
   purgeOldTargetMetricHistory = purgeOldTargetMetricHistoryRecord;
 
   upsertVirtualMachineSnapshot = upsertVirtualMachineSnapshotRecord;
@@ -485,6 +484,11 @@ export class Repository {
   insertWebhookHistory = insertWebhookHistoryRecord;
   listWebhookHistory = listWebhookHistoryRecord;
   purgeOldWebhookHistory = purgeOldWebhookHistoryRecord;
+  enqueueWebhookOutboxEvent = repositoryWebhookOutbox.enqueueWebhookOutboxEvent;
+  claimWebhookDeliveryJobs = repositoryWebhookOutbox.claimWebhookDeliveryJobs;
+  finishWebhookDeliveryJob = repositoryWebhookOutbox.finishWebhookDeliveryJob;
+  purgeExpiredWebhookOutboxEvents = repositoryWebhookOutbox.purgeExpiredWebhookOutboxEvents;
+  getWebhookQueueMetrics = repositoryWebhookOutbox.getWebhookQueueMetrics;
 
   insertWorkspaceAuditEvent = insertWorkspaceAuditEventRecord;
 

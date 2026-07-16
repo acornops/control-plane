@@ -11,7 +11,7 @@ export type RunStatus =
 export type ToolAccessMode = 'read_only' | 'read_write';
 export const TARGET_TYPES = ['kubernetes', 'virtual_machine'] as const;
 export type TargetType = typeof TARGET_TYPES[number];
-export type { ExternalWebhookRouteConnection } from './external-webhooks.js';
+export type { ExternalWebhookRouteConnection, WebhookHistory, WebhookHistoryStatus } from './external-webhooks.js';
 export const KUBERNETES_TARGET_TYPE: TargetType = 'kubernetes';
 export const VIRTUAL_MACHINE_TARGET_TYPE: TargetType = 'virtual_machine';
 export const TARGET_TYPE_DISPLAY_LIST = TARGET_TYPES.join(', ');
@@ -23,7 +23,6 @@ export function isTargetType(value: string): value is TargetType {
 export type WriteConfirmationPolicySource = 'cluster_override' | 'deployment_default';
 export type ToolApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 export type ToolApprovalExecutionStatus = 'not_started' | 'executing' | 'succeeded' | 'failed' | 'unknown';
-export type WebhookHistoryStatus = 'success' | 'failed';
 
 export interface User {
   id: string;
@@ -527,21 +526,4 @@ export interface WebhookSubscription {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface WebhookHistory {
-  id: string;
-  subscriptionId: string;
-  eventId: string;
-  eventType: string;
-  workspaceId: string;
-  targetId?: string;
-  subjectType: string;
-  subjectId: string;
-  payload: Record<string, unknown>;
-  status: WebhookHistoryStatus;
-  responseStatus?: number;
-  error?: string;
-  durationMs?: number;
-  sentAt: string;
 }

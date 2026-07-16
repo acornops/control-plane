@@ -4,6 +4,7 @@ import { agentTransportConfigFields, validateAgentTransportConfig } from './conf
 import { agentHelmConfigFields, parseAgentHelmValues, validateAgentHelmConfig } from './config-agent-helm.js';
 import { configureWorkspaceRoleTemplates } from './auth/role-template-config.js';
 import { DEFAULT_LLM_ALLOWED_PROVIDER_MODELS, validateLlmPolicyConfig } from './config-llm-policy.js';
+import { webhookConfigShape } from './config-webhooks.js';
 import {
   parseAdminTokenDescriptors,
   parseWorkspacePlansConfig,
@@ -302,10 +303,7 @@ const envSchema = z.object({
   GATEWAY_SIGNING_PRIVATE_KEY_PEM: optionalStringFromEnv,
   GATEWAY_SIGNING_PRIVATE_KEY_PEM_B64: optionalStringFromEnv,
   GATEWAY_VERIFICATION_JWKS_JSON: optionalStringFromEnv,
-  WEBHOOK_DELIVERY_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
-  WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY: envBoolean(false),
-  WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON: z.string().default('[]'),
-  WEBHOOK_HISTORY_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
+  ...webhookConfigShape(envBoolean),
   WEBHOOK_SECRET_ENCRYPTION_KEY: optionalStringFromEnv,
   WEBHOOK_SECRET_KEY_ID: z.string().default('default')
 }).superRefine((value, ctx) => {

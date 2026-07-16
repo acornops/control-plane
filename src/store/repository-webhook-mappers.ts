@@ -35,6 +35,10 @@ export interface WebhookHistoryRow {
   response_status: number | null;
   error: string | null;
   duration_ms: number | null;
+  attempt_number: number | string;
+  will_retry: boolean;
+  next_attempt_at: Date | string | null;
+  terminal_reason: string | null;
   sent_at: Date | string;
 }
 
@@ -92,6 +96,10 @@ export function mapWebhookHistory(row: WebhookHistoryRow): WebhookHistory {
     responseStatus: row.response_status ?? undefined,
     error: row.error || undefined,
     durationMs: row.duration_ms ?? undefined,
+    attemptNumber: Number(row.attempt_number ?? 1),
+    willRetry: row.will_retry === true,
+    nextAttemptAt: toIso(row.next_attempt_at),
+    terminalReason: row.terminal_reason || undefined,
     sentAt: toIso(row.sent_at)!
   };
 }

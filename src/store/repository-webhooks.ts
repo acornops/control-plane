@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { config } from '../config.js';
 import { db } from '../infra/db.js';
 import { ExternalWebhookRouteConnection, Role, WebhookHistory, WebhookHistoryStatus, WebhookSubscription } from '../types/domain.js';
 import {
@@ -14,6 +15,13 @@ import { withTransaction } from './repository-transaction.js';
 export interface ExternalRouteWebhookSubscription extends WebhookSubscription {
   workspaceName: string;
   workspaceRole: Role;
+}
+
+export class WebhookSubscriptionLimitError extends Error {
+  constructor() {
+    super('Webhook subscription limit reached');
+    this.name = 'WebhookSubscriptionLimitError';
+  }
 }
 
 interface ExternalRouteWebhookSubscriptionRow extends WebhookSubscriptionRow {
@@ -40,8 +48,17 @@ export async function createWebhookSubscription(input: {
     secretKeyId: string;
     createdBy: string;
   }): Promise<WebhookSubscription> {
-    const id = randomUUID();
-    const result = await db.query(
+    return withTransaction(async (client) => {
+      await client.query('SELECT id FROM workspaces WHERE id = $1 FOR UPDATE', [input.workspaceId]);
+      const countResult = await client.query<{ count: string }>(
+        'SELECT COUNT(*)::text AS count FROM webhook_subscriptions WHERE workspace_id = $1',
+        [input.workspaceId]
+      );
+      if (Number(countResult.rows[0]?.count || 0) >= config.WEBHOOK_MAX_SUBSCRIPTIONS_PER_WORKSPACE) {
+        throw new WebhookSubscriptionLimitError();
+      }
+      const id = randomUUID();
+      const result = await client.query(
       `INSERT INTO webhook_subscriptions (
          id, workspace_id, target_id, name, url, event_types, enabled,
          secret_ciphertext, secret_key_id, created_by, created_at, updated_at
@@ -60,8 +77,9 @@ export async function createWebhookSubscription(input: {
         input.createdBy
       ]
     );
-    return mapWebhookSubscription(result.rows[0] as WebhookSubscriptionRow);
-}
+      return mapWebhookSubscription(result.rows[0] as WebhookSubscriptionRow);
+    });
+  }
 
 export async function listWebhookSubscriptionsForExternalRoute(input: {
     acornopsUserId: string;
@@ -326,12 +344,18 @@ export async function insertWebhookHistory(input: {
     responseStatus?: number;
     error?: string;
     durationMs?: number;
+    attemptNumber?: number;
+    willRetry?: boolean;
+    nextAttemptAt?: string;
+    terminalReason?: string;
   }): Promise<WebhookHistory> {
     const result = await db.query(
       `INSERT INTO webhook_history (
          id, subscription_id, event_id, event_type, workspace_id, target_id,
-         subject_type, subject_id, payload, status, response_status, error, duration_ms, sent_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, NOW())
+         subject_type, subject_id, payload, status, response_status, error, duration_ms,
+         attempt_number, will_retry, next_attempt_at, terminal_reason, sent_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13,
+         $14, $15, $16, $17, NOW())
        RETURNING *`,
       [
         randomUUID(),
@@ -346,7 +370,11 @@ export async function insertWebhookHistory(input: {
         input.status,
         input.responseStatus ?? null,
         input.error || null,
-        input.durationMs ?? null
+        input.durationMs ?? null,
+        input.attemptNumber ?? 1,
+        input.willRetry ?? false,
+        input.nextAttemptAt ?? null,
+        input.terminalReason ?? null
       ]
     );
     return mapWebhookHistory(result.rows[0] as WebhookHistoryRow);
