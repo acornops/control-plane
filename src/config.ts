@@ -265,7 +265,6 @@ const envSchema = z.object({
   LLM_DEFAULT_MODEL: z.string().default('gpt-5.5'),
   LLM_ALLOWED_PROVIDERS: z.string().default('openai,anthropic,gemini'),
   LLM_ALLOWED_PROVIDER_MODELS: z.string().default(DEFAULT_LLM_ALLOWED_PROVIDER_MODELS),
-  LLM_ALLOWED_MODELS: z.string().default(''),
   LLM_MAX_OUTPUT_TOKENS: optionalPositiveIntFromEnv,
   LLM_REASONING_SUMMARIES_ENABLED: envBoolean(true),
   LLM_ALLOWED_REASONING_SUMMARY_MODES: z.string().default('off,auto,concise,detailed'),

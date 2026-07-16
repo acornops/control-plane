@@ -17,7 +17,6 @@ describe('LLM provider policy config', () => {
 
     assert.equal(config.LLM_DEFAULT_PROVIDER, 'openai');
     assert.equal(config.LLM_DEFAULT_MODEL, 'gpt-5.5');
-    assert.equal(config.LLM_ALLOWED_MODELS, '');
     assert.equal(config.LLM_ALLOWED_REASONING_EFFORTS, 'off,low,medium,high');
     assert(models.includes('gpt-5.5'));
     assert(models.includes('gpt-5.4'));
@@ -64,8 +63,7 @@ describe('LLM provider policy config', () => {
           LLM_DEFAULT_PROVIDER: 'gemini',
           LLM_DEFAULT_MODEL: 'gemini-2.0-flash',
           LLM_ALLOWED_PROVIDERS: 'openai,anthropic',
-          LLM_ALLOWED_PROVIDER_MODELS: '',
-          LLM_ALLOWED_MODELS: 'gpt-4.1-mini,gemini-2.0-flash'
+          LLM_ALLOWED_PROVIDER_MODELS: 'openai:gpt-4.1-mini;anthropic:claude-sonnet-4-6;gemini:gemini-2.0-flash'
         }),
       (error) => Boolean(fieldErrors(error).LLM_DEFAULT_PROVIDER?.length)
     );
@@ -76,8 +74,7 @@ describe('LLM provider policy config', () => {
           LLM_DEFAULT_PROVIDER: 'gemini',
           LLM_DEFAULT_MODEL: 'gemini-2.0-flash',
           LLM_ALLOWED_PROVIDERS: 'gemini',
-          LLM_ALLOWED_PROVIDER_MODELS: '',
-          LLM_ALLOWED_MODELS: 'gpt-4.1-mini'
+          LLM_ALLOWED_PROVIDER_MODELS: 'gemini:gemini-2.5-flash'
         }),
       (error) => Boolean(fieldErrors(error).LLM_DEFAULT_MODEL?.length)
     );
@@ -88,38 +85,35 @@ describe('LLM provider policy config', () => {
           LLM_DEFAULT_PROVIDER: 'gemini',
           LLM_DEFAULT_MODEL: 'gemini-2.0-flash',
           LLM_ALLOWED_PROVIDERS: 'unknown',
-          LLM_ALLOWED_PROVIDER_MODELS: '',
-          LLM_ALLOWED_MODELS: ''
+          LLM_ALLOWED_PROVIDER_MODELS: ''
         }),
       (error) => {
         const errors = fieldErrors(error);
         assert.ok(errors.LLM_ALLOWED_PROVIDERS?.length);
-        assert.ok(errors.LLM_ALLOWED_MODELS?.length);
+        assert.ok(errors.LLM_ALLOWED_PROVIDER_MODELS?.length);
         return true;
       }
     );
   });
 
-  it('allows custom model names when provider ownership cannot be inferred', () => {
+  it('allows custom model names when assigned to a provider', () => {
     const config = parseAppConfig({
       LLM_DEFAULT_PROVIDER: 'openai',
       LLM_DEFAULT_MODEL: 'workspace-primary',
       LLM_ALLOWED_PROVIDERS: 'openai',
-      LLM_ALLOWED_PROVIDER_MODELS: '',
-      LLM_ALLOWED_MODELS: 'workspace-primary'
+      LLM_ALLOWED_PROVIDER_MODELS: 'openai:workspace-primary'
     });
 
     assert.equal(config.LLM_DEFAULT_PROVIDER, 'openai');
     assert.equal(config.LLM_DEFAULT_MODEL, 'workspace-primary');
   });
 
-  it('allows unclassified custom model names in mixed provider allowlists', () => {
+  it('requires every allowed provider to have a scoped model list', () => {
     const config = parseAppConfig({
       LLM_DEFAULT_PROVIDER: 'openai',
       LLM_DEFAULT_MODEL: 'workspace-primary',
-      LLM_ALLOWED_PROVIDERS: 'openai',
-      LLM_ALLOWED_PROVIDER_MODELS: '',
-      LLM_ALLOWED_MODELS: 'gpt-4.1-mini,workspace-primary'
+      LLM_ALLOWED_PROVIDERS: 'openai,gemini',
+      LLM_ALLOWED_PROVIDER_MODELS: 'openai:workspace-primary;gemini:workspace-primary'
     });
 
     assert.equal(config.LLM_DEFAULT_PROVIDER, 'openai');
@@ -129,12 +123,11 @@ describe('LLM provider policy config', () => {
       () =>
         parseAppConfig({
           LLM_DEFAULT_PROVIDER: 'gemini',
-          LLM_DEFAULT_MODEL: 'gpt-4.1-mini',
-          LLM_ALLOWED_PROVIDERS: 'gemini',
-          LLM_ALLOWED_PROVIDER_MODELS: '',
-          LLM_ALLOWED_MODELS: 'gpt-4.1-mini,workspace-primary'
+          LLM_DEFAULT_MODEL: 'workspace-primary',
+          LLM_ALLOWED_PROVIDERS: 'openai,gemini',
+          LLM_ALLOWED_PROVIDER_MODELS: 'openai:workspace-primary'
         }),
-      (error) => Boolean(fieldErrors(error).LLM_DEFAULT_MODEL?.length)
+      (error) => Boolean(fieldErrors(error).LLM_ALLOWED_PROVIDER_MODELS?.length)
     );
   });
 

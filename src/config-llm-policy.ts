@@ -15,7 +15,6 @@ interface LlmPolicyConfig {
   LLM_DEFAULT_MODEL: string;
   LLM_ALLOWED_PROVIDERS: string;
   LLM_ALLOWED_PROVIDER_MODELS: string;
-  LLM_ALLOWED_MODELS: string;
   LLM_ALLOWED_REASONING_SUMMARY_MODES: string;
   LLM_ALLOWED_REASONING_EFFORTS: string;
 }
@@ -97,10 +96,6 @@ export function flatProviderModels(providerModels: ProviderModelMap): string[] {
   return models;
 }
 
-export function providerModelsConfigured(value: string): boolean {
-  return value.trim().length > 0;
-}
-
 function parseAllowedEnumValues<T extends readonly string[]>(value: string, allowedValues: T): Array<T[number]> {
   const parsed: Array<T[number]> = [];
   for (const entry of parseConfigCsv(value).map((item) => item.toLowerCase())) {
@@ -119,33 +114,6 @@ export function parseConfiguredReasoningEfforts(value: string): Array<typeof REA
   return parseAllowedEnumValues(value, REASONING_EFFORT_VALUES);
 }
 
-export function configuredModelBelongsToProvider(
-  model: string,
-  provider: typeof SUPPORTED_LLM_PROVIDER_VALUES[number]
-): boolean {
-  const normalized = model.toLowerCase();
-  if (provider === 'openai') {
-    return normalized.startsWith('gpt-') || normalized.startsWith('o');
-  }
-  if (provider === 'anthropic') {
-    return normalized.includes('claude');
-  }
-  return normalized.includes('gemini');
-}
-
-function configuredModelBelongsToAnyProvider(model: string): boolean {
-  return SUPPORTED_LLM_PROVIDER_VALUES.some((provider) => configuredModelBelongsToProvider(model, provider));
-}
-
-export function configuredAllowedModelsForProvider(
-  provider: typeof SUPPORTED_LLM_PROVIDER_VALUES[number],
-  models: string[]
-): string[] {
-  return models.filter((model) =>
-    configuredModelBelongsToProvider(model, provider) || !configuredModelBelongsToAnyProvider(model)
-  );
-}
-
 export function validateLlmPolicyConfig(ctx: z.RefinementCtx, value: LlmPolicyConfig): void {
   const allowedProviders = parseConfiguredAllowedProviders(value.LLM_ALLOWED_PROVIDERS);
   if (allowedProviders.length === 0) {
@@ -155,29 +123,22 @@ export function validateLlmPolicyConfig(ctx: z.RefinementCtx, value: LlmPolicyCo
     addConfigIssue(ctx, 'LLM_DEFAULT_PROVIDER', 'LLM_DEFAULT_PROVIDER must be included in LLM_ALLOWED_PROVIDERS');
   }
 
-  const usesProviderModelMap = providerModelsConfigured(value.LLM_ALLOWED_PROVIDER_MODELS);
   const providerModelMap = parseConfiguredAllowedProviderModels(value.LLM_ALLOWED_PROVIDER_MODELS);
-  const allowedModels = usesProviderModelMap
-    ? flatProviderModels(providerModelMap)
-    : parseConfigCsv(value.LLM_ALLOWED_MODELS);
+  const allowedModels = flatProviderModels(providerModelMap);
   if (allowedModels.length === 0) {
-    addConfigIssue(ctx, usesProviderModelMap ? 'LLM_ALLOWED_PROVIDER_MODELS' : 'LLM_ALLOWED_MODELS', 'LLM policy must include at least one model');
+    addConfigIssue(ctx, 'LLM_ALLOWED_PROVIDER_MODELS', 'LLM policy must include at least one model');
     return;
   }
-  if (usesProviderModelMap) {
-    for (const provider of allowedProviders) {
-      if (providerModelMap[provider].length === 0) {
-        addConfigIssue(ctx, 'LLM_ALLOWED_PROVIDER_MODELS', `LLM_ALLOWED_PROVIDER_MODELS must include at least one model for ${provider}`);
-      }
+  for (const provider of allowedProviders) {
+    if (providerModelMap[provider].length === 0) {
+      addConfigIssue(ctx, 'LLM_ALLOWED_PROVIDER_MODELS', `LLM_ALLOWED_PROVIDER_MODELS must include at least one model for ${provider}`);
     }
   }
   if (!allowedModels.includes(value.LLM_DEFAULT_MODEL)) {
     addConfigIssue(ctx, 'LLM_DEFAULT_MODEL', 'LLM_DEFAULT_MODEL must be included in the allowed LLM models');
     return;
   }
-  const defaultProviderModels = usesProviderModelMap
-    ? providerModelMap[value.LLM_DEFAULT_PROVIDER]
-    : configuredAllowedModelsForProvider(value.LLM_DEFAULT_PROVIDER, allowedModels);
+  const defaultProviderModels = providerModelMap[value.LLM_DEFAULT_PROVIDER];
   if (!defaultProviderModels.includes(value.LLM_DEFAULT_MODEL)) {
     addConfigIssue(ctx, 'LLM_DEFAULT_MODEL', 'LLM_DEFAULT_MODEL must be available for LLM_DEFAULT_PROVIDER');
   }
