@@ -349,15 +349,22 @@ export async function listWorkspaceApprovalInbox(req: AuthenticatedRequest, res:
     }
     const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 50));
     const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+    const runId = typeof req.query.runId === 'string' && req.query.runId.trim() ? req.query.runId.trim() : undefined;
+    const approvalId = typeof req.query.approvalId === 'string' && req.query.approvalId.trim() ? req.query.approvalId.trim() : undefined;
     const [targetApprovals, pendingTargetCount, automationApprovals, pendingAutomationCount] = await Promise.all([
-      repo.listWorkspaceRunToolApprovals({ workspaceId, status, limit, cursor }),
+      repo.listWorkspaceRunToolApprovals({ workspaceId, status, limit, cursor, runId, approvalId }),
       repo.countPendingWorkspaceRunToolApprovals(workspaceId),
       listWorkspaceAutomationApprovals({ workspaceId, status, limit, cursor }),
       countPendingWorkspaceAutomationApprovals(workspaceId)
     ]);
-    const workflowApprovals = await collectWorkflowApprovalInboxRows(workspaceId, status);
+    const workflowApprovals = await collectWorkflowApprovalInboxRows(workspaceId, status, { runId, approvalId });
     const pendingWorkflowCount = (await listWorkflowApprovalsForWorkspace(workspaceId, 'pending')).length;
     const items = [...targetApprovals.map(targetApprovalInboxRow), ...workflowApprovals, ...automationApprovals.map(automationApprovalInboxRow)]
+      .filter((approval) => {
+        if (runId && approval.runId !== runId) return false;
+        if (approvalId && approval.approvalId !== approvalId) return false;
+        return true;
+      })
       .sort((left, right) => right.requestedAt.localeCompare(left.requestedAt))
       .slice(0, limit);
     incrementApprovalInboxQuery(status, 'success');
@@ -377,11 +384,15 @@ export async function listWorkspaceApprovalInbox(req: AuthenticatedRequest, res:
   }
 }
 
-async function collectWorkflowApprovalInboxRows(workspaceId: string, status: 'pending' | 'decided' | 'all'): Promise<WorkflowApprovalInboxRow[]> {
+async function collectWorkflowApprovalInboxRows(
+  workspaceId: string,
+  status: 'pending' | 'decided' | 'all',
+  filters: { runId?: string; approvalId?: string } = {}
+): Promise<WorkflowApprovalInboxRow[]> {
   return (await listWorkflowApprovalsForWorkspace(workspaceId, status)).map((approval) => ({
     approvalId: approval.id,
     runId: approval.runId,
-    source: 'workflow_gate',
+    source: 'workflow_gate' as const,
     workflowId: approval.workflowId,
     summary: approval.summary,
     toolName: approval.toolName,
@@ -392,5 +403,9 @@ async function collectWorkflowApprovalInboxRows(workspaceId: string, status: 'pe
     decidedBy: approval.decidedBy,
     decidedAt: approval.decidedAt,
     requestedAt: approval.createdAt
-  }));
+  })).filter((approval) => {
+    if (filters.runId && approval.runId !== filters.runId) return false;
+    if (filters.approvalId && approval.approvalId !== filters.approvalId) return false;
+    return true;
+  });
 }

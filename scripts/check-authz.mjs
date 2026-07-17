@@ -144,6 +144,7 @@ const targetNativeToolController = read(targetNativeToolControllerPath);
 const sessionController = read('src/controllers/sessions-controller.ts');
 const runToolAccessMode = read(runToolAccessModePath);
 const runController = read('src/controllers/runs-controller.ts');
+const runsRoutes = read('src/routes/runs.ts');
 const webhooksController = read(webhooksControllerPath);
 const workspaceScopedControllerPaths = [
   workspaceControllerPath,
@@ -290,6 +291,10 @@ assert(
 );
 assert(runController.includes('cancel_runs'), 'run cancellation must be capability-gated');
 assert(runController.includes('create_read_write_runs'), 'approval decisions must be read-write capability-gated');
+assert(
+  runsRoutes.includes("'/runs/:runId/approvals/:approvalId/decision',\n  requireActor(['user'])"),
+  'approval decisions must remain browser-user-session only'
+);
 assert(clusterController.includes("'read_target_logs'"), 'pod log endpoint must be read_target_logs capability-gated');
 assert(webhooksController.includes("'manage_webhooks'"), 'webhook mutations must be manage_webhooks capability-gated');
 assert(!webhooksController.includes('canManageWebhooks'), 'webhook mutations must not use local role-specific authorization helpers');

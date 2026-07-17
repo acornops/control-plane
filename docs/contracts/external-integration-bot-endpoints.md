@@ -149,6 +149,11 @@ descriptor changes them with `allowedCapabilities`:
 - `create_sessions`
 - `create_read_only_runs`
 
+Deployments that want an integration to request write-capable troubleshooting
+runs may add `create_read_write_runs` to that client's `allowedCapabilities`.
+The linked AcornOps user must still explicitly grant that capability for each
+workspace, and the user's workspace role must also include it.
+
 Those bot capabilities are intersected with the linked AcornOps user's real
 workspace role and the user-approved grant for each workspace. The bot never
 gets more access than the linked user has, and a workspace without a grant is
@@ -161,13 +166,15 @@ Practical examples:
 - A linked `operator`, `admin`, or `owner` can create read-only assistant
   sessions and read-only runs when the workspace grant includes those
   capabilities.
+- A linked user whose workspace role includes `create_read_write_runs` can
+  request read-write assistant runs only when the integration client ceiling and
+  workspace grant also include `create_read_write_runs`.
 - A linked `auditor` cannot read operational workspace or target data.
 
 Denied to the bot even for owners:
 
 - workspace/member/audit/settings management
 - logs
-- read-write runs
 - approval decisions
 - run cancellation
 - session deletion
@@ -220,10 +227,12 @@ Authorization: Bearer {EXTERNAL_INTEGRATION_CLIENT_TOKEN}
 x-acornops-external-user-id: {externalUserId}
 ```
 
-These endpoints cover workspace and target reads, target-scoped read-only
-assistant troubleshooting runs, and active read-only workflows that do not
-require approval gates. External integrations cannot create, edit, schedule,
-cancel, or approve workflows.
+These endpoints cover workspace and target reads, target-scoped assistant
+troubleshooting runs, and active read-only workflows that do not require
+approval gates. Read-write troubleshooting runs require explicit
+`create_read_write_runs` opt-in in the registered client descriptor, the linked
+user's workspace grant, and the linked user's workspace role. External
+integrations cannot create, edit, schedule, cancel, or approve workflows.
 
 ### Workspace Discovery
 
@@ -745,11 +754,16 @@ Response:
 
 Rules:
 
-- Always send `toolAccessMode: "read_only"`.
+- Send `toolAccessMode: "read_only"` unless the integration client descriptor,
+  workspace grant, and linked user's workspace role all allow
+  `create_read_write_runs`.
+- When `toolAccessMode: "read_write"` is accepted, write-capable tools still
+  pause on configured approval gates. The bot can observe approval state but
+  cannot decide approvals.
 - Use `clientMessageId` for idempotency when retrying the same chat message.
 - The linked AcornOps user must own the session. If another user created the
   session, AcornOps returns `403 CONVERSATION_OWNER_REQUIRED`.
-- The bot cannot request `read_write`; AcornOps returns `403`.
+- If any read-write permission layer is missing, AcornOps returns `403`.
 
 ### Run Observation
 
@@ -799,6 +813,20 @@ event: run_started
 data: {"run_id":"run-id","seq":1,"type":"run_started","payload":{}}
 ```
 
+When a write-capable tool pauses for approval, the stream emits
+`tool_approval_requested` with `payload.approval_id`, `payload.tool`,
+`payload.summary`, `payload.arguments`, and `payload.expires_at`. Adapters may
+render that state and direct the user to the management console to approve or
+reject as an authenticated AcornOps user. Later stream events use
+`tool_approval_approved`, `tool_approval_rejected`, or
+`tool_approval_expired`.
+
+Use this console URL shape for the approval call-to-action:
+
+```text
+{MANAGEMENT_CONSOLE_BASE_URL}/workspaces/{workspaceId}/approvals?runId={runId}&approvalId={approvalId}
+```
+
 List write-tool approvals for visibility only:
 
 ```http
@@ -823,20 +851,28 @@ list endpoints:
    POST {ACORNOPS_API_BASE_URL}/api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions
    ```
 
-3. Post the question with read-only tool access:
+3. Post the question with the intended tool access:
 
    ```http
    POST {ACORNOPS_API_BASE_URL}/api/v1/sessions/{sessionId}/messages
    ```
 
-   Use `toolAccessMode: "read_only"` and a stable `clientMessageId`.
+   Use `toolAccessMode: "read_only"` by default. Use
+   `toolAccessMode: "read_write"` only when the integration client descriptor,
+   workspace grant, and linked user's workspace role all allow
+   `create_read_write_runs`. Include a stable `clientMessageId`.
 
 4. Use the returned `run_id` as the run to observe.
 5. Prefer `GET /api/v1/runs/{runId}/stream` for live progress. Treat
    `run_completed`, `run_failed`, and `run_cancelled` as terminal signals.
-6. If SSE is unavailable, poll `GET /api/v1/runs/{runId}` and optionally read
+6. If the stream emits `tool_approval_requested`, render the pending approval
+   and link the user to
+   `{MANAGEMENT_CONSOLE_BASE_URL}/workspaces/{workspaceId}/approvals?runId={runId}&approvalId={approvalId}`.
+   The bot must not call the approval decision endpoint with external
+   integration credentials.
+7. If SSE is unavailable, poll `GET /api/v1/runs/{runId}` and optionally read
    `GET /api/v1/runs/{runId}/events` for progress.
-7. Once the run is terminal, call
+8. Once the run is terminal, call
    `GET /api/v1/sessions/{sessionId}/messages` and render the newest assistant
    message for that run/session.
 

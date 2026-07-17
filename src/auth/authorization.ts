@@ -53,6 +53,9 @@ export function assertExternalIntegrationWorkspaceCapabilities(capabilities: rea
   if (capabilitySet.has('create_read_only_runs') && !capabilitySet.has('create_sessions')) {
     throw new Error('External integration create_read_only_runs requires create_sessions');
   }
+  if (capabilitySet.has('create_read_write_runs') && !capabilitySet.has('create_sessions')) {
+    throw new Error('External integration create_read_write_runs requires create_sessions');
+  }
   if (capabilitySet.has('create_sessions') && !capabilitySet.has('read_workspace_data')) {
     throw new Error('External integration create_sessions requires read_workspace_data');
   }

@@ -323,7 +323,7 @@
         "workflowSelectedAgents": ["orchestratorAgentId", "steps[].agentIds[]", "compiledAccessScope.selectedAgents[]", "jwtClaims.agent_id? explicit direct/delegated agent only", "jwtClaims.agent_version? explicit direct/delegated agent only", "jwtClaims.trigger_id?"],
         "workflowSchedule": ["id", "workspaceId", "workflowId", "workflowVersion", "name", "status", "cron", "timezone", "inputDefaults", "approvedContextGrants", "nextRunAt?", "lastRunAt?", "lastStatus?", "lastError?", "createdBy", "updatedBy"],
         "workflowSchedulePage": ["items", "summary.{total,active,paused,approvalGated,nextRunAt?}"],
-        "workspaceApprovalInbox": ["items[].{approvalId,runId,source,workflowId?,targetId?,summary,toolName,requestedBy?,expiresAt,status,decision?,decidedBy?,decidedAt?,requestedAt}", "pendingCount", "nextCursor?"]
+        "workspaceApprovalInbox": ["query.{status?,limit?,cursor?,runId?,approvalId?}", "items[].{approvalId,runId,source,workflowId?,targetId?,summary,toolName,requestedBy?,expiresAt,status,decision?,decidedBy?,decidedAt?,requestedAt}", "pendingCount", "nextCursor?"]
       }
     },
     "operators": {
@@ -400,6 +400,7 @@
       "browserGrantManagement": ["POST /api/v1/auth/external-integrations/link/preview returns grantableWorkspaces[]", "POST /api/v1/auth/external-integrations/link/complete accepts workspaceGrants[]", "PATCH /api/v1/auth/external-integrations/links/{linkId}/grants replaces grants for a signed-in user's link"],
       "linkedBotAuth": "Authorization: Bearer <external integration client token> plus x-acornops-external-user-id: <externalUserId>",
       "linkedBotCapabilities": ["read_workspace_data", "create_sessions", "create_read_only_runs"],
+      "linkedBotOptionalCapabilities": ["create_read_write_runs"],
       "linkedBotAuthorization": "Effective permissions are linked user workspace role ∩ registered client allowedCapabilities/default external allowlist ∩ user-approved workspace grant.",
       "linkedBotPaths": [
         "GET /api/v1/workspaces",
@@ -435,7 +436,8 @@
         "GET /api/v1/runs/{runId}/stream",
         "GET /api/v1/runs/{runId}/approvals"
       ],
-      "linkedBotDeniedCapabilities": ["read_members", "read_audit_log", "manage_targets", "read_target_logs", "create_read_write_runs", "cancel_runs", "delete_sessions"],
+      "linkedBotDeniedCapabilities": ["read_members", "read_audit_log", "manage_targets", "read_target_logs", "cancel_runs", "delete_sessions"],
+      "linkedBotUserSessionOnlyCapabilities": ["approval_decisions"],
       "secretReturnPolicy": "Never returns browser cookies, OIDC access tokens, ID tokens, refresh tokens, or raw link tokens to external integration clients. Link tokens are stored only as hashes."
     },
     "execution-engine": {

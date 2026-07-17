@@ -315,7 +315,13 @@ describe('workflow schedules and approval inbox', () => {
     const targetApproval = createTargetRunApproval();
     const targetRun = createTargetRun();
     const { repo } = await import('../src/store/repository.js');
-    repo.listWorkspaceRunToolApprovals = async () => [targetApproval];
+    let targetApprovalQuery: Parameters<typeof repo.listWorkspaceRunToolApprovals>[0] | undefined;
+    repo.listWorkspaceRunToolApprovals = async (params) => {
+      targetApprovalQuery = params;
+      if (params.runId && params.runId !== targetApproval.runId) return [];
+      if (params.approvalId && params.approvalId !== targetApproval.id) return [];
+      return [targetApproval];
+    };
     repo.countPendingWorkspaceRunToolApprovals = async (workspaceId: string) => workspaceId === 'workspace-1' ? 1 : 0;
     repo.getRun = async (runId: string) => runId === targetRun.id ? targetRun : null;
 
@@ -327,6 +333,31 @@ describe('workflow schedules and approval inbox', () => {
     assert.deepEqual(body.items.map((item) => item.source).sort(), ['target_tool', 'workflow_gate']);
     assert.ok(body.items.some((item) => item.approvalId === workflowApproval.id && item.runId === run.id));
     assert.ok(body.items.some((item) => item.approvalId === targetApproval.id && item.runId === targetRun.id));
+
+    const focusedTargetResponse = await callController(listWorkspaceApprovalInbox, {
+      ...createRequest({ workspaceId: 'workspace-1' }),
+      query: { runId: targetRun.id, approvalId: targetApproval.id }
+    });
+    assert.equal(focusedTargetResponse.statusCode, 200);
+    assert.equal(targetApprovalQuery?.runId, targetRun.id);
+    assert.equal(targetApprovalQuery?.approvalId, targetApproval.id);
+    assert.deepEqual(
+      (focusedTargetResponse.body as { items: Array<{ approvalId: string; source: string; runId: string }> }).items
+        .map((item) => ({ approvalId: item.approvalId, source: item.source, runId: item.runId })),
+      [{ approvalId: targetApproval.id, source: 'target_tool', runId: targetRun.id }]
+    );
+
+    repo.listWorkspaceRunToolApprovals = async () => [];
+    const focusedWorkflowResponse = await callController(listWorkspaceApprovalInbox, {
+      ...createRequest({ workspaceId: 'workspace-1' }),
+      query: { runId: run.id, approvalId: workflowApproval.id }
+    });
+    assert.equal(focusedWorkflowResponse.statusCode, 200);
+    assert.deepEqual(
+      (focusedWorkflowResponse.body as { items: Array<{ approvalId: string; source: string; runId: string }> }).items
+        .map((item) => ({ approvalId: item.approvalId, source: item.source, runId: item.runId })),
+      [{ approvalId: workflowApproval.id, source: 'workflow_gate', runId: run.id }]
+    );
 
     mock.method(globalThis, 'fetch', async () => new Response(null, { status: 202 }));
     const decided = await callController(decideRunApproval, createRequest(

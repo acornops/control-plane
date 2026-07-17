@@ -313,7 +313,9 @@ export function buildWorkflowPaths(): Record<string, unknown> {
           workspaceIdParameter,
           { in: 'query', name: 'status', required: false, schema: { type: 'string', enum: ['pending', 'decided', 'all'], default: 'pending' } },
           { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100 } },
-          { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } }
+          { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } },
+          { in: 'query', name: 'runId', required: false, schema: { type: 'string', format: 'uuid' }, description: 'Optional exact run filter for approval deep links.' },
+          { in: 'query', name: 'approvalId', required: false, schema: { type: 'string', format: 'uuid' }, description: 'Optional exact approval filter for approval deep links.' }
         ],
         responses: { '200': { description: 'Unified approval inbox page.' } }
       }
