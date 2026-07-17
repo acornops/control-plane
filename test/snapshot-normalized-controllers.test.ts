@@ -89,26 +89,34 @@ function createCluster(id = 'cluster-1'): Cluster {
 describe('normalized snapshot controller reads', () => {
   it('lists cluster resources through normalized rows instead of raw snapshots', async () => {
     repo.getWorkspaceRole = async () => 'viewer';
-    repo.getCluster = async () => createCluster();
+    repo.getCluster = async () => ({
+      ...createCluster(),
+      namespaceInclude: ['payments'],
+      namespaceExclude: ['sandbox']
+    });
     repo.getClusterSnapshot = async () => {
       throw new Error('raw snapshot should not be read');
     };
-    repo.listClusterSnapshotResources = async (clusterId, options) => ({
-      items: [
-        {
-          id: 'pod-1',
-          family: 'workloads',
-          kind: 'Pod',
-          name: 'pod-1',
-          namespace: 'default',
-          status: 'Running',
-          clusterId,
-          clusterName: 'cluster-1',
-          item: {}
-        }
-      ],
-      nextCursor: options.signature
-    });
+    repo.listClusterSnapshotResources = async (clusterId, options) => {
+      assert.deepEqual(options.namespaceInclude, ['payments']);
+      assert.deepEqual(options.namespaceExclude, ['sandbox']);
+      return {
+        items: [
+          {
+            id: 'pod-1',
+            family: 'workloads',
+            kind: 'Pod',
+            name: 'pod-1',
+            namespace: 'default',
+            status: 'Running',
+            clusterId,
+            clusterName: 'cluster-1',
+            item: {}
+          }
+        ],
+        nextCursor: options.signature
+      };
+    };
     const res = createResponse();
 
     await listClusterResources(
