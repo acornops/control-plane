@@ -79,6 +79,23 @@ describe('normalized snapshot repository reads', () => {
     ]);
   });
 
+  it('applies the saved namespace scope while retaining cluster-scoped resources', async () => {
+    mock.method(db, 'query', async (sql: string, params: unknown[]) => {
+      assert.match(sql, /r\.scope_name IS NULL AND r\.kind <> 'Namespace'/);
+      assert.match(sql, /CASE WHEN r\.kind = 'Namespace' THEN r\.name ELSE r\.scope_name END = ANY\(\$2::text\[\]\)/);
+      assert.match(sql, /NOT \(CASE WHEN r\.kind = 'Namespace' THEN r\.name ELSE r\.scope_name END = ANY\(\$3::text\[\]\)\)/);
+      assert.deepEqual(params, ['cluster-1', ['payments', 'shared'], ['shared'], 3]);
+      return { rows: [] };
+    });
+
+    await listClusterSnapshotResources('cluster-1', {
+      limit: 2,
+      namespaceInclude: ['payments', 'shared'],
+      namespaceExclude: ['shared'],
+      signature: 'sig'
+    });
+  });
+
 });
 
 describe('normalized snapshot repository ingest', () => {

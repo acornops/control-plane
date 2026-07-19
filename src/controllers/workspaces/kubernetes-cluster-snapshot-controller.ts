@@ -118,6 +118,8 @@ export async function listClusterResources(req: AuthenticatedRequest, res: Respo
       kind: filters.kind,
       namespace: filters.namespace,
       health: filters.health,
+      namespaceInclude: access.cluster.namespaceInclude,
+      namespaceExclude: access.cluster.namespaceExclude,
       signature
     });
     res.status(200).json(page);
