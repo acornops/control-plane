@@ -97,7 +97,7 @@ describe('workspace authorization helpers', () => {
 
     assert.equal(authz?.can('create_sessions'), true);
     assert.equal(authz?.can('create_read_only_runs'), true);
-    assert.equal(authz?.can('read_target_logs'), true);
+    assert.equal(authz?.can('read_tarquery_logs'), true);
     assert.equal(authz?.can('cancel_runs'), true);
     assert.equal(authz?.can('create_read_write_runs'), false);
   });

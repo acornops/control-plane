@@ -81,6 +81,79 @@ export function buildCommonSchemas(): Record<string, JsonSchema> {
         }
       }
     },
+    McpReadinessFailure: {
+      type: 'object',
+      required: ['serverId', 'toolName', 'code'],
+      properties: {
+        serverId: { type: 'string', maxLength: 256 },
+        toolName: { type: 'string', maxLength: 256 },
+        code: {
+          type: 'string',
+          enum: [
+            'MCP_PAT_USER_PRINCIPAL_REQUIRED',
+            'MCP_PERSONAL_CONNECTION_MISSING',
+            'MCP_PERSONAL_CONNECTION_ERROR',
+            'MCP_PERSONAL_TOOL_UNAVAILABLE',
+            'MCP_INSTALLATION_UNAVAILABLE',
+            'MCP_REMOTE_DISABLED'
+          ]
+        },
+        action: {
+          type: 'string',
+          enum: ['connect_mcp_server', 'verify_mcp_server']
+        }
+      },
+      additionalProperties: false,
+      description: 'Bounded MCP readiness metadata. Credential, identity, header, URL, and connection snapshot fields are never included.'
+    },
+    McpReadinessErrorResponse: {
+      type: 'object',
+      required: ['error'],
+      properties: {
+        error: {
+          type: 'object',
+          required: ['code', 'message', 'retryable', 'details'],
+          properties: {
+            code: {
+              type: 'string',
+              enum: [
+                'MCP_PERSONAL_CONNECTION_REQUIRED',
+                'MCP_PAT_USER_PRINCIPAL_REQUIRED',
+                'MCP_INSTALLATION_UNAVAILABLE',
+                'MCP_REMOTE_DISABLED'
+              ]
+            },
+            message: { type: 'string' },
+            retryable: { type: 'boolean', enum: [false] },
+            details: {
+              type: 'object',
+              required: ['readinessErrors', 'readinessFailures'],
+              properties: {
+                readinessErrors: {
+                  type: 'array',
+                  maxItems: 20,
+                  items: { type: 'string', maxLength: 640 },
+                  description: 'Compatibility messages retained for older clients.'
+                },
+                readinessFailures: {
+                  type: 'array',
+                  maxItems: 20,
+                  items: schemaRef('McpReadinessFailure')
+                },
+                action: {
+                  type: 'string',
+                  enum: ['connect_mcp_server', 'verify_mcp_server'],
+                  description: 'Compatibility shortcut for the first failure action.'
+                }
+              },
+              additionalProperties: false
+            }
+          },
+          additionalProperties: false
+        }
+      },
+      additionalProperties: false
+    },
     GenericSuccess: {
       type: 'object',
       properties: {

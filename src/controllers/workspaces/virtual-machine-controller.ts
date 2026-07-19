@@ -1,6 +1,7 @@
 import { NextFunction, Response } from 'express';
 import { agentGateway } from '../../agent/ws-server.js';
 import { AuthenticatedRequest } from '../../auth/middleware.js';
+import { config } from '../../config.js';
 import {
   requireTargetAccess,
   requireWorkspaceCapability,
@@ -8,6 +9,7 @@ import {
 } from '../../auth/workspace-authorization.js';
 import type { WorkspaceAuthorization } from '../../auth/workspace-authorization.js';
 import { webhooks } from '../../services/webhooks.js';
+import { buildVirtualMachineInstallInstructions } from '../../services/virtual-machine-install-instructions.js';
 import { mapVirtualMachineMetricHistoryPoint } from '../../services/virtual-machine-metric-history.js';
 import { recordWorkspaceAuditEvent } from '../../services/workspace-audit.js';
 import { repo } from '../../store/repository.js';
@@ -15,6 +17,7 @@ import { VIRTUAL_MACHINE_TARGET_TYPE } from '../../types/domain.js';
 import type { TargetSummary } from '../../types/domain.js';
 import { generateAgentKey, hashSecret } from '../../utils/crypto.js';
 import { toSingleParam } from '../../utils/params.js';
+import { disablePlatformTargetDiagnosticMappings } from '../../store/repository-capability-routing.js';
 import {
   CursorMismatchError,
   decodeCursor,
@@ -33,34 +36,6 @@ const emptyVmSnapshotSummary = {
   listenerCount: 0,
   logCount: 0
 };
-
-function buildVmInstallInstructions(input: { targetId: string; agentKey: string; platformUrl?: string }): string {
-  return [
-    'Install the AcornOps AgentV on a Linux/systemd host:',
-    '',
-    '```bash',
-    'sudo install -d -m 0750 -o root -g root /etc/acornops',
-    'sudo tee /etc/acornops/agentv.env >/dev/null <<EOF',
-    `ACORNOPS_AGENT_PLATFORM_URL=${input.platformUrl || 'https://api.acornops.dev'}`,
-    `ACORNOPS_TARGET_ID=${input.targetId}`,
-    `ACORNOPS_AGENT_KEY=${input.agentKey}`,
-    'ACORNOPS_AGENT_TARGET_TYPE=virtual_machine',
-    'ACORNOPS_AGENT_SNAPSHOT_INTERVAL_MS=60000',
-    'ACORNOPS_AGENT_MAX_SNAPSHOT_BYTES=1048576',
-    'ACORNOPS_AGENT_LOG_LEVEL=info',
-    'ACORNOPS_VM_OS_FAMILY=linux',
-    'ACORNOPS_VM_SERVICE_MANAGER=systemd',
-    'ACORNOPS_VM_ALLOWED_LOG_UNITS=acornops-agentv.service',
-    'ACORNOPS_VM_COLLECTOR_MODE=live',
-    'EOF',
-    'sudo chown root:acornops-agent /etc/acornops/agentv.env',
-    'sudo chmod 0640 /etc/acornops/agentv.env',
-    'sudo systemctl enable --now acornops-agentv',
-    '```',
-    '',
-    'The agent connects outbound only and remains read-only unless the separate local helper is explicitly enabled.'
-  ].join('\n');
-}
 
 async function requireVirtualMachineTargetAccess(
   req: AuthenticatedRequest,
@@ -121,7 +96,11 @@ export async function registerVirtualMachine(req: AuthenticatedRequest, res: Res
       virtualMachine: vm,
       agentKey: rawAgentKey,
       keyVersion: 1,
-      installInstructions: buildVmInstallInstructions({ targetId: vm.id, agentKey: rawAgentKey })
+      installInstructions: buildVirtualMachineInstallInstructions({
+        platformUrl: config.CONTROL_PLANE_BASE_URL,
+        targetId: vm.id,
+        agentKey: rawAgentKey
+      })
     });
   } catch (err) {
     next(err);
@@ -249,6 +228,7 @@ export async function deleteVirtualMachine(req: AuthenticatedRequest, res: Respo
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Virtual machine not found', retryable: false } });
       return;
     }
+    await disablePlatformTargetDiagnosticMappings(workspaceId, vmId, []);
     await recordWorkspaceAuditEvent({
       workspaceId,
       category: 'target',
@@ -311,7 +291,11 @@ export async function rotateVirtualMachineAgentKey(req: AuthenticatedRequest, re
       targetId: vmId,
       agentKey: rawAgentKey,
       keyVersion,
-      installInstructions: buildVmInstallInstructions({ targetId: vmId, agentKey: rawAgentKey })
+      installInstructions: buildVirtualMachineInstallInstructions({
+        platformUrl: config.CONTROL_PLANE_BASE_URL,
+        targetId: vmId,
+        agentKey: rawAgentKey
+      })
     });
   } catch (err) {
     next(err);
@@ -353,7 +337,7 @@ export async function getVirtualMachineLogs(req: AuthenticatedRequest, res: Resp
     const vmId = toSingleParam(req.params.vmId);
     const access = await requireVirtualMachineTargetAccess(req, res, workspaceId, vmId);
     if (!access) return;
-    if (!access.authz.can('read_target_logs')) {
+    if (!access.authz.can('read_tarquery_logs')) {
       res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Only workspace operators/admins/owners can read VM logs', retryable: false } });
       return;
     }

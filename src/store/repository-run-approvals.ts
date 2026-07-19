@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../infra/db.js';
+import { canonicalJsonSha256 } from '../services/canonical-json.js';
+import type { ApprovalReceiptClaims } from '../services/token-service.js';
 import { RunContinuation, RunToolApproval } from '../types/domain.js';
 import {
   mapRunContinuation,
@@ -21,6 +23,7 @@ export async function createRunToolApproval(params: {
   targetId: string;
   toolCallId: string;
   toolName: string;
+  toolRef: { serverId: string; toolName: string };
   summary?: string;
   arguments: Record<string, unknown>;
   requestedBy?: string;
@@ -34,10 +37,15 @@ export async function createRunToolApproval(params: {
       `WITH upserted AS (
          INSERT INTO run_tool_approvals (
            id, run_id, workspace_id, target_id, tool_call_id, tool_name,
+           server_id, server_tool_name, requested_tool_alias, arguments_digest,
            summary, arguments, status, execution_status, requested_by, expires_at
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,'pending','not_started',$9,$10)
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$6,$9,$10,$11::jsonb,'pending','not_started',$12,$13)
          ON CONFLICT (run_id, tool_call_id) DO UPDATE
            SET tool_name = EXCLUDED.tool_name,
+               server_id = EXCLUDED.server_id,
+               server_tool_name = EXCLUDED.server_tool_name,
+               requested_tool_alias = EXCLUDED.requested_tool_alias,
+               arguments_digest = EXCLUDED.arguments_digest,
                summary = COALESCE(EXCLUDED.summary, run_tool_approvals.summary),
                arguments = EXCLUDED.arguments
          RETURNING *
@@ -52,6 +60,9 @@ export async function createRunToolApproval(params: {
         params.targetId,
         params.toolCallId,
         params.toolName,
+        params.toolRef.serverId,
+        params.toolRef.toolName,
+        canonicalJsonSha256(params.arguments || {}),
         params.summary || null,
         JSON.stringify(params.arguments || {}),
         params.requestedBy || null,
@@ -250,26 +261,45 @@ export async function expirePendingRunToolApprovals(limit = 100): Promise<RunToo
   return result.rows.map(mapRunToolApproval);
 }
 
-export async function markRunToolApprovalExecutionStarted(approvalId: string): Promise<RunToolApproval | null> {
-  const result = await db.query<RunToolApprovalRow>(
-    `WITH updated AS (
-       UPDATE run_tool_approvals
-       SET execution_status = CASE
-             WHEN execution_status = 'not_started' THEN 'executing'
-             WHEN execution_status = 'executing' THEN 'unknown'
-             ELSE execution_status
-           END,
-           execution_started_at = COALESCE(execution_started_at, NOW())
-       WHERE id = $1
-       RETURNING *
-     )
-     SELECT a.*, t.target_type
-     FROM updated a
-     JOIN targets t ON t.id = a.target_id`,
-    [approvalId]
-  );
-  if (!result.rowCount) return null;
-  return mapRunToolApproval(result.rows[0]);
+export class ApprovalExecutionStartError extends Error {
+  constructor(readonly code: 'APPROVAL_NOT_GRANTED' | 'APPROVAL_EXECUTION_ALREADY_STARTED', readonly approval: RunToolApproval) {
+    super(code);
+  }
+}
+
+export async function startRunToolApprovalExecution(
+  approvalId: string,
+  issueReceipt: (claims: ApprovalReceiptClaims) => Promise<string>
+): Promise<{ approval: RunToolApproval; approvalReceipt: string } | null> {
+  return withTransaction(async (client) => {
+    const locked = await client.query<RunToolApprovalRow>(
+      `${RUN_TOOL_APPROVAL_SELECT} WHERE a.id = $1 FOR UPDATE OF a`, [approvalId]
+    );
+    if (!locked.rowCount) return null;
+    const approval = mapRunToolApproval(locked.rows[0]);
+    if (approval.status !== 'approved') throw new ApprovalExecutionStartError('APPROVAL_NOT_GRANTED', approval);
+    if (approval.executionStatus !== 'not_started') {
+      throw new ApprovalExecutionStartError('APPROVAL_EXECUTION_ALREADY_STARTED', approval);
+    }
+    const approvalReceipt = await issueReceipt({
+      approvalId: approval.id,
+      runId: approval.runId,
+      workspaceId: approval.workspaceId,
+      toolCallId: approval.toolCallId,
+      toolAlias: approval.requestedToolAlias,
+      serverId: approval.toolRef.serverId,
+      serverToolName: approval.toolRef.toolName,
+      argumentsDigest: approval.argumentsDigest
+    });
+    const updated = await client.query<RunToolApprovalRow>(
+      `WITH changed AS (
+         UPDATE run_tool_approvals SET execution_status='executing',execution_started_at=NOW()
+         WHERE id=$1 AND status='approved' AND execution_status='not_started' RETURNING *
+       ) SELECT a.*,t.target_type FROM changed a JOIN targets t ON t.id=a.target_id`, [approvalId]
+    );
+    if (!updated.rowCount) throw new ApprovalExecutionStartError('APPROVAL_EXECUTION_ALREADY_STARTED', approval);
+    return { approval: mapRunToolApproval(updated.rows[0]), approvalReceipt };
+  });
 }
 
 export async function markRunToolApprovalExecutionFinished(

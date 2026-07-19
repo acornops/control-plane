@@ -10,6 +10,7 @@ import { QuotaExceededError, effectiveWorkspaceLimits, resolveWorkspacePlan } fr
 import { toSingleParam } from '../utils/params.js';
 import { CursorMismatchError, decodeCursor, makeQuerySignature, normalizeSearchQuery, parseBoundedLimit } from '../utils/pagination.js';
 import { incrementAdminMutations } from '../metrics.js';
+import { cleanupRemovedMemberMcpConnections } from '../services/mcp-secret-cleanup-worker.js';
 import {
   auditAdmin,
   auditAdminMutationRequest,
@@ -520,6 +521,7 @@ export async function deleteWorkspaceMember(req: AdminAuthenticatedRequest, res:
       notFound(res, 'Workspace member not found');
       return;
     }
+    await cleanupRemovedMemberMcpConnections(workspaceId, userId);
     await auditAdmin(req, {
       action: 'admin.workspace.member.delete',
       workspaceId,

@@ -35,8 +35,8 @@ describe('internal execution Target Insights context', () => {
       snippets: []
     });
     const messages = (response.body as { messages: Array<{ role: string; content: string }> }).messages;
-    assert.equal(messages.length, 2);
-    assert.equal(messages[1]?.content, 'diagnose registry 401');
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0]?.content, 'diagnose registry 401');
   });
 
   it('marks Target Insights retrieval as skipped when the target setting is disabled', async () => {

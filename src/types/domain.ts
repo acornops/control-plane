@@ -102,6 +102,7 @@ export interface WorkspacePermissions {
   delete_workspace: boolean;
   manage_members: boolean;
   manage_targets: boolean;
+  manage_catalog_sources: boolean;
   manage_mcp: boolean;
   manage_tools: boolean;
   manage_target_insights: boolean;
@@ -114,7 +115,7 @@ export interface WorkspacePermissions {
   create_sessions: boolean;
   create_read_only_runs: boolean;
   create_read_write_runs: boolean;
-  read_target_logs: boolean;
+  read_tarquery_logs: boolean;
   cancel_runs: boolean;
   delete_sessions: boolean;
 }
@@ -440,6 +441,7 @@ export interface Run {
   clusterId?: string;
   sessionId: string;
   messageId: string;
+  principal?: import('./agents.js').RunPrincipalRef;
   llmProvider: LlmProvider;
   llmModel: string;
   llmReasoningSummaryMode: ReasoningSummaryMode;
@@ -481,6 +483,9 @@ export interface RunToolApproval {
   clusterId?: string;
   toolCallId: string;
   toolName: string;
+  toolRef: { serverId: string; toolName: string };
+  requestedToolAlias: string;
+  argumentsDigest: string;
   summary?: string;
   arguments: Record<string, unknown>;
   status: ToolApprovalStatus;

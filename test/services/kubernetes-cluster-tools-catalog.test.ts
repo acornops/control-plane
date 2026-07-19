@@ -7,8 +7,23 @@ import {
 } from '../../src/services/kubernetes-cluster-tools-catalog.js';
 import type { McpServerConfig, McpToolConfig } from '../../src/services/mcp-registry-client.js';
 
+function builtInServer(targetId: string, targetType: 'kubernetes' | 'virtual_machine' = 'kubernetes'): McpServerConfig {
+  return {
+    id: `server-${targetId}`,
+    workspace_id: 'ws-1',
+    target_id: targetId,
+    target_type: targetType,
+    server_name: targetId,
+    server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
+    provenance_type: 'builtin',
+    enabled: true,
+    auth_type: 'none',
+    tools: []
+  };
+}
+
 describe('composeKubernetesClusterToolsCatalog', () => {
-  it('adds the builtin system server when it is missing and groups builtin tools under it', () => {
+  it('does not synthesize a server for tools whose live server is missing', () => {
     const tools: McpToolConfig[] = [
       {
         name: 'describe_pod',
@@ -35,42 +50,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
 
     assert.equal(catalog.permissions.canEdit, true);
     assert.deepEqual(catalog.permissions.editableRoles, ['owner', 'admin']);
-    assert.equal(catalog.servers.length, 1);
-    assert.deepEqual(catalog.servers[0], {
-      id: 'builtin-describe_pod',
-      name: config.BUILTIN_TARGET_MCP_SERVER_DISPLAY_NAME,
-      url: config.BUILTIN_TARGET_MCP_SERVER_URL,
-      type: 'builtin',
-      enabled: true,
-      isSystem: true,
-      canDelete: false,
-      canEditConnection: false,
-      canToggle: true,
-      authType: 'none',
-      publicHeaders: {},
-      connectionStatus: 'ok',
-      lastDiscoveryAt: null,
-      lastDiscoveryError: null,
-      toolCounts: {
-        total: 1,
-        enabledConfigured: 1,
-        enabledEffective: 1,
-        writeConfigured: 1,
-        writeEffective: 1
-      },
-      tools: [
-        {
-          name: 'describe_pod',
-          description: 'Describe a pod',
-          capability: 'write',
-          version: '2026.05',
-          source: 'builtin',
-          enabledConfigured: true,
-          enabledEffective: true,
-          effectiveDisabledReason: null
-        }
-      ]
-    });
+    assert.deepEqual(catalog.servers, []);
   });
 
   it('hides stale gateway discovery failures for the builtin managed server', () => {
@@ -96,8 +76,9 @@ describe('composeKubernetesClusterToolsCatalog', () => {
           workspace_id: 'ws-1',
           target_id: 'cluster-1',
           target_type: 'kubernetes',
-          server_name: config.BUILTIN_TARGET_MCP_SERVER_NAME,
+          server_name: 'cluster-1',
           server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
+          provenance_type: 'builtin',
           enabled: true,
           auth_type: 'none',
           connection_status: 'error',
@@ -117,7 +98,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
     assert.equal(catalog.servers[0]?.lastDiscoveryError, null);
   });
 
-  it('normalizes tool metadata, applies overrides, and marks server-disabled tools ineffective', () => {
+  it('normalizes tool metadata, ignores name-only overrides for remote tools, and preserves legacy enablement', () => {
     const servers: McpServerConfig[] = [
       {
         id: 'server-b',
@@ -153,8 +134,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
         name: 'z-read',
         mcp_server_url: 'https://zeta.example.com/mcp',
         timeout_ms: 1000,
-        source: 'mcp',
-        enabled: true
+        source: 'mcp'
       },
       {
         name: 'a-write',
@@ -182,24 +162,23 @@ describe('composeKubernetesClusterToolsCatalog', () => {
     assert.deepEqual(
       catalog.servers.map((server) => ({ name: server.name, type: server.type })),
       [
-        { name: config.BUILTIN_TARGET_MCP_SERVER_DISPLAY_NAME, type: 'builtin' },
         { name: 'Alpha Server', type: 'mcp' },
         { name: 'Zeta Server', type: 'mcp' }
       ]
     );
-    assert.deepEqual(catalog.servers[1]?.tools, [
+    assert.deepEqual(catalog.servers[0]?.tools, [
       {
         name: 'a-write',
         description: 'Alpha write tool',
         capability: 'write',
         version: 'v2',
         source: 'mcp',
-        enabledConfigured: true,
-        enabledEffective: true,
+        enabledConfigured: false,
+        enabledEffective: false,
         effectiveDisabledReason: null
       }
     ]);
-    assert.deepEqual(catalog.servers[2]?.tools, [
+    assert.deepEqual(catalog.servers[1]?.tools, [
       {
         name: 'z-read',
         description: 'Execute tool "z-read"',
@@ -211,7 +190,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
         effectiveDisabledReason: 'server_disabled'
       }
     ]);
-    assert.deepEqual(catalog.servers[2]?.toolCounts, {
+    assert.deepEqual(catalog.servers[1]?.toolCounts, {
       total: 1,
       enabledConfigured: 1,
       enabledEffective: 0,
@@ -220,7 +199,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
     });
   });
 
-  it('creates a synthetic remote server for unbound tools with fallback connection data', () => {
+  it('does not synthesize a remote server for unbound tools', () => {
     const catalog = composeKubernetesClusterToolsCatalog({
       workspaceId: 'ws-2',
       clusterId: 'cluster-2',
@@ -240,25 +219,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       targetAgentConnected: true
     });
 
-    const syntheticServer = catalog.servers.find((server) => server.name === 'remote-mcp-server');
-    assert.ok(syntheticServer);
-    assert.equal(syntheticServer.url, 'tool://orphan-tool');
-    assert.equal(syntheticServer.canDelete, false);
-    assert.equal(syntheticServer.canEditConnection, false);
-    assert.equal(syntheticServer.canToggle, false);
-    assert.equal(syntheticServer.connectionStatus, 'unknown');
-    assert.deepEqual(syntheticServer.tools, [
-      {
-        name: 'orphan-tool',
-        description: 'Execute tool "orphan-tool"',
-        capability: 'write',
-        version: 'v1',
-        source: 'mcp',
-        enabledConfigured: true,
-        enabledEffective: true,
-        effectiveDisabledReason: null
-      }
-    ]);
+    assert.deepEqual(catalog.servers, []);
   });
 
   it('uses the same target catalog shape and capability counts for VM targets', () => {
@@ -267,7 +228,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       targetId: 'vm-1',
       targetType: 'virtual_machine',
       canEdit: true,
-      servers: [],
+      servers: [builtInServer('vm-1', 'virtual_machine')],
       overrides: {},
       targetSupportsWrite: true,
       targetAgentConnected: true,
@@ -304,7 +265,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       workspaceId: 'ws-4',
       clusterId: 'cluster-4',
       canEdit: true,
-      servers: [],
+      servers: [builtInServer('cluster-4')],
       overrides: {},
       targetSupportsWrite: false,
       targetAgentConnected: true,
@@ -368,7 +329,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       workspaceId: 'ws-5',
       clusterId: 'cluster-5',
       canEdit: true,
-      servers: [],
+      servers: [builtInServer('cluster-5')],
       overrides: {},
       targetSupportsWrite: true,
       targetAgentConnected: false,

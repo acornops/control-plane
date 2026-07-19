@@ -1,58 +1,12 @@
 import { repo } from '../store/repository.js';
-import {
-  isTargetType,
-  KUBERNETES_TARGET_TYPE,
-  VIRTUAL_MACHINE_TARGET_TYPE,
-  type TargetSummary,
-  type TargetType
-} from '../types/domain.js';
-import type { WorkflowDefinitionForAccess, WorkflowTargetBinding } from '../types/workflows.js';
-import { decodeCursor } from '../utils/pagination.js';
+import { isTargetType, type TargetSummary } from '../types/domain.js';
+import type { WorkflowDefinitionForAccess } from '../types/workflows.js';
 
 export class WorkflowTargetResolutionError extends Error {
   constructor(readonly code: string, message: string) {
     super(message);
     this.name = 'WorkflowTargetResolutionError';
   }
-}
-
-function bindingTargetType(binding: WorkflowTargetBinding): TargetType | undefined {
-  if (binding.targetType === 'kubernetes') return KUBERNETES_TARGET_TYPE;
-  if (binding.targetType === 'vm') return VIRTUAL_MACHINE_TARGET_TYPE;
-  return undefined;
-}
-
-function promptReferenceLabel(label: string): string {
-  return label.replaceAll('\\', '\\\\').replaceAll(']', '\\]');
-}
-
-export function workflowTargetPromptReference(targetName: string): string {
-  return `@cluster[${promptReferenceLabel(targetName)}]`;
-}
-
-function contentReferencesTarget(content: string, targetName: string): boolean {
-  return content.toLocaleLowerCase().includes(workflowTargetPromptReference(targetName).toLocaleLowerCase());
-}
-
-async function listWorkflowTargets(workspaceId: string, targetType?: TargetType): Promise<TargetSummary[]> {
-  const targets: TargetSummary[] = [];
-  let cursor: { signature: string; createdAt: string; targetId: string } | null = null;
-  do {
-    const page = await repo.listTargets(workspaceId, { limit: 100, cursor, targetType, signature: '' });
-    targets.push(...page.items);
-    cursor = page.nextCursor
-      ? decodeCursor<{ signature: string; createdAt: string; targetId: string }>(page.nextCursor, '')
-      : null;
-  } while (cursor);
-  return targets;
-}
-
-export function workflowTargetBinding(
-  workflow: WorkflowDefinitionForAccess
-): WorkflowTargetBinding | undefined {
-  return workflow.steps.find((step) => (
-    step.targetBinding?.type === 'selected_target' || step.targetBinding?.type === 'selected_cluster'
-  ))?.targetBinding;
 }
 
 export async function resolveWorkflowTarget(params: {
@@ -63,75 +17,37 @@ export async function resolveWorkflowTarget(params: {
   targetId?: string;
   targetType?: string;
 }): Promise<TargetSummary | undefined> {
-  const binding = workflowTargetBinding(params.workflow);
-  if (!binding && !params.targetId && !params.targetType) return undefined;
-
-  const inputName = binding?.inputName || 'targetId';
-  const inputTargetId = typeof params.inputs[inputName] === 'string'
-    ? params.inputs[inputName].trim()
-    : '';
-  const targetId = params.targetId?.trim() || inputTargetId;
+  const constraints = params.workflow.targetConstraints;
+  const inputTargetId = typeof params.inputs.targetId === 'string' ? params.inputs.targetId.trim() : '';
+  const explicitTargetId = params.targetId?.trim() || inputTargetId;
   if (params.targetId && inputTargetId && params.targetId !== inputTargetId) {
-    throw new WorkflowTargetResolutionError(
-      'WORKFLOW_TARGET_MISMATCH',
-      'The workflow target does not match the selected workflow input.'
-    );
+    throw new WorkflowTargetResolutionError('WORKFLOW_TARGET_MISMATCH', 'The requested target does not match the workflow input.');
   }
-
-  const expectedTargetType = binding ? bindingTargetType(binding) : undefined;
-  let target: TargetSummary | null | undefined;
-  if (targetId) {
-    target = await repo.getTarget(params.workspaceId, targetId);
-  } else if (binding && params.content?.trim()) {
-    const matches = (await listWorkflowTargets(params.workspaceId, expectedTargetType))
-      .filter((candidate) => contentReferencesTarget(params.content!, candidate.name));
-    if (matches.length > 1) {
-      throw new WorkflowTargetResolutionError(
-        'WORKFLOW_TARGET_AMBIGUOUS',
-        'The control message references more than one matching Kubernetes cluster. Mention exactly one cluster.'
-      );
+  const targetId = explicitTargetId || (constraints?.targetIds.length === 1 ? constraints.targetIds[0] : '');
+  if (!targetId) {
+    if (constraints && (constraints.targetIds.length || constraints.targetTypes.length)) {
+      throw new WorkflowTargetResolutionError('WORKFLOW_TARGET_REQUIRED', 'Select one exact target for this workflow run.');
     }
-    target = matches[0];
+    if (params.targetType) {
+      throw new WorkflowTargetResolutionError('WORKFLOW_TARGET_REQUIRED', 'targetType cannot be supplied without an exact targetId.');
+    }
+    return undefined;
   }
-  if (!targetId && !target) {
-    throw new WorkflowTargetResolutionError(
-      'WORKFLOW_TARGET_MENTION_REQUIRED',
-      `Mention one Kubernetes cluster in the control message, for example ${workflowTargetPromptReference('Development Cluster')}.`
-    );
-  }
+  const target = await repo.getTarget(params.workspaceId, targetId);
   if (!target) {
-    throw new WorkflowTargetResolutionError(
-      'WORKFLOW_TARGET_NOT_FOUND',
-      'The selected target does not exist in this workspace.'
-    );
+    throw new WorkflowTargetResolutionError('WORKFLOW_TARGET_NOT_FOUND', 'The selected target does not exist in this workspace.');
   }
-  if (binding && params.content?.trim() && !contentReferencesTarget(params.content, target.name)) {
-    throw new WorkflowTargetResolutionError(
-      'WORKFLOW_TARGET_MENTION_MISMATCH',
-      `The control message must include ${workflowTargetPromptReference(target.name)} so the selected cluster is explicit.`
-    );
+  if (params.targetType && (!isTargetType(params.targetType) || target.targetType !== params.targetType)) {
+    throw new WorkflowTargetResolutionError('WORKFLOW_TARGET_TYPE_MISMATCH', 'The selected target type does not match the exact target.');
   }
-  const requestedTargetType = params.targetType && isTargetType(params.targetType)
-    ? params.targetType
-    : undefined;
-  if (params.targetType && !requestedTargetType) {
-    throw new WorkflowTargetResolutionError(
-      'WORKFLOW_TARGET_TYPE_INVALID',
-      'The selected workflow target type is not supported.'
-    );
+  if (constraints?.targetIds.length && !constraints.targetIds.includes(target.id)) {
+    throw new WorkflowTargetResolutionError('WORKFLOW_TARGET_CONSTRAINT_DENIED', 'The selected target is outside the workflow target constraints.');
   }
-  if ((expectedTargetType && target.targetType !== expectedTargetType)
-    || (requestedTargetType && target.targetType !== requestedTargetType)) {
-    throw new WorkflowTargetResolutionError(
-      'WORKFLOW_TARGET_TYPE_MISMATCH',
-      'The selected target type does not match this workflow step.'
-    );
+  if (constraints?.targetTypes.length && !constraints.targetTypes.includes(target.targetType)) {
+    throw new WorkflowTargetResolutionError('WORKFLOW_TARGET_TYPE_MISMATCH', 'The selected target type is outside the workflow target constraints.');
   }
   if (target.status === 'offline' || target.status === 'unknown') {
-    throw new WorkflowTargetResolutionError(
-      'WORKFLOW_TARGET_NOT_READY',
-      `The selected target is ${target.status} and cannot run this workflow.`
-    );
+    throw new WorkflowTargetResolutionError('WORKFLOW_TARGET_NOT_READY', `The selected target is ${target.status}.`);
   }
   return target;
 }

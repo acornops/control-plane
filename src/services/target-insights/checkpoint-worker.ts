@@ -192,6 +192,8 @@ async function streamGatewayJsonPatch(input: {
     targetId: input.targetId,
     targetType: input.targetType,
     sessionId: input.sessionId,
+    principal: { type: 'service_identity', id: 'system-target-insights' },
+    permissionMode: 'read_only',
     allowedProviders: input.allowedProviders,
     allowedModels: input.allowedModels,
     allowedTools: [],

@@ -1,14 +1,7 @@
-import {
-  EXAMPLE_CLUSTER_ID,
-  EXAMPLE_RUN_ID,
-  EXAMPLE_SESSION_ID,
-  EXAMPLE_TARGET_ID,
-  EXAMPLE_TRACE_ID,
-  EXAMPLE_USER_ID,
-  EXAMPLE_WORKSPACE_ID
+import { EXAMPLE_CLUSTER_ID, EXAMPLE_RUN_ID, EXAMPLE_SESSION_ID,
+  EXAMPLE_TARGET_ID, EXAMPLE_TRACE_ID, EXAMPLE_USER_ID, EXAMPLE_WORKSPACE_ID
 } from '../../constants/dev-defaults.js';
 import { buildToolResultArtifactPaths } from './tool-result-artifact-paths.js';
-
 export function buildSessionRunPaths(): Record<string, unknown> {
   return {
       ...buildToolResultArtifactPaths(),
@@ -82,9 +75,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
             { in: 'header', name: 'Last-Event-ID', required: false, schema: { type: 'string', example: '42' } }
           ],
           responses: {
-            '200': {
-              description: 'SSE stream of target chat activity events.'
-            }
+            '200': { description: 'SSE stream of target chat activity events.' }
           }
         }
       },
@@ -202,7 +193,11 @@ export function buildSessionRunPaths(): Record<string, unknown> {
           responses: {
             '202': { description: 'Run accepted for processing. The response includes the provider, model, and reasoning effort frozen on the accepted run.' },
             '400': { description: 'Invalid AI runtime selection, disallowed model/provider, missing provider credential, or unsupported target type.' },
-            '403': { description: 'CONVERSATION_OWNER_REQUIRED when the authenticated user did not create the conversation, or FORBIDDEN when the owner lacks run creation permission.' }
+            '403': { description: 'CONVERSATION_OWNER_REQUIRED when the authenticated user did not create the conversation, or FORBIDDEN when the owner lacks run creation permission.' },
+            '409': {
+              description: 'Exact MCP readiness failed. Structured installation and tool failures are safe to use for recovery navigation.',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/McpReadinessErrorResponse' } } }
+            }
           }
         }
       },
@@ -242,10 +237,19 @@ export function buildSessionRunPaths(): Record<string, unknown> {
               'application/json': {
                 schema: {
                   type: 'object',
-                  required: ['toolCallId', 'toolName', 'arguments'],
+                  required: ['toolCallId', 'toolName', 'toolRef', 'arguments'],
                   properties: {
                     toolCallId: { type: 'string', example: 'call_01JABCDEF' },
                     toolName: { type: 'string', example: 'restart_workload' },
+                    toolRef: {
+                      type: 'object',
+                      required: ['serverId', 'toolName'],
+                      additionalProperties: false,
+                      properties: {
+                        serverId: { type: 'string', format: 'uuid', example: '955a5e17-5424-48e1-99ab-fdf8415a3a30' },
+                        toolName: { type: 'string', example: 'restart_workload' }
+                      }
+                    },
                     summary: {
                       type: 'string',
                       example: 'Restart Deployment payments/payments-api.',
@@ -261,6 +265,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
                   example: {
                     toolCallId: 'call_01JABCDEF',
                     toolName: 'restart_workload',
+                    toolRef: { serverId: '955a5e17-5424-48e1-99ab-fdf8415a3a30', toolName: 'restart_workload' },
                     summary: 'Restart Deployment payments/payments-api.',
                     arguments: { namespace: 'payments', name: 'payments-api', kind: 'Deployment' },
                     continuation: { schema_version: 1, pending_tool_call: { tool: 'restart_workload' } }
@@ -328,7 +333,11 @@ export function buildSessionRunPaths(): Record<string, unknown> {
             { in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } },
             { in: 'path', name: 'approvalId', required: true, schema: { type: 'string', format: 'uuid', example: '0f2e8f75-0d66-4f40-b3d0-f4c4661c43a1' } }
           ],
-          responses: { '200': { description: 'Approval execution status returned.' } }
+          responses: {
+            '200': {
+              description: 'Approval execution status and a 60-second, exact-call approvalReceipt returned atomically.'
+            }
+          }
         }
       },
       '/internal/v1/runs/{runId}/approvals/{approvalId}/execution-finished': {

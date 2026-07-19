@@ -15,7 +15,9 @@ services:
       CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS: ${CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS:-90}
       CONTROL_PLANE_AGENT_SNAPSHOT_INTERVAL_SECONDS: ${CONTROL_PLANE_AGENT_SNAPSHOT_INTERVAL_SECONDS:-60}
       CORS_ORIGIN: http://localhost:3000
-      SEED_DEVELOPMENT_DATA: "true"
+      SEED_DEVELOPMENT_DATA: ${SEED_DEVELOPMENT_DATA:-true}
+      SEED_AGENT_KEY: ${SEED_AGENT_KEY:-ak_local_dev_shared_key}
+      SEED_VM_AGENT_KEY: ${SEED_VM_AGENT_KEY:-ak_local_vm_dev_shared_key}
       CONVERSATION_RETENTION_DAYS: ${CONVERSATION_RETENTION_DAYS:-30}
       CONVERSATION_RETENTION_JOB_INTERVAL_SECONDS: ${CONVERSATION_RETENTION_JOB_INTERVAL_SECONDS:-3600}
       RUN_EVENT_BUFFER_SIZE: ${RUN_EVENT_BUFFER_SIZE:-200}
@@ -42,7 +44,6 @@ services:
       LLM_DEFAULT_MODEL: ${LLM_DEFAULT_MODEL:-gpt-5.5}
       LLM_ALLOWED_PROVIDERS: ${LLM_ALLOWED_PROVIDERS:-openai,anthropic,gemini}
       LLM_ALLOWED_PROVIDER_MODELS: ${LLM_ALLOWED_PROVIDER_MODELS:-openai:gpt-5.5|gpt-5.4|gpt-5.4-mini|gpt-5.4-nano|gpt-5|gpt-5-mini|gpt-5-nano;anthropic:claude-fable-5|claude-opus-4-8|claude-sonnet-4-6|claude-haiku-4-5;gemini:gemini-3.5-flash|gemini-3.5-flash-lite|gemini-3.1-pro|gemini-3.1-flash|gemini-3.1-flash-lite|gemini-2.5-pro|gemini-2.5-flash|gemini-2.5-flash-lite|gemini-2.0-flash|gemini-2.0-flash-lite}
-      ASSISTANT_SYSTEM_INSTRUCTION: ${ASSISTANT_SYSTEM_INSTRUCTION:-}
       ASSISTANT_CONTEXT_MAX_TOKENS: ${ASSISTANT_CONTEXT_MAX_TOKENS:-120000}
       ASSISTANT_BUDGET_CENTS: ${ASSISTANT_BUDGET_CENTS:-25}
       ASSISTANT_LLM_TEMPERATURE: ${ASSISTANT_LLM_TEMPERATURE:-0.2}
@@ -61,7 +62,6 @@ services:
       AGENTK_HELM_ADDITIONAL_CA_FILE_PATH: ${AGENTK_HELM_ADDITIONAL_CA_FILE_PATH:-}
       BUILTIN_TARGET_MCP_SERVER_NAME: ${BUILTIN_TARGET_MCP_SERVER_NAME:-}
       BUILTIN_TARGET_MCP_SERVER_URL: ${BUILTIN_TARGET_MCP_SERVER_URL:-}
-      BUILTIN_TARGET_MCP_SERVER_DISPLAY_NAME: ${BUILTIN_TARGET_MCP_SERVER_DISPLAY_NAME:-}
     ports:
       - "8081:8081"
     volumes:
@@ -236,17 +236,12 @@ services:
       DATABASE_URL: postgresql+asyncpg://gateway_user:gateway_password@gateway-postgres:5432/gateway
       REDIS_URL: redis://gateway-redis:6379/0
       SECRETS_KEK_BASE64: SglIGBscu1EgQ+AlpqJLADNN9QmCzS9d1ZvK3oT/e5s=
-      ACORNOPS_DEV_SEED_OPENAI_API_KEY: ${ACORNOPS_DEV_SEED_OPENAI_API_KEY:-}
-      ACORNOPS_DEV_SEED_ANTHROPIC_API_KEY: ${ACORNOPS_DEV_SEED_ANTHROPIC_API_KEY:-}
-      ACORNOPS_DEV_SEED_GEMINI_API_KEY: ${ACORNOPS_DEV_SEED_GEMINI_API_KEY:-}
-    command: ["sh", "-c", "alembic upgrade head && python scripts/seed_db.py"]
+    command: ["sh", "-c", "alembic upgrade head"]
     depends_on:
       gateway-postgres:
         condition: service_healthy
       gateway-redis:
         condition: service_healthy
-      mock-mcp:
-        condition: service_started
     restart: "no"
     networks:
       - acornops
@@ -287,32 +282,6 @@ services:
     restart: unless-stopped
     networks:
       - acornops
-
-  mock-mcp:
-    profiles:
-      - integration
-    build:
-      context: ../llm-gateway
-      dockerfile: deployments/Dockerfile.mock-mcp
-    command:
-      [
-        "uvicorn",
-        "mock_mcp_server:app",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "8002",
-        "--reload",
-        "--reload-dir",
-        "/app"
-      ]
-    ports:
-      - "8002:8002"
-    restart: unless-stopped
-    networks:
-      - acornops
-    volumes:
-      - ../llm-gateway/test:/app
 
 volumes:
   keycloak-postgres-data:

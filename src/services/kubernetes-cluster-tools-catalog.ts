@@ -1,5 +1,4 @@
 import { listConfiguredRoleTemplates } from '../auth/authorization.js';
-import { config } from '../config.js';
 import { KUBERNETES_TARGET_TYPE, TargetType } from '../types/domain.js';
 import { McpServerConfig, McpToolConfig } from './mcp-registry-client.js';
 
@@ -11,8 +10,8 @@ export function getMcpCatalogEditableRoles(): string[] {
     .map((role) => role.key);
 }
 
-function isBuiltinServer(server: Pick<McpServerConfig, 'server_name' | 'server_url'>): boolean {
-  return server.server_name === config.BUILTIN_TARGET_MCP_SERVER_NAME || server.server_url === config.BUILTIN_TARGET_MCP_SERVER_URL;
+function isBuiltinServer(server: Pick<McpServerConfig, 'provenance_type'>): boolean {
+  return server.provenance_type === 'builtin';
 }
 
 function normalizeCapability(value: unknown): 'read' | 'write' {
@@ -21,6 +20,8 @@ function normalizeCapability(value: unknown): 'read' | 'write' {
 
 interface NormalizedTool {
   name: string;
+  serverId?: string;
+  modelAlias?: string;
   description: string;
   capability: 'read' | 'write';
   version: string;
@@ -41,6 +42,8 @@ interface ToolCounts {
 
 export interface KubernetesClusterToolCatalogItem {
   name: string;
+  serverId?: string;
+  modelAlias?: string;
   description: string;
   capability: 'read' | 'write';
   version: string;
@@ -61,6 +64,16 @@ export interface KubernetesClusterToolCatalogServer {
   canEditConnection: boolean;
   canToggle: boolean;
   authType: 'none' | 'bearer_token' | 'custom_header';
+  authScope: 'none' | 'personal' | 'legacy_shared';
+  authHeaderName?: string;
+  authHeaderPrefix?: string;
+  provenance?: {
+    sourceId: string;
+    artifactName: string;
+    version: string;
+    digest: string;
+    importedAt: string;
+  };
   publicHeaders?: Record<string, string>;
   connectionStatus: 'unknown' | 'ok' | 'error';
   lastDiscoveryAt: string | null;
@@ -103,24 +116,6 @@ function summarizeToolCounts(tools: NormalizedTool[]): ToolCounts {
     enabledEffective,
     writeConfigured,
     writeEffective
-  };
-}
-
-function createSyntheticServerForUnboundTool(tool: McpToolConfig, targetType: TargetType): McpServerConfig {
-  const isBuiltin = tool.source === 'builtin';
-  return {
-    id: isBuiltin ? `builtin-${tool.name}` : `synthetic-${tool.name}`,
-    workspace_id: '',
-    target_id: '',
-    target_type: targetType,
-    server_name: isBuiltin ? config.BUILTIN_TARGET_MCP_SERVER_NAME : 'remote-mcp-server',
-    server_url: isBuiltin ? config.BUILTIN_TARGET_MCP_SERVER_URL : tool.mcp_server_url || `tool://${tool.name}`,
-    enabled: true,
-    auth_type: 'none',
-    connection_status: 'unknown',
-    last_discovery_at: null,
-    last_discovery_error: null,
-    tools: []
   };
 }
 
@@ -180,41 +175,15 @@ export function composeTargetToolsCatalog(params: {
     serverByUrl.set(server.server_url, server);
   }
 
-  // Ensure all tools are grouped, even if server metadata is temporarily missing.
-  for (const tool of tools) {
-    if (serverByUrl.has(tool.mcp_server_url)) continue;
-    const synthetic = createSyntheticServerForUnboundTool(tool, targetType);
-    serverByUrl.set(synthetic.server_url, synthetic);
-  }
-
-  const hasBuiltinServer = [...serverByUrl.values()].some((server) => isBuiltinServer(server));
-  if (!hasBuiltinServer) {
-    serverByUrl.set(config.BUILTIN_TARGET_MCP_SERVER_URL, {
-      id: 'builtin-system-server',
-      workspace_id: workspaceId,
-      target_id: targetId,
-      target_type: targetType,
-      server_name: config.BUILTIN_TARGET_MCP_SERVER_NAME,
-      server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
-      enabled: true,
-      auth_type: 'none',
-      connection_status: 'unknown',
-      last_discovery_at: null,
-      last_discovery_error: null,
-      tools: []
-    });
-  }
-
   const servers: KubernetesClusterToolCatalogServer[] = [];
   for (const server of serverByUrl.values()) {
     const isBuiltin = isBuiltinServer(server);
-    const isPlaceholder = !isBuiltin && (server.workspace_id !== workspaceId || server.target_id !== targetId);
     const toolRows = tools
-      .filter((tool) => tool.mcp_server_url === server.server_url)
+      .filter((tool) => tool.server_id === server.id || (!tool.server_id && tool.mcp_server_url === server.server_url))
       .map((tool) => {
-        const enabledConfigured = Object.prototype.hasOwnProperty.call(overrides, tool.name)
+        const enabledConfigured = tool.source === 'builtin' && Object.prototype.hasOwnProperty.call(overrides, tool.name)
           ? overrides[tool.name]
-          : Boolean(tool.enabled);
+          : tool.enabled !== false;
         const capability = normalizeCapability(tool.capability);
         const effectiveDisabledReason: EffectiveDisabledReason = !server.enabled && enabledConfigured
           ? 'server_disabled'
@@ -226,6 +195,8 @@ export function composeTargetToolsCatalog(params: {
         const enabledEffective = Boolean(server.enabled) && enabledConfigured && effectiveDisabledReason === null;
         return {
           name: tool.name,
+          ...(tool.server_id ? { serverId: tool.server_id } : {}),
+          ...(tool.model_alias ? { modelAlias: tool.model_alias } : {}),
           description: tool.description || `Execute tool "${tool.name}"`,
           capability,
           version: tool.version || 'v1',
@@ -240,15 +211,31 @@ export function composeTargetToolsCatalog(params: {
 
     servers.push({
       id: server.id,
-      name: isBuiltin ? config.BUILTIN_TARGET_MCP_SERVER_DISPLAY_NAME : server.server_name,
+      name: server.server_name,
       url: server.server_url,
       type: isBuiltin ? 'builtin' : 'mcp',
       enabled: Boolean(server.enabled),
       isSystem: isBuiltin,
-      canDelete: !isBuiltin && !isPlaceholder,
-      canEditConnection: !isBuiltin && !isPlaceholder,
-      canToggle: !isPlaceholder,
+      canDelete: !isBuiltin,
+      canEditConnection: !isBuiltin,
+      canToggle: true,
       authType: server.auth_type,
+      authScope: server.auth_scope || (server.auth_type === 'none' ? 'none' : 'legacy_shared'),
+      authHeaderName: server.auth_header_name || undefined,
+      authHeaderPrefix: server.auth_header_prefix || undefined,
+      ...(server.catalog_source_id
+        && server.catalog_artifact_name
+        && server.catalog_version
+        && server.catalog_digest
+        && server.catalog_imported_at
+        ? { provenance: {
+            sourceId: server.catalog_source_id,
+            artifactName: server.catalog_artifact_name,
+            version: server.catalog_version,
+            digest: server.catalog_digest,
+            importedAt: server.catalog_imported_at
+          } }
+        : {}),
       publicHeaders: server.public_headers ?? {},
       connectionStatus: isBuiltin
         ? targetAgentConnected ? 'ok' : 'error'
@@ -260,6 +247,8 @@ export function composeTargetToolsCatalog(params: {
       toolCounts: summarizeToolCounts(toolRows),
       tools: toolRows.map((tool) => ({
         name: tool.name,
+        ...(tool.serverId ? { serverId: tool.serverId } : {}),
+        ...(tool.modelAlias ? { modelAlias: tool.modelAlias } : {}),
         description: tool.description,
         capability: tool.capability,
         version: tool.version,

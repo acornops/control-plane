@@ -47,7 +47,6 @@ services:
       LLM_DEFAULT_MODEL: ${LLM_DEFAULT_MODEL:-gpt-5.5}
       LLM_ALLOWED_PROVIDERS: ${LLM_ALLOWED_PROVIDERS:-openai,anthropic,gemini}
       LLM_ALLOWED_PROVIDER_MODELS: ${LLM_ALLOWED_PROVIDER_MODELS:-openai:gpt-5.5|gpt-5.4|gpt-5.4-mini|gpt-5.4-nano|gpt-5|gpt-5-mini|gpt-5-nano;anthropic:claude-fable-5|claude-opus-4-8|claude-sonnet-4-6|claude-haiku-4-5;gemini:gemini-3.5-flash|gemini-3.5-flash-lite|gemini-3.1-pro|gemini-3.1-flash|gemini-3.1-flash-lite|gemini-2.5-pro|gemini-2.5-flash|gemini-2.5-flash-lite|gemini-2.0-flash|gemini-2.0-flash-lite}
-      ASSISTANT_SYSTEM_INSTRUCTION: ${ASSISTANT_SYSTEM_INSTRUCTION:-}
       ASSISTANT_CONTEXT_MAX_TOKENS: ${ASSISTANT_CONTEXT_MAX_TOKENS:-120000}
       ASSISTANT_BUDGET_CENTS: ${ASSISTANT_BUDGET_CENTS:-25}
       ASSISTANT_LLM_TEMPERATURE: ${ASSISTANT_LLM_TEMPERATURE:-0.2}
@@ -66,7 +65,6 @@ services:
       AGENTK_HELM_ADDITIONAL_CA_FILE_PATH: ${AGENTK_HELM_ADDITIONAL_CA_FILE_PATH:-}
       BUILTIN_TARGET_MCP_SERVER_NAME: ${BUILTIN_TARGET_MCP_SERVER_NAME:-}
       BUILTIN_TARGET_MCP_SERVER_URL: ${BUILTIN_TARGET_MCP_SERVER_URL:-}
-      BUILTIN_TARGET_MCP_SERVER_DISPLAY_NAME: ${BUILTIN_TARGET_MCP_SERVER_DISPLAY_NAME:-}
       GATEWAY_TOKEN_ISSUER: llm-gateway
       GATEWAY_TOKEN_AUDIENCE: execution-gateway
       GATEWAY_TOKEN_TTL_SECONDS: 900

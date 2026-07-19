@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { after, afterEach, beforeEach, describe, it, mock } from 'node:test';
 import {
   callMcpTool,
@@ -7,12 +8,24 @@ import {
   publicAgentToolError,
   stableAgentRequestId
 } from '../src/controllers/internal-mcp-bridge-controller.js';
+import { callPlatformNativeTool } from '../src/controllers/internal-platform-native-tool-controller.js';
+import { downloadWorkflowReport } from '../src/controllers/workflow-reports-controller.js';
 import { AgentToolCallError, AgentUnavailableError } from '../src/agent/types.js';
 import { agentGateway } from '../src/agent/ws-server.js';
 import { getWorkspacePermissions } from '../src/auth/authorization.js';
+import { config } from '../src/config.js';
+import { db } from '../src/infra/db.js';
+import { compileAgentRunScope } from '../src/services/agent-access.js';
 import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
 import { repo } from '../src/store/repository.js';
-import { listAgentDefinitions } from '../src/store/repository-agents.js';
+import {
+  createAgentRunActivity,
+  getAgentDefinition,
+  listAgentDefinitions,
+  updateAgentActivityRecord
+} from '../src/store/repository-agents.js';
+import { listCapabilityRoutingMappings } from '../src/store/repository-capability-routing.js';
+import { getWorkflowReport, renderWorkflowReportPdf } from '../src/store/repository-workflow-reports.js';
 import {
   createWorkflowExecution,
   createWorkflowSession,
@@ -21,10 +34,14 @@ import {
 } from '../src/store/repository-workflows.js';
 import {
   closeAutomationDatabaseFixtures,
+  installAutomationTemplateFixtures,
   resetAutomationDatabaseFixtures
 } from './helpers/automation-database-fixtures.js';
 
-beforeEach(resetAutomationDatabaseFixtures);
+beforeEach(async () => {
+  await resetAutomationDatabaseFixtures();
+  await installAutomationTemplateFixtures();
+});
 after(closeAutomationDatabaseFixtures);
 const originalGetTarget = repo.getTarget;
 const originalInsertWorkspaceAuditEvent = repo.insertWorkspaceAuditEvent;
@@ -55,6 +72,25 @@ function createResponseWithClaims(claims: Record<string, unknown>) {
 async function callMcpBridge(claims: Record<string, unknown>, body: Record<string, unknown>) {
   const res = createResponseWithClaims(claims);
   await callMcpTool({ body } as never, res as never, (err?: unknown) => {
+    if (err) throw err;
+  });
+  return res;
+}
+
+async function callNativeTool(runId: string, toolId: string, body: Record<string, unknown>) {
+  const res = createResponseWithClaims({});
+  await callPlatformNativeTool({ params: { runId, toolId }, body } as never, res as never, (err?: unknown) => {
+    if (err) throw err;
+  });
+  return res;
+}
+
+async function callReportDownloadAs(reportId: string, userId: string) {
+  const res = createResponseWithClaims({});
+  await downloadWorkflowReport({
+    params: { reportId },
+    auth: { userId, credential: { type: 'session', sessionId: `session-${userId}` } }
+  } as never, res as never, (err?: unknown) => {
     if (err) throw err;
   });
   return res;
@@ -117,9 +153,13 @@ describe('internal MCP bridge audit classification', () => {
     const workflow = await getWorkflowDefinition('workspace-1', 'cluster-triage');
     assert.ok(workflow);
     const agents = await listAgentDefinitions(workflow.workspaceId);
+    const entryAgent = agents.find((candidate) => candidate.id === workflow.entryAgentId);
+    assert.ok(entryAgent);
     const compiledAccessScope = compileWorkflowAccessScope({
       workflow,
-      agents,
+      entryAgent,
+      mappings: await listCapabilityRoutingMappings(workflow.workspaceId, { activeReviewedOnly: true }),
+      exactTargets: [{ id: 'cluster-primary', targetType: 'kubernetes' }],
       actor: {
         userId: 'user-1',
         role: 'operator',
@@ -128,8 +168,6 @@ describe('internal MCP bridge audit classification', () => {
       approvedContextGrants: ['workspace_metadata', 'target_inventory']
     });
     const session = await createWorkflowSession({ workflow, createdBy: 'user-1', compiledAccessScope });
-    const agent = agents.find((candidate) => candidate.id === 'agent-cluster-triage');
-    assert.ok(agent);
     const created = await createWorkflowExecution({
       workflow,
       session,
@@ -137,7 +175,7 @@ describe('internal MCP bridge audit classification', () => {
       inputs: { targetId: 'cluster-primary' },
       targetId: 'cluster-primary',
       targetType: 'kubernetes',
-      agentSnapshot: agent as unknown as Record<string, unknown>
+      agentSnapshot: entryAgent as unknown as Record<string, unknown>
     });
     const run = await updateWorkflowRun(
       created.run.id,
@@ -191,13 +229,17 @@ describe('internal MCP bridge audit classification', () => {
     assert.equal(auditMetadata.workflowRunId, run.workflowRunId);
   });
 
-  it('generates an incident report artifact with the built-in workflow tool', async () => {
+  it('dispatches workspace-native PDF tools before the target-adapter boundary', async () => {
     const workflow = await getWorkflowDefinition('workspace-1', 'incident-report-pdf');
     assert.ok(workflow);
     const agents = await listAgentDefinitions(workflow.workspaceId);
+    const entryAgent = agents.find((candidate) => candidate.id === workflow.entryAgentId);
+    assert.ok(entryAgent);
     const compiledAccessScope = compileWorkflowAccessScope({
       workflow,
-      agents,
+      entryAgent,
+      selectedAgents: [entryAgent],
+      mappings: await listCapabilityRoutingMappings(workflow.workspaceId, { activeReviewedOnly: true }),
       actor: {
         userId: 'user-1',
         role: 'operator',
@@ -206,20 +248,16 @@ describe('internal MCP bridge audit classification', () => {
       approvedContextGrants: ['selected_chat_sessions']
     });
     const session = await createWorkflowSession({ workflow, createdBy: 'user-1', compiledAccessScope });
-    const agent = agents.find((candidate) => candidate.id === 'agent-incident-reporter');
-    assert.ok(agent);
     const created = await createWorkflowExecution({
       workflow,
       session,
       content: 'Generate incident report',
-      inputs: { chatSessionIds: ['chat-1'] },
-      agentSnapshot: agent as unknown as Record<string, unknown>
+      inputs: { chatSessionIds: ['chat-session-1'] },
+      agentSnapshot: entryAgent as unknown as Record<string, unknown>
     });
     const run = await updateWorkflowRun(created.run.id, { status: 'running' });
     assert.ok(run);
-
-    const response = await callMcpBridge(
-      {
+    const claims = {
         runId: run.id,
         workspaceId: run.workspaceId,
         sessionId: run.workflowSessionId,
@@ -227,24 +265,154 @@ describe('internal MCP bridge audit classification', () => {
         workflowId: run.workflowId,
         workflowRunId: run.workflowRunId,
         workflowSessionId: run.workflowSessionId,
-        workflowStepId: run.workflowStepId,
         allowedTools: ['reports.pdf.generate'],
         allowedToolOperations: { 'reports.pdf.generate': 'read' },
-        contextGrants: run.compiledAccessScope.contextGrants
+        contextGrants: []
+      };
+    const body = {
+      name: 'reports.pdf.generate',
+      arguments: {
+        title: 'Payments incident',
+        markdown: '# Payments incident\n\nRecovered.',
+        provenance: { workflowId: 'spoofed-workflow', sourceChatIds: ['chat-session-1'] }
       },
-      {
-        name: 'reports.pdf.generate',
-        arguments: { title: 'Payments incident', markdown: '# Payments incident\n\nRecovered.' }
-      }
-    );
+      toolCallId: 'call-report-1'
+    };
+    const response = await callMcpBridge(claims, body);
 
     assert.equal(response.statusCode, 200);
-    const content = (response.body as { content: Array<{ text: string }> }).content;
-    const payload = JSON.parse(content[0].text) as {
-      artifact: { id: string; type: string; mediaType: string; downloadPath: string };
+    const result = response.body as {
+      structuredContent: { reportId: string; downloadUrl: string };
+      isError: boolean;
     };
-    assert.equal(payload.artifact.type, 'pdf');
-    assert.equal(payload.artifact.mediaType, 'application/pdf');
-    assert.equal(payload.artifact.downloadPath, `/api/v1/workflow-reports/${payload.artifact.id}/download`);
+    assert.equal(result.isError, false);
+    assert.match(result.structuredContent.reportId, /^[0-9a-f-]{36}$/);
+    assert.equal(result.structuredContent.downloadUrl, `/api/v1/report-artifacts/${result.structuredContent.reportId}/download`);
+
+    const repeated = await callMcpBridge(claims, body);
+    assert.equal(repeated.statusCode, 200);
+    assert.equal(
+      (repeated.body as { structuredContent: { reportId: string } }).structuredContent.reportId,
+      result.structuredContent.reportId
+    );
+    const persisted = await db.query<{ provenance: Record<string, unknown> }>(
+      'SELECT provenance FROM workflow_reports WHERE run_id=$1 AND tool_call_id=$2',
+      [run.id, 'call-report-1']
+    );
+    assert.equal(persisted.rowCount, 1);
+    assert.equal(persisted.rows[0].provenance.workflowId, run.workflowId);
+    assert.deepEqual(persisted.rows[0].provenance.sourceChatIds, ['chat-session-1']);
+
+    const oversized = await callMcpBridge(claims, {
+      name: 'reports.pdf.generate',
+      arguments: { title: 'Too large', markdown: 'x'.repeat(262_145) },
+      toolCallId: 'call-report-too-large'
+    });
+    assert.equal(oversized.statusCode, 413);
+    assert.equal((oversized.body as { error: { code: string } }).error.code, 'REPORT_SOURCE_TOO_LARGE');
+  });
+
+  it('creates idempotent PDF artifacts for target-chat tool calls', async () => {
+    await db.query(
+      `INSERT INTO workspace_memberships (workspace_id,user_id,role)
+       VALUES ('workspace-1','user-1','operator')`
+    );
+    const session = await repo.addSession('workspace-1', 'cluster-1', 'user-1', 'Target report test');
+    const message = await repo.addMessage(session.id, 'user', 'Summarize this investigation');
+    const runId = randomUUID();
+    await repo.addRun({
+      id: runId,
+      workspaceId: 'workspace-1',
+      targetId: 'cluster-1',
+      targetType: 'kubernetes',
+      sessionId: session.id,
+      messageId: message.id,
+      llmProvider: 'openai',
+      llmModel: 'gpt-5-nano',
+      llmReasoningSummaryMode: 'off',
+      llmReasoningEffort: 'low',
+      toolAccessMode: 'read_only',
+      status: 'running',
+      requestedAt: new Date().toISOString()
+    });
+
+    const toolBody = {
+      toolCallId: 'call-target-report-1',
+      arguments: { title: 'Target investigation', markdown: '# Findings\n\nThe target is healthy.' }
+    };
+    const first = await callNativeTool(runId, 'reports.pdf.generate', toolBody);
+    assert.equal(first.statusCode, 200);
+    const firstReportId = (first.body as { structuredContent: { reportId: string } }).structuredContent.reportId;
+    const repeated = await callNativeTool(runId, 'reports.pdf.generate', toolBody);
+    assert.equal(
+      (repeated.body as { structuredContent: { reportId: string } }).structuredContent.reportId,
+      firstReportId
+    );
+
+    const persisted = await db.query<{ source: { markdown: string }; provenance: Record<string, unknown> }>(
+      `SELECT source,provenance FROM workflow_reports
+       WHERE target_run_id=$1 AND tool_call_id='call-target-report-1'`,
+      [runId]
+    );
+    assert.equal(persisted.rowCount, 1);
+    assert.equal(persisted.rows[0].source.markdown, '# Findings\n\nThe target is healthy.');
+    assert.equal(persisted.rows[0].provenance.runId, runId);
+    const storedReport = await getWorkflowReport(firstReportId);
+    assert.ok(storedReport);
+    const expectedExpiry = Date.now() + config.TARGET_CHAT_REPORT_RETENTION_DAYS * 86_400_000;
+    assert.ok(Math.abs(Date.parse(storedReport.retentionExpiresAt) - expectedExpiry) < 60_000);
+    const pdf = renderWorkflowReportPdf(storedReport);
+    assert.equal(pdf.subarray(0, 8).toString('ascii'), '%PDF-1.4');
+    assert.equal(pdf.subarray(-5).toString('ascii'), '%%EOF');
+    const multipagePdf = renderWorkflowReportPdf({
+      ...storedReport,
+      source: { markdown: Array.from({ length: 120 }, (_, index) => `Evidence line ${index + 1}`).join('\n') }
+    });
+    assert.match(multipagePdf.toString('ascii'), /\/Type \/Pages \/Kids \[[^\]]+\] \/Count 3/);
+
+    const crossWorkspaceDownload = await callReportDownloadAs(firstReportId, 'user-outside-workspace');
+    assert.equal(crossWorkspaceDownload.statusCode, 403);
+
+    await repo.updateRun(runId, { status: 'completed' });
+    const inactive = await callNativeTool(runId, 'reports.pdf.generate', {
+      toolCallId: 'call-after-completion',
+      arguments: { title: 'Too late', markdown: '# Too late' }
+    });
+    assert.equal(inactive.statusCode, 409);
+    assert.equal((inactive.body as { error: { code: string } }).error.code, 'RUN_NOT_ACTIVE');
+  });
+
+  it('denies workspace-native functions for direct Agent runs', async () => {
+    const agent = await getAgentDefinition('workspace-1', 'agent-incident-reporter');
+    assert.ok(agent);
+    const actor = {
+      userId: 'user-1',
+      role: 'admin' as const,
+      permissions: getWorkspacePermissions('admin')
+    };
+    const run = await createAgentRunActivity({
+      agent,
+      triggeredBy: { type: 'user', userId: 'user-1' },
+      prompt: 'Generate a report directly.',
+      inputContext: {},
+      compiledScope: compileAgentRunScope({
+        agent,
+        actor,
+        approvedContextGrants: ['selected_chat_sessions'],
+        mappings: await listCapabilityRoutingMappings('workspace-1', { activeReviewedOnly: true })
+      }),
+      clientRequestId: 'direct-agent-report-denial'
+    });
+    await updateAgentActivityRecord(run.id, { status: 'running' });
+
+    const denied = await callNativeTool(run.id, 'reports.pdf.generate', {
+      toolCallId: 'call-direct-agent-report',
+      arguments: { title: 'Denied', markdown: '# Denied' }
+    });
+    assert.equal(denied.statusCode, 403);
+    assert.equal(
+      (denied.body as { error: { code: string } }).error.code,
+      'WORKSPACE_NATIVE_TOOL_SCOPE_DENIED'
+    );
   });
 });

@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, it, mock } from 'node:test';
-import {
-  bootstrap,
-  summarizeRunEventCounts
-} from '../src/controllers/internal-execution-controller.js';
+import { bootstrap, summarizeRunEventCounts } from '../src/controllers/internal-execution-controller.js';
 import { normalizeToolCapability } from '../src/services/target-run-tool-resolution.js';
 import { agentGateway } from '../src/agent/ws-server.js';
 import { webhooks, type WebhookEventInput } from '../src/services/webhooks.js';
@@ -11,13 +8,10 @@ import { gatewayTokenService } from '../src/services/token-service.js';
 import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
 import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { repo } from '../src/store/repository.js';
-import {
-  createWorkflowExecution,
-  createWorkflowSession,
-  getWorkflowDefinition
-} from '../src/store/repository-workflows.js';
+import { createWorkflowExecution, createWorkflowSession, getWorkflowDefinition } from '../src/store/repository-workflows.js';
 import { runtime } from '../src/store/runtime.js';
 import { listAgentDefinitions } from '../src/store/repository-agents.js';
+import { listCapabilityRoutingMappings } from '../src/store/repository-capability-routing.js';
 import type { RunEvent } from '../src/types/domain.js';
 import {
   callController,
@@ -31,6 +25,7 @@ import {
 } from './helpers/controller-regression-fixtures.js';
 import {
   closeAutomationDatabaseFixtures,
+  installAutomationTemplateFixtures,
   resetAutomationDatabaseFixtures
 } from './helpers/automation-database-fixtures.js';
 
@@ -41,6 +36,7 @@ const originalWebhookEmit = webhooks.emit;
 
 beforeEach(async () => {
   await resetAutomationDatabaseFixtures();
+  await installAutomationTemplateFixtures();
   webhooks.emit = (_event: WebhookEventInput) => undefined;
   repo.insertWorkspaceAuditEvent = async (event) => ({
     id: 'audit-event-1',
@@ -78,7 +74,6 @@ beforeEach(async () => {
   repo.getTargetToolSetting = async () => null;
   repo.listEnabledTargetToolSettings = async () => [];
 });
-
 afterEach(() => {
   restoreControllerRegressionState();
   repo.appendRunEvents = originalAppendRunEvents;
@@ -104,6 +99,8 @@ function createRunEvent(type: string, seq: number, payload: Record<string, unkno
 const VM_BOOTSTRAP_TOOLS = [
   {
     name: 'restart_service',
+    server_id: '00000000-0000-4000-8000-000000000001',
+    model_alias: 'restart_service',
     mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
     timeout_ms: 10000,
     description: 'Restart a VM service',
@@ -115,6 +112,8 @@ const VM_BOOTSTRAP_TOOLS = [
   },
   {
     name: 'query_logs',
+    server_id: '00000000-0000-4000-8000-000000000001',
+    model_alias: 'query_logs',
     mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
     timeout_ms: 10000,
     description: 'Read VM logs',
@@ -177,10 +176,25 @@ describe('internal execution bootstrap audit metadata', () => {
     mockVmBootstrapToolFetch();
 
     const response = await callController(bootstrap, createRequest({ runId: 'run-1' }));
-    const allowedTools = (response.body as { tools: { allowed_tools: string[] } }).tools.allowed_tools;
+    const tools = (response.body as {
+      tools: {
+        allowed_tools: string[];
+        native_tools: Array<{ id: string }>;
+        platform_functions: Array<{ id: string; model_alias: string }>;
+        tool_specs: Array<{ name: string }>;
+        gateway: { token: string };
+      };
+    }).tools;
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(allowedTools, ['query_logs', 'restart_service']);
+    assert.deepEqual(tools.allowed_tools, ['query_logs', 'restart_service', 'acornops_generate_pdf_report']);
+    assert.deepEqual(tools.native_tools, []);
+    assert.deepEqual(tools.platform_functions, [
+      { id: 'reports.pdf.generate', model_alias: 'acornops_generate_pdf_report' }
+    ]);
+    assert.ok(tools.tool_specs.some((tool) => tool.name === 'acornops_generate_pdf_report'));
+    const claims = await gatewayTokenService.verifyRunScopeToken(tools.gateway.token);
+    assert.deepEqual(claims.allowedNativeTools, []);
   });
 
   it('reports read-only run mode when configured write tools are filtered from bootstrap', async () => {
@@ -203,7 +217,7 @@ describe('internal execution bootstrap audit metadata', () => {
     const tools = (response.body as { tools: { allowed_tools: string[]; write_unavailable_reason: string | null } }).tools;
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(tools.allowed_tools, ['query_logs']);
+    assert.deepEqual(tools.allowed_tools, ['query_logs', 'acornops_generate_pdf_report']);
     assert.equal(tools.write_unavailable_reason, 'run_read_only');
   });
 
@@ -227,7 +241,7 @@ describe('internal execution bootstrap audit metadata', () => {
     const tools = (response.body as { tools: { allowed_tools: string[]; write_unavailable_reason: string | null } }).tools;
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(tools.allowed_tools, ['query_logs']);
+    assert.deepEqual(tools.allowed_tools, ['query_logs', 'acornops_generate_pdf_report']);
     assert.equal(tools.write_unavailable_reason, 'agent_write_disabled');
   });
 
@@ -322,17 +336,23 @@ describe('internal execution bootstrap audit metadata', () => {
     const tools = (response.body as { tools: { allowed_tools: string[]; tool_specs: unknown[] } }).tools;
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(tools.allowed_tools, []);
-    assert.deepEqual(tools.tool_specs, []);
+    assert.deepEqual(tools.allowed_tools, ['acornops_generate_pdf_report']);
+    assert.deepEqual((tools.tool_specs as Array<{ name: string }>).map((tool) => tool.name), [
+      'acornops_generate_pdf_report'
+    ]);
   });
 
   it('bootstraps cluster triage with target scope and only built-in tools', async () => {
     const workflow = await getWorkflowDefinition('workspace-1', 'cluster-triage');
     assert.ok(workflow);
     const agents = await listAgentDefinitions(workflow.workspaceId);
+    const entryAgent = agents.find((candidate) => candidate.id === workflow.entryAgentId);
+    assert.ok(entryAgent);
     const compiledAccessScope = compileWorkflowAccessScope({
       workflow,
-      agents,
+      entryAgent,
+      mappings: await listCapabilityRoutingMappings(workflow.workspaceId, { activeReviewedOnly: true }),
+      exactTargets: [{ id: 'cluster-primary', targetType: 'kubernetes' }],
       actor: {
         userId: 'user-1',
         role: 'operator',
@@ -345,8 +365,6 @@ describe('internal execution bootstrap audit metadata', () => {
       createdBy: 'user-1',
       compiledAccessScope
     });
-    const agent = agents.find((candidate) => candidate.id === 'agent-cluster-triage');
-    assert.ok(agent);
     const created = await createWorkflowExecution({
       workflow,
       session,
@@ -354,7 +372,7 @@ describe('internal execution bootstrap audit metadata', () => {
       inputs: { targetId: 'cluster-primary', severity: 'high' },
       targetId: 'cluster-primary',
       targetType: 'kubernetes',
-      agentSnapshot: agent as unknown as Record<string, unknown>,
+      agentSnapshot: entryAgent as unknown as Record<string, unknown>,
       llmProvider: 'gemini',
       llmModel: 'gemini-2.0-flash',
       llmReasoningSummaryMode: 'off',
@@ -367,10 +385,9 @@ describe('internal execution bootstrap audit metadata', () => {
       const url = String(input);
       if (url.includes('/api/v1/internal/mcp/tools?')) {
         return new Response(JSON.stringify([
-          { name: 'list_resources', mcp_server_url: 'http://control-plane:8081/internal/v1/mcp', timeout_ms: 10000, capability: 'read', source: 'builtin', input_schema: { type: 'object' }, enabled: true },
-          { name: 'get_resource', mcp_server_url: 'http://control-plane:8081/internal/v1/mcp', timeout_ms: 10000, capability: 'read', source: 'builtin', input_schema: { type: 'object' }, enabled: true },
-          { name: 'get_resource_logs', mcp_server_url: 'http://control-plane:8081/internal/v1/mcp', timeout_ms: 10000, capability: 'read', source: 'builtin', input_schema: { type: 'object' }, enabled: true },
-          { name: 'get_weather', mcp_server_url: 'https://mock.example.test/mcp', timeout_ms: 10000, capability: 'read', source: 'mcp', input_schema: { type: 'object' }, enabled: true }
+          { name: 'list_resources', server_id: 'acornops-target-agent', model_alias: 'list_resources', mcp_server_url: 'http://control-plane:8081/internal/v1/mcp', timeout_ms: 10000, capability: 'read', source: 'builtin', input_schema: { type: 'object' }, enabled: true },
+          { name: 'get_resource', server_id: 'acornops-target-agent', model_alias: 'get_resource', mcp_server_url: 'http://control-plane:8081/internal/v1/mcp', timeout_ms: 10000, capability: 'read', source: 'builtin', input_schema: { type: 'object' }, enabled: true },
+          { name: 'get_resource_logs', server_id: 'acornops-target-agent', model_alias: 'get_resource_logs', mcp_server_url: 'http://control-plane:8081/internal/v1/mcp', timeout_ms: 10000, capability: 'read', source: 'builtin', input_schema: { type: 'object' }, enabled: true }
         ]), { status: 200 });
       }
       if (isWorkspaceAiCredentialStatusRequest(input)) {
@@ -437,10 +454,10 @@ describe('internal execution bootstrap audit metadata', () => {
 
     const response = await callController(bootstrap, createRequest({ runId: 'run-1' }));
 
-    assert.equal(response.statusCode, 502);
+    assert.equal(response.statusCode, 503);
     assert.deepEqual(response.body, {
       error: {
-        code: 'UPSTREAM_ERROR',
+        code: 'SERVICE_UNAVAILABLE',
         message: 'Failed to check workspace AI provider settings with llm-gateway',
         retryable: true
       }

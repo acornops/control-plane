@@ -245,9 +245,13 @@ Kubernetes deployments run this through the Helm migration Job:
 node dist/scripts/control-plane-db.js migrate
 ```
 
-Automation migrations are additive and forward-compatible. Runtime rollback is
-performed by setting `AUTOMATION_RUNTIME_MODE=off` and restoring the previous
-images; do not roll back the schema.
+Workflow schema epoch 2 is a first-install or explicit-reset cutover. Run the
+secret-free `db:preflight` command before migration. If it reports
+`WORKFLOW_V2_DATABASE_RESET_REQUIRED`, back up and explicitly drop/recreate the
+database before retrying; migration and startup never delete incompatible V1
+workflow data. Deploy the pinned control-plane, execution-engine, and gateway
+matrix together. A V1 rollback requires restoring the database backup and the
+complete V1 image matrix.
 
 ## Failure Modes
 

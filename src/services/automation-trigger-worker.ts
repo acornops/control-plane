@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { capabilitiesToPermissions } from '../auth/authorization.js';
 import { config } from '../config.js';
 import { db } from '../infra/db.js';
 import { logger } from '../logger.js';
@@ -9,6 +8,10 @@ import { withTransaction } from '../store/repository-transaction.js';
 import { computeNextWorkflowScheduleRunAt } from '../store/repository-workflow-schedules.js';
 import type { TargetType } from '../types/domain.js';
 import { compileAgentRunScope } from './agent-access.js';
+import { resolveRunPrincipal } from './run-principal.js';
+import { getExactMcpReadinessErrors } from './workflow-readiness.js';
+import { listCapabilityRoutingMappings } from '../store/repository-capability-routing.js';
+import { repo } from '../store/repository.js';
 
 type DeliveryRow = {
   id: string;
@@ -17,6 +20,7 @@ type DeliveryRow = {
   trigger_id: string;
   attempt_count: number;
   agent_id: string;
+  principal: { type: 'user' | 'service_identity'; id: string } | null;
   event_filter: Record<string, unknown> | null;
   payload: Record<string, unknown>;
   source_type: 'webhook' | 'schedule' | 'target_event';
@@ -47,7 +51,7 @@ async function claim(limit: number): Promise<DeliveryRow[]> {
          AND trigger.id=delivery.trigger_id
          AND event.id=delivery.event_id
        RETURNING delivery.id,delivery.event_id,delivery.workspace_id,delivery.trigger_id,
-         delivery.attempt_count,trigger.agent_id,trigger.event_filter,event.payload,event.source_type`,
+         delivery.attempt_count,trigger.agent_id,trigger.principal,trigger.event_filter,event.payload,event.source_type`,
       [limit, workerId]
     );
     return result.rows;
@@ -84,32 +88,55 @@ async function retry(row: DeliveryRow): Promise<void> {
 async function deliver(row: DeliveryRow): Promise<void> {
   const agent = await getAgentDefinition(row.workspace_id, row.agent_id);
   if (!agent || agent.status !== 'active') return reject(row, 'AGENT_NOT_ACTIVE');
-  if (agent.readiness.status === 'blocked') return reject(row, 'AGENT_NOT_READY');
+  if (agent.readiness.status !== 'ready') return reject(row, 'AGENT_NOT_READY');
+  if (!row.principal) return reject(row, 'TRIGGER_PRINCIPAL_REQUIRED');
+  const actor = await resolveRunPrincipal(row.workspace_id, row.principal);
+  if (!actor) return reject(row, 'TRIGGER_PRINCIPAL_NOT_AUTHORIZED');
   const approvedContextGrants = stringArray(row.event_filter?.approvedContextGrants);
+  const targetId = typeof row.payload.targetId === 'string' && row.payload.targetId.trim()
+    ? row.payload.targetId.trim()
+    : undefined;
+  const requestedTargetType = row.payload.targetType === 'kubernetes' || row.payload.targetType === 'virtual_machine'
+    ? row.payload.targetType as TargetType
+    : undefined;
+  const target = targetId ? await repo.getTarget(row.workspace_id, targetId) : null;
+  if (targetId && !target) return reject(row, 'TRIGGER_TARGET_NOT_FOUND');
+  if (target && target.status === 'offline') return reject(row, 'TRIGGER_TARGET_NOT_READY');
+  if (target && requestedTargetType && requestedTargetType !== target.targetType) {
+    return reject(row, 'TRIGGER_TARGET_TYPE_MISMATCH');
+  }
+  const mappings = await listCapabilityRoutingMappings(row.workspace_id, {
+    activeReviewedOnly: true,
+    capabilityIds: agent.semanticCapabilityIds
+  });
   let compiledScope;
   try {
     compiledScope = compileAgentRunScope({
       agent,
       triggerId: row.trigger_id,
       approvedContextGrants,
-      actor: {
-        userId: `agent-trigger:${row.trigger_id}`,
-        role: 'automation_runtime',
-        permissions: capabilitiesToPermissions([
-          'read_workspace_data',
-          Object.values(agent.tools).some((tool) => /(?:\.create|\.update|\.delete|\.write|\.generate)$/.test(tool))
-            ? 'create_read_write_runs'
-            : 'create_read_only_runs'
-        ])
-      }
+      principal: row.principal,
+      actor,
+      mappings,
+      exactTarget: target ? { id: target.id, targetType: target.targetType } : undefined
     });
   } catch {
     return reject(row, 'TRIGGER_SCOPE_NOT_APPROVED');
   }
-  const targetId = typeof row.payload.targetId === 'string' ? row.payload.targetId : undefined;
-  const targetType = row.payload.targetType === 'kubernetes' || row.payload.targetType === 'virtual_machine'
-    ? row.payload.targetType as TargetType
-    : undefined;
+  const readinessErrors = await getExactMcpReadinessErrors(
+    row.workspace_id,
+    compiledScope.principal,
+    compiledScope.mcpTools
+  );
+  if (readinessErrors.length > 0) {
+    return reject(
+      row,
+      readinessErrors[0].startsWith('MCP_PAT_USER_PRINCIPAL_REQUIRED')
+        ? 'MCP_PAT_USER_PRINCIPAL_REQUIRED'
+        : 'MCP_PERSONAL_CONNECTION_REQUIRED'
+    );
+  }
+  const targetType = target?.targetType;
   const prompt = typeof row.payload.prompt === 'string' && row.payload.prompt.trim()
     ? row.payload.prompt.trim().slice(0, 20_000)
     : 'Process the accepted automation event using only the compiled Agent scope.';

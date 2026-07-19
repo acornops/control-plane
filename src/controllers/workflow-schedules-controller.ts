@@ -25,6 +25,8 @@ import {
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import type { RunToolApproval } from '../types/domain.js';
 import type { WorkflowApprovalInboxResponse, WorkflowApprovalInboxRow, WorkflowScheduleRecord } from '../types/workflows.js';
+import { resolveRunPrincipal } from '../services/run-principal.js';
+import type { WorkflowSchedulePrincipal } from '../types/workflows.js';
 import {
   countPendingWorkspaceAutomationApprovals,
   listWorkspaceAutomationApprovals,
@@ -67,7 +69,7 @@ export async function previewWorkflowSchedule(req: AuthenticatedRequest, res: Re
           errors.push({ field: `inputDefaults.${input.name}`, message: `${input.label} is required.` });
         }
       }
-      const allowedGrants = new Set(workflow.steps.flatMap((step) => step.contextGrants));
+      const allowedGrants = new Set(workflow.capabilityPolicy.contextGrants);
       for (const grant of approvedContextGrants) {
         if (!allowedGrants.has(grant)) errors.push({ field: 'approvedContextGrants', message: `Context grant ${grant} is not used by this workflow.` });
       }
@@ -97,6 +99,13 @@ function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function principalRef(value: unknown): WorkflowSchedulePrincipal | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const principal = value as Record<string, unknown>;
+  if (principal.type !== 'user' || typeof principal.id !== 'string' || !principal.id.trim()) return undefined;
+  return { type: 'user', id: principal.id.trim() };
+}
+
 async function scheduleSummary(items: WorkflowScheduleRecord[]) {
   const workflowBySchedule = new Map(await Promise.all(items.map(async (item) => [
     item.id,
@@ -108,7 +117,7 @@ async function scheduleSummary(items: WorkflowScheduleRecord[]) {
     paused: items.filter((item) => item.status === 'paused').length,
     approvalGated: items.filter((item) => {
       const workflow = workflowBySchedule.get(item.id);
-      return Boolean(workflow?.policy.approvalRequirements.length || workflow?.steps.some((step) => step.approvalRequired));
+      return Boolean(workflow?.capabilityPolicy.approvalRequirements.length);
     }).length,
     nextRunAt: items
       .filter((item) => item.status === 'enabled' && item.nextRunAt)
@@ -159,6 +168,15 @@ export async function createWorkflowScheduleForWorkspace(req: AuthenticatedReque
       res.status(400).json({ error: { code: validation.code, message: validation.message, retryable: false } });
       return;
     }
+    const principal = principalRef(body.principal);
+    if (!principal || principal.id !== req.auth.userId) {
+      res.status(400).json({ error: { code: 'WORKFLOW_SCHEDULE_USER_PRINCIPAL_REQUIRED', message: 'Workflow schedules must run as the authenticated creator.', retryable: false } });
+      return;
+    }
+    if (!(await resolveRunPrincipal(workspaceId, principal))) {
+      res.status(403).json({ error: { code: 'WORKFLOW_SCHEDULE_PRINCIPAL_INVALID', message: 'The delegated principal is not active or authorized in this workspace.', retryable: false } });
+      return;
+    }
     const workflow = await getWorkflowDefinition(workspaceId, String(body.workflowId));
     if (!workflow) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
@@ -175,7 +193,8 @@ export async function createWorkflowScheduleForWorkspace(req: AuthenticatedReque
         cron: String(body.cron),
         timezone: String(body.timezone),
         inputDefaults: objectValue(body.inputDefaults),
-        approvedContextGrants: stringList(body.approvedContextGrants)
+        approvedContextGrants: stringList(body.approvedContextGrants),
+        principal
       }
     });
     await recordWorkspaceAuditEvent({
@@ -229,6 +248,16 @@ export async function updateWorkflowSchedule(req: AuthenticatedRequest, res: Res
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
       return;
     }
+    const requestedPrincipal = body.principal === undefined ? undefined : principalRef(body.principal);
+    if (body.principal !== undefined && (!requestedPrincipal || requestedPrincipal.id !== req.auth.userId)) {
+      res.status(400).json({ error: { code: 'WORKFLOW_SCHEDULE_USER_PRINCIPAL_REQUIRED', message: 'Workflow schedules must use the authenticated user principal.', retryable: false } });
+      return;
+    }
+    const principal = requestedPrincipal || current.principal;
+    if (!(await resolveRunPrincipal(current.workspaceId, principal))) {
+      res.status(403).json({ error: { code: 'WORKFLOW_SCHEDULE_PRINCIPAL_INVALID', message: 'The schedule user is not active or authorized in this workspace.', retryable: false } });
+      return;
+    }
     const updated = await updateWorkflowScheduleRecord(
       scheduleId,
       {
@@ -240,7 +269,8 @@ export async function updateWorkflowSchedule(req: AuthenticatedRequest, res: Res
         cron: typeof body.cron === 'string' ? body.cron : undefined,
         timezone: typeof body.timezone === 'string' ? body.timezone : undefined,
         inputDefaults: body.inputDefaults === undefined ? undefined : objectValue(body.inputDefaults),
-        approvedContextGrants: body.approvedContextGrants === undefined ? undefined : stringList(body.approvedContextGrants)
+        approvedContextGrants: body.approvedContextGrants === undefined ? undefined : stringList(body.approvedContextGrants),
+        principal
       },
       req.auth.userId
     );

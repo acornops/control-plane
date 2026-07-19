@@ -63,6 +63,33 @@ export function buildInternalPaths(): Record<string, unknown> {
             }
           }
         }
+      },
+    '/internal/v1/runs/{runId}/native-tools/{toolId}/call': {
+      post: {
+        tags: ['internal'],
+        summary: 'Internal: execute an authorized platform-native tool',
+        description: 'Executes a code-owned workspace-native tool only when the run scope, compiled tool authority, invocation scope, and active run state permit it. Direct Agent runs are not supported.',
+        security: [{ serviceToken: [] }],
+        parameters: [
+          { in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid' } },
+          { in: 'path', name: 'toolId', required: true, schema: { type: 'string', example: 'reports.pdf.generate' } }
+        ],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: {
+            type: 'object', required: ['toolCallId', 'arguments'], additionalProperties: false,
+            properties: {
+              toolCallId: { type: 'string', minLength: 1 },
+              arguments: { type: 'object', additionalProperties: true }
+            }
+          } } }
+        },
+        responses: {
+          '200': { description: 'MCP-style tool result envelope.' },
+          '403': { description: 'The tool is outside the run or invocation scope.' },
+          '409': { description: 'The run is not active.' }
+        }
+      }
       }
   };
 }

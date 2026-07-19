@@ -20,7 +20,6 @@ import { emitTargetChatActivityEvent } from './services/target-chat-activity-eve
 import { expireAndResumeTimedOutApprovals } from './services/approval-timeouts.js';
 import { syncTargetBuiltInTools } from './services/target-built-in-tool-sync.js';
 import { runControlPlaneRetentionSweep } from './services/conversation-retention.js';
-import { ensureDevelopmentMcpSeed } from './services/development-mcp-seed.js';
 import { runTargetInsightsCheckpointSweep } from './services/target-insights/checkpoint-worker.js';
 import { runAutomationOutboxTick } from './services/automation-outbox-worker.js';
 import { runAutomationTriggerTick } from './services/automation-trigger-worker.js';
@@ -28,10 +27,15 @@ import { runWorkflowScheduleTick } from './services/workflow-scheduler.js';
 import { refreshAutomationMetricsSnapshot } from './services/automation-diagnostics.js';
 import { repo } from './store/repository.js';
 import { runtime } from './store/runtime.js';
+import { backfillStarterAutomationV1 } from './services/automation-templates.js';
+import { backfillWorkflowCoordinationInfrastructure } from './services/automation-definition-service.js';
 import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE } from './types/domain.js';
+import { runMcpSecretCleanupTick } from './services/mcp-secret-cleanup-worker.js';
 
 async function main(): Promise<void> {
   await initializeDatabase();
+  await backfillStarterAutomationV1();
+  await backfillWorkflowCoordinationInfrastructure();
   await repo.syncRoleTemplates(config.WORKSPACE_ROLE_TEMPLATES);
   await initializeRedis();
   registerRunEventHandler(({ runId, events }) => {
@@ -46,8 +50,7 @@ async function main(): Promise<void> {
   });
   await startControlPlaneCoordination();
   if (config.SEED_DEVELOPMENT_DATA) {
-    await repo.ensureDevelopmentSeed(config.SEED_AGENT_KEY, config.SEED_VM_AGENT_KEY);
-    await ensureDevelopmentMcpSeed();
+    await repo.ensureDevelopmentTargetSeed(config.SEED_AGENT_KEY, config.SEED_VM_AGENT_KEY);
     await syncTargetBuiltInTools(DEVELOPMENT_WORKSPACE_ID, DEVELOPMENT_CLUSTER_ID, KUBERNETES_TARGET_TYPE);
     await syncTargetBuiltInTools(DEVELOPMENT_WORKSPACE_ID, DEVELOPMENT_VM_ID, VIRTUAL_MACHINE_TARGET_TYPE);
   }
@@ -125,6 +128,7 @@ async function main(): Promise<void> {
       await runWorkflowScheduleTick();
       await runAutomationTriggerTick();
       await runAutomationOutboxTick();
+      await runMcpSecretCleanupTick();
       await refreshAutomationMetricsSnapshot();
     } catch (err) {
       logger.warn({ err }, 'Automation worker tick failed');

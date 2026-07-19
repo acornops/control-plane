@@ -1,10 +1,17 @@
-import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { TargetType } from '../types/domain.js';
-import { internalFetch, type InternalHttpResponse } from './internal-http-client.js';
-
+import {
+  createGatewayRequestOptions as createRequestOptions,
+  fetchGateway,
+  LlmGatewayHttpError,
+  parseGatewayResponse as parseOrThrow
+} from './llm-gateway-admin-client.js';
+export { LlmGatewayHttpError } from './llm-gateway-admin-client.js';
+export * from './mcp-catalog-client.js';
 export interface McpToolConfig {
   name: string;
+  server_id: string;
+  model_alias: string;
   mcp_server_url: string;
   timeout_ms: number;
   description?: string;
@@ -15,18 +22,23 @@ export interface McpToolConfig {
   output_schema?: Record<string, unknown>;
   artifact_policy?: 'never' | 'if_detailed' | 'always';
   enabled: boolean;
+  review_state?: 'pending' | 'approved' | 'rejected';
+  risk_level?: 'read_only' | 'non_destructive_write' | 'high_risk' | 'destructive';
+  auto_allowed?: boolean;
 }
-
 export interface McpServerConfig {
   id: string;
   workspace_id: string;
-  target_id: string;
-  scope_type?: 'workspace' | 'target';
-  target_type: TargetType | 'workspace';
+  target_id?: string | null;
+  agent_id?: string | null;
+  scope_type?: 'agent' | 'target';
+  target_type?: TargetType | 'agent' | null;
+  target_constraints?: { target_types?: TargetType[]; target_ids?: string[] };
   server_name: string;
   server_url: string;
   enabled: boolean;
   auth_type: 'none' | 'bearer_token' | 'custom_header';
+  auth_scope?: 'none' | 'personal';
   credential_configured?: boolean;
   auth_header_name?: string;
   auth_header_prefix?: string;
@@ -34,11 +46,26 @@ export interface McpServerConfig {
   connection_status?: 'unknown' | 'ok' | 'error';
   last_discovery_at?: string | null;
   last_discovery_error?: string | null;
+  catalog_source_id?: string | null;
+  catalog_artifact_name?: string | null;
+  catalog_version?: string | null;
+  catalog_digest?: string | null;
+  catalog_imported_at?: string | null;
   tools: McpToolConfig[];
+  provenance_type?: 'manual' | 'catalog' | 'builtin';
+  endpoint_configuration?: Record<string, unknown>;
+  integration_profile_id?: string | null;
+  integration_profile_version?: number | null;
+  revision?: number;
 }
 
-export type UpsertWorkspaceMcpServerInput = Omit<UpsertTargetMcpServerInput, 'targetId' | 'targetType'>;
-export type UpdateWorkspaceMcpServerInput = Omit<UpdateTargetMcpServerInput, 'targetId' | 'targetType'>;
+export type PublicMcpServerConfig = Omit<McpServerConfig, 'credential_configured'>;
+
+export function toPublicMcpServerConfig(server: McpServerConfig): PublicMcpServerConfig {
+  const publicServer = { ...server };
+  delete publicServer.credential_configured;
+  return publicServer;
+}
 
 export interface McpServerConnectionTestResult {
   server_id: string;
@@ -50,7 +77,6 @@ export interface McpServerConnectionTestResult {
   discovered_tools: string[];
   error?: string | null;
 }
-
 export interface UpsertTargetMcpServerInput {
   workspaceId: string;
   targetId: string;
@@ -61,8 +87,6 @@ export interface UpsertTargetMcpServerInput {
   publicHeaders?: Record<string, string>;
   auth?: {
     type?: 'none' | 'bearer_token' | 'custom_header';
-    secretName?: string;
-    secretValue?: string;
     headerName?: string;
     headerPrefix?: string;
   };
@@ -79,19 +103,17 @@ export interface UpsertTargetMcpServerInput {
     enabled?: boolean;
   }>;
 }
-
 export interface UpdateTargetMcpServerInput {
   workspaceId: string;
   targetId: string;
   targetType: TargetType;
   serverId: string;
+  url?: string;
   name?: string;
   enabled?: boolean;
   publicHeaders?: Record<string, string>;
   auth?: {
     type?: 'none' | 'bearer_token' | 'custom_header';
-    secretName?: string;
-    secretValue?: string;
     headerName?: string;
     headerPrefix?: string;
   };
@@ -110,45 +132,6 @@ export interface UpdateTargetMcpServerInput {
   removeTools?: string[];
 }
 
-export class LlmGatewayHttpError extends Error {
-  readonly status: number;
-  readonly responseBody: string;
-
-  constructor(status: number, message: string, responseBody: string) {
-    super(message);
-    this.name = 'LlmGatewayHttpError';
-    this.status = status;
-    this.responseBody = responseBody;
-  }
-}
-
-function createRequestOptions(method: string, body?: unknown): RequestInit {
-  const headers: Record<string, string> = {
-    authorization: `Bearer ${config.LLM_GATEWAY_ADMIN_TOKEN}`
-  };
-  if (body !== undefined) {
-    headers['content-type'] = 'application/json';
-  }
-  return {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined
-  };
-}
-
-async function fetchGateway(path: string, options: RequestInit): Promise<InternalHttpResponse> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.LLM_GATEWAY_TIMEOUT_MS);
-  try {
-    return await internalFetch(`${config.LLM_GATEWAY_URL}${path}`, {
-      ...options,
-      signal: controller.signal
-    }, config.LLM_GATEWAY_TIMEOUT_MS);
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 function gatewayTargetQuery(workspaceId: string, targetId: string, targetType: TargetType): string {
   return new URLSearchParams({
     workspace_id: workspaceId,
@@ -157,30 +140,14 @@ function gatewayTargetQuery(workspaceId: string, targetId: string, targetType: T
   }).toString();
 }
 
-function gatewayWorkspaceQuery(workspaceId: string): string {
+function gatewayAgentQuery(workspaceId: string, agentId: string): string {
   return new URLSearchParams({
     workspace_id: workspaceId,
-    scope_type: 'workspace',
-    target_id: '__workspace__',
-    target_type: 'workspace'
+    scope_type: 'agent',
+    agent_id: agentId,
+    target_id: agentId,
+    target_type: 'agent'
   }).toString();
-}
-
-async function parseOrThrow<T>(response: InternalHttpResponse): Promise<T> {
-  if (!response.ok) {
-    const body = await response.text();
-    let message = body;
-    try {
-      const parsed = JSON.parse(body) as { detail?: string };
-      if (typeof parsed.detail === 'string' && parsed.detail.length > 0) {
-        message = parsed.detail;
-      }
-    } catch {
-      // keep raw body fallback
-    }
-    throw new LlmGatewayHttpError(response.status, message || `llm-gateway request failed (${response.status})`, body);
-  }
-  return (await response.json()) as T;
 }
 
 function toGatewayToolPayload(tool: {
@@ -258,8 +225,7 @@ export async function createTargetMcpServer(input: UpsertTargetMcpServerInput): 
     enabled: input.enabled ?? true,
     public_headers: input.publicHeaders,
     auth_type: input.auth?.type ?? 'none',
-    auth_secret_name: input.auth?.secretName,
-    auth_secret_value: input.auth?.secretValue,
+    auth_scope: input.auth?.type && input.auth.type !== 'none' ? 'personal' : 'none',
     auth_header_name: input.auth?.headerName,
     auth_header_prefix: input.auth?.headerPrefix,
     tools: (input.tools || []).map(toGatewayToolPayload)
@@ -272,11 +238,10 @@ export async function createTargetMcpServer(input: UpsertTargetMcpServerInput): 
 export async function updateTargetMcpServer(input: UpdateTargetMcpServerInput): Promise<McpServerConfig> {
   const body = {
     server_name: input.name,
+    server_url: input.url,
     enabled: input.enabled,
     public_headers: input.publicHeaders,
     auth_type: input.auth?.type,
-    auth_secret_name: input.auth?.secretName,
-    auth_secret_value: input.auth?.secretValue,
     auth_header_name: input.auth?.headerName,
     auth_header_prefix: input.auth?.headerPrefix,
     tools: input.tools?.map(toGatewayToolPayload),
@@ -302,7 +267,7 @@ export async function deleteTargetMcpServer(
 
   if (!response.ok) {
     const body = await response.text();
-    logger.error({ status: response.status, body }, 'Failed deleting MCP server');
+    logger.error({ status: response.status }, 'Failed deleting MCP server');
     throw new LlmGatewayHttpError(response.status, body || `llm-gateway delete failed (${response.status})`, body);
   }
 }
@@ -324,6 +289,7 @@ export async function updateTargetTool(
   workspaceId: string,
   targetId: string,
   targetType: TargetType,
+  serverId: string,
   toolName: string,
   patch: {
     enabled?: boolean;
@@ -343,25 +309,41 @@ export async function updateTargetTool(
     input_schema: patch.inputSchema
   };
   const response = await fetchGateway(
-    `/api/v1/internal/mcp/tools/${encodeURIComponent(toolName)}?${gatewayTargetQuery(workspaceId, targetId, targetType)}`,
+    `/api/v1/internal/mcp/tools/${encodeURIComponent(toolName)}?${gatewayTargetQuery(workspaceId, targetId, targetType)}&server_id=${encodeURIComponent(serverId)}`,
     createRequestOptions('PATCH', body)
   );
   return parseOrThrow<McpToolConfig>(response);
 }
 
-export async function listWorkspaceMcpServers(workspaceId: string): Promise<McpServerConfig[]> {
+export interface UpsertAgentMcpServerInput extends Omit<UpsertTargetMcpServerInput, 'targetId' | 'targetType'> {
+  agentId: string;
+  authScope?: 'none' | 'personal';
+  targetConstraints?: { targetTypes?: TargetType[]; targetIds?: string[] };
+  integrationProfileId?: string;
+  integrationProfileVersion?: number;
+  configurationAttested?: boolean;
+}
+
+export interface UpdateAgentMcpServerInput extends Omit<UpdateTargetMcpServerInput, 'targetId' | 'targetType'> {
+  agentId: string;
+  expectedRevision?: number;
+  targetConstraints?: { targetTypes?: TargetType[]; targetIds?: string[] };
+}
+
+export async function listAgentMcpServers(workspaceId: string, agentId: string): Promise<McpServerConfig[]> {
   const response = await fetchGateway(
-    `/api/v1/internal/mcp/servers?${gatewayWorkspaceQuery(workspaceId)}`,
+    `/api/v1/internal/mcp/servers?${gatewayAgentQuery(workspaceId, agentId)}`,
     createRequestOptions('GET')
   );
   return parseOrThrow<McpServerConfig[]>(response);
 }
 
-export async function listWorkspaceMcpTools(
+export async function listAgentMcpTools(
   workspaceId: string,
+  agentId: string,
   options?: { includeServerDisabled?: boolean; includeDisabled?: boolean }
 ): Promise<McpToolConfig[]> {
-  const query = new URLSearchParams(gatewayWorkspaceQuery(workspaceId));
+  const query = new URLSearchParams(gatewayAgentQuery(workspaceId, agentId));
   if (options?.includeServerDisabled) query.set('include_server_disabled', 'true');
   if (options?.includeDisabled) query.set('include_disabled', 'true');
   const response = await fetchGateway(
@@ -371,48 +353,57 @@ export async function listWorkspaceMcpTools(
   return parseOrThrow<McpToolConfig[]>(response);
 }
 
-export async function createWorkspaceMcpServer(input: UpsertWorkspaceMcpServerInput): Promise<McpServerConfig> {
+export async function createAgentMcpServer(input: UpsertAgentMcpServerInput): Promise<McpServerConfig> {
   const response = await fetchGateway('/api/v1/internal/mcp/servers', createRequestOptions('POST', {
     workspace_id: input.workspaceId,
-    scope_type: 'workspace',
-    target_id: '__workspace__',
-    target_type: 'workspace',
+    scope_type: 'agent',
+    agent_id: input.agentId,
+    target_constraints: {
+      target_types: input.targetConstraints?.targetTypes ?? [],
+      target_ids: input.targetConstraints?.targetIds ?? []
+    },
     server_name: input.name,
     server_url: input.url,
     enabled: input.enabled ?? true,
     public_headers: input.publicHeaders,
     auth_type: input.auth?.type ?? 'none',
-    auth_secret_name: input.auth?.secretName,
-    auth_secret_value: input.auth?.secretValue,
+    auth_scope: input.auth?.type && input.auth.type !== 'none'
+      ? 'personal'
+      : input.authScope ?? 'none',
     auth_header_name: input.auth?.headerName,
     auth_header_prefix: input.auth?.headerPrefix,
-    tools: (input.tools || []).map(toGatewayToolPayload)
+    integration_profile_id: input.integrationProfileId,
+    integration_profile_version: input.integrationProfileVersion,
+    configuration_attested: input.configurationAttested ?? false,
+    tools: []
   }));
   return parseOrThrow<McpServerConfig>(response);
 }
 
-export async function updateWorkspaceMcpServer(input: UpdateWorkspaceMcpServerInput): Promise<McpServerConfig> {
+export async function updateAgentMcpServer(input: UpdateAgentMcpServerInput): Promise<McpServerConfig> {
   const response = await fetchGateway(
-    `/api/v1/internal/mcp/servers/${encodeURIComponent(input.serverId)}?${gatewayWorkspaceQuery(input.workspaceId)}`,
+    `/api/v1/internal/mcp/servers/${encodeURIComponent(input.serverId)}?${gatewayAgentQuery(input.workspaceId, input.agentId)}`,
     createRequestOptions('PATCH', {
       server_name: input.name,
       enabled: input.enabled,
       public_headers: input.publicHeaders,
       auth_type: input.auth?.type,
-      auth_secret_name: input.auth?.secretName,
-      auth_secret_value: input.auth?.secretValue,
       auth_header_name: input.auth?.headerName,
       auth_header_prefix: input.auth?.headerPrefix,
-      tools: input.tools?.map(toGatewayToolPayload),
+      expected_revision: input.expectedRevision,
+      target_constraints: input.targetConstraints ? {
+        target_types: input.targetConstraints.targetTypes ?? [],
+        target_ids: input.targetConstraints.targetIds ?? []
+      } : undefined,
       remove_tools: input.removeTools || []
     })
   );
   return parseOrThrow<McpServerConfig>(response);
 }
 
-export async function deleteWorkspaceMcpServer(workspaceId: string, serverId: string): Promise<void> {
+export async function deleteAgentMcpServer(workspaceId: string, agentId: string, serverId: string): Promise<void> {
   const response = await fetchGateway(
-    `/api/v1/internal/mcp/servers/${encodeURIComponent(serverId)}?${gatewayWorkspaceQuery(workspaceId)}`,
+    `/api/v1/internal/mcp/servers/${encodeURIComponent(serverId)}?${gatewayAgentQuery(workspaceId, agentId)}`,
     createRequestOptions('DELETE')
   );
   if (!response.ok) {
@@ -421,25 +412,41 @@ export async function deleteWorkspaceMcpServer(workspaceId: string, serverId: st
   }
 }
 
-export async function testWorkspaceMcpServerConnection(
+export async function testAgentMcpServerConnection(
   workspaceId: string,
+  agentId: string,
   serverId: string
 ): Promise<McpServerConnectionTestResult> {
   const response = await fetchGateway(
-    `/api/v1/internal/mcp/servers/${encodeURIComponent(serverId)}/test?${gatewayWorkspaceQuery(workspaceId)}`,
+    `/api/v1/internal/mcp/servers/${encodeURIComponent(serverId)}/test?${gatewayAgentQuery(workspaceId, agentId)}`,
     createRequestOptions('POST')
   );
   return parseOrThrow<McpServerConnectionTestResult>(response);
 }
 
-export async function updateWorkspaceTool(
+export async function updateAgentMcpTool(
   workspaceId: string,
+  agentId: string,
+  serverId: string,
   toolName: string,
-  patch: { enabled?: boolean; capability?: 'read' | 'write' }
+  patch: {
+    enabled?: boolean;
+    capability?: 'read' | 'write';
+    reviewState?: 'pending' | 'approved' | 'rejected';
+    riskLevel?: 'read_only' | 'non_destructive_write' | 'high_risk' | 'destructive';
+    autoAllowed?: boolean;
+  }
 ): Promise<McpToolConfig> {
+  const query = `${gatewayAgentQuery(workspaceId, agentId)}&server_id=${encodeURIComponent(serverId)}`;
   const response = await fetchGateway(
-    `/api/v1/internal/mcp/tools/${encodeURIComponent(toolName)}?${gatewayWorkspaceQuery(workspaceId)}`,
-    createRequestOptions('PATCH', patch)
+    `/api/v1/internal/mcp/tools/${encodeURIComponent(toolName)}?${query}`,
+    createRequestOptions('PATCH', {
+      enabled: patch.enabled,
+      capability: patch.capability,
+      review_state: patch.reviewState,
+      risk_level: patch.riskLevel,
+      auto_allowed: patch.autoAllowed
+    })
   );
   return parseOrThrow<McpToolConfig>(response);
 }

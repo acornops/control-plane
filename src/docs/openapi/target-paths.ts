@@ -102,7 +102,8 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
       },
       post: {
         tags: ['workspaces'],
-        summary: 'Create a target MCP server and discover its tools',
+        summary: 'Create a target MCP installation',
+        description: 'Authenticated external installations use personal connections. Shared MCP credentials are rejected.',
         security: [{ userSession: [] }],
         parameters: [
           { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
@@ -124,11 +125,10 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
                     type: 'object',
                     properties: {
                       type: { type: 'string', enum: ['none', 'bearer_token', 'custom_header'], example: 'bearer_token' },
-                      secretName: { type: 'string', example: 'mcp_server::github' },
-                      secretValue: { type: 'string', example: 'ghp_example_token' },
                       headerName: { type: 'string', example: 'Authorization' },
                       headerPrefix: { type: 'string', example: 'Bearer ' }
-                    }
+                    },
+                    additionalProperties: false
                   }
                 },
                 example: {
@@ -138,7 +138,6 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
                   publicHeaders: { 'x-client-version': '2026-05' },
                   auth: {
                     type: 'bearer_token',
-                    secretName: 'mcp_server::github',
                     headerName: 'Authorization',
                     headerPrefix: 'Bearer '
                   }
@@ -174,11 +173,10 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
                     type: 'object',
                     properties: {
                       type: { type: 'string', enum: ['none', 'bearer_token', 'custom_header'], example: 'bearer_token' },
-                      secretName: { type: 'string', example: 'mcp_server::github' },
-                      secretValue: { type: 'string', example: 'ghp_rotated_example_token' },
                       headerName: { type: 'string', example: 'Authorization' },
                       headerPrefix: { type: 'string', example: 'Bearer ' }
-                    }
+                    },
+                    additionalProperties: false
                   },
                   tools: {
                     type: 'array',
@@ -203,7 +201,6 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
                   publicHeaders: { 'x-client-version': '2026-05' },
                   auth: {
                     type: 'bearer_token',
-                    secretName: 'mcp_server::github',
                     headerName: 'Authorization',
                     headerPrefix: 'Bearer '
                   },
@@ -231,14 +228,15 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/test-connection': {
       post: {
         tags: ['workspaces'],
-        summary: 'Test target MCP server connectivity and tool discovery',
+        summary: 'Test unauthenticated target MCP server connectivity and tool discovery',
+        description: 'Authenticated installations use the personal connection Verify operation.',
         security: [{ userSession: [] }],
         parameters: [
           { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
           { in: 'path', name: 'targetId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_TARGET_ID } },
           { in: 'path', name: 'serverId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_MCP_SERVER_ID } }
         ],
-        responses: { '200': { description: 'Connection test completed.' } }
+        responses: { '200': { description: 'Connection test completed.' }, '409': { description: 'Authenticated installations require personal connection Verify.' } }
       }
     },
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools': {

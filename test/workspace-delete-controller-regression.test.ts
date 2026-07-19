@@ -37,7 +37,7 @@ function createWorkspaceSummary(): WorkspaceSummary {
       create_sessions: true,
       create_read_only_runs: true,
       create_read_write_runs: true,
-      read_target_logs: true,
+      read_tarquery_logs: true,
       cancel_runs: true,
       delete_sessions: true
     },
@@ -68,6 +68,9 @@ describe('workspace deletion controller regressions', () => {
     const deletedTargets: Array<{ targetId: string | null; targetType: string | null; serverId: string }> = [];
     mock.method(globalThis, 'fetch', async (input, init) => {
       const url = new URL(String(input));
+      if (url.pathname === '/api/v1/internal/mcp/connections' && init?.method === 'DELETE') {
+        return new Response(null, { status: 204 });
+      }
       if (url.pathname.startsWith('/api/v1/internal/llm/provider-credentials/') && init?.method === 'DELETE') {
         return new Response(JSON.stringify({ provider: url.pathname.split('/').at(-1), configured: false, enabled: true }), {
           status: 200
@@ -118,6 +121,9 @@ describe('workspace deletion controller regressions', () => {
     repo.deleteWorkspace = async () => true;
     mock.method(globalThis, 'fetch', async (input, init) => {
       const url = new URL(String(input));
+      if (url.pathname === '/api/v1/internal/mcp/connections' && init?.method === 'DELETE') {
+        return new Response(null, { status: 204 });
+      }
       if (url.pathname.startsWith('/api/v1/internal/llm/provider-credentials/') && init?.method === 'DELETE') {
         return new Response(JSON.stringify({ detail: 'llm-gateway unavailable' }), { status: 503 });
       }
@@ -126,13 +132,41 @@ describe('workspace deletion controller regressions', () => {
 
     const response = await callController(deleteWorkspace, createRequest({ workspaceId: 'workspace-1' }));
 
-    assert.equal(response.statusCode, 502);
+    assert.equal(response.statusCode, 503);
     assert.deepEqual(response.body, {
       error: {
-        code: 'UPSTREAM_ERROR',
+        code: 'SERVICE_UNAVAILABLE',
         message: 'Failed to synchronize AI provider settings with llm-gateway',
         retryable: true
       }
     });
+  });
+
+  it('aborts workspace deletion when personal MCP credential cleanup cannot complete', async () => {
+    installWorkspace('owner');
+    repo.getWorkspaceSummaryForUser = async () => createWorkspaceSummary();
+    repo.listTargets = async () => ({ items: [], nextCursor: undefined });
+    let workspaceDeleted = false;
+    repo.deleteWorkspace = async () => {
+      workspaceDeleted = true;
+      return true;
+    };
+    mock.method(globalThis, 'fetch', async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/v1/internal/mcp/connections' && init?.method === 'DELETE') {
+        return new Response(JSON.stringify({ detail: 'secret backend unavailable' }), { status: 503 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
+
+    const response = await callController(deleteWorkspace, createRequest({ workspaceId: 'workspace-1' }));
+
+    assert.equal(response.statusCode, 503);
+    assert.equal((response.body as { error: { code: string } }).error.code, 'SERVICE_UNAVAILABLE');
+    assert.equal(
+      (response.body as { error: { message: string } }).error.message,
+      'Failed to clean up personal MCP credentials with llm-gateway'
+    );
+    assert.equal(workspaceDeleted, false);
   });
 });

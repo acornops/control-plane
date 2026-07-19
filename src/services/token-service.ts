@@ -10,22 +10,57 @@ export interface NativeToolPermission {
   config: Record<string, unknown>;
 }
 
+export interface McpToolRef {
+  serverId: string;
+  toolName: string;
+}
+
+export interface ApprovalReceiptClaims {
+  approvalId: string;
+  runId: string;
+  workspaceId: string;
+  toolCallId: string;
+  toolAlias: string;
+  serverId: string;
+  serverToolName: string;
+  argumentsDigest: string;
+}
+
+export interface RunPrincipalRef {
+  type: 'user' | 'service_identity';
+  id: string;
+}
+
+export type RunPermissionMode = 'read_only' | 'ask_before_changes' | 'auto_allowed_changes';
+
 interface BaseRunScopeClaims {
   runId: string;
   workspaceId: string;
   sessionId: string;
+  userId?: string;
+  principal?: RunPrincipalRef;
+  permissionMode?: RunPermissionMode;
   allowedProviders: string[];
   allowedTools: string[];
+  allowedToolRefs?: McpToolRef[];
   allowedNativeTools?: NativeToolPermission[];
   allowedToolOperations?: Record<string, WorkspaceAuditOperation>;
   maxOutputTokens?: number;
   allowedModels?: string[];
+  allowedRepository?: {
+    provider: 'github' | 'gitlab';
+    repository: string;
+    ref?: string;
+    changeRequestNumber?: number;
+  };
 }
 
 export interface TargetRunScopeClaims extends BaseRunScopeClaims {
   scopeType?: 'target';
   targetId: string;
   targetType: TargetType;
+  agentId?: string;
+  agentVersion?: number;
 }
 
 export interface WorkflowRunScopeClaims extends BaseRunScopeClaims {
@@ -33,7 +68,6 @@ export interface WorkflowRunScopeClaims extends BaseRunScopeClaims {
   workflowId?: string;
   workflowRunId?: string;
   workflowSessionId?: string;
-  workflowStepId?: string;
   agentId?: string;
   agentVersion?: number;
   triggerId?: string;
@@ -54,11 +88,12 @@ export interface VerifiedRunScopeClaims extends BaseRunScopeClaims {
   workflowId?: string;
   workflowRunId?: string;
   workflowSessionId?: string;
-  workflowStepId?: string;
   agentId?: string;
   agentVersion?: number;
   triggerId?: string;
   contextGrants: string[];
+  principal: RunPrincipalRef;
+  permissionMode: RunPermissionMode;
 }
 
 interface KeyMaterial {
@@ -200,6 +235,50 @@ function nativeToolPermissionsClaim(value: unknown): NativeToolPermission[] {
   });
 }
 
+function mcpToolRefsClaim(value: unknown): McpToolRef[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new Error('Gateway token permission allowed_tool_refs must be an array');
+  }
+  return value.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error('Gateway token permission allowed_tool_refs entries must be objects');
+    }
+    const item = entry as Record<string, unknown>;
+    if (typeof item.server_id !== 'string' || typeof item.tool_name !== 'string') {
+      throw new Error('Gateway token MCP tool refs require server_id and tool_name');
+    }
+    return { serverId: item.server_id, toolName: item.tool_name };
+  });
+}
+
+function principalClaim(value: unknown, userId?: string): RunPrincipalRef {
+  if (value === undefined || value === null) {
+    if (userId) return { type: 'user', id: userId };
+    throw new Error('Gateway token run principal is required');
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Gateway token run principal must be an object');
+  }
+  const item = value as Record<string, unknown>;
+  if ((item.type !== 'user' && item.type !== 'service_identity')
+    || typeof item.id !== 'string' || !item.id.trim()) {
+    throw new Error('Gateway token run principal is invalid');
+  }
+  if (userId && (item.type !== 'user' || item.id !== userId)) {
+    throw new Error('Gateway token user_id and run principal must match');
+  }
+  return { type: item.type, id: item.id };
+}
+
+function permissionModeClaim(value: unknown): RunPermissionMode {
+  if (value === undefined || value === null) return 'ask_before_changes';
+  if (value !== 'read_only' && value !== 'ask_before_changes' && value !== 'auto_allowed_changes') {
+    throw new Error('Gateway token permission_mode is invalid');
+  }
+  return value;
+}
+
 function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
   const runId = stringClaim(payload, 'run_id');
   const subject = stringClaim(payload, 'sub');
@@ -221,6 +300,7 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
     throw new Error('Gateway token permission max_output_tokens must be a number or null');
   }
 
+  const userId = optionalStringClaim(payload, 'user_id');
   const baseClaims = {
     subject,
     tokenId: typeof payload.jti === 'string' ? payload.jti : undefined,
@@ -228,8 +308,12 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
     scopeType,
     workspaceId: stringClaim(payload, 'workspace_id'),
     sessionId: stringClaim(payload, 'session_id'),
+    userId,
+    principal: principalClaim(payload.principal, userId),
+    permissionMode: permissionModeClaim(payload.permission_mode),
     allowedProviders: stringArrayClaim(permissionObject.allowed_providers, 'allowed_providers'),
     allowedTools: stringArrayClaim(permissionObject.allowed_tools, 'allowed_tools'),
+    allowedToolRefs: mcpToolRefsClaim(permissionObject.allowed_tool_refs),
     allowedNativeTools: nativeToolPermissionsClaim(permissionObject.allowed_native_tools),
     allowedToolOperations: toolOperationMapClaim(permissionObject.allowed_tool_operations),
     allowedModels: stringArrayClaim(permissionObject.allowed_models, 'allowed_models'),
@@ -249,7 +333,6 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
       workflowId: optionalStringClaim(payload, 'workflow_id'),
       workflowRunId: optionalStringClaim(payload, 'workflow_run_id'),
       workflowSessionId: optionalStringClaim(payload, 'workflow_session_id'),
-      workflowStepId: optionalStringClaim(payload, 'workflow_step_id'),
       agentId: optionalStringClaim(payload, 'agent_id'),
       agentVersion: optionalNumberClaim(payload, 'agent_version'),
       triggerId: optionalStringClaim(payload, 'trigger_id'),
@@ -265,7 +348,9 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
   return {
     ...baseClaims,
     targetId: stringClaim(payload, 'target_id'),
-    targetType
+    targetType,
+    agentId: optionalStringClaim(payload, 'agent_id'),
+    agentVersion: optionalNumberClaim(payload, 'agent_version')
   };
 }
 
@@ -287,15 +372,31 @@ export class GatewayTokenService {
     const permissionPayload: Record<string, unknown> = {
       allowed_providers: input.allowedProviders,
       allowed_tools: input.allowedTools,
+      allowed_tool_refs: (input.allowedToolRefs || []).map((ref) => ({
+        server_id: ref.serverId,
+        tool_name: ref.toolName
+      })),
       allowed_native_tools: input.allowedNativeTools || [],
       allowed_tool_operations: input.allowedToolOperations || {},
       max_output_tokens: input.maxOutputTokens ?? null,
       allowed_models: input.allowedModels || []
     };
+    if (input.allowedRepository) {
+      permissionPayload.allowed_repository = {
+        provider: input.allowedRepository.provider,
+        repository: input.allowedRepository.repository,
+        ...(input.allowedRepository.ref ? { ref: input.allowedRepository.ref } : {}),
+        ...(input.allowedRepository.changeRequestNumber
+          ? { change_request_number: input.allowedRepository.changeRequestNumber }
+          : {})
+      };
+    }
     if (input.scopeType === 'workspace') {
       permissionPayload.context_grants = input.contextGrants || [];
     }
 
+    const principal = input.principal || (input.userId ? { type: 'user' as const, id: input.userId } : undefined);
+    if (!principal) throw new Error('Run principal is required to sign a gateway token');
     const payload: JWTPayload = {
       iss: this.appConfig.GATEWAY_TOKEN_ISSUER,
       aud: this.appConfig.GATEWAY_TOKEN_AUDIENCE,
@@ -306,6 +407,9 @@ export class GatewayTokenService {
       run_id: input.runId,
       workspace_id: input.workspaceId,
       session_id: input.sessionId,
+      user_id: input.userId,
+      principal,
+      permission_mode: input.permissionMode || 'ask_before_changes',
       permissions: permissionPayload
     };
 
@@ -314,9 +418,6 @@ export class GatewayTokenService {
       payload.workflow_id = input.workflowId;
       payload.workflow_run_id = input.workflowRunId;
       payload.workflow_session_id = input.workflowSessionId;
-      if (input.workflowStepId) {
-        payload.workflow_step_id = input.workflowStepId;
-      }
       if (input.agentId) {
         payload.agent_id = input.agentId;
       }
@@ -335,10 +436,35 @@ export class GatewayTokenService {
     } else {
       payload.target_id = input.targetId;
       payload.target_type = input.targetType;
+      if (input.agentId) payload.agent_id = input.agentId;
+      if (typeof input.agentVersion === 'number') payload.agent_version = input.agentVersion;
     }
 
     return new SignJWT(payload)
       .setProtectedHeader({ alg: 'RS256', typ: 'JWT', kid: this.appConfig.GATEWAY_SIGNING_KID })
+      .sign(this.keys.privateKey);
+  }
+
+  async signApprovalReceipt(input: ApprovalReceiptClaims): Promise<string> {
+    const now = Math.floor(Date.now() / 1000);
+    const payload: JWTPayload = {
+      iss: this.appConfig.GATEWAY_TOKEN_ISSUER,
+      aud: 'acornops-mcp-approval',
+      sub: `approval:${input.approvalId}`,
+      iat: now,
+      exp: now + 60,
+      jti: randomUUID(),
+      approval_id: input.approvalId,
+      run_id: input.runId,
+      workspace_id: input.workspaceId,
+      tool_call_id: input.toolCallId,
+      tool_alias: input.toolAlias,
+      server_id: input.serverId,
+      server_tool_name: input.serverToolName,
+      arguments_digest: input.argumentsDigest
+    };
+    return new SignJWT(payload)
+      .setProtectedHeader({ alg: 'RS256', typ: 'acornops-approval+jwt', kid: this.appConfig.GATEWAY_SIGNING_KID })
       .sign(this.keys.privateKey);
   }
 

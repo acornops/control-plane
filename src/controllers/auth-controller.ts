@@ -24,7 +24,6 @@ import { clearPasswordLoginAttempts, registerPasswordLoginAttempt } from '../aut
 import { clearSessionCookie, createUserSession, deleteUserSession, rotateUserSessions, setSessionCookie } from '../auth/session.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
-import { ensureDevelopmentMcpSeed } from '../services/development-mcp-seed.js';
 import { sendVerificationEmail } from '../services/email-delivery.js';
 import { gatewayTokenService } from '../services/token-service.js';
 import { repo } from '../store/repository.js';
@@ -491,10 +490,6 @@ export async function devLogin(req: Request, res: Response, next: NextFunction):
     const email = typeof req.body?.email === 'string' ? req.body.email : 'dev@acornops.local';
     const name = typeof req.body?.name === 'string' ? req.body.name : 'Dev User';
     const user = await repo.upsertUser(email, name);
-    if (config.SEED_DEVELOPMENT_DATA) {
-      await repo.ensureDevelopmentAccessForUser(user.id);
-      await ensureDevelopmentMcpSeed();
-    }
     const sessionId = await createUserSession(user.id);
     setSessionCookie(res, sessionId);
     res.status(200).json({ user, mode: 'dev' });

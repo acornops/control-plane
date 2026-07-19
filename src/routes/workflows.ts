@@ -4,6 +4,8 @@ import * as workflowsController from '../controllers/workflows-controller.js';
 import * as workflowSchedulesController from '../controllers/workflow-schedules-controller.js';
 import * as workflowExecutionsController from '../controllers/workflow-executions-controller.js';
 import * as workflowReportsController from '../controllers/workflow-reports-controller.js';
+import * as catalogController from '../controllers/catalog-controller.js';
+import * as catalogSourcesController from '../controllers/catalog-sources-controller.js';
 
 export const workflowsRouter = Router();
 const authed = authenticatedHandler;
@@ -15,14 +17,16 @@ workflowsRouter.post('/workspaces/:workspaceId/workflow-schedules', requireUser,
 workflowsRouter.post('/workspaces/:workspaceId/workflow-schedules/preview', requireUser, authed(workflowSchedulesController.previewWorkflowSchedule));
 workflowsRouter.get('/workspaces/:workspaceId/approvals', requireUser, authed(workflowSchedulesController.listWorkspaceApprovalInbox));
 workflowsRouter.get('/workspaces/:workspaceId/workflow-options', requireUser, authed(workflowsController.listWorkflowOptions));
-workflowsRouter.get('/workspaces/:workspaceId/mcp/servers', requireUser, authed(workflowsController.listWorkflowMcpServersForWorkspace));
-workflowsRouter.post('/workspaces/:workspaceId/mcp/servers', requireUser, authed(workflowsController.createWorkflowMcpServerForWorkspace));
-workflowsRouter.patch('/workspaces/:workspaceId/mcp/servers/:serverId', requireUser, authed(workflowsController.updateWorkflowMcpServerForWorkspace));
-workflowsRouter.delete('/workspaces/:workspaceId/mcp/servers/:serverId', requireUser, authed(workflowsController.deleteWorkflowMcpServerForWorkspace));
-workflowsRouter.post('/workspaces/:workspaceId/mcp/servers/:serverId/test-connection', requireUser, authed(workflowsController.testWorkflowMcpServerConnectionForWorkspace));
-workflowsRouter.get('/workspaces/:workspaceId/mcp/servers/:serverId/tools', requireUser, authed(workflowsController.listWorkflowMcpServerToolsForWorkspace));
-workflowsRouter.patch('/workspaces/:workspaceId/mcp/servers/:serverId/tools/:toolName', requireUser, authed(workflowsController.updateWorkflowMcpToolForWorkspace));
+workflowsRouter.get('/workspaces/:workspaceId/catalog/sources', requireUser, authed(catalogController.listWorkspaceCatalogSources));
+workflowsRouter.post('/workspaces/:workspaceId/catalog/sources', requireUser, authed(catalogController.createWorkspaceCatalogSource));
+workflowsRouter.patch('/workspaces/:workspaceId/catalog/sources/:sourceId', requireUser, authed(catalogSourcesController.updateWorkspaceCatalogSource));
+workflowsRouter.post('/workspaces/:workspaceId/catalog/sources/:sourceId/sync', requireUser, authed(catalogSourcesController.synchronizeWorkspaceCatalogSource));
+workflowsRouter.delete('/workspaces/:workspaceId/catalog/sources/:sourceId', requireUser, authed(catalogSourcesController.deleteWorkspaceCatalogSource));
+workflowsRouter.get('/workspaces/:workspaceId/catalog/artifacts', requireUser, authed(catalogController.listWorkspaceCatalogArtifacts));
+workflowsRouter.get('/workspaces/:workspaceId/catalog/artifacts/:artifactId', requireUser, authed(catalogController.getWorkspaceCatalogArtifact));
 workflowsRouter.get('/workflows/:workflowId', requireUser, authed(workflowsController.getWorkflow));
+workflowsRouter.post('/workflows/:workflowId/capabilities-preview', requireUser, authed(workflowsController.previewWorkflowCapabilities));
+workflowsRouter.post('/workflows/:workflowId/duplicate', requireUser, authed(workflowsController.duplicateWorkflow));
 workflowsRouter.patch('/workflows/:workflowId', requireUser, authed(workflowsController.updateWorkflow));
 workflowsRouter.delete('/workflows/:workflowId', requireUser, authed(workflowsController.deleteWorkflow));
 workflowsRouter.patch('/workflow-schedules/:scheduleId', requireUser, authed(workflowSchedulesController.updateWorkflowSchedule));
@@ -35,3 +39,5 @@ workflowsRouter.post('/workflow-executions/:executionId/cancel', requireUser, au
 workflowsRouter.post('/workflow-executions/:executionId/resume', requireUser, authed(workflowExecutionsController.resumeWorkflowExecutionController));
 workflowsRouter.get('/workflow-reports/:reportId', requireUser, authed(workflowReportsController.getWorkflowReportMetadata));
 workflowsRouter.get('/workflow-reports/:reportId/download', requireUser, authed(workflowReportsController.downloadWorkflowReport));
+workflowsRouter.get('/report-artifacts/:reportId', requireUser, authed(workflowReportsController.getWorkflowReportMetadata));
+workflowsRouter.get('/report-artifacts/:reportId/download', requireUser, authed(workflowReportsController.downloadWorkflowReport));

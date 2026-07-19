@@ -8,11 +8,13 @@ import {
 } from '../auth/workspace-authorization.js';
 import {
   deleteTargetMcpServer,
+  cleanupMcpConnections,
   LlmGatewayHttpError,
   listTargetMcpServers
 } from '../services/mcp-registry-client.js';
 import { webhooks } from '../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
+import { provisionWorkspaceWithStarterAutomationV1 } from '../services/workspace-provisioning.js';
 import { repo } from '../store/repository.js';
 import { buildWorkspaceQuota } from '../store/repository-quotas.js';
 import { TargetSummary, WorkspaceSummary } from '../types/domain.js';
@@ -29,6 +31,7 @@ import { mapGatewayError } from './workspaces/common.js';
 import { cleanupWorkspaceAiProviderCredentials } from './workspaces/ai-settings-controller.js';
 
 const AI_GATEWAY_UPSTREAM_MESSAGE = 'Failed to synchronize AI provider settings with llm-gateway';
+const MCP_CLEANUP_UPSTREAM_MESSAGE = 'Failed to clean up personal MCP credentials with llm-gateway';
 
 export function applyWorkspaceSummaryPermissions(
   workspace: WorkspaceSummary,
@@ -117,7 +120,12 @@ export async function listWorkspaceRoleTemplates(req: AuthenticatedRequest, res:
 
 export async function createWorkspace(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const ws = await repo.addWorkspace(req.body.name, req.auth.userId);
+    const { workspace: ws } = await provisionWorkspaceWithStarterAutomationV1({
+      name: req.body.name,
+      createdBy: req.auth.userId,
+      membershipSource: 'oidc',
+      enforceQuotas: true
+    });
     webhooks.emit({
       type: 'workspace.created.v1',
       workspaceId: ws.id,
@@ -127,18 +135,6 @@ export async function createWorkspace(req: AuthenticatedRequest, res: Response, 
         createdBy: ws.createdBy,
         createdAt: ws.createdAt
       }
-    });
-    await recordWorkspaceAuditEvent({
-      workspaceId: ws.id,
-      category: 'workspace',
-      eventType: 'workspace.created.v1',
-      operation: 'write',
-      actorUserId: req.auth.userId,
-      objectType: 'workspace',
-      objectId: ws.id,
-      objectName: ws.name,
-      summary: 'Workspace created',
-      metadata: { name: ws.name }
     });
     const permissions = getEffectiveWorkspacePermissions(req, 'owner');
     const createdSummary: WorkspaceSummary = {
@@ -187,6 +183,16 @@ export async function deleteWorkspace(req: AuthenticatedRequest, res: Response, 
       targets.push(...page.items);
       cursor = page.nextCursor;
     } while (cursor);
+    try {
+      await cleanupMcpConnections(workspaceId);
+    } catch (err) {
+      if (err instanceof LlmGatewayHttpError) {
+        const mapped = mapGatewayError(err, { upstreamMessage: MCP_CLEANUP_UPSTREAM_MESSAGE });
+        res.status(mapped.status).json(mapped.body);
+        return;
+      }
+      throw err;
+    }
     await cleanupWorkspaceAiProviderCredentials(workspaceId);
     for (const target of targets) {
       await cleanupTargetMcpServers(target);

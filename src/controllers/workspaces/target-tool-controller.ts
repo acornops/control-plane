@@ -9,11 +9,16 @@ import {
   LlmGatewayHttpError,
   listTargetMcpServers as listGatewayTargetMcpServers,
   listTargetMcpTools,
+  toPublicMcpServerConfig,
   testTargetMcpServerConnection,
   updateTargetMcpServer,
   updateTargetTool
 } from '../../services/mcp-registry-client.js';
 import { pageInMemory } from '../../services/snapshot-listing.js';
+import {
+  InvalidMcpPublicHeadersError,
+  validateMcpPublicHeaders
+} from '../../services/mcp-public-header-policy.js';
 import { targetWebhookScope } from '../../services/target-webhook-scope.js';
 import { webhooks } from '../../services/webhooks.js';
 import { repo } from '../../store/repository.js';
@@ -30,30 +35,18 @@ import {
 import { mapGatewayError } from './common.js';
 import {
   recordMcpServerAudit,
+  recordMcpConnectionCleanupAudit,
   recordMcpServerDeletedAudit,
   recordMcpServerTestAudit,
+  recordMcpTrustChangeInvalidationAudit,
   recordToolCatalogAudit
 } from './mcp-audit.js';
-
-function respondMissingMcpCapability(res: Response): void {
-  res.status(403).json({
-    error: {
-      code: 'FORBIDDEN',
-      message: 'Only workspace roles with MCP management capability can modify MCP server settings',
-      retryable: false
-    }
-  });
-}
-
-function respondMissingToolsCapability(res: Response): void {
-  res.status(403).json({
-    error: {
-      code: 'FORBIDDEN',
-      message: 'Only workspace roles with tool management capability can modify tool settings',
-      retryable: false
-    }
-  });
-}
+import {
+  parseTargetMcpAuth,
+  respondMissingMcpCapability,
+  respondMissingToolsCapability,
+  targetMcpTrustBoundaryChanges
+} from './target-mcp-helpers.js';
 
 export async function listTargetMcpCatalog(
   req: AuthenticatedRequest,
@@ -123,9 +116,8 @@ export async function listTargetMcpServers(req: AuthenticatedRequest, res: Respo
     if (!access) {
       return;
     }
-
     const servers = await listGatewayTargetMcpServers(workspaceId, targetId, access.target.targetType);
-    res.status(200).json(servers);
+    res.status(200).json(servers.map(toPublicMcpServerConfig));
   } catch (err) {
     if (err instanceof LlmGatewayHttpError) {
       const mapped = mapGatewayError(err);
@@ -145,7 +137,6 @@ export async function listTargetMcpServerTools(req: AuthenticatedRequest, res: R
     if (!access) {
       return;
     }
-
     const [tools, servers, overrides, agentRegistration, targetAgentConnected] = await Promise.all([
       listTargetMcpTools(workspaceId, targetId, access.target.targetType, {
         includeServerDisabled: true,
@@ -172,7 +163,6 @@ export async function listTargetMcpServerTools(req: AuthenticatedRequest, res: R
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'MCP server not found', retryable: false } });
       return;
     }
-
     const q = normalizeSearchQuery(req.query.q);
     const capability = toSingleParam(req.query.capability as string | string[] | undefined);
     const enabled = toSingleParam(req.query.enabled as string | string[] | undefined);
@@ -215,7 +205,11 @@ export async function createTargetMcpServerForTarget(req: AuthenticatedRequest, 
       respondMissingMcpCapability(res);
       return;
     }
-
+    const parsedAuth = parseTargetMcpAuth(req.body?.auth, { defaultToNone: true });
+    if (parsedAuth.sharedCredentialProvided) {
+      res.status(400).json({ error: { code: 'MCP_SHARED_CREDENTIAL_FORBIDDEN', message: 'MCP PATs belong to personal connections.', retryable: false } });
+      return;
+    }
     const server = await createTargetMcpServer({
       workspaceId,
       targetId,
@@ -223,8 +217,10 @@ export async function createTargetMcpServerForTarget(req: AuthenticatedRequest, 
       name: req.body.name,
       url: req.body.url,
       enabled: req.body.enabled,
-      publicHeaders: req.body.publicHeaders,
-      auth: req.body.auth
+      publicHeaders: req.body.publicHeaders === undefined
+        ? undefined
+        : validateMcpPublicHeaders(req.body.publicHeaders as Record<string, unknown>),
+      auth: parsedAuth.auth
     });
 
     webhooks.emit({
@@ -258,8 +254,12 @@ export async function createTargetMcpServerForTarget(req: AuthenticatedRequest, 
       summary: 'MCP server created',
       server
     });
-    res.status(201).json(server);
+    res.status(201).json(toPublicMcpServerConfig(server));
   } catch (err) {
+    if (err instanceof InvalidMcpPublicHeadersError) {
+      res.status(400).json({ error: { code: err.code, message: err.message, retryable: false } });
+      return;
+    }
     if (err instanceof LlmGatewayHttpError) {
       const mapped = mapGatewayError(err);
       res.status(mapped.status).json(mapped.body);
@@ -282,7 +282,13 @@ export async function updateTargetMcpServerForTarget(req: AuthenticatedRequest, 
       respondMissingMcpCapability(res);
       return;
     }
-
+    const parsedAuth = parseTargetMcpAuth(req.body?.auth);
+    if (parsedAuth.sharedCredentialProvided) {
+      res.status(400).json({ error: { code: 'MCP_SHARED_CREDENTIAL_FORBIDDEN', message: 'MCP PATs belong to personal connections.', retryable: false } });
+      return;
+    }
+    const previous = (await listGatewayTargetMcpServers(workspaceId, targetId, access.target.targetType))
+      .find((item) => item.id === serverId);
     const server = await updateTargetMcpServer({
       workspaceId,
       targetId,
@@ -290,8 +296,10 @@ export async function updateTargetMcpServerForTarget(req: AuthenticatedRequest, 
       serverId,
       name: req.body.name,
       enabled: req.body.enabled,
-      publicHeaders: req.body.publicHeaders,
-      auth: req.body.auth,
+      publicHeaders: req.body.publicHeaders === undefined
+        ? undefined
+        : validateMcpPublicHeaders(req.body.publicHeaders as Record<string, unknown>),
+      auth: parsedAuth.auth,
       tools: req.body.tools,
       removeTools: req.body.removeTools
     });
@@ -327,8 +335,23 @@ export async function updateTargetMcpServerForTarget(req: AuthenticatedRequest, 
       summary: 'MCP server updated',
       server
     });
-    res.status(200).json(server);
+    const changedFields = targetMcpTrustBoundaryChanges(previous, server);
+    if (changedFields.length > 0) {
+      await recordMcpTrustChangeInvalidationAudit(
+        workspaceId,
+        targetId,
+        access.target.targetType,
+        req.auth.userId,
+        serverId,
+        changedFields
+      );
+    }
+    res.status(200).json(toPublicMcpServerConfig(server));
   } catch (err) {
+    if (err instanceof InvalidMcpPublicHeadersError) {
+      res.status(400).json({ error: { code: err.code, message: err.message, retryable: false } });
+      return;
+    }
     if (err instanceof LlmGatewayHttpError) {
       const mapped = mapGatewayError(err);
       res.status(mapped.status).json(mapped.body);
@@ -351,7 +374,6 @@ export async function deleteTargetMcpServerForTarget(req: AuthenticatedRequest, 
       respondMissingMcpCapability(res);
       return;
     }
-
     await deleteTargetMcpServer(workspaceId, targetId, access.target.targetType, serverId);
     webhooks.emit({
       type: 'mcp.server.deleted.v1',
@@ -373,6 +395,7 @@ export async function deleteTargetMcpServerForTarget(req: AuthenticatedRequest, 
       }
     });
     await recordMcpServerDeletedAudit(workspaceId, targetId, access.target.targetType, req.auth.userId, serverId);
+    await recordMcpConnectionCleanupAudit(workspaceId, targetId, access.target.targetType, req.auth.userId, serverId);
     res.status(204).send();
   } catch (err) {
     if (err instanceof LlmGatewayHttpError) {
@@ -398,6 +421,22 @@ export async function testTargetMcpServerConnectionForTarget(req: AuthenticatedR
       return;
     }
 
+    const server = (await listGatewayTargetMcpServers(workspaceId, targetId, access.target.targetType))
+      .find((item) => item.id === serverId);
+    if (!server) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'MCP server not found', retryable: false } });
+      return;
+    }
+    if (server.auth_type !== 'none') {
+      res.status(409).json({
+        error: {
+          code: 'MCP_PERSONAL_CONNECTION_REQUIRED',
+          message: 'Use the personal connection Verify operation for authenticated MCP servers.',
+          retryable: false
+        }
+      });
+      return;
+    }
     const testResult = await testTargetMcpServerConnection(workspaceId, targetId, access.target.targetType, serverId);
     webhooks.emit({
       type: 'mcp.server.tested.v1',
@@ -438,7 +477,6 @@ export async function updateTargetMcpServerToolSettings(req: AuthenticatedReques
       respondMissingToolsCapability(res);
       return;
     }
-
     if (typeof req.body?.enabled !== 'boolean') {
       res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'enabled is required', retryable: false } });
       return;
@@ -476,11 +514,13 @@ export async function updateTargetMcpServerToolSettings(req: AuthenticatedReques
       });
       return;
     }
-    const updated = await updateTargetTool(workspaceId, targetId, access.target.targetType, toolName, {
+    const updated = await updateTargetTool(workspaceId, targetId, access.target.targetType, serverId, toolName, {
       enabled: req.body.enabled,
       capability
     });
-    await repo.setTargetToolOverride(targetId, toolName, req.body.enabled);
+    if (existing.source === 'builtin') {
+      await repo.setTargetToolOverride(targetId, toolName, req.body.enabled);
+    }
     webhooks.emit({
       type: 'tool.catalog.changed.v1',
       workspaceId,

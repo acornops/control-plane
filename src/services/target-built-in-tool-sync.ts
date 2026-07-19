@@ -1,6 +1,7 @@
 import { agentGateway } from '../agent/ws-server.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
+import { incrementDuplicateBuiltInServerAnomaly } from '../metrics.js';
 import { KUBERNETES_TARGET_TYPE, TargetType } from '../types/domain.js';
 import {
   createTargetMcpServer,
@@ -12,6 +13,11 @@ import { isReservedInternalToolName } from './internal-tool-names.js';
 import { targetWebhookScope } from './target-webhook-scope.js';
 import { sanitizeToolInputSchema } from './tool-metadata.js';
 import { webhooks } from './webhooks.js';
+import { repo } from '../store/repository.js';
+import { reconcileTargetDiagnosticsForTarget } from './target-diagnostics-capability.js';
+import { refreshAgentReadiness, refreshWorkflowReadiness } from './automation-readiness.js';
+import { listAgentDefinitions } from '../store/repository-agents.js';
+import { listWorkflowDefinitions } from '../store/repository-workflows.js';
 
 export interface BuiltInToolSyncResult {
   ok: boolean;
@@ -51,6 +57,23 @@ function countRegisteredTools(tools: Array<{ name: string }>, expectedNames: Set
   return tools.filter((tool) => expectedNames.has(tool.name)).length;
 }
 
+async function reconcileCapabilityState(
+  workspaceId: string,
+  targetId: string,
+  tools: Awaited<ReturnType<typeof listTargetMcpTools>>
+): Promise<void> {
+  try {
+    const target = await repo.getTarget(workspaceId, targetId);
+    if (!target) return;
+    await reconcileTargetDiagnosticsForTarget(target, tools);
+    const agents = await listAgentDefinitions(workspaceId, { includeInactive: true });
+    await Promise.all(agents.map((agent) => refreshAgentReadiness(workspaceId, agent.id)));
+    await Promise.all((await listWorkflowDefinitions(workspaceId)).map((workflow) => refreshWorkflowReadiness(workflow)));
+  } catch (error) {
+    logger.warn({ workspaceId, targetId, error }, 'Built-in tools synchronized but target diagnostics mapping reconciliation failed');
+  }
+}
+
 export async function syncTargetBuiltInTools(
   workspaceId: string,
   targetId: string,
@@ -84,9 +107,12 @@ export async function syncTargetBuiltInTools(
       });
 
     const servers = await listTargetMcpServers(workspaceId, targetId, targetType);
-    const existing = servers.find(
-      (server) => server.server_name === config.BUILTIN_TARGET_MCP_SERVER_NAME || server.server_url === config.BUILTIN_TARGET_MCP_SERVER_URL
-    );
+    const builtinServers = servers.filter((server) => server.provenance_type === 'builtin');
+    if (builtinServers.length > 1) {
+      incrementDuplicateBuiltInServerAnomaly(targetType);
+      throw new Error('MCP_DUPLICATE_BUILTIN_SERVER_ANOMALY');
+    }
+    const existing = builtinServers[0];
 
     const existingTools = await listTargetMcpTools(workspaceId, targetId, targetType);
     const existingBuiltinNames = new Set(existingTools.filter((tool) => tool.source === 'builtin').map((tool) => tool.name));
@@ -111,7 +137,7 @@ export async function syncTargetBuiltInTools(
         subject: { type: targetType === KUBERNETES_TARGET_TYPE ? 'cluster' : 'target', id: targetId },
         data: {
           reason: 'builtin_tool_sync',
-          serverName: config.BUILTIN_TARGET_MCP_SERVER_NAME,
+          serverName: created.server_name,
           addedTools: [...discoveredNames],
           removedTools: []
         }
@@ -128,6 +154,7 @@ export async function syncTargetBuiltInTools(
         },
         'Synchronized built-in target tools'
       );
+      await reconcileCapabilityState(workspaceId, targetId, created.tools);
       return {
         ok: true,
         workspaceId,
@@ -146,6 +173,7 @@ export async function syncTargetBuiltInTools(
       targetType,
       serverId: existing.id,
       name: config.BUILTIN_TARGET_MCP_SERVER_NAME,
+      url: config.BUILTIN_TARGET_MCP_SERVER_URL,
       enabled: existing.enabled,
       auth: { type: 'none' },
       tools: builtinTools,
@@ -161,7 +189,7 @@ export async function syncTargetBuiltInTools(
         data: {
           reason: 'builtin_tool_sync',
           serverId: existing.id,
-          serverName: config.BUILTIN_TARGET_MCP_SERVER_NAME,
+          serverName: existing.server_name,
           addedTools,
           removedTools: removeTools
         }
@@ -179,6 +207,7 @@ export async function syncTargetBuiltInTools(
       },
       'Synchronized built-in target tools'
     );
+    await reconcileCapabilityState(workspaceId, targetId, updated.tools);
     return {
       ok: true,
       workspaceId,

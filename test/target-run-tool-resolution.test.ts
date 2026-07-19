@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import { agentGateway } from '../src/agent/ws-server.js';
-import {
-  normalizeToolCapability,
-  resolveTargetRunTools
-} from '../src/services/target-run-tool-resolution.js';
+import { normalizeToolCapability, resolveTargetRunTools } from '../src/services/target-run-tool-resolution.js';
 import { repo } from '../src/store/repository.js';
 import { McpToolConfig } from '../src/services/mcp-registry-client.js';
 import {
@@ -19,6 +16,8 @@ import { getTargetAssistantCapabilitiesPreview } from '../src/controllers/worksp
 const BASE_TOOLS: McpToolConfig[] = [
   {
     name: 'restart_service',
+    server_id: '00000000-0000-4000-8000-000000000001',
+    model_alias: 'mcp__00000000000040008000000000000001__restart_service',
     mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
     timeout_ms: 10000,
     description: 'Restart a service',
@@ -30,6 +29,8 @@ const BASE_TOOLS: McpToolConfig[] = [
   },
   {
     name: 'query_logs',
+    server_id: '00000000-0000-4000-8000-000000000001',
+    model_alias: 'mcp__00000000000040008000000000000001__query_logs',
     mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
     timeout_ms: 10000,
     description: 'Read logs',
@@ -97,29 +98,38 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedToolNames, ['query_logs']);
+    assert.deepEqual(result.allowedToolNames, ['query_logs', 'acornops_generate_pdf_report']);
+    assert.deepEqual(result.allowedToolRefs, [{
+      serverId: '00000000-0000-4000-8000-000000000001',
+      toolName: 'query_logs'
+    }]);
     assert.deepEqual(result.allowedNativeTools, [
       { id: 'web_search', config: { domainFilters: { allowedDomains: [], blockedDomains: [] } } }
     ]);
+    assert.deepEqual(result.platformFunctions, [
+      { id: 'reports.pdf.generate', modelAlias: 'acornops_generate_pdf_report' }
+    ]);
     assert.equal(result.writeUnavailableReason, 'run_read_only');
     assert.deepEqual(result.summary, {
-      totalAllowed: 3,
-      functionAllowed: 1,
+      totalAllowed: 4,
+      functionAllowed: 2,
       nativeAllowed: 1,
-      readAllowed: 3,
+      readAllowed: 4,
       writeAllowed: 0,
       configuredWrite: 1,
       excludedWrite: 1
     });
   });
 
-  it('can restrict workflow runs to built-in MCP tools without native tools', async () => {
+  it('includes configured third-party target MCP tools and can omit native tools', async () => {
     installResolverRepoStubs(['read', 'write']);
     mockToolList([
       BASE_TOOLS[1],
       {
         ...BASE_TOOLS[1],
-        name: 'get_weather',
+        name: 'repository_status',
+        server_id: '00000000-0000-4000-8000-000000000002',
+        model_alias: 'mcp__00000000000040008000000000000002__repository_status',
         mcp_server_url: 'https://mock.example.test/mcp',
         source: 'mcp'
       }
@@ -131,16 +141,21 @@ describe('target run tool resolution', () => {
       targetType: 'virtual_machine',
       toolAccessMode: 'read_only',
       runId: 'workflow-run-1',
-      builtInOnly: true,
       includeNativeTools: false
     });
 
-    assert.deepEqual(result.allowedToolNames, ['query_logs']);
+    assert.deepEqual(result.allowedToolNames, [
+      'query_logs',
+      'mcp__00000000000040008000000000000002__repository_status'
+    ]);
     assert.deepEqual(result.allowedNativeTools, []);
-    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['query_logs']);
+    assert.deepEqual(result.previewItems.map((tool) => tool.name), [
+      'query_logs',
+      'mcp__00000000000040008000000000000002__repository_status'
+    ]);
   });
 
-  it('includes default target tools when no explicit target setting exists', async () => {
+  it('includes only the code-owned report tool when no target-native setting exists', async () => {
     installResolverRepoStubs(['read', 'write']);
     mockToolList([]);
 
@@ -152,13 +167,14 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedNativeTools, [
-      { id: 'web_search', config: { domainFilters: { allowedDomains: [], blockedDomains: [] } } }
+    assert.deepEqual(result.allowedNativeTools, []);
+    assert.deepEqual(result.platformFunctions, [
+      { id: 'reports.pdf.generate', modelAlias: 'acornops_generate_pdf_report' }
     ]);
-    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['target_insights', 'web_search']);
-    assert.deepEqual(result.allowedToolNames, []);
-    assert.equal(result.summary.nativeAllowed, 1);
-    assert.equal(result.summary.totalAllowed, 2);
+    assert.deepEqual(result.previewItems.map((item) => item.name), ['acornops_generate_pdf_report']);
+    assert.deepEqual(result.allowedToolNames, ['acornops_generate_pdf_report']);
+    assert.equal(result.summary.nativeAllowed, 0);
+    assert.equal(result.summary.totalAllowed, 1);
   });
 
   it('excludes web search when the target explicitly disables it', async () => {
@@ -181,7 +197,7 @@ describe('target run tool resolution', () => {
     });
 
     assert.deepEqual(result.allowedNativeTools, []);
-    assert.deepEqual(result.previewItems, []);
+    assert.deepEqual(result.previewItems.map((item) => item.name), ['acornops_generate_pdf_report']);
     assert.equal(result.summary.nativeAllowed, 0);
   });
 
@@ -204,11 +220,12 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedToolNames, ['query_logs', 'restart_service']);
+    assert.deepEqual(result.allowedToolNames, ['query_logs', 'restart_service', 'acornops_generate_pdf_report']);
     assert.equal(result.writeUnavailableReason, null);
     assert.deepEqual(result.allowedToolOperations, {
       query_logs: 'read',
-      restart_service: 'write'
+      restart_service: 'write',
+      acornops_generate_pdf_report: 'read'
     });
     const writeSpec = result.allowedToolSpecs.find((tool) => tool.name === 'restart_service');
     assert.equal(writeSpec?.description, 'Execute tool "restart_service" for target diagnostics.');
@@ -245,9 +262,9 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedToolNames, ['a_read', 'overridden_read', 'z_write']);
-    assert.deepEqual(result.allowedToolSpecs.map((tool) => tool.name), ['a_read', 'a_read', 'overridden_read', 'z_write', 'z_write']);
-    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['a_read', 'overridden_read', 'target_insights', 'web_search', 'z_write']);
+    assert.deepEqual(result.allowedToolNames, ['a_read', 'overridden_read', 'z_write', 'acornops_generate_pdf_report']);
+    assert.deepEqual(result.allowedToolSpecs.map((tool) => tool.name), ['a_read', 'a_read', 'overridden_read', 'z_write', 'z_write', 'acornops_generate_pdf_report']);
+    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['a_read', 'acornops_generate_pdf_report', 'overridden_read', 'target_insights', 'web_search', 'z_write']);
     assert.equal(result.summary.configuredWrite, 2);
     assert.equal(result.summary.excludedWrite, 0);
   });
@@ -268,9 +285,9 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedToolNames, ['query_logs']);
-    assert.deepEqual(result.allowedToolSpecs.map((tool) => tool.name), ['query_logs']);
-    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['query_logs', 'target_insights', 'web_search']);
+    assert.deepEqual(result.allowedToolNames, ['query_logs', 'acornops_generate_pdf_report']);
+    assert.deepEqual(result.allowedToolSpecs.map((tool) => tool.name), ['query_logs', 'acornops_generate_pdf_report']);
+    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['acornops_generate_pdf_report', 'query_logs']);
   });
 
   it('filters write tools when the agent does not advertise write capability', async () => {
@@ -285,7 +302,7 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedToolNames, ['query_logs']);
+    assert.deepEqual(result.allowedToolNames, ['query_logs', 'acornops_generate_pdf_report']);
     assert.equal(result.writeUnavailableReason, 'agent_write_disabled');
     assert.equal(result.summary.excludedWrite, 1);
   });
@@ -305,7 +322,7 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedToolNames, ['query_logs', 'restart_service']);
+    assert.deepEqual(result.allowedToolNames, ['query_logs', 'restart_service', 'acornops_generate_pdf_report']);
     assert.deepEqual(result.allowedNativeTools, []);
     assert.equal(result.summary.nativeAllowed, 0);
   });
@@ -319,9 +336,7 @@ describe('target run tool resolution', () => {
         name: 'synced_logs',
         description: 'Read synced logs',
         capability: 'read',
-        inputSchema: { type: 'object' },
-        outputSchema: { type: 'object' },
-        artifactPolicy: 'if_detailed',
+        input_schema: { type: 'object' },
         timeout_ms: 10000,
         version: 'v1'
       }
@@ -362,7 +377,7 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedToolNames, ['synced_logs']);
+    assert.deepEqual(result.allowedToolNames, ['synced_logs', 'acornops_generate_pdf_report']);
     assert.equal(toolListCalls, 3);
   });
 });
@@ -415,10 +430,10 @@ describe('target assistant capabilities preview controller', () => {
 
     assert.equal(response.statusCode, 200);
     assert.equal(body.toolAccessMode, 'read_only');
-    assert.equal(body.toolSummary.totalAllowed, 3);
+    assert.equal(body.toolSummary.totalAllowed, 4);
     assert.equal(body.toolSummary.writeAllowed, 0);
     assert.equal(body.skillSummary.totalAvailable, 1);
-    assert.deepEqual(body.tools.map((item) => item.id), ['query_logs', 'target_insights', 'web_search']);
+    assert.deepEqual(body.tools.map((item) => item.id), ['reports.pdf.generate', 'query_logs', 'target_insights', 'web_search']);
     assert.equal(body.tools.some((item) => Object.prototype.hasOwnProperty.call(item, 'input_schema')), false);
     assert.deepEqual(body.skills, [
       {

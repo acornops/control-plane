@@ -170,7 +170,8 @@ describe('workspace AI settings controller', () => {
       createRequest({ workspaceId: 'workspace-1' })
     );
 
-    assert.equal(response.statusCode, 502);
+    assert.equal(response.statusCode, 503);
+    assert.equal((response.body as { error: { code: string } }).error.code, 'SERVICE_UNAVAILABLE');
     assert.equal(
       (response.body as { error: { message: string } }).error.message,
       'Failed to synchronize AI provider settings with llm-gateway'

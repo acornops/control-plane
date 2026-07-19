@@ -59,7 +59,11 @@ export function createApp() {
   const openApiDocument = buildOpenApiDocument(config.CONTROL_PLANE_BASE_URL, config.SESSION_COOKIE_NAME);
 
   app.set('trust proxy', config.TRUST_PROXY);
-  app.use(cors({ origin: corsOriginOption(), credentials: true }));
+  app.use(cors({
+    origin: corsOriginOption(),
+    credentials: true,
+    exposedHeaders: ['Retry-After']
+  }));
   app.use(applySecurityHeaders);
   app.use((req, res, next) => {
     const requestId = req.header('x-request-id') || randomUUID();

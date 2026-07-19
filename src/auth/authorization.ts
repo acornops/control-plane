@@ -13,6 +13,7 @@ export const WORKSPACE_CAPABILITIES = [
   'delete_workspace',
   'manage_members',
   'manage_targets',
+  'manage_catalog_sources',
   'manage_mcp',
   'manage_tools',
   'manage_target_insights',
@@ -25,7 +26,7 @@ export const WORKSPACE_CAPABILITIES = [
   'create_sessions',
   'create_read_only_runs',
   'create_read_write_runs',
-  'read_target_logs',
+  'read_tarquery_logs',
   'cancel_runs',
   'delete_sessions'
 ] as const;
@@ -52,21 +53,22 @@ export const WORKSPACE_CAPABILITY_METADATA: Record<WorkspaceCapability, { group:
   read_members: { group: 'members', sortOrder: 0 },
   manage_members: { group: 'members', sortOrder: 10 },
   manage_targets: { group: 'targets', sortOrder: 0 },
-  read_target_logs: { group: 'targets', sortOrder: 10 },
+  read_tarquery_logs: { group: 'targets', sortOrder: 10 },
   create_sessions: { group: 'operations', sortOrder: 0 },
   create_read_only_runs: { group: 'operations', sortOrder: 10 },
   create_read_write_runs: { group: 'operations', sortOrder: 20 },
   cancel_runs: { group: 'operations', sortOrder: 30 },
   delete_sessions: { group: 'operations', sortOrder: 40 },
-  manage_mcp: { group: 'settings', sortOrder: 0 },
-  manage_tools: { group: 'settings', sortOrder: 10 },
-  manage_target_insights: { group: 'settings', sortOrder: 20 },
-  manage_skills: { group: 'settings', sortOrder: 30 },
-  manage_workflows: { group: 'settings', sortOrder: 40 },
-  manage_agents: { group: 'settings', sortOrder: 50 },
-  manage_ai_settings: { group: 'settings', sortOrder: 60 },
-  manage_agent_keys: { group: 'settings', sortOrder: 70 },
-  manage_webhooks: { group: 'settings', sortOrder: 80 }
+  manage_catalog_sources: { group: 'settings', sortOrder: 0 },
+  manage_mcp: { group: 'settings', sortOrder: 10 },
+  manage_tools: { group: 'settings', sortOrder: 20 },
+  manage_target_insights: { group: 'settings', sortOrder: 30 },
+  manage_skills: { group: 'settings', sortOrder: 40 },
+  manage_workflows: { group: 'settings', sortOrder: 50 },
+  manage_agents: { group: 'settings', sortOrder: 60 },
+  manage_ai_settings: { group: 'settings', sortOrder: 70 },
+  manage_agent_keys: { group: 'settings', sortOrder: 80 },
+  manage_webhooks: { group: 'settings', sortOrder: 90 }
 };
 
 export function groupWorkspaceCapabilities(capabilities: Iterable<keyof DomainWorkspacePermissions>): RoleTemplateCapabilityGroup[] {
@@ -103,6 +105,7 @@ const EMPTY_PERMISSIONS: WorkspacePermissions = {
   delete_workspace: false,
   manage_members: false,
   manage_targets: false,
+  manage_catalog_sources: false,
   manage_mcp: false,
   manage_tools: false,
   manage_target_insights: false,
@@ -115,7 +118,7 @@ const EMPTY_PERMISSIONS: WorkspacePermissions = {
   create_sessions: false,
   create_read_only_runs: false,
   create_read_write_runs: false,
-  read_target_logs: false,
+  read_tarquery_logs: false,
   cancel_runs: false,
   delete_sessions: false
 };
@@ -127,6 +130,7 @@ const READ_ONLY_PERMISSIONS: WorkspacePermissions = {
   delete_workspace: false,
   manage_members: false,
   manage_targets: false,
+  manage_catalog_sources: false,
   manage_mcp: false,
   manage_tools: false,
   manage_target_insights: false,
@@ -139,7 +143,7 @@ const READ_ONLY_PERMISSIONS: WorkspacePermissions = {
   create_sessions: false,
   create_read_only_runs: false,
   create_read_write_runs: false,
-  read_target_logs: false,
+  read_tarquery_logs: false,
   cancel_runs: false,
   delete_sessions: false
 };
@@ -151,6 +155,7 @@ const OWNER_PERMISSIONS: WorkspacePermissions = {
   delete_workspace: true,
   manage_members: true,
   manage_targets: true,
+  manage_catalog_sources: true,
   manage_mcp: true,
   manage_tools: true,
   manage_target_insights: true,
@@ -163,7 +168,7 @@ const OWNER_PERMISSIONS: WorkspacePermissions = {
   create_sessions: true,
   create_read_only_runs: true,
   create_read_write_runs: true,
-  read_target_logs: true,
+  read_tarquery_logs: true,
   cancel_runs: true,
   delete_sessions: true
 };
@@ -177,7 +182,7 @@ const OPERATOR_PERMISSIONS: WorkspacePermissions = {
   ...READ_ONLY_PERMISSIONS,
   create_sessions: true,
   create_read_only_runs: true,
-  read_target_logs: true,
+  read_tarquery_logs: true,
   cancel_runs: true
 };
 

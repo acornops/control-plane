@@ -16,7 +16,7 @@ const approvalSummarySchema = z.preprocess(
 );
 
 export const runRequestSchema = z.object({
-  contract_version: z.number().int().default(1),
+  contract_version: z.literal(2),
   run_id: uuidV4Schema,
   workspace_id: uuidV4Schema,
   target_id: uuidV4Schema,
@@ -44,9 +44,18 @@ export const toolResultArtifactCreateSchema = z.object({
   }
 });
 
+export const platformNativeToolCallSchema = z.object({
+  toolCallId: z.string().min(1).max(256),
+  arguments: z.record(z.unknown()).optional().default({})
+}).strict();
+
 export const createToolApprovalSchema = z.object({
   toolCallId: z.string().min(1),
   toolName: z.string().min(1),
+  toolRef: z.object({
+    serverId: z.string().min(1),
+    toolName: z.string().min(1)
+  }).strict(),
   summary: approvalSummarySchema,
   arguments: z.record(z.unknown()).optional().default({}),
   continuation: z.record(z.unknown()).optional()

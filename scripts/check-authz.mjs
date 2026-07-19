@@ -234,7 +234,7 @@ for (const capability of [
   'create_sessions',
   'create_read_only_runs',
   'create_read_write_runs',
-  'read_target_logs',
+  'read_tarquery_logs',
   'cancel_runs',
   'delete_sessions'
 ]) {
@@ -256,7 +256,7 @@ assert(authorization.includes('delete_workspace: false'), 'admin/viewer/operator
 assert(authorization.includes('create_read_write_runs: false'), 'operator/viewer read-write run denial missing');
 assert(authorization.includes('const OPERATOR_PERMISSIONS'), 'operator permission profile missing');
 assert(authorization.includes('create_read_only_runs: true'), 'operator read-only run permission missing');
-assert(authorization.includes('read_target_logs: true'), 'operator target-log read permission missing');
+assert(authorization.includes('read_tarquery_logs: true'), 'operator target-log read permission missing');
 
 assert(!workspaceRoutes.includes('agent/tools/call'), 'public direct agent tool-call route must stay removed');
 assert(!openApi.includes('agent/tools/call'), 'direct agent tool-call route must not appear in OpenAPI');
@@ -280,7 +280,7 @@ assert(
 );
 assert(runController.includes('cancel_runs'), 'run cancellation must be capability-gated');
 assert(runController.includes('create_read_write_runs'), 'approval decisions must be read-write capability-gated');
-assert(clusterController.includes("'read_target_logs'"), 'pod log endpoint must be read_target_logs capability-gated');
+assert(clusterController.includes("'read_tarquery_logs'"), 'pod log endpoint must be read_tarquery_logs capability-gated');
 assert(webhooksController.includes("'manage_webhooks'"), 'webhook mutations must be manage_webhooks capability-gated');
 assert(!webhooksController.includes('canManageWebhooks'), 'webhook mutations must not use local role-specific authorization helpers');
 assert(targetToolController.includes("canEdit: access.authz.can('manage_mcp')"), 'MCP catalog editability must use MCP management authz');

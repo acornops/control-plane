@@ -110,10 +110,10 @@ describe('target controller regressions', () => {
     const parsed = createToolApprovalSchema.safeParse({
       toolCallId: 'call-1',
       toolName: 'restart_workload',
+      toolRef: { serverId: 'server-1', toolName: 'restart_workload' },
       summary: '  Restart\u0007\n\tDeployment   default/api.  ',
       arguments: { namespace: 'default', name: 'api' }
     });
-
     assert.equal(parsed.success, true);
     if (!parsed.success) return;
     assert.equal(parsed.data.summary, 'Restart Deployment default/api.');
@@ -123,10 +123,10 @@ describe('target controller regressions', () => {
     const parsed = createToolApprovalSchema.safeParse({
       toolCallId: 'call-1',
       toolName: 'restart_workload',
+      toolRef: { serverId: 'server-1', toolName: 'restart_workload' },
       summary: '  \n\t  ',
       arguments: { namespace: 'default', name: 'api' }
     });
-
     assert.equal(parsed.success, true);
     if (!parsed.success) return;
     assert.equal(parsed.data.summary, undefined);
@@ -137,7 +137,6 @@ describe('target controller regressions', () => {
       syncTooling,
       createRequest({}, { workspaceId: 'workspace-1', targetId: 'cluster-1' })
     );
-
     assert.equal(denied.statusCode, 400);
     assert.equal((denied.body as { error: { code: string } }).error.code, 'VALIDATION_ERROR');
   });
@@ -172,6 +171,9 @@ describe('target controller regressions', () => {
       if (isWorkspaceAiCredentialStatusRequest(input)) {
         return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
       }
+      if (String(input).includes('/api/v1/internal/mcp/servers?')) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
       return new Response('unexpected request', { status: 500 });
     });
 
@@ -191,6 +193,7 @@ describe('target controller regressions', () => {
       }
     });
   });
+
 
   it('records durable target chat activity after deleting a session', async () => {
     installWorkspace('admin');
@@ -273,7 +276,7 @@ describe('target controller regressions', () => {
     assert(capturedUrls.every((url) => /target_type=virtual_machine/.test(url)));
   });
 
-  it('lists tools for the synthetic built-in server without requiring gateway server metadata', async () => {
+  it('does not synthesize a built-in server when gateway server metadata is absent', async () => {
     installWorkspace('viewer');
     repo.getTargetAgentRegistration = async () => null;
     repo.listTargetToolOverrides = async () => ({});
@@ -294,8 +297,8 @@ describe('target controller regressions', () => {
       createRequest({ workspaceId: 'workspace-1', targetId: 'cluster-1', serverId: 'builtin-system-server' })
     );
 
-    assert.equal(response.statusCode, 200);
-    assert.deepEqual((response.body as { items: unknown[] }).items, []);
+    assert.equal(response.statusCode, 404);
+    assert.equal((response.body as { error: { code: string } }).error.code, 'NOT_FOUND');
   });
 
   it('preserves the Kubernetes cluster alias on target-scoped MCP mutation webhooks', async () => {
@@ -410,6 +413,23 @@ describe('target controller regressions', () => {
       });
     repo.getSession = async () =>
       createSessionRecord({ targetId: 'vm-1', targetType: 'virtual_machine', clusterId: undefined });
+    repo.getTargetAgentRegistration = async () => ({ capabilities: ['read', 'write'] }) as never;
+    repo.listTargetToolOverrides = async () => ({});
+    mock.method(globalThis, 'fetch', async (input) => {
+      if (String(input).includes('/api/v1/internal/mcp/tools?')) {
+        return new Response(JSON.stringify([{
+          name: 'vm.restart_service',
+          server_id: 'server-1',
+          model_alias: 'vm.restart_service',
+          mcp_server_url: 'http://agentv:8080/mcp',
+          timeout_ms: 30_000,
+          capability: 'write',
+          source: 'builtin',
+          enabled: true
+        }]), { status: 200 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
     repo.createRunToolApproval = async (params) => {
       capturedApprovalParams = params;
       return createApproval({
@@ -419,7 +439,6 @@ describe('target controller regressions', () => {
         summary: params.summary
       });
     };
-
     const created = await callController(
       createToolApproval,
       createRequest(
@@ -427,12 +446,12 @@ describe('target controller regressions', () => {
         {
           toolCallId: 'call-1',
           toolName: 'vm.restart_service',
+          toolRef: { serverId: 'server-1', toolName: 'vm.restart_service' },
           summary: 'Restart service nginx.',
           arguments: { service: 'nginx' }
         }
       )
     );
-
     assert.equal(created.statusCode, 201);
     assert.equal(capturedApprovalParams?.targetId, 'vm-1');
     assert.equal(capturedApprovalParams?.clusterId, undefined);

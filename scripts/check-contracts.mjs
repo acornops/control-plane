@@ -63,6 +63,7 @@ const workspaceRoutes = `${workspaceRouteSources}\n${expandedWorkspaceRoutes}\n$
 const webhookRoutes = read('src/routes/webhooks.ts');
 const sessionRoutes = read('src/routes/sessions.ts');
 const runRoutes = read('src/routes/runs.ts');
+const agentRoutes = read('src/routes/agents.ts');
 const internalRoutes = read('src/routes/internal-execution.ts');
 const contracts = read('src/types/contracts.ts');
 const runEventsContract = read('src/types/run-events-contract.ts');
@@ -186,7 +187,10 @@ function extractFrontendApiPaths(source, filename) {
     } else if (ts.isTemplateExpression(node)) {
       value = templateExpressionText(node);
     }
-    if (value) {
+    const isComposedPathHelper = ts.isTemplateExpression(node)
+      && ts.isArrowFunction(node.parent)
+      && node.parent.body === node;
+    if (value && !isComposedPathHelper) {
       const apiPath = normalizeFrontendApiPath(value);
       if (apiPath) paths.add(apiPath);
     }
@@ -205,6 +209,16 @@ function checkManagementConsoleSourceApiCoverage() {
   if (!existsSync(servicesRoot)) return;
 
   const documentedPaths = documentedManagementConsolePaths();
+  // These callers remain only in unmounted legacy target/workspace capability
+  // components while the Agent-owned capability cutover is completed. They are
+  // intentionally not restored to the public contract.
+  const retiredPaths = new Set([
+    '/api/v1/workspaces/{workspaceId}/mcp/servers',
+    '/api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}',
+    '/api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}/test-connection',
+    '/api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}/tools',
+    '/api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}/tools/{toolName}'
+  ]);
   const frontendPaths = new Set();
   for (const filename of readFilesUnder(servicesRoot)) {
     if (!/\.[cm]?[tj]sx?$/.test(filename) || /\.test\.[cm]?[tj]sx?$/.test(filename)) continue;
@@ -215,6 +229,7 @@ function checkManagementConsoleSourceApiCoverage() {
   }
 
   for (const apiPath of Array.from(frontendPaths).sort()) {
+    if (retiredPaths.has(apiPath)) continue;
     expect(
       documentedPaths.has(apiPath),
       `Management-console service API path is missing from control-plane contract manifest: ${apiPath}`
@@ -271,7 +286,7 @@ for (const [docPath, routeNeedle, source, label] of [
   ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools`', "'/workspaces/:workspaceId/targets/:targetId/tools'", workspaceRoutes, 'Target tools route'],
   ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/assistant/capabilities-preview?toolAccessMode=read_only|read_write`', "'/workspaces/:workspaceId/targets/:targetId/assistant/capabilities-preview'", workspaceRoutes, 'Target assistant capabilities preview route'],
   ['`PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolId}`', "'/workspaces/:workspaceId/targets/:targetId/tools/:toolId'", workspaceRoutes, 'Target tool settings patch route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`', "workspacesRouter.get('/workspaces/:workspaceId/targets/:targetId/mcp/servers'", workspaceRoutes, 'List target MCP servers route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`', "router.get(\n    '/workspaces/:workspaceId/targets/:targetId/mcp/servers'", workspaceRoutes, 'List target MCP servers route'],
   ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/tools'", workspaceRoutes, 'List target MCP server tools route'],
   ['`POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers'", workspaceRoutes, 'Create target MCP server route'],
   ['`PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId'", workspaceRoutes, 'Patch target MCP server route'],
@@ -284,6 +299,15 @@ for (const [docPath, routeNeedle, source, label] of [
   ['`PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}`', "'/workspaces/:workspaceId/targets/:targetId/skills/:skillId'", workspaceRoutes, 'Patch target skill route'],
   ['`DELETE /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}`', "'/workspaces/:workspaceId/targets/:targetId/skills/:skillId'", workspaceRoutes, 'Delete target skill route'],
   ['`POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}/reimport`', "'/workspaces/:workspaceId/targets/:targetId/skills/:skillId/reimport'", workspaceRoutes, 'Reimport target skill route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers`', "agentsRouter.get('/workspaces/:workspaceId/agents/:agentId/mcp/servers'", agentRoutes, 'List Agent MCP servers route'],
+  ['`POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers`', "agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/mcp/servers'", agentRoutes, 'Create Agent MCP server route'],
+  ['`POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/import`', "'/workspaces/:workspaceId/agents/:agentId/mcp/servers/import'", agentRoutes, 'Import Agent MCP server route'],
+  ['`POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/reimport`', "'/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/reimport'", agentRoutes, 'Reimport Agent MCP server route'],
+  ['`PATCH /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/tools/{toolName}`', "'/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/tools/:toolName'", agentRoutes, 'Patch Agent MCP tool route'],
+  ['`GET /api/v1/workspaces/{workspaceId}/agents/{agentId}/skills`', "agentsRouter.get('/workspaces/:workspaceId/agents/:agentId/skills'", agentRoutes, 'List Agent skills route'],
+  ['`POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/skills`', "agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/skills'", agentRoutes, 'Create Agent skill route'],
+  ['`POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/skills/import`', "'/workspaces/:workspaceId/agents/:agentId/skills/import'", agentRoutes, 'Import Agent skill route'],
+  ['`POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/skills/{skillId}/reimport`', "'/workspaces/:workspaceId/agents/:agentId/skills/:skillId/reimport'", agentRoutes, 'Reimport Agent skill route'],
   ['`POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/sessions`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/sessions'", sessionRoutes, 'Create session route'],
   ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/sessions`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/sessions'", sessionRoutes, 'List sessions route'],
   ['`DELETE /api/v1/sessions/{sessionId}`', "sessionsRouter.delete('/sessions/:sessionId'", sessionRoutes, 'Delete session route'],
@@ -416,7 +440,6 @@ for (const wsNeedle of [
 }
 
 for (const builtinNeedle of [
-  llmGatewayContract.builtinBridge.serverName,
   llmGatewayContract.builtinBridge.serverUrl,
   llmGatewayContract.builtinBridge.authHeader,
   llmGatewayContract.builtinBridge.scopeSource
@@ -431,7 +454,6 @@ for (const builtinNeedle of [
 }
 
 for (const builtinConfigNeedle of [
-  'config.BUILTIN_TARGET_MCP_SERVER_NAME',
   'config.BUILTIN_TARGET_MCP_SERVER_URL'
 ]) {
   expectIncludes(toolSync, builtinConfigNeedle, 'Builtin MCP bridge implementation');
@@ -487,7 +509,17 @@ expectIncludes(
 
 for (const toolName of agentContract.builtinToolNames) {
   expectIncludes(manifestText, toolName, 'AgentK builtin tool manifest');
-  expectIncludes(agentSource, toolName, 'AgentK builtin tool implementation');
+}
+for (const dynamicCatalogNeedle of [
+  'advertisedTools',
+  'const allowedTools = [...new Set(advertisedTools.map((tool) => tool.name))]',
+  'agentGateway.listAgentTools(targetId)'
+]) {
+  expectIncludes(
+    `${agentSource}\n${toolSync}`,
+    dynamicCatalogNeedle,
+    'Target-advertised built-in tool implementation'
+  );
 }
 
 for (const guardNeedle of [

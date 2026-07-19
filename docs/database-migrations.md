@@ -19,16 +19,21 @@ npm run db:check
 All commands read `DATABASE_URL`. `CONTROL_PLANE_MIGRATIONS_DIR` can point at a
 non-default migration directory for tests or packaging checks.
 
-## Additive Migration Policy
+## Migration Immutability and Schema Epochs
 
-Do not rewrite an applied migration. Add a new numbered forward migration and
-keep runtime rollback independent from schema rollback. Automation rollout can
-be stopped with `AUTOMATION_RUNTIME_MODE=off`; its additive tables and columns
-remain in place for a later recovery or forward deployment.
+Do not rewrite an applied migration. Released migration checksums are frozen in
+`migrations/control-plane/released-checksums.json`; add a new numbered forward
+migration instead. Workflow schema epoch 2 is a first-install or explicit-reset
+cutover, not an additive or rolling upgrade. Run `npm run db:preflight` before
+init or migration. When it reports `WORKFLOW_V2_DATABASE_RESET_REQUIRED`, back
+up and explicitly drop/recreate the database; no migration or startup command
+deletes incompatible V1 workflow records. A V1 rollback requires restoring the
+backup and the complete pinned V1 image matrix.
 
-The Docker deployment tracks include a `control-plane-init` one-shot service.
-`task local-up` and `task prod-up` run this service before bringing up the
-control-plane application container.
+The Docker deployment tracks include a `control-plane-preflight` one-shot
+service before the `control-plane-init` service. `task local-up` and
+`task prod-up` run preflight before bringing up the control-plane application
+container. Use `task local-reset` only for disposable local data.
 
 ## Validation
 

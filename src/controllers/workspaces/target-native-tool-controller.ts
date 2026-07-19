@@ -16,6 +16,10 @@ import { recordTargetInsightsAudit } from '../../services/target-insights/audit.
 import { requeuePausedTargetInsightsCheckpoints } from '../../services/target-insights/requeue.js';
 import { targetWebhookScope } from '../../services/target-webhook-scope.js';
 import { webhooks } from '../../services/webhooks.js';
+import {
+  listWorkspaceNativeToolsForInvocationScope,
+  NativeToolAuthorizationClass
+} from '../../services/workspace-native-tools.js';
 import { repo } from '../../store/repository.js';
 import { TargetType } from '../../types/domain.js';
 import { TargetInsightsToolConfig } from '../../types/target-insights.js';
@@ -31,11 +35,16 @@ interface DomainFiltersConfig extends Record<string, unknown> {
   };
 }
 
+interface PlatformNativeToolConfig extends Record<string, unknown> {
+  authorizationClass: NativeToolAuthorizationClass;
+}
+
 interface TargetNativeToolItem {
-  id: typeof WEB_SEARCH_TOOL_ID | typeof TARGET_INSIGHTS_TOOL_ID;
+  id: string;
   label: string;
   enabled: boolean;
   description: string;
+  origin: 'target_setting' | 'platform_native';
   capability: 'read' | 'write';
   runtimeKind: 'provider_native' | 'function';
   visibility: {
@@ -43,7 +52,7 @@ interface TargetNativeToolItem {
     appearsInRunEnabledTools: boolean;
     appearsInToolCalls: boolean;
   };
-  config: DomainFiltersConfig | TargetInsightsToolConfig;
+  config: DomainFiltersConfig | TargetInsightsToolConfig | PlatformNativeToolConfig;
   readiness?: {
     learningAvailable: boolean;
     learningPausedReason: 'ai_settings_missing' | 'provider_not_allowed' | 'model_not_allowed' | null;
@@ -183,6 +192,7 @@ function buildWebSearchItem(
     label: 'Web Search',
     enabled: setting?.enabled ?? true,
     description: 'Allow assistant runs for this target to search the web through the selected LLM provider.',
+    origin: 'target_setting',
     capability: 'read',
     runtimeKind: 'provider_native',
     visibility: {
@@ -207,6 +217,7 @@ function buildTargetInsightsItem(
     label: 'Insights',
     enabled: setting?.enabled ?? true,
     description: 'Retrieve and improve target-specific troubleshooting insights for future assistant runs.',
+    origin: 'target_setting',
     capability: 'read',
     runtimeKind: 'function',
     visibility: {
@@ -220,6 +231,29 @@ function buildTargetInsightsItem(
       canEdit
     }
   };
+}
+
+export function buildPlatformNativeTargetToolItems(): TargetNativeToolItem[] {
+  return listWorkspaceNativeToolsForInvocationScope('target_chat').map((tool) => ({
+    id: tool.id,
+    label: tool.title,
+    enabled: true,
+    description: tool.description,
+    origin: 'platform_native',
+    capability: tool.approvalOperation,
+    runtimeKind: 'function',
+    visibility: {
+      appearsInAssistantToolList: true,
+      appearsInRunEnabledTools: true,
+      appearsInToolCalls: true
+    },
+    config: {
+      authorizationClass: tool.authorizationClass
+    },
+    permissions: {
+      canEdit: false
+    }
+  }));
 }
 
 function respondMissingToolsCapability(res: Response): void {
@@ -298,6 +332,7 @@ export async function listTargetTools(
       const insightsReadiness = await resolveTargetInsightsReadiness(workspaceId, insightsConfig);
       items.push(buildTargetInsightsItem(targetInsightsSetting, insightsReadiness, access.authz.can('manage_target_insights')));
     }
+    items.push(...buildPlatformNativeTargetToolItems());
     res.status(200).json({
       workspaceId,
       ...targetWebhookScope(targetId, access.target.targetType),

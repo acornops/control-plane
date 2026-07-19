@@ -1,7 +1,14 @@
 {
   "repo": "control-plane",
   "version": 1,
-  "runtimeDependencies": ["management-console", "execution-engine", "llm-gateway", "agentk", "agentv"],
+  "executionContractVersion": 2,
+  "runtimeDependencies": [
+    "management-console",
+    "execution-engine",
+    "llm-gateway",
+    "agentk",
+    "agentv"
+  ],
   "counterparts": {
     "management-console": {
       "authPaths": [
@@ -90,8 +97,14 @@
         "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers",
         "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools",
         "POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers",
+        "POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/import",
+        "POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/reimport",
         "PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}",
         "DELETE /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}",
+        "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/connection",
+        "PUT /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/connection",
+        "DELETE /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/connection",
+        "POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/connection/verify",
         "POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/test-connection",
         "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills",
         "POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills",
@@ -117,14 +130,43 @@
         "GET /api/v1/runs/{runId}/stream",
         "GET /api/v1/runs/{runId}/approvals",
         "POST /api/v1/runs/{runId}/approvals/{approvalId}/decision",
+        "GET /api/v1/report-artifacts/{reportId}",
+        "GET /api/v1/report-artifacts/{reportId}/download",
         "POST /api/v1/runs/{runId}/cancel"
       ],
       "plannedWorkflowPaths": [
+        "GET /api/v1/workspaces/{workspaceId}/automation-templates",
+        "POST /api/v1/workspaces/{workspaceId}/automation-templates/{templateId}/install",
+        "POST /api/v1/workspaces/{workspaceId}/automation-templates/{templateId}/activate",
         "GET /api/v1/workspaces/{workspaceId}/agents",
         "POST /api/v1/workspaces/{workspaceId}/agents",
+        "GET /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers",
+        "POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers",
+        "POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/import",
+        "PATCH /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}",
+        "DELETE /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}",
+        "POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/reimport",
+        "POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/test-connection",
+        "GET /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/tools",
+        "PATCH /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/tools/{toolName}",
+        "GET /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/connection",
+        "PUT /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/connection",
+        "DELETE /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/connection",
+        "POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/connection/verify",
+        "GET /api/v1/workspaces/{workspaceId}/agents/{agentId}/skills",
+        "POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/skills",
+        "POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/skills/import",
+        "GET /api/v1/workspaces/{workspaceId}/agents/{agentId}/skills/{skillId}",
+        "PATCH /api/v1/workspaces/{workspaceId}/agents/{agentId}/skills/{skillId}",
+        "DELETE /api/v1/workspaces/{workspaceId}/agents/{agentId}/skills/{skillId}",
+        "POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/skills/{skillId}/reimport",
+        "GET /api/v1/workspaces/{workspaceId}/service-identities",
+        "POST /api/v1/workspaces/{workspaceId}/service-identities",
+        "PATCH /api/v1/workspaces/{workspaceId}/service-identities/{serviceIdentityId}",
         "GET /api/v1/workspaces/{workspaceId}/automation/diagnostics",
         "POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/runs",
         "GET /api/v1/agents/{agentId}?workspaceId={workspaceId}",
+        "POST /api/v1/agents/{agentId}/duplicate",
         "PATCH /api/v1/agents/{agentId}",
         "DELETE /api/v1/agents/{agentId}",
         "GET /api/v1/agents/{agentId}/versions",
@@ -138,13 +180,16 @@
         "GET /api/v1/workspaces/{workspaceId}/workflows",
         "POST /api/v1/workspaces/{workspaceId}/workflows",
         "GET /api/v1/workspaces/{workspaceId}/workflow-options",
-        "GET /api/v1/workspaces/{workspaceId}/mcp/servers",
-        "POST /api/v1/workspaces/{workspaceId}/mcp/servers",
-        "PATCH /api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}",
-        "DELETE /api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}",
-        "POST /api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}/test-connection",
-        "GET /api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}/tools",
-        "PATCH /api/v1/workspaces/{workspaceId}/mcp/servers/{serverId}/tools/{toolName}",
+        "GET /api/v1/workspaces/{workspaceId}/catalog/native-tools",
+        "PUT /api/v1/workspaces/{workspaceId}/agents/{agentId}/native-tools/{toolId}",
+        "DELETE /api/v1/workspaces/{workspaceId}/agents/{agentId}/native-tools/{toolId}",
+        "GET /api/v1/workspaces/{workspaceId}/catalog/sources",
+        "POST /api/v1/workspaces/{workspaceId}/catalog/sources",
+        "PATCH /api/v1/workspaces/{workspaceId}/catalog/sources/{sourceId}",
+        "POST /api/v1/workspaces/{workspaceId}/catalog/sources/{sourceId}/sync",
+        "DELETE /api/v1/workspaces/{workspaceId}/catalog/sources/{sourceId}",
+        "GET /api/v1/workspaces/{workspaceId}/catalog/artifacts",
+        "GET /api/v1/workspaces/{workspaceId}/catalog/artifacts/{artifactId}",
         "GET /api/v1/workspaces/{workspaceId}/workflow-schedules",
         "POST /api/v1/workspaces/{workspaceId}/workflow-schedules",
         "POST /api/v1/workspaces/{workspaceId}/workflow-schedules/preview",
@@ -152,10 +197,12 @@
         "DELETE /api/v1/workflow-schedules/{scheduleId}",
         "GET /api/v1/workspaces/{workspaceId}/approvals",
         "GET /api/v1/workflows/{workflowId}",
+        "POST /api/v1/workflows/{workflowId}/duplicate",
         "PATCH /api/v1/workflows/{workflowId}",
         "DELETE /api/v1/workflows/{workflowId}",
         "GET /api/v1/workflows/{workflowId}/sessions",
         "POST /api/v1/workflows/{workflowId}/sessions",
+        "POST /api/v1/workflows/{workflowId}/capabilities-preview",
         "POST /api/v1/workflow-sessions/{sessionId}/messages",
         "GET /api/v1/workflow-executions/{executionId}",
         "POST /api/v1/workflow-executions/{executionId}/cancel",
@@ -164,6 +211,119 @@
         "GET /api/v1/workflow-reports/{reportId}/download",
         "GET /internal/v1/workflow-sessions/{sessionId}/context"
       ],
+      "workflowCapabilityCeiling": {
+        "rule": "A workflow selects one or more active reviewed specialist Agents. restrictionMode=inherit resolves their current combined ceiling at session creation; restrictionMode=restrict requires semanticCapabilityIds to be an explicit subset.",
+        "emptyRestrictionSemantics": "inherit requires an empty semanticCapabilityIds array. restrict may use an empty array to intentionally authorize no semantic capabilities. Stored legacy workflows migrate to restrict, legacy requests that omit restrictionMode preserve restrict semantics, and the console always sends restrictionMode explicitly.",
+        "agentOnlyAdditions": [
+          "mcp_servers",
+          "mcp_tools",
+          "skills"
+        ],
+        "runtimeToolIdentity": "McpToolRef{serverId,toolName}; legacy strings are accepted only when unambiguous"
+      },
+      "workflowRuntimePolicy": {
+        "authority": "ASSISTANT_MAX_RUNTIME_MS is the only workflow execution limit and TARGET_CHAT_REPORT_RETENTION_DAYS is the only workflow and target-chat report retention policy.",
+        "mutationCompatibility": "Legacy maxRuntimeSeconds and retentionDays fields are accepted but ignored and cannot override deployment policy.",
+        "response": "Workflow responses normalize maxRuntimeSeconds and retentionDays to effective deployment values.",
+        "options": "Workflow option catalogs expose one effective runtime limit and one effective retention policy.",
+        "manualDefaults": "When omitted, the server defaults manual workflows to read_only, inherit, workspace_metadata, read_workspace_data, and no approval requirements."
+      },
+      "workflowCapabilityPreview": {
+        "path": "POST /api/v1/workflows/{workflowId}/capabilities-preview",
+        "authorization": "Requires workspace-data read and the workflow mode's run-creation capability.",
+        "snapshot": "Target candidates, mappings, and Agent registrations are evaluated from one request snapshot. The selected target is reloaded and its stored target type is authoritative.",
+        "statuses": ["needs_target", "ready", "blocked"],
+        "targetStatuses": ["ready", "unavailable", "unsupported"],
+        "mcpAuthRequirements": "Every credentialed MCP server in the compiled Agent scope emits mcpRequirements[].{serverId,serverName,authType,owningAgent.{id,name},connectionState,authRequirement.{scope,credentialLabel,requiredInformation[].{name,description}},action}; generic connection metadata and guidance only, never provider profiles, URLs, headers, or credential values",
+        "privacy": "Responses expose bounded reason codes and public compiled scope only; credentials, URLs, headers, tool arguments, input schemas, private connection state, and internal coordinator identity are excluded.",
+        "mutation": "Preview creates no session, execution, run, approval, or audit record. Dispatch recompiles and returns the authoritative compiledAccessScope."
+      },
+      "workspaceNativeToolContract": {
+        "catalog": ["chat.sessions.read_selected", "reports.pdf.generate"],
+        "modelAliases": { "chat.sessions.read_selected": "acornops_read_selected_chat_sessions", "reports.pdf.generate": "acornops_generate_pdf_report" },
+        "ownership": "Control-plane code owns workspace-native metadata, schemas, authorization class, audit operation, and execution.",
+        "assignment": "manage_agents grants or revokes a tool on a specialist Agent and transactionally rebinds exact reviewed mappings and dependent readiness; manage_mcp is not required.",
+        "invocationScopePolicy": "Workspace-native declarations carry invocationScopes. chat.sessions.read_selected supports workflow; reports.pdf.generate supports workflow and target_chat; direct Agent invocation returns WORKSPACE_NATIVE_TOOL_SCOPE_DENIED.",
+        "artifactSafety": "reports.pdf.generate is a control-plane-owned internal_artifact available to workflows and target chat without crossing the target-adapter boundary. It is allowed in read-only runs without write approval, persisted as a write audit event, bounded, provenance-linked, authenticated, and idempotent by workflow run or target run plus tool_call_id.",
+        "selectedChats": "chat.sessions.read_selected requires selected_chat_sessions approval and may read only same-workspace session IDs pinned in the workflow execution input.",
+        "ui": "Agent Capabilities > Tools lists AcornOps native tools separately from MCP-discovered tools. Grant and revoke require manage_agents only.",
+        "workflowUi": "Create defaults to inheritance after Agent selection. Advanced restriction supports narrowed and intentionally empty sets; review and readiness copy distinguish policy from effective capabilities.",
+        "artifactUi": "Workflow and target-chat assistant responses expose authenticated PDF download cards returned by reports.pdf.generate; Copy remains a separate response action."
+      },
+      "workflowRoutingContract": {
+        "request": "required unique non-empty agentIds; entryAgentId, delegationPolicy, and executionMode are rejected with WORKFLOW_ROUTING_FIELDS_REMOVED",
+        "response": "executionMode is derived as direct for one selected Agent or coordinated for two or more; selection order has no meaning",
+        "coordinationTrace": "GET workflow execution returns only bounded child capability, target, specialist, status, and failure; internal coordinator identity and sensitive execution content are omitted",
+        "cancellation": "parent cancellation cascades to active coordinated child runs"
+      },
+      "systemAutomationDefinitions": {
+        "provisioning": "Workflow schema epoch 2 is a first-install or explicit-reset cutover. Workspace creation atomically commits four visible specialist Agents, five workflows, persistent system-owned coordination infrastructure, and a completed starter-v2 installation after the reset-safe migration succeeds; incompatible V1 records abort migration with WORKFLOW_V2_DATABASE_RESET_REQUIRED.",
+        "attribution": "Template-origin Agents and workflows are labeled as system provided and retain their template ID and version.",
+        "visibility": "Public Agent APIs contain specialists only. Manager creation or configuration returns MANAGER_SYSTEM_OWNED, direct access returns 404, and public workflow, compiled-scope, audit, search, and trace DTOs omit internal coordinator identity.",
+        "mutation": "Visible template-origin definitions accept availability-status changes, supported external bindings, duplication, and deletion. Definition edits and version restore remain immutable; Agent deletion returns structured dependent workflows until those dependencies are removed.",
+        "duplication": "manage_agents or manage_workflows may copy the effective definition into a manual draft without capability installations, history, runs, schedules, sessions, activity, or triggers."
+      },
+      "catalogAuthorization": {
+        "manageSources": "manage_catalog_sources",
+        "installAgentMcp": [
+          "manage_agents",
+          "manage_mcp"
+        ],
+        "installTargetMcp": "manage_mcp",
+        "installAgentSkills": [
+          "manage_agents",
+          "manage_skills"
+        ],
+        "toolReview": "scope-specific tool permission",
+        "runtimePersonalAuthorization": "per user, per installation"
+      },
+      "publicMcpReadinessContract": {
+        "paths": [
+          "POST /api/v1/sessions/{sessionId}/messages",
+          "POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/runs",
+          "POST /api/v1/workflow-sessions/{sessionId}/messages"
+        ],
+        "status": 409,
+        "compatibility": "details.readinessErrors[] remains available",
+        "structuredFailures": "details.readinessFailures[].{serverId,toolName,code,action?}",
+        "boundedFieldsOnly": true,
+        "personalRecoveryCode": "MCP_PERSONAL_CONNECTION_REQUIRED",
+        "distinctCodes": [
+          "MCP_PAT_USER_PRINCIPAL_REQUIRED",
+          "MCP_INSTALLATION_UNAVAILABLE",
+          "MCP_REMOTE_DISABLED"
+        ]
+      },
+      "mcpRecoveryRouteState": {
+        "query": [
+          "mcpServer",
+          "mcpAction"
+        ],
+        "actions": [
+          "connect_mcp_server",
+          "verify_mcp_server"
+        ],
+        "automaticMutation": false,
+        "clearAfterSuccessfulRepair": true
+      },
+      "catalogRouteState": {
+        "path": "/workspaces/:workspaceId/catalog",
+        "query": [
+          "q",
+          "source",
+          "compatibility",
+          "artifact",
+          "destination"
+        ],
+        "destinations": [
+          "agent:{agentId}",
+          "target:{targetId}"
+        ],
+        "excludedDestination": "system-owned coordination records",
+        "artifactKinds": [
+          "mcp_server"
+        ]
+      },
       "webhookPaths": [
         "GET /api/v1/workspaces/{workspaceId}/webhooks",
         "POST /api/v1/workspaces/{workspaceId}/webhooks",
@@ -225,9 +385,31 @@
         "run_cancelled",
         "run_completed"
       ],
-      "toolCallCompletedPayloadFields": ["call_id", "tool", "result", "context_meta", "artifact?", "artifactUnavailable?", "is_error"],
-      "toolCallCompletedContextMetaFields": ["schema_version", "strategy", "original_bytes", "context_bytes", "truncated", "omissions"],
-      "toolCallCompletedArtifactFields": ["id", "expires_at", "sha256", "uncompressed_bytes", "compressed_bytes", "content_type"],
+      "toolCallCompletedPayloadFields": [
+        "call_id",
+        "tool",
+        "result",
+        "context_meta",
+        "artifact?",
+        "artifactUnavailable?",
+        "is_error"
+      ],
+      "toolCallCompletedContextMetaFields": [
+        "schema_version",
+        "strategy",
+        "original_bytes",
+        "context_bytes",
+        "truncated",
+        "omissions"
+      ],
+      "toolCallCompletedArtifactFields": [
+        "id",
+        "expires_at",
+        "sha256",
+        "uncompressed_bytes",
+        "compressed_bytes",
+        "content_type"
+      ],
       "toolCallCompletedResultMaxBytes": 12288,
       "targetChatActivityEventTypes": [
         "message.created",
@@ -252,14 +434,18 @@
         "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/resources"
       ],
       "catalogFields": [
+        "catalogArtifact.{id,sourceId,artifactKind=mcp_server,name,title?,description,version,digest,compatible,incompatibilityReason?,remoteEndpoints,publishedAt?,upstreamUpdatedAt?}",
+        "catalogInstallation.{scopeType,destinationId,revision,provenance.{sourceId,artifactName,version,digest,importedAt}}",
+        "personalConnection.{serverId,status=connected|error,authType,action?}",
+        "personalConnectionMutation.{credential<=8192 UTF-8 bytes,consentGranted=true,current user only,destination read + any run capability}",
         "permissions.canEdit",
         "permissions.editableRoles",
         "mcpCatalog.{workspaceId,targetId?,targetType?,clusterId?}",
-        "servers[].{id,name,url,type,enabled,isSystem,canDelete,canEditConnection,canToggle,authType,publicHeaders,connectionStatus,lastDiscoveryAt,lastDiscoveryError}",
+        "servers[].{id,name,url,type,enabled,isSystem,canDelete,canEditConnection,canToggle,authType,authScope,provenance,publicHeaders,connectionStatus,lastDiscoveryAt,lastDiscoveryError}",
         "servers[].toolCounts.{total,enabledConfigured,enabledEffective,writeConfigured,writeEffective}",
         "serverTools.items[].{name,description,capability,version,source,enabledConfigured,enabledEffective,effectiveDisabledReason}",
         "targetTools.{workspaceId,targetId,targetType,permissions.{canEdit,editableRoles?}}",
-        "targetTools.items[].{id,label,description,enabled,capability,runtimeKind,visibility.{appearsInAssistantToolList,appearsInRunEnabledTools,appearsInToolCalls},permissions.{canEdit},readiness?,config}",
+        "targetTools.items[].{id,label,description,enabled,origin=target_setting|platform_native,capability,runtimeKind,visibility.{appearsInAssistantToolList,appearsInRunEnabledTools,appearsInToolCalls},permissions.{canEdit},readiness?,config}",
         "targetTools.web_search.config.domainFilters.{allowedDomains,blockedDomains}",
         "targetTools.target_insights.config.learning.{idleCheckpointDelayMinutes,minimumObservationsBeforeGeneralization,checkpointModel}",
         "targetTools.target_insights.config.retrieval.{maxSnippetsPerRetrieval,maxSnippetSizeBytes}",
@@ -268,15 +454,63 @@
         "targetSkillDetail.files[].{path,content,sizeBytes}"
       ],
       "requestFields": {
-        "patchCluster": ["name?", "namespaceInclude?", "namespaceExclude?", "writeConfirmationRequiredOverride?"],
-        "registerVirtualMachine": ["name", "hostname?", "osFamily?", "serviceManager?", "allowedLogSources?"],
-        "patchVirtualMachine": ["name?", "hostname?", "allowedLogSources?"],
-        "postMessage": ["content", "toolAccessMode", "clientMessageId", "llm.{provider,model,reasoningEffort}?"],
-        "postWorkflowMessage": ["content", "inputs?", "clientRequestId?", "targetId?", "targetType?"]
+        "patchCluster": [
+          "name?",
+          "namespaceInclude?",
+          "namespaceExclude?",
+          "writeConfirmationRequiredOverride?"
+        ],
+        "registerVirtualMachine": [
+          "name",
+          "hostname?",
+          "osFamily?",
+          "serviceManager?",
+          "allowedLogSources?"
+        ],
+        "patchVirtualMachine": [
+          "name?",
+          "hostname?",
+          "allowedLogSources?"
+        ],
+        "workflowSchedule": [
+          "principal.{type=user,id=currentUserId}"
+        ],
+        "catalogImport": [
+          "artifact",
+          "version",
+          "remoteEndpoint",
+          "serverName?",
+          "enabled?",
+          "endpointConfiguration?",
+          "expectedRevision? only on re-import",
+          "no targetType from browser"
+        ],
+        "postMessage": [
+          "content",
+          "toolAccessMode",
+          "clientMessageId",
+          "llm.{provider,model,reasoningEffort}?"
+        ],
+        "postWorkflowMessage": [
+          "content",
+          "inputs?",
+          "clientRequestId?",
+          "targetId?",
+          "targetType?"
+        ]
       },
       "responseFields": {
-        "user": ["quota.workspaceMemberships.{used,limit}"],
-        "workspace": ["plan.{key,name}", "currentUserRoleTemplate?", "permissions", "quota.members.{used,limit}", "quota.kubernetesClusters.{used,limit}", "quota.virtualMachines.{used,limit}"],
+        "user": [
+          "quota.workspaceMemberships.{used,limit}"
+        ],
+        "workspace": [
+          "plan.{key,name}",
+          "currentUserRoleTemplate?",
+          "permissions",
+          "quota.members.{used,limit}",
+          "quota.kubernetesClusters.{used,limit}",
+          "quota.virtualMachines.{used,limit}"
+        ],
         "workspaceAiSettings": [
           "workspaceId",
           "defaultProvider",
@@ -291,33 +525,211 @@
           "providers[].{provider,configured,enabled}",
           "no API key values, secret names, or reasoning summary text"
         ],
-        "roleTemplate": ["key", "displayName", "description", "kind", "capabilities", "capabilityGroups[].{key,capabilities,sortOrder}", "protected", "sortOrder"],
-        "membership": ["role", "roleTemplate?"],
-        "invitation": ["role", "roleTemplate?"],
-        "auditEvent": ["id", "workspaceId", "category", "eventType", "operation", "actor", "object", "summary", "metadata", "occurredAt"],
-        "quotaExceeded": ["error.code=QUOTA_EXCEEDED", "error.details.{quotaKey,used,limit}"],
-        "cluster": ["writeConfirmationPolicy"],
-        "clusterRegistration": ["cluster", "agentKey"],
-        "rotateAgentKey": ["clusterId", "agentKey", "keyVersion"],
-        "virtualMachineRegistration": ["virtualMachine", "agentKey", "installInstructions"],
-        "rotateVirtualMachineAgentKey": ["vmId", "agentKey", "keyVersion", "installInstructions"],
-        "sessionList": ["items", "items[].targetId", "items[].targetType", "items[].clusterId?", "items[].createdBy", "items[].createdByUser.{id,displayName}?", "items[].lastRuntimeSelection.{provider,model,reasoningEffort}?", "nextCursor?"],
-        "targetChatActivity": ["targetId", "targetType", "targetName", "windowSeconds", "generatedAt", "recentActivity[].{sessionId,title,createdBy,createdByUser?,lastActivityAt,lastRunId?,lastRunStatus?,activeRun?,hasActiveRun,hasRecentWriteCapableRun,latestToolAccessMode?}"],
-        "conversationOwnerRequired": ["error.code=CONVERSATION_OWNER_REQUIRED", "error.retryable=false"],
-        "runDetails": ["targetId", "targetType", "clusterId?"],
-        "runApprovals": ["[].targetId", "[].targetType", "[].clusterId?", "[].summary?"],
-        "runApprovalDecision": ["targetId", "targetType", "clusterId?", "summary?", "conflict.approval.{targetId,targetType,clusterId?,summary?}"],
-        "postMessageAccepted": ["message_id", "run_id", "runtimeSelection.{provider,model,reasoningEffort}"],
-        "runEventFrame": ["schema_version", "run_id", "seq", "ts", "type", "payload"],
-        "agent": ["id", "workspaceId", "name", "description?", "instructions", "status", "source", "kind", "providerType", "version", "ownerUserId", "mcpServers[]", "tools[]", "skills[]", "contextGrants[]", "targetScope", "approvalPolicy", "trustPolicy", "triggers[]", "activity", "readiness.{status,reasons[]}"],
-        "agentRunAccepted": ["runId", "activityId", "source=agent", "status"],
-        "automationDiagnostics": ["status", "runtime.{mode,workspaceEnabled,workerIntervalMs}", "dispatch.{byStatus,oldestPendingAgeSeconds}", "runs.{agentByStatus,workflowByStatus,active}", "triggers.{deliveriesByStatus,schedulerLagSeconds}", "approvals.{pending,oldestPendingAgeSeconds}", "templates.{byReadiness,items[]}", "reports.retainedSources", "checkedAt"],
-        "workflowExecutionAccepted": ["executionId", "run_id", "workflow_run_id", "status"],
-        "workflowReport": ["id", "executionId", "runId", "sourceVersion", "mediaType", "title", "sourceSizeBytes", "retentionExpiresAt", "no PDF bytes"],
-        "workflowSelectedAgents": ["orchestratorAgentId", "steps[].agentIds[]", "compiledAccessScope.selectedAgents[]", "jwtClaims.agent_id? explicit direct/delegated agent only", "jwtClaims.agent_version? explicit direct/delegated agent only", "jwtClaims.trigger_id?"],
-        "workflowSchedule": ["id", "workspaceId", "workflowId", "workflowVersion", "name", "status", "cron", "timezone", "inputDefaults", "approvedContextGrants", "nextRunAt?", "lastRunAt?", "lastStatus?", "lastError?", "createdBy", "updatedBy"],
-        "workflowSchedulePage": ["items", "summary.{total,active,paused,approvalGated,nextRunAt?}"],
-        "workspaceApprovalInbox": ["items[].{approvalId,runId,source,workflowId?,targetId?,summary,toolName,requestedBy?,expiresAt,status,decision?,decidedBy?,decidedAt?,requestedAt}", "pendingCount", "nextCursor?"]
+        "roleTemplate": [
+          "key",
+          "displayName",
+          "description",
+          "kind",
+          "capabilities",
+          "capabilityGroups[].{key,capabilities,sortOrder}",
+          "protected",
+          "sortOrder"
+        ],
+        "membership": [
+          "role",
+          "roleTemplate?"
+        ],
+        "invitation": [
+          "role",
+          "roleTemplate?"
+        ],
+        "auditEvent": [
+          "id",
+          "workspaceId",
+          "category",
+          "eventType",
+          "operation",
+          "actor",
+          "object",
+          "summary",
+          "metadata",
+          "occurredAt"
+        ],
+        "quotaExceeded": [
+          "error.code=QUOTA_EXCEEDED",
+          "error.details.{quotaKey,used,limit}"
+        ],
+        "cluster": [
+          "writeConfirmationPolicy"
+        ],
+        "clusterRegistration": [
+          "cluster",
+          "agentKey"
+        ],
+        "rotateAgentKey": [
+          "clusterId",
+          "agentKey",
+          "keyVersion"
+        ],
+        "virtualMachineRegistration": [
+          "virtualMachine",
+          "agentKey",
+          "installInstructions"
+        ],
+        "rotateVirtualMachineAgentKey": [
+          "vmId",
+          "agentKey",
+          "keyVersion",
+          "installInstructions"
+        ],
+        "sessionList": [
+          "items",
+          "items[].targetId",
+          "items[].targetType",
+          "items[].clusterId?",
+          "items[].createdBy",
+          "items[].createdByUser.{id,displayName}?",
+          "items[].lastRuntimeSelection.{provider,model,reasoningEffort}?",
+          "nextCursor?"
+        ],
+        "targetChatActivity": [
+          "targetId",
+          "targetType",
+          "targetName",
+          "windowSeconds",
+          "generatedAt",
+          "recentActivity[].{sessionId,title,createdBy,createdByUser?,lastActivityAt,lastRunId?,lastRunStatus?,activeRun?,hasActiveRun,hasRecentWriteCapableRun,latestToolAccessMode?}"
+        ],
+        "conversationOwnerRequired": [
+          "error.code=CONVERSATION_OWNER_REQUIRED",
+          "error.retryable=false"
+        ],
+        "runDetails": [
+          "targetId",
+          "targetType",
+          "clusterId?"
+        ],
+        "runApprovals": [
+          "[].targetId",
+          "[].targetType",
+          "[].clusterId?",
+          "[].summary?"
+        ],
+        "runApprovalDecision": [
+          "targetId",
+          "targetType",
+          "clusterId?",
+          "summary?",
+          "conflict.approval.{targetId,targetType,clusterId?,summary?}"
+        ],
+        "postMessageAccepted": [
+          "message_id",
+          "run_id",
+          "runtimeSelection.{provider,model,reasoningEffort}"
+        ],
+        "runEventFrame": [
+          "schema_version",
+          "run_id",
+          "seq",
+          "ts",
+          "type",
+          "payload"
+        ],
+        "agent": [
+          "id",
+          "workspaceId",
+          "name",
+          "description?",
+          "instructions",
+          "status",
+          "source",
+          "kind",
+          "providerType",
+          "version",
+          "ownerUserId",
+          "mcpServers[]",
+          "tools[]",
+          "skills[]",
+          "contextGrants[]",
+          "targetScope",
+          "approvalPolicy",
+          "trustPolicy",
+          "triggers[]",
+          "activity",
+          "readiness.{status,reasons[]}"
+        ],
+        "agentRunAccepted": [
+          "runId",
+          "activityId",
+          "source=agent",
+          "status"
+        ],
+        "automationDiagnostics": [
+          "status",
+          "runtime.{mode,workspaceEnabled,workerIntervalMs}",
+          "dispatch.{byStatus,oldestPendingAgeSeconds}",
+          "runs.{agentByStatus,workflowByStatus,active}",
+          "triggers.{deliveriesByStatus,schedulerLagSeconds}",
+          "approvals.{pending,oldestPendingAgeSeconds}",
+          "templates.{byReadiness,items[]}",
+          "reports.retainedSources",
+          "checkedAt"
+        ],
+        "workflowExecutionAccepted": [
+          "executionId",
+          "run_id",
+          "workflow_run_id",
+          "status"
+        ],
+        "workflowReport": [
+          "id",
+          "executionId?",
+          "runId?",
+          "targetRunId?",
+          "sourceVersion",
+          "mediaType",
+          "title",
+          "sourceSizeBytes",
+          "retentionExpiresAt",
+          "downloadUrl",
+          "no source or PDF bytes"
+        ],
+        "workflowSelectedAgents": [
+          "orchestratorAgentId",
+          "steps[].agentIds[]",
+          "compiledAccessScope.selectedAgents[]",
+          "jwtClaims.agent_id? explicit direct/delegated agent only",
+          "jwtClaims.agent_version? explicit direct/delegated agent only",
+          "jwtClaims.trigger_id?"
+        ],
+        "workflowSchedule": [
+          "id",
+          "workspaceId",
+          "workflowId",
+          "workflowVersion",
+          "name",
+          "status",
+          "cron",
+          "timezone",
+          "inputDefaults",
+          "approvedContextGrants",
+          "principal.{type=user,id}",
+          "nextRunAt?",
+          "lastRunAt?",
+          "lastStatus?",
+          "lastError?",
+          "createdBy",
+          "updatedBy"
+        ],
+        "workflowSchedulePage": [
+          "items",
+          "summary.{total,active,paused,approvalGated,nextRunAt?}"
+        ],
+        "workspaceApprovalInbox": [
+          "items[].{approvalId,runId,source,workflowId?,targetId?,summary,toolName,requestedBy?,expiresAt,status,decision?,decidedBy?,decidedAt?,requestedAt}",
+          "pendingCount",
+          "nextCursor?"
+        ]
       }
     },
     "operators": {
@@ -366,9 +778,22 @@
         "GET /admin/v1/admin-audit-events",
         "GET /admin/v1/audit-events"
       ],
-      "adminMutationFields": ["reason"],
-      "adminAuditFields": ["tokenId", "scope", "method", "path", "statusCode", "reason", "metadata"],
-      "workspacePlanConfig": ["WORKSPACE_PLANS_CONFIG_JSON.defaultPlanKey", "WORKSPACE_PLANS_CONFIG_JSON.plans[].{key,name,quotas}"],
+      "adminMutationFields": [
+        "reason"
+      ],
+      "adminAuditFields": [
+        "tokenId",
+        "scope",
+        "method",
+        "path",
+        "statusCode",
+        "reason",
+        "metadata"
+      ],
+      "workspacePlanConfig": [
+        "WORKSPACE_PLANS_CONFIG_JSON.defaultPlanKey",
+        "WORKSPACE_PLANS_CONFIG_JSON.plans[].{key,name,quotas}"
+      ],
       "responseCachePolicy": "All /admin/v1 responses set Cache-Control: no-store",
       "secretReturnPolicy": "No admin response returns secrets except one-time agent-key rotation, returned once"
     },
@@ -379,15 +804,31 @@
         "POST /api/v1/auth/external-integrations/resolve",
         "POST /api/v1/auth/external-integrations/revoke"
       ],
-      "identityRequestFields": ["externalUserId", "externalDisplayName"],
-      "createResponseFields": ["linkUrl", "expiresAt"],
-      "resolveStatusValues": ["linked", "unlinked"],
-      "linkedResponseFields": ["status", "user.{id,displayName,email}", "link.{integrationClientId,provider,clientDisplayName,externalUserId,linkedAt,lastAuthenticatedAt,expiresAt}"],
+      "identityRequestFields": [
+        "externalUserId",
+        "externalDisplayName"
+      ],
+      "createResponseFields": [
+        "linkUrl",
+        "expiresAt"
+      ],
+      "resolveStatusValues": [
+        "linked",
+        "unlinked"
+      ],
+      "linkedResponseFields": [
+        "status",
+        "user.{id,displayName,email}",
+        "link.{integrationClientId,provider,clientDisplayName,externalUserId,linkedAt,lastAuthenticatedAt,expiresAt}"
+      ],
       "completionProof": "Only an authenticated AcornOps browser session with explicit user approval can complete the link through POST /api/v1/auth/external-integrations/link/complete after previewing safe metadata from POST /api/v1/auth/external-integrations/link/preview; OIDC and password flows only establish the session before the console approval screen.",
       "secretReturnPolicy": "Never returns browser cookies, OIDC access tokens, ID tokens, refresh tokens, or raw link tokens to external integration clients. Link tokens are stored only as hashes."
     },
     "execution-engine": {
-      "dispatchPaths": ["POST /api/v1/runs", "POST /api/v1/runs/{run_id}/cancel"],
+      "dispatchPaths": [
+        "POST /api/v1/runs",
+        "POST /api/v1/runs/{run_id}/cancel"
+      ],
       "dispatchAuth": "Authorization: Bearer <EXECUTION_ENGINE_DISPATCH_TOKEN>",
       "internalTransportSecurity": "HTTP by default; HTTPS/mTLS when Helm internalTransport.tls.enabled=true; bearer/JWT tokens remain required",
       "controlPlanePaths": [
@@ -402,24 +843,53 @@
         "GET /internal/v1/agent-runs/{runId}/context",
         "POST /internal/v1/runs/{runId}/events",
         "POST /internal/v1/runs/{runId}/tool-result-artifacts",
+        "POST /internal/v1/runs/{runId}/native-tools/{toolId}/call",
         "GET /internal/v1/runs/{runId}/event-cursor",
         "POST /internal/v1/runs/{runId}/commit"
       ],
       "bootstrapFields": [
         "contract_version",
-        "scope.{type,workspace_id,target_id?,target_type?,workflow_id?,workflow_run_id?,workflow_execution_id?,workflow_session_id?,workflow_step_id?,step_index?,attempt_number?,idempotency_key?,agent_id?,agent_version?,trigger_id?,session_id,run_id,user_id}",
+        "scope.{type,workspace_id,target_id?,target_type?,workflow_id?,workflow_run_id?,workflow_execution_id?,workflow_session_id?,attempt_number?,idempotency_key?,agent_id?,agent_version?,trigger_id?,session_id,run_id,user_id}",
+        "assistant?.{targetType?,instructions}",
         "policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}",
         "context.{endpoint,max_context_tokens}",
         "llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}",
-        "tools.{tool_registry_version,allowed_tools,native_tools,tool_specs,write_unavailable_reason?,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}",
+        "tools.{tool_registry_version,allowed_tools,allowed_tool_refs[].{server_id,tool_name},native_tools,platform_functions[].{id,model_alias},tool_specs[].{server_id?,tool_ref?},write_unavailable_reason?,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}",
         "skills?.{contract_version,entries[].{ref,skill_id,name,description,file_count,total_bytes},load_endpoint}",
         "routing",
         "tracing"
       ],
-      "contextFields": ["messages", "summaries", "attachments", "target_insights.retrieval_status", "target_insights.snippets[]"],
-      "eventFrameFields": ["schema_version", "run_id", "seq", "ts", "type", "payload"],
-      "approvalRequestFields": ["toolCallId", "toolName", "summary?", "arguments", "continuation?"],
-      "approvalResponseScopeFields": ["targetId?", "targetType?", "workflowId?", "workflowRunId?", "workflowSessionId?", "workflowStepId?"],
+      "contextFields": [
+        "messages",
+        "summaries",
+        "attachments",
+        "target_insights.retrieval_status",
+        "target_insights.snippets[]"
+      ],
+      "eventFrameFields": [
+        "schema_version",
+        "run_id",
+        "seq",
+        "ts",
+        "type",
+        "payload"
+      ],
+      "approvalRequestFields": [
+        "toolCallId",
+        "toolName",
+        "toolRef.{serverId,toolName}",
+        "summary?",
+        "arguments",
+        "continuation?"
+      ],
+      "approvalExecutionStartedResponseFields": ["approval", "approvalReceipt"],
+      "approvalResponseScopeFields": [
+        "targetId?",
+        "targetType?",
+        "workflowId?",
+        "workflowRunId?",
+        "workflowSessionId?"
+      ],
       "eventTypes": [
         "run_progress",
         "run_started",
@@ -444,21 +914,59 @@
         "run_cancelled",
         "run_completed"
       ],
-      "toolCallCompletedPayloadFields": ["call_id", "tool", "result", "context_meta", "artifact?", "artifactUnavailable?", "is_error"],
-      "toolCallCompletedContextMetaFields": ["schema_version", "strategy", "original_bytes", "context_bytes", "truncated", "omissions"],
-      "toolCallCompletedArtifactFields": ["id", "expires_at", "sha256", "uncompressed_bytes", "compressed_bytes", "content_type"],
+      "toolCallCompletedPayloadFields": [
+        "call_id",
+        "tool",
+        "result",
+        "context_meta",
+        "artifact?",
+        "artifactUnavailable?",
+        "is_error"
+      ],
+      "toolCallCompletedContextMetaFields": [
+        "schema_version",
+        "strategy",
+        "original_bytes",
+        "context_bytes",
+        "truncated",
+        "omissions"
+      ],
+      "toolCallCompletedArtifactFields": [
+        "id",
+        "expires_at",
+        "sha256",
+        "uncompressed_bytes",
+        "compressed_bytes",
+        "content_type"
+      ],
       "toolCallCompletedResultMaxBytes": 12288,
-      "commitStatusValues": ["completed", "failed", "cancelled"],
-      "commitAssistantMessageFields": ["content", "format"],
-      "commitUsageFields": ["input_tokens", "output_tokens", "tool_calls", "reasoning_tokens?"],
-      "commitTimingFields": ["started_at", "ended_at"],
+      "platformNativeToolRouting": "A platform function is exposed under its provider-safe model_alias only when that alias intersects bootstrap platform_functions, allowed_tools, and tool_specs. Execution routes the alias back to the canonical control-plane ID with the stable tool-call ID. Missing, duplicate, or invalid mappings fail closed. native_tools and gateway JWT allowed_native_tools contain provider-native tools only; target MCP tools remain gateway/target-adapter owned.",
+      "commitStatusValues": [
+        "completed",
+        "failed",
+        "cancelled"
+      ],
+      "commitAssistantMessageFields": [
+        "content",
+        "format"
+      ],
+      "commitUsageFields": [
+        "input_tokens",
+        "output_tokens",
+        "tool_calls",
+        "reasoning_tokens?"
+      ],
+      "commitTimingFields": [
+        "started_at",
+        "ended_at"
+      ],
       "dispatchSemantics": [
         "202 accepted_or_active",
         "200 terminal_idempotent_replay",
         "409 run_id_scope_mismatch",
         "429 overloaded",
-        "workspace scope may identify either a workflow step or a standalone Agent run",
-        "a selected-target workflow step dispatches with target scope plus target_id and target_type",
+        "workspace scope may identify either a single-entry workflow or a standalone Agent run",
+        "a selected-target workflow dispatches with target scope plus target_id and target_type",
         "idempotency_key is stable across at-least-once dispatch of one attempt"
       ]
     },
@@ -473,22 +981,108 @@
         "POST /api/v1/internal/mcp/servers",
         "PATCH /api/v1/internal/mcp/servers/{server_id}",
         "POST /api/v1/internal/mcp/servers/{server_id}/test",
-        "DELETE /api/v1/internal/mcp/servers/{server_id}"
+        "DELETE /api/v1/internal/mcp/servers/{server_id}",
+        "GET /api/v1/internal/catalog/sources",
+        "POST /api/v1/internal/catalog/sources",
+        "PATCH /api/v1/internal/catalog/sources/{source_id}",
+        "POST /api/v1/internal/catalog/sources/{source_id}/sync",
+        "DELETE /api/v1/internal/catalog/sources/{source_id}",
+        "GET /api/v1/internal/catalog/artifacts",
+        "GET /api/v1/internal/catalog/artifacts/{artifact_id}",
+        "POST /api/v1/internal/catalog/imports",
+        "GET /api/v1/internal/mcp/servers/{server_id}/connections/{user_id}",
+        "PUT /api/v1/internal/mcp/servers/{server_id}/connections/{user_id}",
+        "DELETE /api/v1/internal/mcp/servers/{server_id}/connections/{user_id}",
+        "POST /api/v1/internal/mcp/servers/{server_id}/connections/{user_id}/verify",
+        "POST /api/v1/internal/mcp/connections/readiness",
+        "DELETE /api/v1/internal/mcp/connections"
       ],
-      "providerCredentialScope": "workspace-only: secret_name={provider}_api_key, tenant_scope={workspace_id}; target-scoped secrets are reserved for MCP/server credentials",
-      "providerCredentialScopeFields": ["workspace_id"],
-      "providerCredentialStatusFields": ["provider", "configured", "enabled"],
-      "mcpRegistryScopeFields": ["workspace_id", "scope_type", "target_id", "target_type"],
+      "providerCredentialScope": "workspace-only: secret_name={provider}_api_key, tenant_scope={workspace_id}; external MCP PATs are separate per user and installation, while the built-in bridge uses run tokens",
+      "providerCredentialScopeFields": [
+        "workspace_id"
+      ],
+      "providerCredentialStatusFields": [
+        "provider",
+        "configured",
+        "enabled"
+      ],
+      "mcpRegistryScopeFields": [
+        "workspace_id",
+        "scope_type",
+        "agent_id",
+        "target_id",
+        "target_type",
+        "target_constraints"
+      ],
+      "catalogContracts": {
+        "artifactKinds": [
+          "mcp_server",
+          "agent_skill (reserved)"
+        ],
+        "adapterType": "mcp_registry_v0_1",
+        "adapterOperations": [
+          "probe",
+          "list_updated",
+          "list_versions",
+          "resolve",
+          "fetch_artifact"
+        ],
+        "sourceFields": [
+          "workspace_id",
+          "display_name",
+          "base_url",
+          "auth_type",
+          "credential_configured",
+          "auth_header_name",
+          "network_route",
+          "enabled",
+          "management_mode",
+          "bindings"
+        ],
+        "artifactFields": [
+          "id",
+          "source_id",
+          "binding_id",
+          "artifact_kind",
+          "name",
+          "description",
+          "version",
+          "digest",
+          "metadata",
+          "compatible",
+          "incompatibility_reason",
+          "remote_endpoints"
+        ],
+        "importFields": [
+          "scope_type",
+          "agent_id? (agent scope)",
+          "target_constraints? (agent scope only)",
+          "target_id? (target scope)",
+          "target_type? (target scope; server-derived at browser boundary)",
+          "artifact",
+          "version",
+          "remote_endpoint",
+          "server_name?",
+          "enabled?",
+          "public_headers?",
+          "endpoint_configuration?",
+          "reimport_server_id?",
+          "expected_revision?"
+        ],
+        "importMetric": "gateway_catalog_imports_total{scope_type,operation,outcome}"
+      },
       "serverFields": [
         "id",
         "workspace_id",
         "scope_type",
+        "agent_id",
         "target_id",
         "target_type",
         "server_name",
         "server_url",
         "enabled",
         "auth_type",
+        "auth_scope",
         "credential_configured",
         "auth_header_name",
         "auth_header_prefix",
@@ -496,14 +1090,48 @@
         "connection_status",
         "last_discovery_at",
         "last_discovery_error",
+        "catalog_source_id",
+        "catalog_artifact_name",
+        "catalog_version",
+        "catalog_digest",
+        "catalog_imported_at",
+        "provenance_type",
+        "endpoint_configuration",
+        "target_constraints",
+        "revision",
         "tools"
       ],
+      "serverProvenanceValues": [
+        "manual",
+        "catalog",
+        "builtin"
+      ],
+      "personalConnectionContract": {
+        "putFields": ["credential", "consent_granted=true"],
+        "credentialLimit": "8192 UTF-8 bytes; control characters rejected; no normalization",
+        "responseFields": ["server_id", "status=connected|error", "auth_type", "action?"],
+        "missingRepresentation": "row absence",
+        "mutationSerialization": "workspace_id + server_id + user_id",
+        "runtimePrincipal": "user only; service principals return MCP_PAT_USER_PRINCIPAL_REQUIRED"
+      },
+      "readinessContract": {
+        "path": "POST /api/v1/internal/mcp/connections/readiness",
+        "input": ["workspace_id", "principal.{type,id}", "scope_type", "tool_refs[].{server_id,tool_name}"],
+        "output": "bounded failure codes only; no connection snapshots",
+        "toolGranularity": "enabled tools require matching server/tool identity; trusted built-in tools bypass remote review and personal snapshots, while remote tools require approval and personal tools must exist in the acting user's verified snapshot"
+      },
+      "remoteMcpKillSwitch": "REMOTE_MCP_ENABLED=false blocks external discovery and execution but not built-in tools or platform readiness",
       "toolFields": [
         "name",
+        "server_id",
+        "model_alias",
         "mcp_server_url",
         "timeout_ms",
         "description",
         "capability",
+        "review_state",
+        "risk_level",
+        "auto_allowed",
         "version",
         "source",
         "input_schema",
@@ -516,8 +1144,14 @@
         "allowed_providers",
         "allowed_models",
         "allowed_tools",
+        "allowed_tool_refs[].server_id",
+        "allowed_tool_refs[].tool_name",
         "allowed_native_tools",
         "allowed_tool_operations?",
+        "allowed_repository.provider?",
+        "allowed_repository.repository?",
+        "allowed_repository.ref?",
+        "allowed_repository.change_request_number?",
         "max_output_tokens"
       ],
       "runJwtWorkspaceScopeFields": [
@@ -525,17 +1159,16 @@
         "workflow_id? (required for workflow scope)",
         "workflow_run_id? (required for workflow scope)",
         "workflow_session_id? (required for workflow scope)",
-        "workflow_step_id?",
         "agent_id?",
         "agent_version?",
         "trigger_id?",
+        "user_id? (required for personal MCP authorization)",
         "permissions.context_grants",
         "standalone Agent scope requires agent_id and agent_version",
         "write tool calls receive a gateway-injected idempotencyKey derived from run_id and tool_call_id"
       ],
       "internalTransportSecurity": "HTTP by default; HTTPS/mTLS when Helm internalTransport.tls.enabled=true; admin/run-scoped bearer tokens remain required",
       "builtinBridge": {
-        "serverName": "acornops-target-agent",
         "serverUrl": "http://control-plane:8081/internal/v1/mcp",
         "egressException": "Allowed internal HTTP only for configured builtin server registrations with source=builtin tools, auth type none, and no public headers",
         "authHeader": "Authorization: Bearer <run-scoped-jwt>",
@@ -544,9 +1177,17 @@
       }
     },
     "agentk": {
-      "websocketPaths": ["/api/v1/agent/connect", "/agent/v1/connect"],
-      "agentHeaders": ["x-agent-key", "x-agent-version"],
-      "agentTypeValues": ["agentk"],
+      "websocketPaths": [
+        "/api/v1/agent/connect",
+        "/agent/v1/connect"
+      ],
+      "agentHeaders": [
+        "x-agent-key",
+        "x-agent-version"
+      ],
+      "agentTypeValues": [
+        "agentk"
+      ],
       "handshakeRequestFields": [
         "agentKey",
         "version",
@@ -555,6 +1196,8 @@
         "targetType",
         "agentType",
         "supportedCapabilities",
+        "advertisedTools[].name",
+        "advertisedTools[].capability",
         "clusterFeatures.metricsApiAvailable",
         "clusterFeatures.rbacMode"
       ],
@@ -592,7 +1235,11 @@
         "resources.nodes[].{name,uid,labels,kubeletVersion,status.conditions}",
         "events[].{involvedObject,reason,message,type,lastTimestamp}"
       ],
-      "rpcMethods": ["tools/list", "tools/call", "config/update_namespace_scope"],
+      "rpcMethods": [
+        "tools/list",
+        "tools/call",
+        "config/update_namespace_scope"
+      ],
       "toolDescriptorFields": [
         "name",
         "description",
@@ -604,7 +1251,10 @@
         "version",
         "deprecated"
       ],
-      "toolCallRequestFields": ["name", "arguments"]
+      "toolCallRequestFields": [
+        "name",
+        "arguments"
+      ]
     },
     "agentv": {
       "contractVersion": 2,
@@ -620,7 +1270,9 @@
         "hostFeatures.osFamily",
         "hostFeatures.serviceManager",
         "hostFeatures.helperReachable",
-        "hostFeatures.restartServices"
+        "hostFeatures.restartServices",
+        "advertisedTools[].name",
+        "advertisedTools[].capability"
       ],
       "handshakeResponseFields": [
         "workspaceId",

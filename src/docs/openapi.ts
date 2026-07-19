@@ -10,6 +10,7 @@ import { buildVirtualMachinePaths } from './openapi/virtual-machine-paths.js';
 import { buildWebhookPaths } from './openapi/webhook-paths.js';
 import { buildWorkspacePaths } from './openapi/workspace-paths.js';
 import { buildWorkflowPaths } from './openapi/workflow-paths.js';
+import { buildCatalogPaths } from './openapi/catalog-paths.js';
 import { enrichOpenApiDocument, OpenApiLikeDocument } from './openapi/schema-coverage.js';
 
 interface OpenApiDocument {
@@ -49,6 +50,7 @@ export function buildOpenApiDocument(baseUrl: string, sessionCookieName: string)
       { name: 'sessions', description: 'Session and message endpoints.' },
       { name: 'runs', description: 'Run query, cancel, and stream endpoints.' },
       { name: 'workflows', description: 'Workspace workflow definitions, schedules, sessions, and approval inbox endpoints.' },
+      { name: 'catalog', description: 'MCP registries, destination-bound browsing, scoped MCP imports, and personal MCP connections.' },
       { name: 'agents', description: 'Workspace-scoped custom agent definitions, triggers, versions, tests, and activity.' },
       { name: 'admin', description: 'Operator-only admin API protected exclusively by admin bearer tokens.' },
       { name: 'internal', description: 'Internal execution endpoints for execution-engine.' }
@@ -61,6 +63,7 @@ export function buildOpenApiDocument(baseUrl: string, sessionCookieName: string)
       ...buildWebhookPaths(),
       ...buildTargetPaths(exampleServerUrl),
       ...buildWorkflowPaths(),
+      ...buildCatalogPaths(),
       ...buildClusterPaths(),
       ...buildVirtualMachinePaths(),
       ...buildSessionRunPaths(),

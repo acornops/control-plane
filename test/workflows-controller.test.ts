@@ -21,9 +21,10 @@ import {
   listWorkflowRunApprovals,
   listWorkflowMessages
 } from '../src/store/repository-workflows.js';
-import { listAgentDefinitions } from '../src/store/repository-agents.js';
+import { getAgentDefinition, updateAgentMcpCapabilitySnapshot } from '../src/store/repository-agents.js';
+import { listCapabilityRoutingMappings } from '../src/store/repository-capability-routing.js';
 import { repo } from '../src/store/repository.js';
-import type { WorkflowDefinitionForAccess } from '../src/types/workflows.js';
+import { db } from '../src/infra/db.js';
 import {
   callController,
   createSessionRecord,
@@ -33,10 +34,11 @@ import {
   isWorkspaceAiCredentialStatusRequest,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
-import { closeAutomationDatabaseFixtures, resetAutomationDatabaseFixtures } from './helpers/automation-database-fixtures.js';
+import { closeAutomationDatabaseFixtures, installAutomationTemplateFixtures, resetAutomationDatabaseFixtures } from './helpers/automation-database-fixtures.js';
 
 beforeEach(async () => {
   await resetAutomationDatabaseFixtures();
+  await installAutomationTemplateFixtures();
 });
 
 afterEach(() => {
@@ -46,6 +48,25 @@ afterEach(() => {
 after(closeAutomationDatabaseFixtures);
 
 describe('workflows controller', () => {
+  async function compileScope(
+    workflow: NonNullable<Awaited<ReturnType<typeof getWorkflowDefinition>>>,
+    role: 'operator' | 'admin',
+    approvedContextGrants: string[]
+  ) {
+    const entryAgent = await getAgentDefinition(workflow.workspaceId, workflow.entryAgentId);
+    assert.ok(entryAgent);
+    return compileWorkflowAccessScope({
+      workflow,
+      entryAgent,
+      mappings: await listCapabilityRoutingMappings(workflow.workspaceId, { activeReviewedOnly: true }),
+      exactTargets: workflow.capabilityPolicy.semanticCapabilityIds.includes('target.diagnostics.read')
+        ? [{ id: workflow.workspaceId === 'workspace-1' ? 'cluster-1' : 'cluster-2', targetType: 'kubernetes' }]
+        : undefined,
+      actor: { userId: 'user-1', role, permissions: getWorkspacePermissions(role) },
+      approvedContextGrants
+    });
+  }
+
   it('creates and dispatches a target-scoped cluster triage run', async () => {
     installWorkspace('operator');
 
@@ -54,6 +75,20 @@ describe('workflows controller', () => {
       const url = String(input);
       if (isWorkspaceAiCredentialStatusRequest(input)) {
         return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse('workspace-1')), { status: 200 });
+      }
+      if (url.includes('/api/v1/internal/mcp/tools?') && url.includes('target_id=cluster-1')) {
+        return new Response(JSON.stringify(['get_resource', 'get_resource_logs', 'list_resources'].map((name) => ({
+          name,
+          server_id: 'acornops-target-agent',
+          model_alias: name,
+          mcp_server_url: 'builtin://agentk',
+          timeout_ms: 10_000,
+          description: `${name} fixture`,
+          capability: 'read',
+          source: 'builtin',
+          input_schema: {},
+          enabled: true
+        }))), { status: 200 });
       }
       if (url === `${config.EXECUTION_ENGINE_BASE_URL}/api/v1/runs` && init?.method === 'POST') {
         executionDispatches.push(JSON.parse(String(init.body)));
@@ -118,7 +153,7 @@ describe('workflows controller', () => {
     assert.equal((await listWorkflowMessages(sessionId)).length, 1);
     assert.equal(executionDispatches.length, 1);
     assert.deepEqual(executionDispatches[0], {
-      contract_version: 1,
+      contract_version: 2,
       scope_type: 'target',
       run_id: body.run_id,
       workspace_id: 'workspace-1',
@@ -128,10 +163,8 @@ describe('workflows controller', () => {
       workflow_run_id: body.workflow_run_id,
       workflow_execution_id: body.executionId,
       workflow_session_id: sessionId,
-      workflow_step_id: 'collect-cluster-signals',
       target_id: 'cluster-1',
       target_type: 'kubernetes',
-      step_index: 0,
       attempt_number: 1,
       idempotency_key: run.idempotencyKey,
       agent_id: 'agent-cluster-triage',
@@ -210,47 +243,29 @@ describe('workflows controller', () => {
     const workflow = await createWorkflowDefinition({
       workspaceId: 'workspace-1',
       name: 'Read write workflow',
-      category: 'cluster-triage',
+      prompt: 'Inspect the target and run the explicitly approved operation.',
+      agentIds: ['agent-cluster-triage'],
+      entryAgentId: 'agent-cluster-triage',
       requiredPermissions: ['read_workspace_data', 'create_read_write_runs'],
-      policy: {
+      capabilityPolicy: {
         mode: 'read_write',
+        semanticCapabilityIds: ['target.diagnostics.read'],
+        contextGrants: ['workspace_metadata'],
         maxRuntimeSeconds: 900,
         retentionDays: 90,
         approvalRequirements: ['Before writing workspace registry']
       },
-      steps: [
-        {
-          id: 'write-registry',
-          title: 'Write registry',
-          requiredInputs: [],
-          agentIds: ['agent-cluster-triage'],
-          enabledSkills: [],
-          allowedMcpServers: ['acornops-target-agent'],
-          allowedTools: ['list_resources'],
-          contextGrants: ['workspace_metadata'],
-          approvalRequired: true
-        }
-      ],
       createdBy: 'user-1'
     });
-    const compiledAccessScope = compileWorkflowAccessScope({
-      workflow,
-      agents: await listAgentDefinitions('workspace-1'),
-      actor: {
-        userId: 'user-1',
-        role: 'admin',
-        permissions: getWorkspacePermissions('admin')
-      },
-      approvedContextGrants: ['workspace_metadata']
-    });
+    const compiledAccessScope = await compileScope(workflow, 'admin', ['workspace_metadata']);
     const session = await createWorkflowSession({ workflow, createdBy: 'user-1', compiledAccessScope });
     const message = await createWorkflowUserMessage({ session, content: 'Run write workflow' });
-    const run = await createWorkflowRun({ session, message, workflowStepId: 'write-registry' });
+    const run = await createWorkflowRun({ session, message });
 
     const approvalsResponse = await callController(listRunApprovals, createRequest({ runId: run.id }));
     assert.equal(approvalsResponse.statusCode, 200);
     const approvals = approvalsResponse.body as Array<{ id: string; status: string; toolName: string; summary: string }>;
-    assert.equal(approvals.length, 2);
+    assert.equal(approvals.length, 1);
     const approval = approvals.find((candidate) => candidate.summary.includes('Before writing workspace registry'));
     assert.ok(approval);
     assert.equal(approval.status, 'pending');
@@ -273,16 +288,7 @@ describe('workflows controller', () => {
     installWorkspace('operator');
     const workflow = await getWorkflowDefinition('workspace-1', 'cluster-triage');
     assert.ok(workflow);
-    const compiledAccessScope = compileWorkflowAccessScope({
-      workflow,
-      agents: await listAgentDefinitions('workspace-1'),
-      actor: {
-        userId: 'user-1',
-        role: 'operator',
-        permissions: getWorkspacePermissions('operator')
-      },
-      approvedContextGrants: ['workspace_metadata', 'target_inventory']
-    });
+    const compiledAccessScope = await compileScope(workflow, 'operator', ['workspace_metadata', 'target_inventory']);
     const session = await createWorkflowSession({ workflow, createdBy: 'user-1', compiledAccessScope });
 
     const req = createRequest({ workflowId: workflow.id });
@@ -302,30 +308,15 @@ describe('workflows controller', () => {
     const workflowTwo = await getWorkflowDefinition('workspace-2', 'cluster-triage');
     assert.ok(workflowOne);
     assert.ok(workflowTwo);
-    const actor = {
-      userId: 'user-1',
-      role: 'operator',
-      permissions: getWorkspacePermissions('operator')
-    };
     const sessionOne = await createWorkflowSession({
       workflow: workflowOne,
       createdBy: 'user-1',
-      compiledAccessScope: compileWorkflowAccessScope({
-        workflow: workflowOne,
-        agents: await listAgentDefinitions('workspace-1'),
-        actor,
-        approvedContextGrants: ['workspace_metadata', 'target_inventory']
-      })
+      compiledAccessScope: await compileScope(workflowOne, 'operator', ['workspace_metadata', 'target_inventory'])
     });
     await createWorkflowSession({
       workflow: workflowTwo,
       createdBy: 'user-1',
-      compiledAccessScope: compileWorkflowAccessScope({
-        workflow: workflowTwo,
-        agents: await listAgentDefinitions('workspace-2'),
-        actor,
-        approvedContextGrants: ['workspace_metadata', 'target_inventory']
-      })
+      compiledAccessScope: await compileScope(workflowTwo, 'operator', ['workspace_metadata', 'target_inventory'])
     });
 
     const response = await callController(listSessions, createRequest(
@@ -339,61 +330,90 @@ describe('workflows controller', () => {
     assert.ok(body.items.every((item) => item.workspaceId === 'workspace-1'));
   });
 
-  it('lets owners edit the built-in MCP and skill gate before future sessions compile access', async () => {
+  it('allows availability changes without opening system-provided workflow definitions for editing', async () => {
     installWorkspace('owner');
 
     const updateResponse = await callController(updateWorkflow, createRequest(
       { workflowId: 'cluster-triage' },
       {
         workspaceId: 'workspace-1',
-        category: 'cluster-triage',
-        enabledMcpServers: ['acornops-target-agent'],
-        enabledSkills: ['acornops-observability'],
-        policy: {
-          mode: 'read_only',
-          approvalRequirements: []
-        },
-        steps: [
-          {
-            id: 'collect-cluster-signals',
-            agentIds: ['agent-cluster-triage'],
-            enabledSkills: ['acornops-observability'],
-            allowedMcpServers: ['acornops-target-agent'],
-            allowedTools: ['get_resource', 'list_resources'],
-            contextGrants: ['workspace_metadata', 'target_inventory'],
-            approvalRequired: false
-          }
-        ]
+        agentIds: ['agent-cluster-triage'],
+        status: 'paused'
       }
     ));
 
     assert.equal(updateResponse.statusCode, 200);
-    const updated = (updateResponse.body as { workflow: WorkflowDefinitionForAccess }).workflow;
-    assert.equal(updated.category, 'cluster-triage');
-    assert.equal(updated.version, 4);
-    assert.deepEqual(updated.policy.approvalRequirements, []);
-    assert.deepEqual(updated.enabledMcpServers, ['acornops-target-agent']);
-    assert.deepEqual(updated.enabledSkills, ['acornops-observability']);
-    assert.deepEqual(updated.steps[0].allowedTools, ['get_resource', 'list_resources']);
-    assert.equal(updated.steps[0].approvalRequired, false);
+    const workflow = (updateResponse.body as { workflow: { status: string; origin: { type: string } } }).workflow;
+    assert.equal(workflow.status, 'paused');
+    assert.equal(workflow.origin.type, 'template');
+    });
+  });
+
+  it('returns bounded structured MCP readiness failures for workflow messages', async () => {
+    installWorkspace('operator');
+    await updateAgentMcpCapabilitySnapshot('workspace-1', 'agent-cluster-triage', {
+      mcpServers: ['server-1'],
+      mcpTools: [{ serverId: 'server-1', toolName: 'records.list' }],
+      mcpInstallations: [{
+        id: 'server-1', name: 'Records', url: 'https://mcp.example.test', enabled: true,
+        authScope: 'personal', revision: 1, targetConstraints: { targetTypes: [], targetIds: [] },
+        tools: [{
+          serverId: 'server-1', toolName: 'records.list', alias: 'records_list',
+          capability: 'read', enabled: true, reviewState: 'approved',
+          riskLevel: 'read_only', autoAllowed: false
+        }]
+      }]
+    }, 'user-1');
+    await db.query(
+      `UPDATE capability_routing_mappings
+       SET agent_version=(SELECT version FROM agent_definitions WHERE workspace_id=$1 AND id=$2),
+           mcp_tools=$3
+       WHERE workspace_id=$1 AND agent_id=$2 AND capability_id='target.diagnostics.read'`,
+      ['workspace-1', 'agent-cluster-triage', JSON.stringify([{
+        serverId: 'server-1', toolName: 'records.list', alias: 'records_list', operation: 'read'
+      }])]
+    );
+    mock.method(globalThis, 'fetch', async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/v1/internal/mcp/tools' && init?.method === 'GET') {
+        return new Response(JSON.stringify([{
+          name: 'list_resources',
+          server_id: 'acornops-target-agent',
+          model_alias: 'list_resources',
+          mcp_server_url: 'builtin://agentk',
+          timeout_ms: 10_000,
+          capability: 'read',
+          source: 'builtin',
+          enabled: true
+        }]), { status: 200 });
+      }
+      if (url.pathname === '/api/v1/internal/mcp/connections/readiness' && init?.method === 'POST') {
+        return new Response(JSON.stringify({ ready: false, failures: [{
+          server_id: 'server-1', tool_name: 'records.list',
+          code: 'MCP_REMOTE_DISABLED',
+          server_url: 'https://must-not-leak.example/private',
+          headers: { Authorization: 'Bearer must-not-leak' }
+        }] }), { status: 200 });
+      }
+      return new Response(`unexpected request: ${url.pathname}`, { status: 500 });
+    });
 
     const createdSession = await callController(createSession, createRequest(
       { workflowId: 'cluster-triage' },
-      {
-        workspaceId: 'workspace-1',
-        approvedContextGrants: ['workspace_metadata', 'target_inventory']
-      }
+      { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata', 'target_inventory'] }
+    ));
+    assert.equal(createdSession.statusCode, 201);
+    const sessionId = (createdSession.body as { session: { id: string } }).session.id;
+    const response = await callController(postMessage, createRequest(
+      { sessionId },
+      { content: 'Triage @cluster[cluster].', inputs: { targetId: 'cluster-1' }, targetId: 'cluster-1', targetType: 'kubernetes' }
     ));
 
-    assert.equal(createdSession.statusCode, 201);
-    const body = createdSession.body as {
-      session: { workflowVersion: number };
-      compiledAccessScope: { mode: string; mcpServers: string[]; tools: string[]; approvalGates: string[] };
-    };
-    assert.equal(body.session.workflowVersion, 4);
-    assert.equal(body.compiledAccessScope.mode, 'read_only');
-    assert.deepEqual(body.compiledAccessScope.mcpServers, ['acornops-target-agent']);
-    assert.deepEqual(body.compiledAccessScope.tools, ['get_resource', 'list_resources']);
-    assert.deepEqual(body.compiledAccessScope.approvalGates, []);
+    assert.equal(response.statusCode, 409);
+    const body = response.body as { error: { code: string; details: { readinessFailures: unknown[] } } };
+    assert.equal(body.error.code, 'MCP_REMOTE_DISABLED');
+    assert.deepEqual(body.error.details.readinessFailures, [{
+      serverId: 'server-1', toolName: 'records.list', code: 'MCP_REMOTE_DISABLED'
+    }]);
+    assert.equal(JSON.stringify(body).includes('must-not-leak'), false);
   });
-});

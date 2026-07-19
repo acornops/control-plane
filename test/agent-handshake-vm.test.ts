@@ -89,7 +89,17 @@ describe('AgentV handshake', () => {
           targetType: 'virtual_machine',
           agentType: 'agentv',
           agentKey: 'agent-key-vm',
-          supportedCapabilities: ['read', 'write', 'restart_service', 'logs']
+          supportedCapabilities: ['read', 'write', 'restart_service', 'logs'],
+          hostFeatures: {
+            osFamily: 'linux',
+            serviceManager: 'systemd',
+            helperReachable: true,
+            restartServices: ['acornops-agentv.service']
+          },
+          advertisedTools: [
+            { name: 'query_logs', capability: 'read' },
+            { name: 'restart_service', capability: 'write' }
+          ]
         }
       })),
       'agent-key-vm',
@@ -102,7 +112,7 @@ describe('AgentV handshake', () => {
         targetId?: string;
         targetType?: string;
         sessionPolicy?: { allowedTools?: string[]; writeEnabled?: boolean };
-        config?: { namespaceScope?: unknown };
+        config?: { namespaceScope?: unknown; maxSnapshotBytes?: number };
       };
     };
     assert.equal(response.result?.targetId, 'vm-1');
@@ -111,6 +121,7 @@ describe('AgentV handshake', () => {
     assert(response.result?.sessionPolicy?.allowedTools?.includes('query_logs'));
     assert(response.result?.sessionPolicy?.allowedTools?.includes('restart_service'));
     assert.equal(response.result?.config?.namespaceScope, undefined);
+    assert.equal(response.result?.config?.maxSnapshotBytes, 1024 * 1024);
     assert.deepEqual(registration.capabilities, ['read', 'write', 'restart_service', 'logs']);
     assert.equal(seenUpdates.length >= 2, true);
     assert.equal(store.has(agentOwnerKey('vm-1')), true);

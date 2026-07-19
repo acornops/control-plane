@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "algorithm": "sha256",
+  "migrations": {
+    "001_initial_schema.sql": "c341d886add4f44eb698d04dff1f501ad7150fe20dffefa0e1318954ba0c6e63",
+    "002_agents_workflows.sql": "632d9eff972ea8f126fb07422c2780324b02e35038a01fa49cc169dd537dbad5",
+    "003_workflow_option_catalogs.sql": "256c47a5d477381c0fe02ee8313a5203e0a006d671dee1fc3f22505487396dd6",
+    "004_durable_automation_runtime.sql": "6fbe23aa0acdac5f727bc2b436227aac691d9947b5381593974ff0e74b97b1b3",
+    "005_automation_approvals.sql": "5dc6fb3b983921dc00c0a5d6d76b471ea5f9be94b34acc3b8f7aff1cbf234ee1",
+    "006_agent_activity_statuses.sql": "0cad84f6dfe4cf876f21c40ca081f68b6fd87725900fdf5aef42f5108a41a61f",
+    "007_system_skill_seeding.sql": "f40537b2574832c3ca1d6d3787121efe55d617a112ed53ac592126fea8add924",
+    "008_cluster_triage_builtin_tools.sql": "2e009c73ac10fdeabaac6b5168cb331c98554261d156ee31d35ee0ee47f7cb24",
+    "009_workflow_prompt_references.sql": "d09cfd4e7ea3d4243030f5df4d54a3b9486812c9354f63f86d2dc81cdd78287c",
+    "010_tool_result_artifacts.sql": "debfba9838276d5416d1041ca15fac1ce114d8155905531f69b8697167393c23",
+    "011_chat_runtime_selection.sql": "a1d18046fb3f1e7ce97c7ee7946376f174e0eea5da67db7e9e7eaf1edbdacd94",
+    "012_system_automation_foundations.sql": "43a16fa230e5884f0c9cae07bc4846397b0943d19ab60b5f56503ed9e820360c",
+    "013_agent_owned_capabilities.sql": "291e73b47c7a33dec1e0ce1915cd069889a6cc74832910dcdabfa081fd004312",
+    "014_workflow_agent_v2.sql": "e051dccc318033ff636e805a5784c198bf90f589383aacd5467b14f2d8cae05a",
+    "015_workflow_schedule_user_principals.sql": "25e14fcca7e4a179c4aea48fb84c16d676038fe57d69363e029df914e125a0b9",
+    "016_mcp_secret_cleanup_jobs.sql": "981e68582b60e761fe1e19b6711f3075b80f2dca85b731ae3d75596f3f9d7f1e",
+    "017_automatic_workflow_coordination.sql": "25c0366b5e4d7a6d739ad9562417350f9230a02959a9a0e346fd3da0f2136fa7",
+    "018_workflow_capability_inheritance_native_tools.sql": "820fc61cbba2ad364731131a1b77d5ea4f31a8767d01a3ba52bbc9a77dba4c92",
+    "019_target_diagnostics_scope.sql": "721b2543788df809cb7f618d586ff160673784c2539d7283fa6037fc6e0f603d",
+    "020_approval_receipts.sql": "ced1ea5f4a7af303264d35ecdf4e6ea4639ea7fa634b9dedc179688099ffa006"
+  }
+}

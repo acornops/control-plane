@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
-import { defaultWorkflowDefinitions } from '../../src/store/repository-workflow-defaults.js';
 import { repo } from '../../src/store/repository.js';
 import {
   resolveWorkflowTarget,
   WorkflowTargetResolutionError
 } from '../../src/services/workflow-target-resolution.js';
+import type { WorkflowDefinitionForAccess } from '../../src/types/workflows.js';
 
 const originalGetTarget = repo.getTarget;
 const originalListTargets = repo.listTargets;
@@ -15,33 +15,28 @@ afterEach(() => {
   repo.listTargets = originalListTargets;
 });
 
+const workflow: WorkflowDefinitionForAccess = {
+  id: 'target-diagnostics', workspaceId: 'workspace-1', version: 1,
+  origin: { type: 'manual' }, name: 'Target diagnostics', prompt: 'Diagnose the selected target.',
+  agentIds: ['diagnostics-agent'], executionMode: 'direct',
+  entryAgentId: 'diagnostics-agent', targetConstraints: { targetTypes: ['kubernetes'], targetIds: [] },
+  capabilityPolicy: {
+    mode: 'read_only', semanticCapabilityIds: ['target.diagnostics.read'], contextGrants: [],
+    maxRuntimeSeconds: 300, retentionDays: 7, approvalRequirements: []
+  },
+  requiredPermissions: ['view_data'], createdBy: 'user-1'
+};
+
 describe('workflow target resolution', () => {
-  it('requires a cluster mention when no structured target reference is supplied', async () => {
-    const workflow = defaultWorkflowDefinitions('workspace-1')[0];
-    repo.listTargets = async () => ({ items: [] });
+  it('requires an exact target when target constraints are present', async () => {
     await assert.rejects(
       resolveWorkflowTarget({ workspaceId: 'workspace-1', workflow, inputs: {}, content: 'Triage the cluster.' }),
       (error: unknown) => error instanceof WorkflowTargetResolutionError
-        && error.code === 'WORKFLOW_TARGET_MENTION_REQUIRED'
+        && error.code === 'WORKFLOW_TARGET_REQUIRED'
     );
   });
 
-  it('resolves an exact cluster mention to its workspace target', async () => {
-    const workflow = defaultWorkflowDefinitions('workspace-1')[0];
-    repo.listTargets = async () => ({ items: [{
-      id: 'cluster-1', workspaceId: 'workspace-1', targetType: 'kubernetes', name: 'Production',
-      status: 'online', metadata: {}, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z'
-    }] });
-
-    const target = await resolveWorkflowTarget({
-      workspaceId: 'workspace-1', workflow, inputs: {}, content: 'Triage @cluster[Production] now.'
-    });
-
-    assert.equal(target?.id, 'cluster-1');
-  });
-
   it('accepts an online Kubernetes target from the same workspace', async () => {
-    const workflow = defaultWorkflowDefinitions('workspace-1')[0];
     repo.getTarget = async () => ({
       id: 'cluster-1', workspaceId: 'workspace-1', targetType: 'kubernetes', name: 'Production',
       status: 'online', metadata: {}, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z'
@@ -56,24 +51,19 @@ describe('workflow target resolution', () => {
     assert.equal(target?.targetType, 'kubernetes');
   });
 
-  it('rejects a structured target that is hidden from the control message', async () => {
-    const workflow = defaultWorkflowDefinitions('workspace-1')[0];
+  it('pins the structured target without requiring prompt-name inference', async () => {
     repo.getTarget = async () => ({
       id: 'cluster-1', workspaceId: 'workspace-1', targetType: 'kubernetes', name: 'Production',
       status: 'online', metadata: {}, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z'
     });
 
-    await assert.rejects(
-      resolveWorkflowTarget({
-        workspaceId: 'workspace-1', workflow, inputs: { targetId: 'cluster-1' }, content: 'Triage the selected cluster.'
-      }),
-      (error: unknown) => error instanceof WorkflowTargetResolutionError
-        && error.code === 'WORKFLOW_TARGET_MENTION_MISMATCH'
-    );
+    const target = await resolveWorkflowTarget({
+      workspaceId: 'workspace-1', workflow, inputs: { targetId: 'cluster-1' }, content: 'Triage the selected cluster.'
+    });
+    assert.equal(target?.id, 'cluster-1');
   });
 
   it('rejects offline targets before a run is created', async () => {
-    const workflow = defaultWorkflowDefinitions('workspace-1')[0];
     repo.getTarget = async () => ({
       id: 'cluster-1', workspaceId: 'workspace-1', targetType: 'kubernetes', name: 'Production',
       status: 'offline', metadata: {}, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z'

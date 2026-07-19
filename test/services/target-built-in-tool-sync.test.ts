@@ -58,8 +58,9 @@ describe('syncTargetBuiltInTools', () => {
           workspace_id: 'ws-1',
           target_id: 'vm-1',
           target_type: 'virtual_machine',
-          server_name: config.BUILTIN_TARGET_MCP_SERVER_NAME,
+          server_name: 'vm-1',
           server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
+          provenance_type: 'builtin',
           enabled: true,
           auth_type: 'none',
           tools: createdBody?.tools
@@ -74,6 +75,7 @@ describe('syncTargetBuiltInTools', () => {
     assert.equal(result.discoveredToolCount, 2);
     assert.equal(result.registeredToolCount, 2);
     assert.equal(createdBody?.target_type, 'virtual_machine');
+    assert.equal(createdBody?.server_name, config.BUILTIN_TARGET_MCP_SERVER_NAME);
     const tools = createdBody?.tools as Array<Record<string, unknown>>;
     assert.equal(tools.some((tool) => tool.name === '_acornops_load_skill'), false);
     assert.equal(tools.find((tool) => tool.name === 'restart_service')?.capability, 'write');
@@ -108,7 +110,7 @@ describe('syncTargetBuiltInTools', () => {
     assert.match(result.error || '', /gateway down|llm-gateway request failed/);
   });
 
-  it('adds patch_resource and removes stale mutation tools when AgentK discovery changes', async () => {
+  it('rotates built-in URL and name on the same server while reconciling AgentK tools', async () => {
     mock.method(agentGateway, 'listAgentTools', async () => [
       {
         name: 'list_resources', description: 'List resources', capability: 'read' as const, inputSchema: { type: 'object' },
@@ -126,8 +128,8 @@ describe('syncTargetBuiltInTools', () => {
       if (url.includes('/api/v1/internal/mcp/servers?')) {
         return new Response(JSON.stringify([{
           id: 'builtin-1', workspace_id: 'ws-1', target_id: 'cluster-1', target_type: 'kubernetes',
-          server_name: config.BUILTIN_TARGET_MCP_SERVER_NAME, server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
-          enabled: true, auth_type: 'none', tools: []
+          server_name: 'legacy-built-in', server_url: 'http://legacy-control-plane:8081/internal/v1/mcp',
+          provenance_type: 'builtin', enabled: true, auth_type: 'none', tools: []
         }]), { status: 200 });
       }
       if (url.includes('/api/v1/internal/mcp/tools?')) {
@@ -141,8 +143,8 @@ describe('syncTargetBuiltInTools', () => {
         patchBody = JSON.parse(String(init.body));
         return new Response(JSON.stringify({
           id: 'builtin-1', workspace_id: 'ws-1', target_id: 'cluster-1', target_type: 'kubernetes',
-          server_name: config.BUILTIN_TARGET_MCP_SERVER_NAME, server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
-          enabled: true, auth_type: 'none', tools: patchBody?.tools
+          server_name: 'cluster-1', server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
+          provenance_type: 'builtin', enabled: true, auth_type: 'none', tools: patchBody?.tools
         }), { status: 200 });
       }
       return new Response('unexpected request', { status: 500 });
@@ -153,6 +155,8 @@ describe('syncTargetBuiltInTools', () => {
     assert.equal(result.ok, true);
     assert.deepEqual(result.addedTools, ['patch_resource']);
     assert.deepEqual(result.removedTools, ['apply_remediation', 'simulate_patch']);
+    assert.equal(patchBody?.server_name, config.BUILTIN_TARGET_MCP_SERVER_NAME);
+    assert.equal(patchBody?.server_url, config.BUILTIN_TARGET_MCP_SERVER_URL);
     assert.deepEqual(patchBody?.remove_tools, ['apply_remediation', 'simulate_patch']);
   });
 

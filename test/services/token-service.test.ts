@@ -6,6 +6,37 @@ import { type AppConfig, config } from '../../src/config.js';
 import { GatewayTokenService, gatewayTokenService } from '../../src/services/token-service.js';
 
 describe('gateway token service', () => {
+  it('signs short-lived exact-call approval receipts with the dedicated contract', async () => {
+    const token = await gatewayTokenService.signApprovalReceipt({
+      approvalId: 'approval-1',
+      runId: 'run-1',
+      workspaceId: 'ws-1',
+      toolCallId: 'call-1',
+      toolAlias: 'restart_workload',
+      serverId: 'server-1',
+      serverToolName: 'restart_workload',
+      argumentsDigest: 'a'.repeat(64)
+    });
+    const verification = await jwtVerify(
+      token,
+      createLocalJWKSet(await gatewayTokenService.getJwks() as JSONWebKeySet),
+      { issuer: config.GATEWAY_TOKEN_ISSUER, audience: 'acornops-mcp-approval' }
+    );
+
+    assert.equal(decodeProtectedHeader(token).typ, 'acornops-approval+jwt');
+    assert.equal(verification.payload.sub, 'approval:approval-1');
+    assert.equal(verification.payload.approval_id, 'approval-1');
+    assert.equal(verification.payload.run_id, 'run-1');
+    assert.equal(verification.payload.workspace_id, 'ws-1');
+    assert.equal(verification.payload.tool_call_id, 'call-1');
+    assert.equal(verification.payload.tool_alias, 'restart_workload');
+    assert.equal(verification.payload.server_id, 'server-1');
+    assert.equal(verification.payload.server_tool_name, 'restart_workload');
+    assert.equal(verification.payload.arguments_digest, 'a'.repeat(64));
+    assert.ok(Number(verification.payload.exp) - Number(verification.payload.iat) <= 60);
+    assert.equal(typeof verification.payload.jti, 'string');
+  });
+
   it('signs run-scope tokens with the configured issuer, audience, and permissions', async () => {
     const token = await gatewayTokenService.signRunScopeToken({
       runId: 'run-1',
@@ -13,6 +44,7 @@ describe('gateway token service', () => {
       targetId: 'cluster-1',
       targetType: 'kubernetes',
       sessionId: 'session-1',
+      principal: { type: 'user', id: 'user-1' },
       allowedProviders: ['anthropic', 'gemini'],
       allowedTools: ['get_resource', 'get_resource_logs'],
       allowedToolOperations: {
@@ -43,6 +75,7 @@ describe('gateway token service', () => {
     assert.deepEqual(verification.payload.permissions, {
       allowed_providers: ['anthropic', 'gemini'],
       allowed_tools: ['get_resource', 'get_resource_logs'],
+      allowed_tool_refs: [],
       allowed_native_tools: [],
       allowed_tool_operations: {
         get_resource: 'read',
@@ -61,8 +94,10 @@ describe('gateway token service', () => {
       targetId: 'cluster-verify',
       targetType: 'kubernetes',
       sessionId: 'session-verify',
+      principal: { type: 'user', id: 'user-verify' },
       allowedProviders: ['openai'],
       allowedTools: ['get_pods'],
+      allowedToolRefs: [{ serverId: 'server-1', toolName: 'get_pods' }],
       allowedNativeTools: [{
         id: 'web_search',
         config: {
@@ -88,6 +123,7 @@ describe('gateway token service', () => {
     assert.equal(claims.sessionId, 'session-verify');
     assert.deepEqual(claims.allowedProviders, ['openai']);
     assert.deepEqual(claims.allowedTools, ['get_pods']);
+    assert.deepEqual(claims.allowedToolRefs, [{ serverId: 'server-1', toolName: 'get_pods' }]);
     assert.deepEqual(claims.allowedNativeTools, [{
       id: 'web_search',
       config: {
@@ -110,11 +146,11 @@ describe('gateway token service', () => {
       workflowId: 'workflow-1',
       workflowRunId: 'workflow-run-1',
       workflowSessionId: 'workflow-session-1',
-      workflowStepId: 'inventory',
       agentId: 'agent-cluster-triage',
       agentVersion: 7,
       triggerId: 'trigger-manual-1',
       sessionId: 'workflow-session-1',
+      principal: { type: 'service_identity', id: 'service-workflow-1' },
       allowedProviders: ['openai'],
       allowedTools: ['mcp.tools.list', 'audit.events.search'],
       allowedToolOperations: {
@@ -145,13 +181,13 @@ describe('gateway token service', () => {
     assert.equal(verification.payload.workflow_id, 'workflow-1');
     assert.equal(verification.payload.workflow_run_id, 'workflow-run-1');
     assert.equal(verification.payload.workflow_session_id, 'workflow-session-1');
-    assert.equal(verification.payload.workflow_step_id, 'inventory');
     assert.equal(verification.payload.agent_id, 'agent-cluster-triage');
     assert.equal(verification.payload.agent_version, 7);
     assert.equal(verification.payload.trigger_id, 'trigger-manual-1');
     assert.deepEqual(verification.payload.permissions, {
       allowed_providers: ['openai'],
       allowed_tools: ['mcp.tools.list', 'audit.events.search'],
+      allowed_tool_refs: [],
       allowed_native_tools: [],
       allowed_tool_operations: {
         'mcp.tools.list': 'read',
@@ -168,7 +204,6 @@ describe('gateway token service', () => {
     assert.equal(claims.workflowId, 'workflow-1');
     assert.equal(claims.workflowRunId, 'workflow-run-1');
     assert.equal(claims.workflowSessionId, 'workflow-session-1');
-    assert.equal(claims.workflowStepId, 'inventory');
     assert.equal(claims.agentId, 'agent-cluster-triage');
     assert.equal(claims.agentVersion, 7);
     assert.equal(claims.triggerId, 'trigger-manual-1');
@@ -199,6 +234,7 @@ describe('gateway token service', () => {
       target_id: 'cluster-1',
       target_type: 'kubernetes',
       session_id: 'session-1',
+      principal: { type: 'user', id: 'user-1' },
       permissions: {
         allowed_providers: ['openai'],
         allowed_tools: ['get_pods'],
@@ -232,6 +268,7 @@ describe('gateway token service', () => {
       targetId: 'cluster-2',
       targetType: 'kubernetes',
       sessionId: 'session-2',
+      principal: { type: 'user', id: 'user-2' },
       allowedProviders: ['openai'],
       allowedTools: ['list_resources']
     });
@@ -247,6 +284,7 @@ describe('gateway token service', () => {
     assert.deepEqual(verification.payload.permissions, {
       allowed_providers: ['openai'],
       allowed_tools: ['list_resources'],
+      allowed_tool_refs: [],
       allowed_native_tools: [],
       allowed_tool_operations: {},
       max_output_tokens: null,
@@ -277,6 +315,7 @@ describe('gateway token service', () => {
       targetId: 'cluster-1',
       targetType: 'kubernetes',
       sessionId: 'session-1',
+      principal: { type: 'user', id: 'user-1' },
       allowedProviders: ['gemini'],
       allowedTools: ['get_resource']
     });
@@ -312,6 +351,7 @@ describe('gateway token service', () => {
       target_id: 'cluster-1',
       target_type: 'kubernetes',
       session_id: 'session-1',
+      principal: { type: 'user', id: 'user-1' },
       permissions: {
         allowed_providers: ['openai'],
         allowed_tools: ['get_pods', 'restart_workload'],

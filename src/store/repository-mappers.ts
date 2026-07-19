@@ -1,33 +1,14 @@
 import { getConfiguredRoleTemplate, getWorkspacePermissions, isSupportedRole } from '../auth/authorization.js';
 import { config } from '../config.js';
 import { ChatSession, KubernetesCluster, KUBERNETES_TARGET_TYPE, Message, Role, Run, RunContinuation, RunEvent, RunToolApproval, TargetAgentRegistration, TargetSummary, User, Workspace, WorkspaceInvitation, WorkspaceMembership, WorkspaceSummary } from '../types/domain.js';
+import type { PasswordCredentialRow, PasswordCredentialWithUser, UserRow } from './repository-auth-row-types.js';
 import { buildWorkspaceQuota, resolveWorkspacePlan } from './repository-quotas.js';
 import { mapLastRuntimeSelection, SessionRuntimeSelectionRow } from './repository-session-runtime.js';
+
+export type { PasswordCredentialRow, PasswordCredentialWithUser, UserRow } from './repository-auth-row-types.js';
 export const toIso = (value: Date | string | null | undefined): string | undefined =>
   !value ? undefined : typeof value === 'string' ? value : value.toISOString();
 const nullableNumber = (value: number | string | null | undefined): number | null => value == null ? null : Number(value);
-
-export interface UserRow {
-  id: string;
-  email: string;
-  display_name: string;
-  email_verified_at?: Date | string | null;
-  email_verification_required?: boolean;
-  created_at: Date | string;
-}
-
-export interface PasswordCredentialRow {
-  user_id: string;
-  username: string;
-  password_hash: string;
-  last_login_at: Date | string | null;
-  id: string;
-  email: string;
-  display_name: string;
-  email_verified_at?: Date | string | null;
-  email_verification_required?: boolean;
-  created_at: Date | string;
-}
 
 export interface WorkspaceRow {
   id: string;
@@ -143,6 +124,7 @@ export interface RunRow {
   error_message: string | null;
   usage: Run['usage'] | null;
   assistant_message: Run['assistantMessage'] | null;
+  principal?: Run['principal'] | null;
 }
 
 export interface RunEventRow {
@@ -161,6 +143,10 @@ export interface RunToolApprovalRow {
   target_type: RunToolApproval['targetType'];
   tool_call_id: string;
   tool_name: string;
+  server_id: string;
+  server_tool_name: string;
+  requested_tool_alias: string;
+  arguments_digest: string;
   summary: string | null;
   arguments: Record<string, unknown> | null;
   status: RunToolApproval['status'];
@@ -260,15 +246,6 @@ export type CreatePasswordUserResult =
   | { status: 'created'; user: User }
   | { status: 'email_exists' }
   | { status: 'username_exists' };
-
-export interface PasswordCredentialWithUser {
-  user: User;
-  username: string;
-  passwordHash: string;
-  lastLoginAt?: string;
-  emailVerifiedAt?: string;
-  emailVerificationRequired: boolean;
-}
 
 export function encodeSessionCursor(lastMessageAt: string, sessionId: string): string {
   return Buffer.from(JSON.stringify({ lastMessageAt, sessionId })).toString('base64url');
@@ -466,6 +443,7 @@ export function mapRun(row: RunRow): Run {
     clusterId: targetType === KUBERNETES_TARGET_TYPE ? targetId : undefined,
     sessionId: row.session_id,
     messageId: row.message_id,
+    principal: row.principal || undefined,
     llmProvider: row.llm_provider,
     llmModel: row.llm_model,
     llmReasoningSummaryMode: row.llm_reasoning_summary_mode || 'auto',
@@ -505,6 +483,9 @@ export function mapRunToolApproval(row: RunToolApprovalRow): RunToolApproval {
     clusterId: targetType === KUBERNETES_TARGET_TYPE ? targetId : undefined,
     toolCallId: row.tool_call_id,
     toolName: row.tool_name,
+    toolRef: { serverId: row.server_id, toolName: row.server_tool_name },
+    requestedToolAlias: row.requested_tool_alias,
+    argumentsDigest: row.arguments_digest,
     summary: row.summary || undefined,
     arguments: row.arguments || {},
     status: row.status,

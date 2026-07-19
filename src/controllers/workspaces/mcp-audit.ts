@@ -52,7 +52,48 @@ export async function recordMcpServerDeletedAudit(
     objectType: 'mcp_server',
     objectId: serverId,
     summary: 'MCP server deleted',
-    metadata: { targetId, targetType }
+    metadata: { targetId, targetType, credentialCleanup: 'completed' }
+  });
+}
+
+export async function recordMcpConnectionCleanupAudit(
+  workspaceId: string,
+  targetId: string,
+  targetType: TargetType,
+  actorUserId: string,
+  serverId: string
+): Promise<void> {
+  await recordWorkspaceAuditEvent({
+    workspaceId,
+    category: 'mcp',
+    eventType: 'mcp.personal_connections_cleanup_completed.v1',
+    operation: 'write',
+    actorUserId,
+    objectType: 'mcp_server',
+    objectId: serverId,
+    summary: 'Personal MCP credentials cleaned up during uninstall',
+    metadata: { targetId, targetType, credentialCleanup: 'completed' }
+  });
+}
+
+export async function recordMcpTrustChangeInvalidationAudit(
+  workspaceId: string,
+  targetId: string,
+  targetType: TargetType,
+  actorUserId: string,
+  serverId: string,
+  changedFields: string[]
+): Promise<void> {
+  await recordWorkspaceAuditEvent({
+    workspaceId,
+    category: 'mcp',
+    eventType: 'mcp.personal_connections_invalidated.v1',
+    operation: 'write',
+    actorUserId,
+    objectType: 'mcp_server',
+    objectId: serverId,
+    summary: 'Personal MCP connections invalidated after trust-boundary change',
+    metadata: { targetId, targetType, changedFields }
   });
 }
 

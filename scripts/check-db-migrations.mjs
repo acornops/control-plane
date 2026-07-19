@@ -30,23 +30,22 @@ assert(!/ALTER TABLE \w+/i.test(dbSource), 'startup must not alter application t
 assert(dbSource.includes('assertDatabaseMigrationsCurrent'), 'startup must verify migrations are current');
 
 const files = migrationFiles();
-assert.deepEqual(files, [
-  '001_initial_schema.sql',
-  '002_agents_workflows.sql',
-  '003_workflow_option_catalogs.sql',
-  '004_durable_automation_runtime.sql',
-  '005_automation_approvals.sql',
-  '006_agent_activity_statuses.sql',
-  '007_system_skill_seeding.sql',
-  '008_cluster_triage_builtin_tools.sql',
-  '009_workflow_prompt_references.sql',
-  '010_tool_result_artifacts.sql',
-  '011_chat_runtime_selection.sql'
-]);
+const releasedChecksums = JSON.parse(read('migrations/control-plane/released-checksums.json'));
+assert.equal(releasedChecksums.schemaVersion, 1, 'released migration checksum manifest schema');
+assert.equal(releasedChecksums.algorithm, 'sha256', 'released migration checksum algorithm');
+const releasedFiles = Object.keys(releasedChecksums.migrations);
+assert.deepEqual(releasedFiles, [...releasedFiles].sort(), 'released migration checksum entries must be append ordered');
+const highestReleasedVersion = Number.parseInt(releasedFiles.at(-1).slice(0, 3), 10);
 for (const file of files) {
   assert(/^\d{3,}_[a-z0-9_]+\.sql$/.test(file), `invalid migration filename ${file}`);
-  assert(checksumSql(read(`migrations/control-plane/${file}`)).length === 64, `missing checksum coverage for ${file}`);
+  const checksum = checksumSql(read(`migrations/control-plane/${file}`));
+  if (releasedChecksums.migrations[file]) {
+    assert.equal(checksum, releasedChecksums.migrations[file], `released migration ${file} is immutable`);
+  } else {
+    assert(Number.parseInt(file.slice(0, 3), 10) > highestReleasedVersion, `only appended migrations may follow the released manifest: ${file}`);
+  }
 }
+for (const file of releasedFiles) assert(files.includes(file), `released migration is missing: ${file}`);
 
 const initial = read('migrations/control-plane/001_initial_schema.sql');
 const agentsWorkflows = read('migrations/control-plane/002_agents_workflows.sql');
@@ -59,9 +58,96 @@ const clusterTriageBuiltInTools = read('migrations/control-plane/008_cluster_tri
 const workflowPromptReferences = read('migrations/control-plane/009_workflow_prompt_references.sql');
 const toolResultArtifacts = read('migrations/control-plane/010_tool_result_artifacts.sql');
 const chatRuntimeSelection = read('migrations/control-plane/011_chat_runtime_selection.sql');
+const systemAutomationFoundations = read('migrations/control-plane/012_system_automation_foundations.sql');
+const agentOwnedCapabilities = read('migrations/control-plane/013_agent_owned_capabilities.sql');
+const workflowAgentV2 = read('migrations/control-plane/014_workflow_agent_v2.sql');
+const workflowScheduleUserPrincipals = read('migrations/control-plane/015_workflow_schedule_user_principals.sql');
+const automaticWorkflowCoordination = read('migrations/control-plane/017_automatic_workflow_coordination.sql');
+const workflowCapabilityInheritance = read('migrations/control-plane/018_workflow_capability_inheritance_native_tools.sql');
+const targetDiagnosticsScope = read('migrations/control-plane/019_target_diagnostics_scope.sql');
+const approvalReceipts = read('migrations/control-plane/020_approval_receipts.sql');
+const targetChatReportArtifacts = read('migrations/control-plane/021_target_chat_report_artifacts.sql');
+const targetChatInvocationScope = read('migrations/control-plane/022_target_chat_invocation_scope.sql');
+assert(targetDiagnosticsScope.includes('target_tool_refs'));
+assert(workflowCapabilityInheritance.includes('invocation_scopes'));
+assert(workflowCapabilityInheritance.includes('"restrict"'));
+assert(workflowCapabilityInheritance.includes('workflow_reports_run_tool_call_unique'));
+assert(targetChatReportArtifacts.includes('target_run_id TEXT NULL REFERENCES runs(id) ON DELETE CASCADE'));
+assert(targetChatReportArtifacts.includes('workflow_reports_exactly_one_run_scope_check'));
+assert(targetChatReportArtifacts.includes('workflow_reports_target_run_tool_call_unique'));
+for (const needle of [
+  'DROP CONSTRAINT IF EXISTS capability_routing_mappings_invocation_scopes_check',
+  'ADD CONSTRAINT capability_routing_mappings_invocation_scopes_check',
+  `invocation_scopes <@ '["agent","workflow","target_chat"]'::jsonb`,
+  'VALIDATE CONSTRAINT capability_routing_mappings_invocation_scopes_check'
+]) {
+  assert(targetChatInvocationScope.includes(needle), `target-chat invocation scope migration must include ${needle}`);
+}
 assert(toolResultArtifacts.includes('CREATE TABLE IF NOT EXISTS run_tool_result_artifacts'));
 assert(toolResultArtifacts.includes('ON DELETE CASCADE'));
 assert(chatRuntimeSelection.includes('ON runs (session_id, requested_at DESC, id DESC)'));
+for (const forbidden of ['INSERT INTO agent_definitions', 'INSERT INTO workflow_definitions', 'http://', 'agent-workflow-orchestrator']) {
+  assert(!systemAutomationFoundations.includes(forbidden), `unreleased catalog foundation must not contain ${forbidden}`);
+}
+for (const needle of [
+  'mcp_tools JSONB',
+  'mcp_installations JSONB',
+  'skill_installations JSONB',
+  'permission_mode TEXT',
+  'delegate_agent_ids JSONB',
+  'CREATE TABLE IF NOT EXISTS agent_skills',
+  'CREATE TABLE IF NOT EXISTS service_identities',
+  "source_type IN ('manual', 'git', 'template')"
+]) {
+  assert(agentOwnedCapabilities.includes(needle), `agent-owned capability migration must preserve ${needle}`);
+}
+for (const needle of [
+  'CREATE TABLE IF NOT EXISTS automation_template_installations',
+  'CREATE TABLE IF NOT EXISTS capability_routing_mappings',
+  'CREATE TABLE IF NOT EXISTS workflow_delegations',
+  'semantic_capability_ids JSONB',
+  "kind IN ('manager', 'specialist')",
+  'agent_definitions_manager_coordination_only',
+  'DROP COLUMN IF EXISTS selected_agent_id'
+]) {
+  assert(workflowAgentV2.includes(needle), `Workflow Agent V2 migration must include ${needle}`);
+}
+assert(workflowAgentV2.includes('WORKFLOW_V2_DATABASE_RESET_REQUIRED'), 'Workflow Agent V2 must fail closed on incompatible data');
+assert(!workflowAgentV2.includes('DELETE FROM'), 'Workflow Agent V2 must never delete existing data');
+assert(!workflowAgentV2.includes("SET status='cancelled'"), 'Workflow Agent V2 must never cancel active runs automatically');
+for (const needle of ['server_id TEXT', 'server_tool_name TEXT', 'requested_tool_alias TEXT', 'arguments_digest TEXT']) {
+  assert(approvalReceipts.includes(needle), `approval receipt migration must persist ${needle}`);
+}
+for (const needle of [
+  "principal->>'type' = 'user'",
+  "principal = jsonb_build_object('type', 'user', 'id', schedule.created_by->>'userId')",
+  "creator is no longer an authorized workspace member"
+]) {
+  assert(workflowScheduleUserPrincipals.includes(needle), `user-principal schedule migration must include ${needle}`);
+}
+for (const needle of [
+  'system_role TEXT',
+  'agent_definitions_workspace_system_role_unique',
+  'agent_ids JSONB',
+  'workflow_definitions_agent_ids_nonempty',
+  "'workflow_coordinator'",
+  'WORKFLOW_AGENT_SELECTION_REQUIRED',
+  "'maxConcurrentChildren', 4",
+  "'maxChildren', 8"
+]) {
+  assert(automaticWorkflowCoordination.includes(needle), `automatic workflow coordination migration must include ${needle}`);
+}
+for (const forbidden of [
+  'TRUNCATE TABLE workflow_mcp_servers',
+  'DELETE FROM target_skill_files',
+  'DELETE FROM target_skills',
+  'DELETE FROM workspace_skills',
+  "SET mcp_servers = '[]'::jsonb",
+  "tools = '[]'::jsonb",
+  "skills = '[]'::jsonb"
+]) {
+  assert(!agentOwnedCapabilities.includes(forbidden), `capability migration must not contain ${forbidden}`);
+}
 for (const table of [
   'agent_definitions',
   'agent_triggers',
@@ -107,7 +193,6 @@ for (const table of [
   assert(durableAutomationRuntime.includes(`CREATE TABLE IF NOT EXISTS ${table}`), `durable automation migration must create ${table}`);
 }
 for (const needle of [
-  'FOR EACH ROW EXECUTE FUNCTION seed_workspace_automation_templates_trigger()',
   'workflow_runs_execution_step_attempt_unique',
   'automation_dispatch_outbox_claim_idx',
   'workflow_approvals_expiry_idx'
@@ -127,33 +212,21 @@ for (const needle of [
 for (const needle of ['agent_definitions_last_status_check', "'waiting_for_approval'", "'needs_review'"]) {
   assert(agentActivityStatuses.includes(needle), `agent activity status migration must preserve ${needle}`);
 }
-for (const needle of [
-  'seed_workspace_system_skills',
-  'workspaces_seed_system_skills',
-  'FOR EACH ROW EXECUTE FUNCTION seed_workspace_system_skills_trigger()'
+// Released migrations may contain historical runtime fixtures. Their checksums are
+// frozen above; removal happens only through the explicit greenfield reset cutover.
+for (const legacyIdentity of [
+  'system_orchestrator',
+  'specialist_agent',
+  'agent-workflow-orchestrator',
+  'agent-cluster-triage',
+  'agent-release-coordinator',
+  'agent-incident-reporter'
 ]) {
-  assert(systemSkillSeeding.includes(needle), `system skill seeding migration must preserve ${needle}`);
-}
-for (const needle of [
-  'seed_workspace_cluster_triage_v2',
-  'workspaces_seed_cluster_triage_v2',
-  '"get_resource"',
-  '"get_resource_logs"',
-  '"list_resources"',
-  '"type":"cluster"',
-  '"chat.sessions.read_selected"',
-  '"reports.pdf.generate"',
-  'Add and assign a GitHub or GitLab MCP integration.'
-]) {
-  assert(clusterTriageBuiltInTools.includes(needle), `cluster triage built-in tools migration must preserve ${needle}`);
-}
-for (const needle of [
-  'seed_workspace_workflow_prompt_references_v3',
-  'workspaces_seed_workflow_prompt_references_v3',
-  '@cluster[Cluster name]',
-  '@chat[Incident chat title]'
-]) {
-  assert(workflowPromptReferences.includes(needle), `workflow prompt reference migration must preserve ${needle}`);
+  for (const file of files) {
+    if (Number.parseInt(file.slice(0, 3), 10) < 11 || file === '014_workflow_agent_v2.sql') continue;
+    const sql = read(`migrations/control-plane/${file}`);
+    assert(!sql.includes(legacyIdentity), `${legacyIdentity} may appear only in the one-time Workflow Agent V2 cleanup migration`);
+  }
 }
 for (const table of [
   'users',
@@ -473,6 +546,22 @@ async function runSqlChecks(databaseUrl) {
       ['external_integration_user_links', 'external_display_name'],
       ['external_integration_user_links', 'last_authenticated_at'],
       ['external_integration_user_links', 'revoked_at'],
+      ['agent_definitions', 'mcp_tools'],
+      ['agent_definitions', 'mcp_installations'],
+      ['agent_definitions', 'permission_mode'],
+      ['agent_definitions', 'delegate_agent_ids'],
+      ['agent_definitions', 'skill_installations'],
+      ['agent_definitions', 'origin'],
+      ['agent_definitions', 'review_state'],
+      ['agent_definitions', 'semantic_capability_ids'],
+      ['agent_definitions', 'system_role'],
+      ['capability_routing_mappings', 'invocation_scopes'],
+      ['workflow_definitions', 'entry_agent_id'],
+      ['workflow_definitions', 'agent_ids'],
+      ['workflow_definitions', 'capability_policy'],
+      ['workflow_sessions', 'workflow_snapshot'],
+      ['agent_triggers', 'principal'],
+      ['workflow_schedules', 'principal'],
       ['chat_activity_events', 'payload'],
       ['account_audit_events', 'metadata']
     ]) {
@@ -481,6 +570,26 @@ async function runSqlChecks(databaseUrl) {
         [table, column]
       );
       assert.equal(result.rowCount, 1, `${table}.${column} must exist after migrations`);
+    }
+    for (const [table, column] of [
+      ['agent_definitions', 'source'],
+      ['agent_definitions', 'system_template_version'],
+      ['workflow_definitions', 'source'],
+      ['workflow_definitions', 'orchestrator_agent_id'],
+      ['workflow_definitions', 'steps'],
+      ['workflow_executions', 'current_step_index'],
+      ['workflow_run_steps', 'workflow_step_id'],
+      ['workflow_run_steps', 'step_index'],
+      ['workflow_run_steps', 'step_snapshot'],
+      ['workflow_run_steps', 'step_scope'],
+      ['sessions', 'selected_agent_id'],
+      ['runs', 'agent_id']
+    ]) {
+      const result = await client.query(
+        'SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2',
+        [table, column]
+      );
+      assert.equal(result.rowCount, 0, `${table}.${column} must be removed by the Workflow Agent V2 migration`);
     }
     const fkResult = await client.query(
       `SELECT conname
@@ -559,6 +668,90 @@ async function runSqlChecks(databaseUrl) {
          AND conname IN ('workspace_invitations_role_check', 'workspace_memberships_role_check')`
     );
     assert.equal(roleConstraintResult.rowCount, 0, 'workspace role storage must not have enum-style role constraints');
+    for (const table of ['system_agent_workspace_configuration', 'system_workflow_workspace_configuration']) {
+      const result = await client.query(
+        'SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1',
+        [table]
+      );
+      assert.equal(result.rowCount, 0, `${table} must be removed after Workflow Agent V2 migration`);
+    }
+    for (const table of [
+      'agent_skills',
+      'agent_skill_files',
+      'service_identities',
+      'automation_template_installations',
+      'capability_routing_mappings',
+      'workflow_delegations'
+    ]) {
+      const result = await client.query(
+        'SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1',
+        [table]
+      );
+      assert.equal(result.rowCount, 1, `${table} must exist after migrations`);
+    }
+    const invocationScopeConstraint = await client.query(
+      `SELECT pg_get_constraintdef(oid) AS definition
+       FROM pg_constraint
+       WHERE connamespace = current_schema()::regnamespace
+         AND conrelid = 'capability_routing_mappings'::regclass
+         AND conname = 'capability_routing_mappings_invocation_scopes_check'`
+    );
+    assert.equal(invocationScopeConstraint.rowCount, 1, 'invocation scope constraint must exist after migrations');
+    assert(
+      invocationScopeConstraint.rows[0].definition.includes('target_chat'),
+      'invocation scope constraint must allow target_chat after migrations'
+    );
+  }
+
+  async function assertGreenfieldResetRequired(client) {
+    const workflowV2Index = sqlFiles.findIndex(({ file }) => file === '014_workflow_agent_v2.sql');
+    for (const { sql } of sqlFiles.slice(0, workflowV2Index)) await client.query(sql);
+
+    await client.query(
+      `INSERT INTO users (id,email,display_name)
+       VALUES ('v1-reset-user','v1-reset@example.test','V1 Reset User')`
+    );
+    await client.query(
+      `INSERT INTO workspaces (id,name,created_by)
+       VALUES ('v1-reset-workspace','V1 Reset Workspace','v1-reset-user')`
+    );
+    await client.query(
+      `INSERT INTO agent_definitions (
+         workspace_id,id,name,description,instructions,status,source,kind,
+         provider_type,version,owner_user_id,created_by,mcp_servers,tools,skills,
+         context_grants,target_scope,approval_policy,trust_policy
+       ) VALUES (
+         'v1-reset-workspace','v1-reset-agent','V1 Agent','Legacy Agent','Legacy instructions',
+         'draft','user','specialist_agent','internal',1,'v1-reset-user','v1-reset-user',
+         '[]','[]','[]','[]','{}','{}','{}'
+       )`
+    );
+    await client.query(
+      `INSERT INTO workflow_definitions (
+         workspace_id,id,version,source,name,description,status,category,
+         orchestrator_agent_id,policy,steps,created_by
+       ) VALUES (
+         'v1-reset-workspace','v1-reset-workflow',1,'user','V1 Workflow','Must survive failed cutover',
+         'draft','operations','v1-reset-agent','{}','[]','v1-reset-user'
+       )`
+    );
+
+    await assert.rejects(
+      client.query(sqlFiles[workflowV2Index].sql),
+      (error) => error.code === 'P0001' && error.message.includes('WORKFLOW_V2_DATABASE_RESET_REQUIRED')
+    );
+    const preserved = await client.query(
+      `SELECT source,kind FROM agent_definitions
+       WHERE workspace_id='v1-reset-workspace' AND id='v1-reset-agent'`
+    );
+    assert.deepEqual(preserved.rows[0], { source: 'user', kind: 'specialist_agent' });
+    assert.equal(
+      Number((await client.query(
+        "SELECT COUNT(*) AS count FROM workflow_definitions WHERE workspace_id='v1-reset-workspace'"
+      )).rows[0].count),
+      1,
+      'Workflow V1 data must remain unchanged after reset-required failure'
+    );
   }
 
   try {
@@ -568,6 +761,7 @@ async function runSqlChecks(databaseUrl) {
       }
       await assertFinalSchema(client);
     });
+    await withSchema('greenfield_reset_required', assertGreenfieldResetRequired);
   } finally {
     await pool.end();
   }

@@ -1,9 +1,6 @@
 import { mock } from 'node:test';
 import { repo } from '../../src/store/repository.js';
-import { defaultAgentDefinitions } from '../../src/store/repository-agents.js';
-import { configureWorkflowMcpRepositoryForTests } from '../../src/store/repository-workflow-mcp.js';
 import { configureWorkflowOptionsCatalogLoaderForTests } from '../../src/store/repository-workflow-options.js';
-import { configureWorkflowBuiltInMcpCatalogForTests } from '../../src/services/workflow-built-in-mcp-catalog.js';
 import type { WorkflowMcpServerRecord } from '../../src/store/repository-workflows.js';
 import type {
   Role
@@ -99,8 +96,6 @@ const canonicalWorkflowMcpServers: Array<Omit<WorkflowMcpServerRecord, 'workspac
 
 export function restoreControllerRegressionState(): void {
   configureWorkflowOptionsCatalogLoaderForTests();
-  configureWorkflowBuiltInMcpCatalogForTests();
-  configureWorkflowMcpRepositoryForTests();
   repo.getWorkspaceSummaryForUser = originals.getWorkspaceSummaryForUser;
   repo.getWorkspaceRole = originals.getWorkspaceRole;
   repo.getCluster = originals.getCluster;
@@ -208,61 +203,7 @@ export function installWorkspace(role: Role | null): void {
     publicHeaders: { ...server.publicHeaders },
     tools: server.tools.map((tool) => ({ ...tool }))
   }]));
-  configureWorkflowMcpRepositoryForTests({
-    list: async () => [...mcpServers.values()],
-    create: async (workspaceId, input) => {
-      const id = `server-${mcpServers.size + 1}`;
-      const server: WorkflowMcpServerRecord = {
-        id, workspaceId, scope: 'workspace', name: input.name, url: input.url, enabled: input.enabled !== false,
-        authType: input.auth?.type || 'none', publicHeaders: input.publicHeaders || {},
-        credentialConfigured: Boolean(input.auth?.credential),
-        status: input.enabled === false ? 'disabled' : 'not_checked', tools: [],
-        createdBy: input.createdBy, createdAt: now, updatedAt: now
-      };
-      mcpServers.set(id, server);
-      return server;
-    },
-    update: async (_workspaceId, serverId, patch) => {
-      const current = mcpServers.get(serverId);
-      if (!current) return null;
-      const updated = {
-        ...current,
-        name: patch.name || current.name,
-        url: patch.url || current.url,
-        enabled: patch.enabled ?? current.enabled,
-        status: patch.enabled === false ? 'disabled' as const : current.status,
-        authType: patch.auth?.type || current.authType,
-        publicHeaders: patch.publicHeaders || current.publicHeaders,
-        updatedAt: now
-      };
-      mcpServers.set(serverId, updated);
-      return updated;
-    },
-    delete: async (_workspaceId, serverId) => mcpServers.delete(serverId),
-    test: async (_workspaceId, serverId) => {
-      const current = mcpServers.get(serverId);
-      if (!current) return null;
-      const updated = { ...current, status: current.enabled ? 'connected' as const : 'disabled' as const, lastCheckedAt: now };
-      mcpServers.set(serverId, updated);
-      return updated;
-    },
-    tools: async (_workspaceId, serverId) => mcpServers.get(serverId)?.tools || null
-  });
-  configureWorkflowBuiltInMcpCatalogForTests(async () => ({
-    server: {
-      id: 'acornops-target-agent',
-      name: 'AcornOps Target Tools',
-      enabled: true,
-      targetIds: ['cluster-1']
-    },
-    tools: [
-      { name: 'get_resource', capability: 'read', inputSchema: { type: 'object' }, enabled: true, targetIds: ['cluster-1'] },
-      { name: 'get_resource_logs', capability: 'read', inputSchema: { type: 'object' }, enabled: true, targetIds: ['cluster-1'] },
-      { name: 'list_resources', capability: 'read', inputSchema: { type: 'object' }, enabled: true, targetIds: ['cluster-1'] }
-    ]
-  }));
-  configureWorkflowOptionsCatalogLoaderForTests(async (workspaceId) => {
-    const agents = defaultAgentDefinitions(workspaceId).filter((agent) => agent.kind === 'specialist_agent');
+  configureWorkflowOptionsCatalogLoaderForTests(async (_workspaceId) => {
     const servers = [...mcpServers.values()].filter((server) => server.id === 'acornops-target-agent');
     return {
       clusters: [{ value: 'cluster-1', label: 'Test cluster', provenance: { source: 'target' as const, targetId: 'cluster-1', targetName: 'Test cluster' } }],
@@ -280,7 +221,7 @@ export function installWorkspace(role: Role | null): void {
         { value: 'chat.sessions.read_selected', label: 'Read selected chats' },
         { value: 'reports.pdf.generate', label: 'Generate incident report PDF' }
       ],
-      agents: agents.map((agent) => ({ value: agent.id, label: agent.name })),
+      agents: [],
       chatSessions: [],
       outputFormats: [{ value: 'pdf', label: 'PDF' }, { value: 'markdown', label: 'Markdown' }],
       approvalPolicies: [],

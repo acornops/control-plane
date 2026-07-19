@@ -30,6 +30,20 @@ export async function handleAgentHandshake(input: {
         .map((entry) => entry.trim())
         .filter((entry) => entry.length > 0)
     : [];
+  const advertisedTools = Array.isArray(input.params.advertisedTools)
+    ? input.params.advertisedTools
+        .filter((entry): entry is { name: string; capability: 'read' | 'write' } => (
+          Boolean(entry)
+          && typeof entry === 'object'
+          && !Array.isArray(entry)
+          && typeof (entry as { name?: unknown }).name === 'string'
+          && /^[a-z][a-z0-9_]{0,127}$/.test((entry as { name: string }).name)
+          && ((entry as { capability?: unknown }).capability === 'read'
+            || (entry as { capability?: unknown }).capability === 'write')
+        ))
+        .slice(0, 64)
+    : [];
+  const allowedTools = [...new Set(advertisedTools.map((tool) => tool.name))];
 
   const expectedAgentType = targetType === VIRTUAL_MACHINE_TARGET_TYPE ? 'agentv' : 'agentk';
   if (!targetId || !isTargetType(targetType) || agentType !== expectedAgentType || (keyTargetId && targetId !== keyTargetId)) {
@@ -181,26 +195,7 @@ export async function handleAgentHandshake(input: {
     targetId: target.id,
     targetType,
     sessionPolicy: {
-      allowedTools: targetType === KUBERNETES_TARGET_TYPE
-        ? [
-          'list_resources',
-          'get_resource',
-          'get_resource_logs',
-          'restart_workload',
-          'scale_workload',
-          'patch_resource'
-        ]
-        : [
-          'get_host_summary',
-          'list_filesystems',
-          'list_processes',
-          'get_process',
-          'list_services',
-          'get_service',
-          'query_logs',
-          'list_listeners',
-          ...(supportedCapabilities.includes('restart_service') ? ['restart_service'] : [])
-        ],
+      allowedTools,
       writeEnabled: supportedCapabilities.includes('write')
     },
     config: {

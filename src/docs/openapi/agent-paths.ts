@@ -11,7 +11,12 @@ const agentIdPathParameter = {
   in: 'path',
   name: 'agentId',
   required: true,
-  schema: { type: 'string', example: 'agent-cluster-triage' }
+  schema: { type: 'string', example: 'agt_01JEXAMPLE' }
+};
+
+const nativeToolIdPathParameter = {
+  in: 'path', name: 'toolId', required: true,
+  schema: { type: 'string', example: 'reports.pdf.generate' }
 };
 
 const agentWorkspaceIdQueryParameter = {
@@ -39,10 +44,42 @@ const agentWorkspaceBody = {
 
 export function buildAgentPaths(): Record<string, unknown> {
   return {
+    '/api/v1/workspaces/{workspaceId}/catalog/native-tools': {
+      get: {
+        tags: ['agents'], summary: 'List AcornOps workspace-native tools',
+        description: 'Returns the code-owned native-tool catalog. Requires workspace read access.',
+        security: [{ userSession: [] }], parameters: [workspaceIdParameter],
+        responses: { '200': { description: 'Native tool catalog with schemas, invocation scope, authorization class, and audit operation.', content: { 'application/json': { schema: { $ref: '#/components/schemas/WorkspaceNativeToolList' } } } } }
+      }
+    },
+    '/api/v1/workspaces/{workspaceId}/agents/{agentId}/native-tools/{toolId}': {
+      put: {
+        tags: ['agents'], summary: 'Grant a workspace-native tool to a specialist Agent',
+        description: 'Transactionally updates the Agent version, reviewed routing mappings, semantic ceiling, and dependent readiness. Requires manage_agents; manage_mcp is not required.',
+        security: [{ userSession: [] }], parameters: [workspaceIdParameter, agentIdPathParameter, nativeToolIdPathParameter],
+        responses: { '200': { description: 'Updated Agent.', content: { 'application/json': { schema: { $ref: '#/components/schemas/AgentDefinitionResponse' } } } }, '403': { description: 'Requires manage_agents.' }, '404': { description: 'Agent or tool not found.' } }
+      },
+      delete: {
+        tags: ['agents'], summary: 'Revoke a workspace-native tool from a specialist Agent',
+        description: 'Disables reviewed mappings that depend on the tool and recomputes dependent readiness.',
+        security: [{ userSession: [] }], parameters: [workspaceIdParameter, agentIdPathParameter, nativeToolIdPathParameter],
+        responses: { '200': { description: 'Updated Agent.', content: { 'application/json': { schema: { $ref: '#/components/schemas/AgentDefinitionResponse' } } } }, '403': { description: 'Requires manage_agents.' }, '404': { description: 'Agent or tool not found.' } }
+      }
+    },
+    '/api/v1/workspaces/{workspaceId}/automation-templates': {
+      get: { tags: ['agents'], summary: 'List automation templates and setup state', description: 'Returns automatic and opt-in templates, setup steps, accepted integration profiles, blocker codes, and installation state. Automatic templates are provisioned with the workspace; opt-in definitions are absent until installed.', security: [{ userSession: [] }], parameters: [workspaceIdParameter], responses: { '200': { description: 'Template catalog and installation rows.' } } }
+    },
+    '/api/v1/workspaces/{workspaceId}/automation-templates/{templateId}/install': {
+      post: { tags: ['agents'], summary: 'Install or explicitly reinstall an automation template', description: 'Idempotently creates paused definitions for opt-in templates. Requires manage_agents and manage_workflows.', security: [{ userSession: [] }], parameters: [workspaceIdParameter, { in: 'path', name: 'templateId', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'Template was already installed.', content: { 'application/json': { schema: { $ref: '#/components/schemas/AutomationTemplateInstallResult' } } } }, '201': { description: 'Template installed.', content: { 'application/json': { schema: { $ref: '#/components/schemas/AutomationTemplateInstallResult' } } } }, '403': { description: 'Missing management permissions.' } } }
+    },
+    '/api/v1/workspaces/{workspaceId}/automation-templates/{templateId}/activate': {
+      post: { tags: ['agents'], summary: 'Activate an installed automation template', description: 'Activation succeeds only when reviewed workspace prerequisites are ready.', security: [{ userSession: [] }], parameters: [workspaceIdParameter, { in: 'path', name: 'templateId', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'Template activated.', content: { 'application/json': { schema: { $ref: '#/components/schemas/AutomationTemplateActivationResult' } } } }, '409': { description: 'Workspace prerequisites are incomplete.' } } }
+    },
     '/api/v1/workspaces/{workspaceId}/agents': {
       get: {
         tags: ['agents'],
         summary: 'List active workspace agents',
+        description: 'Returns specialist Agents. System-owned workflow coordinators and historical Manager records are omitted from lists, search, and counts.',
         security: [{ userSession: [] }],
         parameters: [
           workspaceIdParameter,
@@ -58,7 +95,7 @@ export function buildAgentPaths(): Record<string, unknown> {
       },
       post: {
         tags: ['agents'],
-        summary: 'Create a custom workspace agent',
+        summary: 'Create a custom specialist Agent',
         security: [{ userSession: [] }],
         parameters: [workspaceIdParameter],
         requestBody: {
@@ -79,16 +116,18 @@ export function buildAgentPaths(): Record<string, unknown> {
       get: {
         tags: ['agents'],
         summary: 'Get an agent definition',
+        description: 'Returns 404 for system-owned workflow coordinators and historical Manager records.',
         security: [{ userSession: [] }],
         parameters: [agentIdPathParameter, agentWorkspaceIdQueryParameter,
           { in: 'query', name: 'q', required: false, schema: { type: 'string' } },
           { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100 } },
           { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } }],
-        responses: { '200': { description: 'Agent detail.' } }
+        responses: { '200': { description: 'Agent detail.' }, '404': { description: 'Agent not found or is system-owned coordination infrastructure.' } }
       },
       patch: {
         tags: ['agents'],
         summary: 'Update an agent definition',
+        description: 'Manual Agents accept definition edits. System-provided Agents accept availability-status changes only; duplicate one to edit its definition. MCP servers and skills are managed through the nested Agent capability APIs.',
         security: [{ userSession: [] }],
         parameters: [agentIdPathParameter],
         requestBody: {
@@ -101,19 +140,42 @@ export function buildAgentPaths(): Record<string, unknown> {
         },
         responses: {
           '200': { description: 'Agent updated.' },
-          '403': { description: 'Requires manage_agents.' }
+          '403': { description: 'Requires manage_agents.' },
+          '409': { description: 'System-provided Agent definitions are immutable, or the requested change conflicts with an active assignment or policy.' }
         }
       },
       delete: {
         tags: ['agents'],
-        summary: 'Delete an unassigned custom agent definition',
+        summary: 'Delete an unassigned agent definition',
         security: [{ userSession: [] }],
         parameters: [agentIdPathParameter],
         requestBody: agentWorkspaceBody,
         responses: {
-          '204': { description: 'Custom agent deleted.' },
+          '204': { description: 'Agent deleted.' },
           '403': { description: 'Requires manage_agents.' },
-          '409': { description: 'System agents and assigned agents cannot be deleted.' }
+          '409': { description: 'The Agent is still assigned to one or more dependent workflows.' }
+        }
+      }
+    },
+    '/api/v1/agents/{agentId}/duplicate': {
+      post: {
+        tags: ['agents'],
+        summary: 'Duplicate an agent as a manual draft',
+        description: 'Copies the effective definition only. Runs, triggers, activity, schedules, version history, and origin attribution are not copied.',
+        security: [{ userSession: [] }],
+        parameters: [agentIdPathParameter],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/AgentDuplicateMutation' }
+            }
+          }
+        },
+        responses: {
+          '201': { description: 'Custom draft created and owned by the current user.' },
+          '403': { description: 'Requires manage_agents.' },
+          '409': { description: 'The definition cannot be duplicated while its referenced capabilities are unavailable.' }
         }
       }
     },
@@ -130,7 +192,15 @@ export function buildAgentPaths(): Record<string, unknown> {
         } } } },
         responses: {
           '202': { description: 'Agent run and dispatch intent committed.', content: { 'application/json': { schema: { $ref: '#/components/schemas/AgentRunAccepted' } } } },
-          '409': { description: 'Agent or selected target is not ready.' }
+          '409': {
+            description: 'Agent, selected target, or exact MCP readiness is not ready. MCP conflicts include bounded structured installation and tool failures.',
+            content: { 'application/json': { schema: {
+              oneOf: [
+                { $ref: '#/components/schemas/ErrorResponse' },
+                { $ref: '#/components/schemas/McpReadinessErrorResponse' }
+              ]
+            } } }
+          }
         }
       }
     },
@@ -167,7 +237,9 @@ export function buildAgentPaths(): Record<string, unknown> {
         security: [{ userSession: [] }],
         parameters: [agentIdPathParameter],
         requestBody: agentWorkspaceBody,
-        responses: { '201': { description: 'Agent version snapshot created.' } }
+        responses: {
+          '201': { description: 'Agent version snapshot created.' }
+        }
       }
     },
     '/api/v1/agents/{agentId}/versions/{versionId}/restore': {
@@ -213,7 +285,9 @@ export function buildAgentPaths(): Record<string, unknown> {
         security: [{ userSession: [] }],
         parameters: [agentIdPathParameter],
         requestBody: agentWorkspaceBody,
-        responses: { '201': { description: 'Agent trigger created. Webhook triggers additionally return the encrypted-secret-backed HMAC secret exactly once.' } }
+        responses: {
+          '201': { description: 'Agent trigger created. Webhook triggers additionally return the encrypted-secret-backed HMAC secret exactly once.' }
+        }
       }
     },
     '/api/v1/automation/webhooks/{triggerId}': {
@@ -253,7 +327,9 @@ export function buildAgentPaths(): Record<string, unknown> {
           { in: 'path', name: 'triggerId', required: true, schema: { type: 'string' } }
         ],
         requestBody: agentWorkspaceBody,
-        responses: { '200': { description: 'Agent trigger updated.' } }
+        responses: {
+          '200': { description: 'Agent trigger updated.' }
+        }
       },
       delete: {
         tags: ['agents'],
@@ -264,7 +340,9 @@ export function buildAgentPaths(): Record<string, unknown> {
           { in: 'path', name: 'triggerId', required: true, schema: { type: 'string' } }
         ],
         requestBody: agentWorkspaceBody,
-        responses: { '204': { description: 'Agent trigger deleted.' } }
+        responses: {
+          '204': { description: 'Agent trigger deleted.' }
+        }
       }
     }
   };

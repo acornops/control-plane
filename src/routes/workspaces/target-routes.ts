@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { authenticatedHandler, requireUser } from '../../auth/middleware.js';
 import * as workspacesController from '../../controllers/workspaces-controller.js';
+import { importTargetCatalogMcpServer, reimportTargetCatalogMcpServer } from '../../controllers/catalog-controller.js';
+import * as mcpConnectionsController from '../../controllers/mcp-connections-controller.js';
 import {
   createMcpServerSchema,
   createTargetInsightsEntrySchema,
@@ -133,6 +135,20 @@ export function registerTargetRoutes(router: Router): void {
     validateBody(createMcpServerSchema),
     authed(workspacesController.createTargetMcpServerForTarget)
   );
+  router.post(
+    '/workspaces/:workspaceId/targets/:targetId/mcp/servers/import',
+    requireUser,
+    authed(importTargetCatalogMcpServer)
+  );
+  router.post(
+    '/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/reimport',
+    requireUser,
+    authed(reimportTargetCatalogMcpServer)
+  );
+  router.get('/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/connection', requireUser, authed(mcpConnectionsController.getPersonalMcpConnection));
+  router.put('/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/connection', requireUser, authed(mcpConnectionsController.putPersonalMcpConnection));
+  router.delete('/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/connection', requireUser, authed(mcpConnectionsController.deletePersonalMcpConnection));
+  router.post('/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/connection/verify', requireUser, authed(mcpConnectionsController.verifyPersonalMcpConnection));
   router.patch(
     '/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId',
     requireUser,

@@ -2,49 +2,73 @@ import { dateTime, JsonSchema, jsonObject, pageOf, schemaRef, stringArray, uuid 
 
 const workflowId = { type: 'string', example: 'workflow-cluster-daily-triage' };
 const workflowSessionId = { type: 'string', example: 'workflow-session-01' };
-const mcpServerId = { type: 'string', example: 'workflow-mcp-prometheus' };
 
 export function buildWorkflowSchemas(): Record<string, JsonSchema> {
   return {
-    WorkflowStep: {
+    WorkflowOrigin: {
       type: 'object',
+      required: ['type'],
       properties: {
-        id: { type: 'string' },
-        title: { type: 'string' },
-        requiredInputs: stringArray,
-        agentIds: { type: 'array', minItems: 1, maxItems: 1, items: { type: 'string' } },
-        enabledSkills: stringArray,
-        allowedMcpServers: stringArray,
-        allowedTools: stringArray,
-        contextGrants: stringArray,
-        approvalRequired: { type: 'boolean' },
-        outputArtifacts: { type: 'array', items: jsonObject }
+        type: { type: 'string', enum: ['template', 'manual'] },
+        templateId: { type: 'string' },
+        templateVersion: { type: 'integer', minimum: 1 }
       },
-      additionalProperties: true
+      additionalProperties: false
+    },
+    WorkflowTargetConstraints: {
+      type: 'object',
+      required: ['targetTypes', 'targetIds'],
+      properties: {
+        targetTypes: { type: 'array', items: { type: 'string', enum: ['kubernetes', 'virtual_machine'] } },
+        targetIds: stringArray
+      },
+      additionalProperties: false
+    },
+    WorkflowCapabilityPolicy: {
+      type: 'object',
+      required: ['mode', 'restrictionMode', 'semanticCapabilityIds', 'contextGrants', 'maxRuntimeSeconds', 'retentionDays', 'approvalRequirements'],
+      properties: {
+        mode: { type: 'string', enum: ['read_only', 'read_write'] },
+        restrictionMode: { type: 'string', enum: ['inherit', 'restrict'], description: 'inherit resolves the selected Agents current combined ceiling. restrict uses semanticCapabilityIds as an explicit subset, including an intentionally empty subset.' },
+        semanticCapabilityIds: { ...stringArray, description: 'Must be empty when restrictionMode is inherit.' },
+        contextGrants: stringArray,
+        maxRuntimeSeconds: {
+          type: 'integer',
+          minimum: 1,
+          description: 'Effective deployment-wide execution limit. Workflow mutations cannot override this value.'
+        },
+        retentionDays: {
+          type: 'integer',
+          minimum: 1,
+          description: 'Effective deployment-wide report retention period. Workflow mutations cannot override this value.'
+        },
+        approvalRequirements: stringArray
+      },
+      additionalProperties: false
     },
     WorkflowDefinition: {
       type: 'object',
-      required: ['id', 'workspaceId', 'name', 'version', 'category', 'policy', 'steps'],
+      required: ['id', 'workspaceId', 'version', 'origin', 'name', 'status', 'prompt', 'agentIds', 'executionMode', 'capabilityPolicy', 'requiredPermissions', 'createdBy'],
       properties: {
         id: workflowId,
         workspaceId: uuid,
+        version: { type: 'integer', minimum: 1 },
+        origin: schemaRef('WorkflowOrigin'),
         name: { type: 'string' },
         description: { type: 'string' },
-        version: { type: 'integer' },
-        source: { type: 'string', enum: ['system', 'user'] },
         status: { type: 'string', enum: ['active', 'draft', 'paused'] },
-        category: { type: 'string' },
+        prompt: { type: 'string' },
+        agentIds: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', minLength: 1 } },
+        executionMode: { type: 'string', enum: ['direct', 'coordinated'], readOnly: true },
+        targetConstraints: schemaRef('WorkflowTargetConstraints'),
+        capabilityPolicy: schemaRef('WorkflowCapabilityPolicy'),
         tags: stringArray,
         inputs: { type: 'array', items: jsonObject },
-        enabledMcpServers: stringArray,
-        enabledSkills: stringArray,
         requiredPermissions: stringArray,
-        policy: jsonObject,
-        steps: { type: 'array', items: schemaRef('WorkflowStep') },
-        starterPrompt: { type: 'string' },
+        createdBy: { type: 'string' },
         createdAt: dateTime,
-        updatedAt: dateTime
-        ,readiness: { type: 'object', required: ['status', 'reasons'], properties: {
+        updatedAt: dateTime,
+        readiness: { type: 'object', required: ['status', 'reasons'], properties: {
           status: { type: 'string', enum: ['ready', 'needs_setup', 'blocked'] }, reasons: stringArray
         } }
       },
@@ -56,6 +80,109 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
       required: ['workflow'],
       properties: { workflow: schemaRef('WorkflowDefinition') },
       additionalProperties: true
+    },
+    WorkflowCapabilityToolPreview: {
+      type: 'object',
+      required: ['id', 'name', 'label', 'access', 'source'],
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        label: { type: 'string' },
+        description: { type: 'string' },
+        access: { type: 'string', enum: ['read', 'write'] },
+        source: { type: 'string', enum: ['target', 'mcp', 'builtin'] }
+      },
+      additionalProperties: false
+    },
+    WorkflowTargetCapabilityCandidate: {
+      type: 'object',
+      required: ['id', 'name', 'targetType', 'status'],
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] },
+        status: { type: 'string', enum: ['ready', 'unavailable', 'unsupported'] },
+        reasonCode: { type: 'string', enum: ['TARGET_REQUIRED', 'TARGET_NOT_FOUND', 'TARGET_TYPE_MISMATCH', 'TARGET_OFFLINE', 'TARGET_STATUS_UNKNOWN', 'TARGET_WRITE_UNSUPPORTED', 'CAPABILITY_MAPPING_UNAVAILABLE', 'TARGET_TOOL_MAPPING_UNAVAILABLE', 'TARGET_TOOL_CATALOG_UNAVAILABLE', 'MCP_CONNECTION_UNAVAILABLE'] },
+        reason: { type: 'string', maxLength: 256 }
+      },
+      additionalProperties: false
+    },
+    WorkflowCapabilitiesPreview: {
+      type: 'object',
+      required: ['workflowId', 'workflowVersion', 'mode', 'semanticCapabilityIds', 'checkedAt', 'status', 'reasonCodes', 'targetCandidates', 'tools', 'directMcpServers', 'enabledSkills', 'mcpRequirements', 'approvalRequirements', 'counts'],
+      properties: {
+        workflowId,
+        workflowVersion: { type: 'integer', minimum: 1 },
+        mode: { type: 'string', enum: ['read_only', 'read_write'] },
+        semanticCapabilityIds: stringArray,
+        checkedAt: dateTime,
+        status: { type: 'string', enum: ['needs_target', 'ready', 'blocked'] },
+        reasonCodes: { type: 'array', items: { type: 'string', enum: ['TARGET_REQUIRED', 'TARGET_NOT_FOUND', 'TARGET_TYPE_MISMATCH', 'TARGET_OFFLINE', 'TARGET_STATUS_UNKNOWN', 'TARGET_WRITE_UNSUPPORTED', 'CAPABILITY_MAPPING_UNAVAILABLE', 'TARGET_TOOL_MAPPING_UNAVAILABLE', 'TARGET_TOOL_CATALOG_UNAVAILABLE', 'MCP_CONNECTION_UNAVAILABLE'] } },
+        targetCandidates: { type: 'array', items: schemaRef('WorkflowTargetCapabilityCandidate') },
+        selectedTarget: schemaRef('WorkflowTargetCapabilityCandidate'),
+        compiledAccessScope: jsonObject,
+        tools: {
+          type: 'object',
+          required: ['read', 'write'],
+          properties: {
+            read: { type: 'array', items: schemaRef('WorkflowCapabilityToolPreview') },
+            write: { type: 'array', items: schemaRef('WorkflowCapabilityToolPreview') }
+          },
+          additionalProperties: false
+        },
+        directMcpServers: { type: 'array', items: { type: 'object', required: ['id', 'name'], properties: { id: { type: 'string' }, name: { type: 'string' } }, additionalProperties: false } },
+        enabledSkills: { type: 'array', items: { type: 'object', required: ['id', 'name'], properties: { id: { type: 'string' }, name: { type: 'string' } }, additionalProperties: false } },
+        mcpRequirements: { type: 'array', items: {
+          type: 'object',
+          required: ['serverId', 'serverName', 'authType', 'owningAgent', 'connectionState', 'authRequirement', 'action'],
+          properties: {
+            serverId: { type: 'string', minLength: 1 },
+            serverName: { type: 'string', minLength: 1, maxLength: 160 },
+            authType: { type: 'string', enum: ['bearer_token', 'custom_header'] },
+            owningAgent: {
+              type: 'object',
+              required: ['id', 'name'],
+              properties: {
+                id: { type: 'string', minLength: 1 },
+                name: { type: 'string', minLength: 1, maxLength: 160 }
+              },
+              additionalProperties: false
+            },
+            connectionState: { type: 'string', enum: ['connection_missing', 'connection_error', 'connected'] },
+            authRequirement: {
+              type: 'object',
+              required: ['scope', 'credentialLabel', 'requiredInformation'],
+              properties: {
+                scope: { type: 'string', enum: ['personal'] },
+                credentialLabel: { type: 'string', minLength: 1, maxLength: 160 },
+                requiredInformation: { type: 'array', items: {
+                  type: 'object',
+                  required: ['name', 'description'],
+                  properties: {
+                    name: { type: 'string', minLength: 1, maxLength: 160 },
+                    description: { type: 'string', minLength: 1, maxLength: 512 }
+                  },
+                  additionalProperties: false
+                } }
+              },
+              additionalProperties: false
+            },
+            action: { type: 'string', enum: ['connect_mcp_server', 'verify_mcp_server', 'none'] }
+          }, additionalProperties: false
+        } },
+        approvalRequirements: stringArray,
+        counts: {
+          type: 'object',
+          required: ['targets', 'readyTargets', 'tools', 'readTools', 'writeTools', 'directMcpServers', 'enabledSkills', 'approvals'],
+          properties: {
+            targets: { type: 'integer', minimum: 0 }, readyTargets: { type: 'integer', minimum: 0 },
+            tools: { type: 'integer', minimum: 0 }, readTools: { type: 'integer', minimum: 0 }, writeTools: { type: 'integer', minimum: 0 },
+            directMcpServers: { type: 'integer', minimum: 0 }, enabledSkills: { type: 'integer', minimum: 0 }, approvals: { type: 'integer', minimum: 0 }
+          },
+          additionalProperties: false
+        }
+      },
+      additionalProperties: false
     },
     WorkflowOption: {
       type: 'object',
@@ -70,10 +197,12 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
           type: 'object',
           required: ['source'],
           properties: {
-            source: { type: 'string', enum: ['workspace', 'target'] },
+            source: { type: 'string', enum: ['workspace', 'target', 'agent'] },
             provider: { type: 'string', enum: ['github', 'gitlab'] },
             targetId: { type: 'string' },
-            targetName: { type: 'string' }
+            targetName: { type: 'string' },
+            targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] },
+            agentId: { type: 'string' }
           },
           additionalProperties: false
         }
@@ -83,6 +212,7 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
     WorkflowOptionsCatalog: {
       type: 'object',
       properties: {
+        targets: { type: 'array', items: schemaRef('WorkflowOption') },
         clusters: { type: 'array', items: schemaRef('WorkflowOption') },
         mcpServers: { type: 'array', items: schemaRef('WorkflowOption') },
         mcpTools: { type: 'array', items: schemaRef('WorkflowOption') },
@@ -110,65 +240,6 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: true
     },
-    WorkflowMcpServer: {
-      type: 'object',
-      required: ['id', 'workspaceId', 'scope', 'name', 'url', 'enabled', 'status', 'credentialConfigured', 'tools'],
-      properties: {
-        id: mcpServerId,
-        workspaceId: uuid,
-        scope: { type: 'string', enum: ['workspace'] },
-        name: { type: 'string' },
-        url: { type: 'string', format: 'uri' },
-        enabled: { type: 'boolean' },
-        status: { type: 'string', enum: ['connected', 'disabled', 'not_checked', 'error'] },
-        authType: { type: 'string' },
-        authHeaderName: { type: 'string' },
-        credentialConfigured: { type: 'boolean' },
-        discoveryError: { type: 'string' },
-        publicHeaders: jsonObject,
-        tools: { type: 'array', items: schemaRef('WorkflowMcpTool') },
-        createdAt: dateTime,
-        updatedAt: dateTime,
-        lastCheckedAt: dateTime
-      },
-      additionalProperties: true
-    },
-    WorkflowMcpServerList: pageOf('WorkflowMcpServer'),
-    WorkflowMcpServerResponse: {
-      type: 'object',
-      required: ['server'],
-      properties: { server: schemaRef('WorkflowMcpServer') },
-      additionalProperties: true
-    },
-    WorkflowMcpConnectionTest: {
-      type: 'object',
-      required: ['serverId', 'status', 'message'],
-      properties: {
-        serverId: mcpServerId,
-        status: { type: 'string' },
-        checkedAt: dateTime,
-        message: { type: 'string' }
-      },
-      additionalProperties: true
-    },
-    WorkflowMcpTool: {
-      type: 'object',
-      required: ['name', 'title', 'capability', 'enabled'],
-      properties: {
-        name: { type: 'string' },
-        title: { type: 'string' },
-        capability: { type: 'string', enum: ['read', 'write'] },
-        enabled: { type: 'boolean' }
-      },
-      additionalProperties: true
-    },
-    WorkflowMcpToolList: pageOf('WorkflowMcpTool'),
-    WorkflowMcpToolResponse: {
-      type: 'object',
-      required: ['tool'],
-      properties: { tool: schemaRef('WorkflowMcpTool') },
-      additionalProperties: false
-    },
     WorkflowSchedule: {
       type: 'object',
       properties: {
@@ -182,6 +253,15 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         timezone: { type: 'string' },
         inputDefaults: jsonObject,
         approvedContextGrants: stringArray,
+        principal: {
+          type: 'object',
+          required: ['type', 'id'],
+          properties: {
+            type: { type: 'string', enum: ['user'] },
+            id: { type: 'string' }
+          },
+          additionalProperties: false
+        },
         nextRunAt: dateTime,
         lastRunAt: dateTime,
         lastStatus: { type: 'string', enum: ['dispatched', 'failed', 'auto_paused', 'skipped'] },
@@ -292,6 +372,49 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: true
     },
+    WorkflowCoordinationChild: {
+      type: 'object',
+      required: ['id', 'capabilityId', 'target', 'agent', 'required', 'status'],
+      properties: {
+        id: { type: 'string' },
+        childRunId: { type: 'string' },
+        capabilityId: { type: 'string' },
+        target: {
+          type: 'object',
+          required: ['id', 'targetType'],
+          properties: {
+            id: { type: 'string' },
+            targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] }
+          },
+          additionalProperties: false
+        },
+        agent: {
+          type: 'object',
+          required: ['id', 'name'],
+          properties: { id: { type: 'string' }, name: { type: 'string' } },
+          additionalProperties: false
+        },
+        required: { type: 'boolean' },
+        status: { type: 'string', enum: ['queued', 'dispatching', 'running', 'waiting_for_approval', 'needs_review', 'completed', 'failed', 'cancelled'] },
+        failure: {
+          type: 'object',
+          required: ['code', 'message'],
+          properties: { code: { type: 'string' }, message: { type: 'string', maxLength: 500 } },
+          additionalProperties: false
+        }
+      },
+      additionalProperties: false
+    },
+    WorkflowCoordinationSummary: {
+      type: 'object',
+      required: ['label', 'status', 'children'],
+      properties: {
+        label: { type: 'string', enum: ['AcornOps coordination'] },
+        status: { type: 'string' },
+        children: { type: 'array', items: schemaRef('WorkflowCoordinationChild') }
+      },
+      additionalProperties: false
+    },
     WorkflowSessionContext: {
       type: 'object',
       required: ['session', 'workflow', 'compiledAccessScope'],
@@ -303,6 +426,32 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         messages: { type: 'array', items: jsonObject }
       },
       additionalProperties: true
+    },
+    ReportArtifact: {
+      type: 'object',
+      required: ['id', 'workspaceId', 'sourceVersion', 'mediaType', 'title', 'sourceSizeBytes', 'retentionExpiresAt', 'createdAt', 'downloadUrl'],
+      properties: {
+        id: uuid,
+        workspaceId: uuid,
+        executionId: { type: 'string' },
+        runId: { type: 'string' },
+        targetRunId: { type: 'string' },
+        toolCallId: { type: 'string' },
+        sourceVersion: { type: 'integer', minimum: 1 },
+        mediaType: { type: 'string', enum: ['application/pdf'] },
+        title: { type: 'string' },
+        sourceSizeBytes: { type: 'integer', minimum: 0 },
+        retentionExpiresAt: dateTime,
+        createdAt: dateTime,
+        downloadUrl: { type: 'string', pattern: '^/api/v1/report-artifacts/.+/download$' }
+      },
+      additionalProperties: false
+    },
+    ReportArtifactResponse: {
+      type: 'object',
+      required: ['report'],
+      properties: { report: schemaRef('ReportArtifact') },
+      additionalProperties: false
     }
   };
 }
