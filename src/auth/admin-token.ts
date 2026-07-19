@@ -4,12 +4,21 @@ import { config, AdminScope, AdminTokenDescriptor } from '../config.js';
 import { redis } from '../infra/redis.js';
 import { logger } from '../logger.js';
 import { incrementAdminAuthFailures } from '../metrics.js';
+import { validAdminCsrfRequest } from './admin-csrf.js';
+import {
+  adminScopesForRoles,
+  adminSessionNeedsReauthentication,
+  adminSessionReference,
+  getAdminSession,
+  type AdminSessionRecord
+} from './admin-session.js';
 
 export interface AdminAuthContext {
   tokenId: string;
   tokenName?: string;
   scopes: AdminScope[];
   credential: { type: 'admin_token' };
+  actor?: AdminSessionRecord & { sessionReference: string; scopes: AdminScope[] };
 }
 
 declare global {
@@ -97,8 +106,8 @@ function sendUnauthorized(res: Response): void {
   res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Admin token required', retryable: false } });
 }
 
-function sendForbidden(res: Response): void {
-  res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Admin token scope is not sufficient', retryable: false } });
+function sendForbidden(res: Response, code = 'FORBIDDEN', message = 'Administrative permission is not sufficient'): void {
+  res.status(403).json({ error: { code, message, retryable: false } });
 }
 
 function sendTooManyRequests(res: Response): void {
@@ -163,11 +172,37 @@ export function requireAdminScope(requiredScope: AdminScope): RequestHandler {
         return;
       }
 
+      let actor: AdminAuthContext['actor'];
+      if (config.CONTROL_PLANE_ADMIN_HUMAN_AUTH_REQUIRED && matched.id === config.PLATFORM_ADMIN_BFF_TOKEN_ID) {
+        const session = await getAdminSession(req);
+        if (!session) {
+          await noteAuthFailure(req, 'missing_human_session');
+          res.status(401).json({ error: { code: 'ADMIN_SESSION_REQUIRED', message: 'Platform administrator sign-in is required', retryable: false } });
+          return;
+        }
+        const humanScopes = adminScopesForRoles(session.roles);
+        if (!humanScopes.includes(requiredScope)) {
+          await noteAuthFailure(req, 'human_scope_missing');
+          sendForbidden(res, 'ADMIN_ROLE_FORBIDDEN', 'The platform administrator role does not permit this action');
+          return;
+        }
+        if (!['GET', 'HEAD', 'OPTIONS'].includes(String(req.method || 'GET').toUpperCase()) && adminSessionNeedsReauthentication(session)) {
+          sendForbidden(res, 'ADMIN_REAUTH_REQUIRED', 'Recent administrator authentication is required');
+          return;
+        }
+        if (!['GET', 'HEAD', 'OPTIONS'].includes(String(req.method || 'GET').toUpperCase()) && !validAdminCsrfRequest(req)) {
+          sendForbidden(res, 'CSRF_TOKEN_REQUIRED', 'A valid CSRF token is required for this request');
+          return;
+        }
+        actor = { ...session, sessionReference: adminSessionReference(session.id), scopes: humanScopes };
+      }
+
       req.admin = {
         tokenId: matched.id,
         ...(matched.name ? { tokenName: matched.name } : {}),
         scopes: matched.scopes,
-        credential: { type: 'admin_token' }
+        credential: { type: 'admin_token' },
+        ...(actor ? { actor } : {})
       };
       next();
     } catch (err) {

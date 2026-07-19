@@ -40,7 +40,9 @@ assert.deepEqual(files, [
   '007_system_skill_seeding.sql',
   '008_cluster_triage_builtin_tools.sql',
   '009_workflow_prompt_references.sql',
-  '010_tool_result_artifacts.sql'
+  '010_tool_result_artifacts.sql',
+  '011_workspace_lifecycle.sql',
+  '012_platform_admin_human_audit.sql'
 ]);
 for (const file of files) {
   assert(/^\d{3,}_[a-z0-9_]+\.sql$/.test(file), `invalid migration filename ${file}`);
@@ -57,8 +59,17 @@ const systemSkillSeeding = read('migrations/control-plane/007_system_skill_seedi
 const clusterTriageBuiltInTools = read('migrations/control-plane/008_cluster_triage_builtin_tools.sql');
 const workflowPromptReferences = read('migrations/control-plane/009_workflow_prompt_references.sql');
 const toolResultArtifacts = read('migrations/control-plane/010_tool_result_artifacts.sql');
+const workspaceLifecycle = read('migrations/control-plane/011_workspace_lifecycle.sql');
+const platformAdminHumanAudit = read('migrations/control-plane/012_platform_admin_human_audit.sql');
 assert(toolResultArtifacts.includes('CREATE TABLE IF NOT EXISTS run_tool_result_artifacts'));
 assert(toolResultArtifacts.includes('ON DELETE CASCADE'));
+assert(workspaceLifecycle.includes('lifecycle_status'));
+assert(workspaceLifecycle.includes("CHECK (lifecycle_status IN ('active', 'suspended'))"));
+assert(workspaceLifecycle.includes('suspended_at'));
+for (const field of ['admin_actor_issuer', 'admin_actor_subject', 'admin_actor_role', 'admin_session_id_hash', 'authentication_time']) {
+  assert(platformAdminHumanAudit.includes(field), `platform admin audit migration must add ${field}`);
+}
+assert(platformAdminHumanAudit.includes('admin_audit_events_append_only'));
 for (const table of [
   'agent_definitions',
   'agent_triggers',

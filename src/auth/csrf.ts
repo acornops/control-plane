@@ -2,6 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { NextFunction, Request, Response } from 'express';
 import { allowedReturnToOrigins } from './origins.js';
 import { config } from '../config.js';
+import { validAdminCsrfRequest } from './admin-csrf.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const CSRF_VERSION = 'v1';
@@ -95,6 +96,15 @@ function rejectCsrf(res: Response): void {
 
 export function csrfProtection(req: Request, res: Response, next: NextFunction): void {
   if (req.path === '/admin/v1' || req.path.startsWith('/admin/v1/')) {
+    next();
+    return;
+  }
+
+  if (req.path === '/admin-auth/logout') {
+    if (!validAdminCsrfRequest(req)) {
+      rejectCsrf(res);
+      return;
+    }
     next();
     return;
   }

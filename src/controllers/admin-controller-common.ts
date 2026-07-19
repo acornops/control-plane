@@ -1,8 +1,10 @@
 import { Response } from 'express';
 import { AdminAuthenticatedRequest } from '../auth/admin-token.js';
+import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { incrementAdminAuditWriteFailures } from '../metrics.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
+import { AdminAuditEventInput } from '../store/repository-admin-audit.js';
 import { repo } from '../store/repository.js';
 import { Run } from '../types/domain.js';
 
@@ -19,6 +21,34 @@ function userAgent(req: AdminAuthenticatedRequest): string | null {
   return header ? header.slice(0, 512) : null;
 }
 
+export function adminAuditEventInput(req: AdminAuthenticatedRequest, input: {
+  action: string;
+  outcome?: 'success' | 'failure';
+  workspaceId?: string | null;
+  targetType?: string | null;
+  targetId?: string | null;
+  subjectType?: string | null;
+  subjectId?: string | null;
+  reason?: string | null;
+  metadata?: Record<string, unknown>;
+}): AdminAuditEventInput {
+  return {
+    adminTokenId: req.admin.tokenId,
+    adminActorIssuer: req.admin.actor?.issuer || null,
+    adminActorSubject: req.admin.actor?.subject || null,
+    adminActorEmail: req.admin.actor?.email || null,
+    adminActorDisplayName: req.admin.actor?.displayName || null,
+    adminActorRole: req.admin.actor?.roles[0] || null,
+    adminSessionIdHash: req.admin.actor?.sessionReference || null,
+    authenticationTime: req.admin.actor ? new Date(req.admin.actor.authenticatedAt).toISOString() : null,
+    outcome: input.outcome || 'success',
+    requestId: requestId(req),
+    sourceIp: sourceIp(req),
+    userAgent: userAgent(req),
+    ...input
+  };
+}
+
 export async function auditAdmin(req: AdminAuthenticatedRequest, input: {
   action: string;
   outcome?: 'success' | 'failure';
@@ -31,14 +61,19 @@ export async function auditAdmin(req: AdminAuthenticatedRequest, input: {
   metadata?: Record<string, unknown>;
 }): Promise<void> {
   try {
-    await repo.insertAdminAuditEvent({
-      adminTokenId: req.admin.tokenId,
-      outcome: input.outcome || 'success',
-      requestId: requestId(req),
-      sourceIp: sourceIp(req),
-      userAgent: userAgent(req),
-      ...input
-    });
+    const event = await repo.insertAdminAuditEvent(adminAuditEventInput(req, input));
+    logger.info({
+      securityEvent: 'platform_admin_audit',
+      auditEventId: event.id,
+      action: event.action,
+      outcome: event.outcome,
+      actorIssuer: event.adminActorIssuer || null,
+      actorSubject: event.adminActorSubject || null,
+      workspaceId: event.workspaceId || null,
+      subjectType: event.subjectType || null,
+      subjectId: event.subjectId || null,
+      requestId: event.requestId
+    }, 'Platform admin audit event persisted');
   } catch (err) {
     incrementAdminAuditWriteFailures();
     logger.error({ err, action: input.action, requestId: requestId(req) }, 'Failed recording admin audit event');
@@ -80,7 +115,7 @@ export async function bestEffortWorkspaceAudit(input: {
     eventType: input.eventType,
     operation: 'write',
     actorType: 'admin_token',
-    actorTokenId: input.tokenId,
+    actorTokenId: input.tokenId === config.PLATFORM_ADMIN_BFF_TOKEN_ID ? 'platform-admin' : input.tokenId,
     objectType: input.objectType,
     objectId: input.objectId,
     objectName: input.objectName,
@@ -95,6 +130,10 @@ export function validationError(res: Response, message: string, details?: Record
 
 export function notFound(res: Response, message: string): void {
   res.status(404).json({ error: { code: 'NOT_FOUND', message, retryable: false } });
+}
+
+export function conflictError(res: Response, code: string, message: string): void {
+  res.status(409).json({ error: { code, message, retryable: false } });
 }
 
 export function parseBool(value: unknown): boolean | undefined {

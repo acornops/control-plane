@@ -135,7 +135,14 @@ The control-plane admin API is disabled unless explicitly enabled:
 
 ```bash
 CONTROL_PLANE_ADMIN_API_ENABLED=true
-CONTROL_PLANE_ADMIN_TOKENS_JSON='[{"id":"ops-primary","name":"Ops primary","sha256":"<64 lowercase hex sha256>","scopes":["admin:*"],"enabled":true}]'
+CONTROL_PLANE_ADMIN_HUMAN_AUTH_REQUIRED=true
+PLATFORM_ADMIN_CONSOLE_BASE_URL=https://admin.acornops.dev
+CONTROL_PLANE_ADMIN_TOKENS_JSON='[{"id":"platform-admin-console","name":"Platform admin console BFF","sha256":"<64 lowercase hex sha256>","scopes":["admin:self","admin:system:read","admin:workspace:read","admin:workspace:write","admin:user:read","admin:member:write","admin:audit:read"],"enabled":true}]'
+PLATFORM_ADMIN_BFF_TOKEN_ID=platform-admin-console
+ADMIN_OIDC_ISSUER_URL=https://keycloak.acornops.dev/realms/acornops
+ADMIN_OIDC_CLIENT_ID=acornops-platform-admin
+ADMIN_OIDC_REDIRECT_URI=https://admin.acornops.dev/admin-auth/oidc/callback
+ADMIN_OIDC_ALLOWED_ROLES=platform-admin,platform-admin-viewer,platform-admin-auditor
 ```
 
 `CONTROL_PLANE_ADMIN_TOKENS_JSON` contains descriptors, not raw tokens.
@@ -144,18 +151,26 @@ descriptors, invalid hashes, unsupported scopes, duplicate ids, or placeholder
 hash values. Generate raw tokens out of band, store only the SHA-256 hash in the
 descriptor, and deliver the raw token through the operator secret channel.
 
-Admin endpoints are mounted under `/admin/v1` and require
-`Authorization: Bearer <admin-token>`. Browser sessions and internal service
-tokens are intentionally rejected. Failed admin auth attempts are rate-counted
-with Redis when available and recorded in `control_plane_admin_auth_failures_total`.
-All admin responses set `Cache-Control: no-store`.
+Admin endpoints are mounted under `/admin/v1`. Production requests require the
+console BFF token and the dedicated platform-admin session; the normal
+management-console session is not accepted. `/admin-auth/oidc/login` starts the
+authorization-code flow with PKCE, and the callback validates state, nonce,
+signature, issuer, audience, exact role membership, and MFA assurance before
+creating a one-hour session with a 15-minute idle timeout. Writes require
+authentication no older than 15 minutes and signed CSRF evidence. Failed admin
+auth attempts are rate-counted with Redis when available and recorded in
+`control_plane_admin_auth_failures_total`. All responses are `no-store`.
 
-All mutating admin requests require a `reason` field and write admin audit
-events. Workspace-scoped mutations also write workspace audit events with
-`actor.type=admin_token`. Audit payloads are sanitized and must not include raw
+All mutating admin requests require a `reason` field and write append-only admin audit
+events. Workspace membership mutations commit the membership change, protected
+Admin Audit success event, and sanitized workspace event atomically. Workspace
+members see a generic `platform-admin` actor and opaque correlation id, not the
+administrator credential id. Audit payloads are sanitized and must not include raw
 tokens, message bodies, prompts, auth headers, or agent keys. Agent-key rotation
 is the only admin response that returns a secret; the replacement key is returned
-once.
+once. Login, failed login, logout, high-risk reads, mutation requests, outcomes,
+and human identity are retained in the protected admin audit stream and emitted
+as structured security logs.
 
 Supported admin scopes are:
 

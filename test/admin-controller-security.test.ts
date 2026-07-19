@@ -8,13 +8,15 @@ import {
   listWorkspaceAuditEvents,
   listWorkspaces,
   patchWorkspacePlan,
-  patchWorkspaceQuotas
+  patchWorkspaceQuotas,
+  restoreWorkspace,
+  suspendWorkspace
 } from '../src/controllers/admin-controller.js';
 import { listRuns, listTargets } from '../src/controllers/admin-target-run-controller.js';
 import { addExistingWorkspaceMember, listAdminWorkspaces } from '../src/store/repository-admin.js';
 import { repo } from '../src/store/repository.js';
 import { db } from '../src/infra/db.js';
-import { adminReasonOnlySchema, adminWorkspacePlanPatchSchema } from '../src/types/contracts.js';
+import { adminReasonOnlySchema, adminWorkspacePlanPatchSchema, adminWorkspaceRestoreSchema, adminWorkspaceSuspendSchema } from '../src/types/contracts.js';
 
 afterEach(() => {
   mock.restoreAll();
@@ -46,7 +48,7 @@ function response() {
 }
 
 const adminReq = {
-  admin: { tokenId: 'ops-primary', scopes: ['admin:*'], credential: { type: 'admin_token' } },
+  admin: { tokenId: 'platform-admin-console', scopes: ['admin:*'], credential: { type: 'admin_token' } },
   header: () => undefined,
   ip: '127.0.0.1',
   socket: {},
@@ -54,6 +56,84 @@ const adminReq = {
 };
 
 describe('admin controller security invariants', () => {
+  it('requires an exact workspace name before lifecycle transitions', async () => {
+    let transitionCalled = false;
+    mock.method(repo, 'getAdminWorkspace', async () => ({
+      id: 'workspace-1',
+      name: 'Atlas Research',
+      plan: { key: 'default', name: 'Default' },
+      lifecycleStatus: 'active'
+    }));
+    mock.method(repo, 'transitionWorkspaceLifecycle', async () => {
+      transitionCalled = true;
+      return { status: 'state_conflict' as const };
+    });
+    mock.method(repo, 'insertAdminAuditEvent', async (event) => event);
+    const req = {
+      ...adminReq,
+      params: { workspaceId: 'workspace-1' },
+      body: { workspaceName: 'atlas research', reason: 'support ticket TEST-LIFE-1' }
+    };
+    const res = response();
+
+    await suspendWorkspace(req as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(transitionCalled, false);
+
+    const restoreRes = response();
+    await restoreWorkspace({ ...req, body: { workspaceName: 'atlas research', reason: 'support ticket TEST-LIFE-1B' } } as never, restoreRes as never, (err?: unknown) => { if (err) throw err; });
+    assert.equal(restoreRes.statusCode, 400);
+    assert.equal(transitionCalled, false);
+  });
+
+  it('suspends and restores workspace access through audited lifecycle transitions', async () => {
+    const active = { id: 'workspace-1', name: 'Atlas Research', plan: { key: 'default', name: 'Default' }, lifecycleStatus: 'active' as const };
+    const suspended = { ...active, lifecycleStatus: 'suspended' as const, suspendedAt: '2026-07-17T00:00:00.000Z' };
+    let current = active as typeof active | typeof suspended;
+    mock.method(repo, 'getAdminWorkspace', async () => current);
+    mock.method(repo, 'transitionWorkspaceLifecycle', async (_id, expected, next) => {
+      assert.equal(current.lifecycleStatus, expected);
+      current = next === 'suspended' ? suspended : active;
+      return { status: 'updated' as const, workspace: current as never };
+    });
+    const adminEvents: Array<Record<string, unknown>> = [];
+    const workspaceEvents: Array<Record<string, unknown>> = [];
+    mock.method(repo, 'insertAdminAuditEvent', async (event) => { adminEvents.push(event as unknown as Record<string, unknown>); return event; });
+    mock.method(repo, 'insertWorkspaceAuditEvent', async (event) => { workspaceEvents.push(event as unknown as Record<string, unknown>); return event as never; });
+
+    const suspendRes = response();
+    await suspendWorkspace({ ...adminReq, params: { workspaceId: 'workspace-1' }, body: { workspaceName: 'Atlas Research', reason: 'support ticket TEST-LIFE-2' } } as never, suspendRes as never, (err?: unknown) => { if (err) throw err; });
+    assert.equal(suspendRes.statusCode, 200);
+    assert.equal((suspendRes.body as { after: { lifecycleStatus: string } }).after.lifecycleStatus, 'suspended');
+
+    const restoreRes = response();
+    await restoreWorkspace({ ...adminReq, params: { workspaceId: 'workspace-1' }, body: { workspaceName: 'Atlas Research', reason: 'support ticket TEST-LIFE-3' } } as never, restoreRes as never, (err?: unknown) => { if (err) throw err; });
+    assert.equal(restoreRes.statusCode, 200);
+    assert.equal((restoreRes.body as { after: { lifecycleStatus: string } }).after.lifecycleStatus, 'active');
+    const completedAdminEvents = adminEvents.filter((event) => !(event.action as string).endsWith('.request'));
+    assert.equal(completedAdminEvents.length, 2);
+    assert.equal(workspaceEvents.length, 2);
+    for (let index = 0; index < 2; index += 1) {
+      assert.equal(workspaceEvents[index].actorTokenId, 'platform-admin');
+      const adminCorrelation = (completedAdminEvents[index].metadata as Record<string, unknown>).correlationId;
+      const workspaceCorrelation = (workspaceEvents[index].metadata as Record<string, unknown>).correlationId;
+      assert.equal(typeof adminCorrelation, 'string');
+      assert.equal(adminCorrelation, workspaceCorrelation);
+      assert.equal('ticketRef' in (workspaceEvents[index].metadata as Record<string, unknown>), false);
+    }
+  });
+
+  it('keeps workspace-name confirmation whitespace significant', () => {
+    assert.equal(adminWorkspaceSuspendSchema.safeParse({ workspaceName: 'Atlas Research', reason: 'support hold' }).success, true);
+    assert.equal(adminWorkspaceRestoreSchema.safeParse({ workspaceName: 'Atlas Research', reason: 'support hold cleared' }).success, true);
+    assert.equal(adminWorkspaceRestoreSchema.safeParse({ reason: 'legacy support hold cleared' }).success, true);
+    assert.equal(adminWorkspaceSuspendSchema.safeParse({ workspaceName: ' Atlas Research ', reason: 'support hold' }).success, true);
+    assert.notEqual(' Atlas Research ', 'Atlas Research');
+  });
+
   it('rejects over-limit plan changes even when callers request an override', async () => {
     let updatePlanCalled = false;
     mock.method(repo, 'getAdminWorkspace', async () => ({
@@ -281,6 +361,8 @@ describe('admin controller security invariants', () => {
       { handler: listTargets, req: { query: { lastSeenBefore: 'not-a-date' } } },
       { handler: listTargets, req: { query: { lastSeenAfter: '2026-06-02', lastSeenBefore: '2026-06-01' } } },
       { handler: listAdminAuditEvents, req: { query: { outcome: 'maybe' } } },
+      { handler: listAdminAuditEvents, req: { query: { actionGroup: 'everything' } } },
+      { handler: listAdminAuditEvents, req: { query: { action: 'admin.workspace.suspend', actionGroup: 'workspace_status_modified' } } },
       { handler: listAdminAuditEvents, req: { query: { from: 'not-a-date' } } },
       { handler: listWorkspaceAuditEvents, req: { query: { workspaceId: 'workspace-1', category: 'everything' } } },
       { handler: listWorkspaceAuditEvents, req: { query: { workspaceId: 'workspace-1', from: '2026-06-02', to: '2026-06-01' } } },
@@ -294,6 +376,20 @@ describe('admin controller security invariants', () => {
       });
       assert.equal(res.statusCode, 400);
     }
+  });
+
+  it('expands allowlisted admin audit action groups without losing exact action records', async () => {
+    let capturedOptions: Record<string, unknown> | undefined;
+    mock.method(repo, 'insertAdminAuditEvent', async (event) => event);
+    mock.method(repo, 'listAdminAuditEvents', async (options) => {
+      capturedOptions = options as Record<string, unknown>;
+      return { items: [] };
+    });
+    const res = response();
+    await listAdminAuditEvents({ ...adminReq, query: { actionGroup: 'workspace_access_modified' } } as never, res as never, (err?: unknown) => { if (err) throw err; });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(capturedOptions?.actions, ['admin.workspace.member.add', 'admin.workspace.member.delete', 'admin.workspace.member.role.update', 'admin.member.role.update']);
+    assert.equal(capturedOptions?.actionGroup, 'workspace_access_modified');
   });
 
   it('uses objectType for admin workspace audit searches', async () => {

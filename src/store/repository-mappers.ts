@@ -248,6 +248,7 @@ export type AcceptWorkspaceInvitationResult =
   | { status: 'not_found' }
   | { status: 'expired' }
   | { status: 'unavailable' }
+  | { status: 'workspace_suspended' }
   | { status: 'email_unverified'; email: string }
   | { status: 'email_mismatch'; expectedEmail: string };
 

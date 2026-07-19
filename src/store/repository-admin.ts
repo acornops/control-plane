@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { config } from '../config.js';
 import { db } from '../infra/db.js';
 import { AuthMethod, Run, TargetSummary, TARGET_TYPES, TargetType, User, WorkspaceMembership, WorkspaceSummary } from '../types/domain.js';
 import { PagedResult, encodeCursor, pageWithCursor } from '../utils/pagination.js';
@@ -8,160 +7,49 @@ import {
   mapTarget,
   mapUser,
   mapWorkspaceMembership,
-  mapWorkspaceSummary,
   RunRow,
   TargetRow,
   UserRow,
-  WorkspaceMembershipRow,
-  WorkspaceRow
+  WorkspaceMembershipRow
 } from './repository-mappers.js';
 import { withTransaction } from './repository-transaction.js';
-import { WorkspaceQuotaOverrides, assertWorkspaceMemberQuota, assertWorkspaceMembershipQuota, resolveWorkspacePlan } from './repository-quotas.js';
-interface CountRow { count: number | string; }
-export interface AdminWorkspaceDetail extends WorkspaceSummary {
-  quotaOverrides: WorkspaceQuotaOverrides;
-  recentRunSummary: Record<string, number>;
-  latestWorkspaceAuditAt?: string;
+import { AdminAuditEventInput, insertAdminAuditEvent } from './repository-admin-audit.js';
+import { insertWorkspaceAuditEvent } from './repository-audit-events.js';
+import { WorkspaceAuditEventInput } from '../types/domain.js';
+import { incrementAdminAuditWriteFailures } from '../metrics.js';
+import { WorkspaceQuotaOverrides, assertWorkspaceMemberQuota, assertWorkspaceMembershipQuota } from './repository-quotas.js';
+import { getAdminWorkspace } from './repository-admin-workspaces.js';
+export {
+  countWorkspaceUsage,
+  getAdminWorkspace,
+  listAdminWorkspaces,
+  transitionWorkspaceLifecycle,
+  updateWorkspacePlan
+} from './repository-admin-workspaces.js';
+export type {
+  AdminWorkspaceDetail,
+  AdminWorkspaceSummary,
+  WorkspaceLifecycleStatus
+} from './repository-admin-workspaces.js';
+
+export interface AdminWorkspaceMembershipAudit {
+  admin: AdminAuditEventInput;
+  workspace: WorkspaceAuditEventInput[];
 }
 
-const adminWorkspaceColumns = `w.*,
-  'owner'::text AS current_user_role,
-  COALESCE(kubernetes_cluster_counts.cluster_count, 0)::int AS cluster_count,
-  COALESCE(virtual_machine_counts.virtual_machine_count, 0)::int AS virtual_machine_count,
-  COALESCE(member_counts.member_count, 0)::int AS member_count,
-  qo.members AS quota_override_members,
-  qo.kubernetes_clusters AS quota_override_kubernetes_clusters,
-  qo.virtual_machines AS quota_override_virtual_machines`;
-
-const adminWorkspaceJoins = `
-  LEFT JOIN workspace_quota_overrides qo ON qo.workspace_id = w.id
-  LEFT JOIN (
-    SELECT workspace_id, COUNT(*) AS cluster_count
-    FROM targets
-    WHERE target_type = 'kubernetes'
-    GROUP BY workspace_id
-  ) kubernetes_cluster_counts ON kubernetes_cluster_counts.workspace_id = w.id
-  LEFT JOIN (
-    SELECT workspace_id, COUNT(*) AS virtual_machine_count
-    FROM targets
-    WHERE target_type = 'virtual_machine'
-    GROUP BY workspace_id
-  ) virtual_machine_counts ON virtual_machine_counts.workspace_id = w.id
-  LEFT JOIN (
-    SELECT workspace_id, COUNT(*) AS member_count
-    FROM workspace_memberships
-    GROUP BY workspace_id
-  ) member_counts ON member_counts.workspace_id = w.id`;
-
-function quotaOverrides(row: Record<string, unknown>): WorkspaceQuotaOverrides {
-  return {
-    members: row.quota_override_members === null || row.quota_override_members === undefined ? null : Number(row.quota_override_members),
-    kubernetesClusters: row.quota_override_kubernetes_clusters === null || row.quota_override_kubernetes_clusters === undefined ? null : Number(row.quota_override_kubernetes_clusters),
-    virtualMachines: row.quota_override_virtual_machines === null || row.quota_override_virtual_machines === undefined ? null : Number(row.quota_override_virtual_machines)
-  };
-}
-
-function planQuotaCase(field: 'members' | 'kubernetesClusters' | 'virtualMachines'): string {
-  return `(CASE w.plan_key ${config.WORKSPACE_PLANS.plans.map((plan) => `WHEN '${plan.key}' THEN ${plan.quotas[field]}`).join(' ')} ELSE 2147483647 END)`;
-}
-
-export async function listAdminWorkspaces(options: {
-  limit?: number;
-  cursor?: { createdAt: string; workspaceId: string } | null;
-  q?: string;
-  planKey?: string;
-  createdBy?: string;
-  createdAfter?: string;
-  createdBefore?: string;
-  overLimit?: boolean;
-  signature?: string;
-} = {}): Promise<PagedResult<WorkspaceSummary>> {
-  const limit = Math.max(1, Math.min(100, options.limit ?? 50));
-  const params: Array<string | number | boolean> = [limit + 1];
-  const clauses: string[] = [];
-  const add = (sql: string, value: string | boolean): void => {
-    params.push(value);
-    clauses.push(sql.replace('?', `$${params.length}`));
-  };
-  if (options.q) add('LOWER(w.name) LIKE ?', `%${options.q.toLowerCase()}%`);
-  if (options.planKey) add('w.plan_key = ?', options.planKey);
-  if (options.createdBy) add('w.created_by = ?', options.createdBy);
-  if (options.createdAfter) add('w.created_at >= ?::timestamptz', options.createdAfter);
-  if (options.createdBefore) add('w.created_at <= ?::timestamptz', options.createdBefore);
-  if (options.overLimit !== undefined) {
-    const comparison = options.overLimit ? '>' : '<=';
-    const joiner = options.overLimit ? 'OR' : 'AND';
-    clauses.push(`(
-      COALESCE(member_counts.member_count, 0) ${comparison} COALESCE(qo.members, ${planQuotaCase('members')})
-      ${joiner} COALESCE(kubernetes_cluster_counts.cluster_count, 0) ${comparison} COALESCE(qo.kubernetes_clusters, ${planQuotaCase('kubernetesClusters')})
-      ${joiner} COALESCE(virtual_machine_counts.virtual_machine_count, 0) ${comparison} COALESCE(qo.virtual_machines, ${planQuotaCase('virtualMachines')})
-    )`);
+async function insertMembershipAudit(client: Parameters<Parameters<typeof withTransaction>[0]>[0], audit?: AdminWorkspaceMembershipAudit): Promise<void> {
+  if (!audit) return;
+  try {
+    await insertAdminAuditEvent(audit.admin, client);
+    for (const event of audit.workspace) {
+      // Admin membership changes are governance records and must not be disabled by
+      // the optional workspace read-audit logging mode.
+      await insertWorkspaceAuditEvent(event, client, 'read_write');
+    }
+  } catch (err) {
+    incrementAdminAuditWriteFailures();
+    throw err;
   }
-  if (options.cursor) {
-    params.push(options.cursor.createdAt, options.cursor.workspaceId);
-    clauses.push(`(w.created_at, w.id) > ($${params.length - 1}::timestamptz, $${params.length}::text)`);
-  }
-  const result = await db.query(
-    `SELECT ${adminWorkspaceColumns}
-     FROM workspaces w
-     ${adminWorkspaceJoins}
-     ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
-     ORDER BY w.created_at ASC, w.id ASC
-     LIMIT $1`,
-    params
-  );
-  const items = result.rows.map((row) => mapWorkspaceSummary(row as WorkspaceRow));
-  return pageWithCursor(items, limit, (workspace) =>
-    encodeCursor({ signature: options.signature || '', createdAt: workspace.createdAt, workspaceId: workspace.id })
-  );
-}
-
-export async function getAdminWorkspace(workspaceId: string): Promise<AdminWorkspaceDetail | null> {
-  const result = await db.query(
-    `SELECT ${adminWorkspaceColumns},
-       latest_audit.occurred_at AS latest_workspace_audit_at
-     FROM workspaces w
-     ${adminWorkspaceJoins}
-     LEFT JOIN LATERAL (
-       SELECT occurred_at
-       FROM workspace_audit_events
-       WHERE workspace_id = w.id
-       ORDER BY occurred_at DESC
-       LIMIT 1
-     ) latest_audit ON true
-     WHERE w.id = $1
-     LIMIT 1`,
-    [workspaceId]
-  );
-  if (!result.rowCount) return null;
-  const row = result.rows[0];
-  const summary = mapWorkspaceSummary(row as WorkspaceRow);
-  const runSummaryResult = await db.query<{ status: string; count: number | string }>(
-    `SELECT status, COUNT(*)::int AS count
-     FROM runs
-     WHERE workspace_id = $1
-     GROUP BY status`,
-    [workspaceId]
-  );
-  return {
-    ...summary,
-    quotaOverrides: quotaOverrides(row),
-    recentRunSummary: Object.fromEntries(runSummaryResult.rows.map((entry) => [entry.status, Number(entry.count)])),
-    ...(row.latest_workspace_audit_at ? { latestWorkspaceAuditAt: new Date(row.latest_workspace_audit_at).toISOString() } : {})
-  };
-}
-
-export async function updateWorkspacePlan(workspaceId: string, planKey: string): Promise<WorkspaceSummary | null> {
-  resolveWorkspacePlan(planKey);
-  const result = await db.query(
-    `UPDATE workspaces
-     SET plan_key = $2
-     WHERE id = $1
-     RETURNING *`,
-    [workspaceId, planKey]
-  );
-  if (!result.rowCount) return null;
-  return (await getAdminWorkspace(workspaceId)) || null;
 }
 
 export async function setWorkspaceQuotaOverrides(
@@ -281,6 +169,34 @@ export async function getAdminUser(userId: string): Promise<{
   };
 }
 
+export async function listAdminWorkspaceMembers(options: {
+  workspaceId: string;
+  limit?: number;
+  cursor?: { createdAt: string; userId: string } | null;
+  signature?: string;
+}): Promise<PagedResult<WorkspaceMembership>> {
+  const limit = Math.max(1, Math.min(100, options.limit ?? 50));
+  const params: Array<string | number> = [options.workspaceId, limit + 1];
+  const clauses = ['m.workspace_id = $1'];
+  if (options.cursor) {
+    params.push(options.cursor.createdAt, options.cursor.userId);
+    clauses.push(`(m.created_at, m.user_id) > ($${params.length - 1}::timestamptz, $${params.length}::text)`);
+  }
+  const result = await db.query<WorkspaceMembershipRow>(
+    `SELECT m.workspace_id, m.user_id, u.email, u.display_name, m.role, m.source, m.created_at, m.updated_at
+     FROM workspace_memberships m
+     INNER JOIN users u ON u.id = m.user_id
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY m.created_at ASC, m.user_id ASC
+     LIMIT $2`,
+    params
+  );
+  const items = result.rows.map(mapWorkspaceMembership);
+  return pageWithCursor(items, limit, (member) =>
+    encodeCursor({ signature: options.signature || '', createdAt: member.createdAt, userId: member.userId })
+  );
+}
+
 export async function findUserByEmail(email: string): Promise<User | null> {
   const result = await db.query<UserRow>('SELECT * FROM users WHERE email = $1 LIMIT 1', [email.toLowerCase()]);
   return result.rowCount ? mapUser(result.rows[0]) : null;
@@ -299,7 +215,8 @@ export async function createVerifiedInternalUser(email: string, displayName: str
 export async function addExistingWorkspaceMember(
   workspaceId: string,
   userId: string,
-  role: string
+  role: string,
+  audit?: AdminWorkspaceMembershipAudit
 ): Promise<{ status: 'created' | 'workspace_not_found' | 'user_not_found' | 'already_exists'; member?: WorkspaceMembership }> {
   return withTransaction(async (client) => {
     const workspace = await client.query('SELECT 1 FROM workspaces WHERE id = $1 LIMIT 1', [workspaceId]);
@@ -324,6 +241,7 @@ export async function addExistingWorkspaceMember(
       [workspaceId, userId, role, user.rows[0].email, user.rows[0].display_name]
     );
     if (!inserted.rowCount) return { status: 'already_exists' };
+    await insertMembershipAudit(client, audit);
     return { status: 'created', member: mapWorkspaceMembership(inserted.rows[0]) };
   });
 }
@@ -331,7 +249,8 @@ export async function addExistingWorkspaceMember(
 export async function replaceLastOwnerAndDeleteMember(
   workspaceId: string,
   userId: string,
-  replacementOwnerUserId: string
+  replacementOwnerUserId: string,
+  audit?: AdminWorkspaceMembershipAudit
 ): Promise<{ status: 'deleted' | 'not_found' | 'replacement_not_found'; member?: WorkspaceMembership }> {
   return withTransaction(async (client) => {
     const replacement = await client.query(
@@ -355,6 +274,7 @@ export async function replaceLastOwnerAndDeleteMember(
       [workspaceId, userId]
     );
     if (!deleted.rowCount) return { status: 'not_found' };
+    await insertMembershipAudit(client, audit);
     return { status: 'deleted', member: mapWorkspaceMembership(deleted.rows[0]) };
   });
 }
@@ -362,7 +282,8 @@ export async function replaceLastOwnerAndDeleteMember(
 export async function updateExistingWorkspaceMemberRole(
   workspaceId: string,
   userId: string,
-  role: string
+  role: string,
+  audit?: AdminWorkspaceMembershipAudit
 ): Promise<{ status: 'updated' | 'not_found' | 'last_owner'; member?: WorkspaceMembership; previousRole?: string }> {
   return withTransaction(async (client) => {
     const current = await client.query<WorkspaceMembershipRow>(
@@ -390,13 +311,21 @@ export async function updateExistingWorkspaceMemberRole(
        RETURNING m.workspace_id, m.user_id, u.email, u.display_name, m.role, m.source, m.created_at, m.updated_at`,
       [workspaceId, userId, role]
     );
+    if (audit) {
+      audit.admin.metadata = { ...(audit.admin.metadata || {}), beforeRole: previous.role };
+      if (audit.workspace[0]) {
+        audit.workspace[0].metadata = { ...(audit.workspace[0].metadata || {}), beforeRole: previous.role };
+      }
+    }
+    await insertMembershipAudit(client, audit);
     return { status: 'updated', member: mapWorkspaceMembership(updated.rows[0]), previousRole: previous.role };
   });
 }
 
 export async function deleteExistingWorkspaceMember(
   workspaceId: string,
-  userId: string
+  userId: string,
+  audit?: AdminWorkspaceMembershipAudit
 ): Promise<{ status: 'deleted' | 'not_found' | 'last_owner'; member?: WorkspaceMembership }> {
   return withTransaction(async (client) => {
     const current = await client.query<WorkspaceMembershipRow>(
@@ -417,6 +346,7 @@ export async function deleteExistingWorkspaceMember(
       if ((owners.rowCount || 0) <= 1) return { status: 'last_owner' };
     }
     await client.query('DELETE FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2', [workspaceId, userId]);
+    await insertMembershipAudit(client, audit);
     return { status: 'deleted', member };
   });
 }
@@ -529,21 +459,4 @@ export async function listAdminRuns(options: {
   return pageWithCursor(items, limit, (run) =>
     encodeCursor({ signature: options.signature || '', requestedAt: run.requestedAt, runId: run.id })
   );
-}
-
-export async function countWorkspaceUsage(workspaceId: string): Promise<{
-  members: number;
-  kubernetesClusters: number;
-  virtualMachines: number;
-}> {
-  const [members, kubernetesClusters, virtualMachines] = await Promise.all([
-    db.query<CountRow>('SELECT COUNT(*)::int AS count FROM workspace_memberships WHERE workspace_id = $1', [workspaceId]),
-    db.query<CountRow>("SELECT COUNT(*)::int AS count FROM targets WHERE workspace_id = $1 AND target_type = 'kubernetes'", [workspaceId]),
-    db.query<CountRow>("SELECT COUNT(*)::int AS count FROM targets WHERE workspace_id = $1 AND target_type = 'virtual_machine'", [workspaceId])
-  ]);
-  return {
-    members: Number(members.rows[0]?.count || 0),
-    kubernetesClusters: Number(kubernetesClusters.rows[0]?.count || 0),
-    virtualMachines: Number(virtualMachines.rows[0]?.count || 0)
-  };
 }

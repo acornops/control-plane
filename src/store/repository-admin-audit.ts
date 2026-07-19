@@ -12,6 +12,13 @@ interface Queryable {
 export interface AdminAuditEvent {
   id: string;
   adminTokenId?: string;
+  adminActorIssuer?: string;
+  adminActorSubject?: string;
+  adminActorEmail?: string;
+  adminActorDisplayName?: string;
+  adminActorRole?: string;
+  adminSessionIdHash?: string;
+  authenticationTime?: string;
   action: string;
   outcome: 'success' | 'failure';
   workspaceId?: string;
@@ -29,6 +36,13 @@ export interface AdminAuditEvent {
 
 export interface AdminAuditEventInput {
   adminTokenId?: string | null;
+  adminActorIssuer?: string | null;
+  adminActorSubject?: string | null;
+  adminActorEmail?: string | null;
+  adminActorDisplayName?: string | null;
+  adminActorRole?: string | null;
+  adminSessionIdHash?: string | null;
+  authenticationTime?: string | null;
   action: string;
   outcome: 'success' | 'failure';
   workspaceId?: string | null;
@@ -46,6 +60,13 @@ export interface AdminAuditEventInput {
 interface AdminAuditEventRow {
   id: string;
   admin_token_id: string | null;
+  admin_actor_issuer: string | null;
+  admin_actor_subject: string | null;
+  admin_actor_email: string | null;
+  admin_actor_display_name: string | null;
+  admin_actor_role: string | null;
+  admin_session_id_hash: string | null;
+  authentication_time: Date | string | null;
   action: string;
   outcome: 'success' | 'failure';
   workspace_id: string | null;
@@ -73,6 +94,13 @@ function mapAdminAuditEvent(row: AdminAuditEventRow): AdminAuditEvent {
   return {
     id: row.id,
     ...(row.admin_token_id ? { adminTokenId: row.admin_token_id } : {}),
+    ...(row.admin_actor_issuer ? { adminActorIssuer: row.admin_actor_issuer } : {}),
+    ...(row.admin_actor_subject ? { adminActorSubject: row.admin_actor_subject } : {}),
+    ...(row.admin_actor_email ? { adminActorEmail: row.admin_actor_email } : {}),
+    ...(row.admin_actor_display_name ? { adminActorDisplayName: row.admin_actor_display_name } : {}),
+    ...(row.admin_actor_role ? { adminActorRole: row.admin_actor_role } : {}),
+    ...(row.admin_session_id_hash ? { adminSessionIdHash: row.admin_session_id_hash } : {}),
+    ...(row.authentication_time ? { authenticationTime: toIso(row.authentication_time) } : {}),
     action: row.action,
     outcome: row.outcome,
     ...(row.workspace_id ? { workspaceId: row.workspace_id } : {}),
@@ -95,13 +123,22 @@ export async function insertAdminAuditEvent(
 ): Promise<AdminAuditEvent> {
   const result = await queryable.query(
     `INSERT INTO admin_audit_events (
-       id, admin_token_id, action, outcome, workspace_id, target_type, target_id,
+       id, admin_token_id, admin_actor_issuer, admin_actor_subject, admin_actor_email,
+       admin_actor_display_name, admin_actor_role, admin_session_id_hash, authentication_time,
+       action, outcome, workspace_id, target_type, target_id,
        subject_type, subject_id, reason, request_id, source_ip_hash, user_agent, metadata, occurred_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, NOW())
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21::jsonb, NOW())
      RETURNING *`,
     [
       randomUUID(),
       input.adminTokenId || null,
+      input.adminActorIssuer || null,
+      input.adminActorSubject || null,
+      input.adminActorEmail || null,
+      input.adminActorDisplayName || null,
+      input.adminActorRole || null,
+      input.adminSessionIdHash || null,
+      input.authenticationTime || null,
       input.action,
       input.outcome,
       input.workspaceId || null,
@@ -123,7 +160,9 @@ export async function listAdminAuditEvents(options: {
   limit?: number;
   cursor?: { occurredAt: string; eventId: string } | null;
   adminTokenId?: string;
+  adminActorSubject?: string;
   action?: string;
+  actions?: string[];
   outcome?: 'success' | 'failure';
   workspaceId?: string;
   targetType?: string;
@@ -133,14 +172,19 @@ export async function listAdminAuditEvents(options: {
   signature?: string;
 } = {}): Promise<PagedResult<AdminAuditEvent>> {
   const limit = Math.max(1, Math.min(100, options.limit ?? 50));
-  const params: Array<string | number> = [limit + 1];
+  const params: Array<string | number | string[]> = [limit + 1];
   const clauses: string[] = [];
   const addFilter = (sql: string, value: string): void => {
     params.push(value);
     clauses.push(sql.replace('?', `$${params.length}`));
   };
   if (options.adminTokenId) addFilter('admin_token_id = ?', options.adminTokenId);
+  if (options.adminActorSubject) addFilter('admin_actor_subject = ?', options.adminActorSubject);
   if (options.action) addFilter('action = ?', options.action);
+  if (options.actions?.length) {
+    params.push(options.actions);
+    clauses.push(`action = ANY($${params.length}::text[])`);
+  }
   if (options.outcome) addFilter('outcome = ?', options.outcome);
   if (options.workspaceId) addFilter('workspace_id = ?', options.workspaceId);
   if (options.targetType) addFilter('target_type = ?', options.targetType);

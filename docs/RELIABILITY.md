@@ -20,6 +20,10 @@
 - Preserve deterministic run event ordering and terminal run states.
 - Preserve durable write-approval behavior: approval creation stores continuation and `waiting_for_approval` atomically, and decisions resume through backend redispatch.
 - Preserve the acknowledged-run boundary: Agent/Workflow run creation and its dispatch-outbox insert commit in one transaction before returning `202`.
+- Preserve the admin membership audit boundary: an admin-initiated membership
+  change, its protected Admin Audit success record, and its sanitized workspace
+  audit record commit in one transaction. Any success-audit failure rolls back
+  the membership change.
 - Keep Postgres `FOR UPDATE SKIP LOCKED` claims authoritative for schedules, trigger deliveries, dispatch, and approval expiry. Redis leases may only reduce contention.
 - Never retry a write after an uncertain execution result. Mark the attempt `needs_review` and require an authorized resume.
 - Keep browser-facing snapshot resource, durable issue, summary, and metric-history shapes explicit in contracts; only the latest raw target snapshot is retained, while metrics use compact history samples.

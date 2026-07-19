@@ -99,6 +99,8 @@ async function sendAuthEmail(input: {
     port: config.SMTP_PORT,
     secure: config.SMTP_SECURE,
     requireTLS: config.SMTP_REQUIRE_TLS,
+    disableFileAccess: true,
+    disableUrlAccess: true,
     auth: config.SMTP_USERNAME || config.SMTP_PASSWORD
       ? { user: config.SMTP_USERNAME, pass: config.SMTP_PASSWORD }
       : undefined
@@ -109,7 +111,9 @@ async function sendAuthEmail(input: {
     to: input.email,
     subject: input.rendered.subject,
     text: input.rendered.text,
-    html: input.rendered.html
+    html: input.rendered.html,
+    disableFileAccess: true,
+    disableUrlAccess: true
   });
   logger.info({ email: input.email, messageId: result.messageId }, `Email ${input.kind} message sent`);
   return { status: 'sent', messageId: result.messageId };
