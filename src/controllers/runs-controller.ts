@@ -2,13 +2,14 @@ import { NextFunction, Response } from 'express';
 import { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { cancelRunInExecutionEngine } from '../services/execution-engine-client.js';
-import { recordApprovalActivity } from '../services/target-chat-activity-events.js';
 import { webhooks } from '../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
+import { recordWorkflowExecutionEvent } from '../services/workflow-execution-events.js';
 import { repo } from '../store/repository.js';
 import {
   appendWorkflowRunEvents,
   decideWorkflowRunApproval,
+  getWorkflowExecution,
   getWorkflowRunApproval,
   getWorkflowRun,
   listWorkflowRunApprovals,
@@ -27,6 +28,9 @@ import {
   writeSseRunEvent
 } from './run-controller-helpers.js';
 import { isRunTerminalStatus, terminalizeRunCancellation } from './run-cancellation.js';
+import { decideTroubleshootingRunApproval } from './troubleshooting-run-approval-decision.js';
+import { externalIntegrationOwnsWorkflowExecution } from './workflow-execution-access.js';
+import { workflowAuditActor } from './workflow-external-access.js';
 
 export async function getRun(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -271,11 +275,29 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
   try {
     const runId = toSingleParam(req.params.runId);
     const approvalId = toSingleParam(req.params.approvalId);
+    const troubleshootingRun = await repo.getRun(runId);
+    if (troubleshootingRun) {
+      await decideTroubleshootingRunApproval(req, res, troubleshootingRun, approvalId);
+      return;
+    }
     const workflowRun = await getWorkflowRun(runId);
     if (workflowRun) {
       const authz = await requireWorkspaceDataRead(req, res, workflowRun.workspaceId, 'No access to run');
       if (!authz) {
         return;
+      }
+      if (req.auth.credential.type === 'external_integration') {
+        const execution = await getWorkflowExecution(workflowRun.executionId);
+        if (!execution || !externalIntegrationOwnsWorkflowExecution(req, execution)) {
+          res.status(403).json({
+            error: {
+              code: 'EXTERNAL_INTEGRATION_APPROVAL_NOT_OWNED',
+              message: 'External integrations may decide approvals only for Workflow executions requested through the same linked integration',
+              retryable: false
+            }
+          });
+          return;
+        }
       }
       const approval = await getWorkflowRunApproval(approvalId);
       if (!approval || approval.runId !== workflowRun.id) {
@@ -287,7 +309,8 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Approval not found', retryable: false } });
         return;
       }
-      if (!authz.can('create_read_write_runs')) {
+      const isRequesterRejecting = req.body.decision === 'rejected' && approval.requestedBy === req.auth.userId;
+      if (!authz.can('create_read_write_runs') && !isRequesterRejecting) {
         res.status(403).json({
           error: {
             code: 'FORBIDDEN',
@@ -323,7 +346,7 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
         category: 'approval',
         eventType: 'workflow.approval_decided.v1',
         operation: 'write',
-        actorUserId: req.auth.userId,
+        ...workflowAuditActor(req),
         objectType: 'workflow_approval',
         objectId: decided.id,
         objectName: decided.toolName,
@@ -334,15 +357,46 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
           workflowSessionId: workflowRun.workflowSessionId,
           workflowStepId: workflowRun.workflowStepId || null,
           decision: decided.decision || decided.status,
-          status: decided.status
+          status: decided.status,
+          decisionActorType: req.auth.credential.type,
+          ...(req.auth.credential.type === 'external_integration'
+            ? {
+                externalIntegrationClientId: req.auth.credential.integrationId,
+                externalIntegrationLinkId: req.auth.credential.linkId
+              }
+            : {})
         }
       });
       dispatchWorkflowRunAfterApprovals(workflowRun.id);
+      await recordWorkflowExecutionEvent({
+        executionId: workflowRun.executionId,
+        workspaceId: workflowRun.workspaceId,
+        type: 'approval_decided',
+        runId: workflowRun.id,
+        stepIndex: workflowRun.stepIndex,
+        approvalId: decided.id,
+        dedupeKey: `approval-decided:${decided.id}:${decided.status}`,
+        payload: {
+          approvalKind: 'pre_step',
+          status: decided.status,
+          decision: decided.decision || null
+        }
+      });
       res.status(200).json(decided);
       return;
     }
     const agentRun = await getAgentActivityRecord(runId);
     if (agentRun) {
+      if (req.auth.credential.type === 'external_integration') {
+        res.status(403).json({
+          error: {
+            code: 'EXTERNAL_INTEGRATION_AGENT_APPROVAL_FORBIDDEN',
+            message: 'External integrations cannot decide standalone Agent approvals',
+            retryable: false
+          }
+        });
+        return;
+      }
       const approval = await getAutomationRunApproval(approvalId);
       if (!approval || approval.sourceType !== 'agent' || approval.runId !== agentRun.id) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Approval not found', retryable: false } });
@@ -351,102 +405,7 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
       await decideAutomationApprovalRequest(req, res, approval);
       return;
     }
-    const run = await repo.getRun(runId);
-    if (!run) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Run not found', retryable: false } });
-      return;
-    }
-    const authz = await requireWorkspaceDataRead(req, res, run.workspaceId, 'No access to run');
-    if (!authz) {
-      return;
-    }
-    const approval = await repo.getRunToolApproval(approvalId);
-    if (!approval || approval.runId !== run.id) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Approval not found', retryable: false } });
-      return;
-    }
-
-    if (approval.status !== 'pending') {
-      redispatchWaitingRunAfterApproval(run);
-      if (approval.decision === req.body.decision) {
-        res.status(200).json(approval);
-        return;
-      }
-      res.status(409).json({
-        error: {
-          code: 'APPROVAL_ALREADY_DECIDED',
-          message: `Approval is already ${approval.status}`,
-          retryable: false
-        },
-        approval
-      });
-      return;
-    }
-
-    const isRequesterRejecting = req.body.decision === 'rejected' && approval.requestedBy === req.auth.userId;
-    if (!authz.can('create_read_write_runs') && !isRequesterRejecting) {
-      res.status(403).json({
-        error: {
-          code: 'FORBIDDEN',
-          message: 'Only workspace roles with read-write run capability can approve write actions',
-          retryable: false
-        }
-      });
-      return;
-    }
-
-    const decided = await repo.decideRunToolApproval(approval.id, req.body.decision, req.auth.userId);
-    if (!decided) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Approval not found', retryable: false } });
-      return;
-    }
-    redispatchWaitingRunAfterApproval(run);
-    if (decided.status === 'expired') {
-      await recordApprovalActivity(decided, 'approval.expired', run.sessionId, run.messageId);
-      res.status(409).json({
-        error: {
-          code: 'APPROVAL_EXPIRED',
-          message: 'Approval expired before the decision was recorded',
-          retryable: false
-        },
-        approval: decided
-      });
-      return;
-    }
-    await recordApprovalActivity(decided, 'approval.decided', run.sessionId, run.messageId);
-    webhooks.emit({
-      type: 'run.tool_approval_decided.v1',
-      workspaceId: run.workspaceId,
-      clusterId: decided.targetType === KUBERNETES_TARGET_TYPE ? decided.targetId : undefined,
-      targetId: decided.targetId,
-      targetType: decided.targetType,
-      subject: { type: 'tool_approval', id: decided.id },
-      data: {
-        runId: run.id,
-        sessionId: run.sessionId,
-        decision: decided.decision || decided.status,
-        status: decided.status,
-        decidedBy: req.auth.userId
-      }
-    });
-    await recordWorkspaceAuditEvent({
-      workspaceId: run.workspaceId,
-      category: 'approval',
-      eventType: 'run.tool_approval_decided.v1',
-      operation: 'write',
-      actorUserId: req.auth.userId,
-      objectType: 'tool_approval',
-      objectId: decided.id,
-      objectName: decided.toolName,
-      summary: 'Write-tool approval decided',
-      metadata: {
-        runId: run.id,
-        sessionId: run.sessionId,
-        decision: decided.decision || decided.status,
-        status: decided.status
-      }
-    });
-    res.status(200).json(decided);
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Run not found', retryable: false } });
   } catch (err) {
     next(err);
   }

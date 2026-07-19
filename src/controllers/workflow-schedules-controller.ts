@@ -352,7 +352,14 @@ export async function listWorkspaceApprovalInbox(req: AuthenticatedRequest, res:
     const runId = typeof req.query.runId === 'string' && req.query.runId.trim() ? req.query.runId.trim() : undefined;
     const approvalId = typeof req.query.approvalId === 'string' && req.query.approvalId.trim() ? req.query.approvalId.trim() : undefined;
     const [targetApprovals, pendingTargetCount, automationApprovals, pendingAutomationCount] = await Promise.all([
-      repo.listWorkspaceRunToolApprovals({ workspaceId, status, limit, cursor, runId, approvalId }),
+      repo.listWorkspaceRunToolApprovals({
+        workspaceId,
+        status,
+        limit,
+        cursor,
+        ...(runId ? { runId } : {}),
+        ...(approvalId ? { approvalId } : {})
+      }),
       repo.countPendingWorkspaceRunToolApprovals(workspaceId),
       listWorkspaceAutomationApprovals({ workspaceId, status, limit, cursor }),
       countPendingWorkspaceAutomationApprovals(workspaceId)

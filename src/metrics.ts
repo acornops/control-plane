@@ -24,6 +24,7 @@ const targetInsightsCheckpointPatchCounts = new Map<string, number>();
 const workflowRepositoryFailures = new Map<string, number>();
 const workflowCatalogSourceAvailability = new Map<string, number>();
 const workflowSchedulePreviewDurations = new Map<string, number>();
+const workflowExecutionStreams = new Map<string, number>();
 const automationDispatches = new Map<string, number>();
 const automationDispatchDurations = new Map<string, number>();
 const automationTriggers = new Map<string, number>();
@@ -131,6 +132,10 @@ export function observeWorkflowSchedulePreviewDurationMs(status: 'valid' | 'inva
       increment(workflowSchedulePreviewDurations, `${status}:${bucket === Number.POSITIVE_INFINITY ? '+Inf' : bucket}`);
     }
   }
+}
+
+export function incrementWorkflowExecutionStream(event: 'opened' | 'closed' | 'replayed' | 'error', count = 1): void {
+  increment(workflowExecutionStreams, event, count);
 }
 
 export function incrementAutomationDispatch(source: string, outcome: string): void {
@@ -332,6 +337,11 @@ export function renderControlPlaneMetrics(): string {
       const [status, le] = key.split(':');
       return metricLine('control_plane_workflow_schedule_preview_duration_ms_bucket', { ...serviceLabels, status, le }, value);
     }),
+    '# HELP control_plane_workflow_execution_stream_events_total Workflow execution SSE lifecycle and replay outcomes.',
+    '# TYPE control_plane_workflow_execution_stream_events_total counter',
+    ...Array.from(workflowExecutionStreams.entries()).map(([event, value]) =>
+      metricLine('control_plane_workflow_execution_stream_events_total', { ...serviceLabels, event }, value)
+    ),
     '# HELP control_plane_automation_dispatch_total Durable automation dispatch outcomes.',
     '# TYPE control_plane_automation_dispatch_total counter',
     ...Array.from(automationDispatches.entries()).map(([key, value]) => {

@@ -8,6 +8,9 @@ import {
   decideAutomationRunApproval,
   type AutomationRunApproval
 } from '../store/repository-automation-approvals.js';
+import { runAuditActor } from './run-actor.js';
+import { getWorkflowRun } from '../store/repository-workflows.js';
+import { recordWorkflowExecutionEvent } from '../services/workflow-execution-events.js';
 
 export async function decideAutomationApprovalRequest(
   req: AuthenticatedRequest,
@@ -53,12 +56,16 @@ export async function decideAutomationApprovalRequest(
   }
   await applyAutomationApprovalOutcome(decided);
   incrementAutomationApproval(decided.approvalKind, decided.status);
+  const auditActor = runAuditActor(req);
+  const workflowRun = decided.sourceType === 'workflow'
+    ? await getWorkflowRun(decided.runId)
+    : null;
   await recordWorkspaceAuditEvent({
     workspaceId: decided.workspaceId,
     category: 'approval',
     eventType: `${decided.sourceType}.${decided.approvalKind}_approval_decided.v1`,
     operation: 'write',
-    actorUserId: req.auth.userId,
+    ...auditActor,
     objectType: 'automation_approval',
     objectId: decided.id,
     objectName: decided.toolName,
@@ -69,9 +76,41 @@ export async function decideAutomationApprovalRequest(
       runId: decided.runId,
       approvalKind: decided.approvalKind,
       decision: decided.decision || decided.status,
-      status: decided.status
+      status: decided.status,
+      decisionActorType: auditActor.actorType || 'user',
+      ...(workflowRun
+        ? {
+            workflowId: workflowRun.workflowId,
+            workflowExecutionId: workflowRun.executionId,
+            workflowSessionId: workflowRun.workflowSessionId,
+            workflowStepId: workflowRun.workflowStepId || null,
+            stepIndex: workflowRun.stepIndex
+          }
+        : {}),
+      ...(req.auth.credential.type === 'external_integration'
+        ? {
+            externalIntegrationClientId: req.auth.credential.integrationId,
+            externalIntegrationLinkId: req.auth.credential.linkId
+          }
+        : {})
     }
   });
+  if (workflowRun) {
+    await recordWorkflowExecutionEvent({
+      executionId: workflowRun.executionId,
+      workspaceId: workflowRun.workspaceId,
+      type: 'approval_decided',
+      runId: workflowRun.id,
+      stepIndex: workflowRun.stepIndex,
+      approvalId: decided.id,
+      dedupeKey: `approval-decided:${decided.id}:${decided.status}`,
+      payload: {
+        approvalKind: decided.approvalKind,
+        status: decided.status,
+        decision: decided.decision || null
+      }
+    });
+  }
   if (decided.status === 'expired') {
     res.status(409).json({
       error: { code: 'APPROVAL_EXPIRED', message: 'Approval expired before the decision was recorded', retryable: false },

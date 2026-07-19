@@ -42,7 +42,9 @@ assert.deepEqual(files, [
   '009_workflow_prompt_references.sql',
   '010_tool_result_artifacts.sql',
   '011_chat_runtime_selection.sql',
-  '012_durable_issue_webhooks.sql'
+  '012_durable_issue_webhooks.sql',
+  '013_run_request_provenance.sql',
+  '014_external_integration_workflow_provenance.sql'
 ]);
 for (const file of files) {
   assert(/^\d{3,}_[a-z0-9_]+\.sql$/.test(file), `invalid migration filename ${file}`);
@@ -61,7 +63,9 @@ const workflowPromptReferences = read('migrations/control-plane/009_workflow_pro
 const toolResultArtifacts = read('migrations/control-plane/010_tool_result_artifacts.sql');
 const chatRuntimeSelection = read('migrations/control-plane/011_chat_runtime_selection.sql');
 const durableIssueWebhooks = read('migrations/control-plane/012_durable_issue_webhooks.sql');
-const schema = `${initial}\n${durableIssueWebhooks}`;
+const runRequestProvenance = read('migrations/control-plane/013_run_request_provenance.sql');
+const workflowRequestProvenance = read('migrations/control-plane/014_external_integration_workflow_provenance.sql');
+const schema = `${initial}\n${durableIssueWebhooks}\n${runRequestProvenance}\n${workflowRequestProvenance}`;
 assert(toolResultArtifacts.includes('CREATE TABLE IF NOT EXISTS run_tool_result_artifacts'));
 assert(toolResultArtifacts.includes('ON DELETE CASCADE'));
 assert(chatRuntimeSelection.includes('ON runs (session_id, requested_at DESC, id DESC)'));
@@ -70,6 +74,26 @@ for (const table of ['webhook_outbox_events', 'webhook_delivery_jobs']) {
     durableIssueWebhooks.includes(`CREATE TABLE IF NOT EXISTS ${table}`),
     `durable webhook migration must create ${table}`
   );
+}
+for (const needle of [
+  "request_actor_type TEXT NOT NULL DEFAULT 'user'",
+  'request_external_integration_link_id TEXT NULL',
+  'request_external_integration_client_id TEXT NULL',
+  'runs_request_actor_provenance_check',
+  'idx_runs_external_integration_origin'
+]) {
+  assert(runRequestProvenance.includes(needle), `run request provenance migration must preserve ${needle}`);
+}
+for (const needle of [
+  'workflow_snapshot JSONB',
+  'workflow_sessions_request_actor_provenance_check',
+  'workflow_executions_request_actor_provenance_check',
+  'idx_workflow_sessions_external_integration_origin',
+  'idx_workflow_executions_external_integration_origin',
+  'CREATE TABLE IF NOT EXISTS workflow_execution_events',
+  'workflow_execution_events_replay_idx'
+]) {
+  assert(workflowRequestProvenance.includes(needle), `workflow request provenance migration must preserve ${needle}`);
 }
 for (const table of [
   'agent_definitions',

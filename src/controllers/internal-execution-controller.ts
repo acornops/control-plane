@@ -1,13 +1,13 @@
 import { NextFunction, Request, Response } from 'express';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
-import { incrementAutomationTerminalOutcome } from '../metrics.js';
-import { incrementTargetInsightsRetrieval, incrementRunEventsIngested } from '../metrics.js';
+import { incrementAutomationTerminalOutcome, incrementTargetInsightsRetrieval, incrementRunEventsIngested } from '../metrics.js';
 import { publishRunEvents } from '../services/control-plane-coordination.js';
 import { TARGET_INSIGHTS_TOOL_ID, normalizeTargetInsightsConfig } from '../services/target-insights/config.js';
 import { emitRunStatusTransition } from '../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { advanceWorkflowExecution } from '../services/workflow-state-machine.js';
+import { recordWorkflowExecutionTransition, recordWorkflowRunEvents } from '../services/workflow-execution-events.js';
 import { repo } from '../store/repository.js';
 import {
   appendWorkflowRunEvents,
@@ -27,7 +27,6 @@ import {
   summarizeRunEventCounts
 } from './internal-execution-events.js';
 import { commitTargetAssistantFinalMessage } from './internal-target-run-commit.js';
-
 export { bootstrap } from './internal-execution-bootstrap.js';
 export { summarizeRunEventCounts } from './internal-execution-events.js';
 export { getAgentRunContext, getWorkflowSessionContext } from './internal-automation-context-controller.js';
@@ -195,6 +194,13 @@ export async function ingestRunEvents(req: Request, res: Response, next: NextFun
       }
       const accepted = await appendWorkflowRunEvents(currentRun.id, acceptedEvents);
       const buffered = runtime.appendRunEvents(currentRun.id, accepted);
+      await recordWorkflowRunEvents({
+        executionId: currentRun.executionId,
+        workspaceId: currentRun.workspaceId,
+        runId: currentRun.id,
+        stepIndex: currentRun.stepIndex,
+        events: buffered
+      });
       const bufferedEventCounts = summarizeRunEventCounts(buffered);
       for (const [eventType, count] of bufferedEventCounts.entries()) {
         incrementRunEventsIngested(eventType, count);
@@ -412,6 +418,7 @@ export async function commitRun(req: Request, res: Response, next: NextFunction)
         req.body.status,
         Array.isArray(req.body.output_artifacts) ? req.body.output_artifacts : []
       );
+      await recordWorkflowExecutionTransition(workflowRun, transition);
       incrementAutomationTerminalOutcome('workflow', req.body.status);
       res.status(200).json({ status: 'ok', executionStatus: transition.executionStatus, nextRunId: transition.nextRunId });
       return;

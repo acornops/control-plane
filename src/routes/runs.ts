@@ -13,7 +13,7 @@ runsRouter.get('/runs/:runId/tool-result-artifacts/:artifactId', requireActor(['
 runsRouter.get('/runs/:runId/approvals', requireActor(['user', 'externalIntegration']), authed(runsController.listRunApprovals));
 runsRouter.post(
   '/runs/:runId/approvals/:approvalId/decision',
-  requireActor(['user']),
+  requireActor(['user', 'externalIntegration']),
   validateBody(toolApprovalDecisionSchema),
   authed(runsController.decideRunApproval)
 );

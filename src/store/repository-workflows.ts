@@ -3,7 +3,8 @@ import type { QueryResultRow } from 'pg';
 import { db } from '../infra/db.js';
 import { resetWorkflowRunRepositoryForTests } from './repository-workflow-runs.js';
 export type { WorkflowApprovalRecord, WorkflowExecutionRecord, WorkflowMessageRecord, WorkflowRunRecord, WorkflowSessionRecord } from './repository-workflow-runs.js';
-export { appendWorkflowRunEvents, createWorkflowExecution, createWorkflowRun, createWorkflowSession, createWorkflowUserMessage, decideWorkflowRunApproval, getWorkflowRun, getWorkflowRunApproval, getWorkflowSession, listWorkflowApprovalsForWorkspace, listWorkflowMessages, listWorkflowRunApprovals, listWorkflowRunsForSession, listWorkflowSessions, updateWorkflowRun, upsertWorkflowAssistantFinalMessage } from './repository-workflow-runs.js';
+export { appendWorkflowRunEvents, createWorkflowExecution, createWorkflowRun, createWorkflowSession, createWorkflowUserMessage, decideWorkflowRunApproval, getWorkflowRun, getWorkflowRunApproval, getWorkflowSession, listWorkflowApprovalsForWorkspace, listWorkflowExecutionAttempts, listWorkflowMessages, listWorkflowRunApprovals, listWorkflowRunsForSession, listWorkflowSessions, updateWorkflowRun, upsertWorkflowAssistantFinalMessage } from './repository-workflow-runs.js';
+export { getWorkflowExecution, getWorkflowExecutionByClientRequestId } from './repository-workflow-execution-read.js';
 export { getWorkflowOptionsCatalog } from './repository-workflow-options.js';
 export { createWorkflowMcpServer, deleteWorkflowMcpServer, listWorkflowMcpServerTools, listWorkflowMcpServers, testWorkflowMcpServerConnection, updateWorkflowMcpServer } from './repository-workflow-mcp.js';
 import type {

@@ -37,6 +37,7 @@ import {
   parseBoundedLimit
 } from '../utils/pagination.js';
 import { mapGatewayError } from './workspaces/common.js';
+import { runAuditActor, runRequestProvenance } from './run-actor.js';
 import { acceptedMessageResponse, parseRequestedLlmSelection } from './session-llm-selection.js';
 
 function enqueueRunDispatch(run: Run): void {
@@ -451,7 +452,8 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       llmModel: llmSettings.model,
       llmReasoningSummaryMode: llmSettings.reasoning.summary_mode,
       llmReasoningEffort: llmSettings.reasoning.effort,
-      clientMessageId: req.body.clientMessageId
+      clientMessageId: req.body.clientMessageId,
+      requestProvenance: runRequestProvenance(req)
     });
     if (!created.idempotent) {
       webhooks.emit({
@@ -519,7 +521,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
         category: 'run',
         eventType: 'run.created.v1',
         operation: 'write',
-        actorUserId: req.auth.userId,
+        ...runAuditActor(req),
         objectType: 'run',
         objectId: created.run.id,
         summary: 'Troubleshooting run created',
@@ -527,7 +529,8 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
           sessionId: session.id,
           targetId: target.targetId,
           targetType: target.targetType,
-          toolAccessMode: created.run.toolAccessMode
+          toolAccessMode: created.run.toolAccessMode,
+          requestActorType: req.auth.credential.type
         }
       });
       enqueueRunDispatch(created.run);

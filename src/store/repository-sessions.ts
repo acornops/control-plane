@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { config } from '../config.js';
 import { db } from '../infra/db.js';
-import { ChatSession, Message, Run, RunEvent } from '../types/domain.js';
+import { ChatSession, Message, Run } from '../types/domain.js';
 import {
   CreateRunFromMessageResult,
   MessageRow,
@@ -10,12 +10,12 @@ import {
   SessionRow,
   mapMessage,
   mapRun,
-  mapRunEvent,
   mapSession
 } from './repository-mappers.js';
 import { withTransaction } from './repository-transaction.js';
 import { PagedResult, encodeCursor, pageWithCursor } from '../utils/pagination.js';
 import { createRunSkillSnapshotInTransaction } from './repository-run-skill-snapshots.js';
+import { RunRequestProvenance } from './repository-run-provenance.js';
 import { scheduleTargetInsightsCheckpointJobForSessionActivity } from './repository-target-insights-checkpoints.js';
 
 const runSelect = `
@@ -256,6 +256,7 @@ export async function createRunFromUserMessage(params: {
     llmReasoningSummaryMode: Run['llmReasoningSummaryMode'];
     llmReasoningEffort: Run['llmReasoningEffort'];
     clientMessageId?: string;
+    requestProvenance: RunRequestProvenance;
   }): Promise<CreateRunFromMessageResult> {
     return withTransaction(async (client) => {
       const findExistingByClientMessageId = async (): Promise<CreateRunFromMessageResult | null> => {
@@ -324,8 +325,13 @@ export async function createRunFromUserMessage(params: {
              id, workspace_id, target_id, session_id, message_id,
              llm_provider, llm_model, llm_reasoning_summary_mode, llm_reasoning_effort,
              tool_access_mode, status, requested_at, started_at, ended_at,
-             error_code, error_message, usage, assistant_message
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb)
+             error_code, error_message, usage, assistant_message,
+             request_actor_type, request_external_integration_link_id,
+             request_external_integration_client_id
+           ) VALUES (
+             $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,
+             $19,$20,$21
+           )
            RETURNING *
          )
          SELECT inserted.*, t.target_type
@@ -349,7 +355,10 @@ export async function createRunFromUserMessage(params: {
           null,
           null,
           JSON.stringify(null),
-          JSON.stringify(null)
+          JSON.stringify(null),
+          params.requestProvenance.actorType,
+          params.requestProvenance.externalIntegrationLinkId || null,
+          params.requestProvenance.externalIntegrationClientId || null
         ]
       );
 
@@ -377,6 +386,7 @@ export async function createRunFromUserMessage(params: {
       };
     });
   }
+
 export async function upsertAssistantFinalMessage(sessionId: string, runId: string, content: string): Promise<Message> {
     return withTransaction(async (client) => {
       const nowDate = new Date();
@@ -510,40 +520,4 @@ export async function updateRun(runId: string, patch: Partial<Run>): Promise<Run
       ]
     );
     return mapRun(result.rows[0]);
-  }
-export async function appendRunEvents(runId: string, events: RunEvent[]): Promise<RunEvent[]> {
-    if (!config.PERSIST_RUN_EVENTS) {
-      return events;
-    }
-    const accepted: RunEvent[] = [];
-    for (const event of events) {
-      const result = await db.query(
-        `INSERT INTO run_events (run_id, seq, ts, type, payload)
-         VALUES ($1, $2, $3, $4, $5::jsonb)
-         ON CONFLICT (run_id, seq) DO NOTHING
-         RETURNING *`,
-        [runId, event.seq, event.ts, event.type, JSON.stringify(event.payload || {})]
-      );
-      if (result.rowCount) {
-        accepted.push(mapRunEvent(result.rows[0]));
-      }
-    }
-    return accepted;
-  }
-export async function getRunEvents(runId: string): Promise<RunEvent[]> {
-    if (!config.PERSIST_RUN_EVENTS) {
-      return [];
-    }
-    const result = await db.query('SELECT * FROM run_events WHERE run_id = $1 ORDER BY seq ASC', [runId]);
-    return result.rows.map(mapRunEvent);
-  }
-export async function getLatestRunEventSeq(runId: string): Promise<number> {
-    if (!config.PERSIST_RUN_EVENTS) {
-      return 0;
-    }
-    const result = await db.query<{ latest_seq: number }>(
-      'SELECT COALESCE(MAX(seq), 0)::int AS latest_seq FROM run_events WHERE run_id = $1',
-      [runId]
-    );
-    return Number(result.rows[0]?.latest_seq || 0);
   }

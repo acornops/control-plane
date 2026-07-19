@@ -150,7 +150,8 @@ descriptor changes them with `allowedCapabilities`:
 - `create_read_only_runs`
 
 Deployments that want an integration to request write-capable troubleshooting
-runs may add `create_read_write_runs` to that client's `allowedCapabilities`.
+runs or active read-write/approval-gated Workflows may add
+`create_read_write_runs` to that client's `allowedCapabilities`.
 The linked AcornOps user must still explicitly grant that capability for each
 workspace, and the user's workspace role must also include it.
 
@@ -167,15 +168,17 @@ Practical examples:
   sessions and read-only runs when the workspace grant includes those
   capabilities.
 - A linked user whose workspace role includes `create_read_write_runs` can
-  request read-write assistant runs only when the integration client ceiling and
-  workspace grant also include `create_read_write_runs`.
+  request read-write assistant runs and eligible Workflows only when the
+  integration client ceiling and workspace grant also include
+  `create_read_write_runs`.
 - A linked `auditor` cannot read operational workspace or target data.
 
 Denied to the bot even for owners:
 
 - workspace/member/audit/settings management
 - logs
-- approval decisions
+- approval decisions for browser-created executions, other integration
+  links/clients, standalone Agents, schedules, and system triggers
 - run cancellation
 - session deletion
 - target registration, updates, deletion, and agent-key rotation
@@ -228,11 +231,11 @@ x-acornops-external-user-id: {externalUserId}
 ```
 
 These endpoints cover workspace and target reads, target-scoped assistant
-troubleshooting runs, and active read-only workflows that do not require
-approval gates. Read-write troubleshooting runs require explicit
+troubleshooting runs, and active Workflows. Read-write troubleshooting runs,
+read-write Workflows, and approval-gated Workflows require explicit
 `create_read_write_runs` opt-in in the registered client descriptor, the linked
 user's workspace grant, and the linked user's workspace role. External
-integrations cannot create, edit, schedule, cancel, or approve workflows.
+integrations cannot create, edit, schedule, cancel, or resume Workflows.
 
 ### Workspace Discovery
 
@@ -276,10 +279,9 @@ Workspace summary items include:
 For bot calls, `memberCount` and `quota.members.used` are redacted because the
 bot does not have `read_members`.
 
-### Workflow Launches
+### Workflow launches
 
-The bot can list active read-only workflows that the linked user and approved
-workspace grant can run:
+The bot can list active Workflows that its effective permissions allow:
 
 ```http
 GET {ACORNOPS_API_BASE_URL}/api/v1/workspaces/{workspaceId}/workflows
@@ -290,10 +292,11 @@ x-acornops-external-user-id: {externalUserId}
 External integrations only receive workflows that:
 
 - are `active`.
-- use `policy.mode: "read_only"`.
-- have no `policy.approvalRequirements` and no `steps[].approvalRequired`.
-- are permitted by the linked user role, registered client allowlist, and
-  user-approved workspace grant.
+- require `create_read_only_runs` for an ungated read-only Workflow.
+- require `create_read_write_runs` for a read-write Workflow or any Workflow
+  with `policy.approvalRequirements` or `steps[].approvalRequired`.
+- are permitted by the intersection of the linked user role, registered client
+  allowlist, and user-approved workspace grant.
 
 Create a workflow session before launching a run:
 
@@ -316,6 +319,13 @@ the run: take the unique union of `steps[].contextGrants` from the selected
 workflow definition. Missing grants return `WORKFLOW_CONTEXT_GRANT_DENIED`.
 Unknown extra grants return `WORKFLOW_CONTEXT_GRANT_UNKNOWN`.
 
+Persist the returned `session.id` as the adapter's external-thread mapping.
+Only the exact integration link and client that created the Workflow session
+may post external replies to it. The session pins the Workflow definition
+version. Each message recompiles execution access from that pinned definition
+and the caller's current effective permissions, and the current Workflow must
+remain active.
+
 Post the launch message to create the run:
 
 ```http
@@ -327,11 +337,17 @@ Content-Type: application/json
 
 ```json
 {
-  "workspaceId": "workspace-id",
   "content": "Triage the selected cluster. Start by showing the compiled read scope.",
-  "inputs": {}
+  "inputs": {},
+  "clientRequestId": "external-workflow-message-123"
 }
 ```
+
+`clientRequestId` is required for every external Workflow message. Reuse it
+only when retrying the same message. A reply after a completed execution uses a
+new `clientRequestId`, creates a new execution and run IDs in the same session,
+retains the session conversation history, and creates fresh approval records.
+Prior executions and decisions remain immutable.
 
 Response:
 
@@ -345,9 +361,71 @@ Response:
 }
 ```
 
-Use `run_id` with the generic run observation endpoints below. For final
-workflow output, fetch `GET /api/v1/runs/{runId}` after a terminal stream event
-and read `assistantMessage.content`.
+The resource hierarchy is:
+
+```text
+Workflow session
+└── execution per external message
+    └── step attempt / run
+        └── pre-step or runtime tool approval
+```
+
+Use `executionId` with the aggregate execution APIs. You may continue using
+`run_id` with the backward-compatible per-run APIs.
+
+Get sanitized execution state:
+
+```http
+GET {ACORNOPS_API_BASE_URL}/api/v1/workflow-executions/{executionId}
+```
+
+Any linked integration with effective `read_workspace_data` for the workspace
+may inspect this DTO, including executions created in the browser or by another
+integration. The response excludes input context, Workflow and Agent snapshots,
+compiled scopes, occurrence keys, continuation state, prompts, internal claims,
+and integration provenance identifiers.
+
+Prefer the aggregate replayable SSE stream for multi-step discovery:
+
+```http
+GET {ACORNOPS_API_BASE_URL}/api/v1/workflow-executions/{executionId}/stream
+Accept: text/event-stream
+Last-Event-ID: {lastExecutionEventId}
+```
+
+The stream uses `event: workflow_execution` and durable monotonic event IDs.
+You may also resume with `?after={lastExecutionEventId}`. It includes execution
+status changes, step/run creation, accepted public run events, approval
+references, safe output metadata, and terminal execution events. This avoids
+having to guess or poll each next-step run ID.
+
+Approval listings are workspace-readable. To decide a pre-step Workflow
+approval or a runtime `tool_write` approval, require an explicit confirmation
+from the linked user and call:
+
+```http
+POST {ACORNOPS_API_BASE_URL}/api/v1/runs/{runId}/approvals/{approvalId}/decision
+Content-Type: application/json
+
+{"decision":"approved"}
+```
+
+Only the exact integration link and client recorded on the execution may
+decide. Approval requires current effective `create_read_write_runs`. If write
+permission was removed, the exact origin may still reject while it retains
+workspace read access. Same-decision retries are idempotent; a conflicting
+decision returns `409`; expired approvals cannot be revived. Browser-created,
+other-link/client, standalone Agent, scheduled, and system-triggered approvals
+fail closed.
+
+Report metadata and downloads are also exact-origin:
+
+```http
+GET {ACORNOPS_API_BASE_URL}/api/v1/workflow-reports/{reportId}
+GET {ACORNOPS_API_BASE_URL}/api/v1/workflow-reports/{reportId}/download
+```
+
+The metadata response omits report source and provenance.
 
 ### Example Adapter Command Mapping
 
@@ -758,8 +836,9 @@ Rules:
   workspace grant, and linked user's workspace role all allow
   `create_read_write_runs`.
 - When `toolAccessMode: "read_write"` is accepted, write-capable tools still
-  pause on configured approval gates. The bot can observe approval state but
-  cannot decide approvals.
+  pause on configured approval gates. The same linked integration may decide
+  approvals created by that individual troubleshooting run after explicit
+  linked-user confirmation.
 - Use `clientMessageId` for idempotency when retrying the same chat message.
 - The linked AcornOps user must own the session. If another user created the
   session, AcornOps returns `403 CONVERSATION_OWNER_REQUIRED`.
@@ -816,8 +895,11 @@ data: {"run_id":"run-id","seq":1,"type":"run_started","payload":{}}
 When a write-capable tool pauses for approval, the stream emits
 `tool_approval_requested` with `payload.approval_id`, `payload.tool`,
 `payload.summary`, `payload.arguments`, and `payload.expires_at`. Adapters may
-render that state and direct the user to the management console to approve or
-reject as an authenticated AcornOps user. Later stream events use
+render that state and ask the linked external user to approve or reject in the
+integration. The same linked integration may submit that explicit decision only
+when it requested the individual troubleshooting run and still has effective
+`create_read_write_runs`. Adapters may instead direct the user to the management
+console. Later stream events use
 `tool_approval_approved`, `tool_approval_rejected`, or
 `tool_approval_expired`.
 
@@ -827,15 +909,30 @@ Use this console URL shape for the approval call-to-action:
 {MANAGEMENT_CONSOLE_BASE_URL}/workspaces/{workspaceId}/approvals?runId={runId}&approvalId={approvalId}
 ```
 
-List write-tool approvals for visibility only:
+List write-tool approvals:
 
 ```http
 GET {ACORNOPS_API_BASE_URL}/api/v1/runs/{runId}/approvals
 ```
 
-The bot may display approval state, but it must not attempt to decide approvals.
-The approval decision endpoint requires a browser user session and is not allowed
-for external integration credentials.
+Submit the linked external user's explicit decision:
+
+```http
+POST {ACORNOPS_API_BASE_URL}/api/v1/runs/{runId}/approvals/{approvalId}/decision
+Authorization: Bearer {EXTERNAL_INTEGRATION_CLIENT_TOKEN}
+x-acornops-external-user-id: {externalUserId}
+Content-Type: application/json
+
+{"decision":"approved"}
+```
+
+The integration must have effective `create_read_write_runs`, and the run must
+record the current external integration link and client as its request origin.
+The control plane returns `403 EXTERNAL_INTEGRATION_APPROVAL_NOT_OWNED` for a
+browser-created run or a run requested through another integration link. It
+resolves Workflow, Agent, and troubleshooting run types before routing the
+decision. The adapter must obtain an explicit linked-user confirmation and must
+not auto-approve from the presence of a webhook or run event.
 
 ### Example Run-Following Flow
 
@@ -866,10 +963,9 @@ list endpoints:
 5. Prefer `GET /api/v1/runs/{runId}/stream` for live progress. Treat
    `run_completed`, `run_failed`, and `run_cancelled` as terminal signals.
 6. If the stream emits `tool_approval_requested`, render the pending approval
-   and link the user to
+   and require an explicit confirmation from the linked external user. Submit
+   that decision through the run-scoped approval endpoint, or link the user to
    `{MANAGEMENT_CONSOLE_BASE_URL}/workspaces/{workspaceId}/approvals?runId={runId}&approvalId={approvalId}`.
-   The bot must not call the approval decision endpoint with external
-   integration credentials.
 7. If SSE is unavailable, poll `GET /api/v1/runs/{runId}` and optionally read
    `GET /api/v1/runs/{runId}/events` for progress.
 8. Once the run is terminal, call
@@ -929,12 +1025,12 @@ credentials:
 - pod log and VM log endpoints
 - MCP server, MCP tool, and target tool mutation endpoints
 - workflow definition mutation, workflow schedules, workflow-scoped MCP,
-  workspace approval inbox endpoints, workflow run cancellation, workflow
-  approval decisions, read-write workflows, paused/draft workflows, and
-  approval-gated workflows
+  workflow run cancellation/resume, and paused/draft workflows
 - `DELETE /api/v1/sessions/{sessionId}`
 - `POST /api/v1/runs/{runId}/cancel`
-- `POST /api/v1/runs/{runId}/approvals/{approvalId}/decision`
+- `POST /api/v1/runs/{runId}/approvals/{approvalId}/decision` for any
+  browser-created, other-link/client, standalone Agent, scheduled, or
+  system-triggered approval
 - all `/admin/v1/*` endpoints
 - all `/internal/v1/*` endpoints
 

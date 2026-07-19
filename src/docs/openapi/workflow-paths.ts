@@ -383,7 +383,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       post: {
         tags: ['workflows'],
         summary: 'Post a workflow session message and dispatch a run',
-        description: 'External integration callers can dispatch runs only for externally runnable read-only workflow sessions.',
+        description: 'External integration callers may append only to a Workflow session created by the exact same integration link and client. The current Workflow must remain active. Each message recompiles access against current effective permissions while retaining the session-pinned Workflow version, creates a new execution, and requires a new clientRequestId and fresh approvals.',
         security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
         parameters: [externalUserHeader, sessionIdParameter],
         requestBody: {
@@ -403,7 +403,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
                     description: 'Structured authorization bindings derived from prompt references. Incident reports bind mentioned chats as chatSessionIds.',
                     additionalProperties: true
                   },
-                  clientRequestId: { type: 'string', description: 'Optional idempotency key supplied by the client.' },
+                  clientRequestId: { type: 'string', description: 'Idempotency key supplied by the client. Required and unique per external integration message.' },
                   targetId: { type: 'string', description: 'Exact target identifier bound from the cluster reference in the control message.' },
                   targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] }
                 },
@@ -417,9 +417,92 @@ export function buildWorkflowPaths(): Record<string, unknown> {
     },
     '/api/v1/workflow-executions/{executionId}': {
       get: {
-        tags: ['workflows'], summary: 'Get workflow execution and step attempts', security: [{ userSession: [] }],
-        parameters: [{ in: 'path', name: 'executionId', required: true, schema: { type: 'string' } }],
-        responses: { '200': { description: 'Workflow execution with retained attempts.', content: { 'application/json': { schema: { type: 'object', properties: { execution: { type: 'object' }, attempts: { type: 'array', items: { type: 'object' } } } } } } } }
+        tags: ['workflows'],
+        summary: 'Get a sanitized workflow execution and step attempts',
+        description: 'Any browser user or linked external integration with effective read_workspace_data for the execution workspace may inspect this DTO, regardless of execution origin. Internal snapshots, input context, compiled scopes, continuation state, prompts, occurrence keys, internal claims, and integration provenance are excluded.',
+        security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+        parameters: [externalUserHeader, { in: 'path', name: 'executionId', required: true, schema: { type: 'string' } }],
+        responses: {
+          '200': {
+            description: 'Sanitized execution metadata and retained attempt summaries.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['execution', 'attempts'],
+                  properties: {
+                    execution: {
+                      type: 'object',
+                      required: ['id', 'workspaceId', 'workflowId', 'workflowVersion', 'workflowSessionId', 'status', 'currentStepIndex', 'triggerType', 'errorCode', 'startedAt', 'endedAt', 'createdAt', 'updatedAt'],
+                      properties: {
+                        id: { type: 'string' },
+                        workspaceId: { type: 'string' },
+                        workflowId: { type: 'string' },
+                        workflowVersion: { type: 'integer' },
+                        workflowSessionId: { type: 'string' },
+                        status: { type: 'string' },
+                        currentStepIndex: { type: 'integer' },
+                        triggerType: { type: 'string' },
+                        errorCode: { type: ['string', 'null'], maxLength: 128 },
+                        startedAt: { type: ['string', 'null'], format: 'date-time' },
+                        endedAt: { type: ['string', 'null'], format: 'date-time' },
+                        createdAt: { type: 'string', format: 'date-time' },
+                        updatedAt: { type: 'string', format: 'date-time' }
+                      },
+                      additionalProperties: false
+                    },
+                    attempts: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        required: ['id', 'executionId', 'stepIndex', 'attemptNumber', 'status', 'requestedAt'],
+                        properties: {
+                          id: { type: 'string' },
+                          executionId: { type: 'string' },
+                          workflowStepId: { type: ['string', 'null'] },
+                          stepIndex: { type: 'integer' },
+                          attemptNumber: { type: 'integer' },
+                          status: { type: 'string' },
+                          targetId: { type: ['string', 'null'] },
+                          targetType: { type: ['string', 'null'] },
+                          requestedAt: { type: 'string', format: 'date-time' },
+                          startedAt: { type: ['string', 'null'], format: 'date-time' },
+                          endedAt: { type: ['string', 'null'], format: 'date-time' },
+                          errorCode: { type: ['string', 'null'] }
+                        },
+                        additionalProperties: false
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          '403': { description: 'The caller lacks effective read_workspace_data for the execution workspace.' },
+          '404': { description: 'Workflow execution not found.' }
+        }
+      }
+    },
+    '/api/v1/workflow-executions/{executionId}/stream': {
+      get: {
+        tags: ['workflows'],
+        summary: 'Stream aggregate workflow execution events',
+        description: 'Workspace-readable replayable SSE stream across execution, step/run, accepted run event, approval reference, output metadata, and terminal state changes. Frames use event: workflow_execution and a durable monotonic id. Resume with Last-Event-ID or after; replay is deduplicated before live Redis-backed fanout.',
+        security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+        parameters: [
+          externalUserHeader,
+          { in: 'path', name: 'executionId', required: true, schema: { type: 'string' } },
+          { in: 'query', name: 'after', required: false, schema: { type: 'integer', minimum: 0 }, description: 'Durable execution event id after which replay begins. Overrides Last-Event-ID when supplied.' },
+          { in: 'header', name: 'Last-Event-ID', required: false, schema: { type: 'string' }, description: 'Last durable execution event id received by the client.' }
+        ],
+        responses: {
+          '200': {
+            description: 'SSE stream. Data envelopes contain id, schemaVersion, executionId, type, occurredAt, optional runId/runEventSeq/stepIndex/approvalId, and a redacted payload.',
+            content: { 'text/event-stream': { schema: { type: 'string' } } }
+          },
+          '403': { description: 'The caller lacks effective read_workspace_data for the execution workspace.' },
+          '404': { description: 'Workflow execution not found.' }
+        }
       }
     },
     '/api/v1/workflow-executions/{executionId}/cancel': {
@@ -438,16 +521,18 @@ export function buildWorkflowPaths(): Record<string, unknown> {
     },
     '/api/v1/workflow-reports/{reportId}': {
       get: {
-        tags: ['workflows'], summary: 'Get PDF report artifact metadata', security: [{ userSession: [] }],
-        parameters: [{ in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
-        responses: { '200': { description: 'Report metadata without report source or PDF bytes.', content: { 'application/json': { schema: { type: 'object', properties: { report: { type: 'object' } } } } } } }
+        tags: ['workflows'], summary: 'Get PDF report artifact metadata', security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+        description: 'External integrations may retrieve safe report metadata only when the report execution originated from the exact same active integration link and client.',
+        parameters: [externalUserHeader, { in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Safe report metadata without report source, provenance, or PDF bytes.', content: { 'application/json': { schema: { type: 'object', properties: { report: { type: 'object' } } } } } }, '404': { description: 'Report not found or not owned by the external integration origin.' } }
       }
     },
     '/api/v1/workflow-reports/{reportId}/download': {
       get: {
-        tags: ['workflows'], summary: 'Render and stream a PDF report', security: [{ userSession: [] }],
-        parameters: [{ in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
-        responses: { '200': { description: 'Freshly rendered PDF stream.', content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } } } }
+        tags: ['workflows'], summary: 'Render and stream a PDF report', security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+        description: 'External integrations may download only reports whose execution originated from the exact same active integration link and client.',
+        parameters: [externalUserHeader, { in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Freshly rendered PDF stream.', content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } } }, '404': { description: 'Report not found or not owned by the external integration origin.' } }
       }
     }
   };

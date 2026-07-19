@@ -12,6 +12,7 @@ import { AgentToolCallError, AgentUnavailableError } from '../agent/types.js';
 import { getAgentActivityRecord } from '../store/repository-agents.js';
 import { db } from '../infra/db.js';
 import { createWorkflowReport } from '../store/repository-workflow-reports.js';
+import { recordWorkflowExecutionEvent } from '../services/workflow-execution-events.js';
 
 const ACTIVE_TOOL_RUN_STATUSES = new Set(['dispatching', 'running', 'waiting_for_approval']);
 
@@ -164,6 +165,21 @@ async function executeWorkflowTool(run: WorkflowRunRecord, toolName: string, arg
         stepId: run.workflowStepId, agentId: run.agentId, agentVersion: run.agentVersion,
         chatSessionIds: execution.input_context?.chatSessionIds || [] },
       retentionDays: execution.workflow_snapshot?.policy?.retentionDays || 90
+    });
+    await recordWorkflowExecutionEvent({
+      executionId: run.executionId,
+      workspaceId: run.workspaceId,
+      type: 'output_created',
+      runId: run.id,
+      stepIndex: run.stepIndex,
+      dedupeKey: `output-created:${report.id}`,
+      payload: {
+        outputId: report.id,
+        outputType: 'pdf',
+        title: report.title,
+        mediaType: report.mediaType,
+        downloadPath: `/api/v1/workflow-reports/${report.id}/download`
+      }
     });
     return { artifact: { id: report.id, type: 'pdf', title: report.title,
       mediaType: report.mediaType, downloadPath: `/api/v1/workflow-reports/${report.id}/download` } };

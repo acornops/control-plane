@@ -9,7 +9,10 @@ function read(relativePath) {
 }
 
 const config = read('src/config.ts');
-const repository = read('src/store/repository-sessions.ts');
+const repository = [
+  read('src/store/repository-sessions.ts'),
+  read('src/store/repository-run-events.ts')
+].join('\n');
 const runsController = read('src/controllers/runs-controller.ts');
 const reliability = read('docs/RELIABILITY.md');
 

@@ -144,6 +144,11 @@ const targetNativeToolController = read(targetNativeToolControllerPath);
 const sessionController = read('src/controllers/sessions-controller.ts');
 const runToolAccessMode = read(runToolAccessModePath);
 const runController = read('src/controllers/runs-controller.ts');
+const troubleshootingApprovalDecision = read('src/controllers/troubleshooting-run-approval-decision.ts');
+const workflowExecutionAccess = read('src/controllers/workflow-execution-access.ts');
+const workflowController = read('src/controllers/workflows-controller.ts');
+const workflowReportsController = read('src/controllers/workflow-reports-controller.ts');
+const workflowRoutes = read('src/routes/workflows.ts');
 const runsRoutes = read('src/routes/runs.ts');
 const webhooksController = read(webhooksControllerPath);
 const workspaceScopedControllerPaths = [
@@ -292,8 +297,35 @@ assert(
 assert(runController.includes('cancel_runs'), 'run cancellation must be capability-gated');
 assert(runController.includes('create_read_write_runs'), 'approval decisions must be read-write capability-gated');
 assert(
-  runsRoutes.includes("'/runs/:runId/approvals/:approvalId/decision',\n  requireActor(['user'])"),
-  'approval decisions must remain browser-user-session only'
+  runsRoutes.includes("'/runs/:runId/approvals/:approvalId/decision',\n  requireActor(['user', 'externalIntegration'])"),
+  'approval decisions must accept browser users and linked external integrations'
+);
+assert(
+  troubleshootingApprovalDecision.includes('EXTERNAL_INTEGRATION_APPROVAL_NOT_OWNED')
+    && troubleshootingApprovalDecision.includes('getRunRequestProvenance')
+    && troubleshootingApprovalDecision.includes('provenance.externalIntegrationLinkId !== credential.linkId'),
+  'external integration approval decisions must be restricted to troubleshooting runs requested through the same link'
+);
+assert(
+  runController.includes('externalIntegrationOwnsWorkflowExecution')
+    && workflowExecutionAccess.includes('externalIntegrationLinkId === credential.linkId')
+    && workflowExecutionAccess.includes('externalIntegrationClientId === credential.integrationId'),
+  'external integration Workflow decisions must require exact execution-origin link and client provenance'
+);
+assert(
+  workflowController.includes('EXTERNAL_INTEGRATION_WORKFLOW_SESSION_NOT_OWNED')
+    && workflowController.includes('session.requestProvenance.externalIntegrationLinkId !== credential.linkId')
+    && workflowController.includes('session.requestProvenance.externalIntegrationClientId !== credential.integrationId'),
+  'external integration Workflow session continuation must require exact origin ownership'
+);
+assert(
+  workflowReportsController.includes('externalIntegrationOwnsWorkflowExecution'),
+  'external integration Workflow report access must require exact execution ownership'
+);
+assert(
+  workflowRoutes.includes("'/workflow-executions/:executionId/stream'")
+    && workflowRoutes.includes("requireActor(['user', 'externalIntegration'])"),
+  'Workflow execution inspection and streaming must accept workspace-authorized external integrations'
 );
 assert(clusterController.includes("'read_target_logs'"), 'pod log endpoint must be read_target_logs capability-gated');
 assert(webhooksController.includes("'manage_webhooks'"), 'webhook mutations must be manage_webhooks capability-gated');

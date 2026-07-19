@@ -133,10 +133,15 @@ descriptor, and deliver the raw token through the operator secret channel.
 If `allowedCapabilities` is omitted, the client ceiling is
 `read_workspace_data`, `create_sessions`, and `create_read_only_runs`. Add
 `create_read_write_runs` only for a client that may request write-capable
-troubleshooting runs, and keep the three default capabilities when read-only
-runs must continue to work. The linked user must separately approve the
-capability for each workspace, and the user's workspace role remains the final
-ceiling. External integration credentials cannot decide approvals.
+troubleshooting runs or active Workflows, including approval-gated read-only
+Workflows, and keep the three default capabilities when read-only runs must
+continue to work. The linked user must separately approve the capability for
+each workspace, and the user's workspace role remains the final ceiling. An
+external integration can decide troubleshooting and Workflow write approvals
+only for executions requested through the same active integration link and
+client. Adapters must require an explicit linked-user confirmation before
+calling the decision endpoint; browser-created, other-link/client, standalone
+Agent, scheduled, and system-triggered approvals remain denied.
 
 ## Admin API
 

@@ -5,6 +5,7 @@ import { isModelAllowedForProvider } from './llm-policy.js';
 import { compileWorkflowAccessScope, WorkflowAccessDeniedError } from './workflow-access.js';
 import { resolveWorkspaceLlmSettings } from './workspace-ai-resolution.js';
 import { recordWorkspaceAuditEvent } from './workspace-audit.js';
+import { recordWorkflowExecutionStarted } from './workflow-execution-events.js';
 import { getWorkflowCapabilityReadinessErrors } from './workflow-readiness.js';
 import { resolveWorkflowTarget } from './workflow-target-resolution.js';
 import { validateWorkflowInputs } from './workflow-input-validation.js';
@@ -129,7 +130,7 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
   }
   const session = await createWorkflowSession({ workflow, createdBy: runtimeSubject.userId, compiledAccessScope });
   const occurrenceKey = schedule.nextRunAt || now.toISOString();
-  const { run } = await createWorkflowExecution({
+  const { execution, run } = await createWorkflowExecution({
     workflow,
     session,
     content: `Scheduled workflow: ${schedule.name}`,
@@ -145,6 +146,7 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
     llmReasoningSummaryMode: aiSettings.reasoning.summary_mode,
     llmReasoningEffort: aiSettings.reasoning.effort
   });
+  await recordWorkflowExecutionStarted(execution, run);
   if (run.status === 'waiting_for_approval') {
     await recordWorkflowScheduleDispatch(schedule.id, 'dispatched', { now });
     incrementWorkflowSchedulerEvent('approval_wait');

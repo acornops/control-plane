@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import { incrementAutomationApproval } from '../metrics.js';
 import { recordApprovalActivity, recordRunStatusChangedActivity } from '../services/target-chat-activity-events.js';
 import { webhooks } from '../services/webhooks.js';
+import { recordWorkflowExecutionEvent } from '../services/workflow-execution-events.js';
 import { repo } from '../store/repository.js';
 import {
   createAutomationRunApproval,
@@ -30,7 +31,8 @@ async function resolveAutomationRun(runId: string) {
       targetType: workflowRun.targetType,
       requestedBy: workflowRun.createdBy,
       status: workflowRun.status,
-      toolOperations: workflowRun.compiledAccessScope.toolOperations
+      toolOperations: workflowRun.compiledAccessScope.toolOperations,
+      stepIndex: workflowRun.stepIndex
     };
   }
   const agentRun = await getAgentActivityRecord(runId);
@@ -43,7 +45,8 @@ async function resolveAutomationRun(runId: string) {
       targetType: agentRun.targetType,
       requestedBy: agentRun.compiledScope.actor.userId,
       status: agentRun.status,
-      toolOperations: agentRun.compiledScope.toolOperations
+      toolOperations: agentRun.compiledScope.toolOperations,
+      stepIndex: undefined
     };
   }
   return null;
@@ -82,6 +85,24 @@ export async function createToolApproval(req: Request, res: Response, next: Next
         expiresAt: new Date(Date.now() + config.AGENT_WRITE_CONFIRMATION_TIMEOUT_SECONDS * 1000).toISOString(),
         continuationState: req.body.continuation
       });
+      if (automationRun.sourceType === 'workflow') {
+        await recordWorkflowExecutionEvent({
+          executionId: automationRun.sourceId,
+          workspaceId: automationRun.workspaceId,
+          type: 'approval_requested',
+          runId,
+          stepIndex: automationRun.stepIndex,
+          approvalId: approval.id,
+          dedupeKey: `approval-requested:${approval.id}`,
+          payload: {
+            approvalKind: approval.approvalKind,
+            toolName: approval.toolName,
+            summary: approval.summary,
+            status: approval.status,
+            expiresAt: approval.expiresAt
+          }
+        });
+      }
       incrementAutomationApproval('tool_write', 'requested');
       res.status(201).json(approval);
       return;

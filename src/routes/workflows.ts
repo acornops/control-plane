@@ -30,8 +30,9 @@ workflowsRouter.delete('/workflow-schedules/:scheduleId', requireActor(['user'])
 workflowsRouter.get('/workflows/:workflowId/sessions', requireActor(['user']), authed(workflowsController.listSessions));
 workflowsRouter.post('/workflows/:workflowId/sessions', requireActor(['user', 'externalIntegration']), authed(workflowsController.createSession));
 workflowsRouter.post('/workflow-sessions/:sessionId/messages', requireActor(['user', 'externalIntegration']), authed(workflowsController.postMessage));
-workflowsRouter.get('/workflow-executions/:executionId', requireActor(['user']), authed(workflowExecutionsController.getWorkflowExecution));
+workflowsRouter.get('/workflow-executions/:executionId', requireActor(['user', 'externalIntegration']), authed(workflowExecutionsController.getWorkflowExecution));
+workflowsRouter.get('/workflow-executions/:executionId/stream', requireActor(['user', 'externalIntegration']), authed(workflowExecutionsController.streamWorkflowExecution));
 workflowsRouter.post('/workflow-executions/:executionId/cancel', requireActor(['user']), authed(workflowExecutionsController.cancelWorkflowExecution));
 workflowsRouter.post('/workflow-executions/:executionId/resume', requireActor(['user']), authed(workflowExecutionsController.resumeWorkflowExecutionController));
-workflowsRouter.get('/workflow-reports/:reportId', requireActor(['user']), authed(workflowReportsController.getWorkflowReportMetadata));
-workflowsRouter.get('/workflow-reports/:reportId/download', requireActor(['user']), authed(workflowReportsController.downloadWorkflowReport));
+workflowsRouter.get('/workflow-reports/:reportId', requireActor(['user', 'externalIntegration']), authed(workflowReportsController.getWorkflowReportMetadata));
+workflowsRouter.get('/workflow-reports/:reportId/download', requireActor(['user', 'externalIntegration']), authed(workflowReportsController.downloadWorkflowReport));

@@ -92,11 +92,16 @@ describe('controller authorization regressions', () => {
       updatedAt: '2026-05-24T00:00:00.000Z'
     });
     repo.getSession = async () => createSessionRecord();
-    repo.createRunFromUserMessage = async () => ({
-      message: createMessage(),
-      run: createRun({ toolAccessMode: 'read_write' }),
-      idempotent: true
-    });
+    let requestProvenance: { actorType: string; externalIntegrationLinkId?: string;
+      externalIntegrationClientId?: string } | undefined;
+    repo.createRunFromUserMessage = async (input) => {
+      requestProvenance = input.requestProvenance;
+      return {
+        message: createMessage(),
+        run: createRun({ toolAccessMode: 'read_write' }),
+        idempotent: true
+      };
+    };
     mock.method(globalThis, 'fetch', async (input) => {
       if (isWorkspaceAiCredentialStatusRequest(input)) {
         return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
@@ -114,6 +119,11 @@ describe('controller authorization regressions', () => {
 
     const allowed = await callController(postMessage, req);
     assert.equal(allowed.statusCode, 202);
+    assert.deepEqual(requestProvenance, {
+      actorType: 'external_integration',
+      externalIntegrationLinkId: 'link-1',
+      externalIntegrationClientId: 'external-chat'
+    });
   });
 
   it('does not fail completed session creation when nontransactional audit logging fails', async () => {

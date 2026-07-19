@@ -135,7 +135,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         post: {
           tags: ['sessions'],
           summary: 'Append user message and trigger run dispatch',
-          description: 'External integration callers may append messages only to sessions owned by the linked AcornOps user. They may trigger read-only runs by default, or read-write runs only when the registered client allowedCapabilities, user-approved workspace grant, and linked user workspace role all include create_read_write_runs. Approval decisions still require a browser user session.',
+          description: 'External integration callers may append messages only to sessions owned by the linked AcornOps user. They may trigger read-only runs by default, or read-write runs only when the registered client allowedCapabilities, user-approved workspace grant, and linked user workspace role all include create_read_write_runs. The exact originating integration link and client may decide approvals created by its own troubleshooting or Workflow execution after explicit linked-user confirmation.',
           security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
             externalUserHeader,
@@ -199,7 +199,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         get: {
           tags: ['runs'],
           summary: 'List write-tool approvals for a run',
-          description: 'Returns pending and decided write-tool approvals for visibility. External integration callers may read approval state but cannot decide approvals.',
+          description: 'Returns pending and decided write-tool approvals. Approval listing follows workspace-read visibility. An external integration may decide a troubleshooting approval or a Workflow pre-step/runtime tool_write approval only when the execution originated through the exact same link and client. Approval requires effective create_read_write_runs; the origin may reject with current workspace read access after write permission is removed.',
           security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
             externalUserHeader,
@@ -255,9 +255,10 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         post: {
           tags: ['runs'],
           summary: 'Approve or reject a pending write-tool approval',
-          description: 'Requires a real AcornOps user with create_read_write_runs for approval. Bots may relay this decision only when they can authenticate and attribute that user.',
-          security: [{ userSession: [] }],
+          description: 'A linked external integration may decide only a troubleshooting write approval or Workflow pre-step/runtime tool_write approval whose run execution was requested through that exact integration link and client. Approvals require effective create_read_write_runs. The exact origin may reject while retaining workspace read access if write permission was removed. Browser-created, other-link/client, standalone Agent, scheduled, and system-triggered approvals remain unavailable.',
+          security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
+            externalUserHeader,
             { in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } },
             { in: 'path', name: 'approvalId', required: true, schema: { type: 'string', format: 'uuid', example: '0f2e8f75-0d66-4f40-b3d0-f4c4661c43a1' } }
           ],
@@ -276,7 +277,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
           },
           responses: {
             '200': { description: 'Decision recorded. Repeated identical decisions are idempotent.' },
-            '403': { description: 'The authenticated user cannot approve write runs.' },
+            '403': { description: 'The actor lacks the permission needed for the decision, or an external integration is not the exact run/execution origin.' },
             '409': { description: 'The approval was already decided, expired before the decision was recorded, or received a conflicting decision.' }
           }
         }
