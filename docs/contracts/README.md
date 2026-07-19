@@ -40,7 +40,10 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - The Kubernetes built-in catalog contains `list_resources`, `get_resource`,
   `get_resource_logs`, `restart_workload`, `scale_workload`, and `patch_resource`.
 - Agent snapshots preserve `config.snapshotInterval`, `config.maxSnapshotBytes`, and `config.namespaceScope.{include,exclude}`.
-- Agent namespace updates use `config/update_namespace_scope`.
+- Agent namespace updates use `config/update_namespace_scope`. A connected
+  AgentK must acknowledge the update before the cluster settings response
+  completes; normalized Kubernetes resource reads also enforce the saved scope
+  while a fresh snapshot is being collected.
 - Built-in tool calls preserve the run-scoped model tool call ID as a stable,
   hashed agent JSON-RPC request ID for write idempotency.
 - Kubernetes agent handshakes use exactly `agentType: agentk`; the legacy `k8s_agent` value is not supported.
