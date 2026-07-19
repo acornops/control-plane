@@ -71,7 +71,7 @@ export async function createAgentRunActivity(input: {
         toolName: 'agent.pre_step',
         summary: `Approve Agent run: ${input.agent.name}`,
         requestedBy: input.triggeredBy.userId,
-        expiresAt: new Date(Date.now() + config.AGENT_WRITE_CONFIRMATION_TIMEOUT_SECONDS * 1000).toISOString()
+        expiresAt: new Date(Date.now() + config.ASSISTANT_WRITE_CONFIRMATION_TIMEOUT_SECONDS * 1000).toISOString()
       });
     }
     await client.query(

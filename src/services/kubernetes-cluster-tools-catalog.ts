@@ -12,7 +12,7 @@ export function getMcpCatalogEditableRoles(): string[] {
 }
 
 function isBuiltinServer(server: Pick<McpServerConfig, 'server_name' | 'server_url'>): boolean {
-  return server.server_name === config.BUILTIN_MCP_SERVER_NAME || server.server_url === config.BUILTIN_MCP_SERVER_URL;
+  return server.server_name === config.BUILTIN_TARGET_MCP_SERVER_NAME || server.server_url === config.BUILTIN_TARGET_MCP_SERVER_URL;
 }
 
 function normalizeCapability(value: unknown): 'read' | 'write' {
@@ -113,8 +113,8 @@ function createSyntheticServerForUnboundTool(tool: McpToolConfig, targetType: Ta
     workspace_id: '',
     target_id: '',
     target_type: targetType,
-    server_name: isBuiltin ? config.BUILTIN_MCP_SERVER_NAME : 'remote-mcp-server',
-    server_url: isBuiltin ? config.BUILTIN_MCP_SERVER_URL : tool.mcp_server_url || `tool://${tool.name}`,
+    server_name: isBuiltin ? config.BUILTIN_TARGET_MCP_SERVER_NAME : 'remote-mcp-server',
+    server_url: isBuiltin ? config.BUILTIN_TARGET_MCP_SERVER_URL : tool.mcp_server_url || `tool://${tool.name}`,
     enabled: true,
     auth_type: 'none',
     connection_status: 'unknown',
@@ -189,13 +189,13 @@ export function composeTargetToolsCatalog(params: {
 
   const hasBuiltinServer = [...serverByUrl.values()].some((server) => isBuiltinServer(server));
   if (!hasBuiltinServer) {
-    serverByUrl.set(config.BUILTIN_MCP_SERVER_URL, {
+    serverByUrl.set(config.BUILTIN_TARGET_MCP_SERVER_URL, {
       id: 'builtin-system-server',
       workspace_id: workspaceId,
       target_id: targetId,
       target_type: targetType,
-      server_name: config.BUILTIN_MCP_SERVER_NAME,
-      server_url: config.BUILTIN_MCP_SERVER_URL,
+      server_name: config.BUILTIN_TARGET_MCP_SERVER_NAME,
+      server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
       enabled: true,
       auth_type: 'none',
       connection_status: 'unknown',
@@ -240,7 +240,7 @@ export function composeTargetToolsCatalog(params: {
 
     servers.push({
       id: server.id,
-      name: isBuiltin ? config.BUILTIN_MCP_SERVER_DISPLAY_NAME : server.server_name,
+      name: isBuiltin ? config.BUILTIN_TARGET_MCP_SERVER_DISPLAY_NAME : server.server_name,
       url: server.server_url,
       type: isBuiltin ? 'builtin' : 'mcp',
       enabled: Boolean(server.enabled),

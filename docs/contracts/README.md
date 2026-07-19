@@ -68,7 +68,7 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Password signup creates the user account only; it does not create or attach a workspace.
 - Workspace membership, audit-log access, target mutation, MCP mutation, tool mutation, Target Insights mutation, and AI settings mutation are permission-gated at the control-plane boundary.
 - Execution-engine dispatch uses `Authorization: Bearer <EXECUTION_ENGINE_DISPATCH_TOKEN>`.
-- The built-in MCP bridge registers as `acornops-cluster-agent` at `http://control-plane:8081/internal/v1/mcp`.
+- The built-in MCP bridge registers as `acornops-target-agent` at `http://control-plane:8081/internal/v1/mcp`.
 - Built-in MCP tool calls use `Authorization: Bearer <run-scoped-jwt>` and derive scope from `run-scoped-jwt-claims`.
 - The built-in MCP bridge must classify calls as read or write before writing audit events.
 

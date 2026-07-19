@@ -161,7 +161,7 @@ describe('agents controller', () => {
         description: 'Coordinates release checks.',
         instructions: 'Prepare release notes and ask before write tools.',
         providerType: 'internal',
-        mcpServers: ['acornops-cluster-agent'],
+        mcpServers: ['acornops-target-agent'],
         tools: ['get_resource', 'list_resources'],
         skills: ['acornops-observability'],
         contextGrants: ['workspace_metadata'],

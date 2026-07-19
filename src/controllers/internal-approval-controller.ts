@@ -79,7 +79,7 @@ export async function createToolApproval(req: Request, res: Response, next: Next
         summary: req.body.summary || `Approve write tool: ${req.body.toolName}`,
         arguments: req.body.arguments || {},
         requestedBy: automationRun.requestedBy,
-        expiresAt: new Date(Date.now() + config.AGENT_WRITE_CONFIRMATION_TIMEOUT_SECONDS * 1000).toISOString(),
+        expiresAt: new Date(Date.now() + config.ASSISTANT_WRITE_CONFIRMATION_TIMEOUT_SECONDS * 1000).toISOString(),
         continuationState: req.body.continuation
       });
       incrementAutomationApproval('tool_write', 'requested');
@@ -96,7 +96,7 @@ export async function createToolApproval(req: Request, res: Response, next: Next
       return;
     }
     const session = await repo.getSession(run.sessionId, true);
-    const expiresAt = new Date(Date.now() + config.AGENT_WRITE_CONFIRMATION_TIMEOUT_SECONDS * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + config.ASSISTANT_WRITE_CONFIRMATION_TIMEOUT_SECONDS * 1000).toISOString();
     const approval = await repo.createRunToolApproval({
       runId: run.id,
       workspaceId: run.workspaceId,

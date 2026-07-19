@@ -535,7 +535,7 @@
       ],
       "internalTransportSecurity": "HTTP by default; HTTPS/mTLS when Helm internalTransport.tls.enabled=true; admin/run-scoped bearer tokens remain required",
       "builtinBridge": {
-        "serverName": "acornops-cluster-agent",
+        "serverName": "acornops-target-agent",
         "serverUrl": "http://control-plane:8081/internal/v1/mcp",
         "egressException": "Allowed internal HTTP only for configured builtin server registrations with source=builtin tools, auth type none, and no public headers",
         "authHeader": "Authorization: Bearer <run-scoped-jwt>",
@@ -607,18 +607,20 @@
       "toolCallRequestFields": ["name", "arguments"]
     },
     "agentv": {
-      "websocketPaths": ["/api/v1/agent/connect", "/agent/v1/connect"],
+      "contractVersion": 2,
+      "websocketPaths": ["/api/v1/agent/connect"],
       "agentHeaders": ["x-agent-key", "x-agent-version"],
       "handshakeRequestFields": [
         "agentKey",
-        "agentId",
         "agentVersion",
         "targetId",
         "targetType",
         "agentType",
         "supportedCapabilities",
-        "osFamily",
-        "serviceManager"
+        "hostFeatures.osFamily",
+        "hostFeatures.serviceManager",
+        "hostFeatures.helperReachable",
+        "hostFeatures.restartServices"
       ],
       "handshakeResponseFields": [
         "workspaceId",
@@ -630,27 +632,29 @@
         "config.maxSnapshotBytes"
       ],
       "snapshotFields": [
-        "targetId",
-        "targetType",
-        "capturedAt",
-        "host",
-        "resources.processes[]",
-        "resources.services[]",
-        "resources.ports[]",
+        "schema_version",
+        "host_summary",
+        "filesystems[]",
+        "degraded_services[]",
+        "top_processes[]",
+        "listeners[]",
         "findings[]",
-        "metrics"
+        "collector_health[]",
+        "truncation"
       ],
       "rpcMethods": ["tools/list", "tools/call"],
+      "toolDefinitionFields": ["inputSchema", "outputSchema", "artifactPolicy", "timeout_ms", "version", "deprecated"],
+      "toolResultSchemas": ["acornops.full-tool-result.v1", "acornops.model-context.v1"],
       "builtinToolNames": [
         "get_host_summary",
+        "list_filesystems",
         "list_processes",
         "get_process",
         "list_services",
-        "get_service_status",
-        "get_logs",
-        "search_logs",
-        "check_port",
-        "list_listening_ports"
+        "get_service",
+        "query_logs",
+        "list_listeners",
+        "restart_service"
       ]
     }
   }

@@ -89,7 +89,7 @@ describe('AgentV handshake', () => {
           targetType: 'virtual_machine',
           agentType: 'agentv',
           agentKey: 'agent-key-vm',
-          supportedCapabilities: ['read', 'write', 'logs']
+          supportedCapabilities: ['read', 'write', 'restart_service', 'logs']
         }
       })),
       'agent-key-vm',
@@ -108,9 +108,10 @@ describe('AgentV handshake', () => {
     assert.equal(response.result?.targetId, 'vm-1');
     assert.equal(response.result?.targetType, 'virtual_machine');
     assert.equal(response.result?.sessionPolicy?.writeEnabled, true);
-    assert(response.result?.sessionPolicy?.allowedTools?.includes('get_logs'));
+    assert(response.result?.sessionPolicy?.allowedTools?.includes('query_logs'));
+    assert(response.result?.sessionPolicy?.allowedTools?.includes('restart_service'));
     assert.equal(response.result?.config?.namespaceScope, undefined);
-    assert.deepEqual(registration.capabilities, ['read', 'write', 'logs']);
+    assert.deepEqual(registration.capabilities, ['read', 'write', 'restart_service', 'logs']);
     assert.equal(seenUpdates.length >= 2, true);
     assert.equal(store.has(agentOwnerKey('vm-1')), true);
   });

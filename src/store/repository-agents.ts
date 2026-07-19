@@ -158,7 +158,7 @@ export function defaultAgentDefinitions(workspaceId: string): AgentDefinition[] 
       createdBy: 'system',
       createdAt: now,
       updatedAt: now,
-      mcpServers: ['acornops-cluster-agent'],
+      mcpServers: ['acornops-target-agent'],
       tools: ['get_resource', 'get_resource_logs', 'list_resources'],
       skills: ['acornops-observability', 'acornops-target-boundary-design'],
       contextGrants: ['target_inventory', 'workspace_metadata'],
@@ -167,7 +167,7 @@ export function defaultAgentDefinitions(workspaceId: string): AgentDefinition[] 
       trustPolicy: { level: 'restricted', allowExternalData: false },
       triggers: [],
       activity: { runCount: 0 },
-      readiness: { status: 'needs_setup', reasons: ['Select an online Kubernetes target with the built-in AcornOps Kubernetes Tools server.'] }
+      readiness: { status: 'needs_setup', reasons: ['Select an online Kubernetes target with the built-in AcornOps Target Tools server.'] }
     },
     {
       id: 'agent-release-coordinator',
@@ -262,7 +262,7 @@ async function mapAgent(row: AgentRow): Promise<AgentDefinition> {
     );
     agent.readiness = Number(targets.rows[0]?.count || 0) > 0
       ? { status: 'ready', reasons: [] }
-      : { status: 'needs_setup', reasons: ['Select an online Kubernetes target with the built-in AcornOps Kubernetes Tools server.'] };
+      : { status: 'needs_setup', reasons: ['Select an online Kubernetes target with the built-in AcornOps Target Tools server.'] };
   }
   if (agent.id === 'agent-release-coordinator') {
     const required = new Map<string, 'read' | 'write'>([

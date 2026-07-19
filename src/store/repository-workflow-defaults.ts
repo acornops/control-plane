@@ -14,7 +14,7 @@ export function defaultWorkflowDefinitions(workspaceId: string): WorkflowDefinit
       category: 'cluster-triage',
       orchestratorAgentId: 'agent-workflow-orchestrator',
       tags: ['cluster', 'triage', 'incident'],
-      enabledMcpServers: ['acornops-cluster-agent'],
+      enabledMcpServers: ['acornops-target-agent'],
       enabledSkills: ['acornops-observability', 'acornops-target-boundary-design'],
       inputs: [{
         name: 'targetId',
@@ -38,7 +38,7 @@ export function defaultWorkflowDefinitions(workspaceId: string): WorkflowDefinit
           agentIds: ['agent-cluster-triage'],
           targetBinding: { type: 'selected_target', targetType: 'kubernetes', inputName: 'targetId' },
           enabledSkills: ['acornops-observability', 'acornops-target-boundary-design'],
-          allowedMcpServers: ['acornops-cluster-agent'],
+          allowedMcpServers: ['acornops-target-agent'],
           allowedTools: ['get_resource', 'get_resource_logs', 'list_resources'],
           contextGrants: ['workspace_metadata', 'target_inventory'],
           approvalRequired: false

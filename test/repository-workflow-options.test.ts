@@ -18,7 +18,7 @@ function result<T>(rows: T[]) {
 describe('workflow option catalog repository', () => {
   it('loads built-in tools plus explicitly user-configured workspace MCP tools', async () => {
     configureWorkflowBuiltInMcpCatalogForTests(async () => ({
-      server: { id: 'acornops-cluster-agent', name: 'AcornOps Kubernetes Tools', enabled: true, targetIds: ['cluster-1'] },
+      server: { id: 'acornops-target-agent', name: 'AcornOps Target Tools', enabled: true, targetIds: ['cluster-1'] },
       tools: [{
         name: 'list_resources', description: 'List Kubernetes resources', capability: 'read',
         inputSchema: { type: 'object' }, enabled: true, targetIds: ['cluster-1']
@@ -64,10 +64,10 @@ describe('workflow option catalog repository', () => {
     assert.deepEqual(catalog.clusters[0].provenance, {
       source: 'target', targetId: 'cluster-1', targetName: 'Production'
     });
-    assert.equal(catalog.mcpServers[0].value, 'acornops-cluster-agent');
+    assert.equal(catalog.mcpServers[0].value, 'acornops-target-agent');
     assert.equal(catalog.mcpServers[0].disabled, false);
     assert.equal(catalog.mcpServers[0].provenance?.source, 'target');
-    assert.deepEqual(catalog.mcpServers.map((server) => server.value), ['acornops-cluster-agent', 'generic-mcp']);
+    assert.deepEqual(catalog.mcpServers.map((server) => server.value), ['acornops-target-agent', 'generic-mcp']);
     assert.deepEqual(catalog.mcpTools.map((tool) => tool.value), [
       'list_resources', 'chat.sessions.read_selected', 'reports.pdf.generate', 'records.list'
     ]);

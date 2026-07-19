@@ -126,9 +126,9 @@ async function resolveGatewayTargetToolsForRun(
 
 async function resolveWriteConfirmationRequired(targetType: TargetType, targetId: string): Promise<boolean> {
   if (targetType === KUBERNETES_TARGET_TYPE) {
-    return (await repo.getCluster(targetId))?.writeConfirmationPolicy.effectiveRequired ?? config.AGENT_WRITE_CONFIRMATION_REQUIRED;
+    return (await repo.getCluster(targetId))?.writeConfirmationPolicy.effectiveRequired ?? config.ASSISTANT_WRITE_CONFIRMATION_REQUIRED;
   }
-  return config.AGENT_WRITE_CONFIRMATION_REQUIRED;
+  return config.ASSISTANT_WRITE_CONFIRMATION_REQUIRED;
 }
 
 function nativeToolDescription(toolId: string): string {
@@ -175,7 +175,7 @@ export async function resolveTargetRunTools(params: {
     ]);
     const enabledTools = tools
       .filter((tool) => !params.builtInOnly || (
-        tool.source === 'builtin' && tool.mcp_server_url === config.BUILTIN_MCP_SERVER_URL
+        tool.source === 'builtin' && tool.mcp_server_url === config.BUILTIN_TARGET_MCP_SERVER_URL
       ))
       .filter((tool) => {
         if (!isReservedInternalToolName(tool.name)) return true;
@@ -320,6 +320,6 @@ export async function resolveTargetRunTools(params: {
     confirmationRequiredForWrite: runAllowsWrite
       ? await resolveWriteConfirmationRequired(targetType, targetId)
       : false,
-    approvalTimeoutSeconds: config.AGENT_WRITE_CONFIRMATION_TIMEOUT_SECONDS
+    approvalTimeoutSeconds: config.ASSISTANT_WRITE_CONFIRMATION_TIMEOUT_SECONDS
   };
 }

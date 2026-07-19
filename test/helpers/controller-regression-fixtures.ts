@@ -80,7 +80,7 @@ const canonicalWorkflowMcpServers: Array<Omit<WorkflowMcpServerRecord, 'workspac
     { name: 'github.prs.create', title: 'Create pull requests', capability: 'write', enabled: true }
   ]
 }, {
-  id: 'acornops-cluster-agent', scope: 'workspace', name: 'Cluster agent', url: 'builtin://cluster-agent', enabled: true,
+  id: 'acornops-target-agent', scope: 'workspace', name: 'Cluster agent', url: 'builtin://cluster-agent', enabled: true,
   authType: 'none', credentialConfigured: false, publicHeaders: {}, status: 'connected', createdBy: 'test',
   tools: [
     { name: 'get_resource', title: 'Get resource', capability: 'read', enabled: true },
@@ -250,8 +250,8 @@ export function installWorkspace(role: Role | null): void {
   });
   configureWorkflowBuiltInMcpCatalogForTests(async () => ({
     server: {
-      id: 'acornops-cluster-agent',
-      name: 'AcornOps Kubernetes Tools',
+      id: 'acornops-target-agent',
+      name: 'AcornOps Target Tools',
       enabled: true,
       targetIds: ['cluster-1']
     },
@@ -263,7 +263,7 @@ export function installWorkspace(role: Role | null): void {
   }));
   configureWorkflowOptionsCatalogLoaderForTests(async (workspaceId) => {
     const agents = defaultAgentDefinitions(workspaceId).filter((agent) => agent.kind === 'specialist_agent');
-    const servers = [...mcpServers.values()].filter((server) => server.id === 'acornops-cluster-agent');
+    const servers = [...mcpServers.values()].filter((server) => server.id === 'acornops-target-agent');
     return {
       clusters: [{ value: 'cluster-1', label: 'Test cluster', provenance: { source: 'target' as const, targetId: 'cluster-1', targetName: 'Test cluster' } }],
       mcpServers: servers.map((server) => ({ value: server.id, label: server.name, disabled: !server.enabled })),

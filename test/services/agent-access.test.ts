@@ -19,7 +19,7 @@ function createAgent(overrides: Partial<AgentDefinition> = {}): AgentDefinition 
     createdBy: 'owner-1',
     createdAt: '2026-06-27T00:00:00.000Z',
     updatedAt: '2026-06-27T00:00:00.000Z',
-    mcpServers: ['acornops-cluster-agent'],
+    mcpServers: ['acornops-target-agent'],
     tools: ['events.search', 'inventory.resources.list', 'logs.summarize'],
     skills: ['acornops-observability'],
     contextGrants: ['target_inventory', 'workspace_metadata'],
@@ -57,7 +57,7 @@ describe('agent access compiler', () => {
         userId: 'user-operator',
         role: 'operator'
       },
-      mcpServers: ['acornops-cluster-agent'],
+      mcpServers: ['acornops-target-agent'],
       tools: ['events.search', 'inventory.resources.list', 'logs.summarize'],
       toolOperations: {
         'events.search': 'read',

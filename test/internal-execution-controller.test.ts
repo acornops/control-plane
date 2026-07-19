@@ -114,7 +114,7 @@ const VM_BOOTSTRAP_TOOLS = [
     enabled: true
   },
   {
-    name: 'get_logs',
+    name: 'query_logs',
     mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
     timeout_ms: 10000,
     description: 'Read VM logs',
@@ -180,7 +180,7 @@ describe('internal execution bootstrap audit metadata', () => {
     const allowedTools = (response.body as { tools: { allowed_tools: string[] } }).tools.allowed_tools;
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(allowedTools, ['get_logs', 'restart_service']);
+    assert.deepEqual(allowedTools, ['query_logs', 'restart_service']);
   });
 
   it('reports read-only run mode when configured write tools are filtered from bootstrap', async () => {
@@ -203,7 +203,7 @@ describe('internal execution bootstrap audit metadata', () => {
     const tools = (response.body as { tools: { allowed_tools: string[]; write_unavailable_reason: string | null } }).tools;
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(tools.allowed_tools, ['get_logs']);
+    assert.deepEqual(tools.allowed_tools, ['query_logs']);
     assert.equal(tools.write_unavailable_reason, 'run_read_only');
   });
 
@@ -227,7 +227,7 @@ describe('internal execution bootstrap audit metadata', () => {
     const tools = (response.body as { tools: { allowed_tools: string[]; write_unavailable_reason: string | null } }).tools;
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(tools.allowed_tools, ['get_logs']);
+    assert.deepEqual(tools.allowed_tools, ['query_logs']);
     assert.equal(tools.write_unavailable_reason, 'agent_write_disabled');
   });
 
@@ -305,7 +305,7 @@ describe('internal execution bootstrap audit metadata', () => {
           workspace_id: 'workspace-1',
           target_id: 'cluster-1',
           target_type: 'kubernetes',
-          server_name: 'acornops-cluster-agent',
+          server_name: 'acornops-target-agent',
           server_url: 'http://control-plane:8081/internal/v1/mcp',
           enabled: true,
           auth_type: 'none',

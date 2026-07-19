@@ -18,17 +18,13 @@ const ACTIVE_TOOL_RUN_STATUSES = new Set(['dispatching', 'running', 'waiting_for
 export function normalizeTargetAgentToolResult(result: unknown, targetType: string): Record<string, unknown> {
   const value = result && typeof result === 'object' ? result as Record<string, unknown> : null;
   const hasMcpContent = isMcpToolResultEnvelope(value);
-  const hasStructuredContent = value && value.structuredContent && typeof value.structuredContent === 'object';
-  if (targetType === KUBERNETES_TARGET_TYPE) {
-    if (!hasMcpContent || !hasStructuredContent) throw new Error('AgentK returned an invalid MCP tool result');
-    return value!;
-  }
-  if (hasMcpContent) return value!;
-  return {
-    content: [{ type: 'text', text: JSON.stringify(result ?? null) }],
-    structuredContent: { schemaVersion: 'acornops.full-tool-result.v1', data: result },
-    isError: false,
-  };
+  const structured = value?.structuredContent && typeof value.structuredContent === 'object'
+    ? value.structuredContent as Record<string, unknown>
+    : null;
+  const hasStructuredContent = structured?.schemaVersion === 'acornops.full-tool-result.v1'
+    && Object.prototype.hasOwnProperty.call(structured, 'data');
+  if (!hasMcpContent || !hasStructuredContent) throw new Error(`${targetType === KUBERNETES_TARGET_TYPE ? 'AgentK' : 'AgentV'} returned an invalid MCP tool result`);
+  return value!;
 }
 
 export function stableAgentRequestId(runId: string, toolCallId: unknown): string | undefined {

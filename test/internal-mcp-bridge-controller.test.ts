@@ -97,13 +97,9 @@ describe('internal MCP bridge audit classification', () => {
     });
   });
 
-  it('keeps AgentK strict while wrapping AgentV raw results for structural fallback', () => {
+  it('requires the standard MCP envelope from both AgentK and AgentV', () => {
     const rawVmResult = { services: [{ name: 'nginx', status: 'running' }] };
-    assert.deepEqual(normalizeTargetAgentToolResult(rawVmResult, 'virtual_machine'), {
-      content: [{ type: 'text', text: JSON.stringify(rawVmResult) }],
-      structuredContent: { schemaVersion: 'acornops.full-tool-result.v1', data: rawVmResult },
-      isError: false,
-    });
+    assert.throws(() => normalizeTargetAgentToolResult(rawVmResult, 'virtual_machine'), /AgentV returned an invalid MCP tool result/);
     assert.throws(
       () => normalizeTargetAgentToolResult({ items: [] }, 'kubernetes'),
       /AgentK returned an invalid MCP tool result/
@@ -114,13 +110,7 @@ describe('internal MCP bridge audit classification', () => {
       isError: false,
     };
     assert.equal(normalizeTargetAgentToolResult(agentk, 'kubernetes'), agentk);
-
-    const rawVmContent = { content: [{ name: 'journal', value: 'warning' }], status: 'degraded' };
-    assert.deepEqual(normalizeTargetAgentToolResult(rawVmContent, 'virtual_machine'), {
-      content: [{ type: 'text', text: JSON.stringify(rawVmContent) }],
-      structuredContent: { schemaVersion: 'acornops.full-tool-result.v1', data: rawVmContent },
-      isError: false,
-    });
+    assert.equal(normalizeTargetAgentToolResult(agentk, 'virtual_machine'), agentk);
   });
 
   it('routes target-scoped workflow tools through the built-in AgentK bridge', async () => {

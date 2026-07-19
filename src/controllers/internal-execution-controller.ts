@@ -136,7 +136,7 @@ export async function getSessionContext(req: Request, res: Response, next: NextF
       messages: [
         {
           role: 'system',
-          content: config.AGENT_SYSTEM_INSTRUCTION
+          content: config.ASSISTANT_SYSTEM_INSTRUCTION
         },
         ...(insightSnippets.length > 0 ? [{
           role: 'system',

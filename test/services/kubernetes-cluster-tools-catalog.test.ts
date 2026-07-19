@@ -12,7 +12,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
     const tools: McpToolConfig[] = [
       {
         name: 'describe_pod',
-        mcp_server_url: config.BUILTIN_MCP_SERVER_URL,
+        mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
         timeout_ms: 5000,
         description: 'Describe a pod',
         capability: 'write',
@@ -38,8 +38,8 @@ describe('composeKubernetesClusterToolsCatalog', () => {
     assert.equal(catalog.servers.length, 1);
     assert.deepEqual(catalog.servers[0], {
       id: 'builtin-describe_pod',
-      name: config.BUILTIN_MCP_SERVER_DISPLAY_NAME,
-      url: config.BUILTIN_MCP_SERVER_URL,
+      name: config.BUILTIN_TARGET_MCP_SERVER_DISPLAY_NAME,
+      url: config.BUILTIN_TARGET_MCP_SERVER_URL,
       type: 'builtin',
       enabled: true,
       isSystem: true,
@@ -81,7 +81,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       tools: [
         {
           name: 'list_pods',
-          mcp_server_url: config.BUILTIN_MCP_SERVER_URL,
+          mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
           timeout_ms: 5000,
           description: 'List pods',
           capability: 'read',
@@ -96,8 +96,8 @@ describe('composeKubernetesClusterToolsCatalog', () => {
           workspace_id: 'ws-1',
           target_id: 'cluster-1',
           target_type: 'kubernetes',
-          server_name: config.BUILTIN_MCP_SERVER_NAME,
-          server_url: config.BUILTIN_MCP_SERVER_URL,
+          server_name: config.BUILTIN_TARGET_MCP_SERVER_NAME,
+          server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
           enabled: true,
           auth_type: 'none',
           connection_status: 'error',
@@ -182,7 +182,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
     assert.deepEqual(
       catalog.servers.map((server) => ({ name: server.name, type: server.type })),
       [
-        { name: config.BUILTIN_MCP_SERVER_DISPLAY_NAME, type: 'builtin' },
+        { name: config.BUILTIN_TARGET_MCP_SERVER_DISPLAY_NAME, type: 'builtin' },
         { name: 'Alpha Server', type: 'mcp' },
         { name: 'Zeta Server', type: 'mcp' }
       ]
@@ -274,7 +274,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       tools: [
         {
           name: 'restart_service',
-          mcp_server_url: config.BUILTIN_MCP_SERVER_URL,
+          mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
           timeout_ms: 10000,
           description: 'Restart a service',
           capability: 'write',
@@ -311,7 +311,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       tools: [
         {
           name: 'restart_workload',
-          mcp_server_url: config.BUILTIN_MCP_SERVER_URL,
+          mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
           timeout_ms: 10000,
           description: 'Restart a workload',
           capability: 'write',
@@ -321,7 +321,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
         },
         {
           name: 'list_resources',
-          mcp_server_url: config.BUILTIN_MCP_SERVER_URL,
+          mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
           timeout_ms: 10000,
           description: 'List resources',
           capability: 'read',
@@ -374,7 +374,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       targetAgentConnected: false,
       tools: [{
         name: 'get_resource',
-        mcp_server_url: config.BUILTIN_MCP_SERVER_URL,
+        mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
         timeout_ms: 12000,
         description: 'Get a resource',
         capability: 'read',

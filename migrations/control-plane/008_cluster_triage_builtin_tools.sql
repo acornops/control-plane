@@ -14,11 +14,11 @@ BEGIN
     'Collects live Kubernetes inventory, resource details, and logs through the built-in AgentK tool server.',
     'Use only the selected target and the read-only built-in AgentK tools. Cite observed evidence.',
     'active', 'system', 'specialist_agent', 'internal', 2, owner_id, 'system',
-    '["acornops-cluster-agent"]', '["get_resource","get_resource_logs","list_resources"]',
+    '["acornops-target-agent"]', '["get_resource","get_resource_logs","list_resources"]',
     '["acornops-observability","acornops-target-boundary-design"]', '["target_inventory","workspace_metadata"]',
     '{"type":"selected_target","targetTypes":["kubernetes"]}',
     '{"mode":"none","writeToolsRequireApproval":true}', '{"level":"restricted","allowExternalData":false}',
-    2, 'needs_setup', '["Select an online Kubernetes target with the built-in AcornOps Kubernetes Tools server."]'
+    2, 'needs_setup', '["Select an online Kubernetes target with the built-in AcornOps Target Tools server."]'
   )
   ON CONFLICT (workspace_id, id) DO UPDATE SET
     name = EXCLUDED.name,
@@ -49,13 +49,13 @@ BEGIN
     'Inspect a selected online Kubernetes target using the built-in AcornOps Kubernetes tools.',
     'active', 'cluster-triage', 'agent-workflow-orchestrator', '["cluster","triage","incident"]',
     '[{"name":"targetId","label":"Kubernetes cluster","type":"cluster","required":true,"optionSource":"clusters"}]',
-    '["acornops-cluster-agent"]', '["acornops-observability","acornops-target-boundary-design"]',
+    '["acornops-target-agent"]', '["acornops-observability","acornops-target-boundary-design"]',
     '["read_workspace_data","create_read_only_runs"]',
     '{"mode":"read_only","maxRuntimeSeconds":900,"retentionDays":90,"approvalRequirements":[]}',
-    '[{"id":"collect-cluster-signals","title":"Collect cluster signals","requiredInputs":["targetId"],"agentIds":["agent-cluster-triage"],"targetBinding":{"type":"selected_target","targetType":"kubernetes","inputName":"targetId"},"enabledSkills":["acornops-observability","acornops-target-boundary-design"],"allowedMcpServers":["acornops-cluster-agent"],"allowedTools":["get_resource","get_resource_logs","list_resources"],"contextGrants":["workspace_metadata","target_inventory"],"approvalRequired":false}]',
+    '[{"id":"collect-cluster-signals","title":"Collect cluster signals","requiredInputs":["targetId"],"agentIds":["agent-cluster-triage"],"targetBinding":{"type":"selected_target","targetType":"kubernetes","inputName":"targetId"},"enabledSkills":["acornops-observability","acornops-target-boundary-design"],"allowedMcpServers":["acornops-target-agent"],"allowedTools":["get_resource","get_resource_logs","list_resources"],"contextGrants":["workspace_metadata","target_inventory"],"approvalRequired":false}]',
     'Triage the selected Kubernetes cluster using live built-in inventory, resource, and log evidence.',
     'system', 2, 'needs_setup',
-    '["Select an online Kubernetes target with the built-in AcornOps Kubernetes Tools server."]'
+    '["Select an online Kubernetes target with the built-in AcornOps Target Tools server."]'
   )
   ON CONFLICT (workspace_id, id) DO UPDATE SET
     version = EXCLUDED.version,

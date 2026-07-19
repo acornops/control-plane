@@ -15,7 +15,7 @@ export async function getWorkflowCapabilityReadinessErrors(
   const serverOptions = new Map((options?.mcpServers || [targetCatalog && {
     value: targetCatalog.server.id,
     disabled: !targetCatalog.server.enabled,
-    disabledReason: 'The built-in AcornOps Kubernetes Tools server is unavailable on this target.'
+    disabledReason: 'The built-in AcornOps Target Tools server is unavailable on this target.'
   }].filter(Boolean)).map((option) => [option!.value, option!]));
   const toolOptions = new Map((options?.mcpTools || targetCatalog?.tools.map((tool) => ({
     value: tool.name,

@@ -72,7 +72,7 @@ template backfill are verified:
 AUTOMATION_RUNTIME_MODE=off
 AUTOMATION_CANARY_WORKSPACE_IDS=
 AUTOMATION_WORKER_INTERVAL_MS=1000
-AGENT_WRITE_CONFIRMATION_TIMEOUT_SECONDS=900
+ASSISTANT_WRITE_CONFIRMATION_TIMEOUT_SECONDS=900
 ```
 
 Use `off`, then `shadow`, then `canary` with an explicit workspace allow-list,
@@ -98,12 +98,12 @@ over 60 seconds, an approval remains pending past 15 minutes, or any run enters
 `needs_review`.
 
 Generated AgentK install commands use the latest chart release by default,
-including experimental releases. Set `AGENT_HELM_CHART_VERSION` when an
+including experimental releases. Set `AGENTK_HELM_CHART_VERSION` when an
 environment needs to pin an exact, tested chart version.
-`AGENT_HELM_VALUES_JSON` supplies platform-default downstream chart values,
+`AGENTK_HELM_VALUES_JSON` supplies platform-default downstream chart values,
 such as an internal image mirror, as a JSON object. Generated identity,
 connectivity, namespace-scope, and write-mode paths cannot be overridden.
-`AGENT_HELM_ADDITIONAL_CA_FILE_PATH` adds a `--set-file` argument for a public
+`AGENTK_HELM_ADDITIONAL_CA_FILE_PATH` adds a `--set-file` argument for a public
 PEM CA bundle; this path is resolved on the operator machine that executes the
 generated command.
 

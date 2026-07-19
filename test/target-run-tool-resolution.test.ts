@@ -29,7 +29,7 @@ const BASE_TOOLS: McpToolConfig[] = [
     enabled: true
   },
   {
-    name: 'get_logs',
+    name: 'query_logs',
     mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
     timeout_ms: 10000,
     description: 'Read logs',
@@ -97,7 +97,7 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedToolNames, ['get_logs']);
+    assert.deepEqual(result.allowedToolNames, ['query_logs']);
     assert.deepEqual(result.allowedNativeTools, [
       { id: 'web_search', config: { domainFilters: { allowedDomains: [], blockedDomains: [] } } }
     ]);
@@ -135,9 +135,9 @@ describe('target run tool resolution', () => {
       includeNativeTools: false
     });
 
-    assert.deepEqual(result.allowedToolNames, ['get_logs']);
+    assert.deepEqual(result.allowedToolNames, ['query_logs']);
     assert.deepEqual(result.allowedNativeTools, []);
-    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['get_logs']);
+    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['query_logs']);
   });
 
   it('includes default target tools when no explicit target setting exists', async () => {
@@ -204,10 +204,10 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedToolNames, ['get_logs', 'restart_service']);
+    assert.deepEqual(result.allowedToolNames, ['query_logs', 'restart_service']);
     assert.equal(result.writeUnavailableReason, null);
     assert.deepEqual(result.allowedToolOperations, {
-      get_logs: 'read',
+      query_logs: 'read',
       restart_service: 'write'
     });
     const writeSpec = result.allowedToolSpecs.find((tool) => tool.name === 'restart_service');
@@ -268,9 +268,9 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedToolNames, ['get_logs']);
-    assert.deepEqual(result.allowedToolSpecs.map((tool) => tool.name), ['get_logs']);
-    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['get_logs', 'target_insights', 'web_search']);
+    assert.deepEqual(result.allowedToolNames, ['query_logs']);
+    assert.deepEqual(result.allowedToolSpecs.map((tool) => tool.name), ['query_logs']);
+    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['query_logs', 'target_insights', 'web_search']);
   });
 
   it('filters write tools when the agent does not advertise write capability', async () => {
@@ -285,7 +285,7 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedToolNames, ['get_logs']);
+    assert.deepEqual(result.allowedToolNames, ['query_logs']);
     assert.equal(result.writeUnavailableReason, 'agent_write_disabled');
     assert.equal(result.summary.excludedWrite, 1);
   });
@@ -305,7 +305,7 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedToolNames, ['get_logs', 'restart_service']);
+    assert.deepEqual(result.allowedToolNames, ['query_logs', 'restart_service']);
     assert.deepEqual(result.allowedNativeTools, []);
     assert.equal(result.summary.nativeAllowed, 0);
   });
@@ -319,7 +319,9 @@ describe('target run tool resolution', () => {
         name: 'synced_logs',
         description: 'Read synced logs',
         capability: 'read',
-        input_schema: { type: 'object' },
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+        artifactPolicy: 'if_detailed',
         timeout_ms: 10000,
         version: 'v1'
       }
@@ -416,7 +418,7 @@ describe('target assistant capabilities preview controller', () => {
     assert.equal(body.toolSummary.totalAllowed, 3);
     assert.equal(body.toolSummary.writeAllowed, 0);
     assert.equal(body.skillSummary.totalAvailable, 1);
-    assert.deepEqual(body.tools.map((item) => item.id), ['get_logs', 'target_insights', 'web_search']);
+    assert.deepEqual(body.tools.map((item) => item.id), ['query_logs', 'target_insights', 'web_search']);
     assert.equal(body.tools.some((item) => Object.prototype.hasOwnProperty.call(item, 'input_schema')), false);
     assert.deepEqual(body.skills, [
       {

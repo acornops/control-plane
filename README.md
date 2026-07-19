@@ -112,11 +112,11 @@ When enabled, execution-engine and llm-gateway are started in reload/watch mode 
 Default local run bootstrap is configured to `LLM_DEFAULT_PROVIDER=openai` and
 `LLM_DEFAULT_MODEL=gpt-5.5` (override via env if needed).
 Agentic tool-loop guardrails are configurable via env:
-`AGENT_SYSTEM_INSTRUCTION`, `AGENT_CONTEXT_MAX_TOKENS` (default `120000`),
-`AGENT_BUDGET_CENTS` (default `25`), `AGENT_LLM_TEMPERATURE` (default `0.2`),
-`AGENT_MAX_RUNTIME_MS` (default `600000`), `AGENT_MAX_STEPS` (default `16`),
-`AGENT_MAX_TOOL_CALLS` (default `24`), `AGENT_MAX_DUPLICATE_TOOL_CALLS` (default `2`),
-and `AGENT_TOOL_DEFAULT_TIMEOUT_MS` (default `10000`).
+`ASSISTANT_SYSTEM_INSTRUCTION`, `ASSISTANT_CONTEXT_MAX_TOKENS` (default `120000`),
+`ASSISTANT_BUDGET_CENTS` (default `25`), `ASSISTANT_LLM_TEMPERATURE` (default `0.2`),
+`ASSISTANT_MAX_RUNTIME_MS` (default `600000`), `ASSISTANT_MAX_STEPS` (default `16`),
+`ASSISTANT_MAX_TOOL_CALLS` (default `24`), `ASSISTANT_MAX_DUPLICATE_TOOL_CALLS` (default `2`),
+and `ASSISTANT_TOOL_DEFAULT_TIMEOUT_MS` (default `10000`).
 
 ## Start Local Control Plane (Standalone)
 

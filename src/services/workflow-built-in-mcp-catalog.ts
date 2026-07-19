@@ -39,12 +39,12 @@ export function configureWorkflowBuiltInMcpCatalogForTests(loader?: CatalogLoade
 }
 
 function isBuiltInServer(server: Pick<McpServerConfig, 'server_name' | 'server_url'>): boolean {
-  return server.server_name === config.BUILTIN_MCP_SERVER_NAME
-    || server.server_url === config.BUILTIN_MCP_SERVER_URL;
+  return server.server_name === config.BUILTIN_TARGET_MCP_SERVER_NAME
+    || server.server_url === config.BUILTIN_TARGET_MCP_SERVER_URL;
 }
 
 function isBuiltInTool(tool: McpToolConfig): boolean {
-  return tool.source === 'builtin' && tool.mcp_server_url === config.BUILTIN_MCP_SERVER_URL;
+  return tool.source === 'builtin' && tool.mcp_server_url === config.BUILTIN_TARGET_MCP_SERVER_URL;
 }
 
 export async function loadWorkflowBuiltInMcpCatalog(
@@ -96,8 +96,8 @@ export async function loadWorkflowBuiltInMcpCatalog(
 
   return {
     server: {
-      id: config.BUILTIN_MCP_SERVER_NAME,
-      name: config.BUILTIN_MCP_SERVER_DISPLAY_NAME,
+      id: config.BUILTIN_TARGET_MCP_SERVER_NAME,
+      name: config.BUILTIN_TARGET_MCP_SERVER_DISPLAY_NAME,
       enabled: serverTargetIds.length > 0,
       targetIds: serverTargetIds
     },

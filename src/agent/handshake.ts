@@ -192,20 +192,20 @@ export async function handleAgentHandshake(input: {
         ]
         : [
           'get_host_summary',
+          'list_filesystems',
           'list_processes',
           'get_process',
           'list_services',
-          'get_service_status',
-          'get_logs',
-          'search_logs',
-          'check_port',
-          'list_listening_ports'
+          'get_service',
+          'query_logs',
+          'list_listeners',
+          ...(supportedCapabilities.includes('restart_service') ? ['restart_service'] : [])
         ],
       writeEnabled: supportedCapabilities.includes('write')
     },
     config: {
       snapshotInterval: config.CONTROL_PLANE_AGENT_SNAPSHOT_INTERVAL_SECONDS,
-      maxSnapshotBytes: 5 * 1024 * 1024,
+      maxSnapshotBytes: targetType === VIRTUAL_MACHINE_TARGET_TYPE ? 1024 * 1024 : 5 * 1024 * 1024,
       namespaceScope: targetType === KUBERNETES_TARGET_TYPE && 'namespaceInclude' in target
         ? {
           include: target.namespaceInclude,

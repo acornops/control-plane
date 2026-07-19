@@ -23,7 +23,7 @@ export async function getWorkflowSessionContext(req: Request, res: Response, nex
       messages: [{
         role: 'system',
         content: [
-          config.AGENT_SYSTEM_INSTRUCTION,
+          config.ASSISTANT_SYSTEM_INSTRUCTION,
           'You are executing a workspace-scoped workflow. Use only the compiled workflow grants provided by control-plane.',
           workflowRun?.agentSnapshot?.instructions,
           workflowRun?.stepSnapshot?.instructions,
@@ -53,7 +53,7 @@ export async function getAgentRunContext(req: Request, res: Response, next: Next
     const prompt = typeof run.inputContext.prompt === 'string' ? run.inputContext.prompt : '';
     res.status(200).json({
       messages: [
-        { role: 'system', content: [config.AGENT_SYSTEM_INSTRUCTION, run.agentSnapshot?.instructions || '',
+        { role: 'system', content: [config.ASSISTANT_SYSTEM_INSTRUCTION, run.agentSnapshot?.instructions || '',
           `Agent scope: ${JSON.stringify({ agentId: run.agentId, agentVersion: run.agentVersion,
             tools: run.compiledScope.tools, contextGrants: run.compiledScope.contextGrants,
             targetId: run.targetId || null, targetType: run.targetType || null })}`].filter(Boolean).join('\n\n') },

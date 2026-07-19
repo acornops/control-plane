@@ -358,6 +358,7 @@ describe('target controller regressions', () => {
   it('audits VM log reads without persisting returned log entries', async () => {
     installWorkspace('operator');
     const audits: Array<{ metadata?: Record<string, unknown> }> = [];
+    let toolArguments: Record<string, unknown> | undefined;
     repo.insertWorkspaceAuditEvent = async (event) => {
       audits.push(event);
       return {
@@ -372,19 +373,25 @@ describe('target controller regressions', () => {
         occurredAt: '2026-05-24T00:00:00.000Z'
       };
     };
-    mock.method(agentGateway, 'callAgentTool', async () => ({
-      entries: [{ source: 'journald', message: 'secret=should-not-be-audited' }]
-    }));
+    mock.method(agentGateway, 'callAgentTool', async (_targetId, _toolName, args) => {
+      toolArguments = args;
+      return { entries: [{ source: 'journald', message: 'secret=should-not-be-audited' }] };
+    });
+
+    const request = createRequest({ workspaceId: 'workspace-1', vmId: 'target-1' });
+    request.query = { source: 'journald', unit: 'acornops-agentv.service' };
 
     const allowed = await callController(
       getVirtualMachineLogs,
-      createRequest({ workspaceId: 'workspace-1', vmId: 'target-1' })
+      request
     );
 
     assert.equal(allowed.statusCode, 200);
     assert.equal(audits.length, 1);
-    assert.equal(audits[0].metadata?.toolName, 'get_logs');
+    assert.equal(audits[0].metadata?.toolName, 'query_logs');
     assert.equal(JSON.stringify(audits[0].metadata).includes('should-not-be-audited'), false);
+    assert.equal(toolArguments?.unit, 'acornops-agentv.service');
+    assert.equal(Object.hasOwn(toolArguments || {}, 'source'), false);
   });
 
   it('creates tool approvals against the run target id without forcing a Kubernetes cluster alias', async () => {

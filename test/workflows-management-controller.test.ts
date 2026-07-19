@@ -134,7 +134,7 @@ describe('workflows management controller', () => {
     };
     assert.deepEqual(body.clusters.map((option) => option.value), ['cluster-1']);
     assert.equal(body.sourceAvailability.clusters.status, 'available');
-    assert.ok(body.mcpServers.some((option) => option.value === 'acornops-cluster-agent'));
+    assert.ok(body.mcpServers.some((option) => option.value === 'acornops-target-agent'));
     assert.ok(body.mcpTools.some((option) => option.value === 'get_resource'));
     assert.ok(body.mcpTools.some((option) => option.value === 'reports.pdf.generate'));
     assert.ok(body.skills.some((option) => option.value === 'acornops-observability'));

@@ -431,8 +431,8 @@ for (const builtinNeedle of [
 }
 
 for (const builtinConfigNeedle of [
-  'config.BUILTIN_MCP_SERVER_NAME',
-  'config.BUILTIN_MCP_SERVER_URL'
+  'config.BUILTIN_TARGET_MCP_SERVER_NAME',
+  'config.BUILTIN_TARGET_MCP_SERVER_URL'
 ]) {
   expectIncludes(toolSync, builtinConfigNeedle, 'Builtin MCP bridge implementation');
 }

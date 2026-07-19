@@ -29,17 +29,17 @@ function normalizeCapability(value: unknown): 'read' | 'write' {
   return value === 'read' ? 'read' : 'write';
 }
 
-function agentKResultContract(tool: {
+function targetAgentResultContract(tool: {
   name: string;
   outputSchema?: Record<string, unknown>;
   artifactPolicy?: 'never' | 'if_detailed' | 'always';
 }): { outputSchema: Record<string, unknown>; artifactPolicy: 'never' | 'if_detailed' | 'always' } {
   if (!tool.outputSchema || typeof tool.outputSchema !== 'object' || Array.isArray(tool.outputSchema)) {
-    throw new Error(`AgentK tool '${tool.name}' is missing a valid output schema`);
+    throw new Error(`Target agent tool '${tool.name}' is missing a valid output schema`);
   }
   const artifactPolicy = tool.artifactPolicy;
   if (artifactPolicy !== 'never' && artifactPolicy !== 'if_detailed' && artifactPolicy !== 'always') {
-    throw new Error(`AgentK tool '${tool.name}' has an invalid artifact policy`);
+    throw new Error(`Target agent tool '${tool.name}' has an invalid artifact policy`);
   }
   return {
     outputSchema: sanitizeToolInputSchema(tool.outputSchema),
@@ -65,17 +65,18 @@ export async function syncTargetBuiltInTools(
         return false;
       })
       .map((tool) => {
-        const resultContract = targetType === KUBERNETES_TARGET_TYPE
-          ? agentKResultContract(tool)
-          : { outputSchema: undefined, artifactPolicy: 'never' as const };
+        if (!tool.inputSchema || typeof tool.inputSchema !== 'object' || Array.isArray(tool.inputSchema)) {
+          throw new Error(`Target agent tool '${tool.name}' is missing a valid input schema`);
+        }
+        const resultContract = targetAgentResultContract(tool);
         return {
           name: tool.name,
-          timeoutMs: tool.timeout_ms || config.AGENT_TOOL_DEFAULT_TIMEOUT_MS,
+          timeoutMs: tool.timeout_ms || config.ASSISTANT_TOOL_DEFAULT_TIMEOUT_MS,
           description: tool.description,
           capability: normalizeCapability(tool.capability),
           version: typeof tool.version === 'string' && tool.version.length > 0 ? tool.version : 'v1',
           source: 'builtin' as const,
-          inputSchema: tool.inputSchema && typeof tool.inputSchema === 'object' ? tool.inputSchema : undefined,
+          inputSchema: sanitizeToolInputSchema(tool.inputSchema),
           outputSchema: resultContract.outputSchema,
           artifactPolicy: resultContract.artifactPolicy,
           enabled: true
@@ -84,7 +85,7 @@ export async function syncTargetBuiltInTools(
 
     const servers = await listTargetMcpServers(workspaceId, targetId, targetType);
     const existing = servers.find(
-      (server) => server.server_name === config.BUILTIN_MCP_SERVER_NAME || server.server_url === config.BUILTIN_MCP_SERVER_URL
+      (server) => server.server_name === config.BUILTIN_TARGET_MCP_SERVER_NAME || server.server_url === config.BUILTIN_TARGET_MCP_SERVER_URL
     );
 
     const existingTools = await listTargetMcpTools(workspaceId, targetId, targetType);
@@ -97,8 +98,8 @@ export async function syncTargetBuiltInTools(
         workspaceId,
         targetId,
         targetType,
-        name: config.BUILTIN_MCP_SERVER_NAME,
-        url: config.BUILTIN_MCP_SERVER_URL,
+        name: config.BUILTIN_TARGET_MCP_SERVER_NAME,
+        url: config.BUILTIN_TARGET_MCP_SERVER_URL,
         enabled: true,
         auth: { type: 'none' },
         tools: builtinTools
@@ -110,7 +111,7 @@ export async function syncTargetBuiltInTools(
         subject: { type: targetType === KUBERNETES_TARGET_TYPE ? 'cluster' : 'target', id: targetId },
         data: {
           reason: 'builtin_tool_sync',
-          serverName: config.BUILTIN_MCP_SERVER_NAME,
+          serverName: config.BUILTIN_TARGET_MCP_SERVER_NAME,
           addedTools: [...discoveredNames],
           removedTools: []
         }
@@ -144,7 +145,7 @@ export async function syncTargetBuiltInTools(
       targetId,
       targetType,
       serverId: existing.id,
-      name: config.BUILTIN_MCP_SERVER_NAME,
+      name: config.BUILTIN_TARGET_MCP_SERVER_NAME,
       enabled: existing.enabled,
       auth: { type: 'none' },
       tools: builtinTools,
@@ -160,7 +161,7 @@ export async function syncTargetBuiltInTools(
         data: {
           reason: 'builtin_tool_sync',
           serverId: existing.id,
-          serverName: config.BUILTIN_MCP_SERVER_NAME,
+          serverName: config.BUILTIN_TARGET_MCP_SERVER_NAME,
           addedTools,
           removedTools: removeTools
         }

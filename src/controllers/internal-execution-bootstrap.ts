@@ -59,17 +59,17 @@ async function bootstrapAgentRun(run: AgentActivityRecord, res: Response): Promi
       agent_id: run.agentId, agent_version: run.agentVersion, trigger_id: run.triggerId,
       target_id: run.targetId, target_type: run.targetType },
     agent: { id: run.agentId, version: run.agentVersion },
-    policy: { max_runtime_ms: config.AGENT_MAX_RUNTIME_MS, max_output_tokens: config.LLM_MAX_OUTPUT_TOKENS ?? null,
-      budget_cents: config.AGENT_BUDGET_CENTS, max_steps: config.AGENT_MAX_STEPS,
-      max_tool_calls: config.AGENT_MAX_TOOL_CALLS, max_duplicate_tool_calls: config.AGENT_MAX_DUPLICATE_TOOL_CALLS },
-    context: { endpoint: `/internal/v1/agent-runs/${run.id}/context`, max_context_tokens: config.AGENT_CONTEXT_MAX_TOKENS },
-    llm: { provider: llmSettings.provider, model: llmSettings.model, temperature: config.AGENT_LLM_TEMPERATURE,
+    policy: { max_runtime_ms: config.ASSISTANT_MAX_RUNTIME_MS, max_output_tokens: config.LLM_MAX_OUTPUT_TOKENS ?? null,
+      budget_cents: config.ASSISTANT_BUDGET_CENTS, max_steps: config.ASSISTANT_MAX_STEPS,
+      max_tool_calls: config.ASSISTANT_MAX_TOOL_CALLS, max_duplicate_tool_calls: config.ASSISTANT_MAX_DUPLICATE_TOOL_CALLS },
+    context: { endpoint: `/internal/v1/agent-runs/${run.id}/context`, max_context_tokens: config.ASSISTANT_CONTEXT_MAX_TOKENS },
+    llm: { provider: llmSettings.provider, model: llmSettings.model, temperature: config.ASSISTANT_LLM_TEMPERATURE,
       mode: 'gateway', reasoning: llmSettings.reasoning,
       gateway: { url: config.LLM_GATEWAY_URL, token, request_timeout_ms: config.LLM_GATEWAY_TIMEOUT_MS } },
     tools: { tool_registry_version: 'trv_1', allowed_tools: allowedTools, native_tools: allowedNativeTools,
       tool_specs: toolSpecs, write_unavailable_reason: null,
       confirmation_required_for_write: confirmationRequiredForWrite,
-      approval_timeout_seconds: config.AGENT_WRITE_CONFIRMATION_TIMEOUT_SECONDS,
+      approval_timeout_seconds: config.ASSISTANT_WRITE_CONFIRMATION_TIMEOUT_SECONDS,
       gateway: { url: config.LLM_GATEWAY_URL, token } },
     routing: { target_scoped: Boolean(run.targetId), workflow_scoped: false },
     tracing: { trace_id: randomUUID(), sample_rate: 0.1 }
@@ -213,21 +213,21 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
       ...(agentClaims.triggerId ? { trigger_id: agentClaims.triggerId } : {})
     },
     policy: {
-      max_runtime_ms: config.AGENT_MAX_RUNTIME_MS,
+      max_runtime_ms: config.ASSISTANT_MAX_RUNTIME_MS,
       max_output_tokens: maxOutputTokens ?? null,
-      budget_cents: config.AGENT_BUDGET_CENTS,
-      max_steps: config.AGENT_MAX_STEPS,
-      max_tool_calls: config.AGENT_MAX_TOOL_CALLS,
-      max_duplicate_tool_calls: config.AGENT_MAX_DUPLICATE_TOOL_CALLS
+      budget_cents: config.ASSISTANT_BUDGET_CENTS,
+      max_steps: config.ASSISTANT_MAX_STEPS,
+      max_tool_calls: config.ASSISTANT_MAX_TOOL_CALLS,
+      max_duplicate_tool_calls: config.ASSISTANT_MAX_DUPLICATE_TOOL_CALLS
     },
     context: {
       endpoint: `/internal/v1/workflow-sessions/${run.workflowSessionId}/context`,
-      max_context_tokens: config.AGENT_CONTEXT_MAX_TOKENS
+      max_context_tokens: config.ASSISTANT_CONTEXT_MAX_TOKENS
     },
     llm: {
       provider: llmSettings.provider,
       model: llmSettings.model,
-      temperature: config.AGENT_LLM_TEMPERATURE,
+      temperature: config.ASSISTANT_LLM_TEMPERATURE,
       mode: 'gateway',
       reasoning: llmSettings.reasoning,
       gateway: {
@@ -243,7 +243,7 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
       tool_specs: allowedToolSpecs,
       write_unavailable_reason: null,
       confirmation_required_for_write: Object.values(allowedToolOperations).includes('write'),
-      approval_timeout_seconds: config.AGENT_WRITE_CONFIRMATION_TIMEOUT_SECONDS,
+      approval_timeout_seconds: config.ASSISTANT_WRITE_CONFIRMATION_TIMEOUT_SECONDS,
       gateway: {
         url: config.LLM_GATEWAY_URL,
         token
@@ -347,21 +347,21 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
         user_id: session?.createdBy || randomUUID()
       },
       policy: {
-        max_runtime_ms: config.AGENT_MAX_RUNTIME_MS,
+        max_runtime_ms: config.ASSISTANT_MAX_RUNTIME_MS,
         max_output_tokens: maxOutputTokens ?? null,
-        budget_cents: config.AGENT_BUDGET_CENTS,
-        max_steps: config.AGENT_MAX_STEPS,
-        max_tool_calls: config.AGENT_MAX_TOOL_CALLS,
-        max_duplicate_tool_calls: config.AGENT_MAX_DUPLICATE_TOOL_CALLS
+        budget_cents: config.ASSISTANT_BUDGET_CENTS,
+        max_steps: config.ASSISTANT_MAX_STEPS,
+        max_tool_calls: config.ASSISTANT_MAX_TOOL_CALLS,
+        max_duplicate_tool_calls: config.ASSISTANT_MAX_DUPLICATE_TOOL_CALLS
       },
       context: {
         endpoint: `/internal/v1/sessions/${run.sessionId}/context`,
-        max_context_tokens: config.AGENT_CONTEXT_MAX_TOKENS
+        max_context_tokens: config.ASSISTANT_CONTEXT_MAX_TOKENS
       },
       llm: {
         provider: llmSettings.provider,
         model: llmSettings.model,
-        temperature: config.AGENT_LLM_TEMPERATURE,
+        temperature: config.ASSISTANT_LLM_TEMPERATURE,
         mode: 'gateway',
         reasoning: llmSettings.reasoning,
         gateway: {

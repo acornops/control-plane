@@ -108,7 +108,7 @@ async function main(): Promise<void> {
     } catch (err) {
       logger.warn({ err }, 'Approval timeout sweep failed');
     }
-  }, Math.max(5, Math.min(config.AGENT_WRITE_CONFIRMATION_TIMEOUT_SECONDS, 60)) * 1000);
+  }, Math.max(5, Math.min(config.ASSISTANT_WRITE_CONFIRMATION_TIMEOUT_SECONDS, 60)) * 1000);
   approvalTimeoutInterval.unref();
   const targetInsightsCheckpointInterval = setInterval(async () => {
     try {

@@ -72,10 +72,10 @@ export async function systemConfig(req: AdminAuthenticatedRequest, res: Response
         mode: config.WORKSPACE_AUDIT_LOGGING_MODE
       },
       runPolicy: {
-        maxRuntimeMs: config.AGENT_MAX_RUNTIME_MS,
-        maxSteps: config.AGENT_MAX_STEPS,
-        maxToolCalls: config.AGENT_MAX_TOOL_CALLS,
-        writeConfirmationRequired: config.AGENT_WRITE_CONFIRMATION_REQUIRED
+        maxRuntimeMs: config.ASSISTANT_MAX_RUNTIME_MS,
+        maxSteps: config.ASSISTANT_MAX_STEPS,
+        maxToolCalls: config.ASSISTANT_MAX_TOOL_CALLS,
+        writeConfirmationRequired: config.ASSISTANT_WRITE_CONFIRMATION_REQUIRED
       },
       featureFlags: {
         distributedRouting: config.CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED,

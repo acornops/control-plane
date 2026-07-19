@@ -16,7 +16,7 @@ export async function ensureDevelopmentMcpSeed(): Promise<void> {
   try {
     const servers = await listTargetMcpServers(DEVELOPMENT_WORKSPACE_ID, DEVELOPMENT_CLUSTER_ID, KUBERNETES_TARGET_TYPE);
     const existing = servers.find(
-      (server) => server.server_name === config.BUILTIN_MCP_SERVER_NAME || server.server_url === config.BUILTIN_MCP_SERVER_URL
+      (server) => server.server_name === config.BUILTIN_TARGET_MCP_SERVER_NAME || server.server_url === config.BUILTIN_TARGET_MCP_SERVER_URL
     );
 
     if (!existing) {
@@ -24,8 +24,8 @@ export async function ensureDevelopmentMcpSeed(): Promise<void> {
         workspaceId: DEVELOPMENT_WORKSPACE_ID,
         targetId: DEVELOPMENT_CLUSTER_ID,
         targetType: KUBERNETES_TARGET_TYPE,
-        name: config.BUILTIN_MCP_SERVER_NAME,
-        url: config.BUILTIN_MCP_SERVER_URL,
+        name: config.BUILTIN_TARGET_MCP_SERVER_NAME,
+        url: config.BUILTIN_TARGET_MCP_SERVER_URL,
         enabled: true,
         auth: { type: 'none' }
       });
@@ -37,7 +37,7 @@ export async function ensureDevelopmentMcpSeed(): Promise<void> {
       targetId: DEVELOPMENT_CLUSTER_ID,
       targetType: KUBERNETES_TARGET_TYPE,
       serverId: existing.id,
-      name: config.BUILTIN_MCP_SERVER_NAME,
+      name: config.BUILTIN_TARGET_MCP_SERVER_NAME,
       enabled: true,
       auth: { type: 'none' }
     });

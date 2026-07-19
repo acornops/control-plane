@@ -31,7 +31,7 @@ describe('workflow built-in MCP catalog', () => {
         return new Response(JSON.stringify([
           {
             id: 'builtin-server', workspace_id: 'workspace-1', target_id: 'cluster-1', target_type: 'kubernetes',
-            server_name: config.BUILTIN_MCP_SERVER_NAME, server_url: config.BUILTIN_MCP_SERVER_URL,
+            server_name: config.BUILTIN_TARGET_MCP_SERVER_NAME, server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
             enabled: true, auth_type: 'none', tools: []
           },
           {
@@ -43,7 +43,7 @@ describe('workflow built-in MCP catalog', () => {
       }
       return new Response(JSON.stringify([
         {
-          name: 'list_resources', mcp_server_url: config.BUILTIN_MCP_SERVER_URL, timeout_ms: 10000,
+          name: 'list_resources', mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL, timeout_ms: 10000,
           description: 'List Kubernetes resources', capability: 'read', source: 'builtin', enabled: true
         },
         {
@@ -55,7 +55,7 @@ describe('workflow built-in MCP catalog', () => {
 
     const catalog = await loadWorkflowBuiltInMcpCatalog('workspace-1', [target]);
 
-    assert.equal(catalog.server.id, 'acornops-cluster-agent');
+    assert.equal(catalog.server.id, 'acornops-target-agent');
     assert.equal(catalog.server.enabled, true);
     assert.deepEqual(catalog.tools.map((tool) => tool.name), ['list_resources']);
   });

@@ -225,7 +225,7 @@ describe('workflows controller', () => {
           requiredInputs: [],
           agentIds: ['agent-cluster-triage'],
           enabledSkills: [],
-          allowedMcpServers: ['acornops-cluster-agent'],
+          allowedMcpServers: ['acornops-target-agent'],
           allowedTools: ['list_resources'],
           contextGrants: ['workspace_metadata'],
           approvalRequired: true
@@ -347,7 +347,7 @@ describe('workflows controller', () => {
       {
         workspaceId: 'workspace-1',
         category: 'cluster-triage',
-        enabledMcpServers: ['acornops-cluster-agent'],
+        enabledMcpServers: ['acornops-target-agent'],
         enabledSkills: ['acornops-observability'],
         policy: {
           mode: 'read_only',
@@ -358,7 +358,7 @@ describe('workflows controller', () => {
             id: 'collect-cluster-signals',
             agentIds: ['agent-cluster-triage'],
             enabledSkills: ['acornops-observability'],
-            allowedMcpServers: ['acornops-cluster-agent'],
+            allowedMcpServers: ['acornops-target-agent'],
             allowedTools: ['get_resource', 'list_resources'],
             contextGrants: ['workspace_metadata', 'target_inventory'],
             approvalRequired: false
@@ -372,7 +372,7 @@ describe('workflows controller', () => {
     assert.equal(updated.category, 'cluster-triage');
     assert.equal(updated.version, 4);
     assert.deepEqual(updated.policy.approvalRequirements, []);
-    assert.deepEqual(updated.enabledMcpServers, ['acornops-cluster-agent']);
+    assert.deepEqual(updated.enabledMcpServers, ['acornops-target-agent']);
     assert.deepEqual(updated.enabledSkills, ['acornops-observability']);
     assert.deepEqual(updated.steps[0].allowedTools, ['get_resource', 'list_resources']);
     assert.equal(updated.steps[0].approvalRequired, false);
@@ -392,7 +392,7 @@ describe('workflows controller', () => {
     };
     assert.equal(body.session.workflowVersion, 4);
     assert.equal(body.compiledAccessScope.mode, 'read_only');
-    assert.deepEqual(body.compiledAccessScope.mcpServers, ['acornops-cluster-agent']);
+    assert.deepEqual(body.compiledAccessScope.mcpServers, ['acornops-target-agent']);
     assert.deepEqual(body.compiledAccessScope.tools, ['get_resource', 'list_resources']);
     assert.deepEqual(body.compiledAccessScope.approvalGates, []);
   });

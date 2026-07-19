@@ -384,7 +384,7 @@ export function displayNameFromEmail(email: string): string {
 export function mapCluster(row: ClusterRow): KubernetesCluster {
   const overrideRequired = row.write_confirmation_required_override;
   const hasOverride = typeof overrideRequired === 'boolean';
-  const effectiveRequired = hasOverride ? overrideRequired : config.AGENT_WRITE_CONFIRMATION_REQUIRED;
+  const effectiveRequired = hasOverride ? overrideRequired : config.ASSISTANT_WRITE_CONFIRMATION_REQUIRED;
   return {
     id: row.id,
     workspaceId: row.workspace_id,

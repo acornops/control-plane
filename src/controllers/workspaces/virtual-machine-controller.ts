@@ -45,12 +45,12 @@ function buildVmInstallInstructions(input: { targetId: string; agentKey: string;
     `ACORNOPS_TARGET_ID=${input.targetId}`,
     `ACORNOPS_AGENT_KEY=${input.agentKey}`,
     'ACORNOPS_AGENT_TARGET_TYPE=virtual_machine',
-    'ACORNOPS_AGENT_SNAPSHOT_INTERVAL_MS=30000',
+    'ACORNOPS_AGENT_SNAPSHOT_INTERVAL_MS=60000',
     'ACORNOPS_AGENT_MAX_SNAPSHOT_BYTES=1048576',
     'ACORNOPS_AGENT_LOG_LEVEL=info',
     'ACORNOPS_VM_OS_FAMILY=linux',
     'ACORNOPS_VM_SERVICE_MANAGER=systemd',
-    'ACORNOPS_VM_ALLOWED_LOG_SOURCES=journald,syslog',
+    'ACORNOPS_VM_ALLOWED_LOG_UNITS=acornops-agentv.service',
     'ACORNOPS_VM_COLLECTOR_MODE=live',
     'EOF',
     'sudo chown root:acornops-agent /etc/acornops/agentv.env',
@@ -58,7 +58,7 @@ function buildVmInstallInstructions(input: { targetId: string; agentKey: string;
     'sudo systemctl enable --now acornops-agentv',
     '```',
     '',
-    'The agent connects outbound only and exposes read-only diagnostics.'
+    'The agent connects outbound only and remains read-only unless the separate local helper is explicitly enabled.'
   ].join('\n');
 }
 
@@ -357,18 +357,23 @@ export async function getVirtualMachineLogs(req: AuthenticatedRequest, res: Resp
       res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Only workspace operators/admins/owners can read VM logs', retryable: false } });
       return;
     }
-    const tailLines = parseBoundedIntQuery(req.query.tailLines || req.query.tail_lines, 200, 1, 5000);
-    const limitBytes = parseBoundedIntQuery(req.query.limitBytes || req.query.limit_bytes, 1024 * 1024, 1, 10 * 1024 * 1024);
+    const tailLines = parseBoundedIntQuery(req.query.tailLines || req.query.tail_lines, 200, 1, 500);
+    const limitBytes = parseBoundedIntQuery(req.query.limitBytes || req.query.limit_bytes, 1024 * 1024, 1024, 1024 * 1024);
     const source = typeof req.query.source === 'string' ? req.query.source : undefined;
+    if (source && source !== 'journald') {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'VM logs support only source=journald', retryable: false } });
+      return;
+    }
+    const unit = typeof req.query.unit === 'string' ? req.query.unit : undefined;
     const query = typeof req.query.q === 'string' ? req.query.q : undefined;
-    const toolName = query ? 'search_logs' : 'get_logs';
+    const toolName = 'query_logs';
     const startedAt = Date.now();
     try {
       const result = await agentGateway.callAgentTool(vmId, toolName, {
-        source,
+        unit,
         query,
-        tail_lines: tailLines,
-        limit_bytes: limitBytes
+        limit: tailLines,
+        byte_limit: limitBytes
       });
       webhooks.emit({
         type: 'tool.called.v1',
@@ -398,7 +403,8 @@ export async function getVirtualMachineLogs(req: AuthenticatedRequest, res: Resp
           targetType: VIRTUAL_MACHINE_TARGET_TYPE,
           toolName,
           source: 'management_console_vm_logs',
-          logSource: source || null,
+          logSource: source || 'journald',
+          unit: unit || null,
           queried: Boolean(query),
           tailLines,
           limitBytes,
