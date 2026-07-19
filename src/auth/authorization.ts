@@ -26,7 +26,7 @@ export const WORKSPACE_CAPABILITIES = [
   'create_sessions',
   'create_read_only_runs',
   'create_read_write_runs',
-  'read_tarquery_logs',
+  'read_target_logs',
   'cancel_runs',
   'delete_sessions'
 ] as const;
@@ -53,7 +53,7 @@ export const WORKSPACE_CAPABILITY_METADATA: Record<WorkspaceCapability, { group:
   read_members: { group: 'members', sortOrder: 0 },
   manage_members: { group: 'members', sortOrder: 10 },
   manage_targets: { group: 'targets', sortOrder: 0 },
-  read_tarquery_logs: { group: 'targets', sortOrder: 10 },
+  read_target_logs: { group: 'targets', sortOrder: 10 },
   create_sessions: { group: 'operations', sortOrder: 0 },
   create_read_only_runs: { group: 'operations', sortOrder: 10 },
   create_read_write_runs: { group: 'operations', sortOrder: 20 },
@@ -118,7 +118,7 @@ const EMPTY_PERMISSIONS: WorkspacePermissions = {
   create_sessions: false,
   create_read_only_runs: false,
   create_read_write_runs: false,
-  read_tarquery_logs: false,
+  read_target_logs: false,
   cancel_runs: false,
   delete_sessions: false
 };
@@ -143,7 +143,7 @@ const READ_ONLY_PERMISSIONS: WorkspacePermissions = {
   create_sessions: false,
   create_read_only_runs: false,
   create_read_write_runs: false,
-  read_tarquery_logs: false,
+  read_target_logs: false,
   cancel_runs: false,
   delete_sessions: false
 };
@@ -168,7 +168,7 @@ const OWNER_PERMISSIONS: WorkspacePermissions = {
   create_sessions: true,
   create_read_only_runs: true,
   create_read_write_runs: true,
-  read_tarquery_logs: true,
+  read_target_logs: true,
   cancel_runs: true,
   delete_sessions: true
 };
@@ -182,7 +182,7 @@ const OPERATOR_PERMISSIONS: WorkspacePermissions = {
   ...READ_ONLY_PERMISSIONS,
   create_sessions: true,
   create_read_only_runs: true,
-  read_tarquery_logs: true,
+  read_target_logs: true,
   cancel_runs: true
 };
 

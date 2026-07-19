@@ -65,7 +65,10 @@ const sessionRoutes = read('src/routes/sessions.ts');
 const runRoutes = read('src/routes/runs.ts');
 const agentRoutes = read('src/routes/agents.ts');
 const internalRoutes = read('src/routes/internal-execution.ts');
-const contracts = read('src/types/contracts.ts');
+const contracts = [
+  read('src/types/contracts.ts'),
+  read('src/types/webhook-contracts.ts')
+].join('\n');
 const runEventsContract = read('src/types/run-events-contract.ts');
 const configSource = read('src/config.ts');
 const mcpRegistryClient = read('src/services/mcp-registry-client.ts');

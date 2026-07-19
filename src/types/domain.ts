@@ -1,3 +1,11 @@
+import { type TargetType } from './target-types.js';
+export {
+  isTargetType, KUBERNETES_TARGET_TYPE,
+  TARGET_TYPE_DISPLAY_LIST, TARGET_TYPES,
+  type TargetType,
+  VIRTUAL_MACHINE_TARGET_TYPE
+} from './target-types.js';
+
 export type Role = string;
 export type RunStatus =
   | 'queued'
@@ -9,16 +17,6 @@ export type RunStatus =
   | 'cancelled'
   | 'cancelling';
 export type ToolAccessMode = 'read_only' | 'read_write';
-export const TARGET_TYPES = ['kubernetes', 'virtual_machine'] as const;
-export type TargetType = typeof TARGET_TYPES[number];
-export const KUBERNETES_TARGET_TYPE: TargetType = 'kubernetes';
-export const VIRTUAL_MACHINE_TARGET_TYPE: TargetType = 'virtual_machine';
-export const TARGET_TYPE_DISPLAY_LIST = TARGET_TYPES.join(', ');
-
-export function isTargetType(value: string): value is TargetType {
-  return TARGET_TYPES.includes(value as TargetType);
-}
-
 export type WriteConfirmationPolicySource = 'cluster_override' | 'deployment_default';
 export type ToolApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 export type ToolApprovalExecutionStatus = 'not_started' | 'executing' | 'succeeded' | 'failed' | 'unknown';
@@ -115,7 +113,7 @@ export interface WorkspacePermissions {
   create_sessions: boolean;
   create_read_only_runs: boolean;
   create_read_write_runs: boolean;
-  read_tarquery_logs: boolean;
+  read_target_logs: boolean;
   cancel_runs: boolean;
   delete_sessions: boolean;
 }

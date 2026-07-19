@@ -281,7 +281,7 @@ describe('parseAppConfig production validation', () => {
             key: 'support_lead',
             displayName: 'Support Lead',
             description: 'Can manage ordinary memberships and read logs.',
-            capabilities: ['read_members', 'manage_members', 'read_tarquery_logs'],
+            capabilities: ['read_members', 'manage_members', 'read_target_logs'],
             sortOrder: 150
           }
         ]

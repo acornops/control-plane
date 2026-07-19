@@ -12,10 +12,10 @@ import {
 
 describe('authorization helpers', () => {
   it('parses scopes and rejects unknown scope names', () => {
-    const scopes = parseScopeString('read create_sessions read_tarquery_logs manage_webhooks read');
+    const scopes = parseScopeString('read create_sessions read_target_logs manage_webhooks read');
 
-    assert.deepEqual(scopes, ['read', 'create_sessions', 'read_tarquery_logs', 'manage_webhooks']);
-    assert.equal(formatScopes(scopes), 'read create_sessions read_tarquery_logs manage_webhooks');
+    assert.deepEqual(scopes, ['read', 'create_sessions', 'read_target_logs', 'manage_webhooks']);
+    assert.equal(formatScopes(scopes), 'read create_sessions read_target_logs manage_webhooks');
     assert.throws(() => parseScopeString('read unknown_scope'), /Invalid token scope/);
   });
 

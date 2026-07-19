@@ -1,15 +1,5 @@
 import { config } from './config.js';
-
-function prometheusEscape(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/"/g, '\\"');
-}
-
-function metricLine(name: string, labels: Record<string, string>, value: number): string {
-  const labelText = Object.entries(labels)
-    .map(([key, labelValue]) => `${key}="${prometheusEscape(labelValue)}"`)
-    .join(',');
-  return `${name}{${labelText}} ${Number.isFinite(value) ? value : 0}`;
-}
+import { increment, metricLine } from './metrics-helpers.js';
 
 const adminAuthFailures = new Map<string, number>();
 const adminRequests = new Map<string, number>();
@@ -54,10 +44,6 @@ const toolResultArtifactSizeSums = new Map<string, number>();
 const duplicateBuiltInServerAnomalies = new Map<string, number>();
 let adminMutations = 0;
 let adminAuditWriteFailures = 0;
-
-function increment(map: Map<string, number>, key: string, count = 1): void {
-  map.set(key, (map.get(key) || 0) + count);
-}
 
 export function incrementAdminAuthFailures(reason: string): void {
   increment(adminAuthFailures, reason);

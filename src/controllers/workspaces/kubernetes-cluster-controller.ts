@@ -221,7 +221,7 @@ export async function getPodLogs(req: AuthenticatedRequest, res: Response, next:
       return;
     }
 
-    if (!access.authz.can('read_tarquery_logs')) {
+    if (!access.authz.can('read_target_logs')) {
       res.status(403).json({
         error: { code: 'FORBIDDEN', message: 'Only workspace operators/admins/owners can read pod logs', retryable: false }
       });

@@ -337,7 +337,7 @@ export async function getVirtualMachineLogs(req: AuthenticatedRequest, res: Resp
     const vmId = toSingleParam(req.params.vmId);
     const access = await requireVirtualMachineTargetAccess(req, res, workspaceId, vmId);
     if (!access) return;
-    if (!access.authz.can('read_tarquery_logs')) {
+    if (!access.authz.can('read_target_logs')) {
       res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Only workspace operators/admins/owners can read VM logs', retryable: false } });
       return;
     }

@@ -35,7 +35,7 @@ function createWorkspaceSummary(overrides: Partial<WorkspaceSummary> = {}): Work
       create_sessions: false,
       create_read_only_runs: false,
       create_read_write_runs: false,
-      read_tarquery_logs: false,
+      read_target_logs: false,
       cancel_runs: false,
       delete_sessions: false
     },

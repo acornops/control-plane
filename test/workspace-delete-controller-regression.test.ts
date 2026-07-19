@@ -37,7 +37,7 @@ function createWorkspaceSummary(): WorkspaceSummary {
       create_sessions: true,
       create_read_only_runs: true,
       create_read_write_runs: true,
-      read_tarquery_logs: true,
+      read_target_logs: true,
       cancel_runs: true,
       delete_sessions: true
     },
