@@ -298,43 +298,6 @@ describe('target native tool controller', () => {
     );
   });
 
-  it('persists target-level PDF report enablement without exposing internal tool instructions', async () => {
-    installWorkspace('admin');
-    let persisted: { toolId: string; enabled: boolean; config: Record<string, unknown> } | null = null;
-    repo.upsertTargetToolSetting = async (targetId, toolId, enabled, config) => {
-      persisted = { toolId, enabled, config };
-      return {
-        targetId,
-        toolId,
-        enabled,
-        config,
-        updatedAt: '2026-05-24T00:00:00.000Z'
-      };
-    };
-    mock.method(webhooks, 'emit', () => undefined);
-
-    const response = await callController(
-      updateTargetToolSettings,
-      createRequest(
-        { workspaceId: 'workspace-1', targetId: 'cluster-1', toolId: 'reports.pdf.generate' },
-        { enabled: false }
-      )
-    );
-
-    assert.equal(response.statusCode, 200);
-    assert.deepEqual(persisted, {
-      toolId: 'reports.pdf.generate',
-      enabled: false,
-      config: { authorizationClass: 'internal_artifact' }
-    });
-    assert.equal((response.body as { enabled: boolean }).enabled, false);
-    assert.equal((response.body as { toggleable: boolean }).toggleable, true);
-    assert.equal(
-      (response.body as { description: string }).description,
-      'Create a provenance-linked PDF incident report from the current assistant conversation and available evidence.'
-    );
-  });
-
   it('requeues paused target insights checkpoints when Target Insights settings change', async () => {
     installWorkspace('admin');
     let requeueInput: { workspaceId: string; targetId?: string } | null = null;

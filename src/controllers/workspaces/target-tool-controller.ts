@@ -111,25 +111,7 @@ export async function listTargetMcpCatalog(
   }
 }
 
-export async function listTargetMcpServers(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const workspaceId = toSingleParam(req.params.workspaceId);
-    const targetId = toSingleParam(req.params.targetId);
-    const access = await requireTargetAccess(req, res, workspaceId, targetId);
-    if (!access) {
-      return;
-    }
-    const servers = await listGatewayTargetMcpServers(workspaceId, targetId, access.target.targetType);
-    res.status(200).json(servers.map(toPublicMcpServerConfig));
-  } catch (err) {
-    if (err instanceof LlmGatewayHttpError) {
-      const mapped = mapGatewayError(err);
-      res.status(mapped.status).json(mapped.body);
-      return;
-    }
-    next(err);
-  }
-}
+export { listTargetMcpServers } from './target-mcp-server-list-controller.js';
 
 export async function listTargetMcpServerTools(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
