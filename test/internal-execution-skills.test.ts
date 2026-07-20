@@ -71,6 +71,7 @@ describe('internal execution skill snapshots', () => {
           total_bytes: 128
         }
       ],
+      referenced_refs: [],
       load_endpoint: '/internal/v1/runs/run-1/skills/{skill_ref}'
     });
   });

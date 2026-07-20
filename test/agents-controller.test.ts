@@ -170,7 +170,7 @@ describe('agents controller', () => {
       entryAgentId: agentId,
       requiredPermissions: ['create_read_only_runs'],
       capabilityPolicy: {
-        mode: 'read_only', semanticCapabilityIds: ['target.diagnostics.read'],
+        mode: 'read_only', restrictionMode: 'restrict', semanticCapabilityIds: ['target.diagnostics.read'],
         contextGrants: [], maxRuntimeSeconds: 300, retentionDays: 7, approvalRequirements: []
       },
       createdBy: 'user-1'
@@ -307,9 +307,8 @@ describe('agents controller', () => {
     ));
     assert.equal(testRun.statusCode, 200);
     assert.equal((testRun.body as { compiledScope: { agentId: string } }).compiledScope.agentId, agent.id);
-    assert.equal((testRun.body as { executing: boolean; deprecated: boolean }).executing, false);
-    assert.equal((testRun.body as { executing: boolean; deprecated: boolean }).deprecated, true);
-    assert.equal(testRun.headers.get('deprecation'), 'true');
+    assert.equal((testRun.body as { executing: boolean }).executing, false);
+    assert.equal('deprecated' in (testRun.body as Record<string, unknown>), false);
 
     const activity = await callController(listAgentActivity, createRequest(
       { agentId: agent.id },
@@ -414,7 +413,7 @@ describe('agents controller', () => {
       entryAgentId: agentId,
       requiredPermissions: ['create_read_only_runs'],
       capabilityPolicy: {
-        mode: 'read_only', semanticCapabilityIds: [], contextGrants: [],
+        mode: 'read_only', restrictionMode: 'restrict', semanticCapabilityIds: [], contextGrants: [],
         maxRuntimeSeconds: 300, retentionDays: 7, approvalRequirements: []
       },
       createdBy: 'user-1'

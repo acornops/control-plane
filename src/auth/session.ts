@@ -12,13 +12,7 @@ interface CurrentSessionRecord {
   idleExpiresAt: number;
 }
 
-interface LegacySessionRecord {
-  id: string;
-  userId: string;
-  expiresAt: number;
-}
-
-type StoredSessionRecord = CurrentSessionRecord | LegacySessionRecord;
+type StoredSessionRecord = CurrentSessionRecord;
 
 function sessionKey(id: string): string {
   return `cp:session:${id}`;
@@ -49,20 +43,6 @@ function hasUserId(session: StoredSessionRecord): session is StoredSessionRecord
 
 function hasSessionId(session: StoredSessionRecord): session is StoredSessionRecord & { id: string } {
   return typeof session.id === 'string' && session.id.length > 0;
-}
-
-function hasCurrentSessionFields(session: StoredSessionRecord): boolean {
-  return 'createdAt' in session || 'lastSeenAt' in session || 'absoluteExpiresAt' in session || 'idleExpiresAt' in session;
-}
-
-function isLegacySessionRecord(session: StoredSessionRecord): session is LegacySessionRecord {
-  const legacy = session as LegacySessionRecord;
-  return (
-    hasSessionId(session) &&
-    hasUserId(session) &&
-    Number.isFinite(legacy.expiresAt) &&
-    !hasCurrentSessionFields(session)
-  );
 }
 
 function isCurrentSessionRecord(session: StoredSessionRecord): session is CurrentSessionRecord {
@@ -198,9 +178,6 @@ export async function getSessionUser(req: Request): Promise<{ userId: string; se
       sessionRedisTtlSeconds(refreshedSession.idleExpiresAt, now),
       JSON.stringify(refreshedSession)
     );
-    return { userId: session.userId, sessionId: sid };
-  }
-  if (isLegacySessionRecord(session) && now < session.expiresAt) {
     return { userId: session.userId, sessionId: sid };
   }
   await deleteStoredSession(session, sid);

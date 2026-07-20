@@ -145,10 +145,10 @@ export function registerTargetRoutes(router: Router): void {
     requireUser,
     authed(reimportTargetCatalogMcpServer)
   );
-  router.get('/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/connection', requireUser, authed(mcpConnectionsController.getPersonalMcpConnection));
-  router.put('/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/connection', requireUser, authed(mcpConnectionsController.putPersonalMcpConnection));
-  router.delete('/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/connection', requireUser, authed(mcpConnectionsController.deletePersonalMcpConnection));
-  router.post('/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/connection/verify', requireUser, authed(mcpConnectionsController.verifyPersonalMcpConnection));
+  router.get('/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/connection', requireUser, authed(mcpConnectionsController.getMcpConnectionStatus));
+  router.put('/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/connection', requireUser, authed(mcpConnectionsController.putMcpConnection));
+  router.delete('/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/connection', requireUser, authed(mcpConnectionsController.deleteMcpConnectionStatus));
+  router.post('/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/connection/verify', requireUser, authed(mcpConnectionsController.verifyMcpConnectionStatus));
   router.patch(
     '/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId',
     requireUser,

@@ -12,11 +12,10 @@ import {
   updateWorkflowThroughDefinitionService
 } from '../src/services/automation-definition-service.js';
 import {
-  backfillStarterAutomationV1,
   overrideStarterAutomationSeedFailureForTests,
-  seedStarterAutomationV1
+  provisionStarterAutomation
 } from '../src/services/automation-templates.js';
-import { provisionWorkspaceWithStarterAutomationV1 } from '../src/services/workspace-provisioning.js';
+import { provisionWorkspaceWithStarterAutomation } from '../src/services/workspace-provisioning.js';
 import { installAutomationTemplate } from '../src/services/automation-template-lifecycle.js';
 import {
   deleteAgentWithInstallationCleanup,
@@ -123,7 +122,7 @@ function comparableScope(scope: ReturnType<typeof compileAgentRunScope>) {
 
 describe('automation template foundations', () => {
   it('keeps runtime parity while protecting system-provided definitions from direct edits', async () => {
-    const installed = await seedStarterAutomationV1({
+    const installed = await provisionStarterAutomation({
       workspaceId: 'workspace-1', installedBy: 'user-1'
     });
     assert.equal(installed.alreadySeeded, false);
@@ -202,12 +201,12 @@ describe('automation template foundations', () => {
     }))) as Record<(typeof workflowKeys)[number], WorkflowDefinitionForAccess>;
     assert.equal(
       generatedWorkflows.targetDiagnostics.prompt,
-      'Inspect @target[Target name] using live diagnostic evidence and summarize findings and safe next actions.'
+      'Inspect @target[] using live diagnostic evidence and summarize findings and safe next actions.'
     );
     assert.equal(generatedWorkflows.targetDiagnostics.description, 'Inspect one exact target using live diagnostic evidence.');
     assert.equal(
       generatedWorkflows.targetRemediation.prompt,
-      'Diagnose @target[Target name] using live evidence. Propose the smallest safe change, request approval before each mutation, verify the result, and summarize rollback guidance.'
+      'Diagnose @target[] using live evidence. Propose the smallest safe change, request approval before each mutation, verify the result, and summarize rollback guidance.'
     );
     assert.equal(generatedWorkflows.targetRemediation.capabilityPolicy.mode, 'read_write');
     assert.deepEqual(
@@ -290,7 +289,7 @@ describe('automation template foundations', () => {
       assert.equal(await deleteAgentDefinition('workspace-1', manualAgents[key].id), true);
     }
 
-    const reinstalled = await seedStarterAutomationV1({
+    const reinstalled = await provisionStarterAutomation({
       workspaceId: 'workspace-1', installedBy: 'user-1'
     });
     assert.equal(reinstalled.alreadySeeded, true);
@@ -299,7 +298,7 @@ describe('automation template foundations', () => {
   });
 
   it('provisions a workspace, owner, starter definitions, installation, and audit atomically', async () => {
-    const provisioned = await provisionWorkspaceWithStarterAutomationV1({
+    const provisioned = await provisionWorkspaceWithStarterAutomation({
       id: 'workspace-provisioned',
       name: 'Provisioned Workspace',
       createdBy: 'user-1'
@@ -349,7 +348,7 @@ describe('automation template foundations', () => {
     overrideStarterAutomationSeedFailureForTests('after_agents');
     try {
       await assert.rejects(
-        provisionWorkspaceWithStarterAutomationV1({
+        provisionWorkspaceWithStarterAutomation({
           id: 'workspace-rollback',
           name: 'Rollback Workspace',
           createdBy: 'user-1'
@@ -372,40 +371,8 @@ describe('automation template foundations', () => {
     }
   });
 
-  it('backfills missing and pending installations once and remains idempotent', async () => {
-    await db.query(
-      `INSERT INTO automation_template_installations (
-         workspace_id,template_id,template_version,state,installed_by,record_ids
-       ) VALUES ('workspace-1','acornops-starter',1,'pending','user-1','{}'::jsonb)`
-    );
-
-    await backfillStarterAutomationV1();
-
-    const installations = await db.query<{ workspace_id: string; state: string; record_count: number }>(
-      `SELECT workspace_id,state,
-              (SELECT COUNT(*)::int FROM jsonb_object_keys(installation.record_ids)) AS record_count
-       FROM automation_template_installations installation
-       WHERE template_id='acornops-starter'
-       ORDER BY workspace_id`
-    );
-    assert.deepEqual(installations.rows, [
-      { workspace_id: 'workspace-1', state: 'complete', record_count: 4 },
-      { workspace_id: 'workspace-2', state: 'complete', record_count: 4 }
-    ]);
-    assert.equal((await db.query('SELECT 1 FROM agent_definitions')).rowCount, 6);
-    assert.equal((await db.query('SELECT 1 FROM workflow_definitions')).rowCount, 4);
-
-    await backfillStarterAutomationV1();
-
-    assert.equal((await db.query('SELECT 1 FROM agent_definitions')).rowCount, 6);
-    assert.equal((await db.query('SELECT 1 FROM workflow_definitions')).rowCount, 4);
-    assert.equal((await db.query(
-      "SELECT 1 FROM workspace_audit_events WHERE event_type='automation.template_seeded.v1'"
-    )).rowCount, 2);
-  });
-
   it('deletes visible starter definitions, reports workflow dependencies, and prunes tombstone references', async () => {
-    const seeded = await seedStarterAutomationV1({ workspaceId: 'workspace-1', installedBy: 'user-1' });
+    const seeded = await provisionStarterAutomation({ workspaceId: 'workspace-1', installedBy: 'user-1' });
     await installAutomationTemplate({ workspaceId: 'workspace-1', templateId: 'incident-investigation', installedBy: 'user-1' });
     const [installationBeforeDeletion] = await listTemplateInstallations('workspace-1');
     const specialistId = seeded.installation.recordIds['agent:targetDiagnostics'];
@@ -435,7 +402,7 @@ describe('automation template foundations', () => {
     assert.equal(Object.values(installation.recordIds).includes(managedWorkflowId), false);
     assert.equal(Object.values(installation.recordIds).includes(specialistId), false);
 
-    const repeated = await seedStarterAutomationV1({ workspaceId: 'workspace-1', installedBy: 'user-1' });
+    const repeated = await provisionStarterAutomation({ workspaceId: 'workspace-1', installedBy: 'user-1' });
     assert.equal(repeated.alreadySeeded, true);
     assert.equal(await getAgentDefinition('workspace-1', specialistId), null);
 

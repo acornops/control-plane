@@ -65,8 +65,8 @@ plaintext database, Redis, or internal-service URLs.
 
 ## Automation Runtime
 
-Production defaults keep new automation dispatch disabled until migrations and
-template backfill are verified:
+Production defaults keep new automation dispatch disabled until the greenfield
+baseline and current workspace provisioning are verified:
 
 ```bash
 AUTOMATION_RUNTIME_MODE=off
@@ -245,13 +245,10 @@ Kubernetes deployments run this through the Helm migration Job:
 node dist/scripts/control-plane-db.js migrate
 ```
 
-Workflow schema epoch 2 is a first-install or explicit-reset cutover. Run the
-secret-free `db:preflight` command before migration. If it reports
-`WORKFLOW_V2_DATABASE_RESET_REQUIRED`, back up and explicitly drop/recreate the
-database before retrying; migration and startup never delete incompatible V1
-workflow data. Deploy the pinned control-plane, execution-engine, and gateway
-matrix together. A V1 rollback requires restoring the database backup and the
-complete V1 image matrix.
+This version establishes a greenfield schema epoch. Tear down and recreate every
+pre-release database before running the baseline; in-place upgrades are not
+supported. Deploy the pinned control-plane, execution-engine, and gateway matrix
+together.
 
 ## Failure Modes
 

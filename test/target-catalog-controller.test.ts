@@ -20,7 +20,7 @@ function gatewayServer(revision = 1) {
     id: 'server-1', workspace_id: 'workspace-1', scope_type: 'target',
     target_id: 'cluster-1', target_type: 'kubernetes', server_name: 'Operations',
     server_url: 'https://mcp.example/mcp', enabled: true, auth_type: 'none',
-    auth_scope: 'none', credential_configured: false, public_headers: {},
+    credential_mode: 'none', public_headers: {},
     connection_status: 'ok', last_discovery_at: null, last_discovery_error: null,
     revision, provenance_type: 'catalog', target_constraints: {}, tools: []
   };
@@ -46,11 +46,11 @@ describe('target catalog controllers', () => {
 
     const imported = await callController(importTargetCatalogMcpServer, createRequest(
       { workspaceId: 'workspace-1', targetId: 'cluster-1' },
-      { ...catalogBody, targetType: 'virtual_machine' }
+      catalogBody
     ));
     const reimported = await callController(reimportTargetCatalogMcpServer, createRequest(
       { workspaceId: 'workspace-1', targetId: 'cluster-1', serverId: 'server-1' },
-      { ...catalogBody, expectedRevision: 1, targetType: 'virtual_machine' }
+      { ...catalogBody, expectedRevision: 1 }
     ));
 
     assert.equal(imported.statusCode, 201);
@@ -65,6 +65,27 @@ describe('target catalog controllers', () => {
       { scopeType: 'target', targetId: 'cluster-1', targetType: 'kubernetes', reimportServerId: undefined, expectedRevision: undefined },
       { scopeType: 'target', targetId: 'cluster-1', targetType: 'kubernetes', reimportServerId: 'server-1', expectedRevision: 1 }
     ]);
+  });
+
+  it('rejects unknown and malformed import fields instead of ignoring them', async () => {
+    installWorkspace('admin');
+    const gatewayFetch = mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify(gatewayServer()), { status: 201 }));
+    const invalidBodies = [
+      { ...catalogBody, targetType: 'virtual_machine' },
+      { ...catalogBody, enabled: 'yes' },
+      { ...catalogBody, credentialMode: 'shared' },
+      { ...catalogBody, endpointConfiguration: { region: 42 } }
+    ];
+
+    for (const body of invalidBodies) {
+      const response = await callController(importTargetCatalogMcpServer, createRequest(
+        { workspaceId: 'workspace-1', targetId: 'cluster-1' },
+        body
+      ));
+      assert.equal(response.statusCode, 400);
+      assert.equal((response.body as { error: { code: string } }).error.code, 'CATALOG_REQUEST_INVALID');
+    }
+    assert.equal(gatewayFetch.mock.callCount(), 0);
   });
 
   it('rejects Agent constraints and missing target ownership before gateway import', async () => {

@@ -6,6 +6,7 @@ import {
   synchronizeWorkspaceCatalogSource,
   updateWorkspaceCatalogSource
 } from '../src/controllers/catalog-sources-controller.js';
+import { createWorkspaceCatalogSource } from '../src/controllers/catalog-controller.js';
 import { repo } from '../src/store/repository.js';
 import {
   callController,
@@ -103,9 +104,25 @@ describe('MCP registry lifecycle controllers', () => {
         { auth: { type: 'bearer_token' } }
       )
     );
+    const unknownField = await callController(
+      updateWorkspaceCatalogSource,
+      createRequest(
+        { workspaceId: 'workspace-1', sourceId: 'source-1' },
+        { enabled: true, ignored: true }
+      )
+    );
+    const malformedCreate = await callController(
+      createWorkspaceCatalogSource,
+      createRequest(
+        { workspaceId: 'workspace-1' },
+        { displayName: 'Registry', baseUrl: 'https://registry.example', enabled: 'yes' }
+      )
+    );
 
     assert.equal(connector.statusCode, 400);
     assert.equal(missingCredential.statusCode, 400);
+    assert.equal(unknownField.statusCode, 400);
+    assert.equal(malformedCreate.statusCode, 400);
     assert.equal(gateway.mock.callCount(), 0);
   });
 

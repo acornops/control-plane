@@ -4,6 +4,8 @@ import { describe, it } from 'node:test';
 import { createLocalJWKSet, decodeProtectedHeader, exportJWK, jwtVerify, SignJWT, type JSONWebKeySet } from 'jose';
 import { type AppConfig, config } from '../../src/config.js';
 import { GatewayTokenService, gatewayTokenService } from '../../src/services/token-service.js';
+import { digestBindings } from '../../src/services/prompt-resources/registry.js';
+import type { PromptResourceBinding } from '../../src/types/prompt-resources.js';
 
 describe('gateway token service', () => {
   it('signs short-lived exact-call approval receipts with the dedicated contract', async () => {
@@ -82,7 +84,8 @@ describe('gateway token service', () => {
         get_resource_logs: 'read'
       },
       max_output_tokens: 2048,
-      allowed_models: ['gemini-2.0-flash']
+      allowed_models: ['gemini-2.0-flash'],
+      resource_bindings: []
     });
     assert.equal(typeof verification.payload.jti, 'string');
   });
@@ -195,7 +198,8 @@ describe('gateway token service', () => {
       },
       context_grants: ['audit_events', 'workspace_metadata'],
       max_output_tokens: 1024,
-      allowed_models: ['gpt-4.1-mini']
+      allowed_models: ['gpt-4.1-mini'],
+      resource_bindings: []
     });
 
     const claims = await gatewayTokenService.verifyRunScopeToken(token);
@@ -210,6 +214,66 @@ describe('gateway token service', () => {
     assert.equal(claims.targetId, undefined);
     assert.equal(claims.targetType, undefined);
     assert.deepEqual(claims.contextGrants, ['audit_events', 'workspace_metadata']);
+  });
+
+  it('signs and verifies complete generic resource bindings against the canonical digest', async () => {
+    const bindings: PromptResourceBinding[] = [{
+      bindingId: 'prb_artifact_1',
+      type: 'artifact',
+      resourceId: 'artifact-1',
+      provider: 'test.artifact',
+      providerVersion: '1',
+      workspaceId: 'ws-workflow',
+      labelSnapshot: 'Café report',
+      source: 'explicit',
+      operations: ['read'],
+      contextMode: 'tool',
+      providerData: { retention: '90d' }
+    }];
+    const bindingDigest = digestBindings(bindings);
+    const token = await gatewayTokenService.signRunScopeToken({
+      runId: 'run-resource', workspaceId: 'ws-workflow', scopeType: 'workspace',
+      workflowId: 'workflow-1', workflowRunId: 'workflow-run-1', workflowSessionId: 'workflow-session-1',
+      sessionId: 'workflow-session-1', principal: { type: 'user', id: 'user-1' },
+      allowedProviders: ['openai'], allowedTools: [], contextGrants: [], resourceBindings: bindings, bindingDigest
+    });
+    const claims = await gatewayTokenService.verifyRunScopeToken(token);
+    assert.deepEqual(claims.resourceBindings, bindings);
+    assert.equal(claims.bindingDigest, bindingDigest);
+  });
+
+  it('refuses to sign ambiguous or cross-workspace resource authority', async () => {
+    const baseBinding: PromptResourceBinding = {
+      bindingId: 'prb_artifact_1', type: 'artifact', resourceId: 'artifact-1', provider: 'test.artifact',
+      providerVersion: '1', workspaceId: 'ws-workflow', labelSnapshot: 'Report', source: 'explicit',
+      operations: ['read'], contextMode: 'tool'
+    };
+    const sign = (resourceBindings: PromptResourceBinding[], bindingDigest = digestBindings(resourceBindings)) => (
+      gatewayTokenService.signRunScopeToken({
+        runId: 'run-resource-invalid', workspaceId: 'ws-workflow', scopeType: 'workspace',
+        workflowId: 'workflow-1', workflowRunId: 'workflow-run-1', workflowSessionId: 'workflow-session-1',
+        sessionId: 'workflow-session-1', principal: { type: 'user', id: 'user-1' },
+        allowedProviders: ['openai'], allowedTools: [], resourceBindings, bindingDigest
+      })
+    );
+
+    await assert.rejects(
+      () => sign([{ ...baseBinding, workspaceId: 'other-workspace' }]),
+      /match the token workspace/
+    );
+    await assert.rejects(
+      () => sign([{ ...baseBinding, operations: ['read', 'read'] }]),
+      /authority must be unique/
+    );
+    const tooManyBindings = Array.from({ length: 65 }, (_, index) => ({
+      ...baseBinding,
+      bindingId: `prb_artifact_${index}`
+    }));
+    await assert.rejects(() => sign(tooManyBindings), /authority must be unique/);
+    await assert.rejects(
+      () => sign([baseBinding], '0'.repeat(64)),
+      /digest does not match/
+    );
   });
 
   it('rejects tokens whose subject does not match the run id claim', async () => {
@@ -288,7 +352,8 @@ describe('gateway token service', () => {
       allowed_native_tools: [],
       allowed_tool_operations: {},
       max_output_tokens: null,
-      allowed_models: []
+      allowed_models: [],
+      resource_bindings: []
     });
   });
 

@@ -27,15 +27,11 @@ import { runWorkflowScheduleTick } from './services/workflow-scheduler.js';
 import { refreshAutomationMetricsSnapshot } from './services/automation-diagnostics.js';
 import { repo } from './store/repository.js';
 import { runtime } from './store/runtime.js';
-import { backfillStarterAutomationV1 } from './services/automation-templates.js';
-import { backfillWorkflowCoordinationInfrastructure } from './services/automation-definition-service.js';
 import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE } from './types/domain.js';
 import { runMcpSecretCleanupTick } from './services/mcp-secret-cleanup-worker.js';
 
 async function main(): Promise<void> {
   await initializeDatabase();
-  await backfillStarterAutomationV1();
-  await backfillWorkflowCoordinationInfrastructure();
   await repo.syncRoleTemplates(config.WORKSPACE_ROLE_TEMPLATES);
   await initializeRedis();
   registerRunEventHandler(({ runId, events }) => {

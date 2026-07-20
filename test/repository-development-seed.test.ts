@@ -167,28 +167,14 @@ describe('development target seed', () => {
     assert.equal(queries.filter(({ sql }) => sql.includes('INSERT INTO users')).length, 1);
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workspaces')).length, 1);
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workspace_memberships')).length, 1);
-    assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO agent_definitions')).length, 5);
-    assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workflow_definitions')).length, 5);
+    assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO agent_definitions')).length, 3);
+    assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workflow_definitions')).length, 2);
     const targetDiagnosticsWorkflow = [...workflowRows.values()].find((row) => row.name === 'Target diagnostics');
     assert.equal(
       targetDiagnosticsWorkflow?.prompt,
-      'Inspect @target[Target name] using live diagnostic evidence and summarize findings and safe next actions.'
+      'Inspect @target[] using live diagnostic evidence and summarize findings and safe next actions.'
     );
     assert.equal(targetDiagnosticsWorkflow?.description, 'Inspect one exact target using live diagnostic evidence.');
-    const targetRemediationWorkflow = [...workflowRows.values()].find((row) => row.name === 'Target remediation');
-    assert.equal(
-      targetRemediationWorkflow?.prompt,
-      'Diagnose @target[Target name] using live evidence. Propose the smallest safe change, request approval before each mutation, verify the result, and summarize rollback guidance.'
-    );
-    assert.equal(targetRemediationWorkflow?.capability_policy.mode, 'read_write');
-    assert.deepEqual(
-      targetRemediationWorkflow?.capability_policy.semanticCapabilityIds,
-      ['target.diagnostics.read', 'target.remediation.write']
-    );
-    assert.deepEqual(
-      targetRemediationWorkflow?.capability_policy.approvalRequirements,
-      ['Before every write-capable target tool']
-    );
     assert.equal(transactionQueries.some(({ sql }) => sql.includes("SET state='complete'")), true);
     assert.equal(queries.filter(({ sql }) => sql.includes('INSERT INTO targets')).length, 2);
     assert.equal(queries.filter(({ sql }) => sql.includes('INSERT INTO kubernetes_target_settings')).length, 1);

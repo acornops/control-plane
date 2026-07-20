@@ -93,12 +93,29 @@ describe('composeKubernetesClusterToolsCatalog', () => {
     });
 
     assert.equal(catalog.servers[0]?.type, 'builtin');
+    assert.equal(catalog.servers[0]?.name, 'AcornOps Kubernetes Tools');
     assert.equal(catalog.servers[0]?.connectionStatus, 'ok');
     assert.equal(catalog.servers[0]?.lastDiscoveryAt, null);
     assert.equal(catalog.servers[0]?.lastDiscoveryError, null);
   });
 
-  it('normalizes tool metadata, ignores name-only overrides for remote tools, and preserves legacy enablement', () => {
+  it('uses a Kubernetes-specific human name for the managed server', () => {
+    const catalog = composeTargetToolsCatalog({
+      workspaceId: 'ws-k8s',
+      targetId: 'cluster-k8s',
+      targetType: 'kubernetes',
+      canEdit: true,
+      servers: [builtInServer('cluster-k8s')],
+      overrides: {},
+      targetSupportsWrite: true,
+      targetAgentConnected: true,
+      tools: []
+    });
+
+    assert.equal(catalog.servers[0]?.name, 'AcornOps Kubernetes Tools');
+  });
+
+  it('normalizes tool metadata, ignores name-only overrides for remote tools, and preserves declared enablement', () => {
     const servers: McpServerConfig[] = [
       {
         id: 'server-b',
@@ -250,6 +267,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
     assert.equal(catalog.targetType, 'virtual_machine');
     assert.equal(catalog.clusterId, undefined);
     assert.equal(catalog.servers[0]?.type, 'builtin');
+    assert.equal(catalog.servers[0]?.name, 'AcornOps VM Tools');
     assert.deepEqual(catalog.servers[0]?.toolCounts, {
       total: 1,
       enabledConfigured: 1,

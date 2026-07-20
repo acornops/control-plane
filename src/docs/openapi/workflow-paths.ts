@@ -45,10 +45,33 @@ const workspaceBody = {
         properties: {
           workspaceId: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID }
         },
-        additionalProperties: true
+        additionalProperties: false
       }
     }
   }
+};
+
+const workflowAuthoringProperties = {
+  name: { type: 'string' },
+  description: { type: 'string' },
+  status: { type: 'string', enum: ['active', 'draft', 'paused'] },
+  prompt: { type: 'string' },
+  agentIds: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', minLength: 1 } },
+  resourceRequirements: { type: 'array', items: { $ref: '#/components/schemas/PromptResourceRequirement' } },
+  capabilityPolicy: { type: 'object', properties: {
+    mode: { type: 'string', enum: ['read_only', 'read_write'] },
+    restrictionMode: { type: 'string', enum: ['inherit', 'restrict'] },
+    semanticCapabilityIds: { type: 'array', items: { type: 'string' } },
+    contextGrants: { type: 'array', items: { type: 'string' } },
+    approvalRequirements: { type: 'array', items: { type: 'string' } }
+  }, additionalProperties: false },
+  tags: { type: 'array', items: { type: 'string' } },
+  inputs: { type: 'array', items: { type: 'object', required: ['name', 'label', 'type', 'required'], properties: {
+    name: { type: 'string' }, label: { type: 'string' },
+    type: { type: 'string', enum: ['text', 'select', 'mcp_server', 'mcp_tool', 'skill', 'output_format', 'approval_policy', 'runtime', 'retention'] },
+    required: { type: 'boolean' }, optionSource: { type: 'string' }
+  }, additionalProperties: false } },
+  requiredPermissions: { type: 'array', items: { type: 'string' } }
 };
 
 const workflowMutationBody = {
@@ -57,40 +80,10 @@ const workflowMutationBody = {
     'application/json': {
       schema: {
         type: 'object',
-        required: ['agentIds'],
+        required: ['workspaceId', 'agentIds'],
         properties: {
           workspaceId: { type: 'string', format: 'uuid' },
-          name: { type: 'string' },
-          description: { type: 'string' },
-          status: { type: 'string', enum: ['active', 'draft', 'paused'] },
-          prompt: { type: 'string' },
-          agentIds: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', minLength: 1 } },
-          targetConstraints: { type: 'object', properties: {
-            targetTypes: { type: 'array', items: { type: 'string', enum: ['kubernetes', 'virtual_machine'] } },
-            targetIds: { type: 'array', items: { type: 'string' } }
-          }, additionalProperties: false },
-          capabilityPolicy: { type: 'object', properties: {
-            mode: { type: 'string', enum: ['read_only', 'read_write'] },
-            restrictionMode: { type: 'string', enum: ['inherit', 'restrict'] },
-            semanticCapabilityIds: { type: 'array', items: { type: 'string' } },
-            contextGrants: { type: 'array', items: { type: 'string' } },
-            maxRuntimeSeconds: {
-              type: 'integer',
-              minimum: 1,
-              deprecated: true,
-              description: 'Compatibility field accepted but ignored. The deployment-wide ASSISTANT_MAX_RUNTIME_MS setting is authoritative.'
-            },
-            retentionDays: {
-              type: 'integer',
-              minimum: 1,
-              deprecated: true,
-              description: 'Compatibility field accepted but ignored. The deployment-wide report retention setting is authoritative.'
-            },
-            approvalRequirements: { type: 'array', items: { type: 'string' } }
-          }, additionalProperties: false },
-          tags: { type: 'array', items: { type: 'string' } },
-          inputs: { type: 'array', items: { type: 'object', additionalProperties: true } },
-          requiredPermissions: { type: 'array', items: { type: 'string' } }
+          ...workflowAuthoringProperties
         },
         additionalProperties: false
       }
@@ -103,8 +96,10 @@ const workflowCreateBody = {
   content: {
     'application/json': {
       schema: {
-        ...workflowMutationBody.content['application/json'].schema,
-        required: ['name', 'prompt', 'agentIds']
+        type: 'object',
+        required: ['name', 'prompt', 'agentIds'],
+        properties: workflowAuthoringProperties,
+        additionalProperties: false
       }
     }
   }
@@ -116,19 +111,11 @@ const workflowCapabilitiesPreviewBody = {
     'application/json': {
       schema: {
         type: 'object',
-        required: ['workspaceId', 'approvedContextGrants'],
+        required: ['workspaceId', 'approvedContextGrants', 'content'],
         properties: {
           workspaceId: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID },
           approvedContextGrants: { type: 'array', items: { type: 'string' } },
-          target: {
-            type: 'object',
-            required: ['id', 'targetType'],
-            properties: {
-              id: { type: 'string' },
-              targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] }
-            },
-            additionalProperties: false
-          }
+          content: { type: 'string', description: 'Prompt used for non-authoritative resource and capability preview.' }
         },
         additionalProperties: false
       }
@@ -142,7 +129,7 @@ const workflowScheduleBody = {
     'application/json': {
       schema: {
         type: 'object',
-        required: ['workflowId', 'name', 'cron', 'timezone', 'principal'],
+        required: ['workflowId', 'name', 'cron', 'timezone', 'controlMessage', 'principal'],
         properties: {
           workspaceId: { type: 'string', format: 'uuid' },
           workflowId: { type: 'string' },
@@ -150,7 +137,7 @@ const workflowScheduleBody = {
           enabled: { type: 'boolean' },
           cron: { type: 'string', example: '0 9 * * 1-5' },
           timezone: { type: 'string', example: 'UTC' },
-          inputDefaults: { type: 'object', additionalProperties: true },
+          controlMessage: { type: 'string', description: 'Prompt template re-resolved and reauthorized for every occurrence.' },
           approvedContextGrants: { type: 'array', items: { type: 'string' } },
           principal: { type: 'object', required: ['type', 'id'], properties: {
             type: { type: 'string', enum: ['user'] }, id: { type: 'string' }
@@ -196,6 +183,35 @@ export function buildWorkflowPaths(): Record<string, unknown> {
         responses: { '200': { description: 'Workflow option catalog.' } }
       }
     },
+    '/api/v1/workspaces/{workspaceId}/prompt-reference-types': {
+      get: {
+        tags: ['prompt resources'], summary: 'List prompt reference providers',
+        description: 'Returns registry descriptors, including unavailable providers and bounded reasons. Implicit providers are not author-selectable.',
+        security: [{ userSession: [] }], parameters: [workspaceIdParameter], responses: { '200': { description: 'Registered prompt reference descriptors.' } }
+      }
+    },
+    '/api/v1/workspaces/{workspaceId}/prompt-references/suggestions': {
+      get: {
+        tags: ['prompt resources'], summary: 'Suggest prompt resource candidates',
+        description: 'Returns same-workspace candidates from one registered provider. Candidate IDs are preview data, never launch authority.',
+        security: [{ userSession: [] }], parameters: [workspaceIdParameter,
+          { in: 'query', name: 'type', required: true, schema: { type: 'string' } },
+          { in: 'query', name: 'q', required: false, schema: { type: 'string' } },
+          { in: 'query', name: 'workflowId', required: false, schema: { type: 'string' } },
+          { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } },
+          { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 50 } }],
+        responses: { '200': { description: 'Prompt resource candidates.' } }
+      }
+    },
+    '/api/v1/workspaces/{workspaceId}/prompt-references/resolve': {
+      post: {
+        tags: ['prompt resources'], summary: 'Preview prompt resource resolution',
+        description: 'Parses all reference types, resolves provider groups concurrently, and returns display-only binding previews and blockers. Run creation always resolves and authorizes again.',
+        security: [{ userSession: [] }], parameters: [workspaceIdParameter],
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['prompt'], properties: { prompt: { type: 'string', maxLength: 32768 }, workflowId: { type: 'string' }, workflowSessionId: { type: 'string' }, initiatingMessageId: { type: 'string' }, mode: { type: 'string', enum: ['authoring', 'launch'] }, requirements: { type: 'array', items: { $ref: '#/components/schemas/PromptResourceRequirement' } } }, additionalProperties: false } } } },
+        responses: { '200': { description: 'Parsed references, candidate status, binding preview, and blockers.' } }
+      }
+    },
     '/api/v1/workspaces/{workspaceId}/workflow-schedules': {
       get: {
         tags: ['workflows'],
@@ -219,7 +235,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       patch: {
         tags: ['workflows'],
         summary: 'Update workflow schedule',
-        description: 'Updates schedule cadence, enabled state, workflow, grants, or defaults. Requires manage_workflows.',
+        description: 'Updates schedule cadence, enabled state, workflow, grants, or the control message. Requires manage_workflows.',
         security: [{ userSession: [] }],
         parameters: [scheduleIdParameter],
         requestBody: workflowScheduleBody,
@@ -237,7 +253,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       post: {
         tags: ['workflows'],
         summary: 'Preview a workflow schedule',
-        description: 'Validates workflow inputs, context grants, cron, and timezone without creating or changing a schedule.',
+        description: 'Resolves the control-message prompt and validates context grants, cron, and timezone without creating or changing a schedule.',
         security: [{ userSession: [] }],
         parameters: [workspaceIdParameter],
         requestBody: workflowScheduleBody,
@@ -385,18 +401,11 @@ export function buildWorkflowPaths(): Record<string, unknown> {
                 properties: {
                   content: {
                     type: 'string',
-                    description: 'Control message. Target-bound launches use one exact @target[Development Cluster] reference. Legacy @cluster[Development Cluster] references remain accepted.'
+                    description: 'Authoritative control message. Resources are selected only through registered @type[label] references.'
                   },
-                  inputs: {
-                    type: 'object',
-                    description: 'Structured authorization bindings derived from prompt references. Incident reports bind mentioned chats as chatSessionIds.',
-                    additionalProperties: true
-                  },
-                  clientRequestId: { type: 'string', description: 'Optional idempotency key supplied by the client.' },
-                  targetId: { type: 'string', description: 'Exact target identifier derived from the target reference in the control message.' },
-                  targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] }
+                  clientRequestId: { type: 'string', description: 'Optional idempotency key supplied by the client.' }
                 },
-                additionalProperties: true
+                additionalProperties: false
               }
             }
           }
@@ -434,20 +443,6 @@ export function buildWorkflowPaths(): Record<string, unknown> {
         tags: ['workflows'], summary: 'Resume a failed workflow entry run as a new attempt', security: [{ userSession: [] }],
         parameters: [{ in: 'path', name: 'executionId', required: true, schema: { type: 'string' } }],
         responses: { '202': { description: 'Resume attempt and dispatch intent committed.', content: { 'application/json': { schema: { type: 'object', properties: { executionId: { type: 'string' }, runId: { type: 'string' }, status: { type: 'string' } } } } } }, '409': { description: 'Execution is not resumable.' } }
-      }
-    },
-    '/api/v1/workflow-reports/{reportId}': {
-      get: {
-        tags: ['workflows'], summary: 'Get PDF report artifact metadata', security: [{ userSession: [] }],
-        parameters: [{ in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
-        responses: { '200': { description: 'Report metadata without report source or PDF bytes.', content: { 'application/json': { schema: { type: 'object', properties: { report: { type: 'object' } } } } } } }
-      }
-    },
-    '/api/v1/workflow-reports/{reportId}/download': {
-      get: {
-        tags: ['workflows'], summary: 'Render and stream a PDF report', security: [{ userSession: [] }],
-        parameters: [{ in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
-        responses: { '200': { description: 'Freshly rendered PDF stream.', content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } } } }
       }
     },
     '/api/v1/report-artifacts/{reportId}': {

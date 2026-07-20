@@ -54,10 +54,6 @@ describe('workflow option catalog repository', () => {
     const catalog = await getWorkflowOptionsCatalog('workspace-1');
 
     assert(observedWorkspaceIds.every((workspaceId) => workspaceId === 'workspace-1'));
-    assert.deepEqual(catalog.clusters[0].provenance, {
-      source: 'target', targetId: 'cluster-1', targetName: 'Production', targetType: 'kubernetes'
-    });
-    assert.equal(catalog.targets[0].provenance?.targetType, 'kubernetes');
     assert.equal(catalog.mcpServers[0].value, 'generic-mcp');
     assert.equal(catalog.mcpServers[0].disabled, false);
     assert.equal(catalog.mcpServers[0].provenance?.source, 'agent');
@@ -67,13 +63,12 @@ describe('workflow option catalog repository', () => {
     ]);
     assert.equal(catalog.agents[0].disabled, true);
     assert.deepEqual(catalog.skills.map((skill) => skill.value), ['shared-skill', 'acornops-observability']);
-    assert.equal(catalog.chatSessions[0].value, 'session-1');
     assert(Object.values(catalog.sourceAvailability).every((source) => source.status === 'available'));
   });
 
   it('isolates source query failures and distinguishes empty from unavailable', async () => {
     mock.method(db, 'query', async (sql: string) => {
-      if (sql.includes('FROM targets') && sql.includes("target_type = 'kubernetes'")) {
+      if (sql.includes('FROM agent_definitions') && sql.includes('mcp_installations')) {
         const error = new Error('database unavailable') as Error & { code: string };
         error.code = '57P01';
         throw error;
@@ -83,12 +78,11 @@ describe('workflow option catalog repository', () => {
 
     const catalog = await getWorkflowOptionsCatalog('workspace-empty');
 
-    assert.equal(catalog.sourceAvailability.clusters.status, 'error');
-    assert.equal(catalog.sourceAvailability.clusters.errorCode, 'DATABASE_57P01');
-    assert.equal(catalog.sourceAvailability.clusters.retryable, true);
-    assert.equal(catalog.sourceAvailability.chatSessions.status, 'empty');
-    assert.equal(catalog.sourceAvailability.mcpServers.status, 'empty');
-    assert.deepEqual(catalog.clusters, []);
+    assert.equal(catalog.sourceAvailability.mcpServers.status, 'error');
+    assert.equal(catalog.sourceAvailability.mcpServers.errorCode, 'DATABASE_57P01');
+    assert.equal(catalog.sourceAvailability.mcpServers.retryable, true);
+    assert.equal(catalog.sourceAvailability.agents.status, 'empty');
+    assert.deepEqual(catalog.mcpServers, []);
   });
 
   it('keeps catalog reads free of lazy template or skill seeding', async () => {

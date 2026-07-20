@@ -404,16 +404,6 @@ describe('parseAppConfig production validation', () => {
     assert.equal(config.CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS, 45);
   });
 
-  it('prefers explicit session max age over legacy session TTL', () => {
-    const config = parseAppConfig({
-      SESSION_TTL_SECONDS: '172800',
-      SESSION_MAX_AGE_SECONDS: '604800',
-      SESSION_IDLE_TIMEOUT_SECONDS: '86400'
-    });
-
-    assert.equal(config.SESSION_MAX_AGE_SECONDS, 604800);
-  });
-
   it('rejects a session idle timeout longer than the max age', () => {
     assert.throws(
       () =>

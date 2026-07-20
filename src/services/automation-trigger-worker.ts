@@ -131,9 +131,9 @@ async function deliver(row: DeliveryRow): Promise<void> {
   if (readinessErrors.length > 0) {
     return reject(
       row,
-      readinessErrors[0].startsWith('MCP_PAT_USER_PRINCIPAL_REQUIRED')
-        ? 'MCP_PAT_USER_PRINCIPAL_REQUIRED'
-        : 'MCP_PERSONAL_CONNECTION_REQUIRED'
+      readinessErrors[0].startsWith('MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED')
+        ? 'MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED'
+        : 'MCP_CONNECTION_REQUIRED'
     );
   }
   const targetType = target?.targetType;

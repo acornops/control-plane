@@ -4,6 +4,7 @@ import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { db } from '../src/infra/db.js';
 import { compileAgentRunScope } from '../src/services/agent-access.js';
 import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
+import { digestBindings, digestPrompt } from '../src/services/prompt-resources/registry.js';
 import {
   createAgentDefinition,
   createAgentRunActivity,
@@ -58,7 +59,7 @@ describe('durable automation approvals', () => {
     const compiledScope = compileAgentRunScope({
       agent: approvalAgent,
       actor: adminActor,
-      approvedContextGrants: ['selected_chat_sessions'],
+      approvedContextGrants: [],
       mappings: await listCapabilityRoutingMappings('workspace-1', { activeReviewedOnly: true })
     });
     const input = {
@@ -170,7 +171,7 @@ describe('durable automation approvals', () => {
       workflow,
       entryAgent: agent,
       mappings: await listCapabilityRoutingMappings('workspace-1', { activeReviewedOnly: true }),
-      exactTargets: [{ id: 'cluster-1', targetType: 'kubernetes' }],
+      targetRoute: { id: 'cluster-1', targetType: 'kubernetes' },
       actor: adminActor,
       approvedContextGrants: ['workspace_metadata', 'target_inventory']
     });
@@ -179,6 +180,10 @@ describe('durable automation approvals', () => {
       workflow,
       session,
       content: 'Collect signals.',
+      promptDigest: digestPrompt('Collect signals.'),
+      bindingDigest: digestBindings([]),
+      resourceBindings: [],
+      resolvedAt: new Date().toISOString(),
       inputs: { targetId: 'cluster-1' },
       targetId: 'cluster-1',
       targetType: 'kubernetes',

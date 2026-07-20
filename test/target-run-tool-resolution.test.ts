@@ -145,17 +145,17 @@ describe('target run tool resolution', () => {
     });
 
     assert.deepEqual(result.allowedToolNames, [
-      'query_logs',
-      'mcp__00000000000040008000000000000002__repository_status'
+      'mcp__00000000000040008000000000000002__repository_status',
+      'query_logs'
     ]);
     assert.deepEqual(result.allowedNativeTools, []);
     assert.deepEqual(result.previewItems.map((tool) => tool.name), [
-      'query_logs',
-      'mcp__00000000000040008000000000000002__repository_status'
+      'mcp__00000000000040008000000000000002__repository_status',
+      'query_logs'
     ]);
   });
 
-  it('includes only the code-owned report tool when no target-native setting exists', async () => {
+  it('uses the documented default-enabled state when target-native setting rows do not exist', async () => {
     installResolverRepoStubs(['read', 'write']);
     mockToolList([]);
 
@@ -167,25 +167,30 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedNativeTools, []);
+    assert.deepEqual(result.allowedNativeTools, [{
+      id: 'web_search',
+      config: { domainFilters: { allowedDomains: [], blockedDomains: [] } }
+    }]);
     assert.deepEqual(result.platformFunctions, [
       { id: 'reports.pdf.generate', modelAlias: 'acornops_generate_pdf_report' }
     ]);
-    assert.deepEqual(result.previewItems.map((item) => item.name), ['acornops_generate_pdf_report']);
+    assert.deepEqual(result.previewItems.map((item) => item.name), ['acornops_generate_pdf_report', 'target_insights', 'web_search']);
     assert.deepEqual(result.allowedToolNames, ['acornops_generate_pdf_report']);
-    assert.equal(result.summary.nativeAllowed, 0);
-    assert.equal(result.summary.totalAllowed, 1);
+    assert.equal(result.summary.nativeAllowed, 1);
+    assert.equal(result.summary.totalAllowed, 3);
   });
 
   it('excludes web search when the target explicitly disables it', async () => {
     installResolverRepoStubs(['read', 'write']);
-    repo.getTargetToolSetting = async () => ({
-      targetId: 'target-1',
-      toolId: 'web_search',
-      enabled: false,
-      config: { domainFilters: { allowedDomains: [], blockedDomains: [] } },
-      updatedAt: '2026-05-24T00:00:00.000Z'
-    });
+    repo.getTargetToolSetting = async (_targetId, toolId) => toolId === 'web_search'
+      ? {
+          targetId: 'target-1',
+          toolId: 'web_search',
+          enabled: false,
+          config: { domainFilters: { allowedDomains: [], blockedDomains: [] } },
+          updatedAt: '2026-05-24T00:00:00.000Z'
+        }
+      : null;
     mockToolList([]);
 
     const result = await resolveTargetRunTools({
@@ -197,7 +202,7 @@ describe('target run tool resolution', () => {
     });
 
     assert.deepEqual(result.allowedNativeTools, []);
-    assert.deepEqual(result.previewItems.map((item) => item.name), ['acornops_generate_pdf_report']);
+    assert.deepEqual(result.previewItems.map((item) => item.name), ['acornops_generate_pdf_report', 'target_insights']);
     assert.equal(result.summary.nativeAllowed, 0);
   });
 
@@ -287,7 +292,7 @@ describe('target run tool resolution', () => {
 
     assert.deepEqual(result.allowedToolNames, ['query_logs', 'acornops_generate_pdf_report']);
     assert.deepEqual(result.allowedToolSpecs.map((tool) => tool.name), ['query_logs', 'acornops_generate_pdf_report']);
-    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['acornops_generate_pdf_report', 'query_logs']);
+    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['acornops_generate_pdf_report', 'query_logs', 'target_insights', 'web_search']);
   });
 
   it('filters write tools when the agent does not advertise write capability', async () => {
@@ -336,7 +341,9 @@ describe('target run tool resolution', () => {
         name: 'synced_logs',
         description: 'Read synced logs',
         capability: 'read',
-        input_schema: { type: 'object' },
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+        artifactPolicy: 'never',
         timeout_ms: 10000,
         version: 'v1'
       }
@@ -387,13 +394,6 @@ describe('target assistant capabilities preview controller', () => {
     installWorkspace('operator');
     repo.getTarget = async () => createTarget({ id: 'target-1', name: 'vm', targetType: 'virtual_machine' });
     installResolverRepoStubs(['read', 'write']);
-    repo.getTargetToolSetting = async () => ({
-      targetId: 'target-1',
-      toolId: 'web_search',
-      enabled: true,
-      config: {},
-      updatedAt: '2026-05-24T00:00:00.000Z'
-    });
     repo.listEnabledValidTargetSkills = async () => {
       throw new Error('capabilities preview must not load full skill files');
     };
@@ -444,5 +444,4 @@ describe('target assistant capabilities preview controller', () => {
       }
     ]);
   });
-
 });

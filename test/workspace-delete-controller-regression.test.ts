@@ -142,7 +142,7 @@ describe('workspace deletion controller regressions', () => {
     });
   });
 
-  it('aborts workspace deletion when personal MCP credential cleanup cannot complete', async () => {
+  it('aborts workspace deletion when individual MCP credential cleanup cannot complete', async () => {
     installWorkspace('owner');
     repo.getWorkspaceSummaryForUser = async () => createWorkspaceSummary();
     repo.listTargets = async () => ({ items: [], nextCursor: undefined });
@@ -165,7 +165,7 @@ describe('workspace deletion controller regressions', () => {
     assert.equal((response.body as { error: { code: string } }).error.code, 'SERVICE_UNAVAILABLE');
     assert.equal(
       (response.body as { error: { message: string } }).error.message,
-      'Failed to clean up personal MCP credentials with llm-gateway'
+      'Failed to clean up individual MCP credentials with llm-gateway'
     );
     assert.equal(workspaceDeleted, false);
   });

@@ -70,7 +70,7 @@ export async function installAutomationTemplateFixtures(
           '{"mode":"before_write","writeToolsRequireApproval":true}','{"level":"restricted","allowExternalData":false}',
           '[]','[]','read_only','[]','[]','{"type":"template","templateId":"acornops-starter","templateVersion":1}','reviewed','["target.diagnostics.read"]','ready','[]'),
          ($1,'agent-incident-reporter','Incident Reporter','Creates evidence-backed incident reports.','Use only explicitly granted evidence.','active','specialist','internal',2,'user-1','user-1',
-          '[]','["chat.sessions.read_selected","reports.pdf.generate"]','[]','["selected_chat_sessions"]',
+          '[]','["prompt.resources.read","reports.pdf.generate"]','[]','[]',
           '{"type":"workspace"}','{"mode":"before_write","writeToolsRequireApproval":true}','{"level":"restricted","allowExternalData":false}',
           '[]','[]','read_only','[]','[]','{"type":"template","templateId":"acornops-starter","templateVersion":1}','reviewed','["incident.report.generate"]','ready','[]')`,
         [workspaceId]
@@ -84,23 +84,23 @@ export async function installAutomationTemplateFixtures(
           '["kubernetes","virtual_machine"]','[]','[]','["get_resource","get_resource_logs","list_resources"]','["acornops-observability"]','["target_inventory","workspace_metadata"]','user-1','user-1',
           '[{"serverId":"acornops-target-agent","toolName":"list_resources","alias":"list_resources","operation":"read"},{"serverId":"acornops-target-agent","toolName":"get_resource","alias":"get_resource","operation":"read"},{"serverId":"acornops-target-agent","toolName":"get_resource_logs","alias":"get_resource_logs","operation":"read"}]'),
          ($1,'route-incident-report','incident.report.generate',1,'agent-incident-reporter',2,'active','reviewed',10,
-          '[]','[]','[]','["chat.sessions.read_selected","reports.pdf.generate"]','[]','["selected_chat_sessions"]','user-1','user-1','[]')`,
+          '[]','[]','[]','["prompt.resources.read","reports.pdf.generate"]','[]','[]','user-1','user-1','[]')`,
         [workspaceId]
       );
       await client.query(
         `INSERT INTO workflow_definitions (
            workspace_id,id,version,template_id,name,description,status,tags,inputs,required_permissions,created_by,
-           readiness_status,readiness_reasons,origin,prompt,agent_ids,entry_agent_id,target_constraints,capability_policy
+           readiness_status,readiness_reasons,origin,prompt,agent_ids,entry_agent_id,resource_requirements,capability_policy
          ) VALUES
          ($1,'cluster-triage',3,'acornops-starter','Target diagnostics','Inspect one explicitly selected target.','active','["target"]','[]','["read_workspace_data"]','user-1',
           'ready','[]','{"type":"template","templateId":"acornops-starter","templateVersion":1}',
-          'Inspect @target[Target name] and summarize findings.','["agent-cluster-triage"]','agent-cluster-triage','{"targetTypes":["kubernetes","virtual_machine"],"targetIds":[]}',
-          '{"mode":"read_only","semanticCapabilityIds":["target.diagnostics.read"],"contextGrants":["workspace_metadata","target_inventory"],"maxRuntimeSeconds":900,"retentionDays":90,"approvalRequirements":[]}'),
+          'Inspect @target[] and summarize findings.','["agent-cluster-triage"]','agent-cluster-triage','[{"type":"target","minimum":1,"maximum":1,"requiredOperations":["read"],"constraints":{"targetTypes":["kubernetes","virtual_machine"],"targetIds":[]}}]',
+          '{"mode":"read_only","restrictionMode":"restrict","semanticCapabilityIds":["target.diagnostics.read"],"contextGrants":["workspace_metadata","target_inventory"],"maxRuntimeSeconds":900,"retentionDays":90,"approvalRequirements":[]}'),
          ($1,'incident-report-pdf',3,'acornops-starter','Incident report','Generate a report from selected chats.','active','["incident"]',
-          '[{"name":"chatSessionIds","label":"Incident chats","type":"chat_session_list","required":true,"optionSource":"chatSessions"}]',
+          '[]',
           '["read_workspace_data"]','user-1','ready','[]','{"type":"template","templateId":"acornops-starter","templateVersion":1}',
-          'Generate an incident report from the explicitly selected chats.','["agent-incident-reporter"]','agent-incident-reporter',NULL,
-          '{"mode":"read_only","semanticCapabilityIds":["incident.report.generate"],"contextGrants":["selected_chat_sessions"],"maxRuntimeSeconds":900,"retentionDays":90,"approvalRequirements":["Before reading selected incident chats"]}')`,
+          'Generate an incident report from @chat[] with provenance.','["agent-incident-reporter"]','agent-incident-reporter','[{"type":"chat","minimum":1,"maximum":20,"requiredOperations":["read"]}]',
+          '{"mode":"read_only","restrictionMode":"inherit","semanticCapabilityIds":[],"contextGrants":[],"maxRuntimeSeconds":900,"retentionDays":90,"approvalRequirements":["Before generating the report"]}')`,
         [workspaceId]
       );
     }

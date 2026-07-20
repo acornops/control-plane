@@ -15,12 +15,15 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: false
     },
-    WorkflowTargetConstraints: {
+    PromptResourceRequirement: {
       type: 'object',
-      required: ['targetTypes', 'targetIds'],
+      required: ['type', 'minimum', 'maximum', 'requiredOperations'],
       properties: {
-        targetTypes: { type: 'array', items: { type: 'string', enum: ['kubernetes', 'virtual_machine'] } },
-        targetIds: stringArray
+        type: { type: 'string', pattern: '^[a-z][a-z0-9_-]{0,63}$' },
+        minimum: { type: 'integer', minimum: 0 },
+        maximum: { type: 'integer', minimum: 0, maximum: 64 },
+        requiredOperations: stringArray,
+        constraints: jsonObject
       },
       additionalProperties: false
     },
@@ -48,7 +51,7 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
     },
     WorkflowDefinition: {
       type: 'object',
-      required: ['id', 'workspaceId', 'version', 'origin', 'name', 'status', 'prompt', 'agentIds', 'executionMode', 'capabilityPolicy', 'requiredPermissions', 'createdBy'],
+      required: ['id', 'workspaceId', 'version', 'origin', 'name', 'status', 'prompt', 'agentIds', 'executionMode', 'resourceRequirements', 'capabilityPolicy', 'requiredPermissions', 'createdBy'],
       properties: {
         id: workflowId,
         workspaceId: uuid,
@@ -60,7 +63,7 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         prompt: { type: 'string' },
         agentIds: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', minLength: 1 } },
         executionMode: { type: 'string', enum: ['direct', 'coordinated'], readOnly: true },
-        targetConstraints: schemaRef('WorkflowTargetConstraints'),
+        resourceRequirements: { type: 'array', items: schemaRef('PromptResourceRequirement') },
         capabilityPolicy: schemaRef('WorkflowCapabilityPolicy'),
         tags: stringArray,
         inputs: { type: 'array', items: jsonObject },
@@ -134,7 +137,7 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         enabledSkills: { type: 'array', items: { type: 'object', required: ['id', 'name'], properties: { id: { type: 'string' }, name: { type: 'string' } }, additionalProperties: false } },
         mcpRequirements: { type: 'array', items: {
           type: 'object',
-          required: ['serverId', 'serverName', 'authType', 'owningAgent', 'connectionState', 'authRequirement', 'action'],
+          required: ['serverId', 'serverName', 'authType', 'connectionState', 'authRequirement', 'action'],
           properties: {
             serverId: { type: 'string', minLength: 1 },
             serverName: { type: 'string', minLength: 1, maxLength: 160 },
@@ -148,12 +151,22 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
               },
               additionalProperties: false
             },
+            owningTarget: {
+              type: 'object',
+              required: ['id', 'name', 'targetType'],
+              properties: {
+                id: { type: 'string', minLength: 1 },
+                name: { type: 'string', minLength: 1, maxLength: 160 },
+                targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] }
+              },
+              additionalProperties: false
+            },
             connectionState: { type: 'string', enum: ['connection_missing', 'connection_error', 'connected'] },
             authRequirement: {
               type: 'object',
               required: ['scope', 'credentialLabel', 'requiredInformation'],
               properties: {
-                scope: { type: 'string', enum: ['personal'] },
+                scope: { type: 'string', enum: ['workspace', 'individual'] },
                 credentialLabel: { type: 'string', minLength: 1, maxLength: 160 },
                 requiredInformation: { type: 'array', items: {
                   type: 'object',
@@ -212,13 +225,10 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
     WorkflowOptionsCatalog: {
       type: 'object',
       properties: {
-        targets: { type: 'array', items: schemaRef('WorkflowOption') },
-        clusters: { type: 'array', items: schemaRef('WorkflowOption') },
         mcpServers: { type: 'array', items: schemaRef('WorkflowOption') },
         mcpTools: { type: 'array', items: schemaRef('WorkflowOption') },
         skills: { type: 'array', items: schemaRef('WorkflowOption') },
         agents: { type: 'array', items: schemaRef('WorkflowOption') },
-        chatSessions: { type: 'array', items: schemaRef('WorkflowOption') },
         outputFormats: { type: 'array', items: schemaRef('WorkflowOption') },
         approvalPolicies: { type: 'array', items: schemaRef('WorkflowOption') },
         runtimeLimits: { type: 'array', items: schemaRef('WorkflowOption') },
@@ -251,7 +261,7 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         status: { type: 'string', enum: ['enabled', 'paused'] },
         cron: { type: 'string' },
         timezone: { type: 'string' },
-        inputDefaults: jsonObject,
+        controlMessage: { type: 'string' },
         approvedContextGrants: stringArray,
         principal: {
           type: 'object',
@@ -302,6 +312,36 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         }
       },
       additionalProperties: false
+    },
+    PromptReferenceTypeDescriptor: {
+      type: 'object',
+      required: ['type', 'displayName', 'description', 'icon', 'placeholderLabel', 'availability', 'minimum', 'maximum', 'allowPinnedReferences', 'provider', 'providerVersion'],
+      properties: {
+        type: { type: 'string', pattern: '^[a-z][a-z0-9_-]{0,63}$' },
+        displayName: { type: 'string' }, description: { type: 'string' }, icon: { type: 'string' }, placeholderLabel: { type: 'string' },
+        availability: { type: 'string', enum: ['available', 'unavailable'] }, unavailableReason: { type: 'string' },
+        minimum: { type: 'integer', minimum: 0 }, maximum: { type: 'integer', minimum: 0, maximum: 64 },
+        allowPinnedReferences: { type: 'boolean' }, implicit: { type: 'boolean' }, provider: { type: 'string' }, providerVersion: { type: 'string' }
+      },
+      additionalProperties: false
+    },
+    PromptReferenceTypeList: { type: 'object', required: ['items'], properties: { items: { type: 'array', items: schemaRef('PromptReferenceTypeDescriptor') } }, additionalProperties: false },
+    PromptResourceCandidate: {
+      type: 'object', required: ['type', 'id', 'label', 'provider', 'availability'],
+      properties: { type: { type: 'string' }, id: { type: 'string' }, label: { type: 'string' }, description: { type: 'string' }, provider: { type: 'string' }, availability: { type: 'string', enum: ['available', 'unavailable'] }, unavailableReason: { type: 'string' }, metadata: jsonObject },
+      additionalProperties: false
+    },
+    PromptResourceCandidateList: { type: 'object', required: ['items'], properties: { items: { type: 'array', items: schemaRef('PromptResourceCandidate') } }, additionalProperties: false },
+    PromptReferenceResolution: {
+      type: 'object', required: ['prompt', 'promptDigest', 'bindingDigest', 'tokens', 'candidates', 'bindings', 'blockers', 'resolvedAt'],
+      properties: {
+        prompt: { type: 'string' }, promptDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' }, bindingDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        tokens: { type: 'array', items: { type: 'object', required: ['type', 'label', 'start', 'end', 'state'], properties: { type: { type: 'string' }, label: { type: 'string' }, start: { type: 'integer' }, end: { type: 'integer' }, state: { type: 'string', enum: ['placeholder', 'concrete'] } }, additionalProperties: false } },
+        candidates: { type: 'array', items: { oneOf: [schemaRef('PromptResourceCandidate'), { type: 'null' }] } },
+        bindings: { type: 'array', items: jsonObject },
+        blockers: { type: 'array', items: { type: 'object', required: ['code', 'message', 'retryable'], properties: { code: { type: 'string' }, message: { type: 'string' }, tokenIndex: { type: 'integer' }, type: { type: 'string' }, retryable: { type: 'boolean' } }, additionalProperties: false } },
+        resolvedAt: dateTime
+      }, additionalProperties: false
     },
     WorkflowApprovalInbox: {
       type: 'object',

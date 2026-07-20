@@ -7,6 +7,11 @@ import {
   listTargetMcpServers,
   listTargetMcpServerTools,
 } from '../src/controllers/workspaces/target-tool-controller.js';
+import {
+  parseTargetMcpServerCreate,
+  parseTargetMcpServerUpdate,
+  targetMcpToolSettingsSchema
+} from '../src/controllers/workspaces/target-mcp-helpers.js';
 import { getVirtualMachineLogs } from '../src/controllers/workspaces/virtual-machine-controller.js';
 import { agentGateway } from '../src/agent/ws-server.js';
 import { syncTooling } from '../src/controllers/internal-tooling-controller.js';
@@ -28,6 +33,18 @@ import {
 
 afterEach(restoreControllerRegressionState);
 describe('target controller regressions', () => {
+  it('rejects malformed and unknown target MCP mutation fields', () => {
+    assert.equal(parseTargetMcpServerCreate({
+      name: 'server', url: 'https://mcp.example.test', auth: { type: 'unsupported' }
+    }).success, false);
+    assert.equal(parseTargetMcpServerCreate({
+      name: 'server', url: 'https://mcp.example.test', credential: 'secret'
+    }).success, false);
+    assert.equal(parseTargetMcpServerUpdate({ enabled: 'false' }).success, false);
+    assert.equal(parseTargetMcpServerUpdate({ ignored: true }).success, false);
+    assert.equal(targetMcpToolSettingsSchema.safeParse({ enabled: false, ignored: true }).success, false);
+  });
+
   it('authorizes target session routes through generic targets', async () => {
     installWorkspace('operator');
     repo.getCluster = async () => {

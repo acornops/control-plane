@@ -18,6 +18,7 @@ const RESERVED_NAMES = new Set([
   'content-length',
   'transfer-encoding',
   'connection',
+  'proxy-connection',
   'upgrade',
   'keep-alive',
   'te',

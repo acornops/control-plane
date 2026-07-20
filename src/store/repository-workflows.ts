@@ -6,9 +6,9 @@ import type {
   WorkflowCapabilityPolicy,
   WorkflowDefinitionForAccess,
   WorkflowDelegationPolicy,
-  WorkflowInputDefinition,
-  WorkflowTargetConstraints
+  WorkflowInputDefinition
 } from '../types/workflows.js';
+import type { PromptResourceRequirement } from '../types/prompt-resources.js';
 import type { DefinitionOrigin } from '../types/agents.js';
 import { resetWorkflowRunRepositoryForTests } from './repository-workflow-runs.js';
 
@@ -46,7 +46,7 @@ export interface WorkflowDefinitionUpdate {
   prompt?: string;
   agentIds?: string[];
   entryAgentId?: string;
-  targetConstraints?: WorkflowTargetConstraints | null;
+  resourceRequirements?: PromptResourceRequirement[];
   capabilityPolicy?: Partial<WorkflowCapabilityPolicy>;
   delegationPolicy?: Partial<WorkflowDelegationPolicy> | null;
   tags?: string[];
@@ -61,7 +61,7 @@ export interface CreateWorkflowDefinitionInput {
   prompt: string;
   agentIds: string[];
   entryAgentId: string;
-  targetConstraints?: WorkflowTargetConstraints;
+  resourceRequirements?: PromptResourceRequirement[];
   capabilityPolicy: WorkflowCapabilityPolicy;
   delegationPolicy?: WorkflowDelegationPolicy;
   tags?: string[];
@@ -82,7 +82,10 @@ function uniqueSorted(values: string[] = []): string[] {
 }
 
 function normalizeCapabilityPolicy(policy: WorkflowCapabilityPolicy): WorkflowCapabilityPolicy {
-  const restrictionMode = policy.restrictionMode === 'inherit' ? 'inherit' : 'restrict';
+  if (!policy || (policy.restrictionMode !== 'inherit' && policy.restrictionMode !== 'restrict')) {
+    throw new Error('Workflow capability policy must include a valid restrictionMode');
+  }
+  const restrictionMode = policy.restrictionMode;
   return {
     mode: policy.mode,
     restrictionMode,
@@ -94,12 +97,14 @@ function normalizeCapabilityPolicy(policy: WorkflowCapabilityPolicy): WorkflowCa
   };
 }
 
-function normalizeTargetConstraints(value?: WorkflowTargetConstraints): WorkflowTargetConstraints | undefined {
-  if (!value) return undefined;
-  return {
-    targetTypes: [...new Set(value.targetTypes)],
-    targetIds: uniqueSorted(value.targetIds)
-  };
+function normalizeResourceRequirements(values: PromptResourceRequirement[] = []): PromptResourceRequirement[] {
+  return values.map((value) => ({
+    type: value.type.trim(),
+    minimum: Math.max(0, Math.floor(value.minimum)),
+    maximum: Math.max(0, Math.floor(value.maximum)),
+    requiredOperations: uniqueSorted(value.requiredOperations),
+    ...(value.constraints ? { constraints: { ...value.constraints } } : {})
+  })).sort((left, right) => left.type.localeCompare(right.type));
 }
 
 function normalizeDelegationPolicy(value?: Partial<WorkflowDelegationPolicy> | null): WorkflowDelegationPolicy | undefined {
@@ -123,11 +128,8 @@ function mapWorkflowDefinition(row: WorkflowRow): WorkflowDefinitionForAccess {
     agentIds: row.agent_ids || [],
     executionMode: (row.agent_ids || []).length > 1 ? 'coordinated' : 'direct',
     entryAgentId: row.entry_agent_id,
-    targetConstraints: row.target_constraints || undefined,
-    capabilityPolicy: normalizeCapabilityPolicy({
-      ...row.capability_policy,
-      restrictionMode: row.capability_policy?.restrictionMode === 'inherit' ? 'inherit' : 'restrict'
-    }),
+    resourceRequirements: normalizeResourceRequirements(row.resource_requirements || []),
+    capabilityPolicy: normalizeCapabilityPolicy(row.capability_policy),
     delegationPolicy: row.delegation_policy || undefined,
     tags: row.tags || [],
     inputs: row.inputs || [],
@@ -169,7 +171,7 @@ export async function createWorkflowDefinition(
   const slug = input.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'workflow';
   const capabilityPolicy = normalizeCapabilityPolicy(input.capabilityPolicy);
   const agentIds = uniqueSorted(input.agentIds);
-  const targetConstraints = normalizeTargetConstraints(input.targetConstraints);
+  const resourceRequirements = normalizeResourceRequirements(input.resourceRequirements);
   const delegationPolicy = normalizeDelegationPolicy(input.delegationPolicy);
   const readiness = {
     status: 'needs_setup',
@@ -177,7 +179,7 @@ export async function createWorkflowDefinition(
   } as const;
   const result = await queryable.query<WorkflowRow>(
     `INSERT INTO workflow_definitions (
-       workspace_id,id,version,origin,name,description,status,prompt,agent_ids,entry_agent_id,target_constraints,
+       workspace_id,id,version,origin,name,description,status,prompt,agent_ids,entry_agent_id,resource_requirements,
        capability_policy,delegation_policy,tags,inputs,required_permissions,created_by,readiness_status,readiness_reasons
      ) VALUES ($1,$2,1,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
     [
@@ -190,7 +192,7 @@ export async function createWorkflowDefinition(
       input.prompt.trim(),
       JSON.stringify(agentIds),
       input.entryAgentId,
-      targetConstraints || null,
+      JSON.stringify(resourceRequirements),
       capabilityPolicy,
       delegationPolicy || null,
       JSON.stringify(uniqueSorted(input.tags)),
@@ -219,7 +221,7 @@ export async function duplicateWorkflowDefinition(
     prompt: source.prompt,
     agentIds: source.agentIds,
     entryAgentId: source.entryAgentId,
-    targetConstraints: source.targetConstraints,
+    resourceRequirements: source.resourceRequirements,
     capabilityPolicy: source.capabilityPolicy,
     delegationPolicy: source.delegationPolicy,
     tags: source.tags,
@@ -248,7 +250,7 @@ export async function updateWorkflowDefinitionScope(
     : normalizeDelegationPolicy(update.delegationPolicy || current.delegationPolicy);
   const result = await queryable.query<WorkflowRow>(
     `UPDATE workflow_definitions SET
-       version=version+1,name=$3,description=$4,status=$5,prompt=$6,agent_ids=$7,entry_agent_id=$8,target_constraints=$9,
+       version=version+1,name=$3,description=$4,status=$5,prompt=$6,agent_ids=$7,entry_agent_id=$8,resource_requirements=$9,
        capability_policy=$10,delegation_policy=$11,tags=$12,inputs=$13,required_permissions=$14,
        readiness_status='needs_setup',readiness_reasons=$15,updated_at=NOW()
      WHERE workspace_id=$1 AND id=$2 RETURNING *`,
@@ -261,9 +263,9 @@ export async function updateWorkflowDefinitionScope(
       update.prompt?.trim() || current.prompt,
       JSON.stringify(update.agentIds ? uniqueSorted(update.agentIds) : current.agentIds),
       update.entryAgentId || current.entryAgentId,
-      (Object.prototype.hasOwnProperty.call(update, 'targetConstraints')
-        ? normalizeTargetConstraints(update.targetConstraints || undefined)
-        : current.targetConstraints) || null,
+      JSON.stringify(update.resourceRequirements
+        ? normalizeResourceRequirements(update.resourceRequirements)
+        : current.resourceRequirements),
       capabilityPolicy,
       delegationPolicy || null,
       JSON.stringify(update.tags ? uniqueSorted(update.tags) : current.tags || []),

@@ -17,6 +17,7 @@ import { config } from '../src/config.js';
 import { db } from '../src/infra/db.js';
 import { compileAgentRunScope } from '../src/services/agent-access.js';
 import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
+import { digestBindings, digestPrompt } from '../src/services/prompt-resources/registry.js';
 import { repo } from '../src/store/repository.js';
 import {
   createAgentRunActivity,
@@ -159,7 +160,7 @@ describe('internal MCP bridge audit classification', () => {
       workflow,
       entryAgent,
       mappings: await listCapabilityRoutingMappings(workflow.workspaceId, { activeReviewedOnly: true }),
-      exactTargets: [{ id: 'cluster-primary', targetType: 'kubernetes' }],
+      targetRoute: { id: 'cluster-primary', targetType: 'kubernetes' },
       actor: {
         userId: 'user-1',
         role: 'operator',
@@ -172,6 +173,10 @@ describe('internal MCP bridge audit classification', () => {
       workflow,
       session,
       content: 'Triage cluster',
+      promptDigest: digestPrompt('Triage cluster'),
+      bindingDigest: digestBindings([]),
+      resourceBindings: [],
+      resolvedAt: new Date().toISOString(),
       inputs: { targetId: 'cluster-primary' },
       targetId: 'cluster-primary',
       targetType: 'kubernetes',
@@ -245,13 +250,17 @@ describe('internal MCP bridge audit classification', () => {
         role: 'operator',
         permissions: getWorkspacePermissions('operator')
       },
-      approvedContextGrants: ['selected_chat_sessions']
+      approvedContextGrants: []
     });
     const session = await createWorkflowSession({ workflow, createdBy: 'user-1', compiledAccessScope });
     const created = await createWorkflowExecution({
       workflow,
       session,
       content: 'Generate incident report',
+      promptDigest: digestPrompt('Generate incident report'),
+      bindingDigest: digestBindings([]),
+      resourceBindings: [],
+      resolvedAt: new Date().toISOString(),
       inputs: { chatSessionIds: ['chat-session-1'] },
       agentSnapshot: entryAgent as unknown as Record<string, unknown>
     });
@@ -398,7 +407,7 @@ describe('internal MCP bridge audit classification', () => {
       compiledScope: compileAgentRunScope({
         agent,
         actor,
-        approvedContextGrants: ['selected_chat_sessions'],
+        approvedContextGrants: [],
         mappings: await listCapabilityRoutingMappings('workspace-1', { activeReviewedOnly: true })
       }),
       clientRequestId: 'direct-agent-report-denial'

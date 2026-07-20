@@ -2,6 +2,7 @@ import type { WorkspaceCapability } from '../auth/authorization.js';
 import type { AgentDefinition, RunPrincipalRef } from '../types/agents.js';
 import type { CapabilityRoutingMapping } from '../types/capability-routing.js';
 import type { WorkspaceAuditOperation } from '../types/domain.js';
+import type { PromptResourceBinding } from '../types/prompt-resources.js';
 import type {
   CompiledWorkflowAccessScope,
   WorkflowAccessActor,
@@ -12,8 +13,7 @@ import { resolveEffectiveWorkflowCapabilityIds } from './workflow-capability-pol
 import { getWorkspaceNativeTool } from './workspace-native-tools.js';
 import {
   capabilityRequiresExactTarget,
-  targetAllowedByAgentScope,
-  targetAllowedByWorkflowConstraints
+  targetAllowedByAgentScope
 } from './target-scope-authorization.js';
 
 export type WorkflowAccessDeniedCode =
@@ -49,8 +49,10 @@ export interface CompileWorkflowAccessInput {
   mappings: CapabilityRoutingMapping[];
   actor: WorkflowAccessActor;
   approvedContextGrants: string[];
-  exactTargets?: Array<{ id: string; targetType: 'kubernetes' | 'virtual_machine' }>;
-  exactRepository?: import('../types/workflows.js').WorkflowRepositoryScope;
+  targetRoute?: { id: string; targetType: 'kubernetes' | 'virtual_machine' };
+  resourceBindings?: PromptResourceBinding[];
+  promptDigest?: string;
+  bindingDigest?: string;
   triggerId?: string;
   principal?: RunPrincipalRef;
 }
@@ -97,14 +99,14 @@ function exactMappingsForSpecialist(
   input: CompileWorkflowAccessInput,
   capabilityIds: string[]
 ): CapabilityRoutingMapping[] {
-  const exactTargets = input.exactTargets || [];
+  const targetRoutes = input.targetRoute ? [input.targetRoute] : [];
   return capabilityIds.map((capabilityId) => {
     const mapping = input.mappings.find((candidate) => (
       candidate.capabilityId === capabilityId
       && candidate.agentId === input.entryAgent.id
       && candidate.agentVersion === input.entryAgent.version
       && (candidate.invocationScopes || ['agent', 'workflow']).includes('workflow')
-      && mappingCompatible(candidate, exactTargets)
+      && mappingCompatible(candidate, targetRoutes)
     ));
     if (!mapping) {
       throw new WorkflowAccessDeniedError(
@@ -153,13 +155,12 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
   const selectedAgents = input.selectedAgents?.length ? input.selectedAgents : manager ? [] : [input.entryAgent];
   const effectiveCapabilityIds = resolveEffectiveWorkflowCapabilityIds(input.workflow.capabilityPolicy, selectedAgents);
   const requiresTarget = effectiveCapabilityIds.some(capabilityRequiresExactTarget);
-  if (requiresTarget && (input.exactTargets?.length || 0) !== 1) {
+  if (requiresTarget && !input.targetRoute) {
     throw new WorkflowAccessDeniedError('WORKFLOW_TARGET_REQUIRED', 'This workflow capability requires one exact target.');
   }
-  const exactTarget = input.exactTargets?.[0];
+  const exactTarget = input.targetRoute;
   if (exactTarget && (
     !targetAllowedByAgentScope(input.entryAgent.targetScope, exactTarget)
-    || !targetAllowedByWorkflowConstraints(input.workflow.targetConstraints, exactTarget)
   )) {
     throw new WorkflowAccessDeniedError('WORKFLOW_TARGET_SCOPE_DENIED', 'The selected target is outside the Agent or workflow scope.');
   }
@@ -171,7 +172,7 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
     ? input.entryAgent.mcpInstallations.flatMap((installation) => {
         if (!installation.enabled) return [];
         const constraints = installation.targetConstraints || { targetTypes: [], targetIds: [] };
-        if ((input.exactTargets || []).some((target) => (
+        if ((input.targetRoute ? [input.targetRoute] : []).some((target) => (
           (constraints.targetIds.length > 0 && !constraints.targetIds.includes(target.id))
           || (constraints.targetTypes.length > 0 && !constraints.targetTypes.includes(target.targetType))
         ))) return [];
@@ -256,8 +257,9 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
       version: input.entryAgent.version,
       kind: input.entryAgent.kind
     },
-    exactTargets: [...(input.exactTargets || [])],
-    ...(input.exactRepository ? { exactRepository: { ...input.exactRepository } } : {}),
+    resourceBindings: [...(input.resourceBindings || [])],
+    promptDigest: input.promptDigest,
+    bindingDigest: input.bindingDigest,
     resourceResolutionPhase: 'run_exact',
     coordinationFunctions,
     jwtClaims: {
@@ -272,22 +274,20 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
         allowed_tool_refs: effectiveRefs.map((ref) => ({ server_id: ref.serverId, tool_name: ref.toolName })),
         allowed_tool_operations: toolOperations,
         context_grants: contextGrants,
-        ...(input.exactRepository ? {
-          allowed_repository: {
-            provider: input.exactRepository.provider,
-            repository: input.exactRepository.repository,
-            ...(input.exactRepository.ref ? { ref: input.exactRepository.ref } : {}),
-            ...(input.exactRepository.changeRequestNumber
-              ? { change_request_number: input.exactRepository.changeRequestNumber }
-              : {})
-          }
-        } : {})
+        resource_bindings: (input.resourceBindings || []).map((binding) => ({
+          binding_id: binding.bindingId,
+          type: binding.type,
+          resource_id: binding.resourceId,
+          provider: binding.provider,
+          operations: binding.operations
+        })),
+        binding_digest: input.bindingDigest
       }
     }
   };
 }
 
-export function compileWorkflowSessionCeiling(input: Omit<CompileWorkflowAccessInput, 'mappings' | 'exactTargets'>): CompiledWorkflowAccessScope {
+export function compileWorkflowSessionCeiling(input: Omit<CompileWorkflowAccessInput, 'mappings' | 'targetRoute'>): CompiledWorkflowAccessScope {
   const requiredPermissions = requiredPermissionsFor(input.workflow);
   const missingPermissions = requiredPermissions.filter((permission) => !input.actor.permissions[permission]);
   if (missingPermissions.length) {
@@ -328,13 +328,16 @@ export function compileWorkflowSessionCeiling(input: Omit<CompileWorkflowAccessI
     permissionMode: input.workflow.capabilityPolicy.mode === 'read_only' ? 'read_only' : input.entryAgent.permissionMode,
     principal,
     entryAgent: { id: input.entryAgent.id, version: input.entryAgent.version, kind: input.entryAgent.kind },
-    exactTargets: [],
+    resourceBindings: [],
     resourceResolutionPhase: 'session_ceiling',
     coordinationFunctions: input.entryAgent.kind === 'manager' ? [...MANAGER_COORDINATION_FUNCTIONS] : [],
     jwtClaims: {
       scope: { type: 'workspace' }, workflow_id: input.workflow.id, workflow_version: input.workflow.version,
       agent_id: input.entryAgent.id, agent_version: input.entryAgent.version,
-      permissions: { allowed_tools: [], allowed_tool_refs: [], allowed_tool_operations: {}, context_grants: requestedContext }
+      permissions: {
+        allowed_tools: [], allowed_tool_refs: [], allowed_tool_operations: {}, context_grants: requestedContext,
+        resource_bindings: []
+      }
     }
   };
 }

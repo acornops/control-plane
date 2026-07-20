@@ -21,10 +21,14 @@ import { listCapabilityRoutingMappings } from '../store/repository-capability-ro
 import { repo } from '../store/repository.js';
 import { getWorkflowDefinition } from '../store/repository-workflows.js';
 import type { WorkflowAccessActor, WorkflowCapabilitiesPreview, WorkflowCapabilityPreviewReasonCode, WorkflowCapabilityToolPreview, WorkflowTargetCapabilityCandidate } from '../types/workflows.js';
+import type { PromptResourceBinding } from '../types/prompt-resources.js';
 import { toSingleParam } from '../utils/params.js';
-import { publicCompiledWorkflowScope } from './workflow-public.js';
-import { getMcpUserConnection, listAgentMcpServers } from '../services/mcp-registry-client.js';
-import { resolveWorkflowRepositoryScope, WorkflowInputValidationError } from '../services/workflow-input-validation.js';
+import { publicCompiledWorkflowScope, respondWorkflowAccessError } from './workflow-public.js';
+import { getMcpConnection, listAgentMcpServers, listTargetMcpServers, type McpServerConfig } from '../services/mcp-registry-client.js';
+import { builtinTargetMcpServerDisplayName } from '../services/kubernetes-cluster-tools-catalog.js';
+import { workflowTargetPolicy } from '../services/prompt-resources/providers/target-provider.js';
+import { promptResourceRegistry } from '../services/prompt-resources/index.js';
+import { isTargetType, type TargetSummary } from '../types/domain.js';
 
 function requestWorkspaceId(req: AuthenticatedRequest): string | null {
   const raw = req.body?.workspaceId || req.query.workspaceId;
@@ -37,23 +41,14 @@ function approvedContextGrants(req: AuthenticatedRequest): string[] {
     : [];
 }
 
-function accessError(res: Response, error: WorkflowAccessDeniedError): void {
-  res.status(error.code === 'WORKFLOW_PERMISSION_DENIED' ? 403 : 409).json({
-    error: {
-      code: error.code,
-      message: error.message,
-      retryable: false,
-      details: { missingPermissions: error.missingPermissions, missingContextGrants: error.missingContextGrants }
-    }
-  });
-}
-
 async function compilePreviewScope(input: {
   workflow: NonNullable<Awaited<ReturnType<typeof getWorkflowDefinition>>>;
   actor: WorkflowAccessActor;
   approvedContextGrants: string[];
-  exactTargets: Array<{ id: string; targetType: 'kubernetes' | 'virtual_machine' }>;
-  exactRepository?: import('../types/workflows.js').WorkflowRepositoryScope;
+  targetRoute?: { id: string; targetType: 'kubernetes' | 'virtual_machine' };
+  resourceBindings: PromptResourceBinding[];
+  promptDigest: string;
+  bindingDigest: string;
 }) {
   const readiness = await computeWorkflowReadiness(input.workflow);
   if (readiness.status !== 'ready') {
@@ -69,58 +64,92 @@ async function compilePreviewScope(input: {
     entryAgent,
     selectedAgents,
     mappings,
-    scope: compileWorkflowAccessScope({ workflow: input.workflow, entryAgent, selectedAgents, mappings, actor: input.actor, approvedContextGrants: input.approvedContextGrants, exactTargets: input.exactTargets, exactRepository: input.exactRepository })
+    scope: compileWorkflowAccessScope({
+      workflow: input.workflow, entryAgent, selectedAgents, mappings, actor: input.actor,
+      approvedContextGrants: input.approvedContextGrants, targetRoute: input.targetRoute,
+      resourceBindings: input.resourceBindings, promptDigest: input.promptDigest, bindingDigest: input.bindingDigest
+    })
   };
 }
 
-async function genericMcpAuthRequirements(input: {
+export async function genericMcpAuthRequirements(input: {
   workspaceId: string;
   userId: string;
   agents: NonNullable<Awaited<ReturnType<typeof getAgentDefinition>>>[];
   scope: ReturnType<typeof compileWorkflowAccessScope>;
+  target?: TargetSummary;
 }): Promise<WorkflowCapabilitiesPreview['mcpRequirements']> {
   const allowedServerIds = new Set(input.scope.mcpServers);
-  const installed = (await Promise.all(input.agents.map(async (agent) => ({
+  const installedAgentServers = (await Promise.all(input.agents.map(async (agent) => ({
     agent,
     servers: await listAgentMcpServers(input.workspaceId, agent.id)
   })))).flatMap(({ agent, servers }) => servers.map((server) => ({ agent, server })))
     .filter(({ server }) => server.enabled
-      && (server.auth_scope === 'personal' || (!server.auth_scope && server.auth_type !== 'none'))
+      && server.credential_mode !== 'none'
       && allowedServerIds.has(server.id));
-  return Promise.all(installed.map(async ({ agent, server }) => {
-    const connection = await getMcpUserConnection(input.workspaceId, server.id, input.userId);
+  const allowedTargetServerIds = new Set(input.scope.targetToolRefs.map((ref) => ref.serverId));
+  const installedTargetServers = input.target
+    ? (await listTargetMcpServers(input.workspaceId, input.target.id, input.target.targetType))
+      .filter((server) => server.enabled
+        && server.credential_mode !== 'none'
+        && allowedTargetServerIds.has(server.id))
+    : [];
+
+  const requirementForServer = async (
+    server: McpServerConfig,
+    owner: { owningAgent: { id: string; name: string } } | { owningTarget: { id: string; name: string; targetType: TargetSummary['targetType'] } },
+    serverName = server.server_name
+  ): Promise<WorkflowCapabilitiesPreview['mcpRequirements'][number]> => {
+    const credentialMode = server.credential_mode === 'workspace'
+      ? 'workspace' as const
+      : 'individual' as const;
+    const workspaceManaged = credentialMode === 'workspace';
+    const connection = await getMcpConnection(
+      input.workspaceId,
+      server.id,
+      workspaceManaged ? 'installation' : 'user',
+      workspaceManaged ? 'installation' : input.userId
+    );
     const authType = server.auth_type === 'custom_header' ? 'custom_header' as const : 'bearer_token' as const;
     const credentialLabel = authType === 'bearer_token' ? 'API key or bearer token' : 'Custom header credential';
     return {
       serverId: server.id,
-      serverName: server.server_name,
+      serverName,
       authType,
-      owningAgent: { id: agent.id, name: agent.name },
+      ...owner,
       connectionState: connection.status === 'connected' ? 'connected' as const
         : connection.status === 'error' ? 'connection_error' as const
           : 'connection_missing' as const,
       authRequirement: {
-        scope: 'personal' as const,
+        scope: credentialMode,
         credentialLabel,
         requiredInformation: [{
           name: credentialLabel,
-          description: `Provide the personal key or token issued for ${server.server_name}. AcornOps stores this value write-only and never returns it.`
+          description: workspaceManaged
+            ? `Provide a service or bot credential for ${serverName}. Authorized users and automations, including service identities, will use it.`
+            : `Provide your credential for ${serverName}. AcornOps stores it privately and never returns it. User-owned schedules that run as you will use this connection.`
         }]
       },
       action: connection.status === 'connected' ? 'none' as const
         : connection.status === 'error' ? 'verify_mcp_server' as const
           : 'connect_mcp_server' as const
     };
-  }));
-}
+  };
 
-function requestedTarget(req: AuthenticatedRequest): { id: string; targetType: 'kubernetes' | 'virtual_machine' } | undefined | null {
-  if (req.body?.target === undefined) return undefined;
-  if (!req.body.target || typeof req.body.target !== 'object' || Array.isArray(req.body.target)) return null;
-  const id = typeof req.body.target.id === 'string' ? req.body.target.id.trim() : '';
-  const targetType = req.body.target.targetType;
-  if (!id || (targetType !== 'kubernetes' && targetType !== 'virtual_machine')) return null;
-  return { id, targetType };
+  const agentRequirements = installedAgentServers.map(({ agent, server }) => requirementForServer(
+    server,
+    { owningAgent: { id: agent.id, name: agent.name } }
+  ));
+  const targetRequirements = input.target
+    ? installedTargetServers.map((server) => requirementForServer(
+        server,
+        { owningTarget: { id: input.target!.id, name: input.target!.name, targetType: input.target!.targetType } },
+        server.provenance_type === 'builtin'
+          ? builtinTargetMcpServerDisplayName(input.target!.targetType)
+          : server.server_name
+      ))
+    : [];
+  return Promise.all([...agentRequirements, ...targetRequirements]);
 }
 
 function responseBody(input: {
@@ -183,8 +212,30 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
     if (!authz) return;
     const requiredCapability = workflow.capabilityPolicy.mode === 'read_write' ? 'create_read_write_runs' : 'create_read_only_runs';
     if (!authz.can(requiredCapability)) return void res.status(403).json({ error: { code: 'FORBIDDEN', message: 'No permission to preview this workflow run.', retryable: false } });
-    const target = requestedTarget(req);
-    if (target === null) return void res.status(400).json({ error: { code: 'WORKFLOW_PREVIEW_TARGET_INVALID', message: 'target must contain an exact id and supported targetType.', retryable: false } });
+    const content = typeof req.body?.content === 'string' ? req.body.content.trim() : workflow.prompt;
+    const referenceResolution = await promptResourceRegistry.resolve(content, {
+      workspaceId,
+      actorUserId: req.auth.userId,
+      workflowId: workflow.id,
+      mode: 'launch',
+      requirements: workflow.resourceRequirements
+    });
+    if (referenceResolution.blockers.length > 0) {
+      return void res.status(409).json({ error: {
+        code: 'WORKFLOW_PROMPT_REFERENCES_BLOCKED',
+        message: referenceResolution.blockers.map((blocker) => blocker.message).join(' '),
+        retryable: referenceResolution.blockers.some((blocker) => blocker.retryable),
+        details: { blockers: referenceResolution.blockers }
+      } });
+    }
+    const runtimeProjection = promptResourceRegistry.projectRuntime(referenceResolution.bindings, 'capability-preview');
+    const projectedTarget = runtimeProjection.targetRoute && typeof runtimeProjection.targetRoute === 'object'
+      ? runtimeProjection.targetRoute as Record<string, unknown>
+      : undefined;
+    const target = projectedTarget && typeof projectedTarget.id === 'string'
+      && typeof projectedTarget.targetType === 'string' && isTargetType(projectedTarget.targetType)
+      ? { id: projectedTarget.id, targetType: projectedTarget.targetType }
+      : undefined;
     const selectedAgents = (await Promise.all(workflow.agentIds.map((agentId) => getAgentDefinition(workspaceId, agentId))))
       .filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
     const semanticCapabilityIds = resolveEffectiveWorkflowCapabilityIds(workflow.capabilityPolicy, selectedAgents);
@@ -194,7 +245,8 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
       repo.listWorkspaceTargetAgentRegistrations(workspaceId),
       target ? repo.getTarget(workspaceId, target.id) : Promise.resolve(null)
     ]);
-    const requiresTarget = workflowRequiresExactTarget(semanticCapabilityIds) || Boolean(workflow.targetConstraints?.targetIds.length || workflow.targetConstraints?.targetTypes.length);
+    const targetPolicy = workflowTargetPolicy(workflow);
+    const requiresTarget = workflowRequiresExactTarget(semanticCapabilityIds) || Boolean(targetPolicy?.targetIds.length || targetPolicy?.targetTypes.length);
     const candidates = requiresTarget ? workflowTargetCandidates({ workflow, agents: selectedAgents, semanticCapabilityIds, mappings, targets, registrations }) : [];
     if (requiresTarget && !target) {
       incrementWorkflowCapabilityPreviewBlocker('TARGET_REQUIRED');
@@ -218,15 +270,14 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
         return void res.status(200).json(response);
       }
     }
-    const previewInputs = req.body?.inputs && typeof req.body.inputs === 'object' && !Array.isArray(req.body.inputs)
-      ? req.body.inputs as Record<string, unknown>
-      : {};
     const compiled = await compilePreviewScope({
       workflow,
       actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
       approvedContextGrants: approvedContextGrants(req),
-      exactTargets: selectedTargetRecord ? [{ id: selectedTargetRecord.id, targetType: selectedTargetRecord.targetType }] : [],
-      exactRepository: resolveWorkflowRepositoryScope(workflow, previewInputs)
+      targetRoute: selectedTargetRecord ? { id: selectedTargetRecord.id, targetType: selectedTargetRecord.targetType } : undefined,
+      resourceBindings: referenceResolution.bindings,
+      promptDigest: referenceResolution.promptDigest,
+      bindingDigest: referenceResolution.bindingDigest
     });
     let scope = compiled.scope;
     let selectedTargetTools: WorkflowCapabilityToolPreview[] = [];
@@ -246,7 +297,7 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
     }
     const readiness = await getWorkflowCapabilityReadinessReport(workspaceId, scope, selectedTargetRecord || undefined, { principal: scope.principal });
     const attachments = directWorkflowAttachments({ agent: compiled.entryAgent, scope, target: selectedTargetRecord || undefined, excludedToolNames: selectedTargetToolNames });
-    const genericAuthRequirements = await genericMcpAuthRequirements({ workspaceId, userId: req.auth.userId, agents: compiled.selectedAgents, scope });
+    const genericAuthRequirements = await genericMcpAuthRequirements({ workspaceId, userId: req.auth.userId, agents: compiled.selectedAgents, scope, target: selectedTargetRecord || undefined });
     const mcpRequirements = genericAuthRequirements;
     const tools = [...selectedTargetTools, ...attachments.tools].filter((tool, index, values) => values.findIndex((candidate) => candidate.id === tool.id && candidate.source === tool.source) === index);
     const reasonCodes: WorkflowCapabilityPreviewReasonCode[] = readiness.errors.length ? ['MCP_CONNECTION_UNAVAILABLE'] : [];
@@ -256,10 +307,7 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
     logger.info({ workspaceId, workflowId: workflow.id, workflowVersion: workflow.version, targetId: selectedCandidate?.id, targetType: selectedCandidate?.targetType, status: response.status, targetCount: response.counts.targets, readyTargetCount: response.counts.readyTargets, toolCount: response.counts.tools, readToolCount: response.counts.readTools, writeToolCount: response.counts.writeTools, reasonCodes }, 'Workflow capability preview completed');
     res.status(200).json(response);
   } catch (error) {
-    if (error instanceof WorkflowAccessDeniedError) return accessError(res, error);
-    if (error instanceof WorkflowInputValidationError) {
-      return void res.status(400).json({ error: { code: error.code, message: error.message, retryable: false, details: { field: error.field } } });
-    }
+    if (error instanceof WorkflowAccessDeniedError) return respondWorkflowAccessError(res, error);
     logger.warn({ workflowId: toSingleParam(req.params.workflowId), status: 'error' }, 'Workflow capability preview failed');
     next(error);
   } finally {

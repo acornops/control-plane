@@ -74,7 +74,7 @@ describe('browser session authentication edge cases', () => {
     assert.equal(deletedKeys.includes('cp:session:session-1'), true);
   });
 
-  it('rejects a legacy session at its expiry instant', async () => {
+  it('rejects a non-current session record', async () => {
     const now = 1_700_000_000_000;
     const deletedKeys: string[] = [];
     mock.method(Date, 'now', () => now);

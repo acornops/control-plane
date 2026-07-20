@@ -27,7 +27,7 @@ export function buildTargetMcpWireSchemas(): Record<string, JsonSchema> {
     },
     TargetMcpServerConfig: {
       type: 'object',
-      required: ['id', 'workspace_id', 'server_name', 'server_url', 'enabled', 'auth_type', 'auth_scope', 'tools'],
+      required: ['id', 'workspace_id', 'server_name', 'server_url', 'enabled', 'auth_type', 'credential_mode', 'tools'],
       properties: {
         id: uuid,
         workspace_id: uuid,
@@ -37,7 +37,7 @@ export function buildTargetMcpWireSchemas(): Record<string, JsonSchema> {
         server_url: { type: 'string', format: 'uri' },
         enabled: { type: 'boolean' },
         auth_type: { type: 'string', enum: ['none', 'bearer_token', 'custom_header'] },
-        auth_scope: { type: 'string', enum: ['none', 'personal'] },
+        credential_mode: { type: 'string', enum: ['none', 'workspace', 'individual'] },
         auth_header_name: { type: 'string' },
         auth_header_prefix: { type: 'string' },
         public_headers: { type: 'object', additionalProperties: { type: 'string' } },

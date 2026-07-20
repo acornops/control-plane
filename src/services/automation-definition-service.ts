@@ -24,14 +24,11 @@ import { refreshAgentReadiness, refreshWorkflowReadiness } from './automation-re
 import {
   recomputeWorkflowCoordinatorPolicy,
   resolveWorkflowRouting,
-  ensureWorkflowCoordinator,
   type WorkflowCoordinatorFactory,
   WorkflowSelectionError,
   WORKFLOW_COORDINATOR_SYSTEM_ROLE
 } from './workflow-coordinator.js';
 import { reconcileTargetDiagnosticsForAgent } from './target-diagnostics-capability.js';
-import { repo } from '../store/repository.js';
-import type { WorkflowTargetConstraints } from '../types/workflows.js';
 
 export type CreateWorkflowMutationInput = Omit<
   CreateWorkflowDefinitionInput,
@@ -59,28 +56,6 @@ function definedPatchKeys(patch: Record<string, unknown>): string[] {
   return Object.entries(patch)
     .filter(([, value]) => value !== undefined)
     .map(([key]) => key);
-}
-
-async function validateWorkflowTargetConstraints(
-  workspaceId: string,
-  constraints: WorkflowTargetConstraints | null | undefined
-): Promise<void> {
-  if (!constraints) return;
-  const invalid: string[] = [];
-  for (const targetId of constraints.targetIds) {
-    const target = await repo.getTarget(workspaceId, targetId);
-    if (!target) invalid.push(targetId);
-    else if (constraints.targetTypes.length && !constraints.targetTypes.includes(target.targetType)) {
-      invalid.push(`${targetId} (${target.targetType})`);
-    }
-  }
-  if (invalid.length) {
-    throw new DefinitionValidationError(
-      'WORKFLOW_TARGET_CONSTRAINTS_INVALID',
-      'Workflow target constraints must reference targets in this workspace and preserve valid target type/id pairs.',
-      invalid
-    );
-  }
 }
 
 function assertSystemAgentPatchAllowed(current: AgentDefinition, patch: AgentDefinitionUpdate): void {
@@ -231,7 +206,6 @@ async function createWorkflowInTransaction(
 }
 
 export async function createWorkflowThroughDefinitionService(input: CreateWorkflowMutationInput): Promise<WorkflowDefinitionForAccess> {
-  await validateWorkflowTargetConstraints(input.workspaceId, input.targetConstraints);
   const created = await withTransaction((client) => createWorkflowInTransaction(client, input));
   await refreshAgentReadiness(created.workspaceId, created.entryAgentId);
   return (await refreshWorkflowReadiness(created)) || created;
@@ -249,9 +223,6 @@ export async function updateWorkflowThroughDefinitionService(
   workflowId: string,
   patch: WorkflowMutationUpdate
 ): Promise<WorkflowDefinitionForAccess | null> {
-  if (Object.prototype.hasOwnProperty.call(patch, 'targetConstraints')) {
-    await validateWorkflowTargetConstraints(workspaceId, patch.targetConstraints);
-  }
   const updated = await withTransaction(async (client) => {
     await client.query(
       'SELECT id FROM workflow_definitions WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
@@ -306,64 +277,6 @@ export async function deleteWorkflowThroughDefinitionService(
     return 'deleted' as const;
   });
   return result;
-}
-
-export async function backfillWorkflowCoordinationInfrastructure(): Promise<void> {
-  const workspaces = await db.query<{ id: string }>('SELECT id FROM workspaces ORDER BY id');
-  let normalizedWorkflowCount = 0;
-  for (const workspace of workspaces.rows) {
-    const result = await withTransaction(async (client) => {
-      const factory = coordinatorFactory(client);
-      const coordinator = await ensureWorkflowCoordinator(client, workspace.id, factory);
-      const normalized = await client.query(
-        `UPDATE workflow_definitions
-         SET entry_agent_id=CASE
-               WHEN jsonb_array_length(agent_ids)=1 THEN agent_ids->>0
-               ELSE $2
-             END,
-             delegation_policy=CASE
-               WHEN jsonb_array_length(agent_ids)=1 THEN NULL
-               ELSE jsonb_build_object(
-                 'specialistAgentIds',agent_ids,
-                 'maxConcurrentChildren',4,
-                 'maxChildren',8
-               )
-             END,
-             updated_at=NOW()
-         WHERE workspace_id=$1
-           AND jsonb_array_length(agent_ids)>0
-           AND (
-             entry_agent_id IS DISTINCT FROM CASE
-               WHEN jsonb_array_length(agent_ids)=1 THEN agent_ids->>0
-               ELSE $2
-             END
-             OR delegation_policy IS DISTINCT FROM CASE
-               WHEN jsonb_array_length(agent_ids)=1 THEN NULL
-               ELSE jsonb_build_object(
-                 'specialistAgentIds',agent_ids,
-                 'maxConcurrentChildren',4,
-                 'maxChildren',8
-               )
-             END
-           )`,
-        [workspace.id, coordinator.id]
-      );
-      const policy = await recomputeWorkflowCoordinatorPolicy(client, workspace.id, factory);
-      return {
-        coordinatorId: policy.coordinator.id,
-        normalizedWorkflowCount: normalized.rowCount || 0
-      };
-    });
-    normalizedWorkflowCount += result.normalizedWorkflowCount;
-    await refreshAgentReadiness(workspace.id, result.coordinatorId);
-    for (const workflow of await listWorkflowDefinitions(workspace.id)) {
-      await refreshWorkflowReadiness(workflow);
-    }
-  }
-  logger.info({
-    workspaceCount: workspaces.rowCount || 0,
-    normalizedWorkflowCount
-  }, 'Workflow coordination infrastructure startup backfill completed');
 }
 
 export async function refreshWorkflowCoordinationForWorkspace(workspaceId: string): Promise<void> {

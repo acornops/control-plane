@@ -14,7 +14,11 @@ const agent = {
 
 const workflow = {
   id: 'workflow-target', workspaceId: 'workspace-1', version: 3, agentIds: [agent.id], entryAgentId: agent.id,
-  executionMode: 'direct', targetConstraints: { targetTypes: ['kubernetes', 'virtual_machine'], targetIds: [] },
+  executionMode: 'direct',
+  resourceRequirements: [{
+    type: 'target', minimum: 1, maximum: 1, requiredOperations: ['read'],
+    constraints: { targetTypes: ['kubernetes', 'virtual_machine'], targetIds: [] }
+  }],
   capabilityPolicy: { mode: 'read_only', restrictionMode: 'restrict', semanticCapabilityIds: ['target.diagnostics.read'], contextGrants: [], maxRuntimeSeconds: 60, retentionDays: 30, approvalRequirements: [] }
 } as WorkflowDefinitionForAccess;
 

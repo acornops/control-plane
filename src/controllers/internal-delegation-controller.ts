@@ -4,6 +4,7 @@ import { WORKSPACE_CAPABILITIES, type WorkspacePermissions } from '../auth/autho
 import { db } from '../infra/db.js';
 import { observeWorkflowDelegationOutcome } from '../metrics.js';
 import { compileAgentRunScope } from '../services/agent-access.js';
+import { promptResourceRegistry } from '../services/prompt-resources/index.js';
 import { clampDelegationLimits } from '../services/coordination-functions.js';
 import { selectDelegationCandidate } from '../services/workflow-access.js';
 import { getExactMcpReadinessErrors } from '../services/workflow-readiness.js';
@@ -67,7 +68,43 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
       badRequest(res, 'DELEGATION_CAPABILITY_DENIED', 'The requested capability is outside the pinned workflow allowlist.', 403);
       return;
     }
-    if (!parent.compiledAccessScope.exactTargets.some((target) => target.id === targetId && target.targetType === targetType)) {
+    const workflow = await pinnedWorkflow(parent.executionId);
+    if (!workflow) {
+      badRequest(res, 'DELEGATION_WORKFLOW_SNAPSHOT_MISSING', 'The pinned workflow snapshot is unavailable.');
+      return;
+    }
+    if (!parent.prompt.trim()) {
+      badRequest(res, 'DELEGATION_PROMPT_SNAPSHOT_MISSING', 'The exact parent prompt is unavailable.');
+      return;
+    }
+    const parentResolution = await promptResourceRegistry.resolve(parent.prompt, {
+      workspaceId: parent.workspaceId,
+      actorUserId: parent.compiledAccessScope.actor.userId,
+      workflowId: parent.workflowId,
+      workflowSessionId: parent.workflowSessionId,
+      initiatingMessageId: parent.messageId,
+      source: parent.resourceBindings.some((resourceBinding) => resourceBinding.source === 'trigger')
+        ? 'trigger'
+        : 'explicit',
+      mode: 'launch',
+      requirements: workflow.resourceRequirements || []
+    });
+    if (parentResolution.blockers.length > 0) {
+      badRequest(
+        res,
+        'DELEGATION_PROMPT_REFERENCES_BLOCKED',
+        parentResolution.blockers.map((blocker) => blocker.message).slice(0, 3).join(' ')
+      );
+      return;
+    }
+    const targetGranted = parentResolution.bindings.some((resourceBinding) => {
+      const projection = promptResourceRegistry.projectRuntime([resourceBinding], parent.id);
+      const route = projection.targetRoute && typeof projection.targetRoute === 'object'
+        ? projection.targetRoute as Record<string, unknown>
+        : undefined;
+      return route?.id === targetId && route.targetType === targetType;
+    });
+    if (!targetGranted) {
       badRequest(res, 'DELEGATION_TARGET_DENIED', 'The requested target is outside the pinned workflow targets.', 403);
       return;
     }
@@ -85,11 +122,6 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
         badRequest(res, 'DELEGATION_PRINCIPAL_DENIED', 'The pinned principal no longer has workspace access.', 403);
         return;
       }
-    }
-    const workflow = await pinnedWorkflow(parent.executionId);
-    if (!workflow) {
-      badRequest(res, 'DELEGATION_WORKFLOW_SNAPSHOT_MISSING', 'The pinned workflow snapshot is unavailable.');
-      return;
     }
     const [agents, mappings] = await Promise.all([
       listAgentDefinitions(parent.workspaceId, { includeInactive: true }),
@@ -138,9 +170,9 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
     if (mcpReadinessErrors.length > 0) {
       badRequest(
         res,
-        mcpReadinessErrors[0].startsWith('MCP_PAT_USER_PRINCIPAL_REQUIRED')
-          ? 'MCP_PAT_USER_PRINCIPAL_REQUIRED'
-          : 'MCP_PERSONAL_CONNECTION_REQUIRED',
+        mcpReadinessErrors[0].startsWith('MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED')
+          ? 'MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED'
+          : 'MCP_CONNECTION_REQUIRED',
         mcpReadinessErrors[0]
       );
       return;

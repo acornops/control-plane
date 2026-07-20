@@ -1,23 +1,21 @@
+import { randomUUID } from 'node:crypto';
 import type { NextFunction, Response } from 'express';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
-import { computeWorkflowReadiness } from '../services/automation-readiness.js';
 import { isModelAllowedForProvider } from '../services/llm-policy.js';
 import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
-import { compileWorkflowAccessScope, compileWorkflowSessionCeiling, WorkflowAccessDeniedError } from '../services/workflow-access.js';
+import { WorkflowAccessDeniedError } from '../services/workflow-access.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
-import { resolveWorkflowTarget, WorkflowTargetResolutionError } from '../services/workflow-target-resolution.js';
+import { promptResourceRegistry, PromptResourceProviderError } from '../services/prompt-resources/index.js';
 import {
   getWorkflowCapabilityReadinessReport,
   publicMcpReadinessError
 } from '../services/workflow-readiness.js';
-import { resolveWorkflowRepositoryScope, validateWorkflowInputs, WorkflowInputValidationError } from '../services/workflow-input-validation.js';
-import { resolveEffectiveWorkflowCapabilityIds } from '../services/workflow-capability-policy.js';
 import { narrowWorkflowScopeToTargetTools } from '../services/workflow-capability-preview.js';
+import { compileWorkflowScope } from '../services/workflow-scope-compiler.js';
 import { resolveTargetRunTools } from '../services/target-run-tool-resolution.js';
-import { listCapabilityRoutingMappings } from '../store/repository-capability-routing.js';
-import { getAgentDefinition } from '../store/repository-agents.js';
+import { repo } from '../store/repository.js';
 import {
   createWorkflowExecution,
   createWorkflowSession,
@@ -28,11 +26,7 @@ import {
   listWorkflowRunsForSession,
   listWorkflowSessions
 } from '../store/repository-workflows.js';
-import type { CapabilityRoutingMapping } from '../types/capability-routing.js';
-import type {
-  CompiledWorkflowAccessScope,
-  WorkflowAccessActor
-} from '../types/workflows.js';
+import { isTargetType, type TargetSummary } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
 import {
   containsSearchText,
@@ -44,7 +38,8 @@ import {
 import { mapGatewayError } from './workspaces/common.js';
 import {
   publicCompiledWorkflowScope,
-  publicWorkflowDefinition
+  publicWorkflowDefinition,
+  respondWorkflowAccessError
 } from './workflow-public.js';
 
 const WORKFLOW_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
@@ -62,93 +57,10 @@ function requireWorkflowWorkspaceId(req: AuthenticatedRequest, res: Response): s
   return workspaceId;
 }
 
-function requestInputs(req: AuthenticatedRequest): Record<string, unknown> {
-  return req.body.inputs && typeof req.body.inputs === 'object' && !Array.isArray(req.body.inputs)
-    ? req.body.inputs as Record<string, unknown>
-    : {};
-}
-
 function approvedContextGrants(req: AuthenticatedRequest): string[] {
   return Array.isArray(req.body.approvedContextGrants)
     ? req.body.approvedContextGrants.filter((value: unknown): value is string => typeof value === 'string')
     : [];
-}
-
-function accessError(res: Response, error: WorkflowAccessDeniedError): void {
-  res.status(error.code === 'WORKFLOW_PERMISSION_DENIED' ? 403 : 409).json({
-    error: {
-      code: error.code,
-      message: error.message,
-      retryable: false,
-      details: {
-        missingPermissions: error.missingPermissions,
-        missingContextGrants: error.missingContextGrants
-      }
-    }
-  });
-}
-
-async function compileScope(input: {
-  workflow: NonNullable<Awaited<ReturnType<typeof getWorkflowDefinition>>>;
-  actor: WorkflowAccessActor;
-  approvedContextGrants: string[];
-  exactTargets?: CompiledWorkflowAccessScope['exactTargets'];
-  exactRepository?: CompiledWorkflowAccessScope['exactRepository'];
-  resolutionPhase?: 'session_ceiling' | 'run_exact';
-}): Promise<{
-  scope: CompiledWorkflowAccessScope;
-  entryAgent: NonNullable<Awaited<ReturnType<typeof getAgentDefinition>>>;
-  mappings: CapabilityRoutingMapping[];
-}> {
-  const readiness = await computeWorkflowReadiness(input.workflow);
-  if (readiness.status !== 'ready') {
-    throw new WorkflowAccessDeniedError(
-      'WORKFLOW_CAPABILITY_MAPPING_UNAVAILABLE',
-      readiness.reasons.slice(0, 4).join(' ') || 'Selected workflow Agents are not ready.'
-    );
-  }
-  const entryAgent = await getAgentDefinition(input.workflow.workspaceId, input.workflow.entryAgentId);
-  if (!entryAgent) {
-    throw new WorkflowAccessDeniedError(
-      'WORKFLOW_AGENT_SCOPE_DENIED',
-      'Workflow routing for the selected Agents is unavailable.'
-    );
-  }
-  const selectedAgents = (await Promise.all(input.workflow.agentIds.map((agentId) => (
-    getAgentDefinition(input.workflow.workspaceId, agentId)
-  )))).filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
-  if (input.resolutionPhase === 'session_ceiling') {
-    return {
-      entryAgent,
-      mappings: [],
-      scope: compileWorkflowSessionCeiling({
-        workflow: input.workflow,
-        entryAgent,
-        selectedAgents,
-        actor: input.actor,
-        approvedContextGrants: input.approvedContextGrants
-      })
-    };
-  }
-  const effectiveCapabilityIds = resolveEffectiveWorkflowCapabilityIds(input.workflow.capabilityPolicy, selectedAgents);
-  const mappings = await listCapabilityRoutingMappings(input.workflow.workspaceId, {
-    activeReviewedOnly: true,
-    capabilityIds: effectiveCapabilityIds
-  });
-  return {
-    entryAgent,
-    mappings,
-    scope: compileWorkflowAccessScope({
-      workflow: input.workflow,
-      entryAgent,
-      selectedAgents,
-      mappings,
-      actor: input.actor,
-      approvedContextGrants: input.approvedContextGrants,
-      exactTargets: input.exactTargets,
-      exactRepository: input.exactRepository
-    })
-  };
 }
 
 export { previewWorkflowCapabilities } from './workflow-capability-preview-controller.js';
@@ -209,7 +121,7 @@ export async function createSession(req: AuthenticatedRequest, res: Response, ne
     if (!workflow) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
     const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
-    const compiled = await compileScope({
+    const compiled = await compileWorkflowScope({
       workflow,
       actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
       approvedContextGrants: approvedContextGrants(req),
@@ -243,7 +155,7 @@ export async function createSession(req: AuthenticatedRequest, res: Response, ne
       compiledAccessScope: publicScope
     });
   } catch (error) {
-    if (error instanceof WorkflowAccessDeniedError) return accessError(res, error);
+    if (error instanceof WorkflowAccessDeniedError) return respondWorkflowAccessError(res, error);
     next(error);
   }
 }
@@ -290,26 +202,59 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
     if (!workflow) return void res.status(409).json({ error: { code: 'WORKFLOW_VERSION_UNAVAILABLE', message: 'Workflow definition is unavailable.', retryable: false } });
     const requiredCapability = workflow.capabilityPolicy.mode === 'read_write' ? 'create_read_write_runs' : 'create_read_only_runs';
     if (!(await requireWorkspaceCapability(req, res, session.workspaceId, requiredCapability, 'No permission to create workflow runs'))) return;
-    const content = typeof req.body.content === 'string' ? req.body.content.trim() : '';
-    if (!content) return void res.status(400).json({ error: { code: 'WORKFLOW_MESSAGE_REQUIRED', message: 'content is required.', retryable: false } });
-    const inputs = requestInputs(req);
-    await validateWorkflowInputs({ workspaceId: session.workspaceId, workflow, inputs, content });
-    const target = await resolveWorkflowTarget({
+    const content = typeof req.body.content === 'string' ? req.body.content : '';
+    if (!content.trim()) return void res.status(400).json({ error: { code: 'WORKFLOW_MESSAGE_REQUIRED', message: 'content is required.', retryable: false } });
+    const unexpectedFields = Object.keys(req.body || {}).filter((field) => field !== 'content' && field !== 'clientRequestId');
+    if (unexpectedFields.length > 0) {
+      return void res.status(400).json({ error: {
+        code: 'WORKFLOW_MESSAGE_FIELDS_INVALID',
+        message: 'Workflow messages accept only content and an optional clientRequestId.',
+        retryable: false,
+        details: { fields: unexpectedFields.sort() }
+      } });
+    }
+    const messageId = randomUUID();
+    const resolution = await promptResourceRegistry.resolve(content, {
       workspaceId: session.workspaceId,
-      workflow,
-      inputs,
-      content,
-      targetId: typeof req.body.targetId === 'string' ? req.body.targetId : undefined,
-      targetType: typeof req.body.targetType === 'string' ? req.body.targetType : undefined
+      actorUserId: req.auth.userId,
+      workflowId: workflow.id,
+      workflowSessionId: session.id,
+      initiatingMessageId: messageId,
+      mode: 'launch',
+      requirements: workflow.resourceRequirements || []
     });
-    const exactTargets = target ? [{ id: target.id, targetType: target.targetType }] : [];
-    const exactRepository = resolveWorkflowRepositoryScope(workflow, inputs);
-    let compiled = await compileScope({
+    if (resolution.blockers.length > 0) {
+      return void res.status(409).json({ error: {
+        code: 'WORKFLOW_PROMPT_REFERENCES_BLOCKED',
+        message: 'One or more prompt resource references could not be resolved.',
+        retryable: resolution.blockers.some((blocker) => blocker.retryable),
+        details: { blockers: resolution.blockers, tokens: resolution.tokens }
+      } });
+    }
+    const runtimeProjection = promptResourceRegistry.projectRuntime(resolution.bindings, messageId);
+    const projectedTarget = runtimeProjection.targetRoute && typeof runtimeProjection.targetRoute === 'object'
+      ? runtimeProjection.targetRoute as Record<string, unknown>
+      : undefined;
+    const targetRoute = projectedTarget
+      && typeof projectedTarget.id === 'string'
+      && typeof projectedTarget.targetType === 'string'
+      && isTargetType(projectedTarget.targetType)
+      ? { id: projectedTarget.id, targetType: projectedTarget.targetType }
+      : undefined;
+    const target: TargetSummary | undefined = targetRoute
+      ? await repo.getTarget(session.workspaceId, targetRoute.id) || undefined
+      : undefined;
+    if (targetRoute && !target) {
+      return void res.status(409).json({ error: { code: 'PROMPT_REFERENCE_NOT_FOUND', message: 'The bound target is no longer available.', retryable: false } });
+    }
+    let compiled = await compileWorkflowScope({
       workflow,
       actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
       approvedContextGrants: session.compiledAccessScope.contextGrants,
-      exactTargets,
-      exactRepository
+      targetRoute,
+      resourceBindings: resolution.bindings,
+      promptDigest: resolution.promptDigest,
+      bindingDigest: resolution.bindingDigest
     });
     if (target) {
       const resolution = await resolveTargetRunTools({
@@ -365,11 +310,15 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
     const created = await createWorkflowExecution({
       workflow,
       session: { ...session, compiledAccessScope: compiled.scope },
+      messageId,
       content,
-      inputs,
       clientRequestId: typeof req.body.clientRequestId === 'string' ? req.body.clientRequestId : undefined,
-      targetId: target?.id,
-      targetType: target?.targetType,
+      targetId: targetRoute?.id,
+      targetType: targetRoute?.targetType,
+      promptDigest: resolution.promptDigest,
+      bindingDigest: resolution.bindingDigest,
+      resourceBindings: resolution.bindings,
+      resolvedAt: resolution.resolvedAt,
       agentSnapshot: compiled.entryAgent as unknown as Record<string, unknown>,
       llmProvider: llmSettings.provider,
       llmModel: llmSettings.model,
@@ -391,8 +340,9 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
         workflowVersion: workflow.version,
         executionMode: workflow.executionMode,
         selectedAgentCount: workflow.agentIds.length,
-        exactTargets,
-        exactRepository,
+        promptDigest: resolution.promptDigest,
+        bindingDigest: resolution.bindingDigest,
+        resourceBindingCount: resolution.bindings.length,
         semanticCapabilityIds: compiled.scope.semanticCapabilityIds
       }
     });
@@ -405,12 +355,9 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       compiledAccessScope: publicCompiledWorkflowScope(compiled.scope)
     });
   } catch (error) {
-    if (error instanceof WorkflowAccessDeniedError) return accessError(res, error);
-    if (error instanceof WorkflowInputValidationError) {
-      return void res.status(400).json({ error: { code: error.code, message: error.message, retryable: false, details: { field: error.field } } });
-    }
-    if (error instanceof WorkflowTargetResolutionError) {
-      return void res.status(error.code === 'WORKFLOW_TARGET_NOT_FOUND' ? 404 : 409).json({ error: { code: error.code, message: error.message, retryable: false } });
+    if (error instanceof WorkflowAccessDeniedError) return respondWorkflowAccessError(res, error);
+    if (error instanceof PromptResourceProviderError) {
+      return void res.status(409).json({ error: { code: error.code, message: error.message, retryable: error.retryable } });
     }
     if (error instanceof LlmGatewayHttpError) {
       const mapped = mapGatewayError(error, { upstreamMessage: WORKFLOW_GATEWAY_UPSTREAM_MESSAGE });

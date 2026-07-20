@@ -14,6 +14,12 @@ function isBuiltinServer(server: Pick<McpServerConfig, 'provenance_type'>): bool
   return server.provenance_type === 'builtin';
 }
 
+export function builtinTargetMcpServerDisplayName(targetType: TargetType): string {
+  return targetType === KUBERNETES_TARGET_TYPE
+    ? 'AcornOps Kubernetes Tools'
+    : 'AcornOps VM Tools';
+}
+
 function normalizeCapability(value: unknown): 'read' | 'write' {
   return value === 'read' ? 'read' : 'write';
 }
@@ -64,9 +70,10 @@ export interface KubernetesClusterToolCatalogServer {
   canEditConnection: boolean;
   canToggle: boolean;
   authType: 'none' | 'bearer_token' | 'custom_header';
-  authScope: 'none' | 'personal' | 'legacy_shared';
+  credentialMode: 'none' | 'workspace' | 'individual';
   authHeaderName?: string;
   authHeaderPrefix?: string;
+  revision: number;
   provenance?: {
     sourceId: string;
     artifactName: string;
@@ -211,7 +218,7 @@ export function composeTargetToolsCatalog(params: {
 
     servers.push({
       id: server.id,
-      name: server.server_name,
+      name: isBuiltin ? builtinTargetMcpServerDisplayName(targetType) : server.server_name,
       url: server.server_url,
       type: isBuiltin ? 'builtin' : 'mcp',
       enabled: Boolean(server.enabled),
@@ -220,9 +227,10 @@ export function composeTargetToolsCatalog(params: {
       canEditConnection: !isBuiltin,
       canToggle: true,
       authType: server.auth_type,
-      authScope: server.auth_scope || (server.auth_type === 'none' ? 'none' : 'legacy_shared'),
+      credentialMode: server.credential_mode,
       authHeaderName: server.auth_header_name || undefined,
       authHeaderPrefix: server.auth_header_prefix || undefined,
+      revision: server.revision || 1,
       ...(server.catalog_source_id
         && server.catalog_artifact_name
         && server.catalog_version

@@ -36,7 +36,7 @@ export interface AgentMcpInstallationSnapshot {
   name: string;
   url: string;
   enabled: boolean;
-  authScope: 'none' | 'personal';
+  credentialMode: 'none' | 'workspace' | 'individual';
   revision: number;
   targetConstraints: { targetTypes: TargetType[]; targetIds: string[] };
   provenance?: { sourceId: string; artifactName: string; version: string; digest: string; importedAt: string };

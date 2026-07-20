@@ -1,6 +1,8 @@
 import type { NextFunction, Response } from 'express';
+import { z } from 'zod';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
+import { pauseSchedulesForAgentIndividualCredentials } from '../services/agent-mcp-schedule-impact.js';
 import {
   createAgentMcpServer,
   deleteAgentMcpServer,
@@ -18,7 +20,7 @@ import {
 } from '../services/mcp-public-header-policy.js';
 import { getAgentDefinition } from '../store/repository-agents.js';
 import { repo } from '../store/repository.js';
-import { isTargetType, type TargetType } from '../types/domain.js';
+import type { TargetType } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
 import { mapGatewayError } from './workspaces/common.js';
 
@@ -45,6 +47,56 @@ function invalid(res: Response, code: string, message: string): void {
   res.status(400).json({ error: { code, message, retryable: false } });
 }
 
+const agentTargetConstraintsSchema = z.object({
+  targetTypes: z.array(z.enum(['kubernetes', 'virtual_machine'])).max(16).optional(),
+  targetIds: z.array(z.string().trim().min(1)).max(200).optional()
+}).strict();
+
+const agentMcpCreateSchema = z.object({
+  name: z.string().trim().min(1),
+  url: z.string().trim().min(1),
+  enabled: z.boolean().optional(),
+  authType: z.enum(['none', 'bearer_token', 'custom_header']).optional(),
+  credentialMode: z.enum(['none', 'workspace', 'individual']).optional(),
+  authHeaderName: z.string().min(1).optional(),
+  authHeaderPrefix: z.string().optional(),
+  publicHeaders: z.record(z.string(), z.string()).optional(),
+  targetConstraints: agentTargetConstraintsSchema.optional()
+}).strict().superRefine((value, context) => {
+  const authType = value.authType || 'none';
+  if (authType === 'none' && (value.authHeaderName !== undefined || value.authHeaderPrefix !== undefined)) {
+    context.addIssue({ code: 'custom', message: 'Auth header fields require authenticated MCP.' });
+  }
+  if (authType === 'none' && value.credentialMode && value.credentialMode !== 'none') {
+    context.addIssue({ code: 'custom', message: 'Unauthenticated MCP must use credential mode none.' });
+  }
+  if (authType !== 'none' && value.credentialMode === 'none') {
+    context.addIssue({ code: 'custom', message: 'Authenticated MCP requires workspace or individual credentials.' });
+  }
+  if (authType === 'custom_header' && !value.authHeaderName) {
+    context.addIssue({ code: 'custom', message: 'Custom-header auth requires authHeaderName.' });
+  }
+});
+
+const agentMcpUpdateSchema = z.object({
+  name: z.string().trim().min(1).optional(),
+  enabled: z.boolean().optional(),
+  expectedRevision: z.number().int().min(1).optional(),
+  authType: z.enum(['none', 'bearer_token', 'custom_header']).optional(),
+  credentialMode: z.enum(['none', 'workspace', 'individual']).optional(),
+  authHeaderName: z.string().min(1).optional(),
+  authHeaderPrefix: z.string().optional(),
+  targetConstraints: agentTargetConstraintsSchema.optional()
+}).strict().refine((value) => Object.keys(value).length > 0, 'At least one update field is required.');
+
+const agentMcpToolUpdateSchema = z.object({
+  enabled: z.boolean().optional(),
+  capability: z.enum(['read', 'write']).optional(),
+  reviewState: z.enum(['pending', 'approved', 'rejected']).optional(),
+  riskLevel: z.enum(['read_only', 'non_destructive_write', 'high_risk', 'destructive']).optional(),
+  autoAllowed: z.boolean().optional()
+}).strict().refine((value) => Object.keys(value).length > 0, 'At least one update field is required.');
+
 async function agentContext(req: AuthenticatedRequest, res: Response, write = false) {
   const workspaceId = toSingleParam(req.params.workspaceId);
   const authz = write
@@ -63,16 +115,11 @@ async function agentContext(req: AuthenticatedRequest, res: Response, write = fa
 async function constraints(
   workspaceId: string,
   agent: Awaited<ReturnType<typeof getAgentDefinition>> & {},
-  value: unknown,
+  value: z.infer<typeof agentTargetConstraintsSchema> | undefined,
   res: Response
 ): Promise<{ targetTypes: TargetType[]; targetIds: string[] } | null> {
-  const raw = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-  const targetTypes = Array.isArray(raw.targetTypes)
-    ? raw.targetTypes.filter((entry): entry is TargetType => typeof entry === 'string' && isTargetType(entry))
-    : [];
-  const targetIds = Array.isArray(raw.targetIds)
-    ? raw.targetIds.filter((entry): entry is string => typeof entry === 'string' && Boolean(entry.trim())).map((entry) => entry.trim())
-    : [];
+  const targetTypes = value?.targetTypes || [];
+  const targetIds = value?.targetIds || [];
   if (agent.targetScope.targetTypes?.length && targetTypes.some((type) => !agent.targetScope.targetTypes?.includes(type))) {
     invalid(res, 'AGENT_MCP_TARGET_CONSTRAINT_INVALID', 'Target type constraints must stay within the Agent target scope.');
     return null;
@@ -113,8 +160,8 @@ async function auditConnectionCleanup(req: AuthenticatedRequest, input: {
 }) {
   await audit(req, {
     ...input,
-    eventType: 'mcp.personal_connections_cleanup_completed.v1',
-    summary: 'Personal MCP credentials cleaned up during uninstall',
+    eventType: 'mcp.connections_cleanup_completed.v1',
+    summary: 'MCP credentials cleaned up during uninstall',
     metadata: { credentialCleanup: 'completed' }
   });
 }
@@ -139,40 +186,41 @@ export async function createServer(req: AuthenticatedRequest, res: Response, nex
     if (context.agent.kind === 'manager') {
       return invalid(res, 'MANAGER_OPERATIONAL_CAPABILITY_FORBIDDEN', 'Managers can use coordination functions only.');
     }
-    const value = body(req);
-    const name = typeof value.name === 'string' ? value.name.trim() : '';
-    const url = typeof value.url === 'string' ? value.url.trim() : '';
-    if (!name || !url) return invalid(res, 'AGENT_MCP_INVALID', 'name and url are required.');
-    if (value.credential !== undefined || value.secretValue !== undefined || value.secretName !== undefined) {
-      return invalid(res, 'AGENT_MCP_SECRET_FORBIDDEN', 'Provider PATs belong to a user connection, never an Agent installation.');
+    const raw = body(req);
+    if (raw.credential !== undefined || raw.secretValue !== undefined || raw.secretName !== undefined) {
+      return invalid(res, 'AGENT_MCP_SECRET_FORBIDDEN', 'Credentials belong to the connection endpoint, never an Agent installation.');
     }
+    const parsed = agentMcpCreateSchema.safeParse(raw);
+    if (!parsed.success) return invalid(res, 'AGENT_MCP_INVALID', 'Invalid Agent MCP server payload.');
+    const value = parsed.data;
     const targetConstraints = await constraints(context.workspaceId, context.agent, value.targetConstraints, res);
     if (!targetConstraints) return;
     const authType = value.authType === 'custom_header' ? 'custom_header'
       : value.authType === 'bearer_token' ? 'bearer_token' : 'none';
-    const authScope = authType === 'none' ? 'none' : 'personal';
+    const credentialMode = authType === 'none'
+      ? 'none'
+      : value.credentialMode === 'workspace' ? 'workspace' : 'individual';
     const server = await createAgentMcpServer({
       workspaceId: context.workspaceId,
       agentId: context.agentId,
-      name,
-      url,
-      enabled: value.enabled !== false,
+      name: value.name,
+      url: value.url,
+      enabled: value.enabled ?? true,
       targetConstraints,
-      authScope,
+      credentialMode,
       auth: {
         type: authType,
-        headerName: typeof value.authHeaderName === 'string' ? value.authHeaderName : undefined,
-        headerPrefix: typeof value.authHeaderPrefix === 'string' ? value.authHeaderPrefix : undefined
+        headerName: value.authHeaderName,
+        headerPrefix: value.authHeaderPrefix
       },
       publicHeaders: value.publicHeaders === undefined
         ? undefined
-        : value.publicHeaders && typeof value.publicHeaders === 'object' && !Array.isArray(value.publicHeaders)
-          ? validateMcpPublicHeaders(value.publicHeaders as Record<string, unknown>)
-          : (() => { throw new InvalidMcpPublicHeadersError('publicHeaders must be an object'); })()
+        : validateMcpPublicHeaders(value.publicHeaders)
     });
     await syncAgentMcpCapabilitySnapshot(context.workspaceId, context.agentId, req.auth.userId);
     await audit(req, { workspaceId: context.workspaceId, agentId: context.agentId, serverId: server.id, serverName: server.server_name,
-      eventType: 'agent.mcp_server_created.v1', summary: 'Manual MCP server installed on Agent' });
+      eventType: 'agent.mcp_server_created.v1', summary: 'Manual MCP server installed on Agent',
+      metadata: { credentialMode } });
     res.status(201).json({ server: toAgentMcpServer(server) });
   } catch (error) { forward(error, res, next); }
 }
@@ -181,7 +229,9 @@ export async function patchServer(req: AuthenticatedRequest, res: Response, next
   try {
     const context = await agentContext(req, res, true);
     if (!context) return;
-    const value = body(req);
+    const parsed = agentMcpUpdateSchema.safeParse(req.body);
+    if (!parsed.success) return invalid(res, 'AGENT_MCP_INVALID', 'Invalid Agent MCP server payload.');
+    const value = parsed.data;
     const removalOnly = value.enabled === false && Object.keys(value).every((key) => key === 'enabled' || key === 'expectedRevision');
     if (!removalOnly && !context.authz.can('manage_mcp')) {
       return void res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Adding or reconfiguring MCP capabilities requires manage_mcp.', retryable: false } });
@@ -190,18 +240,46 @@ export async function patchServer(req: AuthenticatedRequest, res: Response, next
       ? undefined
       : await constraints(context.workspaceId, context.agent, value.targetConstraints, res);
     if (targetConstraints === null) return;
+    const authType = value.authType === 'custom_header' ? 'custom_header'
+      : value.authType === 'bearer_token' ? 'bearer_token'
+        : value.authType === 'none' ? 'none' : undefined;
+    const credentialMode = value.credentialMode === 'workspace'
+      ? 'workspace'
+      : value.credentialMode === 'individual'
+        ? 'individual'
+        : value.credentialMode === 'none' ? 'none' : undefined;
+    const serverId = toSingleParam(req.params.serverId);
+    const previousServer = credentialMode === 'individual'
+      ? (await listAgentMcpServers(context.workspaceId, context.agentId)).find((item) => item.id === serverId)
+      : undefined;
     const server = await updateAgentMcpServer({
       workspaceId: context.workspaceId,
       agentId: context.agentId,
-      serverId: toSingleParam(req.params.serverId),
-      name: typeof value.name === 'string' ? value.name.trim() : undefined,
-      enabled: typeof value.enabled === 'boolean' ? value.enabled : undefined,
-      expectedRevision: typeof value.expectedRevision === 'number' ? value.expectedRevision : undefined,
-      targetConstraints
+      serverId,
+      name: value.name,
+      enabled: value.enabled,
+      expectedRevision: value.expectedRevision,
+      targetConstraints,
+      auth: authType ? {
+        type: authType,
+        headerName: value.authHeaderName,
+        headerPrefix: value.authHeaderPrefix
+      } : undefined,
+      credentialMode
     });
+    if (credentialMode === 'individual' && previousServer?.credential_mode === 'workspace') {
+      await pauseSchedulesForAgentIndividualCredentials({
+        workspaceId: context.workspaceId,
+        agentId: context.agentId,
+        serverId: server.id,
+        serverName: server.server_name,
+        actorUserId: req.auth.userId
+      });
+    }
     await syncAgentMcpCapabilitySnapshot(context.workspaceId, context.agentId, req.auth.userId);
     await audit(req, { workspaceId: context.workspaceId, agentId: context.agentId, serverId: server.id, serverName: server.server_name,
-      eventType: 'agent.mcp_server_updated.v1', summary: 'Agent MCP server updated', metadata: { revision: server.revision } });
+      eventType: 'agent.mcp_server_updated.v1', summary: 'Agent MCP server updated',
+      metadata: { revision: server.revision, credentialMode: server.credential_mode } });
     res.status(200).json({ server: toAgentMcpServer(server) });
   } catch (error) { forward(error, res, next); }
 }
@@ -233,8 +311,8 @@ export async function testServer(req: AuthenticatedRequest, res: Response, next:
     if (server.auth_type !== 'none') {
       return void res.status(409).json({
         error: {
-          code: 'MCP_PERSONAL_CONNECTION_REQUIRED',
-          message: 'Use the personal connection Verify operation for authenticated MCP servers.',
+          code: 'MCP_CONNECTION_REQUIRED',
+          message: 'Use the connection Verify operation for authenticated MCP servers.',
           retryable: false
         }
       });
@@ -260,7 +338,9 @@ export async function patchTool(req: AuthenticatedRequest, res: Response, next: 
   try {
     const context = await agentContext(req, res, true);
     if (!context) return;
-    const value = body(req);
+    const parsed = agentMcpToolUpdateSchema.safeParse(req.body);
+    if (!parsed.success) return invalid(res, 'AGENT_MCP_TOOL_INVALID', 'Invalid Agent MCP tool payload.');
+    const value = parsed.data;
     const removalOnly = value.enabled === false && Object.keys(value).every((key) => key === 'enabled');
     if (!removalOnly && !context.authz.can('manage_mcp')) {
       return void res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Tool review and enablement require manage_mcp.', retryable: false } });
@@ -271,11 +351,11 @@ export async function patchTool(req: AuthenticatedRequest, res: Response, next: 
       toSingleParam(req.params.serverId),
       toSingleParam(req.params.toolName),
       {
-        enabled: typeof value.enabled === 'boolean' ? value.enabled : undefined,
-        capability: value.capability === 'read' || value.capability === 'write' ? value.capability : undefined,
-        reviewState: value.reviewState === 'pending' || value.reviewState === 'approved' || value.reviewState === 'rejected' ? value.reviewState : undefined,
-        riskLevel: value.riskLevel === 'read_only' || value.riskLevel === 'non_destructive_write' || value.riskLevel === 'high_risk' || value.riskLevel === 'destructive' ? value.riskLevel : undefined,
-        autoAllowed: typeof value.autoAllowed === 'boolean' ? value.autoAllowed : undefined
+        enabled: value.enabled,
+        capability: value.capability,
+        reviewState: value.reviewState,
+        riskLevel: value.riskLevel,
+        autoAllowed: value.autoAllowed
       }
     );
     await syncAgentMcpCapabilitySnapshot(context.workspaceId, context.agentId, req.auth.userId);

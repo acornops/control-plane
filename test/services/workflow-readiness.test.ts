@@ -9,8 +9,8 @@ import {
 
 afterEach(() => mock.restoreAll());
 
-describe('target MCP personal connection readiness', () => {
-  it('does not require unrelated personal installations when no exact tools are requested', async () => {
+describe('target MCP credential connection readiness', () => {
+  it('does not require unrelated credential installations when no exact tools are requested', async () => {
     let requestCount = 0;
     mock.method(globalThis, 'fetch', async () => {
       requestCount += 1;
@@ -29,23 +29,23 @@ describe('target MCP personal connection readiness', () => {
 
   for (const scenario of [
     {
-      gatewayCode: 'MCP_PERSONAL_CONNECTION_MISSING',
-      publicCode: 'MCP_PERSONAL_CONNECTION_REQUIRED',
+      gatewayCode: 'MCP_CONNECTION_MISSING',
+      publicCode: 'MCP_CONNECTION_REQUIRED',
       action: 'connect_mcp_server'
     },
     {
-      gatewayCode: 'MCP_PERSONAL_CONNECTION_ERROR',
-      publicCode: 'MCP_PERSONAL_CONNECTION_REQUIRED',
+      gatewayCode: 'MCP_CONNECTION_ERROR',
+      publicCode: 'MCP_CONNECTION_REQUIRED',
       action: 'verify_mcp_server'
     },
     {
-      gatewayCode: 'MCP_PERSONAL_TOOL_UNAVAILABLE',
-      publicCode: 'MCP_PERSONAL_CONNECTION_REQUIRED',
+      gatewayCode: 'MCP_CREDENTIAL_TOOL_UNAVAILABLE',
+      publicCode: 'MCP_CONNECTION_REQUIRED',
       action: 'verify_mcp_server'
     },
     {
-      gatewayCode: 'MCP_PAT_USER_PRINCIPAL_REQUIRED',
-      publicCode: 'MCP_PAT_USER_PRINCIPAL_REQUIRED'
+      gatewayCode: 'MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED',
+      publicCode: 'MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED'
     },
     {
       gatewayCode: 'MCP_INSTALLATION_UNAVAILABLE',
@@ -91,28 +91,55 @@ describe('target MCP personal connection readiness', () => {
     });
   }
 
-  it('rejects service principals before looking up a personal PAT connection', async () => {
+  it('rejects service identities when an individual credential owner is required', async () => {
     let readinessLookup = false;
     mock.method(globalThis, 'fetch', async (input) => {
       const url = String(input);
       if (url.includes('/connections/readiness')) readinessLookup = true;
       return new Response(JSON.stringify({ ready: false, failures: [{
         server_id: 'server-1', tool_name: 'records.list',
-        code: 'MCP_PAT_USER_PRINCIPAL_REQUIRED'
+        code: 'MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED'
       }] }), { status: 200 });
     });
 
     const errors = await getWorkflowCapabilityReadinessErrors(
       'workspace-1',
-      { exactTargets: [], mcpTools: [{ serverId: 'server-1', toolName: 'records.list' }], mcpServers: ['server-1'] } as never,
+      { resourceBindings: [], mcpTools: [{ serverId: 'server-1', toolName: 'records.list' }], mcpServers: ['server-1'] } as never,
       { id: 'target-1', targetType: 'kubernetes' } as never,
       { principal: { type: 'service_identity', id: 'service-1' } }
     );
 
     assert.deepEqual(errors, [
-      'MCP_PAT_USER_PRINCIPAL_REQUIRED: personal MCP tool server-1/records.list requires a user principal.'
+      'MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED: individual MCP tool server-1/records.list requires a user principal.'
     ]);
     assert.equal(readinessLookup, true);
+  });
+
+  it('checks exact target MCP tool references as well as Agent-owned references', async () => {
+    let requestBody = '';
+    mock.method(globalThis, 'fetch', async (_input, init) => {
+      requestBody = String(init?.body || '');
+      return new Response(JSON.stringify({ ready: false, failures: [{
+        server_id: 'target-server', tool_name: 'records.list', code: 'MCP_CONNECTION_MISSING'
+      }] }), { status: 200 });
+    });
+
+    const errors = await getWorkflowCapabilityReadinessErrors(
+      'workspace-1',
+      {
+        resourceBindings: [],
+        mcpTools: [],
+        targetToolRefs: [{ serverId: 'target-server', toolName: 'records.list' }],
+        mcpServers: ['target-server']
+      } as never,
+      { id: 'target-1', targetType: 'kubernetes' } as never,
+      { principal: { type: 'user', id: 'user-1' } }
+    );
+
+    assert.match(requestBody, /target-server/);
+    assert.match(requestBody, /records\.list/);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0] || '', /Connect a credential/);
   });
 
   it('bounds failure counts and identifiers and normalizes unexpected gateway codes', async () => {

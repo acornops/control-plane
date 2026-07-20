@@ -15,6 +15,7 @@ import {
   targetAllowedByMapping,
   targetAllowedByWorkflowConstraints
 } from './target-scope-authorization.js';
+import { workflowTargetPolicy } from './prompt-resources/providers/target-provider.js';
 
 function unique(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
@@ -147,7 +148,7 @@ export async function computeWorkflowReadiness(workflow: WorkflowDefinitionForAc
     activeReviewedOnly: true,
     capabilityIds: requested
   });
-  const targetConstraints = workflow.targetConstraints;
+  const targetConstraints = workflowTargetPolicy(workflow);
   const eligibleMappings = mappings.filter((mapping) => {
     const agent = selectedById.get(mapping.agentId);
     return Boolean(agent && mapping.agentVersion === agent.version

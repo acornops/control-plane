@@ -16,7 +16,7 @@ function gatewayServer() {
     server_url: 'https://mcp.example/mcp',
     enabled: true,
     auth_type: 'none',
-    auth_scope: 'none',
+    credential_mode: 'none',
     credential_configured: false,
     public_headers: {},
     connection_status: 'ok',
@@ -64,6 +64,7 @@ describe('MCP catalog import gateway contract', () => {
 
     await importCatalogMcpServer({
       workspaceId: 'workspace-1',
+      scopeType: 'agent',
       agentId: 'agent-1',
       targetConstraints: { targetTypes: ['virtual_machine'], targetIds: ['vm-1'] },
       artifact: { sourceId: 'source-1', artifactName: 'operations' },

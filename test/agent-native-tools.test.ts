@@ -41,7 +41,7 @@ describe('Agent workspace-native tool assignments', () => {
       .every((mapping) => mapping.agentVersion === granted.version));
     const nativeMapping = afterGrantMappings.find((mapping) => mapping.nativeToolIds.includes('reports.pdf.generate'));
     assert.ok(nativeMapping);
-    assert.deepEqual(nativeMapping.invocationScopes, ['workflow']);
+    assert.deepEqual(nativeMapping.invocationScopes, ['workflow', 'target_chat']);
     assert.equal(nativeMapping.reviewState, 'reviewed');
 
     const dependentAfterGrant = await getWorkflowDefinition('workspace-1', 'cluster-triage');

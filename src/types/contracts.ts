@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { validateMcpPublicHeaders as enforceMcpPublicHeaderPolicy } from '../services/mcp-public-header-policy.js';
 import { TARGET_TYPES } from './domain.js';
 import { runEventSchema, runEventsBatchSchema } from './run-events-contract.js';
 
@@ -331,17 +332,6 @@ const reservedHeaderNames = new Set([
   'x-run-id',
   'x-tool-name'
 ]);
-const publicHeaderDeniedNames = new Set([
-  'authorization',
-  'proxy-authorization',
-  'cookie',
-  'set-cookie',
-  'x-api-key',
-  'x-auth-token',
-  'x-access-token'
-]);
-const publicHeaderDeniedPatterns = ['token', 'secret', 'credential', 'api-key', 'apikey'];
-
 function validateHeaderName(name: string, ctx: z.RefinementCtx, path: Array<string | number>): string | null {
   if (name !== name.trim() || name.length === 0) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: 'header name must not be empty or padded' });
@@ -367,45 +357,21 @@ function validateHeaderValue(value: string, ctx: z.RefinementCtx, path: Array<st
   }
 }
 
-function effectiveAuthHeaderPrefix(authType: z.infer<typeof mcpAuthTypeSchema>, headerPrefix: string | undefined): string {
-  if (authType === 'bearer_token') return 'Bearer ';
-  return headerPrefix ?? '';
-}
-
 function validateMcpPublicHeaders(headers: Record<string, string> | undefined, ctx: z.RefinementCtx): void {
-  if (!headers) return;
-  const entries = Object.entries(headers);
-  if (entries.length > 64) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['publicHeaders'], message: 'publicHeaders may include at most 64 headers' });
-    return;
-  }
-  const seen = new Set<string>();
-  for (const [name, value] of entries) {
-    const normalized = validateHeaderName(name, ctx, ['publicHeaders', name]);
-    if (!normalized) continue;
-    if (seen.has(normalized)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['publicHeaders', name],
-        message: 'duplicate exposed header name'
-      });
-    }
-    seen.add(normalized);
-    if (reservedHeaderNames.has(normalized)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['publicHeaders', name], message: 'exposed header is reserved by the platform' });
-    }
-    if (publicHeaderDeniedNames.has(normalized) || publicHeaderDeniedPatterns.some((pattern) => normalized.includes(pattern))) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['publicHeaders', name], message: 'exposed header may not contain credentials' });
-    }
-    validateHeaderValue(value, ctx, ['publicHeaders', name], 'exposed header value');
+  try {
+    enforceMcpPublicHeaderPolicy(headers);
+  } catch (error) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['publicHeaders'],
+      message: error instanceof Error ? error.message : 'publicHeaders are invalid'
+    });
   }
 }
 
 const mcpAuthConfigSchema = z
   .object({
     type: mcpAuthTypeSchema.optional(),
-    secretName: z.string().min(1).optional(),
-    secretValue: z.string().min(1).optional(),
     headerName: z.string().min(1).optional(),
     headerPrefix: z.string().optional()
   })
@@ -427,13 +393,8 @@ function validateMcpAuthConfig(auth: z.infer<typeof mcpAuthConfigSchema>, ctx: z
   if (auth?.headerPrefix !== undefined) {
     validateHeaderValue(auth.headerPrefix, ctx, ['auth', 'headerPrefix'], 'auth.headerPrefix');
   }
-  if (auth?.secretValue !== undefined) {
-    validateHeaderValue(auth.secretValue, ctx, ['auth', 'secretValue'], 'auth.secretValue');
-    validateHeaderValue(`${effectiveAuthHeaderPrefix(authType, auth.headerPrefix)}${auth.secretValue}`, ctx, ['auth', 'secretValue'], 'auth header value');
-  }
-
   if (authType === 'none') {
-    if (auth?.secretName || auth?.secretValue || auth?.headerName || auth?.headerPrefix) {
+    if (auth?.headerName || auth?.headerPrefix) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['auth'],
@@ -441,14 +402,6 @@ function validateMcpAuthConfig(auth: z.infer<typeof mcpAuthConfigSchema>, ctx: z
       });
     }
     return;
-  }
-
-  if (!auth?.secretName && !auth?.secretValue) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['auth'],
-      message: 'auth.secretName or auth.secretValue is required when auth.type is bearer_token or custom_header'
-    });
   }
 
   if (authType === 'custom_header' && !auth?.headerName) {
@@ -465,16 +418,27 @@ export const createMcpServerSchema = z.object({
   url: z.string().url(),
   enabled: z.boolean().optional(),
   publicHeaders: z.record(z.string()).optional(),
+  credentialMode: z.enum(['none', 'workspace', 'individual']).optional(),
   auth: mcpAuthConfigSchema
 }).strict().superRefine((input, ctx) => {
   validateMcpPublicHeaders(input.publicHeaders, ctx);
   validateMcpAuthConfig(input.auth, ctx);
+  const authType = input.auth?.type || 'none';
+  if (authType === 'none' && input.credentialMode && input.credentialMode !== 'none') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['credentialMode'], message: 'credentialMode must be none when authentication is none' });
+  }
+  if (authType !== 'none' && input.credentialMode === 'none') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['credentialMode'], message: 'authenticated MCP servers require workspace or individual credentials' });
+  }
 });
 
 export const updateMcpServerSchema = z.object({
+  url: z.string().url().optional(),
   name: z.string().min(1).optional(),
   enabled: z.boolean().optional(),
   publicHeaders: z.record(z.string()).optional(),
+  credentialMode: z.enum(['none', 'workspace', 'individual']).optional(),
+  expectedRevision: z.number().int().positive().optional(),
   auth: mcpAuthConfigSchema,
   tools: z.array(mcpToolConfigSchema).optional(),
   removeTools: z.array(z.string().min(1)).optional()

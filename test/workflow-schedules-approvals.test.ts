@@ -110,7 +110,7 @@ describe('workflow schedules and approval inbox', () => {
         name: 'Hourly triage',
         cron: '0 * * * *',
         timezone: 'UTC',
-        inputDefaults: { targetId: 'cluster-1' },
+        controlMessage: 'Inspect @target[Test Cluster] and summarize findings.',
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
@@ -128,7 +128,8 @@ describe('workflow schedules and approval inbox', () => {
         name: 'Weekday triage',
         cron: '0 9 * * 1-5',
         timezone: 'UTC',
-        inputDefaults: { targetId: 'cluster-1', severity: 'high' },
+        principal: { type: 'user', id: 'user-1' },
+        controlMessage: 'Inspect @target[Test Cluster] for high-severity issues.',
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
@@ -151,7 +152,8 @@ describe('workflow schedules and approval inbox', () => {
         workflowId: 'cluster-triage',
         cron: 'invalid',
         timezone: 'Not/AZone',
-        inputDefaults: {},
+        principal: { type: 'user', id: 'user-1' },
+        controlMessage: 'Inspect @target[Test Cluster].',
         approvedContextGrants: ['unapproved_context']
       }
     ));
@@ -177,7 +179,7 @@ describe('workflow schedules and approval inbox', () => {
         timezone: 'UTC',
         enabled: true,
         principal: { type: 'user', id: 'user-1' },
-        inputDefaults: { targetId: 'cluster-1' },
+        controlMessage: 'Inspect @target[Test Cluster] and summarize findings.',
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
@@ -215,7 +217,8 @@ describe('workflow schedules and approval inbox', () => {
         name: 'Service schedule',
         cron: '0 * * * *',
         timezone: 'UTC',
-        principal: { type: 'service_identity', id: 'service-1' }
+        principal: { type: 'service_identity', id: 'service-1' },
+        controlMessage: 'Inspect @target[Test Cluster].'
       }
     ));
 
@@ -250,7 +253,7 @@ describe('workflow schedules and approval inbox', () => {
         timezone: 'UTC',
         enabled: true,
         principal: { type: 'user', id: 'user-1' },
-        inputDefaults: { targetId: 'cluster-1' },
+        controlMessage: 'Inspect @target[Test Cluster] and summarize findings.',
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
@@ -293,7 +296,7 @@ describe('workflow schedules and approval inbox', () => {
         timezone: 'UTC',
         enabled: true,
         principal: { type: 'user', id: 'user-1' },
-        inputDefaults: { targetId: 'cluster-1' },
+        controlMessage: 'Inspect @target[Test Cluster] and summarize findings.',
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
@@ -330,7 +333,7 @@ describe('workflow schedules and approval inbox', () => {
       },
       entryAgent,
       mappings: await listCapabilityRoutingMappings('workspace-1', { activeReviewedOnly: true }),
-      exactTargets: [{ id: 'cluster-1', targetType: 'kubernetes' }],
+      targetRoute: { id: 'cluster-1', targetType: 'kubernetes' },
       actor: {
         userId: 'user-1',
         role: 'admin',

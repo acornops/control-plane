@@ -8,7 +8,7 @@ import {
   recordStarterAutomationSeedFailure,
   recordStarterAutomationSeedSuccess,
   refreshStarterAutomationReadiness,
-  seedStarterAutomationV1InTransaction
+  provisionStarterAutomationInTransaction
 } from './automation-templates.js';
 
 export interface WorkspaceProvisioningInput {
@@ -20,7 +20,7 @@ export interface WorkspaceProvisioningInput {
   enforceQuotas?: boolean;
 }
 
-export async function provisionWorkspaceWithStarterAutomationV1(
+export async function provisionWorkspaceWithStarterAutomation(
   input: WorkspaceProvisioningInput
 ): Promise<{ workspace: Workspace; created: boolean }> {
   const workspaceId = input.id || randomUUID();
@@ -66,7 +66,7 @@ export async function provisionWorkspaceWithStarterAutomationV1(
       }
 
       seedAttempted = true;
-      const seed = await seedStarterAutomationV1InTransaction(client, {
+      const seed = await provisionStarterAutomationInTransaction(client, {
         workspaceId,
         installedBy: input.createdBy
       });

@@ -53,17 +53,15 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Source update authentication is write-only and tri-state: omission preserves the current credential, `none` removes it, and bearer/custom-header replacement requires a new credential. Source lifecycle audit events exclude credentials, headers, and URL query values. Disabling or deleting a registry never removes an installed MCP server or its pinned provenance.
 - Workflow mutations require a unique, non-empty `agentIds` specialist set. One
   selected Agent runs directly; two or more are AcornOps-coordinated. Responses
-  derive `executionMode`; requests that send `entryAgentId`,
-  `delegationPolicy`, or `executionMode` fail with
-  `WORKFLOW_ROUTING_FIELDS_REMOVED`.
+  derive internal routing and `executionMode`; the strict request schema rejects
+  all unknown fields with the standard invalid-request response.
 - Manual workflow policy defaults are server-owned. The console may send the
   selected `restrictionMode` and semantic subset, while omitted mode, context,
   permissions, and approvals default to read-only workspace metadata access.
   `ASSISTANT_MAX_RUNTIME_MS` is the only execution limit and
   `TARGET_CHAT_REPORT_RETENTION_DAYS` is the only workflow and target-chat PDF
-  retention policy. Legacy per-workflow timing fields remain accepted but are
-  ignored; responses and workflow options expose the effective deployment
-  values.
+  retention policy. Mutations reject per-workflow timing fields; responses and
+  workflow options expose the effective deployment values.
 - Virtual-machine registration and key rotation preserve their response shape,
   but generated install instructions use the validated
   `CONTROL_PLANE_BASE_URL` and a literal heredoc so credential values are not
@@ -71,8 +69,8 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Selected Agents jointly bound the workflow semantic capability ceiling.
   `restrictionMode=inherit` resolves their current combined ceiling and
   requires an empty semantic list. `restrictionMode=restrict` uses an explicit
-  subset, including an intentionally empty subset. Stored legacy workflows and
-  omitted legacy request fields retain restricted semantics.
+  subset, including an intentionally empty subset. Stored definitions always
+  contain the final restriction field, and mutations reject unknown policy fields.
   Readiness requires active, reviewed exact mappings from the selected set, and
   later Agent disablement or review loss blocks future runs without changing
   pinned runs.
@@ -85,30 +83,32 @@ The control plane owns the platform API boundary. Keep this README as a short in
   no credentials, URLs, headers, schemas, arguments, private connection state,
   or internal coordinator identity. Dispatch always recompiles and its public
   `compiledAccessScope` is authoritative.
-- `authScope: personal` remains mechanism-neutral installation metadata; in V1
-  it means a write-only PAT connection owned by `(workspace, user,
-  installation)`. Target and Agent installations never share credentials, and
-  workflows reuse the selected Agent installation's connection.
-- Personal connection `GET`, `PUT`, `DELETE`, and `POST .../connection/verify`
-  routes expose only `serverId`, `status`, installation-derived `authType`, and
-  the next connect or verify action. OAuth and service-identity MCP connection
-  routes are not part of V1.
+- `credentialMode` is explicit installation metadata with values `none`,
+  `workspace`, or `individual`. Workspace mode resolves one installation-owned
+  service or bot credential; individual mode resolves only the current user's
+  credential. Target and Agent installations never share credentials.
+- Connection `GET`, `PUT`, `DELETE`, and `POST .../connection/verify` routes
+  preserve their destination-specific paths and expose only `serverId`,
+  `credentialMode`, `status`, `managementScope`, `canManage`, installation-derived
+  `authType`, and the next connect or verify action.
 - Connect, verify, and disconnect events are audited without credentials.
-  Service-principal runs fail with `MCP_PAT_USER_PRINCIPAL_REQUIRED`; scheduled
-  user-principal workflows remain supported.
-- Target-message, direct-Agent-run, and workflow-message `409` responses retain
-  `details.readinessErrors[]` and add
+  Service-identity runs may use workspace credentials and fail with
+  `MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED` when individual ownership requires a
+  human principal.
+- Target-message, direct-Agent-run, and workflow-message `409` responses expose
   `details.readinessFailures[].{serverId,toolName,code,action?}`. The structured
   entries are allow-listed and never contain credentials, headers, URLs, user
   IDs, or connection snapshots. Connection missing, connection error, and
-  user-snapshot tool absence use `MCP_PERSONAL_CONNECTION_REQUIRED` as the
+  credential-snapshot tool absence use `MCP_CONNECTION_REQUIRED` as the
   public recovery category; service principals, unavailable installations, and
   disabled remote MCP retain their distinct bounded codes.
 - Readiness preserves the built-in bridge trust boundary: enabled tools require
   matching server and tool identities, trusted built-ins do not require remote
-  MCP review or personal connection snapshots, and remote tools remain
+  MCP review or credential connection snapshots, and remote tools remain
   review-gated.
-- Workspace creation atomically commits starter automation v1. Startup backfills incomplete workspaces before readiness; a completed installation remains a tombstone, so deleting starter definitions does not recreate them.
+- Workspace creation atomically commits the current starter automation bundle.
+  A completed installation remains a tombstone, so deleting starter definitions
+  does not recreate them; startup performs no pre-release repair or upgrade.
 - Public Agent APIs contain specialists only. Manager creation or configuration
   fails with `MANAGER_SYSTEM_OWNED`, and direct access to system-owned
   coordination records returns 404. Public Workflow, compiled-scope, audit,
@@ -120,8 +120,8 @@ The control plane owns the platform API boundary. Keep this README as a short in
   delegated child runs.
 - Visible template-origin Agents and workflows are system-provided definitions. Workspace managers may change their availability, supported external bindings, or delete them; definition edits and version restore require a duplicated manual draft. Agent deletion reports dependent workflows until those dependencies are removed.
 - The automation-template response exposes install mode, installation status, setup steps, blocker codes, and the installed workflow ID. Workspace provisioning materializes only automatic templates and their required Agents. Opt-in definitions and their exclusive Agents are created only by the idempotent install action, remain paused, and report `needs_setup` until live prerequisites pass.
-- AcornOps does not provision a repository-review Agent or workflow and does not maintain provider-specific source-control profiles. A workspace manager creates a specialist Agent, installs and reviews a compatible MCP server through the generic Agent capability routes, then creates a workflow that selects that Agent. When the Agent has no platform semantic capability IDs, run compilation snapshots those reviewed exact attachments directly; platform semantic capabilities still require reviewed routing mappings. Credentialed installations use the same secret-free `mcpRequirements` and personal connection flow as every other user-created Agent attachment.
-- Workflow capability previews identify credential recovery by generic MCP server ID, auth type, owning Agent, connection state, and action. They never expose provider-profile identities, endpoint URLs, header configuration, or credential values. The console writes a replacement credential directly to the owning Agent's personal connection and then recomputes preview readiness.
+- AcornOps does not provision a repository-review Agent or workflow and does not maintain provider-specific source-control profiles. A workspace manager creates a specialist Agent, installs and reviews a compatible MCP server through the generic Agent capability routes, then creates a workflow that selects that Agent. When the Agent has no platform semantic capability IDs, run compilation snapshots those reviewed exact attachments directly; platform semantic capabilities still require reviewed routing mappings. Credentialed installations use the same secret-free `mcpRequirements` and mode-aware connection flow as every other user-created Agent attachment.
+- Workflow capability previews identify credential recovery by generic MCP server ID, ownership mode, auth type, owning Agent, connection state, and action. They never expose provider-profile identities, endpoint URLs, header configuration, credential values, or individual connection inventories. The console writes a replacement credential through the installation connection route and then recomputes preview readiness.
 - Authorized users may duplicate an effective definition into a manual draft without copying runs, sessions, schedules, triggers, activity, or capability installations.
 - Workflow schedules always run as their authenticated creator. Schedule create
   and update reject service identities with

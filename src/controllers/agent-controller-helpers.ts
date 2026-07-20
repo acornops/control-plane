@@ -17,7 +17,6 @@ const AGENT_TRIGGER_TYPES: AgentTriggerType[] = [
 const KNOWN_CONTEXT_GRANTS = new Set([
   'workspace_metadata',
   'audit_events',
-  'selected_chat_sessions',
   'target_inventory'
 ]);
 

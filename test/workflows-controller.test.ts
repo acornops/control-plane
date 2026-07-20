@@ -27,7 +27,6 @@ import { repo } from '../src/store/repository.js';
 import { db } from '../src/infra/db.js';
 import {
   callController,
-  createSessionRecord,
   createRequest,
   createWorkspaceAiCredentialStatusResponse,
   installWorkspace,
@@ -59,8 +58,8 @@ describe('workflows controller', () => {
       workflow,
       entryAgent,
       mappings: await listCapabilityRoutingMappings(workflow.workspaceId, { activeReviewedOnly: true }),
-      exactTargets: workflow.capabilityPolicy.semanticCapabilityIds.includes('target.diagnostics.read')
-        ? [{ id: workflow.workspaceId === 'workspace-1' ? 'cluster-1' : 'cluster-2', targetType: 'kubernetes' }]
+      targetRoute: workflow.capabilityPolicy.semanticCapabilityIds.includes('target.diagnostics.read')
+        ? { id: workflow.workspaceId === 'workspace-1' ? 'cluster-1' : 'cluster-2', targetType: 'kubernetes' }
         : undefined,
       actor: { userId: 'user-1', role, permissions: getWorkspacePermissions(role) },
       approvedContextGrants
@@ -109,12 +108,7 @@ describe('workflows controller', () => {
 
     const response = await callController(postMessage, createRequest(
       { sessionId },
-      {
-        content: 'Triage @cluster[cluster].',
-        inputs: { targetId: 'cluster-1', severity: 'high' },
-        targetId: 'cluster-1',
-        targetType: 'kubernetes'
-      }
+      { content: 'Triage @target[Test Cluster].' }
     ));
 
     assert.equal(response.statusCode, 202);
@@ -196,8 +190,7 @@ describe('workflows controller', () => {
 
   it('creates an approval-gated incident report run from selected workspace chats', async () => {
     installWorkspace('operator');
-    const incidentChat = createSessionRecord({ id: 'incident-chat-1', title: 'Payments incident' });
-    repo.getSession = async (sessionId) => sessionId === incidentChat.id ? incidentChat : null;
+    await repo.addSession('workspace-1', 'cluster-1', 'user-1', 'Payments incident');
     mock.method(globalThis, 'fetch', async (input) => {
       if (isWorkspaceAiCredentialStatusRequest(input)) {
         return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse('workspace-1')), { status: 200 });
@@ -207,17 +200,14 @@ describe('workflows controller', () => {
 
     const createdSession = await callController(createSession, createRequest(
       { workflowId: 'incident-report-pdf' },
-      { workspaceId: 'workspace-1', approvedContextGrants: ['selected_chat_sessions'] }
+      { workspaceId: 'workspace-1', approvedContextGrants: [] }
     ));
     assert.equal(createdSession.statusCode, 201);
     const sessionId = (createdSession.body as { session: { id: string } }).session.id;
 
     const response = await callController(postMessage, createRequest(
       { sessionId },
-      {
-        content: 'Generate the incident report from @chat[Payments incident].',
-        inputs: { chatSessionIds: [incidentChat.id] }
-      }
+      { content: 'Generate the incident report from @chat[Payments incident].' }
     ));
 
     assert.equal(response.statusCode, 202);
@@ -228,10 +218,10 @@ describe('workflows controller', () => {
     };
     assert.equal(body.status, 'waiting_for_approval');
     assert.deepEqual(body.compiledAccessScope.tools, [
-      'chat.sessions.read_selected',
+      'prompt.resources.read',
       'reports.pdf.generate'
     ]);
-    assert.deepEqual(body.compiledAccessScope.contextGrants, ['selected_chat_sessions']);
+    assert.deepEqual(body.compiledAccessScope.contextGrants, []);
     const run = await getWorkflowRun(body.run_id);
     assert.ok(run);
     assert.equal(run.targetId, undefined);
@@ -249,6 +239,7 @@ describe('workflows controller', () => {
       requiredPermissions: ['read_workspace_data', 'create_read_write_runs'],
       capabilityPolicy: {
         mode: 'read_write',
+        restrictionMode: 'restrict',
         semanticCapabilityIds: ['target.diagnostics.read'],
         contextGrants: ['workspace_metadata'],
         maxRuntimeSeconds: 900,
@@ -356,7 +347,7 @@ describe('workflows controller', () => {
       mcpTools: [{ serverId: 'server-1', toolName: 'records.list' }],
       mcpInstallations: [{
         id: 'server-1', name: 'Records', url: 'https://mcp.example.test', enabled: true,
-        authScope: 'personal', revision: 1, targetConstraints: { targetTypes: [], targetIds: [] },
+        credentialMode: 'individual', revision: 1, targetConstraints: { targetTypes: [], targetIds: [] },
         tools: [{
           serverId: 'server-1', toolName: 'records.list', alias: 'records_list',
           capability: 'read', enabled: true, reviewState: 'approved',
@@ -406,7 +397,7 @@ describe('workflows controller', () => {
     const sessionId = (createdSession.body as { session: { id: string } }).session.id;
     const response = await callController(postMessage, createRequest(
       { sessionId },
-      { content: 'Triage @cluster[cluster].', inputs: { targetId: 'cluster-1' }, targetId: 'cluster-1', targetType: 'kubernetes' }
+      { content: 'Triage @target[Test Cluster].' }
     ));
 
     assert.equal(response.statusCode, 409);

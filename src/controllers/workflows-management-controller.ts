@@ -1,4 +1,5 @@
 import type { NextFunction, Response } from 'express';
+import { z } from 'zod';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability } from '../auth/workspace-authorization.js';
 import { incrementAutomationDefinitionMutation } from '../metrics.js';
@@ -21,10 +22,10 @@ import {
 import type {
   WorkflowCapabilityPolicy,
   WorkflowDefinitionForAccess,
-  WorkflowInputDefinition,
-  WorkflowTargetConstraints
+  WorkflowInputDefinition
 } from '../types/workflows.js';
-import { TARGET_TYPES, type TargetType } from '../types/domain.js';
+import type { PromptResourceRequirement } from '../types/prompt-resources.js';
+import { promptResourceRegistry } from '../services/prompt-resources/index.js';
 import { toSingleParam } from '../utils/params.js';
 import { publicWorkflowDefinition } from './workflow-public.js';
 
@@ -38,26 +39,52 @@ function strings(value: unknown): string[] {
     : [];
 }
 
+const nonEmptyStringSchema = z.string().trim().min(1);
+const stringListSchema = z.array(nonEmptyStringSchema);
+
 function workflowAgentIds(value: unknown): string[] | null {
   if (!Array.isArray(value) || value.length === 0) return null;
   if (value.some((item) => typeof item !== 'string' || item.trim().length === 0)) return null;
   return value.map((item) => (item as string).trim());
 }
 
+const workflowCapabilityPolicyBodySchema = z.object({
+  mode: z.enum(['read_only', 'read_write']).optional(),
+  restrictionMode: z.enum(['inherit', 'restrict']).optional(),
+  semanticCapabilityIds: stringListSchema.optional(),
+  contextGrants: stringListSchema.optional(),
+  approvalRequirements: stringListSchema.optional()
+}).strict();
+
+const resourceRequirementBodySchema = z.object({
+  type: nonEmptyStringSchema,
+  minimum: z.number().int().nonnegative(),
+  maximum: z.number().int().nonnegative(),
+  requiredOperations: stringListSchema,
+  constraints: z.record(z.unknown()).optional()
+}).strict();
+
+const workflowInputBodySchema = z.object({
+  name: nonEmptyStringSchema,
+  label: nonEmptyStringSchema,
+  type: z.enum(['text', 'select', 'mcp_server', 'mcp_tool', 'skill', 'output_format', 'approval_policy', 'runtime', 'retention']),
+  required: z.boolean(),
+  optionSource: z.string().min(1).optional()
+}).strict();
+
 function capabilityPolicy(value: unknown, fallback?: WorkflowCapabilityPolicy): WorkflowCapabilityPolicy {
-  const body = bodyRecord(value);
+  const parsed = workflowCapabilityPolicyBodySchema.safeParse(value ?? {});
+  if (!parsed.success) {
+    throw new DefinitionValidationError(
+      'INVALID_REQUEST',
+      parsed.error.issues[0]?.message || 'Invalid workflow capability policy.'
+    );
+  }
+  const body = parsed.data;
   const defaults = fallback || manualWorkflowCapabilityPolicy();
   return {
-    mode: body.mode === 'read_only'
-      ? 'read_only'
-      : body.mode === 'read_write'
-        ? 'read_write'
-        : defaults.mode,
-    restrictionMode: body.restrictionMode === 'inherit'
-      ? 'inherit'
-      : body.restrictionMode === 'restrict'
-        ? 'restrict'
-        : defaults.restrictionMode,
+    mode: body.mode ?? defaults.mode,
+    restrictionMode: body.restrictionMode ?? defaults.restrictionMode,
     semanticCapabilityIds: body.semanticCapabilityIds === undefined
       ? defaults.semanticCapabilityIds
       : strings(body.semanticCapabilityIds),
@@ -69,48 +96,122 @@ function capabilityPolicy(value: unknown, fallback?: WorkflowCapabilityPolicy): 
   };
 }
 
-function targetConstraints(value: unknown): WorkflowTargetConstraints | undefined {
-  if (value === null || value === undefined) return undefined;
-  if (typeof value !== 'object' || Array.isArray(value)) {
-    throw new DefinitionValidationError('WORKFLOW_TARGET_CONSTRAINTS_INVALID', 'targetConstraints must be an object or null.');
+function resourceRequirements(value: unknown): PromptResourceRequirement[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new DefinitionValidationError('WORKFLOW_RESOURCE_REQUIREMENTS_INVALID', 'resourceRequirements must be an array.');
   }
-  const body = value as Record<string, unknown>;
-  if ((body.targetTypes !== undefined && !Array.isArray(body.targetTypes))
-    || (body.targetIds !== undefined && !Array.isArray(body.targetIds))) {
-    throw new DefinitionValidationError('WORKFLOW_TARGET_CONSTRAINTS_INVALID', 'targetTypes and targetIds must be arrays.');
-  }
-  const rawTargetTypes = strings(body.targetTypes);
-  const invalidTargetTypes = rawTargetTypes.filter((item) => !TARGET_TYPES.includes(item as TargetType));
-  if (invalidTargetTypes.length) {
-    throw new DefinitionValidationError(
-      'WORKFLOW_TARGET_TYPE_INVALID',
-      'targetConstraints contains unsupported target types.',
-      invalidTargetTypes
-    );
-  }
-  const targetTypes = rawTargetTypes as TargetType[];
-  const targetIds = strings(body.targetIds);
-  return targetTypes.length || targetIds.length ? { targetTypes, targetIds } : undefined;
+  const registered = new Map(promptResourceRegistry.descriptors().map((descriptor) => [descriptor.type, descriptor]));
+  return value.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new DefinitionValidationError('WORKFLOW_RESOURCE_REQUIREMENTS_INVALID', `Resource requirement ${index + 1} must be an object.`);
+    }
+    const parsed = resourceRequirementBodySchema.safeParse(item);
+    if (!parsed.success) {
+      throw new DefinitionValidationError(
+        'WORKFLOW_RESOURCE_REQUIREMENTS_INVALID',
+        parsed.error.issues[0]?.message || `Resource requirement ${index + 1} is invalid.`
+      );
+    }
+    const body = parsed.data;
+    const type = body.type;
+    const descriptor = registered.get(type);
+    const minimum = body.minimum;
+    const maximum = body.maximum;
+    if (!descriptor || minimum < 0 || maximum < minimum || maximum > descriptor.maximum) {
+      throw new DefinitionValidationError('WORKFLOW_RESOURCE_REQUIREMENTS_INVALID', `Resource requirement ${index + 1} has an unknown type or invalid cardinality.`);
+    }
+    return {
+      type,
+      minimum,
+      maximum,
+      requiredOperations: body.requiredOperations,
+      constraints: body.constraints
+    };
+  });
 }
 
-function removedRoutingField(body: Record<string, unknown>): string | null {
-  for (const field of ['entryAgentId', 'delegationPolicy', 'executionMode']) {
-    if (Object.prototype.hasOwnProperty.call(body, field)) return field;
+const workflowAuthoringBodySchema = z.object({
+  name: z.string().optional(),
+  description: z.string().optional(),
+  prompt: z.string().optional(),
+  agentIds: z.array(nonEmptyStringSchema).min(1).optional(),
+  resourceRequirements: z.array(resourceRequirementBodySchema).optional(),
+  capabilityPolicy: workflowCapabilityPolicyBodySchema.optional(),
+  tags: stringListSchema.optional(),
+  inputs: z.array(workflowInputBodySchema).optional(),
+  requiredPermissions: stringListSchema.optional(),
+  status: z.enum(['active', 'draft', 'paused']).optional()
+}).strict();
+
+const workflowUpdateBodySchema = workflowAuthoringBodySchema.extend({
+  workspaceId: nonEmptyStringSchema
+}).strict();
+
+const workflowDuplicateBodySchema = z.object({
+  workspaceId: nonEmptyStringSchema,
+  name: z.string().min(1).optional()
+}).strict();
+
+const workflowWorkspaceBodySchema = z.object({
+  workspaceId: nonEmptyStringSchema
+}).strict();
+
+function strictWorkflowBody(
+  value: unknown,
+  schema: typeof workflowAuthoringBodySchema
+    | typeof workflowUpdateBodySchema
+    | typeof workflowDuplicateBodySchema
+    | typeof workflowWorkspaceBodySchema
+): Record<string, unknown> {
+  const result = schema.safeParse(value ?? {});
+  if (!result.success) {
+    throw new DefinitionValidationError('INVALID_REQUEST', result.error.issues[0]?.message || 'Invalid request body.');
   }
-  return null;
+  return result.data;
 }
 
 function inputs(value: unknown): WorkflowInputDefinition[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
-    .map((item) => ({
-      name: typeof item.name === 'string' ? item.name.trim() : '',
-      label: typeof item.label === 'string' ? item.label.trim() : '',
-      type: typeof item.type === 'string' ? item.type as WorkflowInputDefinition['type'] : 'text',
-      required: item.required !== false,
-      optionSource: typeof item.optionSource === 'string' ? item.optionSource : undefined
-    }))
-    .filter((item) => item.name && item.label);
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new DefinitionValidationError('WORKFLOW_INPUTS_INVALID', 'inputs must be an array.');
+  }
+  const allowedTypes = new Set<WorkflowInputDefinition['type']>([
+    'text', 'select', 'mcp_server', 'mcp_tool', 'skill', 'output_format', 'approval_policy', 'runtime', 'retention'
+  ]);
+  const optionSources: Partial<Record<WorkflowInputDefinition['type'], string>> = {
+    mcp_server: 'mcpServers',
+    mcp_tool: 'mcpTools',
+    skill: 'skills',
+    output_format: 'outputFormats',
+    approval_policy: 'approvalPolicies',
+    runtime: 'runtimeLimits',
+    retention: 'retentionPolicies'
+  };
+  return value.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new DefinitionValidationError('WORKFLOW_INPUTS_INVALID', `Input ${index + 1} must be an object.`);
+    }
+    const parsed = workflowInputBodySchema.safeParse(item);
+    if (!parsed.success) {
+      throw new DefinitionValidationError(
+        'WORKFLOW_INPUTS_INVALID',
+        parsed.error.issues[0]?.message || `Input ${index + 1} is invalid.`
+      );
+    }
+    const body = parsed.data;
+    const name = body.name;
+    const label = body.label;
+    const type = allowedTypes.has(body.type) ? body.type : null;
+    const optionSource = body.optionSource;
+    if (!name || !label || !type || (optionSource !== undefined && optionSources[type] !== optionSource)) {
+      throw new DefinitionValidationError(
+        'WORKFLOW_INPUTS_INVALID',
+        `Input ${index + 1} has an invalid name, label, type, or option source.`
+      );
+    }
+    return { name, label, type, required: body.required, optionSource };
+  });
 }
 
 function validationError(res: Response, error: DefinitionValidationError): void {
@@ -120,6 +221,27 @@ function validationError(res: Response, error: DefinitionValidationError): void 
   res.status(error.code === 'SYSTEM_WORKFLOW_DEFINITION_IMMUTABLE' ? 409 : 400).json({
     error: { code: error.code, message: error.message, retryable: false, details: error.details }
   });
+}
+
+async function validateAuthoringPrompt(
+  workspaceId: string,
+  actorUserId: string,
+  prompt: string,
+  requirements: PromptResourceRequirement[]
+): Promise<void> {
+  const resolution = await promptResourceRegistry.resolve(prompt, {
+    workspaceId,
+    actorUserId,
+    mode: 'authoring',
+    requirements
+  });
+  if (resolution.blockers.length > 0) {
+    throw new DefinitionValidationError(
+      'WORKFLOW_PROMPT_REFERENCES_INVALID',
+      resolution.blockers.map((blocker) => blocker.message).slice(0, 3).join(' '),
+      resolution.blockers.map((blocker) => blocker.code)
+    );
+  }
 }
 
 async function audit(
@@ -153,16 +275,7 @@ export async function createWorkflow(req: AuthenticatedRequest, res: Response, n
   const workspaceId = toSingleParam(req.params.workspaceId);
   try {
     if (!(await requireWorkspaceCapability(req, res, workspaceId, 'manage_workflows', 'No permission to create workflows'))) return;
-    const body = bodyRecord(req.body);
-    const removedField = removedRoutingField(body);
-    if (removedField) {
-      res.status(400).json({ error: {
-        code: 'WORKFLOW_ROUTING_FIELDS_REMOVED',
-        message: `${removedField} is no longer accepted. Send agentIds and let AcornOps derive executionMode.`,
-        retryable: false
-      } });
-      return;
-    }
+    const body = strictWorkflowBody(req.body, workflowAuthoringBodySchema);
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
     const agentIds = workflowAgentIds(body.agentIds);
@@ -170,13 +283,15 @@ export async function createWorkflow(req: AuthenticatedRequest, res: Response, n
       res.status(400).json({ error: { code: 'WORKFLOW_FIELDS_REQUIRED', message: 'name, prompt, and at least one agentId are required.', retryable: false } });
       return;
     }
+    const parsedRequirements = resourceRequirements(body.resourceRequirements);
+    await validateAuthoringPrompt(workspaceId, req.auth.userId, prompt, parsedRequirements);
     const workflow = await createWorkflowThroughDefinitionService({
       workspaceId,
       name,
       description: typeof body.description === 'string' ? body.description : undefined,
       prompt,
       agentIds,
-      targetConstraints: targetConstraints(body.targetConstraints),
+      resourceRequirements: parsedRequirements,
       capabilityPolicy: capabilityPolicy(body.capabilityPolicy),
       tags: strings(body.tags),
       inputs: inputs(body.inputs),
@@ -197,28 +312,19 @@ export async function createWorkflow(req: AuthenticatedRequest, res: Response, n
 }
 
 export async function duplicateWorkflow(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-  const workspaceId = typeof req.body?.workspaceId === 'string' ? req.body.workspaceId : toSingleParam(req.query.workspaceId as string | string[] | undefined);
+  const workspaceId = typeof req.body?.workspaceId === 'string' ? req.body.workspaceId : '';
   try {
     if (!(await requireWorkspaceCapability(req, res, workspaceId, 'manage_workflows', 'No permission to duplicate workflows'))) return;
-    const requestBody = bodyRecord(req.body);
-    const removedField = removedRoutingField(requestBody);
-    if (removedField) {
-      res.status(400).json({ error: {
-        code: 'WORKFLOW_ROUTING_FIELDS_REMOVED',
-        message: `${removedField} is no longer accepted. Send agentIds and let AcornOps derive executionMode.`,
-        retryable: false
-      } });
-      return;
-    }
+    const requestBody = strictWorkflowBody(req.body, workflowDuplicateBodySchema);
     const source = await getWorkflowDefinition(workspaceId, toSingleParam(req.params.workflowId));
     if (!source) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
     const workflow = await createWorkflowThroughDefinitionService({
       workspaceId,
-      name: typeof req.body?.name === 'string' ? req.body.name : `${source.name} copy`,
+      name: typeof requestBody.name === 'string' ? requestBody.name : `${source.name} copy`,
       description: source.description,
       prompt: source.prompt,
       agentIds: source.agentIds,
-      targetConstraints: source.targetConstraints,
+      resourceRequirements: source.resourceRequirements,
       capabilityPolicy: withEffectiveWorkflowRuntimePolicy(source.capabilityPolicy),
       tags: source.tags,
       inputs: source.inputs,
@@ -235,22 +341,13 @@ export async function duplicateWorkflow(req: AuthenticatedRequest, res: Response
 }
 
 export async function updateWorkflow(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-  const workspaceId = typeof req.body?.workspaceId === 'string' ? req.body.workspaceId : toSingleParam(req.query.workspaceId as string | string[] | undefined);
+  const workspaceId = typeof req.body?.workspaceId === 'string' ? req.body.workspaceId : '';
   try {
     if (!(await requireWorkspaceCapability(req, res, workspaceId, 'manage_workflows', 'No permission to edit workflows'))) return;
     const workflowId = toSingleParam(req.params.workflowId);
     const current = await getWorkflowDefinition(workspaceId, workflowId);
     if (!current) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
-    const body = bodyRecord(req.body);
-    const removedField = removedRoutingField(body);
-    if (removedField) {
-      res.status(400).json({ error: {
-        code: 'WORKFLOW_ROUTING_FIELDS_REMOVED',
-        message: `${removedField} is no longer accepted. Send agentIds and let AcornOps derive executionMode.`,
-        retryable: false
-      } });
-      return;
-    }
+    const body = strictWorkflowBody(req.body, workflowUpdateBodySchema);
     const agentIds = workflowAgentIds(body.agentIds);
     if (!agentIds) {
       res.status(400).json({ error: {
@@ -260,17 +357,18 @@ export async function updateWorkflow(req: AuthenticatedRequest, res: Response, n
       } });
       return;
     }
+    const nextPrompt = typeof body.prompt === 'string' ? body.prompt : current.prompt;
+    const nextRequirements = body.resourceRequirements === undefined
+      ? current.resourceRequirements
+      : resourceRequirements(body.resourceRequirements);
+    await validateAuthoringPrompt(workspaceId, req.auth.userId, nextPrompt, nextRequirements);
     const updated = await updateWorkflowThroughDefinitionService(workspaceId, workflowId, {
       name: typeof body.name === 'string' ? body.name : undefined,
       description: typeof body.description === 'string' ? body.description : undefined,
       status: body.status === 'active' || body.status === 'paused' || body.status === 'draft' ? body.status : undefined,
       prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
       agentIds,
-      targetConstraints: body.targetConstraints === undefined
-        ? undefined
-        : body.targetConstraints === null
-          ? null
-          : targetConstraints(body.targetConstraints),
+      resourceRequirements: body.resourceRequirements === undefined ? undefined : nextRequirements,
       capabilityPolicy: body.capabilityPolicy === undefined ? undefined : capabilityPolicy(body.capabilityPolicy, current.capabilityPolicy),
       tags: body.tags === undefined ? undefined : strings(body.tags),
       inputs: body.inputs === undefined ? undefined : inputs(body.inputs),
@@ -286,9 +384,10 @@ export async function updateWorkflow(req: AuthenticatedRequest, res: Response, n
 }
 
 export async function deleteWorkflow(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-  const workspaceId = typeof req.body?.workspaceId === 'string' ? req.body.workspaceId : toSingleParam(req.query.workspaceId as string | string[] | undefined);
+  const workspaceId = typeof req.body?.workspaceId === 'string' ? req.body.workspaceId : '';
   try {
     if (!(await requireWorkspaceCapability(req, res, workspaceId, 'manage_workflows', 'No permission to delete workflows'))) return;
+    strictWorkflowBody(req.body, workflowWorkspaceBodySchema);
     const workflowId = toSingleParam(req.params.workflowId);
     const current = await getWorkflowDefinition(workspaceId, workflowId);
     if (!current) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });

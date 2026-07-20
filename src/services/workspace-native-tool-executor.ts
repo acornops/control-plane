@@ -1,7 +1,5 @@
-import { db } from '../infra/db.js';
 import { observeWorkspaceNativeToolCall } from '../metrics.js';
 import { recordWorkspaceAuditEvent } from './workspace-audit.js';
-import { repo } from '../store/repository.js';
 import {
   createTargetRunReport,
   createWorkflowReport,
@@ -12,6 +10,7 @@ import type { WorkflowRunRecord } from '../store/repository-workflows.js';
 import type { Run } from '../types/domain.js';
 import { config } from '../config.js';
 import { getWorkspaceNativeTool } from './workspace-native-tools.js';
+import { digestBindings, digestPrompt, promptResourceRegistry } from './prompt-resources/index.js';
 
 export class WorkspaceNativeToolExecutionError extends Error {
   constructor(readonly code: string, message: string, readonly status = 400) {
@@ -26,59 +25,56 @@ function strings(value: unknown): string[] {
     : [];
 }
 
-function selectedChatIds(value: unknown, selected = new Set<string>()): Set<string> {
-  if (typeof value === 'string') {
-    const mention = /^@chat\[([^\]]+)\]$/.exec(value.trim());
-    selected.add(mention ? mention[1] : value.trim());
-  } else if (Array.isArray(value)) {
-    value.forEach((item) => selectedChatIds(item, selected));
-  } else if (value && typeof value === 'object') {
-    Object.values(value as Record<string, unknown>).forEach((item) => selectedChatIds(item, selected));
-  }
-  selected.delete('');
-  return selected;
-}
-
-async function readSelectedChats(run: WorkflowRunRecord, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  if (!run.compiledAccessScope.contextGrants.includes('selected_chat_sessions')) {
+async function readPromptResources(run: WorkflowRunRecord, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (digestPrompt(run.prompt) !== run.promptDigest
+    || digestBindings(run.compiledAccessScope.resourceBindings) !== run.bindingDigest) {
     throw new WorkspaceNativeToolExecutionError(
-      'SELECTED_CHAT_CONTEXT_GRANT_REQUIRED',
-      'Reading selected chats requires the selected_chat_sessions context grant.',
-      403
+      'PROMPT_RESOURCE_INTEGRITY_FAILED',
+      'The run prompt resource snapshot failed integrity verification.',
+      409
     );
   }
-  const sessionIds = [...new Set(strings(args.sessionIds))];
-  if (sessionIds.length === 0 || sessionIds.length > 20) {
-    throw new WorkspaceNativeToolExecutionError('SELECTED_CHAT_INPUT_INVALID', 'Provide between 1 and 20 selected session IDs.');
+  const bindingIds = [...new Set(strings(args.bindingIds))];
+  if (bindingIds.length === 0 || bindingIds.length > 20) {
+    throw new WorkspaceNativeToolExecutionError('PROMPT_RESOURCE_INPUT_INVALID', 'Provide between 1 and 20 binding IDs.');
   }
-  const execution = await db.query<{ input_context: Record<string, unknown> }>(
-    'SELECT input_context FROM workflow_executions WHERE id=$1', [run.executionId]
-  );
-  const granted = selectedChatIds(execution.rows[0]?.input_context || {});
-  if (sessionIds.some((sessionId) => !granted.has(sessionId))) {
-    throw new WorkspaceNativeToolExecutionError(
-      'SELECTED_CHAT_NOT_GRANTED',
-      'A requested chat session was not explicitly selected for this workflow run.',
-      403
-    );
-  }
-  const sessions: Array<Record<string, unknown>> = [];
-  for (const sessionId of sessionIds) {
-    const session = await repo.getSession(sessionId);
-    if (!session || session.workspaceId !== run.workspaceId) {
-      throw new WorkspaceNativeToolExecutionError('SELECTED_CHAT_NOT_FOUND', 'Selected chat session not found.', 404);
+  const bindings = bindingIds.map((bindingId) => {
+    const binding = run.compiledAccessScope.resourceBindings.find((candidate) => candidate.bindingId === bindingId);
+    if (!binding) throw new WorkspaceNativeToolExecutionError('PROMPT_RESOURCE_NOT_GRANTED', 'A requested binding is not granted to this run.', 403);
+    if (binding.contextMode !== 'tool') {
+      throw new WorkspaceNativeToolExecutionError('PROMPT_RESOURCE_NOT_READABLE', 'A requested binding is not tool-readable.', 403);
     }
-    const messages = await repo.listMessages(sessionId, { limit: 200 });
-    sessions.push({
-      id: session.id,
-      targetId: session.targetId,
-      targetType: session.targetType,
-      messages: messages.items.map((message) => ({
-        id: message.id, role: message.role, content: message.content, createdAt: message.createdAt
-      }))
-    });
+    if (!binding.operations.includes('read')) {
+      throw new WorkspaceNativeToolExecutionError('PROMPT_RESOURCE_NOT_READABLE', 'A requested binding does not grant read access.', 403);
+    }
+    return binding;
+  });
+  const maximumBytes = 256 * 1024;
+  const perResourceBytes = Math.max(4_096, Math.floor(maximumBytes / bindings.length));
+  const resources: Array<Record<string, unknown>> = [];
+  let aggregateBytes = 0;
+  for (const binding of bindings) {
+    const provider = promptResourceRegistry.provider(binding.type);
+    if (!provider || provider.descriptor().provider !== binding.provider || !provider.loadContext) {
+      throw new WorkspaceNativeToolExecutionError('PROMPT_RESOURCE_READER_UNAVAILABLE', 'A requested binding cannot provide readable context.', 409);
+    }
+    const context = await provider.loadContext(binding, { runId: run.id, maximumBytes: perResourceBytes });
+    if (Buffer.byteLength(JSON.stringify(context), 'utf8') > perResourceBytes) {
+      throw new WorkspaceNativeToolExecutionError('PROMPT_RESOURCE_RESULT_TOO_LARGE', 'A prompt resource exceeded its context limit.', 413);
+    }
+    const result = {
+      bindingId: binding.bindingId,
+      provider: binding.provider,
+      resourceId: binding.resourceId,
+      labelSnapshot: binding.labelSnapshot,
+      retrievedAt: new Date().toISOString(),
+      context
+    };
+    aggregateBytes += Buffer.byteLength(JSON.stringify(result), 'utf8');
+    if (aggregateBytes > maximumBytes) break;
+    resources.push(result);
   }
-  return { sessions };
+  return { resources, truncated: resources.length < bindings.length };
 }
 
 async function generatePdf(
@@ -163,15 +159,15 @@ export async function executeWorkspaceNativeTool(input: {
   const startedAt = Date.now();
   try {
     let result: Record<string, unknown>;
-    if (tool.id === 'chat.sessions.read_selected') {
+    if (tool.id === 'prompt.resources.read') {
       if (!('executionId' in input.run)) {
         throw new WorkspaceNativeToolExecutionError(
           'WORKSPACE_NATIVE_TOOL_SCOPE_DENIED',
-          'Reading selected chats is available only to workflow runs.',
+          'Reading prompt resources is available only to workflow runs.',
           403
         );
       }
-      result = await readSelectedChats(input.run, input.arguments);
+      result = await readPromptResources(input.run, input.arguments);
     }
     else if (tool.id === 'reports.pdf.generate') result = await generatePdf(input.run, input.arguments, input.toolCallId);
     else throw new WorkspaceNativeToolExecutionError('NATIVE_TOOL_NOT_IMPLEMENTED', 'Native tool is not implemented.', 501);

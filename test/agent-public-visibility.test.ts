@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, it } from 'node:test';
 import { createAgent, listAgents } from '../src/controllers/agents-controller.js';
 import { requirePublicAgentRoute } from '../src/controllers/public-agent-visibility.js';
-import { seedStarterAutomationV1 } from '../src/services/automation-templates.js';
+import { provisionStarterAutomation } from '../src/services/automation-templates.js';
 import { installAutomationTemplate } from '../src/services/automation-template-lifecycle.js';
 import { listTemplateInstallations } from '../src/store/repository-automation-templates.js';
 import { getWorkflowDefinition } from '../src/store/repository-workflows.js';
@@ -45,7 +45,7 @@ describe('public Agent visibility', () => {
 
   it('omits the system coordinator and returns not found for its public route identity', async () => {
     installWorkspace('viewer');
-    await seedStarterAutomationV1({ workspaceId: 'workspace-1', installedBy: 'user-1' });
+    await provisionStarterAutomation({ workspaceId: 'workspace-1', installedBy: 'user-1' });
     await installAutomationTemplate({ workspaceId: 'workspace-1', templateId: 'incident-investigation', installedBy: 'user-1' });
     const [installation] = await listTemplateInstallations('workspace-1');
     const coordinatedWorkflowId = installation.recordIds['workflow:managedResponse'];

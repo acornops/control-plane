@@ -1,6 +1,6 @@
 import type { WorkspaceAuditOperation } from '../types/domain.js';
 
-export type NativeToolAuthorizationClass = 'selected_context' | 'internal_artifact';
+export type NativeToolAuthorizationClass = 'prompt_resource' | 'internal_artifact';
 export type NativeToolInvocationScope = 'workflow' | 'target_chat';
 
 export interface WorkspaceNativeToolDefinition {
@@ -20,25 +20,24 @@ export interface WorkspaceNativeToolDefinition {
 
 const WORKSPACE_NATIVE_TOOLS: WorkspaceNativeToolDefinition[] = [
   {
-    id: 'chat.sessions.read_selected',
-    modelAlias: 'acornops_read_selected_chat_sessions',
-    title: 'Read selected chats',
-    description: 'Read bounded message evidence from chat sessions explicitly selected for this workflow run.',
-    semanticCapabilityId: 'chat.sessions.read_selected',
+    id: 'prompt.resources.read',
+    modelAlias: '_acornops_read_prompt_resources',
+    title: 'Read prompt resources',
+    description: 'Read bounded evidence from exact resources bound to this workflow run.',
+    semanticCapabilityId: 'prompt.resources.read',
     invocationScopes: ['workflow'],
-    authorizationClass: 'selected_context',
+    authorizationClass: 'prompt_resource',
     auditOperation: 'read',
     approvalOperation: 'read',
-    requiredContextGrant: 'selected_chat_sessions',
     inputSchema: {
       type: 'object',
-      required: ['sessionIds'],
+      required: ['bindingIds'],
       additionalProperties: false,
       properties: {
-        sessionIds: { type: 'array', minItems: 1, maxItems: 20, items: { type: 'string', minLength: 1 } }
+        bindingIds: { type: 'array', minItems: 1, maxItems: 20, items: { type: 'string', minLength: 1 } }
       }
     },
-    outputSchema: { type: 'object', required: ['sessions'], properties: { sessions: { type: 'array' } } }
+    outputSchema: { type: 'object', required: ['resources'], properties: { resources: { type: 'array' } } }
   },
   {
     id: 'reports.pdf.generate',

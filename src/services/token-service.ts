@@ -2,6 +2,8 @@ import { createPrivateKey, createPublicKey, generateKeyPairSync, randomUUID, typ
 import { createLocalJWKSet, exportJWK, jwtVerify, SignJWT, type JSONWebKeySet, type JWK, type JWTPayload } from 'jose';
 import { type AppConfig, config } from '../config.js';
 import { isTargetType, type TargetType, type WorkspaceAuditOperation } from '../types/domain.js';
+import type { PromptResourceBinding } from '../types/prompt-resources.js';
+import { createResourceBindingClaims, readResourceBindingClaims } from './token-resource-bindings.js';
 
 export type RunScopeType = 'target' | 'workspace';
 
@@ -47,13 +49,11 @@ interface BaseRunScopeClaims {
   allowedToolOperations?: Record<string, WorkspaceAuditOperation>;
   maxOutputTokens?: number;
   allowedModels?: string[];
-  allowedRepository?: {
-    provider: 'github' | 'gitlab';
-    repository: string;
-    ref?: string;
-    changeRequestNumber?: number;
-  };
+  resourceBindings?: PromptResourceBinding[];
+  bindingDigest?: string;
 }
+
+type VerifiedResourceBindingClaim = PromptResourceBinding;
 
 export interface TargetRunScopeClaims extends BaseRunScopeClaims {
   scopeType?: 'target';
@@ -94,6 +94,8 @@ export interface VerifiedRunScopeClaims extends BaseRunScopeClaims {
   contextGrants: string[];
   principal: RunPrincipalRef;
   permissionMode: RunPermissionMode;
+  resourceBindings: VerifiedResourceBindingClaim[];
+  bindingDigest?: string;
 }
 
 interface KeyMaterial {
@@ -300,13 +302,15 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
     throw new Error('Gateway token permission max_output_tokens must be a number or null');
   }
 
+  const workspaceId = stringClaim(payload, 'workspace_id');
   const userId = optionalStringClaim(payload, 'user_id');
+  const { resourceBindings, bindingDigest } = readResourceBindingClaims(permissionObject, workspaceId);
   const baseClaims = {
     subject,
     tokenId: typeof payload.jti === 'string' ? payload.jti : undefined,
     runId,
     scopeType,
-    workspaceId: stringClaim(payload, 'workspace_id'),
+    workspaceId,
     sessionId: stringClaim(payload, 'session_id'),
     userId,
     principal: principalClaim(payload.principal, userId),
@@ -320,7 +324,9 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
     maxOutputTokens: typeof maxOutputTokens === 'number' ? maxOutputTokens : undefined,
     contextGrants: permissionObject.context_grants === undefined
       ? []
-      : stringArrayClaim(permissionObject.context_grants, 'context_grants')
+      : stringArrayClaim(permissionObject.context_grants, 'context_grants'),
+    resourceBindings,
+    bindingDigest
   };
 
   if (scopeType === 'workspace') {
@@ -381,16 +387,11 @@ export class GatewayTokenService {
       max_output_tokens: input.maxOutputTokens ?? null,
       allowed_models: input.allowedModels || []
     };
-    if (input.allowedRepository) {
-      permissionPayload.allowed_repository = {
-        provider: input.allowedRepository.provider,
-        repository: input.allowedRepository.repository,
-        ...(input.allowedRepository.ref ? { ref: input.allowedRepository.ref } : {}),
-        ...(input.allowedRepository.changeRequestNumber
-          ? { change_request_number: input.allowedRepository.changeRequestNumber }
-          : {})
-      };
-    }
+    Object.assign(permissionPayload, createResourceBindingClaims(
+      input.resourceBindings || [],
+      input.bindingDigest,
+      input.workspaceId
+    ));
     if (input.scopeType === 'workspace') {
       permissionPayload.context_grants = input.contextGrants || [];
     }
@@ -496,5 +497,4 @@ export class GatewayTokenService {
     };
   }
 }
-
 export const gatewayTokenService = new GatewayTokenService();

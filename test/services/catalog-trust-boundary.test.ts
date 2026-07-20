@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import publicHeaderVectorsJson from '../../docs/contracts/mcp-public-header-vectors.json' with { type: 'json' };
 import {
   CatalogDestinationValidationError,
   validateAgentCatalogDestination
@@ -9,6 +10,10 @@ import {
   validateMcpPublicHeaders
 } from '../../src/services/mcp-public-header-policy.js';
 import type { AgentDefinition } from '../../src/types/agents.js';
+
+const publicHeaderVectors = publicHeaderVectorsJson as {
+  cases: Array<{ name: string; headers: Array<[string, string]>; valid: boolean }>;
+};
 
 function agent(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
   return {
@@ -21,15 +26,14 @@ function agent(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
 }
 
 describe('MCP catalog trust-boundary validation', () => {
-  it('accepts safe public headers and rejects credentials, reserved names, duplicate case, and CR/LF', () => {
-    assert.deepEqual(validateMcpPublicHeaders({ 'X-Catalog-Version': 'v2' }), { 'X-Catalog-Version': 'v2' });
-    for (const headers of [
-      { Authorization: 'secret' },
-      { 'X-Workspace-Id': 'spoofed' },
-      { 'X-Trace': 'one', 'x-trace': 'two' },
-      { 'X-Trace': 'one\r\ntwo' }
-    ]) {
-      assert.throws(() => validateMcpPublicHeaders(headers), InvalidMcpPublicHeadersError);
+  it('matches the cross-runtime public-header vectors', () => {
+    for (const vector of publicHeaderVectors.cases) {
+      const headers = Object.fromEntries(vector.headers);
+      if (vector.valid) {
+        assert.deepEqual(validateMcpPublicHeaders(headers), headers, vector.name);
+      } else {
+        assert.throws(() => validateMcpPublicHeaders(headers), InvalidMcpPublicHeadersError, vector.name);
+      }
     }
   });
 

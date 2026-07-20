@@ -167,7 +167,7 @@ describe('workflow access compiler', () => {
         name: 'User-selected MCP server',
         url: 'https://mcp.example.com/v1/',
         enabled: true,
-        authScope: 'personal',
+        credentialMode: 'individual',
         revision: 1,
         targetConstraints: { targetTypes: [], targetIds: [] },
         tools: [{
@@ -316,7 +316,8 @@ describe('workflow access compiler', () => {
           permissions: capabilitiesToPermissions(['read_workspace_data', 'create_read_only_runs'])
         },
         approvedContextGrants: ['workspace_metadata', 'audit_events'],
-        exactTargets: [{ id: 'target-denied', targetType: 'kubernetes' }]
+        targetRoute: { id: 'target-denied', targetType: 'kubernetes' },
+        resourceBindings: []
       }),
       (error) => error instanceof WorkflowAccessDeniedError
         && error.code === 'WORKFLOW_CAPABILITY_MAPPING_UNAVAILABLE'
@@ -339,13 +340,13 @@ describe('workflow access compiler', () => {
     });
     assert.equal(ceiling.resourceResolutionPhase, 'session_ceiling');
     assert.deepEqual(ceiling.tools, []);
-    assert.deepEqual(ceiling.exactTargets, []);
+    assert.deepEqual(ceiling.resourceBindings, []);
   });
 
   it('intersects workflow, Agent, mapping, and exact target scope for diagnostics', () => {
     const base = createWorkflow();
     const workflow = createWorkflow({
-      targetConstraints: { targetTypes: ['kubernetes'], targetIds: ['target-1'] },
+      resourceRequirements: [{ type: 'target', minimum: 1, maximum: 1, requiredOperations: ['read'], constraints: { targetTypes: ['kubernetes'], targetIds: ['target-1'] } }],
       capabilityPolicy: { ...base.capabilityPolicy, semanticCapabilityIds: ['target.diagnostics.read'], contextGrants: [] }
     });
     const agent = createAgent({
@@ -358,7 +359,7 @@ describe('workflow access compiler', () => {
       targetToolRefs: [{ serverId: 'builtin-target', toolName: 'list_resources', alias: 'list_resources', operation: 'read' }]
     });
     const compiled = compileWorkflowAccessScope({
-      workflow, entryAgent: agent, mappings: [route], exactTargets: [{ id: 'target-1', targetType: 'kubernetes' }],
+      workflow, entryAgent: agent, mappings: [route], targetRoute: { id: 'target-1', targetType: 'kubernetes' }, resourceBindings: [],
       actor: { userId: 'user-operator', role: 'operator', permissions: capabilitiesToPermissions(['read_workspace_data', 'create_read_only_runs']) },
       approvedContextGrants: []
     });
@@ -370,7 +371,7 @@ describe('workflow access compiler', () => {
   it('keeps target write references out of read-only workflow scopes', () => {
     const base = createWorkflow();
     const workflow = createWorkflow({
-      targetConstraints: { targetTypes: ['kubernetes'], targetIds: ['target-1'] },
+      resourceRequirements: [{ type: 'target', minimum: 1, maximum: 1, requiredOperations: ['read'], constraints: { targetTypes: ['kubernetes'], targetIds: ['target-1'] } }],
       capabilityPolicy: { ...base.capabilityPolicy, semanticCapabilityIds: ['target.diagnostics.read'], contextGrants: [] }
     });
     const agent = createAgent({
@@ -386,7 +387,7 @@ describe('workflow access compiler', () => {
       ]
     });
     const compiled = compileWorkflowAccessScope({
-      workflow, entryAgent: agent, mappings: [route], exactTargets: [{ id: 'target-1', targetType: 'kubernetes' }],
+      workflow, entryAgent: agent, mappings: [route], targetRoute: { id: 'target-1', targetType: 'kubernetes' }, resourceBindings: [],
       actor: { userId: 'user-operator', role: 'operator', permissions: capabilitiesToPermissions(['read_workspace_data', 'create_read_only_runs']) },
       approvedContextGrants: []
     });
@@ -398,7 +399,7 @@ describe('workflow access compiler', () => {
   it('compiles exact read and write target mappings for approval-gated remediation', () => {
     const base = createWorkflow();
     const workflow = createWorkflow({
-      targetConstraints: { targetTypes: ['kubernetes'], targetIds: ['target-1'] },
+      resourceRequirements: [{ type: 'target', minimum: 1, maximum: 1, requiredOperations: ['read', 'write'], constraints: { targetTypes: ['kubernetes'], targetIds: ['target-1'] } }],
       capabilityPolicy: {
         ...base.capabilityPolicy,
         mode: 'read_write',
@@ -425,7 +426,7 @@ describe('workflow access compiler', () => {
     });
     const compiled = compileWorkflowAccessScope({
       workflow, entryAgent: agent, mappings: [readRoute, writeRoute],
-      exactTargets: [{ id: 'target-1', targetType: 'kubernetes' }],
+      targetRoute: { id: 'target-1', targetType: 'kubernetes' }, resourceBindings: [],
       actor: { userId: 'user-operator', role: 'admin', permissions: capabilitiesToPermissions(['read_workspace_data', 'create_read_write_runs']) },
       approvedContextGrants: []
     });

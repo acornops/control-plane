@@ -1,7 +1,7 @@
 import type { AgentTargetScope } from '../types/agents.js';
 import type { CapabilityRoutingMapping } from '../types/capability-routing.js';
 import type { TargetType } from '../types/domain.js';
-import type { WorkflowTargetConstraints } from '../types/workflows.js';
+import type { TargetPromptResourceConstraints } from './prompt-resources/providers/target-provider.js';
 
 export const TARGET_DIAGNOSTICS_READ_CAPABILITY = 'target.diagnostics.read';
 export const TARGET_REMEDIATION_WRITE_CAPABILITY = 'target.remediation.write';
@@ -22,7 +22,7 @@ export function targetAllowedByAgentScope(scope: AgentTargetScope, target: Exact
 }
 
 export function targetAllowedByWorkflowConstraints(
-  constraints: WorkflowTargetConstraints | undefined,
+  constraints: TargetPromptResourceConstraints | undefined,
   target: ExactTargetBinding
 ): boolean {
   return (!constraints?.targetTypes.length || constraints.targetTypes.includes(target.targetType))

@@ -61,8 +61,10 @@ export interface CatalogArtifactConfig {
     type: 'streamable-http';
     url: string;
     requiresConfiguration?: boolean;
-    requiresPersonalAuth?: boolean;
+    supportedCredentialModes?: Array<'none' | 'workspace' | 'individual'>;
+    recommendedCredentialMode?: 'none' | 'workspace' | 'individual';
     headerNames?: string[];
+    secretHeaderNames?: string[];
   }>;
   published_at?: string | null;
   upstream_updated_at?: string | null;
@@ -110,13 +112,14 @@ interface ImportCatalogMcpServerBaseInput {
   enabled?: boolean;
   publicHeaders?: Record<string, string>;
   endpointConfiguration?: Record<string, string>;
+  credentialMode?: 'none' | 'workspace' | 'individual';
   reimportServerId?: string;
   expectedRevision?: number;
 }
 
 export type ImportCatalogMcpServerInput = ImportCatalogMcpServerBaseInput & (
   | {
-      scopeType?: 'agent';
+      scopeType: 'agent';
       agentId: string;
       targetConstraints?: { targetTypes?: TargetType[]; targetIds?: string[] };
     }
@@ -127,27 +130,31 @@ export type ImportCatalogMcpServerInput = ImportCatalogMcpServerBaseInput & (
     }
 );
 
-export interface McpUserConnectionConfig {
+export interface McpConnectionConfig {
   server_id: string;
+  credential_mode: 'workspace' | 'individual';
   status: 'missing' | 'connected' | 'error';
   auth_type: 'bearer_token' | 'custom_header';
   action?: 'connect_mcp_server' | 'verify_mcp_server' | null;
   error_code?: string | null;
+  verified_at?: string | null;
+  updated_at?: string | null;
 }
 
-export interface UpsertMcpUserConnectionInput {
+export interface UpsertMcpConnectionInput {
   workspaceId: string;
   serverId: string;
-  userId: string;
+  ownerType: 'installation' | 'user';
+  ownerId: string;
   credential: string;
   consentGranted: true;
 }
 
 export type McpReadinessFailureCode =
-  | 'MCP_PAT_USER_PRINCIPAL_REQUIRED'
-  | 'MCP_PERSONAL_CONNECTION_MISSING'
-  | 'MCP_PERSONAL_CONNECTION_ERROR'
-  | 'MCP_PERSONAL_TOOL_UNAVAILABLE'
+  | 'MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED'
+  | 'MCP_CONNECTION_MISSING'
+  | 'MCP_CONNECTION_ERROR'
+  | 'MCP_CREDENTIAL_TOOL_UNAVAILABLE'
   | 'MCP_INSTALLATION_UNAVAILABLE'
   | 'MCP_REMOTE_DISABLED';
 
@@ -318,6 +325,7 @@ export async function importCatalogMcpServer(
       enabled: input.enabled ?? true,
       public_headers: input.publicHeaders,
       endpoint_configuration: input.endpointConfiguration ?? {},
+      credential_mode: input.credentialMode,
       reimport_server_id: input.reimportServerId,
       expected_revision: input.expectedRevision
     })
@@ -325,42 +333,45 @@ export async function importCatalogMcpServer(
   return parseGatewayResponse<McpServerConfig>(response);
 }
 
-export async function getMcpUserConnection(
+export async function getMcpConnection(
   workspaceId: string,
   serverId: string,
-  userId: string
-): Promise<McpUserConnectionConfig> {
-  const query = new URLSearchParams({ workspace_id: workspaceId });
+  ownerType: 'installation' | 'user',
+  ownerId: string
+): Promise<McpConnectionConfig> {
+  const query = new URLSearchParams({ workspace_id: workspaceId, owner_type: ownerType });
   const response = await fetchGateway(
-    `/api/v1/internal/mcp/servers/${encodeURIComponent(serverId)}/connections/${encodeURIComponent(userId)}?${query.toString()}`,
+    `/api/v1/internal/mcp/servers/${encodeURIComponent(serverId)}/connections/${encodeURIComponent(ownerId)}?${query.toString()}`,
     createGatewayRequestOptions('GET')
   );
-  return parseGatewayResponse<McpUserConnectionConfig>(response);
+  return parseGatewayResponse<McpConnectionConfig>(response);
 }
 
-export async function upsertMcpUserConnection(
-  input: UpsertMcpUserConnectionInput
-): Promise<McpUserConnectionConfig> {
+export async function upsertMcpConnection(
+  input: UpsertMcpConnectionInput
+): Promise<McpConnectionConfig> {
   const response = await fetchGateway(
-    `/api/v1/internal/mcp/servers/${encodeURIComponent(input.serverId)}/connections/${encodeURIComponent(input.userId)}`,
+    `/api/v1/internal/mcp/servers/${encodeURIComponent(input.serverId)}/connections/${encodeURIComponent(input.ownerId)}`,
     createGatewayRequestOptions('PUT', {
       workspace_id: input.workspaceId,
-      user_id: input.userId,
+      owner_type: input.ownerType,
+      owner_id: input.ownerId,
       credential: input.credential,
       consent_granted: input.consentGranted
     })
   );
-  return parseGatewayResponse<McpUserConnectionConfig>(response);
+  return parseGatewayResponse<McpConnectionConfig>(response);
 }
 
-export async function deleteMcpUserConnection(
+export async function deleteMcpConnection(
   workspaceId: string,
   serverId: string,
-  userId: string
+  ownerType: 'installation' | 'user',
+  ownerId: string
 ): Promise<void> {
-  const query = new URLSearchParams({ workspace_id: workspaceId });
+  const query = new URLSearchParams({ workspace_id: workspaceId, owner_type: ownerType });
   const response = await fetchGateway(
-    `/api/v1/internal/mcp/servers/${encodeURIComponent(serverId)}/connections/${encodeURIComponent(userId)}?${query.toString()}`,
+    `/api/v1/internal/mcp/servers/${encodeURIComponent(serverId)}/connections/${encodeURIComponent(ownerId)}?${query.toString()}`,
     createGatewayRequestOptions('DELETE')
   );
   if (!response.ok && response.status !== 404) {
@@ -373,19 +384,21 @@ export async function deleteMcpUserConnection(
   }
 }
 
-export async function verifyMcpUserConnection(
+export async function verifyMcpConnection(
   workspaceId: string,
   serverId: string,
-  userId: string
-): Promise<McpUserConnectionConfig> {
+  ownerType: 'installation' | 'user',
+  ownerId: string
+): Promise<McpConnectionConfig> {
   const response = await fetchGateway(
-    `/api/v1/internal/mcp/servers/${encodeURIComponent(serverId)}/connections/${encodeURIComponent(userId)}/verify`,
+    `/api/v1/internal/mcp/servers/${encodeURIComponent(serverId)}/connections/${encodeURIComponent(ownerId)}/verify`,
     createGatewayRequestOptions('POST', {
       workspace_id: workspaceId,
-      user_id: userId
+      owner_type: ownerType,
+      owner_id: ownerId
     })
   );
-  return parseGatewayResponse<McpUserConnectionConfig>(response);
+  return parseGatewayResponse<McpConnectionConfig>(response);
 }
 
 export async function checkMcpReadiness(input: {

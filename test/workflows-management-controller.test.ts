@@ -133,7 +133,6 @@ describe('workflows management controller', () => {
 
     assert.equal(response.statusCode, 200);
     const body = response.body as {
-      clusters: Array<{ value: string; label: string }>;
       mcpServers: Array<{ value: string }>;
       mcpTools: Array<{ value: string }>;
       skills: Array<{ value: string }>;
@@ -142,8 +141,6 @@ describe('workflows management controller', () => {
       retentionPolicies: Array<{ value: string }>;
       sourceAvailability: Record<string, { status: string }>;
     };
-    assert.deepEqual(body.clusters.map((option) => option.value), ['cluster-1']);
-    assert.equal(body.sourceAvailability.clusters.status, 'available');
     assert.ok(body.mcpServers.some((option) => option.value === 'acornops-target-agent'));
     assert.ok(body.mcpTools.some((option) => option.value === 'get_resource'));
     assert.ok(body.mcpTools.some((option) => option.value === 'reports.pdf.generate'));
@@ -157,27 +154,41 @@ describe('workflows management controller', () => {
     ]);
   });
 
-  it('lets owners create and delete workflow V2 definitions', async () => {
+  it('lets owners create and delete workflow definitions', async () => {
     installWorkspace('owner');
+
+    const compatibilityRequest = await callController(createWorkflow, createRequest(
+      { workspaceId: 'workspace-1' },
+      {
+        name: 'Rejected compatibility policy',
+        prompt: 'This request must not create a workflow.',
+        agentIds: ['agent-incident-reporter'],
+        capabilityPolicy: { mode: 'read_only', maxRuntimeSeconds: 900 }
+      }
+    ));
+    assert.equal(compatibilityRequest.statusCode, 400);
+    assert.equal(
+      (compatibilityRequest.body as { error: { code: string } }).error.code,
+      'INVALID_REQUEST'
+    );
 
     const created = await callController(createWorkflow, createRequest(
       { workspaceId: 'workspace-1' },
       {
         name: 'Custom incident report',
         description: 'Generate a tailored incident report from selected chats.',
-        prompt: 'Generate a tailored incident report from selected chats.',
+        prompt: 'Generate a tailored incident report from @chat[].',
         agentIds: ['agent-incident-reporter'],
+        resourceRequirements: [{ type: 'chat', minimum: 1, maximum: 20, requiredOperations: ['read'] }],
         tags: ['incident', 'custom'],
         inputs: [
-          { name: 'chatSessions', label: 'Incident chats', type: 'chat_session_list', required: true, optionSource: 'chatSessions' },
           { name: 'outputFormat', label: 'Output format', type: 'output_format', required: true, optionSource: 'outputFormats' }
         ],
         capabilityPolicy: {
           mode: 'read_only',
+          restrictionMode: 'restrict',
           semanticCapabilityIds: ['incident.report.generate'],
-          contextGrants: ['selected_chat_sessions'],
-          maxRuntimeSeconds: 900,
-          retentionDays: 90,
+          contextGrants: [],
           approvalRequirements: ['Before reading selected chats']
         }
       }
@@ -243,20 +254,45 @@ describe('workflows management controller', () => {
 
   });
 
-  it('rejects removed routing fields and client-derived execution mode', async () => {
+  it('rejects unknown fields through the strict workflow request schema', async () => {
     installWorkspace('owner');
-    for (const field of ['entryAgentId', 'delegationPolicy', 'executionMode']) {
+    for (const field of ['workspaceId', 'entryAgentId', 'delegationPolicy', 'executionMode']) {
       const response = await callController(createWorkflow, createRequest(
         { workspaceId: 'workspace-1' },
         {
           name: `Rejected ${field}`,
           prompt: 'Run the workflow.',
           agentIds: ['agent-cluster-triage'],
-          [field]: field === 'executionMode' ? 'direct' : 'legacy'
+          [field]: field === 'executionMode' ? 'direct' : 'unsupported'
         }
       ));
       assert.equal(response.statusCode, 400);
-      assert.equal((response.body as { error: { code: string } }).error.code, 'WORKFLOW_ROUTING_FIELDS_REMOVED');
+      assert.equal((response.body as { error: { code: string } }).error.code, 'INVALID_REQUEST');
+    }
+  });
+
+  it('rejects malformed nested workflow authoring fields instead of coercing them', async () => {
+    installWorkspace('owner');
+    const invalidBodies = [
+      { capabilityPolicy: { mode: 'unsafe' } },
+      { capabilityPolicy: { contextGrants: ['workspace_metadata', 42] } },
+      { resourceRequirements: [{ type: 'chat', minimum: 1, maximum: 20, requiredOperations: ['read'], extra: true }] },
+      { inputs: [{ name: 'format', label: 'Format', type: 'output_format', required: 'yes' }] },
+      { tags: ['valid', 42] }
+    ];
+
+    for (const invalidBody of invalidBodies) {
+      const response = await callController(createWorkflow, createRequest(
+        { workspaceId: 'workspace-1' },
+        {
+          name: 'Rejected malformed workflow',
+          prompt: 'Run the workflow.',
+          agentIds: ['agent-cluster-triage'],
+          ...invalidBody
+        }
+      ));
+      assert.equal(response.statusCode, 400);
+      assert.equal((response.body as { error: { code: string } }).error.code, 'INVALID_REQUEST');
     }
   });
 });

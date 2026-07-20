@@ -1,4 +1,5 @@
 import { NextFunction, Response } from 'express';
+import { z } from 'zod';
 
 import { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability } from '../auth/workspace-authorization.js';
@@ -17,21 +18,27 @@ type SourceAuthPatch = {
   headerName?: string;
 };
 
+const sourceAuthPatchSchema = z.object({
+  type: z.enum(['none', 'bearer_token', 'custom_header']),
+  credential: z.string().min(1).optional(),
+  headerName: z.string().trim().min(1).optional()
+}).strict();
+
+const updateCatalogSourceBodySchema = z.object({
+  displayName: z.string().trim().min(1).optional(),
+  baseUrl: z.string().trim().min(1).optional(),
+  enabled: z.boolean().optional(),
+  networkRoute: z.literal('direct').optional(),
+  auth: sourceAuthPatchSchema.optional()
+}).strict().refine((body) => Object.keys(body).length > 0, 'At least one catalog source field is required.');
+
 function parseAuthPatch(value: unknown): SourceAuthPatch | undefined | null {
   if (value === undefined) return undefined;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const auth = value as Record<string, unknown>;
-  if (
-    auth.type !== 'none'
-    && auth.type !== 'bearer_token'
-    && auth.type !== 'custom_header'
-  ) return null;
-  const credential = typeof auth.credential === 'string' && auth.credential.length > 0
-    ? auth.credential
-    : undefined;
-  const headerName = typeof auth.headerName === 'string' && auth.headerName.trim()
-    ? auth.headerName.trim()
-    : undefined;
+  const parsed = sourceAuthPatchSchema.safeParse(value);
+  if (!parsed.success) return null;
+  const auth = parsed.data;
+  const credential = auth.credential;
+  const headerName = auth.headerName;
   if (auth.type !== 'none' && !credential) return null;
   if (auth.type === 'custom_header' && !headerName) return null;
   if (auth.type === 'none' && (credential || headerName)) return null;
@@ -62,13 +69,12 @@ export async function updateWorkspaceCatalogSource(
     const workspaceId = toSingleParam(req.params.workspaceId);
     const sourceId = toSingleParam(req.params.sourceId);
     if (!(await requireSourceManagement(req, res, workspaceId))) return;
-    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
-      ? req.body as Record<string, unknown>
-      : {};
-    if (body.networkRoute !== undefined && body.networkRoute !== 'direct') {
-      badRequest(res, 'Only direct MCP registry routing is currently available.');
+    const parsedBody = updateCatalogSourceBodySchema.safeParse(req.body);
+    if (!parsedBody.success) {
+      badRequest(res, parsedBody.error.issues[0]?.message || 'Catalog source update is invalid.');
       return;
     }
+    const body = parsedBody.data;
     const auth = parseAuthPatch(body.auth);
     if (auth === null) {
       badRequest(res, 'Authentication replacement is invalid or missing its credential.');
@@ -77,10 +83,10 @@ export async function updateWorkspaceCatalogSource(
     const source = await updateCatalogSource({
       workspaceId,
       sourceId,
-      displayName: typeof body.displayName === 'string' ? body.displayName.trim() : undefined,
-      baseUrl: typeof body.baseUrl === 'string' ? body.baseUrl.trim() : undefined,
-      enabled: typeof body.enabled === 'boolean' ? body.enabled : undefined,
-      networkRoute: body.networkRoute === 'direct' ? 'direct' : undefined,
+      displayName: body.displayName,
+      baseUrl: body.baseUrl,
+      enabled: body.enabled,
+      networkRoute: body.networkRoute,
       auth
     });
     await recordWorkspaceAuditEvent({
@@ -95,7 +101,7 @@ export async function updateWorkspaceCatalogSource(
       summary: 'MCP registry updated',
       metadata: { sourceId: source.id, enabled: source.enabled }
     });
-    if (typeof body.enabled === 'boolean') {
+    if (body.enabled !== undefined) {
       await recordWorkspaceAuditEvent({
         workspaceId,
         category: 'mcp',

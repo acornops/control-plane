@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { logger } from '../logger.js';
 import { incrementWorkflowSchedulerEvent } from '../metrics.js';
 import { isModelAllowedForProvider } from './llm-policy.js';
@@ -5,8 +6,7 @@ import { compileWorkflowAccessScope, WorkflowAccessDeniedError } from './workflo
 import { computeWorkflowReadiness } from './automation-readiness.js';
 import { resolveWorkspaceLlmSettings } from './workspace-ai-resolution.js';
 import { recordWorkspaceAuditEvent } from './workspace-audit.js';
-import { resolveWorkflowTarget } from './workflow-target-resolution.js';
-import { resolveWorkflowRepositoryScope, validateWorkflowInputs } from './workflow-input-validation.js';
+import { promptResourceRegistry, PromptResourceProviderError } from './prompt-resources/index.js';
 import { withRedisLease } from './control-plane-coordination/leases.js';
 import { getAgentDefinition } from '../store/repository-agents.js';
 import { listCapabilityRoutingMappings } from '../store/repository-capability-routing.js';
@@ -25,6 +25,7 @@ import type { WorkflowDefinitionForAccess, WorkflowScheduleRecord } from '../typ
 import { resolveRunPrincipal } from './run-principal.js';
 import { getWorkflowCapabilityReadinessErrors } from './workflow-readiness.js';
 import { resolveEffectiveWorkflowCapabilityIds } from './workflow-capability-policy.js';
+import { isTargetType, type TargetSummary } from '../types/domain.js';
 
 export interface WorkflowScheduleTickResult {
   claimed: number;
@@ -66,13 +67,36 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
     incrementWorkflowSchedulerEvent('auto_paused');
     return 'auto_paused';
   }
-  await validateWorkflowInputs({ workspaceId: schedule.workspaceId, workflow, inputs: schedule.inputDefaults });
-  const target = await resolveWorkflowTarget({
-    workspaceId: schedule.workspaceId,
-    workflow,
-    inputs: schedule.inputDefaults
-  });
+  let target: TargetSummary | undefined;
+  let targetRoute: { id: string; targetType: 'kubernetes' | 'virtual_machine' } | undefined;
+  let resolution;
+  const messageId = randomUUID();
+  const sessionId = randomUUID();
   try {
+    resolution = await promptResourceRegistry.resolve(schedule.controlMessage, {
+      workspaceId: schedule.workspaceId,
+      actorUserId: runtimeSubject.userId,
+      workflowId: workflow.id,
+      initiatingMessageId: messageId,
+      source: 'trigger',
+      mode: 'launch',
+      requirements: workflow.resourceRequirements || []
+    });
+    if (resolution.blockers.length > 0) {
+      throw new PromptResourceProviderError(
+        resolution.blockers[0].code,
+        resolution.blockers.map((blocker) => blocker.message).slice(0, 3).join(' '),
+        resolution.blockers.some((blocker) => blocker.retryable)
+      );
+    }
+    const runtimeProjection = promptResourceRegistry.projectRuntime(resolution.bindings, messageId);
+    const projectedTarget = runtimeProjection.targetRoute && typeof runtimeProjection.targetRoute === 'object'
+      ? runtimeProjection.targetRoute as Record<string, unknown>
+      : undefined;
+    if (projectedTarget && typeof projectedTarget.id === 'string' && typeof projectedTarget.targetType === 'string' && isTargetType(projectedTarget.targetType)) {
+      targetRoute = { id: projectedTarget.id, targetType: projectedTarget.targetType };
+      target = await repo.getTarget(schedule.workspaceId, targetRoute.id) || undefined;
+    }
     const readiness = await computeWorkflowReadiness(workflow);
     if (readiness.status !== 'ready') {
       throw new WorkflowAccessDeniedError(
@@ -102,11 +126,13 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
       actor: runtimeSubject,
       principal: schedule.principal,
       approvedContextGrants: schedule.approvedContextGrants,
-      exactTargets: target ? [{ id: target.id, targetType: target.targetType }] : [],
-      exactRepository: resolveWorkflowRepositoryScope(workflow, schedule.inputDefaults)
+      targetRoute,
+      resourceBindings: resolution.bindings,
+      promptDigest: resolution.promptDigest,
+      bindingDigest: resolution.bindingDigest
     });
   } catch (err) {
-    if (err instanceof WorkflowAccessDeniedError) {
+    if (err instanceof WorkflowAccessDeniedError || err instanceof PromptResourceProviderError) {
       await recordWorkflowScheduleDispatch(schedule.id, 'auto_paused', { now, error: sanitizeError(err) });
       await recordWorkspaceAuditEvent({
         workspaceId: schedule.workspaceId,
@@ -148,9 +174,9 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
       metadata: {
         workflowId: schedule.workflowId,
         reason: 'mcp_readiness_failed',
-        readinessCode: mcpReadinessErrors[0].startsWith('MCP_PAT_USER_PRINCIPAL_REQUIRED')
-          ? 'MCP_PAT_USER_PRINCIPAL_REQUIRED'
-          : 'MCP_PERSONAL_CONNECTION_REQUIRED'
+        readinessCode: mcpReadinessErrors[0].startsWith('MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED')
+          ? 'MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED'
+          : 'MCP_CONNECTION_REQUIRED'
       }
     });
     incrementWorkflowSchedulerEvent('auto_paused');
@@ -165,18 +191,22 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
     return 'auto_paused';
   }
 
-  const session = await createWorkflowSession({ workflow, createdBy: runtimeSubject.userId, compiledAccessScope });
+  const session = await createWorkflowSession({ workflow, createdBy: runtimeSubject.userId, compiledAccessScope, sessionId });
   const occurrenceKey = schedule.nextRunAt || now.toISOString();
   const { run } = await createWorkflowExecution({
     workflow,
     session,
-    content: `Scheduled workflow: ${schedule.name}`,
-    inputs: schedule.inputDefaults,
+    messageId,
+    content: schedule.controlMessage,
     triggerType: 'schedule',
     triggerId: schedule.id,
     occurrenceKey,
     targetId: target?.id,
     targetType: target?.targetType,
+    promptDigest: resolution.promptDigest,
+    bindingDigest: resolution.bindingDigest,
+    resourceBindings: resolution.bindings,
+    resolvedAt: resolution.resolvedAt,
     agentSnapshot: entryAgent as unknown as Record<string, unknown>,
     llmProvider: aiSettings.provider,
     llmModel: aiSettings.model,

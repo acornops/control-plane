@@ -90,7 +90,7 @@ export async function runMcpSecretCleanupTick(limit = 25): Promise<void> {
       incrementMcpSecretCleanup(job.reason, 'failure');
       logger.error(
         { cleanupJobId: job.id, workspaceId: job.workspace_id, reason: job.reason, attempt },
-        'ALERT: personal MCP secret cleanup failed and will retry'
+        'ALERT: individual MCP credential cleanup failed and will retry'
       );
     }
   }

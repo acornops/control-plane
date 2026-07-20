@@ -57,13 +57,13 @@ export function buildAgentPaths(): Record<string, unknown> {
         tags: ['agents'], summary: 'Grant a workspace-native tool to a specialist Agent',
         description: 'Transactionally updates the Agent version, reviewed routing mappings, semantic ceiling, and dependent readiness. Requires manage_agents; manage_mcp is not required.',
         security: [{ userSession: [] }], parameters: [workspaceIdParameter, agentIdPathParameter, nativeToolIdPathParameter],
-        responses: { '200': { description: 'Updated Agent.', content: { 'application/json': { schema: { $ref: '#/components/schemas/AgentDefinitionResponse' } } } }, '403': { description: 'Requires manage_agents.' }, '404': { description: 'Agent or tool not found.' } }
+        responses: { '200': { description: 'Updated Agent.', content: { 'application/json': { schema: { $ref: '#/components/schemas/AgentResponse' } } } }, '403': { description: 'Requires manage_agents.' }, '404': { description: 'Agent or tool not found.' } }
       },
       delete: {
         tags: ['agents'], summary: 'Revoke a workspace-native tool from a specialist Agent',
         description: 'Disables reviewed mappings that depend on the tool and recomputes dependent readiness.',
         security: [{ userSession: [] }], parameters: [workspaceIdParameter, agentIdPathParameter, nativeToolIdPathParameter],
-        responses: { '200': { description: 'Updated Agent.', content: { 'application/json': { schema: { $ref: '#/components/schemas/AgentDefinitionResponse' } } } }, '403': { description: 'Requires manage_agents.' }, '404': { description: 'Agent or tool not found.' } }
+        responses: { '200': { description: 'Updated Agent.', content: { 'application/json': { schema: { $ref: '#/components/schemas/AgentResponse' } } } }, '403': { description: 'Requires manage_agents.' }, '404': { description: 'Agent or tool not found.' } }
       }
     },
     '/api/v1/workspaces/{workspaceId}/automation-templates': {
@@ -261,11 +261,10 @@ export function buildAgentPaths(): Record<string, unknown> {
     '/api/v1/agents/{agentId}/test': {
       post: {
         tags: ['agents'],
-        summary: 'Preview Agent scope without executing (deprecated)',
+        summary: 'Preview Agent scope without executing',
         security: [{ userSession: [] }],
         parameters: [agentIdPathParameter],
         requestBody: agentWorkspaceBody,
-        deprecated: true,
         responses: { '200': { description: 'Non-executing compiled scope preview.' } }
       }
     },

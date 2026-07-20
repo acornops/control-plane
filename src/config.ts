@@ -153,7 +153,6 @@ const envSchema = z.object({
   CONTROL_PLANE_ADMIN_AUTH_FAILURE_MAX_ATTEMPTS: z.coerce.number().int().positive().default(20),
   CORS_ORIGIN: z.string().default('*'),
   SESSION_COOKIE_NAME: z.string().default('acornops_cp_session'),
-  SESSION_TTL_SECONDS: optionalPositiveIntFromEnv,
   SESSION_MAX_AGE_SECONDS: optionalPositiveIntFromEnv,
   SESSION_IDLE_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(86400),
   CSRF_COOKIE_NAME: z.string().default('acornops_cp_csrf'),
@@ -306,7 +305,7 @@ const envSchema = z.object({
       'CONTROL_PLANE_ADMIN_API_ENABLED requires at least one enabled admin token descriptor'
     );
   }
-  const effectiveSessionMaxAgeSeconds = value.SESSION_MAX_AGE_SECONDS ?? value.SESSION_TTL_SECONDS ?? 604800;
+  const effectiveSessionMaxAgeSeconds = value.SESSION_MAX_AGE_SECONDS ?? 604800;
   if (value.SESSION_IDLE_TIMEOUT_SECONDS > effectiveSessionMaxAgeSeconds) {
     addConfigIssue(
       ctx,
@@ -502,7 +501,7 @@ const envSchema = z.object({
   EXTERNAL_INTEGRATION_CLIENTS: parseExternalIntegrationClientDescriptors(value.EXTERNAL_INTEGRATION_CLIENTS_JSON, value.NODE_ENV),
   WORKSPACE_PLANS: parseWorkspacePlansConfig(value.WORKSPACE_PLANS_CONFIG_JSON),
   AGENTK_HELM_VALUES: parseAgentKHelmValues(value.AGENTK_HELM_VALUES_JSON, value.AGENTK_HELM_ADDITIONAL_CA_FILE_PATH),
-  SESSION_MAX_AGE_SECONDS: value.SESSION_MAX_AGE_SECONDS ?? value.SESSION_TTL_SECONDS ?? 604800,
+  SESSION_MAX_AGE_SECONDS: value.SESSION_MAX_AGE_SECONDS ?? 604800,
   PASSWORD_SIGNUP_ENABLED: value.PASSWORD_SIGNUP_ENABLED ?? value.NODE_ENV !== 'production',
   PERSIST_RUN_EVENTS: value.PERSIST_RUN_EVENTS ?? value.NODE_ENV === 'production',
   CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED:

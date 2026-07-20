@@ -24,6 +24,7 @@ const importBody = {
       version: { type: 'string' },
       remoteEndpoint: { type: 'string', description: 'Selected Streamable HTTP endpoint URL or registry URL template.' },
       serverName: { type: 'string' }, enabled: { type: 'boolean' },
+      credentialMode: { type: 'string', enum: ['none', 'workspace', 'individual'] },
       publicHeaders: { type: 'object', additionalProperties: { type: 'string' } },
       endpointConfiguration: { type: 'object', additionalProperties: { type: 'string' } },
       expectedRevision: { type: 'integer', minimum: 1, description: 'Required only for explicit reimport.' },
@@ -47,15 +48,15 @@ const connectionBody = {
 
 const connectionResponse = {
   description: 'Secret-free connection status.',
-  content: { 'application/json': { schema: { $ref: '#/components/schemas/McpUserConnectionResponse' } } }
+  content: { 'application/json': { schema: { $ref: '#/components/schemas/McpConnectionResponse' } } }
 };
 
 const connectionErrors = {
-  '400': { description: 'Invalid PAT payload or missing consent.' },
+  '400': { description: 'Invalid credential payload or missing consent.' },
   '401': { description: 'A current user session is required.' },
   '403': { description: 'Destination read or run capability is missing.' },
   '404': { description: 'Installation not found.' },
-  '409': { description: 'Installation does not use a personal connection.' },
+  '409': { description: 'Installation does not use a credential connection.' },
   '429': { description: 'Connection operation throttled. Retry-After is returned.' },
   '502': { description: 'Remote discovery failed.' },
   '503': { description: 'The credential service is unavailable.' }
@@ -71,6 +72,7 @@ const manualAgentMcpBody = {
       url: { type: 'string', format: 'uri', pattern: '^https://', description: 'Actual remote Streamable HTTP MCP endpoint. Registry, server.json, package, container, and stdio locations are rejected.' },
       enabled: { type: 'boolean' },
       authType: { type: 'string', enum: ['none', 'bearer_token', 'custom_header'] },
+      credentialMode: { type: 'string', enum: ['none', 'workspace', 'individual'], description: 'Required for authenticated installations. Defaults to individual.' },
       authHeaderName: { type: 'string' },
       authHeaderPrefix: { type: 'string' },
       publicHeaders: { type: 'object', additionalProperties: { type: 'string' } },
@@ -87,18 +89,60 @@ const manualAgentMcpBody = {
   } } }
 };
 
+const manualAgentMcpUpdateBody = {
+  required: true,
+  content: { 'application/json': { schema: {
+    type: 'object',
+    minProperties: 1,
+    properties: {
+      name: { type: 'string', minLength: 1 },
+      enabled: { type: 'boolean' },
+      expectedRevision: { type: 'integer', minimum: 1 },
+      authType: { type: 'string', enum: ['none', 'bearer_token', 'custom_header'] },
+      credentialMode: { type: 'string', enum: ['none', 'workspace', 'individual'] },
+      authHeaderName: { type: 'string', minLength: 1 },
+      authHeaderPrefix: { type: 'string' },
+      targetConstraints: {
+        type: 'object',
+        properties: {
+          targetTypes: { type: 'array', maxItems: 16, items: { type: 'string', enum: ['kubernetes', 'virtual_machine'] } },
+          targetIds: { type: 'array', maxItems: 200, items: { type: 'string', minLength: 1 } }
+        },
+        additionalProperties: false
+      }
+    },
+    additionalProperties: false
+  } } }
+};
+
+const agentMcpToolUpdateBody = {
+  required: true,
+  content: { 'application/json': { schema: {
+    type: 'object',
+    minProperties: 1,
+    properties: {
+      enabled: { type: 'boolean' },
+      capability: { type: 'string', enum: ['read', 'write'] },
+      reviewState: { type: 'string', enum: ['pending', 'approved', 'rejected'] },
+      riskLevel: { type: 'string', enum: ['read_only', 'non_destructive_write', 'high_risk', 'destructive'] },
+      autoAllowed: { type: 'boolean' }
+    },
+    additionalProperties: false
+  } } }
+};
+
 function connectionPaths(parameters: unknown[]) {
   return {
-    get: { tags: ['catalog'], summary: 'Read the current user personal MCP connection status', security: [{ userSession: [] }], parameters, responses: { '200': connectionResponse, ...connectionErrors } },
-    put: { tags: ['catalog'], summary: 'Connect or replace the current user MCP PAT', description: 'Requires destination read access and a supported run capability. The installation determines bearer or custom-header formatting. The PAT is write-only and authenticated tool discovery records connected or error status.', security: [{ userSession: [] }], parameters, requestBody: connectionBody, responses: { '200': connectionResponse, ...connectionErrors } },
-    delete: { tags: ['catalog'], summary: 'Disconnect the current user MCP PAT', description: 'Idempotent. Requires destination read access and a supported run capability.', security: [{ userSession: [] }], parameters, responses: { '204': { description: 'Connection absent.' }, ...connectionErrors } }
+    get: { tags: ['catalog'], summary: 'Read MCP credential connection status', description: 'The installation credential mode resolves either the caller-owned individual connection or installation-owned workspace connection.', security: [{ userSession: [] }], parameters, responses: { '200': connectionResponse, ...connectionErrors } },
+    put: { tags: ['catalog'], summary: 'Connect or replace an MCP credential', description: 'Individual connections require destination run capability. Workspace connections require manage_mcp. The credential is write-only and authenticated tool discovery records connected or error status.', security: [{ userSession: [] }], parameters, requestBody: connectionBody, responses: { '200': connectionResponse, ...connectionErrors } },
+    delete: { tags: ['catalog'], summary: 'Disconnect an MCP credential', description: 'Idempotent. Authorization follows the installation credential mode.', security: [{ userSession: [] }], parameters, responses: { '204': { description: 'Connection absent.' }, ...connectionErrors } }
   };
 }
 
 function verifyConnectionPath(parameters: unknown[]) {
   return { post: {
     tags: ['catalog'],
-    summary: 'Retry verification of the stored current-user MCP PAT',
+    summary: 'Retry verification of the stored MCP credential',
     security: [{ userSession: [] }], parameters,
     responses: { '200': connectionResponse, ...connectionErrors }
   } };
@@ -134,23 +178,23 @@ export function buildCatalogPaths(): Record<string, unknown> {
     },
     '/api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers': {
       get: { tags: ['agents'], summary: 'List MCP servers installed on one Agent', security: [{ userSession: [] }], parameters: [workspaceId, agentId], responses: { '200': { description: 'Secret-free Agent MCP installations.' } } },
-      post: { tags: ['agents'], summary: 'Manually install an MCP server on one Agent', description: 'Requires manage_agents and manage_mcp. Credentials are forbidden; bearer and custom-header installations automatically use principal-owned connections.', security: [{ userSession: [] }], parameters: [workspaceId, agentId], requestBody: manualAgentMcpBody, responses: { '201': { description: 'Agent MCP installation created.' } } }
+      post: { tags: ['agents'], summary: 'Manually install an MCP server on one Agent', description: 'Requires manage_agents and manage_mcp. Credentials are forbidden; authenticated installations select workspace or individual ownership.', security: [{ userSession: [] }], parameters: [workspaceId, agentId], requestBody: manualAgentMcpBody, responses: { '201': { description: 'Agent MCP installation created.' } } }
     },
     '/api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}': {
-      patch: { tags: ['agents'], summary: 'Update an Agent MCP installation', description: 'Optimistic concurrency uses expectedRevision. manage_agents alone may disable; additions and reconfiguration also require manage_mcp.', security: [{ userSession: [] }], parameters: [workspaceId, agentId, serverId], responses: { '200': { description: 'Agent MCP installation updated.' }, '409': { description: 'Revision conflict.' } } },
+      patch: { tags: ['agents'], summary: 'Update an Agent MCP installation', description: 'Optimistic concurrency uses expectedRevision. manage_agents alone may disable; additions and reconfiguration also require manage_mcp.', security: [{ userSession: [] }], parameters: [workspaceId, agentId, serverId], requestBody: manualAgentMcpUpdateBody, responses: { '200': { description: 'Agent MCP installation updated.' }, '409': { description: 'Revision conflict.' } } },
       delete: { tags: ['agents'], summary: 'Remove an MCP server from one Agent', description: 'Requires manage_agents.', security: [{ userSession: [] }], parameters: [workspaceId, agentId, serverId], responses: { '204': { description: 'Installation removed.' } } }
     },
     '/api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/reimport': {
       post: { tags: ['catalog'], summary: 'Explicitly reimport a pinned catalog MCP server', description: 'Requires manage_agents and manage_mcp. The existing installation ID is retained and its immutable provenance and discovered tool review state are updated transactionally.', security: [{ userSession: [] }], parameters: [workspaceId, agentId, serverId], requestBody: importBody, responses: { '200': { description: 'Agent MCP installation reimported.' }, '409': { description: 'Revision or provenance conflict.' } } }
     },
     '/api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/test-connection': {
-      post: { tags: ['agents'], summary: 'Test and discover tools for an unauthenticated Agent MCP installation', description: 'Requires manage_agents and manage_mcp. Authenticated installations use the personal connection Verify operation.', security: [{ userSession: [] }], parameters: [workspaceId, agentId, serverId], responses: { '200': { description: 'Connection and discovery result.' }, '409': { description: 'Authenticated installations require personal connection Verify.' } } }
+      post: { tags: ['agents'], summary: 'Test and discover tools for an unauthenticated Agent MCP installation', description: 'Requires manage_agents and manage_mcp. Authenticated installations use the credential connection Verify operation.', security: [{ userSession: [] }], parameters: [workspaceId, agentId, serverId], responses: { '200': { description: 'Connection and discovery result.' }, '409': { description: 'Authenticated installations require credential connection Verify.' } } }
     },
     '/api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/tools': {
       get: { tags: ['agents'], summary: 'List tools supplied by one Agent MCP installation', security: [{ userSession: [] }], parameters: [workspaceId, agentId, serverId], responses: { '200': { description: 'Discovered tools with review and risk state.' } } }
     },
     '/api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/tools/{toolName}': {
-      patch: { tags: ['agents'], summary: 'Review and classify an Agent MCP tool', description: 'Tool approval requires manage_mcp. Only administrator-approved non-destructive writes may be auto allowed.', security: [{ userSession: [] }], parameters: [workspaceId, agentId, serverId, toolName], responses: { '200': { description: 'Tool review updated.' } } }
+      patch: { tags: ['agents'], summary: 'Review and classify an Agent MCP tool', description: 'Tool approval requires manage_mcp. Only administrator-approved non-destructive writes may be auto allowed.', security: [{ userSession: [] }], parameters: [workspaceId, agentId, serverId, toolName], requestBody: agentMcpToolUpdateBody, responses: { '200': { description: 'Tool review updated.' } } }
     },
     '/api/v1/workspaces/{workspaceId}/agents/{agentId}/skills': {
       get: { tags: ['agents'], summary: 'List skills installed on one Agent', security: [{ userSession: [] }], parameters: [workspaceId, agentId], responses: { '200': { description: 'Agent skill installations.' } } },
@@ -171,7 +215,7 @@ export function buildCatalogPaths(): Record<string, unknown> {
       post: { tags: ['catalog'], summary: 'Install a pinned catalog MCP server on one Agent', description: 'Requires both manage_agents and manage_mcp. Repeating an identical import is idempotent; upgrades require explicit reimport.', security: [{ userSession: [] }], parameters: [workspaceId, agentId], requestBody: importBody, responses: { '201': { description: 'Agent MCP installation created.' }, '409': { description: 'Explicit reimport is required for a changed version, digest, or endpoint.' } } }
     },
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/import': {
-      post: { tags: ['catalog'], summary: 'Install a pinned catalog MCP server on one target', description: 'Requires manage_mcp. The server resolves workspace ownership and target type; browser-supplied target type and Agent target constraints are rejected. Credentials remain principal-owned.', security: [{ userSession: [] }], parameters: [workspaceId, targetId], requestBody: importBody, responses: { '201': { description: 'Target MCP installation created.' }, '409': { description: 'Explicit reimport is required for a changed version, digest, or endpoint.' } } }
+      post: { tags: ['catalog'], summary: 'Install a pinned catalog MCP server on one target', description: 'Requires manage_mcp. The server resolves workspace ownership and target type; browser-supplied target type and Agent target constraints are rejected. Credential ownership must be supported by the selected endpoint.', security: [{ userSession: [] }], parameters: [workspaceId, targetId], requestBody: importBody, responses: { '201': { description: 'Target MCP installation created.' }, '409': { description: 'Explicit reimport is required for a changed version, digest, or endpoint.' } } }
     },
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/reimport': {
       post: { tags: ['catalog'], summary: 'Explicitly reimport a pinned catalog MCP server on one target', description: 'Requires manage_mcp. The existing target installation ID is retained and expectedRevision protects against stale updates.', security: [{ userSession: [] }], parameters: targetConnection, requestBody: importBody, responses: { '200': { description: 'Target MCP installation reimported.' }, '409': { description: 'Revision or provenance conflict.' } } }

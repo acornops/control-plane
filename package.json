@@ -15,7 +15,6 @@
     "db:migrate": "tsx src/scripts/control-plane-db.ts migrate",
     "db:status": "tsx src/scripts/control-plane-db.ts status",
     "db:check": "tsx src/scripts/control-plane-db.ts check",
-    "capabilities:preflight": "tsx src/scripts/control-plane-db.ts capabilities:preflight",
     "migrations:check": "node scripts/check-db-migrations.mjs",
     "authz:check": "node scripts/check-authz.mjs",
     "membership:check": "node scripts/check-workspace-membership.mjs",

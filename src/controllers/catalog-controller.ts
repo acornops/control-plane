@@ -1,4 +1,5 @@
 import { NextFunction, Response } from 'express';
+import { z } from 'zod';
 import { AuthenticatedRequest } from '../auth/middleware.js';
 import {
   requireTargetAccess,
@@ -39,6 +40,20 @@ import {
 
 export { badRequest, forwardCatalogError, mapSource };
 
+const catalogSourceAuthSchema = z.object({
+  type: z.enum(['none', 'bearer_token', 'custom_header']).optional(),
+  credential: z.string().min(1).optional(),
+  headerName: z.string().trim().min(1).optional()
+}).strict();
+
+const createCatalogSourceBodySchema = z.object({
+  displayName: z.string().trim().min(1),
+  baseUrl: z.string().trim().min(1),
+  enabled: z.boolean().optional(),
+  networkRoute: z.literal('direct').optional(),
+  auth: catalogSourceAuthSchema.optional()
+}).strict();
+
 export async function listWorkspaceCatalogSources(
   req: AuthenticatedRequest,
   res: Response,
@@ -74,22 +89,14 @@ export async function createWorkspaceCatalogSource(
       'manage_catalog_sources',
       'No permission to manage catalog sources'
     ))) return;
-    const body = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {};
-    const displayName = typeof body.displayName === 'string' ? body.displayName.trim() : '';
-    const baseUrl = typeof body.baseUrl === 'string' ? body.baseUrl.trim() : '';
-    if (!displayName || !baseUrl) {
-      badRequest(res, 'Catalog source displayName and baseUrl are required.');
+    const parsedBody = createCatalogSourceBodySchema.safeParse(req.body);
+    if (!parsedBody.success) {
+      badRequest(res, parsedBody.error.issues[0]?.message || 'Catalog source request is invalid.');
       return;
     }
-    if (body.networkRoute !== undefined && body.networkRoute !== 'direct') {
-      badRequest(res, 'Only direct MCP registry routing is currently available.');
-      return;
-    }
-    if (body.auth !== undefined && (!body.auth || typeof body.auth !== 'object' || Array.isArray(body.auth))) {
-      badRequest(res, 'MCP registry authentication must be an object.');
-      return;
-    }
-    const authValue = body.auth as Record<string, unknown> | undefined;
+    const body = parsedBody.data;
+    const { displayName, baseUrl } = body;
+    const authValue = body.auth;
     const authType = authValue?.type ?? 'none';
     if (authType !== 'none' && authType !== 'bearer_token' && authType !== 'custom_header') {
       badRequest(res, 'MCP registry authentication type is invalid.');
@@ -114,7 +121,7 @@ export async function createWorkspaceCatalogSource(
       workspaceId,
       displayName,
       baseUrl,
-      enabled: body.enabled !== false,
+      enabled: body.enabled ?? true,
       networkRoute: 'direct',
       auth: {
         type: authType,
@@ -222,6 +229,7 @@ export async function importAgentCatalogMcpServer(
     await validateAgentCatalogDestination({ agent, targetConstraints, findTarget: repo.getTarget });
     const server = await importCatalogMcpServer({
       workspaceId,
+      scopeType: 'agent',
       agentId,
       targetConstraints,
       ...parsed
@@ -276,10 +284,8 @@ export async function reimportAgentCatalogMcpServer(
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
       return;
     }
-    const parsed = parseCatalogImportBody(req.body);
-    const expectedRevision = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
-      ? (req.body as Record<string, unknown>).expectedRevision : undefined;
-    if (!parsed || typeof expectedRevision !== 'number' || !Number.isInteger(expectedRevision) || expectedRevision < 1) {
+    const parsed = parseCatalogImportBody(req.body, true);
+    if (!parsed || parsed.expectedRevision === undefined) {
       badRequest(res, 'A catalog artifact, pinned version, remoteEndpoint, and expectedRevision are required.');
       return;
     }
@@ -288,10 +294,11 @@ export async function reimportAgentCatalogMcpServer(
     const previous = (await listAgentMcpServers(workspaceId, agentId)).find((item) => item.id === serverId);
     const server = await importCatalogMcpServer({
       workspaceId,
+      scopeType: 'agent',
       agentId,
       ...parsed,
       reimportServerId: serverId,
-      expectedRevision
+      expectedRevision: parsed.expectedRevision
     });
     await syncAgentMcpCapabilitySnapshot(workspaceId, agentId, req.auth.userId);
     await recordWorkspaceAuditEvent({
@@ -343,16 +350,14 @@ async function importTargetCatalogServer(
       badRequest(res, 'Target catalog installations do not accept Agent target constraints.');
       return;
     }
-    const parsed = parseCatalogImportBody(req.body);
-    const expectedRevision = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
-      ? (req.body as Record<string, unknown>).expectedRevision : undefined;
-    if (!parsed || (reimport && (typeof expectedRevision !== 'number' || !Number.isInteger(expectedRevision) || expectedRevision < 1))) {
+    const parsed = parseCatalogImportBody(req.body, reimport);
+    if (!parsed || (reimport && parsed.expectedRevision === undefined)) {
       badRequest(res, reimport
         ? 'A catalog artifact, pinned version, remoteEndpoint, and expectedRevision are required.'
         : 'A catalog artifact, pinned version, and remoteEndpoint are required.');
       return;
     }
-    const { targetConstraints: _ignored, ...catalogInput } = parsed;
+    const { targetConstraints: _ignored, expectedRevision, ...catalogInput } = parsed;
     const previous = reimport
       ? (await listTargetMcpServers(workspaceId, targetId, access.target.targetType)).find((item) => item.id === serverId)
       : undefined;

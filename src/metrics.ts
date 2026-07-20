@@ -235,7 +235,7 @@ export function observeAutomationPdfRender(outcome: string, durationMs: number, 
 }
 
 const boundedWorkspaceNativeToolIds = new Set([
-  'chat.sessions.read_selected',
+  'prompt.resources.read',
   'reports.pdf.generate'
 ]);
 
@@ -509,7 +509,7 @@ export function renderControlPlaneMetrics(): string {
       const [outcome, measure] = key.split(':');
       return metricLine('control_plane_target_diagnostics_reconciliation_total', { ...serviceLabels, outcome, measure }, value);
     }),
-    '# HELP control_plane_mcp_secret_cleanup_total Personal MCP secret cleanup outcomes.',
+    '# HELP control_plane_mcp_secret_cleanup_total Individual MCP credential cleanup outcomes.',
     '# TYPE control_plane_mcp_secret_cleanup_total counter',
     ...Array.from(mcpSecretCleanupEvents.entries()).map(([key, value]) => {
       const [reason, outcome] = key.split(':');

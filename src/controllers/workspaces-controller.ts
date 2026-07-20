@@ -14,7 +14,7 @@ import {
 } from '../services/mcp-registry-client.js';
 import { webhooks } from '../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
-import { provisionWorkspaceWithStarterAutomationV1 } from '../services/workspace-provisioning.js';
+import { provisionWorkspaceWithStarterAutomation } from '../services/workspace-provisioning.js';
 import { repo } from '../store/repository.js';
 import { buildWorkspaceQuota } from '../store/repository-quotas.js';
 import { TargetSummary, WorkspaceSummary } from '../types/domain.js';
@@ -31,7 +31,7 @@ import { mapGatewayError } from './workspaces/common.js';
 import { cleanupWorkspaceAiProviderCredentials } from './workspaces/ai-settings-controller.js';
 
 const AI_GATEWAY_UPSTREAM_MESSAGE = 'Failed to synchronize AI provider settings with llm-gateway';
-const MCP_CLEANUP_UPSTREAM_MESSAGE = 'Failed to clean up personal MCP credentials with llm-gateway';
+const MCP_CLEANUP_UPSTREAM_MESSAGE = 'Failed to clean up individual MCP credentials with llm-gateway';
 
 export function applyWorkspaceSummaryPermissions(
   workspace: WorkspaceSummary,
@@ -120,7 +120,7 @@ export async function listWorkspaceRoleTemplates(req: AuthenticatedRequest, res:
 
 export async function createWorkspace(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { workspace: ws } = await provisionWorkspaceWithStarterAutomationV1({
+    const { workspace: ws } = await provisionWorkspaceWithStarterAutomation({
       name: req.body.name,
       createdBy: req.auth.userId,
       membershipSource: 'oidc',

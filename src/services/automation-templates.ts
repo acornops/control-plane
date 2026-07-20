@@ -13,15 +13,12 @@ import {
 import { withTransaction } from '../store/repository-transaction.js';
 import { getWorkflowDefinition } from '../store/repository-workflows.js';
 import type { AgentDefinitionKind, DefinitionOrigin } from '../types/agents.js';
-import type { WorkflowCapabilityMode, WorkflowTargetConstraints } from '../types/workflows.js';
+import type { WorkflowCapabilityMode } from '../types/workflows.js';
 import type { WorkflowCapabilityRestrictionMode, WorkflowInputDefinition, WorkflowStatus } from '../types/workflows.js';
+import type { PromptResourceRequirement } from '../types/prompt-resources.js';
 import { refreshAgentReadiness, refreshWorkflowReadiness } from './automation-readiness.js';
-import {
-  upgradeStarterAutomationV2InTransaction,
-  upgradeStarterAutomationV3InTransaction,
-  upgradeStarterAutomationV4InTransaction,
-  upsertStarterNativeToolMapping
-} from './automation-template-v2-upgrade.js';
+import { effectiveWorkflowRuntimePolicy } from './workflow-runtime-policy.js';
+import { getWorkspaceNativeTool } from './workspace-native-tools.js';
 import {
   createAgentThroughDefinitionServiceInTransaction,
   createWorkflowThroughDefinitionServiceInTransaction
@@ -36,7 +33,7 @@ interface AgentTemplate {
   semanticCapabilityIds: string[];
   nativeToolIds?: string[];
   specialistKeys?: string[];
-  targetConstraints?: WorkflowTargetConstraints;
+  targetConstraints?: { targetTypes: Array<'kubernetes' | 'virtual_machine'>; targetIds: string[] };
 }
 
 export interface WorkflowTemplate {
@@ -47,13 +44,12 @@ export interface WorkflowTemplate {
   agentKeys: string[];
   semanticCapabilityIds: string[];
   capabilityMode: WorkflowCapabilityMode;
-  restrictionMode?: WorkflowCapabilityRestrictionMode;
+  restrictionMode: WorkflowCapabilityRestrictionMode;
   contextGrants?: string[];
   inputs?: WorkflowInputDefinition[];
-  retentionDays?: number;
   approvalRequirements?: string[];
   status?: WorkflowStatus;
-  targetConstraints?: WorkflowTargetConstraints;
+  resourceRequirements?: PromptResourceRequirement[];
   installMode: 'automatic' | 'opt_in';
   setupSteps: string[];
 }
@@ -69,6 +65,32 @@ interface AutomationTemplateBundle {
 
 export const STARTER_AUTOMATION_TEMPLATE_ID = 'acornops-starter';
 export const STARTER_AUTOMATION_TEMPLATE_VERSION = 4;
+
+async function upsertStarterNativeToolMapping(
+  client: PoolClient,
+  workspaceId: string,
+  agentId: string,
+  agentVersion: number,
+  toolId: string,
+  installedBy: string
+): Promise<void> {
+  const tool = getWorkspaceNativeTool(toolId);
+  if (!tool) throw new Error(`Unknown starter native tool ${toolId}`);
+  await client.query(
+    `INSERT INTO capability_routing_mappings (
+       workspace_id,id,capability_id,version,agent_id,agent_version,status,review_state,priority,
+       target_types,target_ids,mcp_tools,native_tool_ids,invocation_scopes,skill_ids,context_grants,created_by,reviewed_by
+     ) VALUES ($1,$2,$3,1,$4,$5,'active','reviewed',100,'[]','[]','[]',$6,$7,'[]',$8,$9,$9)
+     ON CONFLICT (workspace_id,id) DO UPDATE SET
+       capability_id=EXCLUDED.capability_id,agent_version=EXCLUDED.agent_version,status='active',review_state='reviewed',
+       native_tool_ids=EXCLUDED.native_tool_ids,invocation_scopes=EXCLUDED.invocation_scopes,
+       context_grants=EXCLUDED.context_grants,reviewed_by=EXCLUDED.reviewed_by,
+       version=capability_routing_mappings.version+1,updated_at=NOW()`,
+    [workspaceId, `native:${agentId}:${tool.id}`, tool.semanticCapabilityId, agentId, agentVersion,
+     JSON.stringify([tool.id]), JSON.stringify(tool.invocationScopes),
+     JSON.stringify(tool.requiredContextGrant ? [tool.requiredContextGrant] : []), installedBy]
+  );
+}
 
 export const STARTER_BUNDLE: AutomationTemplateBundle = {
   id: STARTER_AUTOMATION_TEMPLATE_ID,
@@ -100,8 +122,8 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       description: 'Produces an incident report from explicitly granted evidence.',
       instructions: 'Use only evidence and context present in the compiled scope. Preserve provenance and disclose missing inputs.',
       kind: 'specialist',
-      semanticCapabilityIds: ['chat.sessions.read_selected', 'reports.pdf.generate'],
-      nativeToolIds: ['chat.sessions.read_selected', 'reports.pdf.generate']
+      semanticCapabilityIds: ['prompt.resources.read', 'reports.pdf.generate'],
+      nativeToolIds: ['prompt.resources.read', 'reports.pdf.generate']
     }
   ],
   workflows: [
@@ -109,11 +131,12 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       key: 'targetDiagnostics',
       name: 'Target diagnostics',
       description: 'Inspect one exact target using live diagnostic evidence.',
-      prompt: 'Inspect @target[Target name] using live diagnostic evidence and summarize findings and safe next actions.',
+      prompt: 'Inspect @target[] using live diagnostic evidence and summarize findings and safe next actions.',
       agentKeys: ['targetDiagnostics'],
       semanticCapabilityIds: ['target.diagnostics.read'],
       capabilityMode: 'read_only',
-      targetConstraints: { targetTypes: ['kubernetes', 'virtual_machine'], targetIds: [] },
+      restrictionMode: 'restrict',
+      resourceRequirements: [{ type: 'target', minimum: 1, maximum: 1, requiredOperations: ['read'], constraints: { targetTypes: ['kubernetes', 'virtual_machine'], targetIds: [] } }],
       installMode: 'automatic',
       setupSteps: []
     },
@@ -121,12 +144,13 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       key: 'targetRemediation',
       name: 'Target remediation',
       description: 'Diagnose and safely change one exact target with approval-gated writes.',
-      prompt: 'Diagnose @target[Target name] using live evidence. Propose the smallest safe change, request approval before each mutation, verify the result, and summarize rollback guidance.',
+      prompt: 'Diagnose @target[] using live evidence. Propose the smallest safe change, request approval before each mutation, verify the result, and summarize rollback guidance.',
       agentKeys: ['targetRemediation'],
       semanticCapabilityIds: ['target.diagnostics.read', 'target.remediation.write'],
       capabilityMode: 'read_write',
+      restrictionMode: 'restrict',
       approvalRequirements: ['Before every write-capable target tool'],
-      targetConstraints: { targetTypes: ['kubernetes'], targetIds: [] },
+      resourceRequirements: [{ type: 'target', minimum: 1, maximum: 1, requiredOperations: ['read', 'write'], constraints: { targetTypes: ['kubernetes'], targetIds: [] } }],
       inputs: [{ name: 'requestedChange', label: 'Requested change', type: 'text', required: true }],
       status: 'paused',
       installMode: 'opt_in',
@@ -136,17 +160,13 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       key: 'incidentReporter',
       name: 'Incident report',
       description: 'Generate an incident report from explicitly granted evidence.',
-      prompt: 'Generate an incident report with provenance from only the granted evidence.',
+      prompt: 'Generate an incident report with provenance from @chat[] and only the granted evidence.',
       agentKeys: ['incidentReporter'],
       semanticCapabilityIds: [],
       capabilityMode: 'read_only',
       restrictionMode: 'inherit',
-      contextGrants: ['selected_chat_sessions'],
-      inputs: [
-        { name: 'incidentChats', label: 'Incident chats', type: 'chat_session_list', required: true, optionSource: 'chatSessions' },
-        { name: 'title', label: 'Report title', type: 'text', required: false }
-      ],
-      retentionDays: 180,
+      inputs: [{ name: 'title', label: 'Report title', type: 'text', required: false }],
+      resourceRequirements: [{ type: 'chat', minimum: 1, maximum: 20, requiredOperations: ['read'] }],
       status: 'active',
       installMode: 'automatic',
       setupSteps: []
@@ -155,16 +175,16 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       key: 'managedResponse',
       name: 'Incident investigation',
       description: 'Coordinate target diagnostics and incident reporting for an exact target and selected chats.',
-      prompt: 'Investigate the exact selected target and selected incident chats, then produce a provenance-preserving report.',
+      prompt: 'Investigate @target[] using @chat[], then produce a provenance-preserving report.',
       agentKeys: ['targetDiagnostics', 'incidentReporter'],
-      semanticCapabilityIds: ['chat.sessions.read_selected', 'reports.pdf.generate', 'target.diagnostics.read'],
+      semanticCapabilityIds: ['prompt.resources.read', 'reports.pdf.generate', 'target.diagnostics.read'],
       capabilityMode: 'read_only',
-      contextGrants: ['selected_chat_sessions'],
-      inputs: [
-        { name: 'incidentChats', label: 'Incident chats', type: 'chat_session_list', required: true, optionSource: 'chatSessions' },
-        { name: 'investigationQuestion', label: 'Investigation question', type: 'text', required: true }
+      restrictionMode: 'restrict',
+      inputs: [{ name: 'investigationQuestion', label: 'Investigation question', type: 'text', required: true }],
+      resourceRequirements: [
+        { type: 'target', minimum: 1, maximum: 1, requiredOperations: ['read'], constraints: { targetTypes: ['kubernetes', 'virtual_machine'], targetIds: [] } },
+        { type: 'chat', minimum: 1, maximum: 20, requiredOperations: ['read'] }
       ],
-      targetConstraints: { targetTypes: ['kubernetes', 'virtual_machine'], targetIds: [] },
       status: 'paused',
       installMode: 'opt_in',
       setupSteps: ['Install paused workflow', 'Select an exact target and incident chats', 'Preview coordinated access', 'Activate']
@@ -185,8 +205,6 @@ export function initialWorkflowTemplateStatus(
 const AUTOMATIC_AGENT_KEYS = new Set(
   AUTOMATIC_WORKFLOW_TEMPLATES.flatMap((template) => template.agentKeys)
 );
-
-const AUTOMATIC_INTERNAL_AGENT_COUNT = AUTOMATIC_WORKFLOW_TEMPLATES.length > 0 ? 1 : 0;
 
 let seedFailureStageForTests: 'after_agents' | 'after_workflows' | null = null;
 
@@ -282,11 +300,10 @@ export async function insertStarterWorkflow(
 ): Promise<string> {
   const capabilityPolicy = {
     mode: input.template.capabilityMode,
-    restrictionMode: input.template.restrictionMode || 'restrict',
+    restrictionMode: input.template.restrictionMode,
     semanticCapabilityIds: input.template.semanticCapabilityIds,
     contextGrants: input.template.contextGrants || [],
-    maxRuntimeSeconds: 900,
-    retentionDays: input.template.retentionDays || 90,
+    ...effectiveWorkflowRuntimePolicy(),
     approvalRequirements: input.template.approvalRequirements || []
   };
   const workflow = await createWorkflowThroughDefinitionServiceInTransaction(client, {
@@ -295,7 +312,7 @@ export async function insertStarterWorkflow(
     description: input.template.description,
     prompt: input.template.prompt,
     agentIds: input.template.agentKeys.map((key) => input.agentIds[key]),
-    targetConstraints: input.template.targetConstraints,
+    resourceRequirements: input.template.resourceRequirements,
     capabilityPolicy,
     tags: [],
     inputs: input.template.inputs || [],
@@ -307,7 +324,7 @@ export async function insertStarterWorkflow(
   return workflow.id;
 }
 
-export async function seedStarterAutomationV1InTransaction(
+export async function provisionStarterAutomationInTransaction(
   client: PoolClient,
   input: { workspaceId: string; installedBy: string }
 ): Promise<{ installation: TemplateInstallationRecord; alreadySeeded: boolean }> {
@@ -318,23 +335,7 @@ export async function seedStarterAutomationV1InTransaction(
     installedBy: input.installedBy
   }, client);
   if (reserved.state === 'complete') {
-    if (reserved.templateVersion >= STARTER_BUNDLE.version) {
-      return { installation: reserved, alreadySeeded: true };
-    }
-    let upgraded = reserved;
-    if (upgraded.templateVersion < 2) {
-      upgraded = await upgradeStarterAutomationV2InTransaction(client, upgraded, STARTER_BUNDLE);
-    }
-    if (upgraded.templateVersion < 3) {
-      upgraded = await upgradeStarterAutomationV3InTransaction(client, upgraded, STARTER_BUNDLE);
-    }
-    if (upgraded.templateVersion < 4) {
-      upgraded = await upgradeStarterAutomationV4InTransaction(client, upgraded, STARTER_BUNDLE);
-    }
-    return {
-      installation: upgraded,
-      alreadySeeded: false
-    };
+    return { installation: reserved, alreadySeeded: true };
   }
 
   await deletePendingStarterDefinitions(client, input.workspaceId);
@@ -386,7 +387,6 @@ export async function seedStarterAutomationV1InTransaction(
       templateId: STARTER_BUNDLE.id,
       templateVersion: STARTER_BUNDLE.version,
       visibleAgentCount: Object.keys(agentIds).length,
-      internalAgentCount: AUTOMATIC_INTERNAL_AGENT_COUNT,
       workflowCount: Object.keys(workflowIds).length
     }
   }, client);
@@ -432,7 +432,6 @@ function recordSeedSuccess(input: { workspaceId: string; alreadySeeded: boolean 
     templateVersion: STARTER_BUNDLE.version,
     outcome: 'success',
     visibleAgentCount: AUTOMATIC_AGENT_KEYS.size,
-    internalAgentCount: AUTOMATIC_INTERNAL_AGENT_COUNT,
     workflowCount: AUTOMATIC_WORKFLOW_TEMPLATES.length
   }, 'Starter automation seed completed');
 }
@@ -448,12 +447,12 @@ export function recordStarterAutomationSeedFailure(workspaceId: string, error: u
   }, 'Starter automation seed failed');
 }
 
-export async function seedStarterAutomationV1(input: {
+export async function provisionStarterAutomation(input: {
   workspaceId: string;
   installedBy: string;
 }): Promise<{ installation: TemplateInstallationRecord; alreadySeeded: boolean }> {
   try {
-    const result = await withTransaction((client) => seedStarterAutomationV1InTransaction(client, input));
+    const result = await withTransaction((client) => provisionStarterAutomationInTransaction(client, input));
     recordSeedSuccess({ workspaceId: input.workspaceId, alreadySeeded: result.alreadySeeded });
     if (!result.alreadySeeded) await refreshStarterAutomationReadiness(result.installation);
     return result;
@@ -461,34 +460,6 @@ export async function seedStarterAutomationV1(input: {
     recordStarterAutomationSeedFailure(input.workspaceId, error);
     throw error;
   }
-}
-
-export async function backfillStarterAutomationV1(): Promise<void> {
-  const result = await db.query<{ workspace_id: string; installed_by: string }>(
-    `SELECT workspace.id AS workspace_id,
-            COALESCE(installation.installed_by, workspace.created_by) AS installed_by
-     FROM workspaces workspace
-     LEFT JOIN automation_template_installations installation
-       ON installation.workspace_id=workspace.id AND installation.template_id=$1
-     WHERE installation.state IS DISTINCT FROM 'complete'
-        OR installation.template_version < $2
-     ORDER BY workspace.id`,
-    [STARTER_BUNDLE.id, STARTER_BUNDLE.version]
-  );
-  let seeded = 0;
-  for (const workspace of result.rows) {
-    const seed = await seedStarterAutomationV1({
-      workspaceId: workspace.workspace_id,
-      installedBy: workspace.installed_by
-    });
-    if (!seed.alreadySeeded) seeded += 1;
-  }
-  logger.info({
-    templateId: STARTER_BUNDLE.id,
-    templateVersion: STARTER_BUNDLE.version,
-    eligibleWorkspaceCount: result.rows.length,
-    seededWorkspaceCount: seeded
-  }, 'Starter automation startup backfill completed');
 }
 
 export function recordStarterAutomationSeedSuccess(workspaceId: string, alreadySeeded: boolean): void {

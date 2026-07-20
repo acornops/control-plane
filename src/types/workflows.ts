@@ -3,6 +3,7 @@ import type { WorkspaceAuditOperation } from './domain.js';
 import type { AutomationReadinessStatus, McpToolRef, RunPermissionMode, RunPrincipalRef } from './agents.js';
 import type { DefinitionOrigin } from './agents.js';
 import type { TargetType } from './domain.js';
+import type { PromptResourceBinding, PromptResourceRequirement } from './prompt-resources.js';
 
 export type WorkflowStatus = 'active' | 'draft' | 'paused';
 export type WorkflowExecutionMode = 'direct' | 'coordinated';
@@ -11,19 +12,15 @@ export type WorkflowCapabilityRestrictionMode = 'inherit' | 'restrict';
 export type WorkflowContextGrant =
   | 'workspace_metadata'
   | 'audit_events'
-  | 'selected_chat_sessions'
   | 'target_inventory'
   | string;
 
 export type WorkflowInputType =
   | 'text'
   | 'select'
-  | 'cluster'
   | 'mcp_server'
   | 'mcp_tool'
   | 'skill'
-  | 'chat_session_list'
-  | 'repository'
   | 'output_format'
   | 'approval_policy'
   | 'runtime'
@@ -47,18 +44,6 @@ export interface WorkflowCapabilityPolicy {
   approvalRequirements: string[];
 }
 
-export interface WorkflowTargetConstraints {
-  targetTypes: TargetType[];
-  targetIds: string[];
-}
-
-export interface WorkflowRepositoryScope {
-  provider: 'github' | 'gitlab';
-  repository: string;
-  ref?: string;
-  changeRequestNumber?: number;
-}
-
 export interface WorkflowDelegationPolicy {
   specialistAgentIds?: string[];
   maxConcurrentChildren: number;
@@ -77,7 +62,7 @@ export interface WorkflowDefinitionForAccess {
   agentIds: string[];
   executionMode: WorkflowExecutionMode;
   entryAgentId: string;
-  targetConstraints?: WorkflowTargetConstraints;
+  resourceRequirements: PromptResourceRequirement[];
   capabilityPolicy: WorkflowCapabilityPolicy;
   delegationPolicy?: WorkflowDelegationPolicy;
   tags?: string[];
@@ -117,13 +102,10 @@ export interface WorkflowOption {
 }
 
 export type WorkflowCatalogSourceName =
-  | 'targets'
-  | 'clusters'
   | 'mcpServers'
   | 'mcpTools'
   | 'skills'
-  | 'agents'
-  | 'chatSessions';
+  | 'agents';
 
 export interface WorkflowCatalogSourceAvailability {
   status: 'available' | 'empty' | 'unavailable' | 'error';
@@ -133,13 +115,10 @@ export interface WorkflowCatalogSourceAvailability {
 }
 
 export interface WorkflowOptionsCatalog {
-  targets: WorkflowOption[];
-  clusters: WorkflowOption[];
   mcpServers: WorkflowOption[];
   mcpTools: WorkflowOption[];
   skills: WorkflowOption[];
   agents: WorkflowOption[];
-  chatSessions: WorkflowOption[];
   outputFormats: WorkflowOption[];
   approvalPolicies: WorkflowOption[];
   runtimeLimits: WorkflowOption[];
@@ -172,12 +151,14 @@ export interface WorkflowJwtClaimPreview {
     allowed_tool_refs: Array<{ server_id: string; tool_name: string }>;
     allowed_tool_operations: Record<string, WorkspaceAuditOperation>;
     context_grants: string[];
-    allowed_repository?: {
-      provider: 'github' | 'gitlab';
-      repository: string;
-      ref?: string;
-      change_request_number?: number;
-    };
+    resource_bindings: Array<{
+      binding_id: string;
+      type: string;
+      resource_id: string;
+      provider: string;
+      operations: string[];
+    }>;
+    binding_digest?: string;
   };
 }
 
@@ -205,8 +186,9 @@ export interface CompiledWorkflowAccessScope {
   permissionMode: RunPermissionMode;
   principal: RunPrincipalRef;
   entryAgent: { id: string; version: number; kind: 'manager' | 'specialist' };
-  exactTargets: Array<{ id: string; targetType: TargetType }>;
-  exactRepository?: WorkflowRepositoryScope;
+  resourceBindings: PromptResourceBinding[];
+  promptDigest?: string;
+  bindingDigest?: string;
   resourceResolutionPhase: 'session_ceiling' | 'run_exact';
   coordinationFunctions: string[];
   jwtClaims: WorkflowJwtClaimPreview;
@@ -249,19 +231,29 @@ export interface WorkflowCapabilityAttachmentPreview {
   name: string;
 }
 
-export interface WorkflowMcpRequirementPreview {
+interface WorkflowMcpRequirementPreviewBase {
   serverId: string;
   serverName: string;
   authType: 'bearer_token' | 'custom_header';
-  owningAgent: { id: string; name: string };
   connectionState: 'connection_missing' | 'connection_error' | 'connected';
   authRequirement: {
-    scope: 'personal';
+    scope: 'workspace' | 'individual';
     credentialLabel: string;
     requiredInformation: Array<{ name: string; description: string }>;
   };
   action: 'connect_mcp_server' | 'verify_mcp_server' | 'none';
 }
+
+export type WorkflowMcpRequirementPreview = WorkflowMcpRequirementPreviewBase & (
+  | {
+      owningAgent: { id: string; name: string };
+      owningTarget?: never;
+    }
+  | {
+      owningAgent?: never;
+      owningTarget: { id: string; name: string; targetType: TargetType };
+    }
+);
 
 export interface WorkflowCapabilitiesPreview {
   workflowId: string;
@@ -318,7 +310,7 @@ export interface WorkflowScheduleRecord {
   status: WorkflowScheduleStatus;
   cron: string;
   timezone: string;
-  inputDefaults: Record<string, unknown>;
+  controlMessage: string;
   approvedContextGrants: string[];
   principal: WorkflowSchedulePrincipal;
   createdBy: WorkflowScheduleActorMetadata;
@@ -338,7 +330,7 @@ export interface WorkflowScheduleInput {
   status?: WorkflowScheduleStatus;
   cron: string;
   timezone: string;
-  inputDefaults?: Record<string, unknown>;
+  controlMessage: string;
   approvedContextGrants?: string[];
   principal: WorkflowSchedulePrincipal;
 }
@@ -351,7 +343,7 @@ export interface WorkflowSchedulePatch {
   status?: WorkflowScheduleStatus;
   cron?: string;
   timezone?: string;
-  inputDefaults?: Record<string, unknown>;
+  controlMessage?: string;
   approvedContextGrants?: string[];
   principal?: WorkflowSchedulePrincipal;
 }

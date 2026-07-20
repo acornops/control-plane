@@ -225,7 +225,8 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     contextGrants: run.compiledAccessScope.contextGrants,
     maxOutputTokens,
     allowedModels,
-    allowedRepository: run.compiledAccessScope.exactRepository,
+    resourceBindings: run.compiledAccessScope.resourceBindings,
+    bindingDigest: run.compiledAccessScope.bindingDigest,
     agentId: agentClaims.agentId,
     agentVersion: agentClaims.agentVersion
   };
@@ -280,6 +281,24 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     context: {
       endpoint: `/internal/v1/workflow-sessions/${run.workflowSessionId}/context`,
       max_context_tokens: config.ASSISTANT_CONTEXT_MAX_TOKENS
+    },
+    resources: {
+      prompt_digest: run.promptDigest,
+      binding_digest: run.bindingDigest,
+      resolved_at: run.resolvedAt,
+      bindings: run.resourceBindings.map((binding) => ({
+        binding_id: binding.bindingId,
+        type: binding.type,
+        resource_id: binding.resourceId,
+        provider: binding.provider,
+        provider_version: binding.providerVersion,
+        workspace_id: binding.workspaceId,
+        label_snapshot: binding.labelSnapshot,
+        source: binding.source,
+        operations: binding.operations,
+        context_mode: binding.contextMode,
+        ...(binding.providerData ? { provider_data: binding.providerData } : {})
+      }))
     },
     llm: {
       provider: llmSettings.provider,

@@ -24,17 +24,6 @@ export function configureWorkflowOptionsCatalogLoaderForTests(loader?: CatalogLo
   catalogLoaderOverride = loader;
 }
 
-interface TargetRow {
-  id: string;
-  workspace_id: string;
-  target_type: 'kubernetes';
-  name: string;
-  status: string;
-  metadata: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
-}
-
 interface AgentCapabilityRow extends AgentRow {
   tools: string[];
   skills: string[];
@@ -51,13 +40,6 @@ interface AgentRow {
   name: string;
   description: string | null;
   status: string;
-}
-
-interface SessionRow {
-  id: string;
-  title: string;
-  target_id: string;
-  target_name: string;
 }
 
 function availability(options: WorkflowOption[], emptyMessage: string): WorkflowCatalogSourceAvailability {
@@ -100,50 +82,6 @@ async function runSource(
       }
     };
   }
-}
-
-async function loadClusters(workspaceId: string): Promise<CatalogSourceResult> {
-  const result = await db.query<TargetRow>(
-    `SELECT id, workspace_id, target_type, name, status, metadata, created_at, updated_at
-     FROM targets
-     WHERE workspace_id = $1 AND target_type = 'kubernetes'
-     ORDER BY name ASC, id ASC`,
-    [workspaceId]
-  );
-  const options = result.rows.map((row) => ({
-    value: row.id,
-    label: row.name,
-    description: `Kubernetes cluster · ${row.status}`,
-    disabled: row.status === 'offline' || row.status === 'unknown',
-    disabledReason: row.status === 'offline'
-      ? 'Cluster is offline'
-      : row.status === 'unknown' ? 'Cluster connection is not ready' : undefined,
-    provenance: { source: 'target' as const, targetId: row.id, targetName: row.name, targetType: row.target_type }
-  }));
-  return { options, availability: availability(options, 'No Kubernetes clusters are registered.') };
-}
-
-async function loadTargets(workspaceId: string): Promise<CatalogSourceResult> {
-  const result = await db.query<TargetRow>(
-    `SELECT id, workspace_id, target_type, name, status, metadata, created_at, updated_at
-     FROM targets WHERE workspace_id=$1 ORDER BY name ASC,id ASC`,
-    [workspaceId]
-  );
-  const options = result.rows.map((row) => ({
-    value: row.id,
-    label: row.name,
-    description: `${row.target_type === 'kubernetes' ? 'Kubernetes cluster' : 'Virtual machine'} · ${row.status}`,
-    disabled: row.status === 'offline' || row.status === 'unknown',
-    disabledReason: row.status === 'offline' ? 'Target is offline'
-      : row.status === 'unknown' ? 'Target connection is not ready' : undefined,
-    provenance: {
-      source: 'target' as const,
-      targetId: row.id,
-      targetName: row.name,
-      targetType: row.target_type
-    }
-  }));
-  return { options, availability: availability(options, 'No targets are registered.') };
 }
 
 async function loadAgentCapabilities(workspaceId: string, agentId?: string): Promise<{
@@ -224,51 +162,24 @@ async function loadAgents(workspaceId: string): Promise<CatalogSourceResult> {
   return { options, availability: availability(options, 'No specialist agents are available.') };
 }
 
-async function loadChatSessions(workspaceId: string): Promise<CatalogSourceResult> {
-  const result = await db.query<SessionRow>(
-    `SELECT session.id, session.title, session.target_id, target.name AS target_name
-     FROM sessions session
-     JOIN targets target ON target.id = session.target_id AND target.workspace_id = session.workspace_id
-     WHERE session.workspace_id = $1
-       AND session.status = 'open'
-       AND session.deleted_at IS NULL
-       AND session.expires_at > NOW()
-     ORDER BY session.last_message_at DESC, session.id DESC`,
-    [workspaceId]
-  );
-  const options = result.rows.map((row) => ({
-    value: row.id,
-    label: row.title,
-    description: row.target_name,
-    provenance: { source: 'target' as const, targetId: row.target_id, targetName: row.target_name }
-  }));
-  return { options, availability: availability(options, 'No active chat sessions are available.') };
-}
-
 export async function getWorkflowOptionsCatalog(workspaceId: string, agentId?: string): Promise<WorkflowOptionsCatalog> {
   if (catalogLoaderOverride) return catalogLoaderOverride(workspaceId);
   const capabilities = loadAgentCapabilities(workspaceId, agentId);
-  const [targets, clusters, mcpServers, mcpTools, skills, agents, chatSessions] = await Promise.all([
-    runSource(workspaceId, 'targets', () => loadTargets(workspaceId)),
-    runSource(workspaceId, 'clusters', () => loadClusters(workspaceId)),
+  const [mcpServers, mcpTools, skills, agents] = await Promise.all([
     runSource(workspaceId, 'mcpServers', async () => (await capabilities).servers),
     runSource(workspaceId, 'mcpTools', async () => (await capabilities).tools),
     runSource(workspaceId, 'skills', async () => (await capabilities).skills),
-    runSource(workspaceId, 'agents', () => loadAgents(workspaceId)),
-    runSource(workspaceId, 'chatSessions', () => loadChatSessions(workspaceId))
+    runSource(workspaceId, 'agents', () => loadAgents(workspaceId))
   ]);
   const runtimePolicy = effectiveWorkflowRuntimePolicy();
   const runtimeLabel = runtimePolicy.maxRuntimeSeconds % 60 === 0
     ? `${runtimePolicy.maxRuntimeSeconds / 60} minutes (deployment limit)`
     : `${runtimePolicy.maxRuntimeSeconds} seconds (deployment limit)`;
   return {
-    targets: targets.options,
-    clusters: clusters.options,
     mcpServers: mcpServers.options,
     mcpTools: mcpTools.options,
     skills: skills.options,
     agents: agents.options,
-    chatSessions: chatSessions.options,
     outputFormats: [
       { value: 'pdf', label: 'PDF' },
       { value: 'markdown', label: 'Markdown' }
@@ -283,13 +194,10 @@ export async function getWorkflowOptionsCatalog(workspaceId: string, agentId?: s
       label: `${runtimePolicy.retentionDays} days (deployment limit)`
     }],
     sourceAvailability: {
-      targets: targets.availability,
-      clusters: clusters.availability,
       mcpServers: mcpServers.availability,
       mcpTools: mcpTools.availability,
       skills: skills.availability,
-      agents: agents.availability,
-      chatSessions: chatSessions.availability
+      agents: agents.availability
     }
   };
 }

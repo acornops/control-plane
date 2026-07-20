@@ -49,7 +49,7 @@ ownership for workspace Agents and target-local generic agents.
 ## Validation
 
 - Split RBAC, Agent/target isolation, independent imports and reimports,
-  server-derived target types, destination-bound personal connections,
+  server-derived target types, destination-bound credential connections,
   immutable provenance,
   duplicate tool refs, workflow subtraction, principals, permission modes,
   readiness, active/inactive creator schedule migration, additive-migration
@@ -81,3 +81,23 @@ ownership for workspace Agents and target-local generic agents.
 - Contract checks pass. The repository harness is independently blocked by the
   pre-existing dirty `target-tool-controller.ts` reaching 576 lines against its
   550-line budget; the fixture/seed changes do not touch that controller.
+
+## MCP credential and schedule readiness closure
+
+- Treat missing Web Search and Target Insights setting rows as their documented
+  default-enabled state while preserving explicit disablement and fail-closed
+  behavior when settings cannot be read.
+- Keep individual MCP credentials user-owned with no cross-user fallback, and
+  make service-identity incompatibility explicit in public recovery messages.
+- Preflight an enabled workflow schedule against the authenticated schedule
+  owner's exact MCP connections before persistence. Revalidate when a paused
+  schedule is enabled, while retaining dispatch-time auto-pause as defense in
+  depth.
+- When an Agent MCP server changes from workspace-managed to individual
+  credentials, immediately auto-pause every enabled schedule whose workflow
+  uses that Agent, preserve prior run history, and audit the configuration
+  impact. Dispatch-time readiness remains the fallback for concurrent changes.
+- Reuse the same prompt binding, exact workflow scope, and MCP readiness rules
+  used by interactive launches and scheduled dispatch.
+- Add focused resolver, schedule-controller, and management-console tests, then
+  run repository and workspace validation.

@@ -99,12 +99,18 @@ describe('requireUser middleware', () => {
     assert.equal(JSON.parse(refreshedWrites[0].value).idleExpiresAt, now + 30_000);
   });
 
-  it('accepts legacy session records until their existing expiry', async () => {
+  it('rejects session records that do not use the current expiry fields', async () => {
+    const deletedKeys: string[] = [];
     mock.method(redis, 'get', async () => JSON.stringify({
       id: 'session-1',
       userId: 'user-1',
       expiresAt: Date.now() + 60_000
     }));
+    mock.method(redis, 'del', async (...keys: string[]) => {
+      deletedKeys.push(...keys);
+      return keys.length;
+    });
+    mock.method(redis, 'srem', async () => 1);
 
     const req = {
       cookies: { [config.SESSION_COOKIE_NAME]: 'session-1' }
@@ -117,11 +123,10 @@ describe('requireUser middleware', () => {
       nextCalled = true;
     });
 
-    assert.equal(nextCalled, true);
-    assert.deepEqual(req.auth, {
-      userId: 'user-1',
-      credential: { type: 'session', sessionId: 'session-1' }
-    });
+    assert.equal(nextCalled, false);
+    assert.equal(res.statusCode, 401);
+    assert.equal(req.auth, undefined);
+    assert.deepEqual(deletedKeys, ['cp:session:session-1']);
   });
 
   it('returns 401 when the session cookie is missing', async () => {
@@ -213,7 +218,7 @@ describe('requireUser middleware', () => {
     assert.deepEqual(removedSetMembers, [['cp:user_sessions:user-1', 'session-1']]);
   });
 
-  it('returns 401 and cleans Redis state for an expired legacy session cookie', async () => {
+  it('returns 401 and cleans Redis state for a non-current session cookie', async () => {
     const deletedKeys: string[] = [];
     const removedSetMembers: Array<[string, string]> = [];
     mock.method(redis, 'get', async () => JSON.stringify({
@@ -296,7 +301,7 @@ describe('requireUser middleware', () => {
     assert.deepEqual(deletedKeys, ['cp:session:session-1']);
   });
 
-  it('does not accept legacy-shaped records without a valid user id', async () => {
+  it('does not accept non-current records without a valid user id', async () => {
     const deletedKeys: string[] = [];
     mock.method(redis, 'get', async () => JSON.stringify({
       id: 'session-1',

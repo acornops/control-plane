@@ -90,10 +90,10 @@ export function buildCommonSchemas(): Record<string, JsonSchema> {
         code: {
           type: 'string',
           enum: [
-            'MCP_PAT_USER_PRINCIPAL_REQUIRED',
-            'MCP_PERSONAL_CONNECTION_MISSING',
-            'MCP_PERSONAL_CONNECTION_ERROR',
-            'MCP_PERSONAL_TOOL_UNAVAILABLE',
+            'MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED',
+            'MCP_CONNECTION_MISSING',
+            'MCP_CONNECTION_ERROR',
+            'MCP_CREDENTIAL_TOOL_UNAVAILABLE',
             'MCP_INSTALLATION_UNAVAILABLE',
             'MCP_REMOTE_DISABLED'
           ]
@@ -117,8 +117,8 @@ export function buildCommonSchemas(): Record<string, JsonSchema> {
             code: {
               type: 'string',
               enum: [
-                'MCP_PERSONAL_CONNECTION_REQUIRED',
-                'MCP_PAT_USER_PRINCIPAL_REQUIRED',
+                'MCP_CONNECTION_REQUIRED',
+                'MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED',
                 'MCP_INSTALLATION_UNAVAILABLE',
                 'MCP_REMOTE_DISABLED'
               ]
@@ -127,14 +127,8 @@ export function buildCommonSchemas(): Record<string, JsonSchema> {
             retryable: { type: 'boolean', enum: [false] },
             details: {
               type: 'object',
-              required: ['readinessErrors', 'readinessFailures'],
+              required: ['readinessFailures'],
               properties: {
-                readinessErrors: {
-                  type: 'array',
-                  maxItems: 20,
-                  items: { type: 'string', maxLength: 640 },
-                  description: 'Compatibility messages retained for older clients.'
-                },
                 readinessFailures: {
                   type: 'array',
                   maxItems: 20,

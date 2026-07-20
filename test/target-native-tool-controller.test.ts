@@ -90,7 +90,7 @@ describe('target native tool controller', () => {
         id: 'reports.pdf.generate',
         label: 'Generate PDF report',
         enabled: true,
-        description: 'Persist a bounded, provenance-linked PDF report artifact for the current workflow run.',
+        description: 'Call only when the user explicitly requests a PDF incident report. Compose complete incident-report Markdown from the current run chat and available evidence, label unknown facts explicitly, then persist the bounded, provenance-linked PDF. Do not claim the report exists unless this function succeeds.',
         origin: 'platform_native',
         capability: 'read',
         runtimeKind: 'function',

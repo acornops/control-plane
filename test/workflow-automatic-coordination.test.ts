@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { after, beforeEach, describe, it } from 'node:test';
 import { db } from '../src/infra/db.js';
 import {
-  backfillWorkflowCoordinationInfrastructure,
   createWorkflowThroughDefinitionService,
   DefinitionValidationError,
   deleteWorkflowThroughDefinitionService
@@ -16,6 +15,7 @@ import {
 
 const readPolicy: WorkflowCapabilityPolicy = {
   mode: 'read_only',
+  restrictionMode: 'restrict',
   semanticCapabilityIds: ['incident.report.generate', 'target.diagnostics.read'],
   contextGrants: [],
   maxRuntimeSeconds: 900,
@@ -31,44 +31,6 @@ beforeEach(async () => {
 after(closeAutomationDatabaseFixtures);
 
 describe('automatic workflow coordination', () => {
-  it('backfills one persistent coordinator per workspace and repairs internal routing', async () => {
-    const workflow = await createWorkflowThroughDefinitionService({
-      workspaceId: 'workspace-1',
-      name: 'Legacy coordinated workflow',
-      prompt: 'Coordinate the selected specialists.',
-      agentIds: ['agent-incident-reporter', 'agent-cluster-triage'],
-      capabilityPolicy: readPolicy,
-      requiredPermissions: ['read_workspace_data'],
-      createdBy: 'user-1'
-    });
-    await db.query(
-      `UPDATE workflow_definitions
-       SET entry_agent_id='agent-cluster-triage',delegation_policy=NULL
-       WHERE workspace_id='workspace-1' AND id=$1`,
-      [workflow.id]
-    );
-
-    await backfillWorkflowCoordinationInfrastructure();
-
-    const coordinators = await db.query<{ workspace_id: string; id: string }>(
-      `SELECT workspace_id,id FROM agent_definitions
-       WHERE system_role='workflow_coordinator' ORDER BY workspace_id`
-    );
-    assert.deepEqual(coordinators.rows.map((row) => row.workspace_id), ['workspace-1', 'workspace-2']);
-    const workspaceCoordinator = coordinators.rows.find((row) => row.workspace_id === 'workspace-1');
-    assert.ok(workspaceCoordinator);
-    const repaired = await db.query<{ entry_agent_id: string; delegation_policy: { specialistAgentIds: string[] } }>(
-      `SELECT entry_agent_id,delegation_policy FROM workflow_definitions
-       WHERE workspace_id='workspace-1' AND id=$1`,
-      [workflow.id]
-    );
-    assert.equal(repaired.rows[0].entry_agent_id, workspaceCoordinator.id);
-    assert.deepEqual(repaired.rows[0].delegation_policy.specialistAgentIds, [
-      'agent-cluster-triage',
-      'agent-incident-reporter'
-    ]);
-  });
-
   it('creates one coordinator under concurrent coordinated workflow mutations', async () => {
     const create = (name: string) => createWorkflowThroughDefinitionService({
       workspaceId: 'workspace-1',

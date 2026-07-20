@@ -70,7 +70,7 @@ describe('agent access compiler', () => {
         name: 'User-selected MCP server',
         url: 'https://mcp.example.com/v1/',
         enabled: true,
-        authScope: 'personal',
+        credentialMode: 'individual',
         revision: 1,
         targetConstraints: { targetTypes: [], targetIds: [] },
         tools: [{

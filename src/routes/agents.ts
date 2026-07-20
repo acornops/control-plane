@@ -39,10 +39,10 @@ agentsRouter.patch('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:server
 agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/test-connection', requireUser, publicAgentVisibility, authed(agentMcpController.testServer));
 agentsRouter.patch('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId', requireUser, publicAgentVisibility, authed(agentMcpController.patchServer));
 agentsRouter.delete('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId', requireUser, publicAgentVisibility, authed(agentMcpController.removeServer));
-agentsRouter.get('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/connection', requireUser, publicAgentVisibility, authed(mcpConnectionsController.getPersonalMcpConnection));
-agentsRouter.put('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/connection', requireUser, publicAgentVisibility, authed(mcpConnectionsController.putPersonalMcpConnection));
-agentsRouter.delete('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/connection', requireUser, publicAgentVisibility, authed(mcpConnectionsController.deletePersonalMcpConnection));
-agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/connection/verify', requireUser, publicAgentVisibility, authed(mcpConnectionsController.verifyPersonalMcpConnection));
+agentsRouter.get('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/connection', requireUser, publicAgentVisibility, authed(mcpConnectionsController.getMcpConnectionStatus));
+agentsRouter.put('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/connection', requireUser, publicAgentVisibility, authed(mcpConnectionsController.putMcpConnection));
+agentsRouter.delete('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/connection', requireUser, publicAgentVisibility, authed(mcpConnectionsController.deleteMcpConnectionStatus));
+agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/connection/verify', requireUser, publicAgentVisibility, authed(mcpConnectionsController.verifyMcpConnectionStatus));
 agentsRouter.get('/workspaces/:workspaceId/agents/:agentId/skills', requireUser, publicAgentVisibility, authed(agentSkillsController.listSkills));
 agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/skills', requireUser, publicAgentVisibility, authed(agentSkillsController.createSkill));
 agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/skills/import', requireUser, publicAgentVisibility, authed(agentSkillsController.importSkill));

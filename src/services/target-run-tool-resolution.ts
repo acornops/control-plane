@@ -277,7 +277,7 @@ export async function resolveTargetRunTools(params: {
   if (params.includeNativeTools !== false) {
     try {
       const webSearchSetting = await repo.getTargetToolSetting(targetId, WEB_SEARCH_TOOL_ID);
-      if (webSearchSetting?.enabled === true) {
+      if (webSearchSetting?.enabled !== false) {
         allowedNativeTools = [{
           id: WEB_SEARCH_TOOL_ID,
           config: webSearchConfig(webSearchSetting?.config)
@@ -285,7 +285,7 @@ export async function resolveTargetRunTools(params: {
       }
       if (config.TARGET_INSIGHTS_ENABLED) {
         const targetInsightsSetting = await repo.getTargetToolSetting(targetId, TARGET_INSIGHTS_TOOL_ID);
-        if (targetInsightsSetting?.enabled === true) {
+        if (targetInsightsSetting?.enabled !== false) {
           targetInsightsPreviewItems = [{
             id: TARGET_INSIGHTS_TOOL_ID,
             name: TARGET_INSIGHTS_TOOL_ID,

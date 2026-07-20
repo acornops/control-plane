@@ -1,6 +1,7 @@
 import { mock } from 'node:test';
 import { repo } from '../../src/store/repository.js';
 import { configureWorkflowOptionsCatalogLoaderForTests } from '../../src/store/repository-workflow-options.js';
+import { effectiveWorkflowRuntimePolicy } from '../../src/services/workflow-runtime-policy.js';
 import type { WorkflowMcpServerRecord } from '../../src/store/repository-workflows.js';
 import type {
   Role
@@ -87,7 +88,7 @@ const canonicalWorkflowMcpServers: Array<Omit<WorkflowMcpServerRecord, 'workspac
 }, {
   id: 'workspace-chat', scope: 'workspace', name: 'Workspace chat', url: 'builtin://workspace-chat', enabled: true,
   authType: 'none', credentialConfigured: false, publicHeaders: {}, status: 'connected', createdBy: 'test',
-  tools: [{ name: 'chat.sessions.read_selected', title: 'Read selected chats', capability: 'read', enabled: true }]
+  tools: [{ name: 'prompt.resources.read', title: 'Read prompt resources', capability: 'read', enabled: true }]
 }, {
   id: 'artifact-writer', scope: 'workspace', name: 'Artifact writer', url: 'builtin://artifacts', enabled: true,
   authType: 'none', credentialConfigured: false, publicHeaders: {}, status: 'connected', createdBy: 'test',
@@ -205,8 +206,8 @@ export function installWorkspace(role: Role | null): void {
   }]));
   configureWorkflowOptionsCatalogLoaderForTests(async (_workspaceId) => {
     const servers = [...mcpServers.values()].filter((server) => server.id === 'acornops-target-agent');
+    const runtimePolicy = effectiveWorkflowRuntimePolicy();
     return {
-      clusters: [{ value: 'cluster-1', label: 'Test cluster', provenance: { source: 'target' as const, targetId: 'cluster-1', targetName: 'Test cluster' } }],
       mcpServers: servers.map((server) => ({ value: server.id, label: server.name, disabled: !server.enabled })),
       skills: [
         { value: 'acornops-observability', label: 'AcornOps observability' },
@@ -218,19 +219,17 @@ export function installWorkspace(role: Role | null): void {
         ...servers.flatMap((server) => server.tools.map((tool) => ({
           value: tool.name, label: tool.title, disabled: !server.enabled || !tool.enabled
         }))),
-        { value: 'chat.sessions.read_selected', label: 'Read selected chats' },
+        { value: 'prompt.resources.read', label: 'Read prompt resources' },
         { value: 'reports.pdf.generate', label: 'Generate incident report PDF' }
       ],
       agents: [],
-      chatSessions: [],
       outputFormats: [{ value: 'pdf', label: 'PDF' }, { value: 'markdown', label: 'Markdown' }],
       approvalPolicies: [],
-      runtimeLimits: [],
-      retentionPolicies: [],
+      runtimeLimits: [{ value: String(runtimePolicy.maxRuntimeSeconds), label: 'Deployment limit' }],
+      retentionPolicies: [{ value: String(runtimePolicy.retentionDays), label: 'Deployment limit' }],
       sourceAvailability: {
-        clusters: { status: 'available' },
         mcpServers: { status: 'available' }, mcpTools: { status: 'available' },
-        skills: { status: 'available' }, agents: { status: 'available' }, chatSessions: { status: 'empty' }
+        skills: { status: 'available' }, agents: { status: 'available' }
       }
     };
   });

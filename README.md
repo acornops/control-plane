@@ -191,7 +191,7 @@ The control plane uses durable state:
 This mirrors production topology expectations: identity provider, durable data stores, and separated service boundaries.
 The control-plane schema is managed by versioned SQL migrations. Use `npm run db:status` to inspect migration state and `npm run db:migrate` to apply migrations when running outside Compose. Operational details live in [`docs/database-migrations.md`](docs/database-migrations.md).
 
-Starter automation is workspace provisioning, not development data. Every new workspace atomically receives three visible specialist Agents, four draft workflows, one hidden internal workflow coordinator, and a completed starter-v1 installation marker. Startup backfills existing workspaces that do not have a completed marker before the service reports ready. The marker remains after users delete visible starter definitions, so deleted content is not recreated.
+Starter automation is workspace provisioning, not development data. Every new workspace atomically receives the two current automatic specialist Agents, their two active workflows, and a completed version-4 starter installation marker. Opt-in templates are installed explicitly. No startup backfill repairs pre-existing workspaces, and the marker remains after users delete visible starter definitions so deleted content is not recreated.
 
 Development target seeding is enabled by default for local development:
 
@@ -273,7 +273,6 @@ Account auth configuration:
 
 - `SESSION_MAX_AGE_SECONDS=604800` controls the absolute browser session lifetime.
 - `SESSION_IDLE_TIMEOUT_SECONDS=86400` controls the sliding idle timeout; active sessions refresh this window until the absolute max age is reached.
-- `SESSION_TTL_SECONDS` is accepted as a legacy fallback for `SESSION_MAX_AGE_SECONDS` when the newer variable is absent.
 - `PASSWORD_AUTH_ENABLED=true` enables password login endpoints.
 - `PASSWORD_SIGNUP_ENABLED=true` enables self-service signup. Keep this `false` in production unless a reviewed private deployment intentionally allows open signup.
 - `PASSWORD_AUTH_MAX_ATTEMPTS=10` controls failed login attempts per identifier/IP window.

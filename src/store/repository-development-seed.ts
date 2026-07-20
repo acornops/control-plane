@@ -1,6 +1,6 @@
 import { DEVELOPMENT_CLUSTER_ID, DEVELOPMENT_VM_ID, DEVELOPMENT_WORKSPACE_ID } from '../constants/dev-defaults.js';
 import { db } from '../infra/db.js';
-import { provisionWorkspaceWithStarterAutomationV1 } from '../services/workspace-provisioning.js';
+import { provisionWorkspaceWithStarterAutomation } from '../services/workspace-provisioning.js';
 import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE } from '../types/domain.js';
 import { hashSecret } from '../utils/crypto.js';
 import { upsertTargetAgentRegistration } from './repository-target-agent-registrations.js';
@@ -14,7 +14,7 @@ export async function ensureDevelopmentWorkspaceAndTargets(
   seedAgentKey?: string,
   seedVmAgentKey?: string
 ): Promise<void> {
-  await provisionWorkspaceWithStarterAutomationV1({
+  await provisionWorkspaceWithStarterAutomation({
     id: DEVELOPMENT_WORKSPACE_ID,
     name: 'Development Workspace',
     createdBy: createdByUserId,

@@ -348,9 +348,7 @@ export async function testAgent(req: AuthenticatedRequest, res: Response, next: 
       triggerId: typeof body.triggerId === 'string' ? body.triggerId : undefined,
       exactTarget: target ? { id: target.id, targetType: target.targetType } : undefined
     });
-    res.setHeader('Deprecation', 'true');
-    res.setHeader('Sunset', 'Wed, 31 Dec 2026 23:59:59 GMT');
-    res.status(200).json({ compiledScope, executing: false, deprecated: true });
+    res.status(200).json({ compiledScope, executing: false });
   } catch (err) {
     if (err instanceof AgentAccessDeniedError) {
       res.status(403).json({

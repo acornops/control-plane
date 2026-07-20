@@ -30,10 +30,10 @@ function boundedIdentifier(value: string): string {
 
 function publicFailureCode(value: unknown): McpReadinessFailureCode {
   switch (value) {
-    case 'MCP_PAT_USER_PRINCIPAL_REQUIRED':
-    case 'MCP_PERSONAL_CONNECTION_MISSING':
-    case 'MCP_PERSONAL_CONNECTION_ERROR':
-    case 'MCP_PERSONAL_TOOL_UNAVAILABLE':
+    case 'MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED':
+    case 'MCP_CONNECTION_MISSING':
+    case 'MCP_CONNECTION_ERROR':
+    case 'MCP_CREDENTIAL_TOOL_UNAVAILABLE':
     case 'MCP_INSTALLATION_UNAVAILABLE':
     case 'MCP_REMOTE_DISABLED':
       return value;
@@ -44,14 +44,14 @@ function publicFailureCode(value: unknown): McpReadinessFailureCode {
 
 function readinessFailureMessage(failure: PublicMcpReadinessFailure): string {
   switch (failure.code) {
-    case 'MCP_PAT_USER_PRINCIPAL_REQUIRED':
-      return `${failure.code}: personal MCP tool ${failure.serverId}/${failure.toolName} requires a user principal.`;
-    case 'MCP_PERSONAL_CONNECTION_MISSING':
-      return `Connect a PAT for MCP tool ${failure.serverId}/${failure.toolName}.`;
-    case 'MCP_PERSONAL_CONNECTION_ERROR':
-      return `Verify or replace the PAT for MCP tool ${failure.serverId}/${failure.toolName}.`;
-    case 'MCP_PERSONAL_TOOL_UNAVAILABLE':
-      return `The current PAT does not expose approved MCP tool ${failure.serverId}/${failure.toolName}.`;
+    case 'MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED':
+      return `${failure.code}: individual MCP tool ${failure.serverId}/${failure.toolName} requires a user principal.`;
+    case 'MCP_CONNECTION_MISSING':
+      return `Connect a credential for MCP tool ${failure.serverId}/${failure.toolName}.`;
+    case 'MCP_CONNECTION_ERROR':
+      return `Verify or replace the credential for MCP tool ${failure.serverId}/${failure.toolName}.`;
+    case 'MCP_CREDENTIAL_TOOL_UNAVAILABLE':
+      return `The connected credential does not expose approved MCP tool ${failure.serverId}/${failure.toolName}.`;
     case 'MCP_REMOTE_DISABLED':
       return `Remote MCP is disabled for tool ${failure.serverId}/${failure.toolName}.`;
     default:
@@ -66,10 +66,10 @@ function readinessFailureAction(
     return failure.action;
   }
   switch (failure.code) {
-    case 'MCP_PERSONAL_CONNECTION_MISSING':
+    case 'MCP_CONNECTION_MISSING':
       return 'connect_mcp_server';
-    case 'MCP_PERSONAL_CONNECTION_ERROR':
-    case 'MCP_PERSONAL_TOOL_UNAVAILABLE':
+    case 'MCP_CONNECTION_ERROR':
+    case 'MCP_CREDENTIAL_TOOL_UNAVAILABLE':
       return 'verify_mcp_server';
     default:
       return undefined;
@@ -90,12 +90,12 @@ function publicReadinessFailure(
 
 export function publicMcpReadinessCode(report: McpReadinessReport): string {
   switch (report.failures[0]?.code) {
-    case 'MCP_PAT_USER_PRINCIPAL_REQUIRED':
+    case 'MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED':
     case 'MCP_INSTALLATION_UNAVAILABLE':
     case 'MCP_REMOTE_DISABLED':
       return report.failures[0].code;
     default:
-      return 'MCP_PERSONAL_CONNECTION_REQUIRED';
+      return 'MCP_CONNECTION_REQUIRED';
   }
 }
 
@@ -104,7 +104,6 @@ export function publicMcpReadinessError(report: McpReadinessReport): {
   message: string;
   retryable: false;
   details: {
-    readinessErrors: string[];
     readinessFailures: PublicMcpReadinessFailure[];
     action?: McpReadinessAction;
   };
@@ -115,7 +114,6 @@ export function publicMcpReadinessError(report: McpReadinessReport): {
     message: report.errors[0] || 'MCP prerequisites are not ready.',
     retryable: false,
     details: {
-      readinessErrors: report.errors,
       readinessFailures: report.failures,
       ...(action ? { action } : {})
     }
@@ -156,23 +154,24 @@ export async function getWorkflowCapabilityReadinessReport(
   target?: TargetSummary,
   context: { actorUserId?: string; principal?: RunPrincipalRef } = {}
 ): Promise<McpReadinessReport> {
-  if (!target && scope.exactTargets.length) {
-    return { errors: ['The pinned workflow target is unavailable.'], failures: [] };
-  }
+  const exactToolRefs = [...(scope.mcpTools || []), ...(scope.targetToolRefs || [])]
+    .filter((ref, index, refs) => refs.findIndex((candidate) => (
+      candidate.serverId === ref.serverId && candidate.toolName === ref.toolName
+    )) === index);
   const principal = context.principal
     || (context.actorUserId ? { type: 'user' as const, id: context.actorUserId } : undefined);
-  if (!principal && scope.mcpTools.length > 0) {
+  if (!principal && exactToolRefs.length > 0) {
     return {
-      errors: ['MCP_PAT_USER_PRINCIPAL_REQUIRED: exact MCP tools require a run principal.'],
-      failures: scope.mcpTools.slice(0, MAX_PUBLIC_READINESS_FAILURES).map((ref) => ({
+      errors: ['MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED: exact MCP tools require a run principal.'],
+      failures: exactToolRefs.slice(0, MAX_PUBLIC_READINESS_FAILURES).map((ref) => ({
         serverId: boundedIdentifier(ref.serverId),
         toolName: boundedIdentifier(ref.toolName),
-        code: 'MCP_PAT_USER_PRINCIPAL_REQUIRED'
+        code: 'MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED'
       }))
     };
   }
   return principal
-    ? getExactMcpReadinessReport(workspaceId, principal, scope.mcpTools)
+    ? getExactMcpReadinessReport(workspaceId, principal, exactToolRefs)
     : { errors: [], failures: [] };
 }
 

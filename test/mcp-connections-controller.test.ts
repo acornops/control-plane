@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 
 import {
-  putPersonalMcpConnection,
-  verifyPersonalMcpConnection
+  putMcpConnection,
+  verifyMcpConnectionStatus
 } from '../src/controllers/mcp-connections-controller.js';
 import { repo } from '../src/store/repository.js';
 import {
@@ -15,7 +15,7 @@ import {
 
 afterEach(restoreControllerRegressionState);
 
-function personalServer() {
+function individualServer() {
   return {
     id: 'server-agent-1',
     workspace_id: 'workspace-1',
@@ -25,45 +25,49 @@ function personalServer() {
     server_url: 'https://mcp.example/mcp',
     enabled: true,
     auth_type: 'custom_header',
-    auth_scope: 'personal',
+    credential_mode: 'individual',
     tools: []
   };
 }
 
-describe('MCP PAT connection controllers', () => {
+function workspaceServer() {
+  return { ...individualServer(), credential_mode: 'workspace' as const };
+}
+
+describe('MCP credential connection controllers', () => {
   it('denies a viewer without a run capability before mutating an Agent connection', async () => {
     installWorkspace('viewer');
-    const gateway = mock.method(globalThis, 'fetch', async () => {
-      throw new Error('gateway must not be called');
-    });
+    const gateway = mock.method(globalThis, 'fetch', async () => (
+      new Response(JSON.stringify([individualServer()]), { status: 200 })
+    ));
 
-    const response = await callController(putPersonalMcpConnection, createRequest(
+    const response = await callController(putMcpConnection, createRequest(
       { workspaceId: 'workspace-1', agentId: 'agent-1', serverId: 'server-agent-1' },
       { credential: 'pat', consentGranted: true }
     ));
 
     assert.equal(response.statusCode, 403);
     assert.equal((response.body as { error: { code: string } }).error.code, 'FORBIDDEN');
-    assert.equal(gateway.mock.callCount(), 0);
+    assert.equal(gateway.mock.callCount(), 1);
   });
 
   it('denies a viewer without a run capability before mutating a target connection', async () => {
     installWorkspace('viewer');
-    const gateway = mock.method(globalThis, 'fetch', async () => {
-      throw new Error('gateway must not be called');
-    });
+    const gateway = mock.method(globalThis, 'fetch', async () => (
+      new Response(JSON.stringify([{ ...individualServer(), id: 'server-target-1', scope_type: 'target', agent_id: null, target_id: 'target-1' }]), { status: 200 })
+    ));
 
-    const response = await callController(putPersonalMcpConnection, createRequest(
+    const response = await callController(putMcpConnection, createRequest(
       { workspaceId: 'workspace-1', targetId: 'target-1', serverId: 'server-target-1' },
       { credential: 'pat', consentGranted: true }
     ));
 
     assert.equal(response.statusCode, 403);
     assert.equal((response.body as { error: { code: string } }).error.code, 'FORBIDDEN');
-    assert.equal(gateway.mock.callCount(), 0);
+    assert.equal(gateway.mock.callCount(), 1);
   });
 
-  it('allows an operator to manage only their own PAT and redacts audit metadata', async () => {
+  it('allows an operator to manage only their own individual credential and redacts audit metadata', async () => {
     installWorkspace('operator');
     const bodies: Array<Record<string, unknown>> = [];
     const audits: unknown[] = [];
@@ -83,18 +87,19 @@ describe('MCP PAT connection controllers', () => {
     };
     mock.method(globalThis, 'fetch', async (_input, init) => {
       if (init?.method === 'GET') {
-        return new Response(JSON.stringify([personalServer()]), { status: 200 });
+        return new Response(JSON.stringify([individualServer()]), { status: 200 });
       }
       bodies.push(JSON.parse(String(init?.body)));
       return new Response(JSON.stringify({
         server_id: 'server-agent-1',
+        credential_mode: 'individual',
         status: 'connected',
         auth_type: 'custom_header',
         action: null
       }), { status: 200 });
     });
 
-    const response = await callController(putPersonalMcpConnection, createRequest(
+    const response = await callController(putMcpConnection, createRequest(
       { workspaceId: 'workspace-1', agentId: 'agent-1', serverId: 'server-agent-1' },
       { credential: 'top-secret-pat', consentGranted: true }
     ));
@@ -102,17 +107,63 @@ describe('MCP PAT connection controllers', () => {
     assert.equal(response.statusCode, 200);
     assert.deepEqual(bodies, [{
       workspace_id: 'workspace-1',
-      user_id: 'user-1',
+      owner_type: 'user',
+      owner_id: 'user-1',
       credential: 'top-secret-pat',
       consent_granted: true
     }]);
     assert.equal(JSON.stringify(audits).includes('top-secret-pat'), false);
     assert.deepEqual(response.body, { connection: {
       serverId: 'server-agent-1',
+      credentialMode: 'individual',
       status: 'connected',
+      managementScope: 'individual',
+      canManage: true,
       authType: 'custom_header',
       action: undefined
     } });
+  });
+
+  it('requires manage_mcp for workspace credential mutations', async () => {
+    installWorkspace('operator');
+    const gateway = mock.method(globalThis, 'fetch', async () => (
+      new Response(JSON.stringify([workspaceServer()]), { status: 200 })
+    ));
+
+    const response = await callController(putMcpConnection, createRequest(
+      { workspaceId: 'workspace-1', agentId: 'agent-1', serverId: 'server-agent-1' },
+      { credential: 'service-token', consentGranted: true }
+    ));
+
+    assert.equal(response.statusCode, 403);
+    assert.equal(gateway.mock.callCount(), 1);
+  });
+
+  it('uses the canonical installation owner for workspace credentials', async () => {
+    installWorkspace('admin');
+    const bodies: Array<Record<string, unknown>> = [];
+    mock.method(globalThis, 'fetch', async (_input, init) => {
+      if (init?.method === 'GET') return new Response(JSON.stringify([workspaceServer()]), { status: 200 });
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify({
+        server_id: 'server-agent-1', credential_mode: 'workspace', status: 'connected', auth_type: 'custom_header'
+      }), { status: 200 });
+    });
+
+    const response = await callController(putMcpConnection, createRequest(
+      { workspaceId: 'workspace-1', agentId: 'agent-1', serverId: 'server-agent-1' },
+      { credential: 'service-token', consentGranted: true }
+    ));
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(bodies, [{
+      workspace_id: 'workspace-1', owner_type: 'installation', owner_id: 'installation',
+      credential: 'service-token', consent_granted: true
+    }]);
+    assert.deepEqual((response.body as { connection: Record<string, unknown> }).connection, {
+      serverId: 'server-agent-1', credentialMode: 'workspace', status: 'connected',
+      managementScope: 'workspace', canManage: true, authType: 'custom_header', action: undefined
+    });
   });
 
   it('denies auditors who cannot read the destination', async () => {
@@ -121,7 +172,7 @@ describe('MCP PAT connection controllers', () => {
       throw new Error('gateway must not be called');
     });
 
-    const response = await callController(putPersonalMcpConnection, createRequest(
+    const response = await callController(putMcpConnection, createRequest(
       { workspaceId: 'workspace-1', agentId: 'agent-1', serverId: 'server-agent-1' },
       { credential: 'pat', consentGranted: true }
     ));
@@ -133,55 +184,58 @@ describe('MCP PAT connection controllers', () => {
   it('rejects removed OAuth-style fields instead of silently accepting them', async () => {
     installWorkspace('admin');
     const gateway = mock.method(globalThis, 'fetch', async () => (
-      new Response(JSON.stringify([personalServer()]), { status: 200 })
+      new Response(JSON.stringify([individualServer()]), { status: 200 })
     ));
 
-    const response = await callController(putPersonalMcpConnection, createRequest(
+    const response = await callController(putMcpConnection, createRequest(
       { workspaceId: 'workspace-1', agentId: 'agent-1', serverId: 'server-agent-1' },
       { credential: 'pat', consentGranted: true, scopes: ['tools.read'] }
     ));
 
     assert.equal(response.statusCode, 400);
-    assert.equal((response.body as { error: { code: string } }).error.code, 'MCP_PAT_CONNECTION_INVALID');
+    assert.equal((response.body as { error: { code: string } }).error.code, 'MCP_CONNECTION_INVALID');
     assert.equal(gateway.mock.callCount(), 1);
   });
 
   it('rejects attempts to select another user', async () => {
     installWorkspace('operator');
     mock.method(globalThis, 'fetch', async () => (
-      new Response(JSON.stringify([personalServer()]), { status: 200 })
+      new Response(JSON.stringify([individualServer()]), { status: 200 })
     ));
 
-    const response = await callController(putPersonalMcpConnection, createRequest(
+    const response = await callController(putMcpConnection, createRequest(
       { workspaceId: 'workspace-1', agentId: 'agent-1', serverId: 'server-agent-1' },
       { credential: 'pat', consentGranted: true, userId: 'user-2' }
     ));
 
     assert.equal(response.statusCode, 400);
-    assert.equal((response.body as { error: { code: string } }).error.code, 'MCP_PAT_CONNECTION_INVALID');
+    assert.equal((response.body as { error: { code: string } }).error.code, 'MCP_CONNECTION_INVALID');
   });
 
   it('enforces the UTF-8 byte limit and rejects control characters without trimming', async () => {
     installWorkspace('operator');
     const forwarded: string[] = [];
     mock.method(globalThis, 'fetch', async (_input, init) => {
-      if (init?.method === 'GET') return new Response(JSON.stringify([personalServer()]), { status: 200 });
+      if (init?.method === 'GET') return new Response(JSON.stringify([individualServer()]), { status: 200 });
       forwarded.push((JSON.parse(String(init?.body)) as { credential: string }).credential);
       return new Response(JSON.stringify({
-        server_id: 'server-agent-1', status: 'connected', auth_type: 'custom_header'
+        server_id: 'server-agent-1',
+        credential_mode: 'individual',
+        status: 'connected',
+        auth_type: 'custom_header'
       }), { status: 200 });
     });
 
     const exact = ` ${'x'.repeat(8190)} `;
-    const accepted = await callController(putPersonalMcpConnection, createRequest(
+    const accepted = await callController(putMcpConnection, createRequest(
       { workspaceId: 'workspace-1', agentId: 'agent-1', serverId: 'server-agent-1' },
       { credential: exact, consentGranted: true }
     ));
-    const oversized = await callController(putPersonalMcpConnection, createRequest(
+    const oversized = await callController(putMcpConnection, createRequest(
       { workspaceId: 'workspace-1', agentId: 'agent-1', serverId: 'server-agent-1' },
       { credential: 'é'.repeat(4097), consentGranted: true }
     ));
-    const controlled = await callController(putPersonalMcpConnection, createRequest(
+    const controlled = await callController(putMcpConnection, createRequest(
       { workspaceId: 'workspace-1', agentId: 'agent-1', serverId: 'server-agent-1' },
       { credential: 'pat\u0000value', consentGranted: true }
     ));
@@ -195,14 +249,14 @@ describe('MCP PAT connection controllers', () => {
   it('forwards the gateway Retry-After header for throttled connection mutations', async () => {
     installWorkspace('operator');
     mock.method(globalThis, 'fetch', async (_input, init) => {
-      if (init?.method === 'GET') return new Response(JSON.stringify([personalServer()]), { status: 200 });
+      if (init?.method === 'GET') return new Response(JSON.stringify([individualServer()]), { status: 200 });
       return new Response(JSON.stringify({ detail: 'rate limited' }), {
         status: 429,
         headers: { 'Retry-After': '17' }
       });
     });
 
-    const response = await callController(putPersonalMcpConnection, createRequest(
+    const response = await callController(putMcpConnection, createRequest(
       { workspaceId: 'workspace-1', agentId: 'agent-1', serverId: 'server-agent-1' },
       { credential: 'pat', consentGranted: true }
     ));
@@ -211,7 +265,7 @@ describe('MCP PAT connection controllers', () => {
     assert.equal(response.headers.get('retry-after'), '17');
   });
 
-  it('retries the stored PAT through the installation-scoped verify endpoint', async () => {
+  it('retries the stored credential through the installation-scoped verify endpoint', async () => {
     installWorkspace('admin');
     const requests: Array<{ url: string; body?: Record<string, unknown> }> = [];
     mock.method(globalThis, 'fetch', async (input, init) => {
@@ -220,23 +274,24 @@ describe('MCP PAT connection controllers', () => {
         body: init?.body ? JSON.parse(String(init.body)) : undefined
       });
       if (init?.method === 'GET') {
-        return new Response(JSON.stringify([personalServer()]), { status: 200 });
+        return new Response(JSON.stringify([individualServer()]), { status: 200 });
       }
       return new Response(JSON.stringify({
         server_id: 'server-agent-1',
+        credential_mode: 'individual',
         status: 'error',
         auth_type: 'custom_header',
         action: 'verify_mcp_server'
       }), { status: 200 });
     });
 
-    const response = await callController(verifyPersonalMcpConnection, createRequest({
+    const response = await callController(verifyMcpConnectionStatus, createRequest({
       workspaceId: 'workspace-1', agentId: 'agent-1', serverId: 'server-agent-1'
     }));
 
     assert.equal(response.statusCode, 200);
     assert.match(requests[1].url, /connections\/user-1\/verify$/);
-    assert.deepEqual(requests[1].body, { workspace_id: 'workspace-1', user_id: 'user-1' });
+    assert.deepEqual(requests[1].body, { workspace_id: 'workspace-1', owner_type: 'user', owner_id: 'user-1' });
     assert.equal(JSON.stringify(requests[1]).includes('credential'), false);
   });
 });

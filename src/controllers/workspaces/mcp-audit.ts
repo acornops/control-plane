@@ -12,6 +12,7 @@ interface McpServerAuditInput {
     id: string;
     server_name: string;
     enabled: boolean;
+    credential_mode: 'none' | 'workspace' | 'individual';
     tools: unknown[];
   };
 }
@@ -31,6 +32,7 @@ export async function recordMcpServerAudit(input: McpServerAuditInput): Promise<
       targetId: input.targetId,
       targetType: input.targetType,
       enabled: input.server.enabled,
+      credentialMode: input.server.credential_mode,
       toolCount: input.server.tools.length
     }
   });
@@ -66,12 +68,12 @@ export async function recordMcpConnectionCleanupAudit(
   await recordWorkspaceAuditEvent({
     workspaceId,
     category: 'mcp',
-    eventType: 'mcp.personal_connections_cleanup_completed.v1',
+    eventType: 'mcp.connections_cleanup_completed.v1',
     operation: 'write',
     actorUserId,
     objectType: 'mcp_server',
     objectId: serverId,
-    summary: 'Personal MCP credentials cleaned up during uninstall',
+    summary: 'MCP credentials cleaned up during uninstall',
     metadata: { targetId, targetType, credentialCleanup: 'completed' }
   });
 }
@@ -87,12 +89,12 @@ export async function recordMcpTrustChangeInvalidationAudit(
   await recordWorkspaceAuditEvent({
     workspaceId,
     category: 'mcp',
-    eventType: 'mcp.personal_connections_invalidated.v1',
+    eventType: 'mcp.connections_invalidated.v1',
     operation: 'write',
     actorUserId,
     objectType: 'mcp_server',
     objectId: serverId,
-    summary: 'Personal MCP connections invalidated after trust-boundary change',
+    summary: 'MCP connections invalidated after trust-boundary change',
     metadata: { targetId, targetType, changedFields }
   });
 }

@@ -15,6 +15,7 @@ import {
   targetAllowedByMapping,
   targetAllowedByWorkflowConstraints
 } from './target-scope-authorization.js';
+import { workflowTargetPolicy } from './prompt-resources/providers/target-provider.js';
 import {
   intersectGrantedTargetRunTools,
   type TargetRunToolResolution
@@ -70,7 +71,7 @@ export function workflowTargetCandidates(input: {
   const requiresWrite = input.workflow.capabilityPolicy.mode === 'read_write'
     && targetCapabilityIds.includes('target.remediation.write');
   return input.targets
-    .filter((target) => targetAllowedByWorkflowConstraints(input.workflow.targetConstraints, target))
+    .filter((target) => targetAllowedByWorkflowConstraints(workflowTargetPolicy(input.workflow), target))
     .filter((target) => input.agents.some((agent) => targetAllowedByAgentScope(agent.targetScope, target)))
     .map((target): WorkflowTargetCapabilityCandidate => {
       let reasonCode: WorkflowCapabilityPreviewReasonCode | undefined;

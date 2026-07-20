@@ -41,7 +41,7 @@ describe('public MCP readiness controller responses', () => {
       if (url.pathname === '/api/v1/internal/mcp/connections/readiness' && init?.method === 'POST') {
         return new Response(JSON.stringify({ ready: false, failures: [{
           server_id: 'server-1', tool_name: 'records.list',
-          code: 'MCP_PERSONAL_CONNECTION_MISSING', action: 'connect_mcp_server',
+          code: 'MCP_CONNECTION_MISSING', action: 'connect_mcp_server',
           credential: 'must-not-leak', headers: { Authorization: 'Bearer must-not-leak' }
         }] }), { status: 200 });
       }
@@ -55,14 +55,13 @@ describe('public MCP readiness controller responses', () => {
 
     assert.equal(response.statusCode, 409);
     assert.deepEqual(response.body, { error: {
-      code: 'MCP_PERSONAL_CONNECTION_REQUIRED',
-      message: 'Connect a PAT for MCP tool server-1/records.list.',
+      code: 'MCP_CONNECTION_REQUIRED',
+        message: 'Connect a credential for MCP tool server-1/records.list.',
       retryable: false,
       details: {
-        readinessErrors: ['Connect a PAT for MCP tool server-1/records.list.'],
         readinessFailures: [{
           serverId: 'server-1', toolName: 'records.list',
-          code: 'MCP_PERSONAL_CONNECTION_MISSING', action: 'connect_mcp_server'
+          code: 'MCP_CONNECTION_MISSING', action: 'connect_mcp_server'
         }],
         action: 'connect_mcp_server'
       }
@@ -86,7 +85,7 @@ describe('public MCP readiness controller responses', () => {
       mcpTools: [{ serverId: 'server-1', toolName: 'records.list' }],
       mcpInstallations: [{
         id: 'server-1', name: 'Records', url: 'https://mcp.example.test', enabled: true,
-        authScope: 'personal', revision: 1, targetConstraints: { targetTypes: [], targetIds: [] },
+        credentialMode: 'individual', revision: 1, targetConstraints: { targetTypes: [], targetIds: [] },
         tools: [{
           serverId: 'server-1', toolName: 'records.list', alias: 'records_list',
           capability: 'read', enabled: true, reviewState: 'approved',
@@ -110,7 +109,7 @@ describe('public MCP readiness controller responses', () => {
       if (url.pathname === '/api/v1/internal/mcp/connections/readiness' && init?.method === 'POST') {
         return new Response(JSON.stringify({ ready: false, failures: [{
           server_id: 'server-1', tool_name: 'records.list',
-          code: 'MCP_PERSONAL_TOOL_UNAVAILABLE', action: 'verify_mcp_server',
+          code: 'MCP_CREDENTIAL_TOOL_UNAVAILABLE', action: 'verify_mcp_server',
           user_id: 'must-not-leak', connection: { credential: 'must-not-leak' }
         }] }), { status: 200 });
       }
@@ -124,10 +123,10 @@ describe('public MCP readiness controller responses', () => {
 
     assert.equal(response.statusCode, 409);
     const body = response.body as { error: { code: string; details: { readinessFailures: unknown[] } } };
-    assert.equal(body.error.code, 'MCP_PERSONAL_CONNECTION_REQUIRED');
+    assert.equal(body.error.code, 'MCP_CONNECTION_REQUIRED');
     assert.deepEqual(body.error.details.readinessFailures, [{
       serverId: 'server-1', toolName: 'records.list',
-      code: 'MCP_PERSONAL_TOOL_UNAVAILABLE', action: 'verify_mcp_server'
+      code: 'MCP_CREDENTIAL_TOOL_UNAVAILABLE', action: 'verify_mcp_server'
     }]);
     assert.equal(JSON.stringify(body).includes('must-not-leak'), false);
   });

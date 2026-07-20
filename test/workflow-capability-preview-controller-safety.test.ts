@@ -1,41 +1,56 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { describe, it } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { afterEach, describe, it, mock } from 'node:test';
+import { genericMcpAuthRequirements } from '../src/controllers/workflow-capability-preview-controller.js';
 
-const testDir = resolve(fileURLToPath(new URL('.', import.meta.url)));
-const controller = readFileSync(resolve(testDir, '../src/controllers/workflow-capability-preview-controller.ts'), 'utf8');
-const routes = readFileSync(resolve(testDir, '../src/routes/workflows.ts'), 'utf8');
+afterEach(() => mock.restoreAll());
 
 describe('workflow capability preview controller safety', () => {
-  it('registers a dedicated preview route without importing mutation paths', () => {
-    assert.match(routes, /post\('\/workflows\/:workflowId\/capabilities-preview'/);
-    for (const mutation of [
-      'createWorkflowSession',
-      'createWorkflowExecution',
-      'recordWorkspaceAuditEvent',
-      'createRunToolApproval',
-      'insertWorkspaceAuditEvent'
-    ]) {
-      assert.doesNotMatch(controller, new RegExp(`\\b${mutation}\\b`));
-    }
-  });
+  it('returns bounded credential requirements without installation secrets or endpoint details', async () => {
+    mock.method(globalThis, 'fetch', async (input) => {
+      const url = String(input);
+      if (url.includes('/api/v1/internal/mcp/servers?')) {
+        return new Response(JSON.stringify([{
+          id: 'server-1', workspace_id: 'workspace-1', scope_type: 'agent', agent_id: 'agent-1',
+          server_name: 'private-catalog', server_url: 'https://secret.internal.example/mcp',
+          enabled: true, auth_type: 'custom_header', credential_mode: 'workspace',
+          auth_header_name: 'x-private-token', public_headers: { 'x-private': 'value' }, tools: []
+        }]), { status: 200 });
+      }
+      if (url.includes('/connections/installation?')) {
+        return new Response(JSON.stringify({
+          server_id: 'server-1', credential_mode: 'workspace', status: 'missing',
+          auth_type: 'custom_header', action: 'connect_mcp_server'
+        }), { status: 200 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
 
-  it('does not declare sensitive response fields', () => {
-    for (const field of ['credentialValue', 'publicHeaders', 'serverUrl', 'inputSchema', 'toolArguments', 'coordinatorId', 'provider', 'profileId', 'profileName', 'documentationUrls']) {
-      assert.doesNotMatch(controller, new RegExp(`\\b${field}\\b`));
+    const result = await genericMcpAuthRequirements({
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      agents: [{ id: 'agent-1', name: 'Catalog Agent' }] as never,
+      scope: { mcpServers: ['server-1'] } as never
+    });
+
+    assert.deepEqual(result, [{
+      serverId: 'server-1',
+      serverName: 'private-catalog',
+      authType: 'custom_header',
+      owningAgent: { id: 'agent-1', name: 'Catalog Agent' },
+      connectionState: 'connection_missing',
+      authRequirement: {
+        scope: 'workspace',
+        credentialLabel: 'Custom header credential',
+        requiredInformation: [{
+          name: 'Custom header credential',
+          description: 'Provide a service or bot credential for private-catalog. Authorized users and automations, including service identities, will use it.'
+        }]
+      },
+      action: 'connect_mcp_server'
+    }]);
+    const serialized = JSON.stringify(result);
+    for (const sensitive of ['secret.internal.example', 'x-private-token', 'x-private', 'credentialValue']) {
+      assert.equal(serialized.includes(sensitive), false);
     }
-    assert.match(controller, /authType = server\.auth_type === 'custom_header'/);
-    assert.match(controller, /serverId: server\.id/);
-    assert.match(controller, /serverName: server\.server_name/);
-    assert.match(controller, /authRequirement: \{/);
-    assert.match(controller, /const credentialLabel = authType === 'bearer_token'/);
-    assert.match(controller, /requiredInformation: \[\{/);
-    assert.match(controller, /server\.auth_scope === 'personal'/);
-    assert.match(controller, /!server\.auth_scope && server\.auth_type !== 'none'/);
-    assert.match(controller, /allowedServerIds\.has\(server\.id\)/);
-    assert.match(controller, /const mcpRequirements = genericAuthRequirements/);
-    assert.doesNotMatch(controller, /sourceControlRequirements|SOURCE_CONTROL_INTEGRATION_PROFILES|github|gitlab/);
   });
 });

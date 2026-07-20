@@ -6,6 +6,7 @@ import { agentGateway } from '../src/agent/ws-server.js';
 import { webhooks, type WebhookEventInput } from '../src/services/webhooks.js';
 import { gatewayTokenService } from '../src/services/token-service.js';
 import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
+import { digestBindings, digestPrompt } from '../src/services/prompt-resources/registry.js';
 import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { repo } from '../src/store/repository.js';
 import { createWorkflowExecution, createWorkflowSession, getWorkflowDefinition } from '../src/store/repository-workflows.js';
@@ -135,13 +136,19 @@ describe('internal execution bootstrap audit metadata', () => {
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(tools.allowed_tools, ['query_logs', 'restart_service', 'acornops_generate_pdf_report']);
-    assert.deepEqual(tools.native_tools, []);
+    assert.deepEqual(tools.native_tools, [{
+      id: 'web_search',
+      config: { domainFilters: { allowedDomains: [], blockedDomains: [] } }
+    }]);
     assert.deepEqual(tools.platform_functions, [
       { id: 'reports.pdf.generate', model_alias: 'acornops_generate_pdf_report' }
     ]);
     assert.ok(tools.tool_specs.some((tool) => tool.name === 'acornops_generate_pdf_report'));
     const claims = await gatewayTokenService.verifyRunScopeToken(tools.gateway.token);
-    assert.deepEqual(claims.allowedNativeTools, []);
+    assert.deepEqual(claims.allowedNativeTools, [{
+      id: 'web_search',
+      config: { domainFilters: { allowedDomains: [], blockedDomains: [] } }
+    }]);
   });
 
   it('reports read-only run mode when configured write tools are filtered from bootstrap', async () => {
@@ -299,7 +306,7 @@ describe('internal execution bootstrap audit metadata', () => {
       workflow,
       entryAgent,
       mappings: await listCapabilityRoutingMappings(workflow.workspaceId, { activeReviewedOnly: true }),
-      exactTargets: [{ id: 'cluster-primary', targetType: 'kubernetes' }],
+      targetRoute: { id: 'cluster-primary', targetType: 'kubernetes' },
       actor: {
         userId: 'user-1',
         role: 'operator',
@@ -316,6 +323,10 @@ describe('internal execution bootstrap audit metadata', () => {
       workflow,
       session,
       content: 'Triage the primary cluster.',
+      promptDigest: digestPrompt('Triage the primary cluster.'),
+      bindingDigest: digestBindings([]),
+      resourceBindings: [],
+      resolvedAt: new Date().toISOString(),
       inputs: { targetId: 'cluster-primary', severity: 'high' },
       targetId: 'cluster-primary',
       targetType: 'kubernetes',

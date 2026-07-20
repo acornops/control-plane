@@ -128,7 +128,7 @@ describe('syncTargetBuiltInTools', () => {
       if (url.includes('/api/v1/internal/mcp/servers?')) {
         return new Response(JSON.stringify([{
           id: 'builtin-1', workspace_id: 'ws-1', target_id: 'cluster-1', target_type: 'kubernetes',
-          server_name: 'legacy-built-in', server_url: 'http://legacy-control-plane:8081/internal/v1/mcp',
+          server_name: 'outdated-built-in', server_url: 'http://old-control-plane:8081/internal/v1/mcp',
           provenance_type: 'builtin', enabled: true, auth_type: 'none', tools: []
         }]), { status: 200 });
       }

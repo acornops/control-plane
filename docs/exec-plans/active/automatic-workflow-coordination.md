@@ -43,11 +43,8 @@ required for the prompt-first target selection revision.
 - Target-bound workflow runs select one exact resource through the control
   message with `@target[Target name]`; no per-run picker or hidden target state
   participates in authorization.
-- New starter prompts emit the shared target syntax. Existing concrete
-  `@cluster[...]` references remain compatible for Kubernetes targets.
-- The message reference is resolved to the existing structured `targetId` and
-  `targetType` fields, so the control plane remains authoritative and the HTTP
-  schema does not change.
+- Starter prompts use the platform prompt-reference syntax. The `target`
+  provider resolves an exact runtime route behind the generic binding contract.
 - This starter revision is still in flight, so it does not increment the
   template version or migrate already-materialized development workflows.
 - Delivery continues on `feat/extensible-catalog-sources`, with control-plane
@@ -63,18 +60,15 @@ required for the prompt-first target selection revision.
 - Read and write built-in tools are reconciled into separate exact-target
   mappings. Read-only compilation always removes write references, even if a
   malformed mapping supplies one.
-- This in-flight starter revision keeps template version 2. Freshly provisioned
-  workspaces receive four visible specialists and five workflows; existing
-  materialized development workflows are not migrated.
+- The final starter revision is version 4. Freshly provisioned workspaces receive
+  the two automatic specialists and their two active workflows; opt-in templates
+  are installed explicitly, and existing materialized workflows are not migrated.
 
 ## Starter workflow usability decision
 
 - Automatic templates are runnable definitions, not examples. Their initial
   status is `active`; opt-in templates remain `paused`, and manual duplicates
   remain `draft` until an operator activates them.
-- Starter template version 4 repairs existing template-origin Target
-  diagnostics workflows that are still `draft`. It preserves an operator's
-  explicit `paused` state and never changes manual copies.
 - Seed and idempotent install paths use the same initial-status helper so
   workspace provisioning and later template installation cannot diverge.
 - The upgrade retains the existing seed metric and records a bounded
