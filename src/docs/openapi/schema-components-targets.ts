@@ -379,6 +379,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         label: { type: 'string' },
         description: { type: 'string' },
         enabled: { type: 'boolean', default: true },
+        toggleable: { type: 'boolean', default: true },
         origin: { type: 'string', enum: ['target_setting', 'platform_native'] },
         capability: { type: 'string', enum: ['read', 'write'] },
         runtimeKind: { type: 'string', enum: ['provider_native', 'function'] },

@@ -8,6 +8,8 @@ export interface WorkspaceNativeToolDefinition {
   modelAlias: string;
   title: string;
   description: string;
+  targetCatalogDescription?: string;
+  targetToggleable?: boolean;
   semanticCapabilityId: string;
   invocationScopes: NativeToolInvocationScope[];
   authorizationClass: NativeToolAuthorizationClass;
@@ -44,6 +46,8 @@ const WORKSPACE_NATIVE_TOOLS: WorkspaceNativeToolDefinition[] = [
     modelAlias: 'acornops_generate_pdf_report',
     title: 'Generate PDF report',
     description: 'Call only when the user explicitly requests a PDF incident report. Compose complete incident-report Markdown from the current run chat and available evidence, label unknown facts explicitly, then persist the bounded, provenance-linked PDF. Do not claim the report exists unless this function succeeds.',
+    targetCatalogDescription: 'Create a provenance-linked PDF incident report from the current assistant conversation and available evidence.',
+    targetToggleable: true,
     semanticCapabilityId: 'reports.pdf.generate',
     invocationScopes: ['workflow', 'target_chat'],
     authorizationClass: 'internal_artifact',

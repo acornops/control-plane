@@ -206,6 +206,32 @@ describe('target run tool resolution', () => {
     assert.equal(result.summary.nativeAllowed, 0);
   });
 
+  it('excludes PDF report generation from target Assistant runs when disabled for the target', async () => {
+    installResolverRepoStubs(['read', 'write']);
+    repo.getTargetToolSetting = async (_targetId, toolId) => toolId === 'reports.pdf.generate'
+      ? {
+          targetId: 'target-1',
+          toolId,
+          enabled: false,
+          config: { authorizationClass: 'internal_artifact' },
+          updatedAt: '2026-05-24T00:00:00.000Z'
+        }
+      : null;
+    mockToolList([]);
+
+    const result = await resolveTargetRunTools({
+      workspaceId: 'workspace-1',
+      targetId: 'target-1',
+      targetType: 'virtual_machine',
+      toolAccessMode: 'read_only',
+      runId: 'run-1'
+    });
+
+    assert.deepEqual(result.platformFunctions, []);
+    assert.equal(result.allowedToolNames.includes('acornops_generate_pdf_report'), false);
+    assert.equal(result.previewItems.some((item) => item.id === 'reports.pdf.generate'), false);
+  });
+
   it('includes write tools for write-capable read-write runs and sanitizes bootstrap specs', async () => {
     installResolverRepoStubs(['read', 'write']);
     mockToolList([

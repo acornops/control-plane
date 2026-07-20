@@ -274,6 +274,10 @@ export async function resolveTargetRunTools(params: {
 
   let allowedNativeTools: TargetRunNativeTool[] = [];
   let targetInsightsPreviewItems: TargetRunToolPreviewItem[] = [];
+  const targetChatPlatformNativeTools = params.includeNativeTools === false
+    ? []
+    : listWorkspaceNativeToolsForInvocationScope('target_chat');
+  const disabledPlatformNativeToolIds = new Set<string>();
   if (params.includeNativeTools !== false) {
     try {
       const webSearchSetting = await repo.getTargetToolSetting(targetId, WEB_SEARCH_TOOL_ID);
@@ -297,6 +301,14 @@ export async function resolveTargetRunTools(params: {
           }];
         }
       }
+      const platformNativeSettings = await Promise.all(
+        targetChatPlatformNativeTools
+          .filter((tool) => tool.targetToggleable)
+          .map(async (tool) => [tool.id, await repo.getTargetToolSetting(targetId, tool.id)] as const)
+      );
+      for (const [toolId, setting] of platformNativeSettings) {
+        if (setting?.enabled === false) disabledPlatformNativeToolIds.add(toolId);
+      }
     } catch (err) {
       logger.warn(
         {
@@ -311,9 +323,8 @@ export async function resolveTargetRunTools(params: {
     }
   }
 
-  const platformNativeTools = params.includeNativeTools === false
-    ? []
-    : listWorkspaceNativeToolsForInvocationScope('target_chat');
+  const platformNativeTools = targetChatPlatformNativeTools
+    .filter((tool) => !disabledPlatformNativeToolIds.has(tool.id));
   for (const tool of platformNativeTools) {
     if (!allowedToolNames.includes(tool.modelAlias)) allowedToolNames.push(tool.modelAlias);
     if (!allowedToolSpecs.some((spec) => spec.name === tool.modelAlias)) {
