@@ -394,6 +394,29 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
       model_alias: tool.modelAlias
     }));
     const allowedToolOperations = toolResolution.allowedToolOperations;
+    const referencedTools = (run.assistantReferences || []).filter((reference) => reference.kind === 'tool');
+    const referencedSkills = (run.assistantReferences || []).filter((reference) => reference.kind === 'skill');
+    const currentToolPreviews = new Map(toolResolution.previewItems.map((tool) => [tool.name, tool]));
+    const staleToolReference = referencedTools.find((reference) => {
+      const current = currentToolPreviews.get(reference.id);
+      if (!current) return true;
+      if (!reference.serverId && !reference.toolName) return false;
+      return !allowedToolSpecs.some((tool) => tool.name === reference.id
+        && tool.server_id === reference.serverId
+        && tool.tool_name === reference.toolName);
+    });
+    const skillRefById = new Map(targetSkills.map((skill) => [skill.skillId, skill.ref]));
+    const staleSkillReference = referencedSkills.find((reference) => !skillRefById.has(reference.id));
+    if (staleToolReference || staleSkillReference) {
+      res.status(409).json({
+        error: {
+          code: 'ASSISTANT_REFERENCE_INVALID',
+          message: 'A referenced tool or skill is no longer available for this run.',
+          retryable: false
+        }
+      });
+      return;
+    }
 
     const token = await gatewayTokenService.signRunScopeToken({
       runId: run.id,
@@ -455,6 +478,12 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
         native_tools: allowedNativeTools,
         platform_functions: platformFunctions,
         tool_specs: allowedToolSpecs,
+        referenced_tools: referencedTools.map((reference) => ({
+          name: reference.id,
+          label: reference.label,
+          ...(reference.serverId ? { server_id: reference.serverId } : {}),
+          ...(reference.toolName ? { tool_name: reference.toolName } : {})
+        })),
         write_unavailable_reason: toolResolution.writeUnavailableReason,
         confirmation_required_for_write: Object.values(allowedToolOperations).includes('write'),
         approval_timeout_seconds: toolResolution.approvalTimeoutSeconds,
@@ -475,6 +504,7 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
             total_bytes: skill.totalBytes,
             source: 'target_adapter'
           })),
+          referenced_refs: referencedSkills.map((reference) => skillRefById.get(reference.id)!),
           load_endpoint: `/internal/v1/runs/${run.id}/skills/{skill_ref}`
         }
       } : {}),

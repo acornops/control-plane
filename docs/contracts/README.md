@@ -133,6 +133,10 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Chat session responses derive `lastRuntimeSelection` from the newest accepted
   run snapshot regardless of its eventual terminal status; empty sessions omit
   it, and message acceptance echoes the runtime frozen on that run.
+- Target chat accepts up to eight structured tool or skill references. The
+  control plane resolves them against the current target capability set and
+  run access mode, freezes qualified identities on the run, and returns
+  `ASSISTANT_REFERENCE_INVALID` instead of silently dropping stale references.
 - Agent handshake responses always include a complete `sessionPolicy`; AgentK rejects tool calls until it is installed.
 - The Kubernetes built-in catalog contains `list_resources`, `get_resource`,
   `get_resource_logs`, `restart_workload`, `scale_workload`, and `patch_resource`.

@@ -1,7 +1,7 @@
 import { EXAMPLE_CLUSTER_ID, EXAMPLE_RUN_ID, EXAMPLE_SESSION_ID,
   EXAMPLE_TARGET_ID, EXAMPLE_TRACE_ID, EXAMPLE_USER_ID, EXAMPLE_WORKSPACE_ID
 } from '../../constants/dev-defaults.js';
-import { buildToolResultArtifactPaths } from './tool-result-artifact-paths.js';
+import { assistantReferencesRequestProperty, buildToolResultArtifactPaths } from './session-run-schema-fragments.js';
 export function buildSessionRunPaths(): Record<string, unknown> {
   return {
       ...buildToolResultArtifactPaths(),
@@ -166,6 +166,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
                     content: { type: 'string', example: 'Pods restarted after rollout, but p95 latency is still elevated. Check likely causes.' },
                     toolAccessMode: { type: 'string', enum: ['read_only', 'read_write'], example: 'read_only' },
                     clientMessageId: { type: 'string', example: '4f004ae2-4288-4baf-9be4-124d61180f0c-msg-1' },
+                    references: assistantReferencesRequestProperty,
                     llm: {
                       type: 'object',
                       properties: {
@@ -180,6 +181,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
                     content: 'Pods restarted after rollout, but p95 latency is still elevated. Check likely causes.',
                     toolAccessMode: 'read_only',
                     clientMessageId: '4f004ae2-4288-4baf-9be4-124d61180f0c-msg-1',
+                    references: [{ kind: 'tool', id: 'list_pods' }],
                     llm: {
                       provider: 'openai',
                       model: 'gpt-5-nano',
@@ -195,8 +197,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
             '400': { description: 'Invalid AI runtime selection, disallowed model/provider, missing provider credential, or unsupported target type.' },
             '403': { description: 'CONVERSATION_OWNER_REQUIRED when the authenticated user did not create the conversation, or FORBIDDEN when the owner lacks run creation permission.' },
             '409': {
-              description: 'Exact MCP readiness failed. Structured installation and tool failures are safe to use for recovery navigation.',
-              content: { 'application/json': { schema: { $ref: '#/components/schemas/McpReadinessErrorResponse' } } }
+              description: 'Exact MCP readiness failed, or ASSISTANT_REFERENCE_INVALID when a selected tool or skill is stale or unavailable. Structured failures are safe to use for recovery navigation.'
             }
           }
         }

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { config } from '../config.js';
 import { db } from '../infra/db.js';
 import { ChatSession, Message, Run } from '../types/domain.js';
+import type { AssistantReference } from '../types/assistant-references.js';
 import type { RunPrincipalRef } from '../types/agents.js';
 import {
   CreateRunFromMessageResult,
@@ -265,6 +266,7 @@ export async function createRunFromUserMessage(params: {
     llmReasoningSummaryMode: Run['llmReasoningSummaryMode'];
     llmReasoningEffort: Run['llmReasoningEffort'];
     clientMessageId?: string;
+    assistantReferences: AssistantReference[];
     principal: RunPrincipalRef;
   }): Promise<CreateRunFromMessageResult> {
     return withTransaction(async (client) => {
@@ -315,7 +317,16 @@ export async function createRunFromUserMessage(params: {
           `INSERT INTO messages (id, session_id, run_id, role, kind, content, metadata, client_message_id, created_at)
            VALUES ($1, $2, $3, 'user', 'user', $4, $5::jsonb, $6, $7)
            RETURNING *`,
-          [messageId, params.sessionId, runId, params.content, JSON.stringify(null), params.clientMessageId || null, now]
+          [messageId, params.sessionId, runId, params.content, JSON.stringify(params.assistantReferences.length > 0 ? {
+            assistantReferences: params.assistantReferences.map((reference) => ({
+              kind: reference.kind,
+              id: reference.id,
+              label: reference.label,
+              ...(reference.description ? { description: reference.description } : {}),
+              source: reference.source,
+              ...(reference.kind === 'tool' ? { capability: reference.capability } : {})
+            }))
+          } : null), params.clientMessageId || null, now]
         );
       } catch (error) {
         const pgError = error as { code?: string };
@@ -334,8 +345,8 @@ export async function createRunFromUserMessage(params: {
              id, workspace_id, target_id, session_id, message_id,
              llm_provider, llm_model, llm_reasoning_summary_mode, llm_reasoning_effort,
              tool_access_mode, status, requested_at, started_at, ended_at,
-             error_code, error_message, usage, assistant_message, principal
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19::jsonb)
+             error_code, error_message, usage, assistant_message, principal, assistant_references
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19::jsonb,$20::jsonb)
            RETURNING *
          )
          SELECT inserted.*, t.target_type
@@ -360,7 +371,8 @@ export async function createRunFromUserMessage(params: {
           null,
           JSON.stringify(null),
           JSON.stringify(null),
-          JSON.stringify(params.principal)
+          JSON.stringify(params.principal),
+          JSON.stringify(params.assistantReferences)
         ]
       );
 

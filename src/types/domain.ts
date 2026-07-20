@@ -5,7 +5,6 @@ export {
   type TargetType,
   VIRTUAL_MACHINE_TARGET_TYPE
 } from './target-types.js';
-
 export type Role = string;
 export type RunStatus =
   | 'queued'
@@ -461,6 +460,7 @@ export interface Run {
     content: string;
     format: 'markdown';
   };
+  assistantReferences?: import('./assistant-references.js').AssistantReference[];
 }
 
 export interface RunEvent {

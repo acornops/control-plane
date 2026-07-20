@@ -38,7 +38,7 @@ import {
 } from '../utils/pagination.js';
 import { mapGatewayError } from './workspaces/common.js';
 import { acceptedMessageResponse, parseRequestedLlmSelection } from './session-llm-selection.js';
-import { requireTargetMcpConnectionsReady } from './session-mcp-readiness.js';
+import { resolveReadySessionAssistantReferences } from './session-assistant-references.js';
 
 function enqueueRunDispatch(run: Run): void {
   queueMicrotask(async () => {
@@ -380,7 +380,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       return;
     }
     // A retry for an already accepted client message must remain idempotent even
-    // if provider or personal MCP connection state changed after dispatch.
+    // if provider or MCP credential connection state changed after dispatch.
     if (req.body.clientMessageId) {
       const existing = await repo.findRunByClientMessageId(session.id, req.body.clientMessageId);
       if (existing) {
@@ -392,13 +392,10 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
     if (!target) {
       return;
     }
-    if (!(await requireTargetMcpConnectionsReady(
-      res,
-      session.workspaceId,
-      target,
-      req.auth.userId,
-      toolAccessMode
-    ))) return;
+    const assistantReferences = await resolveReadySessionAssistantReferences(
+      res, session.workspaceId, target, req.auth.userId, toolAccessMode, req.body.references || []
+    );
+    if (!assistantReferences) return;
     const requestedLlm = parseRequestedLlmSelection(req, res);
     if (requestedLlm === null) {
       return;
@@ -456,6 +453,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       llmReasoningSummaryMode: llmSettings.reasoning.summary_mode,
       llmReasoningEffort: llmSettings.reasoning.effort,
       clientMessageId: req.body.clientMessageId,
+      assistantReferences,
       principal: { type: 'user', id: req.auth.userId }
     });
     if (!created.idempotent) {
@@ -532,7 +530,8 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
           sessionId: session.id,
           targetId: target.targetId,
           targetType: target.targetType,
-          toolAccessMode: created.run.toolAccessMode
+          toolAccessMode: created.run.toolAccessMode,
+          assistantReferences: assistantReferences.map((reference) => ({ kind: reference.kind, id: reference.id }))
         }
       });
       enqueueRunDispatch(created.run);

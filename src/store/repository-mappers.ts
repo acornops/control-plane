@@ -124,6 +124,7 @@ export interface RunRow {
   error_message: string | null;
   usage: Run['usage'] | null;
   assistant_message: Run['assistantMessage'] | null;
+  assistant_references: NonNullable<Run['assistantReferences']> | null;
   principal?: Run['principal'] | null;
 }
 
@@ -456,7 +457,8 @@ export function mapRun(row: RunRow): Run {
     errorCode: row.error_code || undefined,
     errorMessage: row.error_message || undefined,
     usage: row.usage || undefined,
-    assistantMessage: row.assistant_message || undefined
+    assistantMessage: row.assistant_message || undefined,
+    assistantReferences: Array.isArray(row.assistant_references) ? row.assistant_references : []
   };
 }
 

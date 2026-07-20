@@ -98,11 +98,26 @@ export const runCommitSchema = z.object({
   })).max(50).optional()
 });
 
+const assistantReferenceSchema = z.object({
+  kind: z.enum(['tool', 'skill']),
+  id: z.string().trim().min(1).max(256)
+}).strict();
+
 export const postMessageSchema = z.object({
   content: z.string().min(1),
   toolAccessMode: z.enum(['read_only', 'read_write']).optional(),
   clientMessageId: z.string().min(1).max(128).optional(),
-  llm: z.unknown().optional()
+  llm: z.unknown().optional(),
+  references: z.array(assistantReferenceSchema).max(8).optional().default([])
+}).superRefine((value, ctx) => {
+  const seen = new Set<string>();
+  value.references.forEach((reference, index) => {
+    const key = `${reference.kind}:${reference.id}`;
+    if (seen.has(key)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['references', index], message: 'duplicate assistant reference' });
+    }
+    seen.add(key);
+  });
 });
 
 export const createWorkspaceSchema = z.object({
