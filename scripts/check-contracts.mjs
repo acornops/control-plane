@@ -69,7 +69,9 @@ const internalExecutionBootstrap = read('src/controllers/internal-execution-boot
 const targetRunToolResolution = read('src/services/target-run-tool-resolution.ts');
 const internalMcpBridgeController = read('src/controllers/internal-mcp-bridge-controller.ts');
 const openApi = [read('src/docs/openapi.ts'), readTree('src/docs/openapi')].join('\n');
-const generatedPublicOpenApiPath = path.resolve(root, '..', 'docs-website', 'openapi', 'control-plane-public.json');
+const generatedPublicOpenApiPath = process.env.ACORNOPS_GENERATED_PUBLIC_OPENAPI_PATH
+  ? path.resolve(process.env.ACORNOPS_GENERATED_PUBLIC_OPENAPI_PATH)
+  : path.resolve(root, '..', 'docs-website', 'openapi', 'control-plane-public.json');
 const generatedPublicOpenApi = existsSync(generatedPublicOpenApiPath)
   ? JSON.parse(readFileSync(generatedPublicOpenApiPath, 'utf8'))
   : null;

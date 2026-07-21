@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import contractJson from '../../../contracts/prompt-reference-conformance.json' with { type: 'json' };
+import contractJson from '../fixtures/prompt-reference-conformance.json' with { type: 'json' };
 import { parsePromptReferences } from '../../src/services/prompt-resources/parser.js';
 
 type TokenVector = { type: string; label: string; state: 'placeholder' | 'concrete' };

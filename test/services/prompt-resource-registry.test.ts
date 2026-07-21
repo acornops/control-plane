@@ -110,7 +110,7 @@ test('prompt and binding digests are deterministic', async () => {
 
 test('binding digest matches the cross-service canonical contract vector', () => {
   const vector = JSON.parse(readFileSync(
-    new URL('../../../contracts/resource-binding-digest-conformance.json', import.meta.url),
+    new URL('../fixtures/resource-binding-digest-conformance.json', import.meta.url),
     'utf8'
   )) as { bindings: PromptResourceBinding[]; sha256: string };
   assert.equal(digestBindings(vector.bindings), vector.sha256);

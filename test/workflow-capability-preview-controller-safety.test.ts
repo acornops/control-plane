@@ -29,7 +29,7 @@ describe('workflow capability preview controller safety', () => {
       workspaceId: 'workspace-1',
       userId: 'user-1',
       agents: [{ id: 'agent-1', name: 'Catalog Agent' }] as never,
-      scope: { mcpServers: ['server-1'] } as never
+      scope: { mcpServers: ['server-1'], targetToolRefs: [] } as never
     });
 
     assert.deepEqual(result, [{

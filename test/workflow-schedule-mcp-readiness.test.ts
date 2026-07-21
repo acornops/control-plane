@@ -13,6 +13,7 @@ import { pauseSchedulesForTargetIndividualCredentials } from '../src/services/ta
 import { runWorkflowScheduleTick } from '../src/services/workflow-scheduler.js';
 import {
   callController,
+  createReadyMcpReadinessResponse,
   createRequest,
   installWorkspace,
   restoreControllerRegressionState
@@ -183,11 +184,17 @@ describe('workflow schedule MCP readiness', () => {
     assert.deepEqual(readinessRequests, [{
       workspace_id: 'workspace-1',
       principal: { type: 'user', id: 'user-1' },
-      tool_refs: [{ server_id: 'server-1', tool_name: 'records.list' }]
+      tool_refs: [
+        { server_id: 'server-1', tool_name: 'records.list' },
+        { server_id: 'builtin-server-1', tool_name: 'list_resources' }
+      ]
     }, {
       workspace_id: 'workspace-1',
       principal: { type: 'user', id: 'user-1' },
-      tool_refs: [{ server_id: 'server-1', tool_name: 'records.list' }]
+      tool_refs: [
+        { server_id: 'server-1', tool_name: 'records.list' },
+        { server_id: 'builtin-server-1', tool_name: 'list_resources' }
+      ]
     }]);
     const listed = await callController(
       listWorkspaceWorkflowSchedules,
@@ -205,6 +212,7 @@ describe('workflow schedule MCP readiness', () => {
 
   it('immediately pauses enabled schedules when an Agent changes to individual MCP credentials', async () => {
     installWorkspace('admin');
+    mock.method(globalThis, 'fetch', async () => createReadyMcpReadinessResponse());
     const { repo } = await import('../src/store/repository.js');
     const auditEvents: Array<{
       eventType: string;
@@ -262,12 +270,14 @@ describe('workflow schedule MCP readiness', () => {
 
   it('immediately pauses enabled schedules when a target server changes to individual credentials', async () => {
     installWorkspace('admin');
+    mock.method(globalThis, 'fetch', async () => createReadyMcpReadinessResponse());
     const enabled = await callController(
       createWorkflowScheduleForWorkspace,
       createRequest({ workspaceId: 'workspace-1' }, scheduleInput())
     );
     assert.equal(enabled.statusCode, 201);
     const enabledId = (enabled.body as { schedule: { id: string } }).schedule.id;
+    mock.restoreAll();
     await installExactMcpRequirement();
     mock.method(globalThis, 'fetch', async (input, init) => {
       const url = String(input);

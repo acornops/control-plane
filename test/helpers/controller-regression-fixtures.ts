@@ -292,3 +292,12 @@ export function createWorkspaceAiCredentialStatusResponse(workspaceId = 'workspa
 export function isWorkspaceAiCredentialStatusRequest(input: unknown): boolean {
   return String(input).includes('/api/v1/internal/llm/provider-credentials?');
 }
+
+export function isMcpReadinessRequest(input: unknown, init?: RequestInit): boolean {
+  return String(input).endsWith('/api/v1/internal/mcp/connections/readiness')
+    && init?.method === 'POST';
+}
+
+export function createReadyMcpReadinessResponse(): Response {
+  return new Response(JSON.stringify({ ready: true, failures: [] }), { status: 200 });
+}

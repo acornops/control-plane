@@ -27,9 +27,11 @@ import { repo } from '../src/store/repository.js';
 import { db } from '../src/infra/db.js';
 import {
   callController,
+  createReadyMcpReadinessResponse,
   createRequest,
   createWorkspaceAiCredentialStatusResponse,
   installWorkspace,
+  isMcpReadinessRequest,
   isWorkspaceAiCredentialStatusRequest,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
@@ -75,6 +77,7 @@ describe('workflows controller', () => {
       if (isWorkspaceAiCredentialStatusRequest(input)) {
         return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse('workspace-1')), { status: 200 });
       }
+      if (isMcpReadinessRequest(input, init)) return createReadyMcpReadinessResponse();
       if (url.includes('/api/v1/internal/mcp/tools?') && url.includes('target_id=cluster-1')) {
         return new Response(JSON.stringify(['get_resource', 'get_resource_logs', 'list_resources'].map((name) => ({
           name,

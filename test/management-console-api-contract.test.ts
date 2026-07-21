@@ -13,6 +13,8 @@ test('contract check fails when management-console service code calls an undocum
   try {
     const serviceDir = path.join(fixtureRoot, 'src/services/control-plane');
     mkdirSync(serviceDir, { recursive: true });
+    const openApiPath = path.join(fixtureRoot, 'control-plane-public.json');
+    writeFileSync(openApiPath, JSON.stringify({ paths: {} }), 'utf8');
     writeFileSync(
       path.join(serviceDir, 'fixtureApi.ts'),
       "export const missing = requestJson('/api/v1/frontend-only');\n",
@@ -23,7 +25,8 @@ test('contract check fails when management-console service code calls an undocum
       cwd: path.resolve(testDir, '..'),
       env: {
         ...process.env,
-        ACORNOPS_MANAGEMENT_CONSOLE_ROOT: fixtureRoot
+        ACORNOPS_MANAGEMENT_CONSOLE_ROOT: fixtureRoot,
+        ACORNOPS_GENERATED_PUBLIC_OPENAPI_PATH: openApiPath
       },
       encoding: 'utf8'
     });

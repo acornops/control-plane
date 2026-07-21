@@ -30,9 +30,11 @@ import { listCapabilityRoutingMappings } from '../src/store/repository-capabilit
 import type { Run, RunToolApproval } from '../src/types/domain.js';
 import {
   callController,
+  createReadyMcpReadinessResponse,
   createRequest,
   createWorkspaceAiCredentialStatusResponse,
   installWorkspace,
+  isMcpReadinessRequest,
   isWorkspaceAiCredentialStatusRequest,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
@@ -40,6 +42,13 @@ import { closeAutomationDatabaseFixtures, installAutomationTemplateFixtures, res
 
 const mutableConfig = config as typeof config & { AUTOMATION_RUNTIME_MODE: 'off' | 'shadow' | 'canary' | 'on' };
 let originalRuntimeMode = config.AUTOMATION_RUNTIME_MODE;
+
+function installReadyMcpReadinessFetch(): void {
+  mock.method(globalThis, 'fetch', async (input, init) => {
+    if (isMcpReadinessRequest(input, init)) return createReadyMcpReadinessResponse();
+    return new Response(`unexpected request: ${String(input)}`, { status: 500 });
+  });
+}
 
 beforeEach(async () => {
   originalRuntimeMode = config.AUTOMATION_RUNTIME_MODE;
@@ -121,6 +130,7 @@ describe('workflow schedules and approval inbox', () => {
 
   it('previews valid schedules without mutating schedule state', async () => {
     installWorkspace('admin');
+    installReadyMcpReadinessFetch();
     const response = await callController(previewWorkflowSchedule, createRequest(
       { workspaceId: 'workspace-1' },
       {
@@ -169,6 +179,7 @@ describe('workflow schedules and approval inbox', () => {
 
   it('creates, lists, pauses, and deletes workflow schedules for authorized users', async () => {
     installWorkspace('admin');
+    installReadyMcpReadinessFetch();
 
     const created = await callController(createWorkflowScheduleForWorkspace, createRequest(
       { workspaceId: 'workspace-1' },
@@ -237,6 +248,7 @@ describe('workflow schedules and approval inbox', () => {
       if (isWorkspaceAiCredentialStatusRequest(input)) {
         return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse('workspace-1')), { status: 200 });
       }
+      if (isMcpReadinessRequest(input, init)) return createReadyMcpReadinessResponse();
       if (url === `${config.EXECUTION_ENGINE_BASE_URL}/api/v1/runs` && init?.method === 'POST') {
         executionDispatches.push(JSON.parse(String(init.body)));
         return new Response(null, { status: 202 });
@@ -281,6 +293,7 @@ describe('workflow schedules and approval inbox', () => {
       if (isWorkspaceAiCredentialStatusRequest(input)) {
         return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse('workspace-1')), { status: 200 });
       }
+      if (isMcpReadinessRequest(input, init)) return createReadyMcpReadinessResponse();
       if (url === `${config.EXECUTION_ENGINE_BASE_URL}/api/v1/runs` && init?.method === 'POST') {
         executionDispatches.push(JSON.parse(String(init.body)));
         return new Response(null, { status: 202 });
