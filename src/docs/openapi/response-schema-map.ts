@@ -1,6 +1,6 @@
 export function schemaForOperation(method: string, path: string, statusCode: string): string | undefined {
   const key = `${method.toUpperCase()} ${path}`;
-  if (statusCode === '204' || statusCode === '302') return undefined;
+  if (statusCode === '204' || statusCode === '302' || statusCode === '303') return undefined;
 
   const exact: Record<string, string> = {
     'GET /api/v1/auth/config': 'AuthConfig',
@@ -22,7 +22,7 @@ export function schemaForOperation(method: string, path: string, statusCode: str
     'POST /api/v1/auth/external-integrations/resolve': 'ExternalIntegrationLinkResolution',
     'POST /api/v1/auth/external-integrations/revoke': 'ExternalIntegrationLinkRevocation',
     'POST /api/v1/auth/dev-login': 'AuthSessionResponse',
-    'POST /api/v1/auth/logout': 'GenericSuccess',
+    'POST /api/v1/auth/logout': 'AuthLogoutResponse',
     'GET /api/v1/me': 'User',
     'GET /api/v1/auth/methods': 'AuthMethods',
     'GET /api/v1/auth/jwks.json': 'Jwks',

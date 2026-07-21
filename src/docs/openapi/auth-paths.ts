@@ -22,7 +22,8 @@ export function buildAuthPaths(exampleReturnTo: string, exampleRedirectUri: stri
             }
           ],
           responses: {
-            '302': { description: 'Redirects to OIDC provider authorization endpoint.' }
+            '302': { description: 'Redirects to OIDC provider authorization endpoint.' },
+            '404': { description: 'OIDC authentication is disabled.' }
           }
         }
       },
@@ -35,11 +36,13 @@ export function buildAuthPaths(exampleReturnTo: string, exampleRedirectUri: stri
             { in: 'query', name: 'state', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_TRACE_ID } }
           ],
           responses: {
-            '302': { description: 'Session created and browser redirected to return_to URL, or SSO link completed.' },
+            '302': { description: 'Session created and browser redirected, or SSO link completed.' },
+            '303': { description: 'Admission denied and browser redirected with auth_result=oidc_access_denied.' },
             '200': { description: 'Session created and user returned.' },
             '400': { description: 'Missing callback parameters, invalid state, or missing OIDC email.' },
-            '403': { description: 'OIDC email was explicitly unverified while verified email is required.' },
-            '409': { description: 'Existing password user must explicitly connect SSO, or OIDC identity is already linked.' }
+            '401': { description: 'The browser session that initiated explicit OIDC linking is no longer active.' },
+            '409': { description: 'An account with the asserted email already exists, or the OIDC identity is already linked.' },
+            '404': { description: 'OIDC authentication is disabled.' }
           }
         }
       },
@@ -369,6 +372,7 @@ export function buildAuthPaths(exampleReturnTo: string, exampleRedirectUri: stri
             '200': { description: 'Returns an OIDC authorization URL for the browser to follow.' },
             '401': { description: 'Current password is incorrect.' },
             '403': { description: 'Only password-backed accounts can connect SSO.' },
+            '404': { description: 'OIDC authentication is disabled.' },
             '409': { description: 'SSO is already connected.' },
             '429': { description: 'Too many attempts.' }
           }
@@ -404,8 +408,42 @@ export function buildAuthPaths(exampleReturnTo: string, exampleRedirectUri: stri
         post: {
           tags: ['auth'],
           summary: 'Log out current session',
-          security: [{ userSession: [] }],
-          responses: { '200': { description: 'Session cleared.' } }
+          description: 'Idempotently clears the current AcornOps session before returning a bounded local or OIDC navigation path.',
+          parameters: [
+            {
+              name: 'x-csrf-token',
+              in: 'header',
+              required: true,
+              schema: { type: 'string' },
+              description: 'CSRF token returned by /api/v1/auth/csrf and mirrored in the CSRF cookie.'
+            }
+          ],
+          responses: {
+            '200': {
+              description: 'Current session cleared. OIDC sessions receive an opaque AcornOps handoff path.',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/AuthLogoutResponse' } } }
+            }
+          }
+        }
+      },
+      '/api/v1/auth/oidc/logout/start': {
+        get: {
+          tags: ['auth'],
+          summary: 'Consume an opaque logout handoff and redirect to the OIDC provider',
+          parameters: [{ in: 'query', name: 'request', required: true, schema: { type: 'string' } }],
+          responses: {
+            '303': { description: 'Redirects to the provider logout endpoint or to the console with local_only.' }
+          }
+        }
+      },
+      '/api/v1/auth/oidc/logout/callback': {
+        get: {
+          tags: ['auth'],
+          summary: 'Validate OIDC provider logout state and return to the management console',
+          parameters: [{ in: 'query', name: 'state', required: true, schema: { type: 'string' } }],
+          responses: {
+            '303': { description: 'Redirects to the console with success or incomplete.' }
+          }
         }
       },
       '/api/v1/me': {

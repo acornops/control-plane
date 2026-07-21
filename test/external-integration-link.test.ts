@@ -33,6 +33,7 @@ function createResponse() {
     statusCode: 200,
     body: undefined as unknown,
     redirectUrl: '',
+    cookies: new Map<string, string>(),
     status(code: number) {
       this.statusCode = code;
       return this;
@@ -43,6 +44,10 @@ function createResponse() {
     },
     redirect(url: string) {
       this.redirectUrl = url;
+      return this;
+    },
+    cookie(name: string, value: string) {
+      this.cookies.set(name, value);
       return this;
     }
   };
@@ -250,6 +255,8 @@ describe('external integration link contract', () => {
       assert.match(res.redirectUrl, /^https:\/\/issuer-external-integration-link\.example\.com\/auth\?/);
       assert.equal(stateRecord?.purpose, 'integration_link');
       assert.equal(stateRecord?.returnTo, 'https://console.example.com/integrations/external/link?token=intlink_token-1');
+      assert.equal(typeof stateRecord?.browserBindingHash, 'string');
+      assert.equal(res.cookies.size, 1);
     } finally {
       mutableConfig.OIDC_ISSUER_URL = originalIssuer;
       mutableConfig.OIDC_REDIRECT_URI = originalRedirectUri;

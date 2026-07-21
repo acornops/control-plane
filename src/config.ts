@@ -17,6 +17,7 @@ import {
 } from './config-external-integrations.js';
 import { requireReadableFile, validateOptionalReadableFile } from './config-readable-file.js';
 import { parseWebhookAllowedPrivateHostsJson, webhookAllowedPrivateHostsJsonError } from './config-webhook-egress.js';
+import { finalizeOidcConfig, oidcAdmissionPolicyFromEnv, oidcHttpUrlFromEnv, oidcScopesFromEnv, optionalOidcHttpUrlFromEnv, validateOidcAuthenticationConfig } from './config-oidc-admission.js';
 export { ADMIN_SCOPE_VALUES, parseAdminTokenDescriptors, parseWorkspacePlansConfig } from './config-admin.js';
 export type { AdminScope, AdminTokenDescriptor, WorkspacePlanDefinition } from './config-admin.js';
 export { parseExternalIntegrationClientDescriptors } from './config-external-integrations.js';
@@ -175,22 +176,26 @@ const envSchema = z.object({
   SEED_VM_AGENT_KEY: z.string().optional(),
   ...agentKHelmConfigFields,
 
-  OIDC_PROVIDER_NAME: z.string().default('oidc'),
-  OIDC_ISSUER_URL: z.string().url().default('http://localhost:8080/realms/acornops'),
-  OIDC_PUBLIC_ISSUER_URL: optionalUrlFromEnv,
-  OIDC_CLIENT_ID: z.string().default('acornops-control-plane'),
+  OIDC_ENABLED: envBoolean(true),
+  OIDC_PROVIDER_NAME: z.string().min(1).default('oidc'),
+  OIDC_ISSUER_URL: oidcHttpUrlFromEnv.default('http://localhost:8080/realms/acornops'),
+  OIDC_PUBLIC_ISSUER_URL: optionalOidcHttpUrlFromEnv,
+  OIDC_CLIENT_ID: z.string().min(1).default('acornops-control-plane'),
   OIDC_CLIENT_SECRET: optionalStringFromEnv,
   OIDC_TOKEN_ENDPOINT_AUTH_METHOD: z
     .enum(['client_secret_basic', 'client_secret_post', 'none'])
     .default('client_secret_basic'),
-  OIDC_AUTHORIZATION_ENDPOINT_OVERRIDE: optionalUrlFromEnv,
-  OIDC_TOKEN_ENDPOINT_OVERRIDE: optionalUrlFromEnv,
-  OIDC_USERINFO_ENDPOINT_OVERRIDE: optionalUrlFromEnv,
-  OIDC_JWKS_URI_OVERRIDE: optionalUrlFromEnv,
-  OIDC_REDIRECT_URI: z.string().url().default('http://localhost:8081/api/v1/auth/oidc/callback'),
-  OIDC_SCOPES: z.string().default('openid profile email'),
+  OIDC_AUTHORIZATION_ENDPOINT_OVERRIDE: optionalOidcHttpUrlFromEnv,
+  OIDC_TOKEN_ENDPOINT_OVERRIDE: optionalOidcHttpUrlFromEnv,
+  OIDC_USERINFO_ENDPOINT_OVERRIDE: optionalOidcHttpUrlFromEnv,
+  OIDC_JWKS_URI_OVERRIDE: optionalOidcHttpUrlFromEnv,
+  OIDC_END_SESSION_ENDPOINT_OVERRIDE: optionalOidcHttpUrlFromEnv,
+  OIDC_REDIRECT_URI: oidcHttpUrlFromEnv.default('http://localhost:8081/api/v1/auth/oidc/callback'),
+  OIDC_POST_LOGOUT_REDIRECT_URI: optionalOidcHttpUrlFromEnv,
+  OIDC_SCOPES: oidcScopesFromEnv.default('openid profile email'),
   OIDC_USE_USERINFO: envBoolean(true),
-  OIDC_REQUIRE_VERIFIED_EMAIL: envBoolean(true),
+  OIDC_ADMISSION_POLICY_JSON: oidcAdmissionPolicyFromEnv,
+  OIDC_REQUIRE_VERIFIED_EMAIL: z.never().optional(),
   OIDC_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
   PASSWORD_AUTH_ENABLED: envBoolean(true),
   PASSWORD_SIGNUP_ENABLED: optionalEnvBoolean(),
@@ -298,6 +303,7 @@ const envSchema = z.object({
   } catch (err) {
     addConfigIssue(ctx, 'EXTERNAL_INTEGRATION_CLIENTS_JSON', err instanceof Error ? err.message : 'Invalid external integration client configuration');
   }
+  validateOidcAuthenticationConfig(ctx, value);
   if (value.CONTROL_PLANE_ADMIN_API_ENABLED && adminDescriptors.filter((descriptor) => descriptor.enabled).length === 0) {
     addConfigIssue(
       ctx,
@@ -352,15 +358,32 @@ const envSchema = z.object({
   for (const issue of httpsUrlProductionIssues('MANAGEMENT_CONSOLE_BASE_URL', value.MANAGEMENT_CONSOLE_BASE_URL)) {
     addProductionIssue(ctx, issue.field, issue.message);
   }
-  for (const issue of httpsUrlProductionIssues('OIDC_REDIRECT_URI', value.OIDC_REDIRECT_URI)) {
-    addProductionIssue(ctx, issue.field, issue.message);
-  }
-  for (const issue of oidcIssuerProductionIssues(value.OIDC_ISSUER_URL, value.OIDC_PUBLIC_ISSUER_URL)) {
-    addProductionIssue(ctx, issue.field, issue.message);
-  }
-  if (value.OIDC_PUBLIC_ISSUER_URL) {
-    for (const issue of httpsUrlProductionIssues('OIDC_PUBLIC_ISSUER_URL', value.OIDC_PUBLIC_ISSUER_URL)) {
+  if (value.OIDC_ENABLED) {
+    for (const issue of httpsUrlProductionIssues('OIDC_REDIRECT_URI', value.OIDC_REDIRECT_URI)) {
       addProductionIssue(ctx, issue.field, issue.message);
+    }
+    const postLogoutRedirectUri = value.OIDC_POST_LOGOUT_REDIRECT_URI
+      || `${value.MANAGEMENT_CONSOLE_BASE_URL.replace(/\/$/, '')}/api/v1/auth/oidc/logout/callback`;
+    for (const issue of httpsUrlProductionIssues('OIDC_POST_LOGOUT_REDIRECT_URI', postLogoutRedirectUri)) {
+      addProductionIssue(ctx, issue.field, issue.message);
+    }
+    if (value.OIDC_END_SESSION_ENDPOINT_OVERRIDE) {
+      for (const issue of httpsUrlProductionIssues('OIDC_END_SESSION_ENDPOINT_OVERRIDE', value.OIDC_END_SESSION_ENDPOINT_OVERRIDE)) {
+        addProductionIssue(ctx, issue.field, issue.message);
+      }
+    }
+    if (value.OIDC_AUTHORIZATION_ENDPOINT_OVERRIDE) {
+      for (const issue of httpsUrlProductionIssues('OIDC_AUTHORIZATION_ENDPOINT_OVERRIDE', value.OIDC_AUTHORIZATION_ENDPOINT_OVERRIDE)) {
+        addProductionIssue(ctx, issue.field, issue.message);
+      }
+    }
+    for (const issue of oidcIssuerProductionIssues(value.OIDC_ISSUER_URL, value.OIDC_PUBLIC_ISSUER_URL)) {
+      addProductionIssue(ctx, issue.field, issue.message);
+    }
+    if (value.OIDC_PUBLIC_ISSUER_URL) {
+      for (const issue of httpsUrlProductionIssues('OIDC_PUBLIC_ISSUER_URL', value.OIDC_PUBLIC_ISSUER_URL)) {
+        addProductionIssue(ctx, issue.field, issue.message);
+      }
     }
   }
   if (value.CORS_ORIGIN === '*') {
@@ -372,11 +395,13 @@ const envSchema = z.object({
       }
     }
   }
-  if (value.OIDC_TOKEN_ENDPOINT_AUTH_METHOD === 'none') {
-    addProductionIssue(ctx, 'OIDC_TOKEN_ENDPOINT_AUTH_METHOD', 'OIDC client authentication must be enabled in production');
-  }
-  if (isUnsafeSecretValue(value.OIDC_CLIENT_SECRET)) {
-    addProductionIssue(ctx, 'OIDC_CLIENT_SECRET', 'OIDC_CLIENT_SECRET must be a generated production secret');
+  if (value.OIDC_ENABLED) {
+    if (value.OIDC_TOKEN_ENDPOINT_AUTH_METHOD === 'none') {
+      addProductionIssue(ctx, 'OIDC_TOKEN_ENDPOINT_AUTH_METHOD', 'OIDC client authentication must be enabled in production');
+    }
+    if (isUnsafeSecretValue(value.OIDC_CLIENT_SECRET)) {
+      addProductionIssue(ctx, 'OIDC_CLIENT_SECRET', 'OIDC_CLIENT_SECRET must be a generated production secret');
+    }
   }
   if (isUnsafeSecretValue(value.CSRF_SECRET)) {
     addProductionIssue(ctx, 'CSRF_SECRET', 'CSRF_SECRET must be a generated production secret');
@@ -495,7 +520,7 @@ const envSchema = z.object({
     );
   }
 }).transform((value) => ({
-  ...value,
+  ...finalizeOidcConfig(value),
   WORKSPACE_ROLE_TEMPLATES: configureWorkspaceRoleTemplates(value.WORKSPACE_ROLES_CONFIG_JSON),
   ADMIN_TOKEN_DESCRIPTORS: parseAdminTokenDescriptors(value.CONTROL_PLANE_ADMIN_TOKENS_JSON, value.NODE_ENV),
   EXTERNAL_INTEGRATION_CLIENTS: parseExternalIntegrationClientDescriptors(value.EXTERNAL_INTEGRATION_CLIENTS_JSON, value.NODE_ENV),

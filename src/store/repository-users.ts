@@ -75,8 +75,7 @@ type LinkFederatedIdentityResult =
 type OidcLoginResolution =
   | { status: 'authenticated'; user: User }
   | { status: 'account_link_required' }
-  | { status: 'email_required' }
-  | { status: 'email_unverified' };
+  | { status: 'email_required' };
 
 class FederatedIdentityRaceError extends Error {
   constructor() {
@@ -370,7 +369,6 @@ export async function resolveOidcLogin(input: {
     email?: string;
     displayName: string;
     emailVerified?: boolean;
-    requireVerifiedEmail: boolean;
   }): Promise<OidcLoginResolution> {
     const existingIdentity = await getFederatedIdentityByProviderSubject(input.provider, input.subject);
     if (existingIdentity) {
@@ -379,57 +377,23 @@ export async function resolveOidcLogin(input: {
     }
 
     if (!input.email) return { status: 'email_required' };
-    if (input.emailVerified === false && input.requireVerifiedEmail) return { status: 'email_unverified' };
-
     try {
       return await withTransaction(async (client) => {
-        const existingUserResult = await client.query<UserRow>(
-          `SELECT *
-           FROM users
-           WHERE email = $1
-           LIMIT 1
-           FOR UPDATE`,
-          [input.email]
+        const userResult = await client.query<UserRow>(
+          `INSERT INTO users (
+             id, email, display_name, email_verified_at, email_verification_required, created_at
+           )
+           VALUES ($1, $2, $3, $4, false, NOW())
+           ON CONFLICT (email) DO NOTHING
+           RETURNING *`,
+          [randomUUID(), input.email, input.displayName, input.emailVerified === true ? new Date() : null]
         );
-        let userRow: UserRow;
-        if (existingUserResult.rowCount) {
-          const existingUser = existingUserResult.rows[0];
-          const passwordResult = await client.query(
-            'SELECT 1 FROM user_password_credentials WHERE user_id = $1 LIMIT 1',
-            [existingUser.id]
-          );
-          if (passwordResult.rowCount) {
-            return { status: 'account_link_required' };
-          }
-          const userResult = await client.query<UserRow>(
-            `UPDATE users
-             SET email_verified_at = COALESCE(email_verified_at, NOW()),
-                 email_verification_required = false
-             WHERE id = $1
-             RETURNING *`,
-            [existingUser.id]
-          );
-          userRow = userResult.rows[0];
-        } else {
-          const userResult = await client.query<UserRow>(
-            `INSERT INTO users (
-               id, email, display_name, email_verified_at, email_verification_required, created_at
-             )
-             VALUES ($1, $2, $3, NOW(), false, NOW())
-             RETURNING *`,
-            [randomUUID(), input.email, input.displayName]
-          );
-          userRow = userResult.rows[0];
-        }
-        const user = mapUser(userRow);
-        const passwordResult = await client.query(
-          'SELECT 1 FROM user_password_credentials WHERE user_id = $1 LIMIT 1',
-          [user.id]
-        );
-        if (passwordResult.rowCount) {
+        if (!userResult.rowCount) {
+          // The configured provider namespace + subject pair, not email, is the identity key.
+          // Never attach a new subject based only on a provider-controlled email claim.
           return { status: 'account_link_required' };
         }
-
+        const user = mapUser(userResult.rows[0]);
         const identityResult = await client.query<{ user_id: string }>(
           `INSERT INTO user_federated_identities
              (user_id, provider, subject, email_at_link_time, email_verified, created_at, last_login_at)

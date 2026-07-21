@@ -11,6 +11,11 @@
   ],
   "counterparts": {
     "management-console": {
+      "authContract": {
+        "config": "GET /api/v1/auth/config returns the real OIDC capability flag and never exposes admission policy.",
+        "logout": "POST /api/v1/auth/logout returns {status=ok,mode=oidc|local,redirectPath}; redirectPath is an AcornOps path and never a provider URL.",
+        "browserResults": ["auth_result=oidc_access_denied", "logout_result=success", "logout_result=local_only", "logout_result=incomplete"]
+      },
       "workflowCapabilityCeiling": {
         "rule": "A workflow selects one or more active reviewed specialist Agents. restrictionMode=inherit resolves their current combined ceiling at session creation; restrictionMode=restrict requires semanticCapabilityIds to be an explicit subset.",
         "emptyRestrictionSemantics": "inherit requires an empty semanticCapabilityIds array. restrict may use an empty array to intentionally authorize no semantic capabilities. The console sends restrictionMode explicitly and stored definitions always contain the final field.",

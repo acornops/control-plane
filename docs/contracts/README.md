@@ -22,6 +22,9 @@ The control plane owns the platform API boundary. Keep this README as a short in
 ## Shared Invariants
 
 - Browser clients use cookie-backed auth and CSRF protection where required.
+- OIDC admission evaluates verified ID-token claims and subject-bound UserInfo claims before account or identity-link mutation; conflicting values fail closed.
+- Browser logout revokes the current session before any provider redirect and returns only an AcornOps path to the console. ID tokens and provider logout URLs never cross the logout JSON response.
+- RP-initiated logout handoffs and callback states are single-use Redis records. Provider logout failure never restores the local session.
 - List responses that paginate use `{ items, nextCursor? }`.
 - The workspace approval inbox additionally requires `pendingCount`, the workspace-scoped total of pending target-tool and workflow-gate approvals before pagination and independently of the requested list filter.
 - Workspace audit filters expose `objectType`, `object`, and `operation`; `operation` is `read` or `write`.

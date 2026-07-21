@@ -49,9 +49,7 @@ function createResponse() {
 }
 
 function mockRedisForSession(): void {
-  mock.method(redis, 'setex', async () => 'OK');
-  mock.method(redis, 'sadd', async () => 1);
-  mock.method(redis, 'expire', async () => 1);
+  mock.method(redis, 'eval', async () => 1);
 }
 
 function mockRedisForRateLimit(): void {

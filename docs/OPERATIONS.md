@@ -20,6 +20,12 @@
 - `CORS_ORIGIN`
 - `OIDC_HTTP_TIMEOUT_MS` (default `10000`)
 - `OIDC_CLIENT_SECRET`
+- `OIDC_ENABLED` controls whether OIDC routes and the console sign-in option are available.
+- `OIDC_ADMISSION_POLICY_JSON` defines fail-closed verified-email, email-domain, and required-claim admission rules. An empty object allows any successfully authenticated OIDC identity.
+- `OIDC_END_SESSION_ENDPOINT_OVERRIDE` supplies a public browser-facing RP-initiated logout endpoint when discovery uses an internal hostname.
+- `OIDC_POST_LOGOUT_REDIRECT_URI` must exactly match a post-logout redirect registered with the provider.
+
+OIDC logout always deletes the current AcornOps browser session before redirecting to the provider. If the provider does not advertise or configure an end-session endpoint, logout completes locally and the console warns that the provider session may remain active. Deploying the versioned session format invalidates existing browser sessions.
 - `ORCH_SERVICE_TOKEN`
 - `EXTERNAL_INTEGRATION_CLIENTS_JSON`
 - `EXTERNAL_INTEGRATION_LINK_TOKEN_RETENTION_DAYS` (default `30`)

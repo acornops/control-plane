@@ -76,6 +76,15 @@ describe('parseAppConfig production validation', () => {
     assert.equal(config.OIDC_PUBLIC_ISSUER_URL, 'https://identity.demo.acornops.dev/realms/acornops');
   });
 
+  it('supports password-only production without OIDC secrets', () => {
+    const config = parseAppConfig(productionEnv({
+      OIDC_ENABLED: 'false',
+      OIDC_CLIENT_SECRET: ''
+    }));
+    assert.equal(config.OIDC_ENABLED, false);
+    assert.equal(config.PASSWORD_AUTH_ENABLED, true);
+  });
+
   it('requires a public issuer for production cluster-local OIDC issuer URLs', () => {
     assert.throws(
       () =>

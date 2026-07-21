@@ -280,7 +280,9 @@ Account auth configuration:
 - `PASSWORD_AUTH_RATE_LIMIT_WINDOW_SECONDS=900` controls the Redis-backed failed login window.
 - `CSRF_SECRET` signs browser CSRF tokens and must be a generated production secret.
 - `TRUST_PROXY` configures Express trusted proxy handling; set it only for trusted ingress/proxy hops.
-- `OIDC_REQUIRE_VERIFIED_EMAIL=true` rejects OIDC accounts that explicitly report `email_verified=false`.
+- `OIDC_ENABLED=true` enables OIDC routes and advertises SSO to the management console.
+- `OIDC_ADMISSION_POLICY_JSON={}` configures fail-closed verified-email, exact-domain, and required-claim rules. An empty object admits every successfully authenticated OIDC identity.
+- `OIDC_END_SESSION_ENDPOINT_OVERRIDE` and `OIDC_POST_LOGOUT_REDIRECT_URI` configure browser-facing RP-initiated logout when discovery is not directly usable by browsers.
 
 Implementation notes:
 
@@ -288,10 +290,11 @@ Implementation notes:
 - Usernames are normalized to lowercase and must be 3-32 characters of letters, numbers, `_`, `-`, or `.`.
 - Local passwords must be 15-1024 characters and must not match common or account-derived values.
 - Signup rejects an email or username that already exists.
-- OIDC login with a new provider subject and the same email as an existing password-backed user returns `ACCOUNT_LINK_REQUIRED`; the user must sign in with password and connect SSO from account settings.
+- OIDC login with a new provider subject and the same email as any existing user returns `ACCOUNT_LINK_REQUIRED`; email alone never attaches a new OIDC identity to an account.
 - OIDC-created users cannot add a local password later.
+- OIDC sessions retain their verified ID token only in Redis so logout can send an `id_token_hint` directly to the provider. Password and development sessions always log out locally.
 - Signup does not create or attach a workspace. New users see no workspaces until they create one or are added to an existing workspace.
-- Password reset and email-based recovery are outside the current control-plane auth surface.
+- Password-backed accounts can use the enumeration-safe email password-reset flow when SMTP delivery is configured.
 
 ## Integration Contracts
 

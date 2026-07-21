@@ -14,11 +14,16 @@
       "directAccessGrantsEnabled": true,
       "serviceAccountsEnabled": false,
       "redirectUris": [
-        "http://localhost:8081/*"
+        "http://localhost:8081/api/v1/auth/oidc/callback",
+        "http://console.acornops.localhost:8088/api/v1/auth/oidc/callback"
       ],
       "webOrigins": [
-        "http://localhost:8081"
-      ]
+        "http://localhost:8081",
+        "http://console.acornops.localhost:8088"
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:8081/api/v1/auth/oidc/logout/callback##http://console.acornops.localhost:8088/api/v1/auth/oidc/logout/callback"
+      }
     }
   ],
   "users": [

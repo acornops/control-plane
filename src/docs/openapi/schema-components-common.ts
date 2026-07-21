@@ -158,6 +158,16 @@ export function buildCommonSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: true
     },
+    AuthLogoutResponse: {
+      type: 'object',
+      required: ['status', 'mode', 'redirectPath'],
+      properties: {
+        status: { const: 'ok' },
+        mode: { type: 'string', enum: ['oidc', 'local'] },
+        redirectPath: { type: 'string', pattern: '^/' }
+      },
+      additionalProperties: false
+    },
     User: userSchema
   };
 }
