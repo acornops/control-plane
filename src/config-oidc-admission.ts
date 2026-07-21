@@ -1,4 +1,5 @@
 import { z } from 'zod';
+export { oidcPrelinkedIdentitiesFromEnv } from './config-oidc-prelinks.js';
 
 const httpUrlSchema = z.string().url().refine((value) => {
   const protocol = new URL(value).protocol;
@@ -118,6 +119,7 @@ interface OidcAuthenticationConfig {
   OIDC_ENABLED: boolean;
   PASSWORD_AUTH_ENABLED: boolean;
   OIDC_ADMISSION_POLICY_JSON: OidcAdmissionPolicy;
+  OIDC_PRELINKED_IDENTITIES_JSON: unknown[];
   OIDC_END_SESSION_ENDPOINT_OVERRIDE?: string;
   OIDC_POST_LOGOUT_REDIRECT_URI?: string;
 }
@@ -135,6 +137,9 @@ export function validateOidcAuthenticationConfig(
   }
   if (!value.OIDC_ENABLED && !oidcAdmissionPolicyIsEmpty(value.OIDC_ADMISSION_POLICY_JSON)) {
     addConfigIssue(ctx, 'OIDC_ADMISSION_POLICY_JSON', 'OIDC admission policy is not allowed when OIDC_ENABLED is false');
+  }
+  if (!value.OIDC_ENABLED && value.OIDC_PRELINKED_IDENTITIES_JSON.length > 0) {
+    addConfigIssue(ctx, 'OIDC_PRELINKED_IDENTITIES_JSON', 'OIDC prelinks are not allowed when OIDC_ENABLED is false');
   }
   if (!value.OIDC_ENABLED && (value.OIDC_END_SESSION_ENDPOINT_OVERRIDE || value.OIDC_POST_LOGOUT_REDIRECT_URI)) {
     addConfigIssue(ctx, 'OIDC_ENABLED', 'OIDC logout configuration is not allowed when OIDC_ENABLED is false');

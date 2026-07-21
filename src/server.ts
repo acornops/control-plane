@@ -32,6 +32,10 @@ import { runMcpSecretCleanupTick } from './services/mcp-secret-cleanup-worker.js
 
 async function main(): Promise<void> {
   await initializeDatabase();
+  await repo.ensureOidcPrelinkedIdentities(
+    config.OIDC_PROVIDER_NAME,
+    config.OIDC_PRELINKED_IDENTITIES_JSON
+  );
   await repo.syncRoleTemplates(config.WORKSPACE_ROLE_TEMPLATES);
   await initializeRedis();
   registerRunEventHandler(({ runId, events }) => {

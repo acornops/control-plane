@@ -282,6 +282,7 @@ Account auth configuration:
 - `TRUST_PROXY` configures Express trusted proxy handling; set it only for trusted ingress/proxy hops.
 - `OIDC_ENABLED=true` enables OIDC routes and advertises SSO to the management console.
 - `OIDC_ADMISSION_POLICY_JSON={}` configures fail-closed verified-email, exact-domain, and required-claim rules. An empty object admits every successfully authenticated OIDC identity.
+- `OIDC_PRELINKED_IDENTITIES_JSON=[]` explicitly reconciles trusted bootstrap mappings containing `subject`, `email`, `displayName`, and `emailVerified`. Duplicate or conflicting mappings fail startup and are never inferred from email.
 - `OIDC_END_SESSION_ENDPOINT_OVERRIDE` and `OIDC_POST_LOGOUT_REDIRECT_URI` configure browser-facing RP-initiated logout when discovery is not directly usable by browsers.
 
 Implementation notes:
@@ -291,6 +292,7 @@ Implementation notes:
 - Local passwords must be 15-1024 characters and must not match common or account-derived values.
 - Signup rejects an email or username that already exists.
 - OIDC login with a new provider subject and the same email as any existing user returns `ACCOUNT_LINK_REQUIRED`; email alone never attaches a new OIDC identity to an account.
+- Explicit prelinks are resolved using the configured provider namespace plus subject before serving requests. They are intended for controlled fixtures and operator-managed bootstrap accounts, not general account discovery.
 - OIDC-created users cannot add a local password later.
 - OIDC sessions retain their verified ID token only in Redis so logout can send an `id_token_hint` directly to the provider. Password and development sessions always log out locally.
 - Signup does not create or attach a workspace. New users see no workspaces until they create one or are added to an existing workspace.

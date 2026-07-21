@@ -18,6 +18,7 @@ import {
   addWorkspace as addWorkspaceRecord
 } from './repository-users.js';
 import * as repositoryDevelopmentSeed from './repository-development-seed.js';
+import { ensureOidcPrelinkedIdentities as ensureOidcPrelinkedIdentitiesRecord } from './repository-oidc-prelinks.js';
 import {
   consumeEmailVerificationToken as consumeEmailVerificationTokenRecord,
   invalidateEmailVerificationToken as invalidateEmailVerificationTokenRecord,
@@ -541,9 +542,8 @@ export class Repository {
   listRoleTemplates = listRoleTemplatesRecord;
 
   getRoleTemplate = getRoleTemplateRecord;
-
   ensureDevelopmentTargetSeed = repositoryDevelopmentSeed.ensureDevelopmentTargetSeed;
-
+  ensureOidcPrelinkedIdentities = ensureOidcPrelinkedIdentitiesRecord;
 }
 
 export const repo = new Repository();

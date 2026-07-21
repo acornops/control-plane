@@ -17,7 +17,7 @@ import {
 } from './config-external-integrations.js';
 import { requireReadableFile, validateOptionalReadableFile } from './config-readable-file.js';
 import { parseWebhookAllowedPrivateHostsJson, webhookAllowedPrivateHostsJsonError } from './config-webhook-egress.js';
-import { finalizeOidcConfig, oidcAdmissionPolicyFromEnv, oidcHttpUrlFromEnv, oidcScopesFromEnv, optionalOidcHttpUrlFromEnv, validateOidcAuthenticationConfig } from './config-oidc-admission.js';
+import { finalizeOidcConfig, oidcAdmissionPolicyFromEnv, oidcHttpUrlFromEnv, oidcPrelinkedIdentitiesFromEnv, oidcScopesFromEnv, optionalOidcHttpUrlFromEnv, validateOidcAuthenticationConfig } from './config-oidc-admission.js';
 export { ADMIN_SCOPE_VALUES, parseAdminTokenDescriptors, parseWorkspacePlansConfig } from './config-admin.js';
 export type { AdminScope, AdminTokenDescriptor, WorkspacePlanDefinition } from './config-admin.js';
 export { parseExternalIntegrationClientDescriptors } from './config-external-integrations.js';
@@ -79,7 +79,6 @@ function isUnsafeSecretValue(value: string | undefined, minimumLength = 32): boo
     normalized.includes('replace-me')
   );
 }
-
 function addProductionIssue(ctx: z.RefinementCtx, path: string, message: string): void {
   ctx.addIssue({
     code: z.ZodIssueCode.custom,
@@ -195,6 +194,7 @@ const envSchema = z.object({
   OIDC_SCOPES: oidcScopesFromEnv.default('openid profile email'),
   OIDC_USE_USERINFO: envBoolean(true),
   OIDC_ADMISSION_POLICY_JSON: oidcAdmissionPolicyFromEnv,
+  OIDC_PRELINKED_IDENTITIES_JSON: oidcPrelinkedIdentitiesFromEnv,
   OIDC_REQUIRE_VERIFIED_EMAIL: z.never().optional(),
   OIDC_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
   PASSWORD_AUTH_ENABLED: envBoolean(true),

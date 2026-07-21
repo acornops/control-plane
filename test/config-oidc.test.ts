@@ -46,6 +46,51 @@ describe('OIDC configuration', () => {
     );
   });
 
+  it('parses exact prelinked identities and rejects ambiguous mappings', () => {
+    const config = parseAppConfig({
+      NODE_ENV: 'test',
+      OIDC_PRELINKED_IDENTITIES_JSON: JSON.stringify([{
+        subject: 'u-dev-local',
+        email: 'DEV@ACORNOPS.LOCAL',
+        displayName: 'Dev User',
+        emailVerified: true
+      }])
+    });
+    assert.deepEqual(config.OIDC_PRELINKED_IDENTITIES_JSON, [{
+      subject: 'u-dev-local',
+      email: 'dev@acornops.local',
+      displayName: 'Dev User',
+      emailVerified: true
+    }]);
+    assert.throws(
+      () => parseAppConfig({
+        NODE_ENV: 'test',
+        OIDC_PRELINKED_IDENTITIES_JSON: JSON.stringify([
+          { subject: 'same', email: 'first@example.com', displayName: 'First', emailVerified: true },
+          { subject: 'same', email: 'second@example.com', displayName: 'Second', emailVerified: true }
+        ])
+      }),
+      (error) => Boolean(fieldErrors(error).OIDC_PRELINKED_IDENTITIES_JSON?.length)
+    );
+  });
+
+  it('rejects OIDC prelinks when OIDC is disabled', () => {
+    assert.throws(
+      () => parseAppConfig({
+        NODE_ENV: 'test',
+        OIDC_ENABLED: 'false',
+        PASSWORD_AUTH_ENABLED: 'true',
+        OIDC_PRELINKED_IDENTITIES_JSON: JSON.stringify([{
+          subject: 'u-dev-local',
+          email: 'dev@acornops.local',
+          displayName: 'Dev User',
+          emailVerified: true
+        }])
+      }),
+      (error) => Boolean(fieldErrors(error).OIDC_PRELINKED_IDENTITIES_JSON?.length)
+    );
+  });
+
   it('rejects logout configuration when OIDC is disabled', () => {
     assert.throws(
       () => parseAppConfig({
