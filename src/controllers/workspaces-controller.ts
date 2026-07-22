@@ -141,7 +141,7 @@ export async function createWorkspace(req: AuthenticatedRequest, res: Response, 
         createdAt: ws.createdAt
       }
     });
-    const permissions = getEffectiveWorkspacePermissions(req, 'owner');
+    const permissions = getWorkspacePermissions('owner');
     const createdSummary: WorkspaceSummary = {
       ...ws,
       currentUserRole: 'owner',

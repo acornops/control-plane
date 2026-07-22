@@ -217,6 +217,12 @@ export function requireActor(allowedActors: ActorRequirement): RequestHandler {
   };
 }
 
+// Preserve the explicit authentication boundaries used by the current route
+// architecture. Linked external actors are admitted only by routes that opt in
+// through requireActor.
+export const requireUser = requireActor(['user']);
+export const requireExternalIntegrationClient = requireActor(['externalIntegrationClient']);
+
 export async function requireGatewayRunToken(req: Request, res: Response, next: NextFunction): Promise<void> {
   const auth = req.header('authorization');
   const token = auth?.startsWith('Bearer ') ? auth.slice('Bearer '.length) : '';

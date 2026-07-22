@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticatedHandler, requireActor } from '../../auth/middleware.js';
+import { authenticatedHandler, requireActor, requireUser } from '../../auth/middleware.js';
 import * as workspacesController from '../../controllers/workspaces-controller.js';
 import { importTargetCatalogMcpServer, reimportTargetCatalogMcpServer } from '../../controllers/catalog-controller.js';
 import * as mcpConnectionsController from '../../controllers/mcp-connections-controller.js';

@@ -419,6 +419,16 @@ CREATE TABLE external_integration_user_links (
     revoked_at timestamp with time zone
 );
 
+CREATE TABLE external_integration_workspace_grants (
+    id text NOT NULL,
+    external_integration_user_link_id text NOT NULL,
+    workspace_id text NOT NULL,
+    capabilities text[] DEFAULT '{}'::text[] NOT NULL,
+    granted_by_user_id text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
 CREATE TABLE kubernetes_target_settings (
     target_id text NOT NULL,
     namespace_include jsonb DEFAULT '[]'::jsonb NOT NULL,
@@ -1429,6 +1439,12 @@ ALTER TABLE ONLY external_integration_user_links
 ALTER TABLE ONLY external_integration_user_links
     ADD CONSTRAINT external_integration_user_links_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY external_integration_workspace_grants
+    ADD CONSTRAINT external_integration_workspace_grants_link_workspace_key UNIQUE (external_integration_user_link_id, workspace_id);
+
+ALTER TABLE ONLY external_integration_workspace_grants
+    ADD CONSTRAINT external_integration_workspace_grants_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY kubernetes_target_settings
     ADD CONSTRAINT kubernetes_target_settings_pkey PRIMARY KEY (target_id);
 
@@ -1699,6 +1715,10 @@ CREATE INDEX idx_external_integration_user_links_user_active ON external_integra
 
 CREATE INDEX idx_external_integration_user_links_user_id ON external_integration_user_links USING btree (acornops_user_id);
 
+CREATE INDEX idx_external_integration_workspace_grants_link ON external_integration_workspace_grants USING btree (external_integration_user_link_id);
+
+CREATE INDEX idx_external_integration_workspace_grants_workspace ON external_integration_workspace_grants USING btree (workspace_id);
+
 CREATE INDEX idx_inventory_items_search_trgm ON target_inventory_items USING gin (search_text gin_trgm_ops);
 
 CREATE INDEX idx_inventory_items_target_attention_sort ON target_inventory_items USING btree (target_id, needs_attention, sort_key);
@@ -1950,6 +1970,15 @@ ALTER TABLE ONLY capability_routing_mappings
 
 ALTER TABLE ONLY external_integration_user_links
     ADD CONSTRAINT external_integration_user_links_acornops_user_id_fkey FOREIGN KEY (acornops_user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY external_integration_workspace_grants
+    ADD CONSTRAINT external_integration_workspace_grants_granted_by_user_id_fkey FOREIGN KEY (granted_by_user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY external_integration_workspace_grants
+    ADD CONSTRAINT external_integration_workspace_grants_link_id_fkey FOREIGN KEY (external_integration_user_link_id) REFERENCES external_integration_user_links(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY external_integration_workspace_grants
+    ADD CONSTRAINT external_integration_workspace_grants_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY chat_activity_events
     ADD CONSTRAINT fk_chat_activity_events_workspace_target FOREIGN KEY (workspace_id, target_id) REFERENCES targets(workspace_id, id) ON DELETE CASCADE;

@@ -49,12 +49,34 @@ Central tracking: acornops/acornops#12.
 - 2026-07-22: The current single greenfield schema baseline is authoritative.
 - 2026-07-22: Automation outbox state and webhook delivery state remain
   separate durability concerns even if they use analogous worker patterns.
+- 2026-07-22, Wave 1: Kept current explicit `requireUser` and
+  `requireExternalIntegrationClient` middleware exports. Linked external actors
+  are enabled only on bot-required read/session routes; agent, workflow,
+  account, MCP credential, and other user-management routes retain the newer
+  user-only boundary.
+- 2026-07-22, Wave 1: Folded the external-integration workspace grant table,
+  indexes, and foreign keys into the current greenfield schema rather than
+  restoring the older branch's numbered migration sequence.
+- 2026-07-22, Wave 1: Kept current OIDC credential narrowing, workspace owner
+  capability resolution, and inline target-chat OpenAPI semantics. Extracted
+  the target-chat path declarations into a focused helper only to satisfy the
+  current module-size budget; external actor security remains consistent with
+  the mounted routes.
+- 2026-07-22, Wave 1: Split external-integration normalized-snapshot coverage
+  into a focused test suite to preserve the repository harness budget without
+  weakening the original normalized-row regressions.
 
 ## Validation Log
 
 - Baseline: `npm run validate` passed on untouched `main` against an initialized
   isolated PostgreSQL database: 775 tests, migration checks, authorization,
   membership, run-event durability, contracts, OpenAPI, harness, and build.
+- Wave 1 control plane: the consolidated schema initialized successfully in a
+  fresh isolated PostgreSQL database. `npm run validate` passed with 798 tests
+  across 157 suites, plus style, migration, authorization, membership,
+  run-event durability, contracts, public/admin OpenAPI, harness, and build.
+  Focused external-integration authentication, grant, target, VM, assistant,
+  and normalized-snapshot tests also passed.
 - Each wave: run focused external-integration tests, authentication/authorization
   regressions, webhook tests where applicable, migration checks, contract and
   OpenAPI checks, then the complete repository validation.

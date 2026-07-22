@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticatedHandler, requireActor } from '../auth/middleware.js';
+import { authenticatedHandler, requireUser } from '../auth/middleware.js';
 import * as workflowsController from '../controllers/workflows-controller.js';
 import * as workflowSchedulesController from '../controllers/workflow-schedules-controller.js';
 import * as workflowExecutionsController from '../controllers/workflow-executions-controller.js';

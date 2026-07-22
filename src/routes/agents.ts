@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticatedHandler, requireActor } from '../auth/middleware.js';
+import { authenticatedHandler, requireUser } from '../auth/middleware.js';
 import * as agentsController from '../controllers/agents-controller.js';
 import * as agentsLifecycleController from '../controllers/agents-lifecycle-controller.js';
 import { receiveAgentWebhook } from '../controllers/automation-webhook-controller.js';

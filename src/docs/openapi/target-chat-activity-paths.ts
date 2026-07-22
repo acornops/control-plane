@@ -29,17 +29,16 @@ export function buildTargetChatActivityPaths(externalUserHeader: Record<string, 
         tags: ['sessions'],
         summary: 'Stream target chat activity',
         description: 'Long-lived SSE stream for browser-facing target chat activity. Frames use event: chat_activity, id: activity event id, and JSON data with resource identifiers. Supports Last-Event-ID and the optional after query parameter for resume replay; connections without a resume cursor are live-only.',
-        security: [{ userSession: [] }],
+        security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
         parameters: [
+          externalUserHeader,
           { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
           { in: 'path', name: 'targetId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_TARGET_ID } },
           { in: 'query', name: 'after', required: false, schema: { type: 'string', example: '42' } },
           { in: 'header', name: 'Last-Event-ID', required: false, schema: { type: 'string', example: '42' } }
         ],
         responses: {
-          '200': {
-            description: 'SSE stream of target chat activity events.'
-          }
+          '200': { description: 'SSE stream of target chat activity events.' }
         }
       }
     }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
-import { authenticatedHandler, requireActor } from '../src/auth/middleware.js';
+import { authenticatedHandler, requireUser } from '../src/auth/middleware.js';
 import { config } from '../src/config.js';
 import { redis } from '../src/infra/redis.js';
 
@@ -21,7 +21,9 @@ function createResponse() {
   };
 }
 
-describe("requireActor(['user']) middleware", () => {
+const requireUserActor = requireUser;
+
+describe('requireUser middleware', () => {
   afterEach(() => mock.restoreAll());
 
   it('sets req.auth for a valid session cookie', async () => {
