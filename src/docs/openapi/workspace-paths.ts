@@ -44,6 +44,7 @@ export function buildWorkspacePaths(): Record<string, unknown> {
         post: {
           tags: ['workspaces'],
           summary: 'Create a workspace',
+          description: 'Creates the workspace, owner membership, and starter automation v1 atomically before returning 201.',
           security: [{ userSession: [] }],
           requestBody: {
             required: true,

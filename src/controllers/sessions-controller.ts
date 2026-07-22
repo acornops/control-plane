@@ -39,6 +39,7 @@ import {
 import { mapGatewayError } from './workspaces/common.js';
 import { runAuditActor, runRequestProvenance } from './run-actor.js';
 import { acceptedMessageResponse, parseRequestedLlmSelection } from './session-llm-selection.js';
+import { resolveReadySessionAssistantReferences } from './session-assistant-references.js';
 
 function enqueueRunDispatch(run: Run): void {
   queueMicrotask(async () => {
@@ -81,7 +82,6 @@ function enqueueRunDispatch(run: Run): void {
     }
   });
 }
-
 async function requireSessionTargetAccess(
   req: AuthenticatedRequest,
   res: Response,
@@ -223,17 +223,12 @@ export async function listSessions(req: AuthenticatedRequest, res: Response, nex
 
 export async function getSession(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const sessionId = toSingleParam(req.params.sessionId);
-    const session = await repo.getSession(sessionId);
+    const session = await repo.getSession(toSingleParam(req.params.sessionId));
     if (!session) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Session not found', retryable: false } });
       return;
     }
-
-    if (!(await requireWorkspaceDataRead(req, res, session.workspaceId, 'No access to session'))) {
-      return;
-    }
-
+    if (!(await requireWorkspaceDataRead(req, res, session.workspaceId, 'No access to session'))) return;
     res.status(200).json(session);
   } catch (err) {
     next(err);
@@ -385,10 +380,8 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       });
       return;
     }
-    const target = await requireRunnableSessionTarget(res, session);
-    if (!target) {
-      return;
-    }
+    // A retry for an already accepted client message must remain idempotent even
+    // if provider or MCP credential connection state changed after dispatch.
     if (req.body.clientMessageId) {
       const existing = await repo.findRunByClientMessageId(session.id, req.body.clientMessageId);
       if (existing) {
@@ -396,6 +389,14 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
         return;
       }
     }
+    const target = await requireRunnableSessionTarget(res, session);
+    if (!target) {
+      return;
+    }
+    const assistantReferences = await resolveReadySessionAssistantReferences(
+      res, session.workspaceId, target, req.auth.userId, toolAccessMode, req.body.references || []
+    );
+    if (!assistantReferences) return;
     const requestedLlm = parseRequestedLlmSelection(req, res);
     if (requestedLlm === null) {
       return;
@@ -453,7 +454,8 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       llmReasoningSummaryMode: llmSettings.reasoning.summary_mode,
       llmReasoningEffort: llmSettings.reasoning.effort,
       clientMessageId: req.body.clientMessageId,
-      requestProvenance: runRequestProvenance(req)
+      assistantReferences,
+      principal: { type: 'user', id: req.auth.userId }
     });
     if (!created.idempotent) {
       webhooks.emit({
@@ -530,7 +532,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
           targetId: target.targetId,
           targetType: target.targetType,
           toolAccessMode: created.run.toolAccessMode,
-          requestActorType: req.auth.credential.type
+          assistantReferences: assistantReferences.map((reference) => ({ kind: reference.kind, id: reference.id }))
         }
       });
       enqueueRunDispatch(created.run);

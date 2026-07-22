@@ -8,8 +8,8 @@ export function isExternalIntegrationRequest(req: AuthenticatedRequest): boolean
 }
 
 export function requiredContextGrants(workflow: WorkflowDefinitionForAccess): string[] {
-  return [...new Set(workflow.steps.flatMap((step) => step.contextGrants || []))]
-    .filter((grant) => typeof grant === 'string' && grant.trim().length > 0)
+  return [...new Set(workflow.capabilityPolicy.contextGrants)]
+    .filter((grant): grant is string => typeof grant === 'string' && grant.trim().length > 0)
     .sort((left, right) => left.localeCompare(right));
 }
 
@@ -31,9 +31,12 @@ export function externalWorkflowBlocker(
   if (workflow.status !== 'active') {
     return 'External integrations can only run active workflows.';
   }
-  const runCapability = workflow.policy.mode === 'read_write'
-    ? 'create_read_write_runs'
-    : 'create_read_only_runs';
+  if (workflow.capabilityPolicy.mode !== 'read_only') {
+    return 'External integrations can only run read-only workflows.';
+  }
+  if (workflowApprovalGates(workflow).length > 0) {
+    return 'External integrations cannot run workflows that require approval gates.';
+  }
   const requiredCapabilities = [...new Set([
     'read_workspace_data',
     'create_sessions',
@@ -72,8 +75,5 @@ export function workflowAuditActor(req: AuthenticatedRequest): {
 }
 
 function workflowApprovalGates(workflow: WorkflowDefinitionForAccess): string[] {
-  return [
-    ...workflow.policy.approvalRequirements,
-    ...workflow.steps.filter((step) => step.approvalRequired).map((step) => step.title)
-  ].filter(Boolean);
+  return workflow.capabilityPolicy.approvalRequirements.filter(Boolean);
 }

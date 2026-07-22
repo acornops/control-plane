@@ -162,6 +162,9 @@ describe('controller authorization regressions', () => {
       if (isWorkspaceAiCredentialStatusRequest(input)) {
         return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
       }
+      if (String(input).includes('/api/v1/internal/mcp/servers?')) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
       return new Response('unexpected request', { status: 500 });
     });
     const allowed = await callController(

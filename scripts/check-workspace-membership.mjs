@@ -98,6 +98,6 @@ for (const repositoryNeedle of [
 }
 
 assert(domain.includes('WorkspaceMembershipAuditAction'), 'domain model must include membership audit action type');
-assert(migration.includes('CREATE TABLE IF NOT EXISTS workspace_membership_audit'), 'membership audit schema missing');
+assert(migration.includes('CREATE TABLE workspace_membership_audit'), 'membership audit schema missing');
 
 console.log('Workspace membership checks passed.');

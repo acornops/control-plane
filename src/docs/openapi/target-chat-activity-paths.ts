@@ -28,7 +28,7 @@ export function buildTargetChatActivityPaths(externalUserHeader: Record<string, 
       get: {
         tags: ['sessions'],
         summary: 'Stream target chat activity',
-        description: 'Long-lived SSE stream for target chat activity. Browser callers use the session cookie. External integration callers may use the external integration client token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data. Frames use event: chat_activity, id: activity event id, and JSON data with resource identifiers. Supports Last-Event-ID and the optional after query parameter for resume replay; connections without a resume cursor are live-only.',
+        description: 'Long-lived SSE stream for browser-facing target chat activity. Frames use event: chat_activity, id: activity event id, and JSON data with resource identifiers. Supports Last-Event-ID and the optional after query parameter for resume replay; connections without a resume cursor are live-only.',
         security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
         parameters: [
           externalUserHeader,
@@ -38,9 +38,7 @@ export function buildTargetChatActivityPaths(externalUserHeader: Record<string, 
           { in: 'header', name: 'Last-Event-ID', required: false, schema: { type: 'string', example: '42' } }
         ],
         responses: {
-          '200': {
-            description: 'SSE stream of target chat activity events.'
-          }
+          '200': { description: 'SSE stream of target chat activity events.' }
         }
       }
     }

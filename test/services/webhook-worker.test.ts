@@ -31,6 +31,7 @@ function job(overrides: Partial<ClaimedWebhookDelivery> = {}): ClaimedWebhookDel
       data: { lifecycleVersion: 1, status: 'active' }
     },
     subscriptionId: 'sub-1',
+    leaseOwner: 'cp-test:lease-1',
     attempts: 1,
     createdAt: new Date().toISOString(),
     url: 'https://example.com/webhook',

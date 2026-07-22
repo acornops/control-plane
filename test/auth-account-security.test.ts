@@ -32,9 +32,7 @@ function mockRedisForPasswordChange() {
   mock.method(redis, 'incr', async () => 1);
   mock.method(redis, 'expire', async () => 1);
   mock.method(redis, 'del', async () => 1);
-  mock.method(redis, 'smembers', async () => ['old-session']);
-  mock.method(redis, 'setex', async () => 'OK');
-  mock.method(redis, 'sadd', async () => 1);
+  mock.method(redis, 'eval', async () => 1);
 }
 
 const user: User = {
@@ -154,7 +152,7 @@ describe('account security auth controller', () => {
     assert.equal(queries.some((query) => query.includes('ON CONFLICT (provider, subject) DO NOTHING')), true);
   });
 
-  it('does not mark a pending password account verified from an unlinked OIDC login attempt', async () => {
+  it('does not auto-link an unrecognized OIDC subject to an existing account by email', async () => {
     const queries: Array<{ sql: string; values?: unknown[] }> = [];
     const client = {
       query: mock.fn(async (sql: string, values?: unknown[]) => {
@@ -162,19 +160,7 @@ describe('account security auth controller', () => {
         if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
           return { rowCount: 0, rows: [] };
         }
-        if (sql.includes('SELECT *') && sql.includes('FROM users') && sql.includes('FOR UPDATE')) {
-          return {
-            rowCount: 1,
-            rows: [{
-              id: user.id,
-              email: user.email,
-              display_name: user.displayName,
-              email_verified_at: null,
-              email_verification_required: true,
-              created_at: user.createdAt
-            }]
-          };
-        }
+        if (sql.includes('INSERT INTO users')) return { rowCount: 0, rows: [] };
         if (sql.includes('SELECT 1 FROM user_password_credentials')) {
           return { rowCount: 1, rows: [{ '?column?': 1 }] };
         }
@@ -190,12 +176,49 @@ describe('account security auth controller', () => {
       subject: 'subject-1',
       email: user.email,
       displayName: user.displayName,
-      emailVerified: true,
-      requireVerifiedEmail: true
+      emailVerified: true
     });
 
     assert.deepEqual(result, { status: 'account_link_required' });
+    assert.equal(queries.some(({ sql }) => sql.includes('user_password_credentials')), false);
     assert.equal(queries.some(({ sql }) => sql.includes('UPDATE users')), false);
     assert.equal(queries.some(({ sql }) => sql.includes('INSERT INTO user_federated_identities')), false);
+    assert.equal(queries.some(({ sql }) => sql.includes('ON CONFLICT (email) DO NOTHING')), true);
+  });
+
+  it('does not mark a new OIDC account email verified when the provider did not verify it', async () => {
+    const queries: Array<{ sql: string; values?: unknown[] }> = [];
+    const createdRow = {
+      id: user.id,
+      email: user.email,
+      display_name: user.displayName,
+      email_verified_at: null,
+      email_verification_required: false,
+      created_at: user.createdAt
+    };
+    const client = {
+      query: mock.fn(async (sql: string, values?: unknown[]) => {
+        queries.push({ sql, values });
+        if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rowCount: 0, rows: [] };
+        if (sql.includes('INSERT INTO users')) return { rowCount: 1, rows: [createdRow] };
+        if (sql.includes('INSERT INTO user_federated_identities')) return { rowCount: 1, rows: [{ user_id: user.id }] };
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+      release: mock.fn()
+    };
+    mock.method(db, 'connect', async () => client);
+    mock.method(db, 'query', async () => ({ rowCount: 0, rows: [] }));
+
+    const result = await resolveOidcLogin({
+      provider: 'keycloak',
+      subject: 'subject-1',
+      email: user.email,
+      displayName: user.displayName,
+      emailVerified: false
+    });
+
+    assert.equal(result.status, 'authenticated');
+    const insert = queries.find(({ sql }) => sql.includes('INSERT INTO users'));
+    assert.equal(insert?.values?.[3], null);
   });
 });

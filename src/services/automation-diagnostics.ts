@@ -85,6 +85,9 @@ export async function loadAutomationDiagnostics(workspaceId?: string): Promise<A
   const reportScope = scopedWhere(workspaceId);
   const scheduleWorkspaceFilter = workspaceId ? 'AND workspace_id=$1' : '';
   const templateWorkspaceFilter = workspaceId ? 'WHERE workspace_id=$1' : '';
+  const publicAgentVisibilityFilter = workspaceId
+    ? `${templateWorkspaceFilter ? ' AND' : ' WHERE'} kind<>'manager'`
+    : '';
   const values = workspaceId ? [workspaceId] : [];
 
   const [outbox, oldest, agentRuns, workflowRuns, deliveries, approvals, schedules, agents, workflows, reports] = await Promise.all([
@@ -124,7 +127,9 @@ export async function loadAutomationDiagnostics(workspaceId?: string): Promise<A
       values
     ),
     db.query<QueryResultRow>(
-      `SELECT id,name,readiness_status,readiness_reasons FROM agent_definitions ${templateWorkspaceFilter} ORDER BY id`,
+      `SELECT id,name,readiness_status,readiness_reasons FROM agent_definitions
+       ${templateWorkspaceFilter}${publicAgentVisibilityFilter}
+       ORDER BY id`,
       values
     ),
     db.query<QueryResultRow>(

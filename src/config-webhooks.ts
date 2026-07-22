@@ -5,7 +5,6 @@ type BooleanSchemaFactory = (defaultValue: boolean) => z.ZodTypeAny;
 export function webhookConfigShape(envBoolean: BooleanSchemaFactory) {
   return {
     WEBHOOK_DELIVERY_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
-    WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY: envBoolean(false),
     WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON: z.string().default('[]'),
     WEBHOOK_HISTORY_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
     WEBHOOK_WORKER_ENABLED: envBoolean(true),

@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { config } from '../config.js';
 import { db } from '../infra/db.js';
 import { ChatSession, Message, Run } from '../types/domain.js';
+import type { AssistantReference } from '../types/assistant-references.js';
+import type { RunPrincipalRef } from '../types/agents.js';
 import {
   CreateRunFromMessageResult,
   MessageRow,
@@ -17,6 +19,15 @@ import { PagedResult, encodeCursor, pageWithCursor } from '../utils/pagination.j
 import { createRunSkillSnapshotInTransaction } from './repository-run-skill-snapshots.js';
 import { RunRequestProvenance } from './repository-run-provenance.js';
 import { scheduleTargetInsightsCheckpointJobForSessionActivity } from './repository-target-insights-checkpoints.js';
+
+export {
+  addRun,
+  appendRunEvents,
+  getLatestRunEventSeq,
+  getRun,
+  getRunEvents,
+  updateRun
+} from './repository-runs.js';
 
 const runSelect = `
   SELECT r.*, t.target_type
@@ -256,7 +267,8 @@ export async function createRunFromUserMessage(params: {
     llmReasoningSummaryMode: Run['llmReasoningSummaryMode'];
     llmReasoningEffort: Run['llmReasoningEffort'];
     clientMessageId?: string;
-    requestProvenance: RunRequestProvenance;
+    assistantReferences: AssistantReference[];
+    principal: RunPrincipalRef;
   }): Promise<CreateRunFromMessageResult> {
     return withTransaction(async (client) => {
       const findExistingByClientMessageId = async (): Promise<CreateRunFromMessageResult | null> => {
@@ -306,7 +318,16 @@ export async function createRunFromUserMessage(params: {
           `INSERT INTO messages (id, session_id, run_id, role, kind, content, metadata, client_message_id, created_at)
            VALUES ($1, $2, $3, 'user', 'user', $4, $5::jsonb, $6, $7)
            RETURNING *`,
-          [messageId, params.sessionId, runId, params.content, JSON.stringify(null), params.clientMessageId || null, now]
+          [messageId, params.sessionId, runId, params.content, JSON.stringify(params.assistantReferences.length > 0 ? {
+            assistantReferences: params.assistantReferences.map((reference) => ({
+              kind: reference.kind,
+              id: reference.id,
+              label: reference.label,
+              ...(reference.description ? { description: reference.description } : {}),
+              source: reference.source,
+              ...(reference.kind === 'tool' ? { capability: reference.capability } : {})
+            }))
+          } : null), params.clientMessageId || null, now]
         );
       } catch (error) {
         const pgError = error as { code?: string };
@@ -325,13 +346,8 @@ export async function createRunFromUserMessage(params: {
              id, workspace_id, target_id, session_id, message_id,
              llm_provider, llm_model, llm_reasoning_summary_mode, llm_reasoning_effort,
              tool_access_mode, status, requested_at, started_at, ended_at,
-             error_code, error_message, usage, assistant_message,
-             request_actor_type, request_external_integration_link_id,
-             request_external_integration_client_id
-           ) VALUES (
-             $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,
-             $19,$20,$21
-           )
+             error_code, error_message, usage, assistant_message, principal, assistant_references
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19::jsonb,$20::jsonb)
            RETURNING *
          )
          SELECT inserted.*, t.target_type
@@ -356,9 +372,8 @@ export async function createRunFromUserMessage(params: {
           null,
           JSON.stringify(null),
           JSON.stringify(null),
-          params.requestProvenance.actorType,
-          params.requestProvenance.externalIntegrationLinkId || null,
-          params.requestProvenance.externalIntegrationClientId || null
+          JSON.stringify(params.principal),
+          JSON.stringify(params.assistantReferences)
         ]
       );
 
@@ -439,85 +454,4 @@ export async function upsertAssistantFinalMessage(sessionId: string, runId: stri
       await scheduleTargetInsightsCheckpointJobForSessionActivity(sessionId, now, client);
       return mapMessage(messageRow);
     });
-  }
-export async function addRun(run: Run): Promise<Run> {
-    const result = await db.query(
-      `WITH inserted AS (
-         INSERT INTO runs (
-           id, workspace_id, target_id, session_id, message_id,
-           llm_provider, llm_model, llm_reasoning_summary_mode, llm_reasoning_effort,
-           tool_access_mode,
-           status, requested_at, started_at, ended_at,
-           error_code, error_message, usage, assistant_message
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb)
-         RETURNING *
-       )
-       SELECT inserted.*, t.target_type
-       FROM inserted
-       JOIN targets t ON t.id = inserted.target_id`,
-      [
-        run.id,
-        run.workspaceId,
-        run.targetId,
-        run.sessionId,
-        run.messageId,
-        run.llmProvider,
-        run.llmModel,
-        run.llmReasoningSummaryMode,
-        run.llmReasoningEffort,
-        run.toolAccessMode,
-        run.status,
-        run.requestedAt,
-        run.startedAt || null,
-        run.endedAt || null,
-        run.errorCode || null,
-        run.errorMessage || null,
-        JSON.stringify(run.usage || null),
-        JSON.stringify(run.assistantMessage || null)
-      ]
-    );
-    return mapRun(result.rows[0]);
-  }
-export async function getRun(runId: string): Promise<Run | null> {
-    const result = await db.query(`${runSelect} WHERE r.id = $1`, [runId]);
-    if (!result.rowCount) return null;
-    return mapRun(result.rows[0]);
-  }
-export async function updateRun(runId: string, patch: Partial<Run>): Promise<Run | null> {
-    const current = await getRun(runId);
-    if (!current) return null;
-
-    const next: Run = {
-      ...current,
-      ...patch
-    };
-
-    const result = await db.query(
-      `WITH updated AS (
-         UPDATE runs
-         SET status = $2,
-             started_at = $3,
-             ended_at = $4,
-             error_code = $5,
-             error_message = $6,
-             usage = $7::jsonb,
-             assistant_message = $8::jsonb
-         WHERE id = $1
-         RETURNING *
-       )
-       SELECT updated.*, t.target_type
-       FROM updated
-       JOIN targets t ON t.id = updated.target_id`,
-      [
-        runId,
-        next.status,
-        next.startedAt || null,
-        next.endedAt || null,
-        next.errorCode || null,
-        next.errorMessage || null,
-        JSON.stringify(next.usage || null),
-        JSON.stringify(next.assistantMessage || null)
-      ]
-    );
-    return mapRun(result.rows[0]);
   }

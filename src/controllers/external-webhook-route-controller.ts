@@ -7,7 +7,7 @@ import { logger } from '../logger.js';
 import {
   incrementExternalWebhookRouteRequest,
   incrementExternalWebhookRouteSecretRotations
-} from '../metrics.js';
+} from '../metrics-external-webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { repo } from '../store/repository.js';
 import type { ExternalRouteWebhookSubscription } from '../store/repository-webhooks.js';

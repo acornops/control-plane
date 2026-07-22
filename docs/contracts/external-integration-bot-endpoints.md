@@ -292,11 +292,10 @@ x-acornops-external-user-id: {externalUserId}
 External integrations only receive workflows that:
 
 - are `active`.
-- require `create_read_only_runs` for an ungated read-only Workflow.
-- require `create_read_write_runs` for a read-write Workflow or any Workflow
-  with `policy.approvalRequirements` or `steps[].approvalRequired`.
-- are permitted by the intersection of the linked user role, registered client
-  allowlist, and user-approved workspace grant.
+- use `capabilityPolicy.mode: "read_only"`.
+- have no `capabilityPolicy.approvalRequirements`.
+- are permitted by the linked user role, registered client allowlist, and
+  user-approved workspace grant.
 
 Create a workflow session before launching a run:
 
@@ -315,8 +314,8 @@ Content-Type: application/json
 ```
 
 `approvedContextGrants` must exactly match the workflow context required for
-the run: take the unique union of `steps[].contextGrants` from the selected
-workflow definition. Missing grants return `WORKFLOW_CONTEXT_GRANT_DENIED`.
+the run: use `capabilityPolicy.contextGrants` from the selected workflow
+definition. Missing grants return `WORKFLOW_CONTEXT_GRANT_DENIED`.
 Unknown extra grants return `WORKFLOW_CONTEXT_GRANT_UNKNOWN`.
 
 Persist the returned `session.id` as the adapter's external-thread mapping.
@@ -337,17 +336,15 @@ Content-Type: application/json
 
 ```json
 {
-  "content": "Triage the selected cluster. Start by showing the compiled read scope.",
-  "inputs": {},
-  "clientRequestId": "external-workflow-message-123"
+  "content": "Triage @target[Production Cluster]. Start by showing the compiled read scope.",
+  "clientRequestId": "mattermost-post-id"
 }
 ```
 
-`clientRequestId` is required for every external Workflow message. Reuse it
-only when retrying the same message. A reply after a completed execution uses a
-new `clientRequestId`, creates a new execution and run IDs in the same session,
-retains the session conversation history, and creates fresh approval records.
-Prior executions and decisions remain immutable.
+Workflow V2 resolves typed prompt references such as `@target[...]` when the
+message is launched. The message body accepts only `content` and the optional
+idempotency key `clientRequestId`; target IDs, target types, and arbitrary input
+objects are not accepted.
 
 Response:
 
@@ -356,6 +353,7 @@ Response:
   "message_id": "workflow-message-id",
   "run_id": "run-id",
   "workflow_run_id": "workflow-run-id",
+  "executionId": "workflow-execution-id",
   "status": "queued",
   "compiledAccessScope": {}
 }

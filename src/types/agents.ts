@@ -2,16 +2,75 @@ import type { WorkspacePermissions } from '../auth/authorization.js';
 import type { WorkspaceAuditOperation, TargetType } from './domain.js';
 
 export type AgentStatus = 'active' | 'disabled' | 'draft';
-export type AgentDefinitionSource = 'system' | 'user';
-export type AgentDefinitionKind = 'system_orchestrator' | 'specialist_agent';
+export type AgentDefinitionKind = 'manager' | 'specialist';
+export type AgentReviewState = 'draft' | 'reviewed';
 export type AgentProviderType = 'internal' | 'external';
+export type AgentSystemRole = 'workflow_coordinator';
 export type AgentTriggerType =
   | 'manual'
-  | 'workflow_step'
+  | 'workflow'
   | 'schedule'
   | 'webhook'
   | 'target_event';
 export type AutomationReadinessStatus = 'ready' | 'needs_setup' | 'blocked';
+export type RunPermissionMode = 'read_only' | 'ask_before_changes' | 'auto_allowed_changes';
+
+export interface DefinitionOrigin {
+  type: 'template' | 'manual';
+  templateId?: string;
+  templateVersion?: number;
+}
+
+export interface RunPrincipalRef {
+  type: 'user' | 'service_identity';
+  id: string;
+}
+
+export interface McpToolRef {
+  serverId: string;
+  toolName: string;
+}
+
+export interface AgentMcpInstallationSnapshot {
+  id: string;
+  name: string;
+  url: string;
+  enabled: boolean;
+  credentialMode: 'none' | 'workspace' | 'individual';
+  revision: number;
+  targetConstraints: { targetTypes: TargetType[]; targetIds: string[] };
+  provenance?: { sourceId: string; artifactName: string; version: string; digest: string; importedAt: string };
+  tools: Array<McpToolRef & {
+    alias: string;
+    description?: string;
+    inputSchema?: Record<string, unknown>;
+    outputSchema?: Record<string, unknown>;
+    capability: 'read' | 'write';
+    enabled: boolean;
+    reviewState: 'pending' | 'approved' | 'rejected';
+    riskLevel: 'read_only' | 'non_destructive_write' | 'high_risk' | 'destructive';
+    autoAllowed: boolean;
+  }>;
+}
+
+export interface AgentSkillInstallationSnapshot {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  revision: number;
+  contentDigest: string;
+  source: {
+    type: 'manual' | 'git' | 'template';
+    provider?: 'github' | 'gitlab';
+    url?: string;
+    apiBaseUrl?: string;
+    ref?: string;
+    path?: string;
+    pinnedCommit?: string;
+  };
+  files: Array<{ path: string; content: string; contentDigest: string }>;
+}
 
 export interface AgentTriggerDefinition {
   id: string;
@@ -23,6 +82,7 @@ export interface AgentTriggerDefinition {
     timezone: string;
   };
   eventFilter?: Record<string, unknown>;
+  principal?: RunPrincipalRef;
   createdAt: string;
   updatedAt?: string;
 }
@@ -66,8 +126,10 @@ export interface AgentDefinition {
   description?: string;
   instructions: string;
   status: AgentStatus;
-  source: AgentDefinitionSource;
+  origin: DefinitionOrigin;
   kind: AgentDefinitionKind;
+  systemRole?: AgentSystemRole;
+  reviewState: AgentReviewState;
   providerType: AgentProviderType;
   version: number;
   ownerUserId: string;
@@ -75,12 +137,18 @@ export interface AgentDefinition {
   createdAt: string;
   updatedAt: string;
   mcpServers: string[];
+  mcpTools: McpToolRef[];
+  mcpInstallations: AgentMcpInstallationSnapshot[];
   tools: string[];
   skills: string[];
+  skillInstallations: AgentSkillInstallationSnapshot[];
   contextGrants: string[];
   targetScope: AgentTargetScope;
   approvalPolicy: AgentApprovalPolicy;
   trustPolicy: AgentTrustPolicy;
+  permissionMode: RunPermissionMode;
+  semanticCapabilityIds: string[];
+  delegateAgentIds: string[];
   triggers: AgentTriggerDefinition[];
   activity: AgentActivitySummary;
   readiness: {
@@ -89,7 +157,8 @@ export interface AgentDefinition {
   };
 }
 
-export type AgentDefinitionResponse = AgentDefinition & {
+export type AgentDefinitionResponse = Omit<AgentDefinition, 'delegateAgentIds' | 'systemRole' | 'kind'> & {
+  kind: 'specialist';
   capabilities: AgentCapability[];
   workflowsUsingAgent: string[];
 };
@@ -157,6 +226,7 @@ export interface AgentJwtClaimPreview {
   trigger_id?: string;
   permissions: {
     allowed_tools: string[];
+    allowed_tool_refs: Array<{ server_id: string; tool_name: string }>;
     allowed_tool_operations: Record<string, WorkspaceAuditOperation>;
     context_grants: string[];
   };
@@ -172,11 +242,19 @@ export interface CompiledAgentRunScope {
     role: string;
   };
   mcpServers: string[];
+  mcpTools: McpToolRef[];
+  targetToolRefs: McpToolRef[];
   tools: string[];
   toolOperations: Record<string, WorkspaceAuditOperation>;
   enabledSkills: string[];
   contextGrants: string[];
   approvalGates: string[];
+  permissionMode: RunPermissionMode;
+  semanticCapabilityIds: string[];
+  coordinationFunctions: string[];
+  principal: RunPrincipalRef;
   targetScope: AgentTargetScope;
+  exactTargets: Array<{ id: string; targetType: TargetType }>;
+  resourceResolutionPhase: 'run_exact';
   jwtClaims: AgentJwtClaimPreview;
 }

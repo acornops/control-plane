@@ -43,15 +43,18 @@ describe("requireActor(['user', 'externalIntegration']) middleware", () => {
   afterEach(() => mock.restoreAll());
 
   it('keeps browser sessions on the session credential path when both credentials are present', async () => {
+    const now = Date.now();
     mock.method(redis, 'get', async () => JSON.stringify({
+      version: 2,
       id: 'session-1',
       userId: 'user-1',
-      createdAt: Date.now() - 60_000,
-      lastSeenAt: Date.now() - 60_000,
-      absoluteExpiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
-      idleExpiresAt: Date.now() + 60_000
+      createdAt: new Date(now - 60_000).toISOString(),
+      lastSeenAt: new Date(now - 60_000).toISOString(),
+      absoluteExpiresAt: new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      idleExpiresAt: new Date(now + 60_000).toISOString(),
+      authMethod: 'password'
     }));
-    mock.method(redis, 'setex', async () => 'OK');
+    mock.method(redis, 'eval', async () => 1);
     mock.method(repo, 'resolveExternalIntegrationUserLink', async () => {
       throw new Error('external integration lookup should not run when a session is present');
     });

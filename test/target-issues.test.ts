@@ -43,40 +43,27 @@ describe('target issue derivation', () => {
     const observations = deriveVirtualMachineIssueObservations(
       virtualMachine(),
       vmSnapshot({
-        services: [
-          { name: 'backup.service', loadState: 'loaded', activeState: 'failed', subState: 'failed' },
-          { name: 'stopped.service', loadState: 'loaded', activeState: 'inactive', subState: 'dead' }
+        degraded_services: [
+          { unit: 'backup.service', load_state: 'loaded', active_state: 'failed', sub_state: 'failed' },
+          { unit: 'stopped.service', load_state: 'loaded', active_state: 'inactive', sub_state: 'dead' }
         ],
         findings: [
           {
-            id: 'service-backup.service',
             severity: 'warning',
-            title: 'Service backup.service is failed',
-            message: 'backup.service state is failed/failed.',
-            reason: 'failed',
-            objectKind: 'systemd_service',
-            objectName: 'backup.service',
-            timestamp: '2026-05-10T00:00:00.000Z'
+            code: 'SERVICE_FAILED',
+            summary: 'backup.service state is failed/failed.',
+            unit: 'backup.service'
           },
           {
-            id: 'service-stopped.service',
             severity: 'info',
-            title: 'Service stopped.service is inactive',
-            message: 'stopped.service state is inactive/dead.',
-            reason: 'inactive',
-            objectKind: 'systemd_service',
-            objectName: 'stopped.service',
-            timestamp: '2026-05-10T00:00:00.000Z'
+            code: 'SERVICE_INACTIVE',
+            summary: 'stopped.service state is inactive/dead.',
+            unit: 'stopped.service'
           },
           {
-            id: 'vm-healthy',
             severity: 'info',
-            title: 'VM telemetry is healthy',
-            message: 'No pressure or failed service findings were detected.',
-            reason: 'healthy',
-            objectKind: 'host',
-            objectName: 'prod-vm.local',
-            timestamp: '2026-05-10T00:00:00.000Z'
+            code: 'HEALTHY',
+            summary: 'No pressure or failed service findings were detected.'
           }
         ]
       })
@@ -92,8 +79,8 @@ describe('target issue derivation', () => {
     const observations = deriveVirtualMachineIssueObservations(
       virtualMachine(),
       vmSnapshot({
-        services: [
-          { name: 'api.service', loadState: 'loaded', activeState: 'Failed', subState: 'Failed' }
+        degraded_services: [
+          { unit: 'api.service', load_state: 'loaded', active_state: 'Failed', sub_state: 'Failed' }
         ]
       })
     );

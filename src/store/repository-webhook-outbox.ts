@@ -2,7 +2,10 @@ import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { config } from '../config.js';
 import { db } from '../infra/db.js';
-import { incrementWebhookEventEnqueued, incrementWebhookOversizeRejection } from '../metrics.js';
+import {
+  incrementWebhookEventEnqueued,
+  incrementWebhookOversizeRejection
+} from '../metrics-webhook-delivery.js';
 import type { TargetType, WebhookHistoryStatus } from '../types/domain.js';
 import type { WebhookEventType } from '../types/contracts.js';
 import { toIso } from './repository-mappers.js';
@@ -35,6 +38,7 @@ export interface ClaimedWebhookDelivery {
   subjectId: string;
   payload: Record<string, unknown>;
   subscriptionId: string;
+  leaseOwner: string;
   attempts: number;
   createdAt: string;
   url?: string;
@@ -196,6 +200,7 @@ export async function claimWebhookDeliveryJobs(
        claimed.id AS job_id,
        claimed.event_id,
        claimed.subscription_id,
+       claimed.lease_owner,
        claimed.attempts,
        claimed.created_at AS job_created_at,
        claimed.snapshot_url,
@@ -232,6 +237,7 @@ export async function claimWebhookDeliveryJobs(
     subjectId: row.subject_id,
     payload: row.payload || {},
     subscriptionId: row.subscription_id,
+    leaseOwner: row.lease_owner,
     attempts: Number(row.attempts),
     createdAt: toIso(row.job_created_at)!,
     url: row.snapshot_url || row.url || undefined,
@@ -333,51 +339,63 @@ export async function finishWebhookDeliveryJob(input: {
   terminalReason?: string;
 }): Promise<void> {
   await withTransaction(async (client) => {
-    await client.query(
-    `UPDATE webhook_delivery_jobs
-     SET status = $2,
-         attempts = CASE WHEN $2 = 'paused' THEN GREATEST(attempts - 1, 0) ELSE attempts END,
-         next_attempt_at = COALESCE($3::timestamptz, next_attempt_at),
-         lease_owner = NULL,
-         lease_expires_at = NULL,
-         terminal_reason = $4,
-         snapshot_secret_ciphertext = CASE WHEN $2 IN ('succeeded', 'failed', 'superseded', 'cancelled')
-           THEN NULL ELSE snapshot_secret_ciphertext END,
-         snapshot_secret_key_id = CASE WHEN $2 IN ('succeeded', 'failed', 'superseded', 'cancelled')
-           THEN NULL ELSE snapshot_secret_key_id END,
-         updated_at = NOW()
-     WHERE id = $1`,
-    [input.job.jobId, input.status, input.nextAttemptAt || null, input.terminalReason || null]
-  );
+    const updated = await client.query(
+      `UPDATE webhook_delivery_jobs
+       SET status = $2,
+           attempts = CASE WHEN $2 = 'paused' THEN GREATEST(attempts - 1, 0) ELSE attempts END,
+           next_attempt_at = COALESCE($3::timestamptz, next_attempt_at),
+           lease_owner = NULL,
+           lease_expires_at = NULL,
+           terminal_reason = $4,
+           snapshot_secret_ciphertext = CASE
+             WHEN $2 IN ('succeeded', 'failed', 'superseded', 'cancelled')
+             THEN NULL ELSE snapshot_secret_ciphertext END,
+           snapshot_secret_key_id = CASE
+             WHEN $2 IN ('succeeded', 'failed', 'superseded', 'cancelled')
+             THEN NULL ELSE snapshot_secret_key_id END,
+           updated_at = NOW()
+       WHERE id = $1
+         AND status = 'processing'
+         AND lease_owner = $5
+       RETURNING id`,
+      [
+        input.job.jobId,
+        input.status,
+        input.nextAttemptAt || null,
+        input.terminalReason || null,
+        input.job.leaseOwner
+      ]
+    );
+    if (!updated.rowCount) return;
     if (!input.historyStatus) return;
     const shouldPersistHistory = input.job.eventType !== 'workspace.deleted.v1';
     if (shouldPersistHistory) {
       await client.query(
-    `INSERT INTO webhook_history (
-       id, subscription_id, event_id, event_type, workspace_id, target_id,
-       subject_type, subject_id, payload, status, response_status, error, duration_ms,
-       attempt_number, will_retry, next_attempt_at, terminal_reason, sent_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13,
-       $14, $15, $16, $17, NOW())`,
-    [
-      randomUUID(),
-      input.job.subscriptionId,
-      input.job.eventId,
-      input.job.eventType,
-      input.job.workspaceId,
-      input.job.eventType === 'target.deleted.v1' ? null : input.job.targetId || null,
-      input.job.subjectType,
-      input.job.subjectId,
-      JSON.stringify(input.job.payload),
-      input.historyStatus,
-      input.responseStatus ?? null,
-      input.error || null,
-      input.durationMs ?? null,
-      input.job.attempts,
-      input.status === 'retrying',
-      input.nextAttemptAt || null,
-      input.terminalReason || null
-    ]
+        `INSERT INTO webhook_history (
+           id, subscription_id, event_id, event_type, workspace_id, target_id,
+           subject_type, subject_id, payload, status, response_status, error, duration_ms,
+           attempt_number, will_retry, next_attempt_at, terminal_reason, sent_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13,
+           $14, $15, $16, $17, NOW())`,
+        [
+          randomUUID(),
+          input.job.subscriptionId,
+          input.job.eventId,
+          input.job.eventType,
+          input.job.workspaceId,
+          input.job.eventType === 'target.deleted.v1' ? null : input.job.targetId || null,
+          input.job.subjectType,
+          input.job.subjectId,
+          JSON.stringify(input.job.payload),
+          input.historyStatus,
+          input.responseStatus ?? null,
+          input.error || null,
+          input.durationMs ?? null,
+          input.job.attempts,
+          input.status === 'retrying',
+          input.nextAttemptAt || null,
+          input.terminalReason || null
+        ]
       );
     }
     if (['succeeded', 'failed', 'superseded', 'cancelled'].includes(input.status)) {

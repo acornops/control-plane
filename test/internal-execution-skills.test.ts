@@ -64,12 +64,14 @@ describe('internal execution skill snapshots', () => {
         {
           ref: 'skill_1',
           skill_id: 'skill-1',
+          source: 'target_adapter',
           name: 'CNPG triage',
           description: 'Use when investigating CloudNativePG failover.',
           file_count: 2,
           total_bytes: 128
         }
       ],
+      referenced_refs: [],
       load_endpoint: '/internal/v1/runs/run-1/skills/{skill_ref}'
     });
   });

@@ -60,7 +60,7 @@ export async function verifyPasswordEmail(req: Request, res: Response, next: Nex
       return;
     }
 
-    const sessionId = await createUserSession(result.user.id);
+    const sessionId = await createUserSession(result.user.id, { authMethod: 'password' });
     setSessionCookie(res, sessionId);
     res.status(200).json({ user: result.user, mode: 'password', status: 'verified' });
   } catch (err) {

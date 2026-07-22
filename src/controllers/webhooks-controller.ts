@@ -75,7 +75,7 @@ export async function listWebhooks(req: AuthenticatedRequest, res: Response, nex
     }
 
     const webhooks = await repo.listWebhookSubscriptions(workspaceId);
-    res.status(200).json(webhooks.map(serializeWebhook));
+    res.status(200).json({ items: webhooks.map(serializeWebhook) });
   } catch (err) {
     next(err);
   }
@@ -260,7 +260,7 @@ export async function listWebhookHistory(req: AuthenticatedRequest, res: Respons
     const history = await repo.listWebhookHistory(workspaceId, webhookId, {
       limit: parseHistoryLimit(req.query.limit)
     });
-    res.status(200).json(history.map(serializeHistory));
+    res.status(200).json({ items: history.map(serializeHistory) });
   } catch (err) {
     next(err);
   }

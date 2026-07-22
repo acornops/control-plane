@@ -11,7 +11,8 @@ const CSRF_REQUIRED_WITHOUT_SESSION_PATHS = new Set([
   '/api/v1/auth/password/verify-email',
   '/api/v1/auth/password/resend-verification',
   '/api/v1/auth/password/forgot',
-  '/api/v1/auth/password/reset'
+  '/api/v1/auth/password/reset',
+  '/api/v1/auth/logout'
 ]);
 
 function signCsrfNonce(nonce: string): string {

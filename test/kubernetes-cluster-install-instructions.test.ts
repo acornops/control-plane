@@ -5,7 +5,7 @@ import {
   buildAgentInstallInstructions,
   parseAgentAccessMode
 } from '../src/controllers/workspaces/kubernetes-cluster-request-utils.js';
-import { parseAgentHelmValues, type AgentHelmValues } from '../src/config-agent-helm.js';
+import { parseAgentKHelmValues, type AgentKHelmValues } from '../src/config-agentk-helm.js';
 import { config, parseAppConfig } from '../src/config.js';
 import { registerClusterSchema } from '../src/types/contracts.js';
 import type { KubernetesCluster } from '../src/types/domain.js';
@@ -27,9 +27,9 @@ const cluster: KubernetesCluster = {
 };
 
 const mutableConfig = config as typeof config & {
-  AGENT_HELM_CHART_VERSION?: string;
-  AGENT_HELM_VALUES: AgentHelmValues;
-  AGENT_HELM_ADDITIONAL_CA_FILE_PATH?: string;
+  AGENTK_HELM_CHART_VERSION?: string;
+  AGENTK_HELM_VALUES: AgentKHelmValues;
+  AGENTK_HELM_ADDITIONAL_CA_FILE_PATH?: string;
 };
 
 describe('Kubernetes cluster install instructions', () => {
@@ -50,29 +50,29 @@ describe('Kubernetes cluster install instructions', () => {
   });
 
   it('pins the chart only when a version is configured', () => {
-    const previousVersion = mutableConfig.AGENT_HELM_CHART_VERSION;
-    mutableConfig.AGENT_HELM_CHART_VERSION = '0.0.1-experimental.4';
+    const previousVersion = mutableConfig.AGENTK_HELM_CHART_VERSION;
+    mutableConfig.AGENTK_HELM_CHART_VERSION = '0.0.1-experimental.4';
     try {
       const instructions = buildAgentInstallInstructions(cluster, 'agent-key');
 
       assert.match(instructions.command, /--version '0\.0\.1-experimental\.4'/);
       assert.doesNotMatch(instructions.command, /--devel/);
     } finally {
-      mutableConfig.AGENT_HELM_CHART_VERSION = previousVersion;
+      mutableConfig.AGENTK_HELM_CHART_VERSION = previousVersion;
     }
   });
 
   it('adds configured chart values and an operator-local CA file safely', () => {
-    const previousValues = mutableConfig.AGENT_HELM_VALUES;
-    const previousCaFilePath = mutableConfig.AGENT_HELM_ADDITIONAL_CA_FILE_PATH;
-    mutableConfig.AGENT_HELM_VALUES = {
+    const previousValues = mutableConfig.AGENTK_HELM_VALUES;
+    const previousCaFilePath = mutableConfig.AGENTK_HELM_ADDITIONAL_CA_FILE_PATH;
+    mutableConfig.AGENTK_HELM_VALUES = {
       image: {
         repository: 'docker.artifact.internal.org/ghcr.io/acornops/agentk',
         tag: '0.0.1-experimental.7'
       },
       imagePullSecrets: [{ name: 'internal-registry' }]
     };
-    mutableConfig.AGENT_HELM_ADDITIONAL_CA_FILE_PATH = "/opt/acornops trust/org,team's-ca.pem";
+    mutableConfig.AGENTK_HELM_ADDITIONAL_CA_FILE_PATH = "/opt/acornops trust/org,team's-ca.pem";
     try {
       const instructions = buildAgentInstallInstructions(cluster, 'agent-key');
 
@@ -95,26 +95,26 @@ describe('Kubernetes cluster install instructions', () => {
         'control-plane-owned values should be rendered after platform defaults'
       );
     } finally {
-      mutableConfig.AGENT_HELM_VALUES = previousValues;
-      mutableConfig.AGENT_HELM_ADDITIONAL_CA_FILE_PATH = previousCaFilePath;
+      mutableConfig.AGENTK_HELM_VALUES = previousValues;
+      mutableConfig.AGENTK_HELM_ADDITIONAL_CA_FILE_PATH = previousCaFilePath;
     }
   });
 
   it('parses safe downstream chart values and rejects owned paths', () => {
     assert.deepEqual(
-      parseAgentHelmValues('{"image":{"repository":"registry.internal/agentk"},"replicaCount":2}'),
+      parseAgentKHelmValues('{"image":{"repository":"registry.internal/agentk"},"replicaCount":2}'),
       { image: { repository: 'registry.internal/agentk' }, replicaCount: 2 }
     );
     assert.throws(
-      () => parseAgentHelmValues('{"config":{"agentKey":"override"}}'),
+      () => parseAgentKHelmValues('{"config":{"agentKey":"override"}}'),
       /must not override control-plane-owned value config\.agentKey/
     );
     assert.throws(
-      () => parseAgentHelmValues('{"rbac":{"write":{"enabled":true}}}'),
+      () => parseAgentKHelmValues('{"rbac":{"write":{"enabled":true}}}'),
       /must not override control-plane-owned value rbac\.write\.enabled/
     );
     assert.throws(
-      () => parseAgentHelmValues('{"bad.key":true}'),
+      () => parseAgentKHelmValues('{"bad.key":true}'),
       /contains an invalid top-level key/
     );
   });
@@ -122,26 +122,26 @@ describe('Kubernetes cluster install instructions', () => {
   it('loads generated install defaults from the control-plane environment', () => {
     const parsed = parseAppConfig({
       NODE_ENV: 'test',
-      AGENT_HELM_VALUES_JSON: '{"image":{"repository":"registry.internal/agentk"}}',
-      AGENT_HELM_ADDITIONAL_CA_FILE_PATH: '/opt/acornops/ca.pem'
+      AGENTK_HELM_VALUES_JSON: '{"image":{"repository":"registry.internal/agentk"}}',
+      AGENTK_HELM_ADDITIONAL_CA_FILE_PATH: '/opt/acornops/ca.pem'
     });
 
-    assert.deepEqual(parsed.AGENT_HELM_VALUES, {
+    assert.deepEqual(parsed.AGENTK_HELM_VALUES, {
       image: { repository: 'registry.internal/agentk' }
     });
-    assert.equal(parsed.AGENT_HELM_ADDITIONAL_CA_FILE_PATH, '/opt/acornops/ca.pem');
+    assert.equal(parsed.AGENTK_HELM_ADDITIONAL_CA_FILE_PATH, '/opt/acornops/ca.pem');
   });
 
   it('rejects conflicting CA sources and malformed values JSON', () => {
     assert.throws(
-      () => parseAgentHelmValues('{"config":{"tls":{"additionalCaBundle":{"configMapKeyRef":{"name":"ca","key":"ca.crt"}}}}}', '/ca.pem'),
+      () => parseAgentKHelmValues('{"config":{"tls":{"additionalCaBundle":{"configMapKeyRef":{"name":"ca","key":"ca.crt"}}}}}', '/ca.pem'),
       /must not configure config\.tls\.additionalCaBundle/
     );
-    assert.throws(() => parseAgentHelmValues('[]'), /must be a JSON object/);
-    assert.throws(() => parseAgentHelmValues('{'), /must be valid JSON/);
+    assert.throws(() => parseAgentKHelmValues('[]'), /must be a JSON object/);
+    assert.throws(() => parseAgentKHelmValues('{'), /must be valid JSON/);
     assert.throws(
-      () => parseAppConfig({ NODE_ENV: 'test', AGENT_HELM_VALUES_JSON: '{' }),
-      /AGENT_HELM_VALUES_JSON must be valid JSON/
+      () => parseAppConfig({ NODE_ENV: 'test', AGENTK_HELM_VALUES_JSON: '{' }),
+      /AGENTK_HELM_VALUES_JSON must be valid JSON/
     );
   });
 

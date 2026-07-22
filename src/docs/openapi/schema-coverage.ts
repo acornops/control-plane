@@ -5,16 +5,34 @@ import {
   jsonContent,
   OpenApiLikeDocument,
   OperationObject,
+  ReferenceObject,
+  ResponseObject,
   streamContent
 } from './schema-types.js';
 
 export type { OpenApiLikeDocument } from './schema-types.js';
 
+const defaultErrorCodes = ['400', '401', '403', '404', '409', '429', '500'];
+
+function standardErrorResponseName(code: string): string {
+  return `Error${code}`;
+}
+
+function isReference(value: ResponseObject | ReferenceObject): value is ReferenceObject {
+  return '$ref' in value;
+}
+
 function addDefaultErrorResponses(operation: OperationObject): void {
   operation.responses ??= {};
-  for (const code of ['400', '401', '403', '404', '409', '429', '500']) {
-    operation.responses[code] ??= { description: 'Error response.' };
-    operation.responses[code].content ??= jsonContent('ErrorResponse');
+  for (const code of defaultErrorCodes) {
+    const response = operation.responses[code];
+    if (!response || (!isReference(response) && response.description === 'Error response.')) {
+      operation.responses[code] = { $ref: `#/components/responses/${standardErrorResponseName(code)}` };
+      continue;
+    }
+    if (!isReference(response)) {
+      response.content ??= jsonContent('ErrorResponse');
+    }
   }
 }
 
@@ -23,6 +41,7 @@ function addSuccessResponseSchema(method: string, path: string, operation: Opera
 
   for (const [statusCode, response] of Object.entries(operation.responses)) {
     if (!statusCode.startsWith('2')) continue;
+    if (isReference(response)) continue;
     if (response.content) continue;
     if (statusCode === '204') continue;
     if (
@@ -47,6 +66,10 @@ export function enrichOpenApiDocument<T extends OpenApiLikeDocument>(document: T
     ...document.components.schemas,
     ...buildSharedOpenApiSchemas()
   };
+  document.components.responses = Object.fromEntries(defaultErrorCodes.map((code) => [
+    standardErrorResponseName(code),
+    { description: 'Error response.', content: jsonContent('ErrorResponse') }
+  ]));
 
   for (const [path, pathItem] of Object.entries(document.paths)) {
     for (const [method, operation] of Object.entries(pathItem)) {
@@ -70,7 +93,7 @@ export function assertOpenApiSchemaCoverage(document: OpenApiLikeDocument): void
       for (const [statusCode, response] of Object.entries(operation.responses ?? {})) {
         if (!statusCode.startsWith('2')) continue;
         if (statusCode === '204' || statusCode === '302') continue;
-        if (!response.content) {
+        if (!isReference(response) && !response.content) {
           failures.push(`${method.toUpperCase()} ${path} ${statusCode} is missing response content`);
         }
       }

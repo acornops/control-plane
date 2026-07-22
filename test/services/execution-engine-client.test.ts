@@ -43,7 +43,6 @@ function createWorkflowRun(overrides: Partial<WorkflowRunRecord> = {}): Workflow
     workspaceId: 'ws-1',
     workflowId: 'workspace-tool-exposure-audit',
     workflowSessionId: 'workflow-session-1',
-    workflowStepId: 'inventory-scope',
     messageId: 'workflow-message-1',
     createdBy: 'user-1',
     status: 'queued',
@@ -113,7 +112,7 @@ describe('execution engine client', () => {
     assert.equal(headers.get('content-type'), 'application/json');
     assert.equal(headers.get('authorization'), 'Bearer dispatch-token');
     assert.deepEqual(JSON.parse(String(fetchCall.init?.body)), {
-      contract_version: 1,
+      contract_version: 2,
       run_id: 'run-1',
       workspace_id: 'ws-1',
       target_id: 'cluster-1',
@@ -151,7 +150,7 @@ describe('execution engine client', () => {
     assert.equal(headers.get('content-type'), 'application/json');
     assert.equal(headers.get('authorization'), 'Bearer dispatch-token');
     assert.deepEqual(JSON.parse(String(fetchCall.init?.body)), {
-      contract_version: 1,
+      contract_version: 2,
       scope_type: 'workspace',
       run_id: 'workflow-run-1',
       workspace_id: 'ws-1',
@@ -160,7 +159,6 @@ describe('execution engine client', () => {
       workflow_id: 'workspace-tool-exposure-audit',
       workflow_run_id: 'workflow-execution-1',
       workflow_session_id: 'workflow-session-1',
-      workflow_step_id: 'inventory-scope',
       requested_at: '2026-05-25T00:00:00.000Z'
     });
   });
@@ -196,7 +194,7 @@ describe('execution engine client', () => {
 
     assert.ok(fetchCall);
     assert.deepEqual(JSON.parse(String(fetchCall.init?.body)), {
-      contract_version: 1,
+      contract_version: 2,
       scope_type: 'workspace',
       run_id: 'workflow-run-1',
       workspace_id: 'ws-1',
@@ -205,7 +203,6 @@ describe('execution engine client', () => {
       workflow_id: 'workspace-tool-exposure-audit',
       workflow_run_id: 'workflow-execution-1',
       workflow_session_id: 'workflow-session-1',
-      workflow_step_id: 'inventory-scope',
       agent_id: 'agent-cluster-triage',
       agent_version: 4,
       requested_at: '2026-05-25T00:00:00.000Z'

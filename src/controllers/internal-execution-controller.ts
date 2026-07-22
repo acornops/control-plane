@@ -17,6 +17,7 @@ import {
 } from '../store/repository-workflows.js';
 import { runtime } from '../store/runtime.js';
 import { appendAgentRunEvents, getAgentActivityRecord, listAgentRunEvents, updateAgentActivityRecord } from '../store/repository-agents.js';
+import { workflowDelegationCompletionGate } from '../store/repository-workflow-delegations.js';
 import { RunEvent } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
 import {
@@ -30,6 +31,7 @@ import { commitTargetAssistantFinalMessage } from './internal-target-run-commit.
 export { bootstrap } from './internal-execution-bootstrap.js';
 export { summarizeRunEventCounts } from './internal-execution-events.js';
 export { getAgentRunContext, getWorkflowSessionContext } from './internal-automation-context-controller.js';
+export { getAgentRunSkillSnapshot, getRunSkillSnapshot } from './internal-execution-skill-controller.js';
 
 function buildTargetInsightsContextMessage(snippets: Awaited<ReturnType<typeof repo.searchTargetInsightsSnippets>>): string {
   return [
@@ -46,35 +48,6 @@ function buildTargetInsightsContextMessage(snippets: Awaited<ReturnType<typeof r
 }
 
 type TargetInsightsRetrievalStatus = 'disabled' | 'skipped' | 'hit' | 'miss' | 'error';
-
-export async function getRunSkillSnapshot(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const runId = toSingleParam(req.params.runId);
-    const skillRef = toSingleParam(req.params.skillRef);
-    const snapshot = await repo.getRunSkillSnapshot(runId, skillRef);
-    if (!snapshot) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Skill snapshot not found for run', retryable: false } });
-      return;
-    }
-    res.status(200).json({
-      skill_ref: snapshot.ref,
-      skill_id: snapshot.skillId,
-      name: snapshot.name,
-      description: snapshot.description,
-      source: snapshot.source,
-      content_hash: snapshot.contentHash,
-      file_count: snapshot.fileCount,
-      total_bytes: snapshot.totalBytes,
-      files: snapshot.files.map((file) => ({
-        path: file.path,
-        content: file.content,
-        size_bytes: file.sizeBytes
-      }))
-    });
-  } catch (err) {
-    next(err);
-  }
-}
 
 export async function getSessionContext(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -133,10 +106,6 @@ export async function getSessionContext(req: Request, res: Response, next: NextF
     }
     const context = {
       messages: [
-        {
-          role: 'system',
-          content: config.AGENT_SYSTEM_INSTRUCTION
-        },
         ...(insightSnippets.length > 0 ? [{
           role: 'system',
           content: buildTargetInsightsContextMessage(insightSnippets)
@@ -365,16 +334,28 @@ export async function commitRun(req: Request, res: Response, next: NextFunction)
         res.status(200).json({ status: 'ok', terminal: true });
         return;
       }
-      const assistantMessage = req.body.status === 'cancelled'
+      let terminalStatus = req.body.status as 'completed' | 'failed' | 'cancelled';
+      let delegationFailure: string | undefined;
+      if (terminalStatus === 'completed' && workflowRun.compiledAccessScope.entryAgent.kind === 'manager') {
+        const gate = await workflowDelegationCompletionGate(workflowRun.executionId);
+        if (!gate.allowed) {
+          terminalStatus = 'failed';
+          delegationFailure = gate.reason || 'Required specialist delegation did not complete.';
+        }
+      }
+      const assistantMessage = terminalStatus === 'cancelled'
         ? { ...req.body.assistant_message, content: '' }
-        : req.body.assistant_message;
+        : delegationFailure
+          ? { ...req.body.assistant_message, content: `${String(req.body.assistant_message?.content || '').trim()}\n\nDelegation failure: ${delegationFailure}`.trim() }
+          : req.body.assistant_message;
 
       const updatedRun = await updateWorkflowRun(workflowRun.id, {
-        status: req.body.status,
+        status: terminalStatus,
         startedAt: req.body.timing.started_at,
         endedAt: req.body.timing.ended_at,
         usage: req.body.usage,
-        assistantMessage
+        assistantMessage,
+        ...(delegationFailure ? { errorCode: 'REQUIRED_DELEGATION_FAILED', errorMessage: delegationFailure } : {})
       }) || workflowRun;
 
       const committedContent = String(assistantMessage?.content || '').trim();
@@ -386,13 +367,13 @@ export async function commitRun(req: Request, res: Response, next: NextFunction)
           workflowId: workflowRun.workflowId,
           content: committedContent
         });
-      } else if (req.body.status === 'failed' || req.body.status === 'cancelled') {
+      } else if (terminalStatus === 'failed' || terminalStatus === 'cancelled') {
         await upsertWorkflowAssistantFinalMessage({
           sessionId: workflowRun.workflowSessionId,
           runId: workflowRun.id,
           workspaceId: workflowRun.workspaceId,
           workflowId: workflowRun.workflowId,
-          content: buildTerminalFailureMessage(req.body.status, updatedRun.errorMessage || workflowRun.errorMessage)
+          content: buildTerminalFailureMessage(terminalStatus, updatedRun.errorMessage || workflowRun.errorMessage)
         });
       }
 
@@ -410,17 +391,16 @@ export async function commitRun(req: Request, res: Response, next: NextFunction)
           workflowId: workflowRun.workflowId,
           workflowRunId: workflowRun.workflowRunId,
           workflowSessionId: workflowRun.workflowSessionId,
-          status: req.body.status
+          status: terminalStatus
         }
       });
       const transition = await advanceWorkflowExecution(
         updatedRun,
-        req.body.status,
+        terminalStatus,
         Array.isArray(req.body.output_artifacts) ? req.body.output_artifacts : []
       );
-      await recordWorkflowExecutionTransition(workflowRun, transition);
-      incrementAutomationTerminalOutcome('workflow', req.body.status);
-      res.status(200).json({ status: 'ok', executionStatus: transition.executionStatus, nextRunId: transition.nextRunId });
+      incrementAutomationTerminalOutcome('workflow', terminalStatus);
+      res.status(200).json({ status: 'ok', executionStatus: transition.executionStatus });
       return;
     }
     const agentRun = await getAgentActivityRecord(runId);
