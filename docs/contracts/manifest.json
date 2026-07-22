@@ -570,6 +570,7 @@
           "summary.{total,active,paused,approvalGated,nextRunAt?}"
         ],
         "workspaceApprovalInbox": [
+          "query.{status?,limit?,cursor?,runId?,approvalId?}",
           "items[].{approvalId,runId,source,workflowId?,targetId?,summary,toolName,requestedBy?,expiresAt,status,decision?,decidedBy?,decidedAt?,requestedAt}",
           "pendingCount",
           "nextCursor?"
