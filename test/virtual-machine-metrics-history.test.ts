@@ -169,13 +169,13 @@ describe('virtual machine metric history normalization', () => {
   it('does not retain invalid VM CPU percent values from snapshots', () => {
     const summary = summarizeVirtualMachineSnapshotMetrics({
       data: {
-        metrics: {
-          loadAverage: [0.1, 0.2, 0.3],
-          cpuUsagePercent: 101,
+        host_summary: {
+          load: { one: 0.1, five: 0.2, fifteen: 0.3 },
+          cpu: { usage_percent: 101 },
           memory: [],
-          swap: [],
-          disks: []
-        }
+          swap: []
+        },
+        filesystems: []
       }
     } as never);
 

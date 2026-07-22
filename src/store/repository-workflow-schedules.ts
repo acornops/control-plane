@@ -16,8 +16,8 @@ function nowIso(now = new Date()): string {
 function cloneSchedule(schedule: WorkflowScheduleRecord): WorkflowScheduleRecord {
   return {
     ...schedule,
-    inputDefaults: { ...schedule.inputDefaults },
     approvedContextGrants: [...schedule.approvedContextGrants],
+    principal: { ...schedule.principal },
     createdBy: { ...schedule.createdBy },
     updatedBy: { ...schedule.updatedBy }
   };
@@ -165,8 +165,9 @@ function mapSchedule(row: ScheduleRow): WorkflowScheduleRecord {
   return {
     id: row.id, workspaceId: row.workspace_id, workflowId: row.workflow_id,
     workflowVersion: row.workflow_version, name: row.name, status: row.status,
-    cron: row.cron, timezone: row.timezone, inputDefaults: row.input_defaults || {},
+    cron: row.cron, timezone: row.timezone, controlMessage: row.control_message || '',
     approvedContextGrants: row.approved_context_grants || [], createdBy: row.created_by,
+    principal: row.principal,
     updatedBy: row.updated_by, createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
     nextRunAt: row.next_run_at ? new Date(row.next_run_at).toISOString() : undefined,
@@ -194,8 +195,9 @@ export async function createWorkflowSchedule(params: {
     status,
     cron: params.input.cron.trim(),
     timezone: params.input.timezone.trim(),
-    inputDefaults: params.input.inputDefaults || {},
+    controlMessage: params.input.controlMessage,
     approvedContextGrants: [...new Set(params.input.approvedContextGrants || [])],
+    principal: { ...params.input.principal },
     createdBy: { userId: params.actorUserId },
     updatedBy: { userId: params.actorUserId },
     createdAt,
@@ -204,12 +206,12 @@ export async function createWorkflowSchedule(params: {
   };
   const result = await db.query<ScheduleRow>(
     `INSERT INTO workflow_schedules (
-      id,workspace_id,workflow_id,workflow_version,name,status,cron,timezone,input_defaults,
-      approved_context_grants,created_by,updated_by,next_run_at,created_at,updated_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,$13,$13) RETURNING *`,
+      id,workspace_id,workflow_id,workflow_version,name,status,cron,timezone,control_message,
+      approved_context_grants,principal,created_by,updated_by,next_run_at,created_at,updated_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,$13,$14,$14) RETURNING *`,
     [schedule.id, schedule.workspaceId, schedule.workflowId, schedule.workflowVersion, schedule.name,
-     schedule.status, schedule.cron, schedule.timezone, schedule.inputDefaults, JSON.stringify(schedule.approvedContextGrants),
-     schedule.createdBy, schedule.nextRunAt || null, schedule.createdAt]
+     schedule.status, schedule.cron, schedule.timezone, schedule.controlMessage, JSON.stringify(schedule.approvedContextGrants),
+     schedule.principal, schedule.createdBy, schedule.nextRunAt || null, schedule.createdAt]
   );
   return mapSchedule(result.rows[0]);
 }
@@ -245,19 +247,36 @@ export async function updateWorkflowScheduleRecord(
     status,
     cron,
     timezone,
-    inputDefaults: patch.inputDefaults || current.inputDefaults,
+    controlMessage: patch.controlMessage !== undefined ? patch.controlMessage : current.controlMessage,
     approvedContextGrants: patch.approvedContextGrants ? [...new Set(patch.approvedContextGrants)] : current.approvedContextGrants,
+    principal: patch.principal ? { ...patch.principal } : current.principal,
     updatedBy: { userId: actorUserId },
     updatedAt: nowIso(now),
     nextRunAt: status === 'enabled' ? computeNextWorkflowScheduleRunAt(cron, now, timezone) : undefined
   };
   const result = await db.query<ScheduleRow>(
     `UPDATE workflow_schedules SET workflow_id=$2,workflow_version=$3,name=$4,status=$5,cron=$6,timezone=$7,
-      input_defaults=$8,approved_context_grants=$9,updated_by=$10,next_run_at=$11,updated_at=$12
+      control_message=$8,approved_context_grants=$9,principal=$10,updated_by=$11,next_run_at=$12,updated_at=$13
      WHERE id=$1 RETURNING *`,
     [scheduleId, updated.workflowId, updated.workflowVersion, updated.name, updated.status, updated.cron,
-     updated.timezone, updated.inputDefaults, JSON.stringify(updated.approvedContextGrants), updated.updatedBy,
+     updated.timezone, updated.controlMessage, JSON.stringify(updated.approvedContextGrants), updated.principal, updated.updatedBy,
      updated.nextRunAt || null, updated.updatedAt]
+  );
+  return result.rowCount ? mapSchedule(result.rows[0]) : null;
+}
+
+export async function pauseWorkflowScheduleForConfigurationChange(
+  scheduleId: string,
+  error: string,
+  actorUserId: string,
+  now = new Date()
+): Promise<WorkflowScheduleRecord | null> {
+  const result = await db.query<ScheduleRow>(
+    `UPDATE workflow_schedules
+     SET status='paused',last_status='auto_paused',last_error=$2,next_run_at=NULL,
+       lease_owner=NULL,lease_expires_at=NULL,updated_by=$3,updated_at=$4
+     WHERE id=$1 AND status='enabled' RETURNING *`,
+    [scheduleId, error, { userId: actorUserId }, nowIso(now)]
   );
   return result.rowCount ? mapSchedule(result.rows[0]) : null;
 }

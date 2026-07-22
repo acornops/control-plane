@@ -281,8 +281,8 @@ x-acornops-external-user-id: {externalUserId}
 External integrations only receive workflows that:
 
 - are `active`.
-- use `policy.mode: "read_only"`.
-- have no `policy.approvalRequirements` and no `steps[].approvalRequired`.
+- use `capabilityPolicy.mode: "read_only"`.
+- have no `capabilityPolicy.approvalRequirements`.
 - are permitted by the linked user role, registered client allowlist, and
   user-approved workspace grant.
 
@@ -303,8 +303,8 @@ Content-Type: application/json
 ```
 
 `approvedContextGrants` must exactly match the workflow context required for
-the run: take the unique union of `steps[].contextGrants` from the selected
-workflow definition. Missing grants return `WORKFLOW_CONTEXT_GRANT_DENIED`.
+the run: use `capabilityPolicy.contextGrants` from the selected workflow
+definition. Missing grants return `WORKFLOW_CONTEXT_GRANT_DENIED`.
 Unknown extra grants return `WORKFLOW_CONTEXT_GRANT_UNKNOWN`.
 
 Post the launch message to create the run:
@@ -318,11 +318,15 @@ Content-Type: application/json
 
 ```json
 {
-  "workspaceId": "workspace-id",
-  "content": "Triage the selected cluster. Start by showing the compiled read scope.",
-  "inputs": {}
+  "content": "Triage @target[Production Cluster]. Start by showing the compiled read scope.",
+  "clientRequestId": "mattermost-post-id"
 }
 ```
+
+Workflow V2 resolves typed prompt references such as `@target[...]` when the
+message is launched. The message body accepts only `content` and the optional
+idempotency key `clientRequestId`; target IDs, target types, and arbitrary input
+objects are not accepted.
 
 Response:
 
@@ -331,6 +335,7 @@ Response:
   "message_id": "workflow-message-id",
   "run_id": "run-id",
   "workflow_run_id": "workflow-run-id",
+  "executionId": "workflow-execution-id",
   "status": "queued",
   "compiledAccessScope": {}
 }

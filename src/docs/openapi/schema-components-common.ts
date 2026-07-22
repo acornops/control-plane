@@ -81,6 +81,73 @@ export function buildCommonSchemas(): Record<string, JsonSchema> {
         }
       }
     },
+    McpReadinessFailure: {
+      type: 'object',
+      required: ['serverId', 'toolName', 'code'],
+      properties: {
+        serverId: { type: 'string', maxLength: 256 },
+        toolName: { type: 'string', maxLength: 256 },
+        code: {
+          type: 'string',
+          enum: [
+            'MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED',
+            'MCP_CONNECTION_MISSING',
+            'MCP_CONNECTION_ERROR',
+            'MCP_CREDENTIAL_TOOL_UNAVAILABLE',
+            'MCP_INSTALLATION_UNAVAILABLE',
+            'MCP_REMOTE_DISABLED'
+          ]
+        },
+        action: {
+          type: 'string',
+          enum: ['connect_mcp_server', 'verify_mcp_server']
+        }
+      },
+      additionalProperties: false,
+      description: 'Bounded MCP readiness metadata. Credential, identity, header, URL, and connection snapshot fields are never included.'
+    },
+    McpReadinessErrorResponse: {
+      type: 'object',
+      required: ['error'],
+      properties: {
+        error: {
+          type: 'object',
+          required: ['code', 'message', 'retryable', 'details'],
+          properties: {
+            code: {
+              type: 'string',
+              enum: [
+                'MCP_CONNECTION_REQUIRED',
+                'MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED',
+                'MCP_INSTALLATION_UNAVAILABLE',
+                'MCP_REMOTE_DISABLED'
+              ]
+            },
+            message: { type: 'string' },
+            retryable: { type: 'boolean', enum: [false] },
+            details: {
+              type: 'object',
+              required: ['readinessFailures'],
+              properties: {
+                readinessFailures: {
+                  type: 'array',
+                  maxItems: 20,
+                  items: schemaRef('McpReadinessFailure')
+                },
+                action: {
+                  type: 'string',
+                  enum: ['connect_mcp_server', 'verify_mcp_server'],
+                  description: 'Compatibility shortcut for the first failure action.'
+                }
+              },
+              additionalProperties: false
+            }
+          },
+          additionalProperties: false
+        }
+      },
+      additionalProperties: false
+    },
     GenericSuccess: {
       type: 'object',
       properties: {
@@ -90,6 +157,16 @@ export function buildCommonSchemas(): Record<string, JsonSchema> {
         resendAfterSeconds: { type: 'integer' }
       },
       additionalProperties: true
+    },
+    AuthLogoutResponse: {
+      type: 'object',
+      required: ['status', 'mode', 'redirectPath'],
+      properties: {
+        status: { const: 'ok' },
+        mode: { type: 'string', enum: ['oidc', 'local'] },
+        redirectPath: { type: 'string', pattern: '^/' }
+      },
+      additionalProperties: false
     },
     User: userSchema
   };

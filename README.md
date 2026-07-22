@@ -112,11 +112,13 @@ When enabled, execution-engine and llm-gateway are started in reload/watch mode 
 Default local run bootstrap is configured to `LLM_DEFAULT_PROVIDER=openai` and
 `LLM_DEFAULT_MODEL=gpt-5.5` (override via env if needed).
 Agentic tool-loop guardrails are configurable via env:
-`AGENT_SYSTEM_INSTRUCTION`, `AGENT_CONTEXT_MAX_TOKENS` (default `120000`),
-`AGENT_BUDGET_CENTS` (default `25`), `AGENT_LLM_TEMPERATURE` (default `0.2`),
-`AGENT_MAX_RUNTIME_MS` (default `600000`), `AGENT_MAX_STEPS` (default `16`),
-`AGENT_MAX_TOOL_CALLS` (default `24`), `AGENT_MAX_DUPLICATE_TOOL_CALLS` (default `2`),
-and `AGENT_TOOL_DEFAULT_TIMEOUT_MS` (default `10000`).
+`ASSISTANT_CONTEXT_MAX_TOKENS` (default `120000`),
+`ASSISTANT_BUDGET_CENTS` (default `25`), `ASSISTANT_LLM_TEMPERATURE` (default `0.2`),
+`ASSISTANT_MAX_RUNTIME_MS` (default `600000`), `ASSISTANT_MAX_STEPS` (default `16`),
+`ASSISTANT_MAX_TOOL_CALLS` (default `24`), `ASSISTANT_MAX_DUPLICATE_TOOL_CALLS` (default `2`),
+and `ASSISTANT_TOOL_DEFAULT_TIMEOUT_MS` (default `10000`).
+Target chat instructions come from the registered target-adapter contract;
+workflow and standalone Agent instructions come from their pinned Agent version.
 
 ## Start Local Control Plane (Standalone)
 
@@ -189,21 +191,24 @@ The control plane uses durable state:
 This mirrors production topology expectations: identity provider, durable data stores, and separated service boundaries.
 The control-plane schema is managed by versioned SQL migrations. Use `npm run db:status` to inspect migration state and `npm run db:migrate` to apply migrations when running outside Compose. Operational details live in [`docs/database-migrations.md`](docs/database-migrations.md).
 
-Development seeding is enabled in compose (`SEED_DEVELOPMENT_DATA=true`) to provide deterministic UUIDv4 defaults for integration smoke tests:
+Starter automation is workspace provisioning, not development data. Every new workspace atomically receives the two current automatic specialist Agents, their two active workflows, and a completed version-4 starter installation marker. Opt-in templates are installed explicitly. No startup backfill repairs pre-existing workspaces, and the marker remains after users delete visible starter definitions so deleted content is not recreated.
 
-- workspace: `4b930d98-add9-4924-ab26-3c16d96ec373` (`Demo Workspace`)
-- cluster: `5b006e4c-509c-458a-9f02-5aafbdc01ade` (`Demo Cluster`)
+Development target seeding is enabled by default for local development:
+
+- workspace: `4b930d98-add9-4924-ab26-3c16d96ec373` (`Development Workspace`)
+- cluster: `5b006e4c-509c-458a-9f02-5aafbdc01ade` (`Development Cluster`)
+- VM: `9254df42-4d9b-4e63-8bb6-93442e7d9a45` (`Development Linux VM`)
 - owner user: `dev@acornops.local / devpass`
-- operator user: `operator@acornops.local / devpass`
 
-The seeded demo workspace grants `owner` to the deterministic local dev user and `operator` to the deterministic local operator user. Normal OIDC or password users do not receive seeded workspace membership on signup or login; they start with no workspaces until they create one or a workspace role with member-management capability adds them.
+The local target fixture creates the owner, workspace, Kubernetes target and settings, Linux VM target, and optional AgentK/AgentV registrations when `SEED_AGENT_KEY` and `SEED_VM_AGENT_KEY` are configured. Its workspace receives the same universal starter automation as every other workspace; the fixture does not create additional Agents or workflows. It does not seed provider credentials, MCP integrations, invitations, or additional users. Normal OIDC or password users do not receive seeded workspace membership on signup or login.
 
-Set it to `false` for strict production-like empty boot. Production startup rejects `SEED_DEVELOPMENT_DATA=true` so demo data cannot be enabled accidentally in a deployed environment.
+Set `SEED_DEVELOPMENT_DATA=false` for an empty local boot. Production startup rejects `SEED_DEVELOPMENT_DATA=true` so development data cannot be enabled accidentally in a deployed environment.
 
 Conversation and run-event defaults:
 
 - `CONVERSATION_RETENTION_DAYS=30`
 - `CONVERSATION_RETENTION_JOB_INTERVAL_SECONDS=3600`
+- `TARGET_CHAT_REPORT_RETENTION_DAYS=30` (bounded 1–365 days)
 - `RUN_EVENT_BUFFER_SIZE=200` (in-memory replay buffer when `PERSIST_RUN_EVENTS=false`)
 - `PERSIST_RUN_EVENTS=false` in local development and `true` in production.
 
@@ -268,7 +273,6 @@ Account auth configuration:
 
 - `SESSION_MAX_AGE_SECONDS=604800` controls the absolute browser session lifetime.
 - `SESSION_IDLE_TIMEOUT_SECONDS=86400` controls the sliding idle timeout; active sessions refresh this window until the absolute max age is reached.
-- `SESSION_TTL_SECONDS` is accepted as a legacy fallback for `SESSION_MAX_AGE_SECONDS` when the newer variable is absent.
 - `PASSWORD_AUTH_ENABLED=true` enables password login endpoints.
 - `PASSWORD_SIGNUP_ENABLED=true` enables self-service signup. Keep this `false` in production unless a reviewed private deployment intentionally allows open signup.
 - `PASSWORD_AUTH_MAX_ATTEMPTS=10` controls failed login attempts per identifier/IP window.
@@ -276,7 +280,10 @@ Account auth configuration:
 - `PASSWORD_AUTH_RATE_LIMIT_WINDOW_SECONDS=900` controls the Redis-backed failed login window.
 - `CSRF_SECRET` signs browser CSRF tokens and must be a generated production secret.
 - `TRUST_PROXY` configures Express trusted proxy handling; set it only for trusted ingress/proxy hops.
-- `OIDC_REQUIRE_VERIFIED_EMAIL=true` rejects OIDC accounts that explicitly report `email_verified=false`.
+- `OIDC_ENABLED=true` enables OIDC routes and advertises SSO to the management console.
+- `OIDC_ADMISSION_POLICY_JSON={}` configures fail-closed verified-email, exact-domain, and required-claim rules. An empty object admits every successfully authenticated OIDC identity.
+- `OIDC_PRELINKED_IDENTITIES_JSON=[]` explicitly reconciles trusted bootstrap mappings containing `subject`, `email`, `displayName`, and `emailVerified`. Duplicate or conflicting mappings fail startup and are never inferred from email.
+- `OIDC_END_SESSION_ENDPOINT_OVERRIDE` and `OIDC_POST_LOGOUT_REDIRECT_URI` configure browser-facing RP-initiated logout when discovery is not directly usable by browsers.
 
 Implementation notes:
 
@@ -284,10 +291,12 @@ Implementation notes:
 - Usernames are normalized to lowercase and must be 3-32 characters of letters, numbers, `_`, `-`, or `.`.
 - Local passwords must be 15-1024 characters and must not match common or account-derived values.
 - Signup rejects an email or username that already exists.
-- OIDC login with a new provider subject and the same email as an existing password-backed user returns `ACCOUNT_LINK_REQUIRED`; the user must sign in with password and connect SSO from account settings.
+- OIDC login with a new provider subject and the same email as any existing user returns `ACCOUNT_LINK_REQUIRED`; email alone never attaches a new OIDC identity to an account.
+- Explicit prelinks are resolved using the configured provider namespace plus subject before serving requests. They are intended for controlled fixtures and operator-managed bootstrap accounts, not general account discovery.
 - OIDC-created users cannot add a local password later.
+- OIDC sessions retain their verified ID token only in Redis so logout can send an `id_token_hint` directly to the provider. Password and development sessions always log out locally.
 - Signup does not create or attach a workspace. New users see no workspaces until they create one or are added to an existing workspace.
-- Password reset and email-based recovery are outside the current control-plane auth surface.
+- Password-backed accounts can use the enumeration-safe email password-reset flow when SMTP delivery is configured.
 
 ## Integration Contracts
 
@@ -303,6 +312,8 @@ skills, and built-in tools:
 - `GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`
 - `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`
 - `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/test-connection`
+- `GET|PUT|DELETE /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/connection`
+- `POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/connection/verify`
 
 Remote MCP server management is target-scoped. Kubernetes clusters and VMs both
 use the target MCP, Skills, and built-in Tools surfaces. The Tools tab contains only
@@ -325,6 +336,9 @@ Mutation policy:
 - roles with `manage_mcp` can update MCP server settings.
 - roles with `manage_tools` can update MCP tool toggles and built-in tool settings.
 - Remote MCP server creation accepts connection details plus optional non-secret public headers; tools are discovered from the server's `tools/list` endpoint and remain disabled until an admin reviews and enables them.
+- Personal-auth MCP installations use one write-only PAT per current user and
+  installation. The installation determines bearer or custom-header formatting;
+  a failed authenticated discovery retains the PAT for retry or replacement.
 - other roles are read-only unless custom role templates grant the relevant capability.
 
 ### execution-engine integration

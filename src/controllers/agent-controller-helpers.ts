@@ -1,11 +1,14 @@
 import { Response } from 'express';
+import type { AuthenticatedRequest } from '../auth/middleware.js';
+import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { getWorkflowOptionsCatalog, listWorkflowDefinitions } from '../store/repository-workflows.js';
 import type { AgentCapability, AgentDefinition, AgentDefinitionResponse, AgentTriggerType } from '../types/agents.js';
 import { TARGET_TYPES, type TargetType } from '../types/domain.js';
+import { repo } from '../store/repository.js';
 
 const AGENT_TRIGGER_TYPES: AgentTriggerType[] = [
   'manual',
-  'workflow_step',
+  'workflow',
   'schedule',
   'webhook',
   'target_event'
@@ -14,9 +17,36 @@ const AGENT_TRIGGER_TYPES: AgentTriggerType[] = [
 const KNOWN_CONTEXT_GRANTS = new Set([
   'workspace_metadata',
   'audit_events',
-  'selected_chat_sessions',
   'target_inventory'
 ]);
+
+export function requireAgentWorkspaceId(req: AuthenticatedRequest, res: Response): string | null {
+  const raw = req.body?.workspaceId || req.query.workspaceId;
+  const workspaceId = typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
+  if (!workspaceId) {
+    res.status(400).json({ error: {
+      code: 'AGENT_WORKSPACE_REQUIRED',
+      message: 'workspaceId is required for workspace-scoped agent routes.',
+      retryable: false
+    } });
+  }
+  return workspaceId;
+}
+
+export async function auditAgentDefinitionMutation(
+  req: AuthenticatedRequest,
+  agent: AgentDefinition,
+  eventType: string,
+  summary: string,
+  metadata: Record<string, unknown> = {}
+): Promise<void> {
+  await recordWorkspaceAuditEvent({
+    workspaceId: agent.workspaceId, category: 'run', eventType, operation: 'write',
+    actorUserId: req.auth.userId, objectType: 'agent', objectId: agent.id,
+    objectName: agent.name, summary,
+    metadata: { agentId: agent.id, agentVersion: agent.version, status: agent.status, ...metadata }
+  });
+}
 
 export function stringList(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
@@ -36,11 +66,11 @@ export function agentPatch(body: Record<string, unknown>): Partial<AgentDefiniti
     description: typeof body.description === 'string' ? body.description : undefined,
     instructions: typeof body.instructions === 'string' ? body.instructions : undefined,
     status: body.status === 'active' || body.status === 'disabled' || body.status === 'draft' ? body.status : undefined,
+    kind: body.kind === 'manager' || body.kind === 'specialist' ? body.kind : undefined,
+    reviewState: body.reviewState === 'draft' || body.reviewState === 'reviewed' ? body.reviewState : undefined,
     providerType: body.providerType === 'internal' || body.providerType === 'external' ? body.providerType : undefined,
     ownerUserId: typeof body.ownerUserId === 'string' ? body.ownerUserId : undefined,
-    mcpServers: stringList(body.mcpServers),
     tools: stringList(body.tools),
-    skills: stringList(body.skills),
     contextGrants: stringList(body.contextGrants),
     approvalPolicy: body.approvalPolicy && typeof body.approvalPolicy === 'object' && !Array.isArray(body.approvalPolicy)
       ? body.approvalPolicy as AgentDefinition['approvalPolicy']
@@ -48,7 +78,14 @@ export function agentPatch(body: Record<string, unknown>): Partial<AgentDefiniti
     trustPolicy: body.trustPolicy && typeof body.trustPolicy === 'object' && !Array.isArray(body.trustPolicy)
       ? body.trustPolicy as AgentDefinition['trustPolicy']
       : undefined,
-    targetScope: normalizeTargetScope(body.targetScope)
+    targetScope: normalizeTargetScope(body.targetScope),
+    permissionMode: body.permissionMode === 'read_only'
+      || body.permissionMode === 'ask_before_changes'
+      || body.permissionMode === 'auto_allowed_changes'
+      ? body.permissionMode
+      : undefined,
+    semanticCapabilityIds: stringList(body.semanticCapabilityIds),
+    delegateAgentIds: stringList(body.delegateAgentIds)
   };
 }
 
@@ -79,13 +116,12 @@ export function normalizeTargetScope(value: unknown): AgentDefinition['targetSco
   if (Array.isArray(value)) {
     const tokens = value.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean);
     const explicitScope = tokens.find((token) => token.startsWith('scope:'))?.slice('scope:'.length);
-    const targetTypes = tokens
+    const targetTypes = (tokens
       .flatMap((token) => {
         if (token.startsWith('target-type:')) return [token.slice('target-type:'.length)];
         if (token.endsWith(':*')) return [token.slice(0, -2)];
         return [];
-      })
-      .filter((targetType): targetType is TargetType => TARGET_TYPES.includes(targetType as TargetType));
+      })) as TargetType[];
     const targetIds = tokens
       .flatMap((token) => {
         if (token.startsWith('target:')) return [token.slice('target:'.length)];
@@ -141,6 +177,16 @@ export async function collectAgentOptionErrors(workspaceId: string, input: Parti
   for (const targetType of input.targetScope?.targetTypes || []) {
     if (!targetTypes.has(targetType)) errors.push(`Unknown target type: ${targetType}`);
   }
+  for (const targetId of input.targetScope?.targetIds || []) {
+    const target = await repo.getTarget(workspaceId, targetId);
+    if (!target) {
+      errors.push(`Unknown target: ${targetId}`);
+      continue;
+    }
+    if (input.targetScope?.targetTypes?.length && !input.targetScope.targetTypes.includes(target.targetType)) {
+      errors.push(`Target ${targetId} is not one of the allowed target types.`);
+    }
+  }
   if (input.trustPolicy && input.trustPolicy.level !== 'restricted' && input.trustPolicy.level !== 'trusted') {
     errors.push('Unknown trust policy level.');
   }
@@ -167,7 +213,7 @@ export function badRequest(res: Response, code: string, message: string, details
 
 export async function workflowsUsingAgent(workspaceId: string, agentId: string): Promise<string[]> {
   return (await listWorkflowDefinitions(workspaceId))
-    .filter((workflow) => workflow.steps.some((step) => (step.agentIds || []).includes(agentId)))
+    .filter((workflow) => workflow.agentIds.includes(agentId))
     .map((workflow) => workflow.name);
 }
 
@@ -207,8 +253,15 @@ function agentCapabilities(agent: AgentDefinition): AgentCapability[] {
 }
 
 export async function agentResponse(agent: AgentDefinition): Promise<AgentDefinitionResponse> {
+  const {
+    delegateAgentIds: _delegateAgentIds,
+    systemRole: _systemRole,
+    kind: _kind,
+    ...publicAgent
+  } = agent;
   return {
-    ...agent,
+    ...publicAgent,
+    kind: 'specialist',
     capabilities: agentCapabilities(agent),
     workflowsUsingAgent: await workflowsUsingAgent(agent.workspaceId, agent.id)
   };

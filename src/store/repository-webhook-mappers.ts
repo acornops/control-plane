@@ -1,5 +1,5 @@
+import type { ExternalWebhookRouteConnection } from '../types/external-webhooks.js';
 import {
-  ExternalWebhookRouteConnection,
   WebhookHistory,
   WebhookHistoryStatus,
   WebhookSubscription

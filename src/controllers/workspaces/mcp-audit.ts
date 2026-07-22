@@ -12,6 +12,7 @@ interface McpServerAuditInput {
     id: string;
     server_name: string;
     enabled: boolean;
+    credential_mode: 'none' | 'workspace' | 'individual';
     tools: unknown[];
   };
 }
@@ -31,6 +32,7 @@ export async function recordMcpServerAudit(input: McpServerAuditInput): Promise<
       targetId: input.targetId,
       targetType: input.targetType,
       enabled: input.server.enabled,
+      credentialMode: input.server.credential_mode,
       toolCount: input.server.tools.length
     }
   });
@@ -52,7 +54,48 @@ export async function recordMcpServerDeletedAudit(
     objectType: 'mcp_server',
     objectId: serverId,
     summary: 'MCP server deleted',
-    metadata: { targetId, targetType }
+    metadata: { targetId, targetType, credentialCleanup: 'completed' }
+  });
+}
+
+export async function recordMcpConnectionCleanupAudit(
+  workspaceId: string,
+  targetId: string,
+  targetType: TargetType,
+  actorUserId: string,
+  serverId: string
+): Promise<void> {
+  await recordWorkspaceAuditEvent({
+    workspaceId,
+    category: 'mcp',
+    eventType: 'mcp.connections_cleanup_completed.v1',
+    operation: 'write',
+    actorUserId,
+    objectType: 'mcp_server',
+    objectId: serverId,
+    summary: 'MCP credentials cleaned up during uninstall',
+    metadata: { targetId, targetType, credentialCleanup: 'completed' }
+  });
+}
+
+export async function recordMcpTrustChangeInvalidationAudit(
+  workspaceId: string,
+  targetId: string,
+  targetType: TargetType,
+  actorUserId: string,
+  serverId: string,
+  changedFields: string[]
+): Promise<void> {
+  await recordWorkspaceAuditEvent({
+    workspaceId,
+    category: 'mcp',
+    eventType: 'mcp.connections_invalidated.v1',
+    operation: 'write',
+    actorUserId,
+    objectType: 'mcp_server',
+    objectId: serverId,
+    summary: 'MCP connections invalidated after trust-boundary change',
+    metadata: { targetId, targetType, changedFields }
   });
 }
 

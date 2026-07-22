@@ -235,8 +235,7 @@ function deriveVmInventory(vm: VirtualMachineTarget, snapshot: VirtualMachineSna
   summary: { inventoryCount: number; findingCount: number; criticalFindingCount: number; summary: Record<string, unknown> };
 } {
   const data = snapshot.data || {};
-  const host = data.host && typeof data.host === 'object' ? data.host as Record<string, unknown> : {};
-  const metrics = data.metrics && typeof data.metrics === 'object' ? data.metrics as Record<string, unknown> : {};
+  const host = data.host_summary && typeof data.host_summary === 'object' ? data.host_summary as Record<string, unknown> : {};
   const resources: TargetInventoryItemInput[] = [];
   function push(category: string, kind: string, name: string, status: string | null, item: Record<string, unknown>, location: string | null = null): void {
     const itemId = `${category}:${kind}:${name}`;
@@ -258,16 +257,18 @@ function deriveVmInventory(vm: VirtualMachineTarget, snapshot: VirtualMachineSna
       item
     });
   }
-  push('host', 'host', text(host.hostname, vm.hostname || vm.name), text(host.distro, 'Linux'), host);
-  for (const disk of array(metrics.disks)) push('storage', 'filesystem', text(disk.mount, 'unknown'), null, disk, text(disk.filesystem) || null);
-  for (const service of array(data.services)) push('services', 'systemd_service', text(service.name, 'unknown'), text(service.activeState, 'unknown'), service);
-  for (const process of array(data.processes).slice(0, 100)) push('processes', 'process', text(process.name, String(process.pid || 'unknown')), null, process, text(process.user) || null);
-  for (const listener of array(data.listeners)) push('network', 'listener', `${text(listener.protocol, 'tcp')}:${String(listener.port || '0')}`, null, listener, text(listener.localAddress) || null);
-  for (const log of array(data.logs).slice(-100)) push('logs', 'log_entry', `${text(log.source, 'log')}:${text(log.timestamp, snapshot.timestamp)}`, null, log, text(log.unit) || null);
+  const distro = host.distro && typeof host.distro === 'object' ? host.distro as Record<string, unknown> : {};
+  push('host', 'host', text(host.hostname, vm.hostname || vm.name), text(distro.pretty_name, 'Linux'), host);
+  for (const disk of array(data.filesystems)) push('storage', 'filesystem', text(disk.mount, 'unknown'), Number(disk.used_percent) >= 90 ? 'pressure' : null, disk, text(disk.filesystem) || null);
+  for (const service of array(data.degraded_services)) push('services', 'systemd_service', text(service.unit, 'unknown'), text(service.active_state, 'unknown'), service);
+  for (const process of array(data.top_processes).slice(0, 100)) push('processes', 'process', text(process.name, String(process.pid || 'unknown')), null, process, text(process.user) || null);
+  for (const listener of array(data.listeners)) push('network', 'listener', `${text(listener.protocol, 'tcp')}:${String(listener.port || '0')}`, null, listener, text(listener.address) || null);
 
   const findings = array(data.findings).map((finding): TargetFindingInput => {
     const severity = normalizeFindingSeverity(finding.severity);
-    const id = text(finding.id) || `${text(finding.objectKind, 'host')}:${text(finding.objectName, vm.name)}:${text(finding.reason, 'finding')}`;
+    const objectName = text(finding.unit, text(finding.mount, vm.name));
+    const reason = text(finding.code, 'finding');
+    const id = `${text(finding.unit ? 'systemd_service' : 'host')}:${objectName}:${reason}`;
     return {
       targetId: vm.id,
       workspaceId: vm.workspaceId,
@@ -277,13 +278,13 @@ function deriveVmInventory(vm: VirtualMachineTarget, snapshot: VirtualMachineSna
       severityRank: findingRank(severity),
       scopeKind: null,
       scopeName: null,
-      objectKind: text(finding.objectKind) || null,
-      objectName: text(finding.objectName) || null,
-      title: text(finding.title, 'VM finding'),
-      message: text(finding.message, 'VM diagnostic finding'),
-      reason: text(finding.reason) || null,
-      findingTs: text(finding.timestamp, snapshot.timestamp),
-      searchText: buildSearchText([finding.title, finding.message, finding.reason, finding.objectKind, finding.objectName])
+      objectKind: finding.unit ? 'systemd_service' : 'host',
+      objectName,
+      title: text(finding.summary, 'VM finding'),
+      message: text(finding.summary, 'VM diagnostic finding'),
+      reason,
+      findingTs: snapshot.timestamp,
+      searchText: buildSearchText([finding.summary, finding.code, finding.unit, finding.mount])
     };
   });
   return {
@@ -297,10 +298,10 @@ function deriveVmInventory(vm: VirtualMachineTarget, snapshot: VirtualMachineSna
         host: host.hostname || vm.hostname || vm.name,
         osFamily: 'linux',
         serviceManager: 'systemd',
-        serviceCount: array(data.services).length,
-        processCount: array(data.processes).length,
+        serviceCount: array(data.degraded_services).length,
+        processCount: array(data.top_processes).length,
         listenerCount: array(data.listeners).length,
-        logCount: array(data.logs).length
+        logCount: 0
       }
     }
   };

@@ -1,4 +1,3 @@
-import { config } from '../config.js';
 import { ToolAccessMode } from '../types/domain.js';
 import { WorkspaceAuthorization } from '../auth/workspace-authorization.js';
 import { WorkspaceCapability } from '../auth/authorization.js';
@@ -21,15 +20,6 @@ export function resolveRunToolAccessMode(
   authz: WorkspaceAuthorization,
   requestedToolAccessMode?: ToolAccessMode
 ): ToolAccessMode {
-  const defaultToolAccessMode: ToolAccessMode = config.SEED_DEVELOPMENT_DATA ? 'read_write' : 'read_only';
-  let toolAccessMode = requestedToolAccessMode || defaultToolAccessMode;
-  if (
-    toolAccessMode === 'read_write'
-    && requestedToolAccessMode === undefined
-    && !authz.can('create_read_write_runs')
-    && authz.can('create_read_only_runs')
-  ) {
-    toolAccessMode = 'read_only';
-  }
-  return toolAccessMode;
+  void authz;
+  return requestedToolAccessMode || 'read_only';
 }

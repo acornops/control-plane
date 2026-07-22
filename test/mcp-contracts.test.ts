@@ -12,10 +12,10 @@ test('MCP server validation accepts top-level public headers', () => {
     },
     auth: {
       type: 'bearer_token',
-      secretValue: 'secret',
       headerName: 'Authorization',
       headerPrefix: 'Bearer '
-    }
+    },
+    credentialMode: 'individual'
   });
 
   assert.equal(parsed.success, true);

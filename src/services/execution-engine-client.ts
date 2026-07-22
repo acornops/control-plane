@@ -8,7 +8,7 @@ import type { AgentActivityRecord } from '../types/agents.js';
 
 export async function dispatchRunToExecutionEngine(run: Run): Promise<void> {
   const payload = {
-    contract_version: 1,
+    contract_version: 2,
     run_id: run.id,
     workspace_id: run.workspaceId,
     target_id: run.targetId,
@@ -47,7 +47,7 @@ export async function dispatchRunToExecutionEngine(run: Run): Promise<void> {
 export async function dispatchWorkflowRunToExecutionEngine(run: WorkflowRunRecord): Promise<void> {
   const agentClaims = workflowRunAgentClaims(run);
   const payload = {
-    contract_version: 1,
+    contract_version: 2,
     scope_type: run.targetId && run.targetType ? 'target' : 'workspace',
     run_id: run.id,
     workspace_id: run.workspaceId,
@@ -57,8 +57,6 @@ export async function dispatchWorkflowRunToExecutionEngine(run: WorkflowRunRecor
     workflow_run_id: run.workflowRunId,
     workflow_execution_id: run.executionId,
     workflow_session_id: run.workflowSessionId,
-    ...(run.workflowStepId ? { workflow_step_id: run.workflowStepId } : {}),
-    step_index: run.stepIndex,
     attempt_number: run.attemptNumber,
     idempotency_key: run.idempotencyKey,
     ...(run.targetId ? { target_id: run.targetId } : {}),
@@ -97,7 +95,7 @@ export async function dispatchWorkflowRunToExecutionEngine(run: WorkflowRunRecor
 
 export async function dispatchAgentRunToExecutionEngine(run: AgentActivityRecord): Promise<void> {
   const payload = {
-    contract_version: 1,
+    contract_version: 2,
     scope_type: 'workspace',
     run_id: run.id,
     workspace_id: run.workspaceId,

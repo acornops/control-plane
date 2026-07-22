@@ -27,6 +27,11 @@
 - Treat external integration `intlink_` link tokens as short-lived bearer secrets. Store them only as hashes, invalidate older pending tokens when a new token is issued for the same external user, never log them, and never return browser cookies or OIDC provider tokens to external integration clients.
 - Treat raw external integration client tokens as operator secrets. Commit only descriptor examples with SHA-256 hashes, never raw client tokens, and never return raw client tokens in API responses or audit metadata.
 - Treat MCP `publicHeaders` as visible non-secret metadata only; credential-like, hop-by-hop, and platform routing headers must be rejected before forwarding to the gateway.
+- Accept individual MCP credentials only on the current user's installation-scoped
+  connection route and workspace-managed credentials only from authorized
+  administrators. Forward them once to the gateway and never place them in
+  logs, response bodies, or audit metadata. Clients cannot select the outbound
+  authentication header; the MCP installation owns that configuration.
 - Treat Agent webhook HMAC secrets as one-time-disclosed credentials. Persist only encrypted secret material, validate the signed raw body and timestamp, and deduplicate durable event IDs before dispatch.
 - Never log Agent or Workflow prompts, chat bodies, tool arguments, webhook payloads, report source, PDF contents, credentials, or continuation state. Audit stable IDs, actors, capability snapshots, decisions, and terminal outcomes.
 

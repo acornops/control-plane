@@ -2,13 +2,12 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { parseAppConfig } from '../src/config.js';
 
-describe('agent transport and session compatibility config', () => {
-  it('uses legacy session TTL as the max age fallback', () => {
+describe('agent transport and session config', () => {
+  it('uses the explicit session max age', () => {
     const config = parseAppConfig({
-      SESSION_TTL_SECONDS: '172800',
+      SESSION_MAX_AGE_SECONDS: '172800',
       SESSION_IDLE_TIMEOUT_SECONDS: '86400'
     });
-    assert.equal(config.SESSION_TTL_SECONDS, 172800);
     assert.equal(config.SESSION_MAX_AGE_SECONDS, 172800);
     assert.equal(config.SESSION_IDLE_TIMEOUT_SECONDS, 86400);
   });

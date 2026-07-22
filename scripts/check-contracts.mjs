@@ -48,29 +48,13 @@ const readme = read('README.md');
 const doc = read('docs/contracts/README.md');
 const manifest = JSON.parse(read('docs/contracts/manifest.json'));
 const manifestText = JSON.stringify(manifest);
-const authRoutes = read('src/routes/auth.ts');
+const canonicalJsonVectors = read('docs/contracts/canonical-json-vectors.json');
+const publicHeaderVectors = read('docs/contracts/mcp-public-header-vectors.json');
 const authController = read('src/controllers/auth-controller.ts');
-const workspaceRouteSources = [read('src/routes/workspaces.ts'), readTree('src/routes/workspaces')].join('\n');
-const expandedWorkspaceRoutes = workspaceRouteSources
-  .replaceAll('router.', 'workspacesRouter.')
-  .replace(/\n\s+'/g, "\n  '");
-const compactWorkspaceRoutes = expandedWorkspaceRoutes
-  .replaceAll("workspacesRouter.get(\n  '", "workspacesRouter.get('")
-  .replaceAll("workspacesRouter.post(\n  '", "workspacesRouter.post('")
-  .replaceAll("workspacesRouter.patch(\n  '", "workspacesRouter.patch('")
-  .replaceAll("workspacesRouter.delete(\n  '", "workspacesRouter.delete('");
-const workspaceRoutes = `${workspaceRouteSources}\n${expandedWorkspaceRoutes}\n${compactWorkspaceRoutes}`;
-const rawWebhookRoutes = read('src/routes/webhooks.ts');
-const compactWebhookRoutes = rawWebhookRoutes
-  .replaceAll("webhooksRouter.get(\n  '", "webhooksRouter.get('")
-  .replaceAll("webhooksRouter.post(\n  '", "webhooksRouter.post('")
-  .replaceAll("webhooksRouter.patch(\n  '", "webhooksRouter.patch('")
-  .replaceAll("webhooksRouter.delete(\n  '", "webhooksRouter.delete('");
-const webhookRoutes = `${rawWebhookRoutes}\n${compactWebhookRoutes}`;
-const sessionRoutes = read('src/routes/sessions.ts');
-const runRoutes = read('src/routes/runs.ts');
-const internalRoutes = read('src/routes/internal-execution.ts');
-const contracts = read('src/types/contracts.ts');
+const contracts = [
+  read('src/types/contracts.ts'),
+  read('src/types/webhook-contracts.ts')
+].join('\n');
 const runEventsContract = read('src/types/run-events-contract.ts');
 const configSource = read('src/config.ts');
 const mcpRegistryClient = read('src/services/mcp-registry-client.ts');
@@ -85,11 +69,43 @@ const internalExecutionBootstrap = read('src/controllers/internal-execution-boot
 const targetRunToolResolution = read('src/services/target-run-tool-resolution.ts');
 const internalMcpBridgeController = read('src/controllers/internal-mcp-bridge-controller.ts');
 const openApi = [read('src/docs/openapi.ts'), readTree('src/docs/openapi')].join('\n');
+const generatedPublicOpenApiPath = process.env.ACORNOPS_GENERATED_PUBLIC_OPENAPI_PATH
+  ? path.resolve(process.env.ACORNOPS_GENERATED_PUBLIC_OPENAPI_PATH)
+  : path.resolve(root, '..', 'docs-website', 'openapi', 'control-plane-public.json');
+const generatedPublicOpenApi = existsSync(generatedPublicOpenApiPath)
+  ? JSON.parse(readFileSync(generatedPublicOpenApiPath, 'utf8'))
+  : null;
 const managementConsoleContract = manifest.counterparts?.['management-console'];
-const externalIntegrationClientContract = manifest.counterparts?.['external-integration-client'];
 const executionEngineContract = manifest.counterparts?.['execution-engine'];
 const llmGatewayContract = manifest.counterparts?.['llm-gateway'];
 const agentContract = manifest.counterparts?.['agentk'];
+
+const gatewayCanonicalVectorsPath = path.resolve(
+  root,
+  '..',
+  'llm-gateway',
+  'docs',
+  'contracts',
+  'canonical-json-vectors.json'
+);
+if (existsSync(gatewayCanonicalVectorsPath)) {
+  expect(
+    readFileSync(gatewayCanonicalVectorsPath, 'utf8') === canonicalJsonVectors,
+    'Control-plane and LLM-gateway canonical JSON vectors must be byte-identical'
+  );
+}
+
+for (const [repoName, vectorsPath] of [
+  ['LLM-gateway', path.resolve(root, '..', 'llm-gateway', 'docs', 'contracts', 'mcp-public-header-vectors.json')],
+  ['management console', path.resolve(root, '..', 'management-console', 'docs', 'contracts', 'mcp-public-header-vectors.json')]
+]) {
+  if (existsSync(vectorsPath)) {
+    expect(
+      readFileSync(vectorsPath, 'utf8') === publicHeaderVectors,
+      `Control-plane and ${repoName} MCP public-header vectors must be byte-identical`
+    );
+  }
+}
 
 expectIncludes(readme, '[`docs/contracts/README.md`](docs/contracts/README.md)', 'README contract link');
 expectIncludes(readme, '[`docs/contracts/manifest.json`](docs/contracts/manifest.json)', 'README manifest link');
@@ -112,30 +128,8 @@ for (const heading of [
   expectIncludes(doc, heading, 'Contract doc heading');
 }
 
-function docToken(value) {
-  return value.replace(/^`|`$/g, '');
-}
-
-function openApiPath(contractPath) {
-  return contractPath
-    .replace(/^[A-Z]+ /, '')
-    .replace(/\?run_id=<runId>$/, '')
-    .replace(/\?return_to=<management-console-url>$/, '')
-    .replace(/\?toolAccessMode=read_only\|read_write$/, '')
-    .replace(/\?workspaceId=\{workspaceId\}$/, '')
-    .replace(/\?token=<external-integration-link-token>$/, '');
-}
-
-function documentedManagementConsolePaths() {
-  const paths = new Set();
-  for (const value of Object.values(managementConsoleContract || {})) {
-    if (!Array.isArray(value)) continue;
-    for (const item of value) {
-      if (typeof item !== 'string' || !/^[A-Z]+ /.test(item)) continue;
-      paths.add(openApiPath(item).split('?')[0]);
-    }
-  }
-  return paths;
+function generatedPublicPaths() {
+  return new Set(Object.keys(generatedPublicOpenApi?.paths || {}));
 }
 
 function templateExpressionPlaceholder(expression) {
@@ -192,7 +186,10 @@ function extractFrontendApiPaths(source, filename) {
     } else if (ts.isTemplateExpression(node)) {
       value = templateExpressionText(node);
     }
-    if (value) {
+    const isComposedPathHelper = ts.isTemplateExpression(node)
+      && ts.isArrowFunction(node.parent)
+      && node.parent.body === node;
+    if (value && !isComposedPathHelper) {
       const apiPath = normalizeFrontendApiPath(value);
       if (apiPath) paths.add(apiPath);
     }
@@ -210,7 +207,11 @@ function checkManagementConsoleSourceApiCoverage() {
   const servicesRoot = path.join(managementConsoleRoot, 'src', 'services');
   if (!existsSync(servicesRoot)) return;
 
-  const documentedPaths = documentedManagementConsolePaths();
+  if (!generatedPublicOpenApi) {
+    console.log('Skipping management-console/OpenAPI route inventory check because docs-website is not checked out.');
+    return;
+  }
+  const documentedPaths = generatedPublicPaths();
   const frontendPaths = new Set();
   for (const filename of readFilesUnder(servicesRoot)) {
     if (!/\.[cm]?[tj]sx?$/.test(filename) || /\.test\.[cm]?[tj]sx?$/.test(filename)) continue;
@@ -223,107 +224,9 @@ function checkManagementConsoleSourceApiCoverage() {
   for (const apiPath of Array.from(frontendPaths).sort()) {
     expect(
       documentedPaths.has(apiPath),
-      `Management-console service API path is missing from control-plane contract manifest: ${apiPath}`
+      `Management-console service API path is missing from generated public OpenAPI: ${apiPath}`
     );
   }
-}
-
-for (const [docPath, routeNeedle, source, label] of [
-  ['`GET /api/v1/auth/oidc/login?return_to=<management-console-url>`', "authRouter.get('/auth/oidc/login'", authRoutes, 'OIDC login route'],
-  ['`GET /api/v1/auth/oidc/callback`', "authRouter.get('/auth/oidc/callback'", authRoutes, 'OIDC callback route'],
-  ['`GET /api/v1/auth/csrf`', "authRouter.get('/auth/csrf'", authRoutes, 'CSRF token route'],
-  ['`POST /api/v1/auth/password/login`', "authRouter.post('/auth/password/login'", authRoutes, 'Password login route'],
-  ['`POST /api/v1/auth/password/signup`', "authRouter.post('/auth/password/signup'", authRoutes, 'Password signup route'],
-  ['`POST /api/v1/auth/logout`', "authRouter.post('/auth/logout'", authRoutes, 'Logout route'],
-  ['`POST /api/v1/auth/external-integrations/link`', "authRouter.post('/auth/external-integrations/link'", authRoutes, 'ExternalIntegration link create route'],
-  ['`POST /api/v1/auth/external-integrations/resolve`', "authRouter.post('/auth/external-integrations/resolve'", authRoutes, 'ExternalIntegration link resolve route'],
-  ['`POST /api/v1/auth/external-integrations/link/preview`', "authRouter.post('/auth/external-integrations/link/preview'", authRoutes, 'ExternalIntegration browser link preview route'],
-  ['`POST /api/v1/auth/external-integrations/link/complete`', "authRouter.post('/auth/external-integrations/link/complete'", authRoutes, 'ExternalIntegration browser link completion route'],
-  ['`GET /api/v1/me`', "authRouter.get('/me'", authRoutes, 'Current-user route'],
-  ['`POST /api/v1/auth/dev-login`', "authRouter.post('/auth/dev-login'", authRoutes, 'Dev-login route'],
-  ['`GET /api/v1/workspaces`', "workspacesRouter.get('/workspaces'", workspaceRoutes, 'List workspaces route'],
-  ['`POST /api/v1/workspaces`', "workspacesRouter.post('/workspaces'", workspaceRoutes, 'Create workspace route'],
-  ['`GET /api/v1/workspaces/{workspaceId}`', "workspacesRouter.get('/workspaces/:workspaceId'", workspaceRoutes, 'Get workspace route'],
-  ['`DELETE /api/v1/workspaces/{workspaceId}`', "workspacesRouter.delete('/workspaces/:workspaceId'", workspaceRoutes, 'Delete workspace route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/members`', "workspacesRouter.get('/workspaces/:workspaceId/members'", workspaceRoutes, 'List workspace members route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/audit-log`', "workspacesRouter.get('/workspaces/:workspaceId/audit-log'", workspaceRoutes, 'List workspace audit log route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/invitations`', "workspacesRouter.get('/workspaces/:workspaceId/invitations'", workspaceRoutes, 'List workspace invitation route'],
-  ['`POST /api/v1/workspaces/{workspaceId}/invitations`', "workspacesRouter.post('/workspaces/:workspaceId/invitations'", workspaceRoutes, 'Create workspace invitation route'],
-  ['`DELETE /api/v1/workspaces/{workspaceId}/invitations/{invitationId}`', "workspacesRouter.delete('/workspaces/:workspaceId/invitations/:invitationId'", workspaceRoutes, 'Revoke workspace invitation route'],
-  ['`GET /api/v1/workspace-invitations/{token}`', "workspacesRouter.get('/workspace-invitations/:token'", workspaceRoutes, 'Get workspace invitation route'],
-  ['`POST /api/v1/workspace-invitations/{token}/accept`', "workspacesRouter.post('/workspace-invitations/:token/accept'", workspaceRoutes, 'Accept workspace invitation route'],
-  ['`POST /api/v1/workspaces/{workspaceId}/members`', "workspacesRouter.post('/workspaces/:workspaceId/members'", workspaceRoutes, 'Add workspace member route'],
-  ['`PATCH /api/v1/workspaces/{workspaceId}/members/{userId}`', "workspacesRouter.patch('/workspaces/:workspaceId/members/:userId'", workspaceRoutes, 'Update workspace member route'],
-  ['`DELETE /api/v1/workspaces/{workspaceId}/members/{userId}`', "workspacesRouter.delete('/workspaces/:workspaceId/members/:userId'", workspaceRoutes, 'Delete workspace member route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters`', "workspacesRouter.get('/workspaces/:workspaceId/kubernetes-clusters'", workspaceRoutes, 'List clusters route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/issues`', "workspacesRouter.get('/workspaces/:workspaceId/issues'", workspaceRoutes, 'List issues route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/issues/{issueId}`', "workspacesRouter.get('/workspaces/:workspaceId/issues/:issueId'", workspaceRoutes, 'Get issue route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/issues/{issueId}/observations`', "'/workspaces/:workspaceId/issues/:issueId/observations'", workspaceRoutes, 'List issue observations route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/issues`', "workspacesRouter.get('/workspaces/:workspaceId/targets/:targetId/issues'", workspaceRoutes, 'List target issues route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}`', "workspacesRouter.get('/workspaces/:workspaceId/kubernetes-clusters/:clusterId'", workspaceRoutes, 'Get cluster route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/resources`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/resources'", workspaceRoutes, 'List cluster resources route'],
-  [
-    '`POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters`',
-    "workspacesRouter.post('/workspaces/:workspaceId/kubernetes-clusters'",
-    workspaceRoutes,
-    'Register cluster route'
-  ],
-  ['`PATCH /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}`', "workspacesRouter.patch('/workspaces/:workspaceId/kubernetes-clusters/:clusterId'", workspaceRoutes, 'Patch cluster route'],
-  ['`DELETE /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}`', "workspacesRouter.delete('/workspaces/:workspaceId/kubernetes-clusters/:clusterId'", workspaceRoutes, 'Delete cluster route'],
-  ['`POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/rotate-agent-key`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/rotate-agent-key'", workspaceRoutes, 'Rotate agent-key route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/pods/{namespace}/{podName}/logs`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/pods/:namespace/:podName/logs'", workspaceRoutes, 'Pod logs route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/catalog`', "'/workspaces/:workspaceId/targets/:targetId/mcp/catalog'", workspaceRoutes, 'Target MCP catalog route'],
-  ['`PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools/{toolName}`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/tools/:toolName'", workspaceRoutes, 'Target MCP tool patch route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools`', "'/workspaces/:workspaceId/targets/:targetId/tools'", workspaceRoutes, 'Target tools route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/assistant/capabilities-preview?toolAccessMode=read_only|read_write`', "'/workspaces/:workspaceId/targets/:targetId/assistant/capabilities-preview'", workspaceRoutes, 'Target assistant capabilities preview route'],
-  ['`PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/tools/{toolId}`', "'/workspaces/:workspaceId/targets/:targetId/tools/:toolId'", workspaceRoutes, 'Target tool settings patch route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`', "workspacesRouter.get('/workspaces/:workspaceId/targets/:targetId/mcp/servers'", workspaceRoutes, 'List target MCP servers route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/tools'", workspaceRoutes, 'List target MCP server tools route'],
-  ['`POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers'", workspaceRoutes, 'Create target MCP server route'],
-  ['`PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId'", workspaceRoutes, 'Patch target MCP server route'],
-  ['`DELETE /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId'", workspaceRoutes, 'Delete target MCP server route'],
-  ['`POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/test-connection`', "'/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/test-connection'", workspaceRoutes, 'Test target MCP server route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills`', "'/workspaces/:workspaceId/targets/:targetId/skills'", workspaceRoutes, 'List target skills route'],
-  ['`POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills`', "'/workspaces/:workspaceId/targets/:targetId/skills'", workspaceRoutes, 'Create target skill route'],
-  ['`POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/import`', "'/workspaces/:workspaceId/targets/:targetId/skills/import'", workspaceRoutes, 'Import target skill route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}`', "'/workspaces/:workspaceId/targets/:targetId/skills/:skillId'", workspaceRoutes, 'Get target skill route'],
-  ['`PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}`', "'/workspaces/:workspaceId/targets/:targetId/skills/:skillId'", workspaceRoutes, 'Patch target skill route'],
-  ['`DELETE /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}`', "'/workspaces/:workspaceId/targets/:targetId/skills/:skillId'", workspaceRoutes, 'Delete target skill route'],
-  ['`POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}/reimport`', "'/workspaces/:workspaceId/targets/:targetId/skills/:skillId/reimport'", workspaceRoutes, 'Reimport target skill route'],
-  ['`POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/sessions`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/sessions'", sessionRoutes, 'Create session route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/sessions`', "'/workspaces/:workspaceId/kubernetes-clusters/:clusterId/sessions'", sessionRoutes, 'List sessions route'],
-  ['`DELETE /api/v1/sessions/{sessionId}`', "sessionsRouter.delete('/sessions/:sessionId'", sessionRoutes, 'Delete session route'],
-  ['`GET /api/v1/sessions/{sessionId}/messages`', "sessionsRouter.get('/sessions/:sessionId/messages'", sessionRoutes, 'List messages route'],
-  ['`POST /api/v1/sessions/{sessionId}/messages`', "sessionsRouter.post('/sessions/:sessionId/messages'", sessionRoutes, 'Post message route'],
-  ['`GET /api/v1/runs/{runId}`', "runsRouter.get('/runs/:runId'", runRoutes, 'Get run route'],
-  ['`GET /api/v1/runs/{runId}/events`', "runsRouter.get('/runs/:runId/events'", runRoutes, 'Run events route'],
-  ['`GET /api/v1/runs/{runId}/tool-result-artifacts/{artifactId}`', "runsRouter.get('/runs/:runId/tool-result-artifacts/:artifactId'", runRoutes, 'Tool result artifact route'],
-  ['`GET /api/v1/runs/{runId}/stream`', "runsRouter.get('/runs/:runId/stream'", runRoutes, 'Run stream route'],
-  ['`GET /api/v1/runs/{runId}/approvals`', "runsRouter.get('/runs/:runId/approvals'", runRoutes, 'Run approvals route'],
-  ['`POST /api/v1/runs/{runId}/approvals/{approvalId}/decision`', "'/runs/:runId/approvals/:approvalId/decision'", runRoutes, 'Run approval decision route'],
-  ['`POST /api/v1/runs/{runId}/cancel`', "runsRouter.post('/runs/:runId/cancel'", runRoutes, 'Run cancel route'],
-  ['`POST /internal/v1/runs/{runId}/bootstrap`', "internalExecutionRouter.post('/runs/:runId/bootstrap'", internalRoutes, 'Bootstrap route'],
-  ['`POST /internal/v1/runs/{runId}/approvals`', "internalExecutionRouter.post(\n  '/runs/:runId/approvals'", internalRoutes, 'Internal create approval route'],
-  ['`GET /internal/v1/runs/{runId}/continuation`', "internalExecutionRouter.get(\n  '/runs/:runId/continuation'", internalRoutes, 'Internal continuation route'],
-  ['`POST /internal/v1/runs/{runId}/approvals/{approvalId}/execution-started`', "'/runs/:runId/approvals/:approvalId/execution-started'", internalRoutes, 'Internal approval execution started route'],
-  ['`POST /internal/v1/runs/{runId}/approvals/{approvalId}/execution-finished`', "'/runs/:runId/approvals/:approvalId/execution-finished'", internalRoutes, 'Internal approval execution finished route'],
-  ['`DELETE /internal/v1/runs/{runId}/continuation`', "internalExecutionRouter.delete(\n  '/runs/:runId/continuation'", internalRoutes, 'Internal consume continuation route'],
-  ['`GET /internal/v1/sessions/{sessionId}/context?run_id=<runId>`', "internalExecutionRouter.get('/sessions/:sessionId/context'", internalRoutes, 'Context route'],
-  ['`POST /internal/v1/runs/{runId}/events`', "internalExecutionRouter.post(\n  '/runs/:runId/events'", internalRoutes, 'Run ingest route'],
-  ['`POST /internal/v1/runs/{runId}/tool-result-artifacts`', "internalExecutionRouter.post(\n  '/runs/:runId/tool-result-artifacts'", internalRoutes, 'Tool result artifact ingest route'],
-  ['`POST /internal/v1/runs/{runId}/commit`', "internalExecutionRouter.post(\n  '/runs/:runId/commit'", internalRoutes, 'Run commit route'],
-  ['`POST /internal/v1/mcp/tools/call`', "internalExecutionRouter.post(\n  '/mcp/tools/call'", internalRoutes, 'Builtin MCP call route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/webhooks`', "webhooksRouter.get('/workspaces/:workspaceId/webhooks'", webhookRoutes, 'List webhooks route'],
-  ['`POST /api/v1/workspaces/{workspaceId}/webhooks`', "webhooksRouter.post('/workspaces/:workspaceId/webhooks'", webhookRoutes, 'Create webhook route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/webhooks/{webhookId}`', "webhooksRouter.get('/workspaces/:workspaceId/webhooks/:webhookId'", webhookRoutes, 'Get webhook route'],
-  ['`PATCH /api/v1/workspaces/{workspaceId}/webhooks/{webhookId}`', "webhooksRouter.patch('/workspaces/:workspaceId/webhooks/:webhookId'", webhookRoutes, 'Patch webhook route'],
-  ['`DELETE /api/v1/workspaces/{workspaceId}/webhooks/{webhookId}`', "webhooksRouter.delete('/workspaces/:workspaceId/webhooks/:webhookId'", webhookRoutes, 'Delete webhook route'],
-  ['`GET /api/v1/workspaces/{workspaceId}/webhooks/{webhookId}/history`', "'/workspaces/:workspaceId/webhooks/:webhookId/history'", webhookRoutes, 'Webhook history route'],
-  ['`POST /api/v1/external-integrations/webhook-routes/connect`', "'/external-integrations/webhook-routes/connect'", webhookRoutes, 'External webhook route connect route'],
-  ['`GET /api/v1/external-integrations/webhook-routes/status`', "'/external-integrations/webhook-routes/status'", webhookRoutes, 'External webhook route status route']
-]) {
-  expectIncludes(manifestText, docToken(docPath), `${label} manifest`);
-  expectIncludes(source, routeNeedle, `${label} implementation`);
 }
 
 checkManagementConsoleSourceApiCoverage();
@@ -367,23 +270,6 @@ for (const [functionName, label] of [
   );
 }
 
-for (const contractPath of [
-  ...managementConsoleContract.authPaths,
-  ...managementConsoleContract.workspaceTargetKubernetesClusterPaths,
-  ...managementConsoleContract.workspaceTargetVirtualMachinePaths,
-  ...managementConsoleContract.toolingPaths,
-  ...managementConsoleContract.chatRunPaths,
-  ...managementConsoleContract.plannedWorkflowPaths,
-  ...managementConsoleContract.webhookPaths,
-  ...externalIntegrationClientContract.authPaths,
-  ...externalIntegrationClientContract.webhookRoutePaths,
-  ...executionEngineContract.controlPlanePaths,
-  llmGatewayContract.jwksPath,
-  llmGatewayContract.builtinBridge.callPath
-]) {
-  expectIncludes(openApi, `'${openApiPath(contractPath)}'`, 'OpenAPI path');
-}
-
 for (const eventType of managementConsoleContract.webhookEventTypes) {
   expectIncludes(contracts, eventType, 'Webhook event schema');
 }
@@ -425,7 +311,6 @@ for (const wsNeedle of [
 }
 
 for (const builtinNeedle of [
-  llmGatewayContract.builtinBridge.serverName,
   llmGatewayContract.builtinBridge.serverUrl,
   llmGatewayContract.builtinBridge.authHeader,
   llmGatewayContract.builtinBridge.scopeSource
@@ -440,8 +325,7 @@ for (const builtinNeedle of [
 }
 
 for (const builtinConfigNeedle of [
-  'config.BUILTIN_MCP_SERVER_NAME',
-  'config.BUILTIN_MCP_SERVER_URL'
+  'config.BUILTIN_TARGET_MCP_SERVER_URL'
 ]) {
   expectIncludes(toolSync, builtinConfigNeedle, 'Builtin MCP bridge implementation');
 }
@@ -496,7 +380,17 @@ expectIncludes(
 
 for (const toolName of agentContract.builtinToolNames) {
   expectIncludes(manifestText, toolName, 'AgentK builtin tool manifest');
-  expectIncludes(agentSource, toolName, 'AgentK builtin tool implementation');
+}
+for (const dynamicCatalogNeedle of [
+  'advertisedTools',
+  'const allowedTools = [...new Set(advertisedTools.map((tool) => tool.name))]',
+  'agentGateway.listAgentTools(targetId)'
+]) {
+  expectIncludes(
+    `${agentSource}\n${toolSync}`,
+    dynamicCatalogNeedle,
+    'Target-advertised built-in tool implementation'
+  );
 }
 
 for (const guardNeedle of [

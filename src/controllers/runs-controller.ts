@@ -332,7 +332,6 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
           workflowId: workflowRun.workflowId,
           workflowRunId: workflowRun.workflowRunId,
           workflowSessionId: workflowRun.workflowSessionId,
-          workflowStepId: workflowRun.workflowStepId || null,
           decision: decided.decision || decided.status,
           status: decided.status
         }
