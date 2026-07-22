@@ -6,7 +6,7 @@ import {
   incrementWebhookLeaseRecovery,
   recordWebhookDeliveryAttempt,
   setWebhookQueueMetrics
-} from '../metrics.js';
+} from '../metrics-webhook-delivery.js';
 import { repo } from '../store/repository.js';
 import type { ClaimedWebhookDelivery } from '../store/repository-webhook-outbox.js';
 import { decryptWebhookSecret, signWebhookPayload } from '../utils/crypto.js';
@@ -135,6 +135,7 @@ async function processWebhookDelivery(job: ClaimedWebhookDelivery): Promise<void
     });
     if (response.ok) {
       recordWebhookDeliveryAttempt('succeeded', Date.now() - startedAt);
+      incrementWebhookDeliveryTerminal('succeeded');
       await repo.finishWebhookDeliveryJob({
         job,
         status: 'succeeded',
@@ -146,7 +147,7 @@ async function processWebhookDelivery(job: ClaimedWebhookDelivery): Promise<void
     }
     const retry = retryableStatus(response.status) && canRetry(job);
     recordWebhookDeliveryAttempt(retry ? 'retrying' : 'failed', Date.now() - startedAt);
-    incrementWebhookDeliveryTerminal(retry ? 'retrying' : 'failed');
+    if (!retry) incrementWebhookDeliveryTerminal('failed');
     await repo.finishWebhookDeliveryJob({
       job,
       status: retry ? 'retrying' : 'failed',
@@ -161,7 +162,7 @@ async function processWebhookDelivery(job: ClaimedWebhookDelivery): Promise<void
     const policyFailure = err instanceof WebhookDeliveryPolicyError;
     const retry = !policyFailure && canRetry(job);
     recordWebhookDeliveryAttempt(retry ? 'retrying' : 'failed', Date.now() - startedAt);
-    incrementWebhookDeliveryTerminal(retry ? 'retrying' : 'failed');
+    if (!retry) incrementWebhookDeliveryTerminal('failed');
     await repo.finishWebhookDeliveryJob({
       job,
       status: retry ? 'retrying' : 'failed',
@@ -190,9 +191,12 @@ async function processWithLimits(jobs: ClaimedWebhookDelivery[]): Promise<void> 
     queue.push(job);
     queues.set(key, queue);
   }
-  while ([...queues.values()].some((queue) => queue.length > 0)) {
+  const originQueues = [...queues.values()];
+  let firstOrigin = 0;
+  while (originQueues.some((queue) => queue.length > 0)) {
     const batch: ClaimedWebhookDelivery[] = [];
-    for (const queue of queues.values()) {
+    for (let offset = 0; offset < originQueues.length; offset += 1) {
+      const queue = originQueues[(firstOrigin + offset) % originQueues.length];
       const remaining = config.WEBHOOK_WORKER_CONCURRENCY - batch.length;
       if (remaining <= 0) break;
       batch.push(...queue.splice(
@@ -201,6 +205,7 @@ async function processWithLimits(jobs: ClaimedWebhookDelivery[]): Promise<void> 
       ));
       if (batch.length >= config.WEBHOOK_WORKER_CONCURRENCY) break;
     }
+    firstOrigin = (firstOrigin + 1) % Math.max(1, originQueues.length);
     await Promise.all(batch.map(processWebhookDelivery));
   }
 }

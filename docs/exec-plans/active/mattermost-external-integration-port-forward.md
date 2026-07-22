@@ -90,6 +90,17 @@ Central tracking: acornops/acornops#12.
   list responses to the current paged `{ items }` contract. Corrected the
   generated schema to describe the controller's actual subscription name,
   one-time secret, and history metadata rather than stale legacy field names.
+- 2026-07-22, Wave 3: Ported delivery to a Postgres outbox and leased
+  per-subscription jobs while retaining the current SSRF-safe HTTPS policy and
+  greenfield schema. Worker completion is fenced by lease owner so a stale
+  replica cannot overwrite a reclaimed job. Delivery metrics live in a focused
+  current-architecture module, and retry transitions are not misreported as
+  terminal outcomes.
+- 2026-07-22, Wave 3: Issue created, reopened, and resolved events are enqueued
+  in the same snapshot transaction as their lifecycle changes. Recovering
+  issues pause current-lifecycle alerts; newer lifecycle versions supersede
+  stale jobs. Event payloads match the Mattermost bot's rich-alert fields and
+  remain bounded and deduplicated.
 
 ## Validation Log
 
@@ -108,6 +119,14 @@ Central tracking: acornops/acornops#12.
   validate` then passed 811 tests across 159 suites, SQL/static migration
   checks, authorization, membership, run-event durability, contracts,
   public/admin OpenAPI coverage, repository harness, and the production build.
+- Wave 3 control plane: the durable outbox schema initialized successfully in a
+  fresh isolated PostgreSQL database, and an end-to-end SQL exercise verified
+  enqueue, lease claim, fenced completion, delivery history, and terminal
+  cleanup. Focused worker, stale-lease, lifecycle, metrics, contract, and
+  configuration tests passed. `npm run validate` then passed 818 tests across
+  161 suites, SQL/static migration checks, authorization, membership,
+  run-event durability, contracts, public/admin OpenAPI coverage, repository
+  harness, and the production build.
 - Each wave: run focused external-integration tests, authentication/authorization
   regressions, webhook tests where applicable, migration checks, contract and
   OpenAPI checks, then the complete repository validation.

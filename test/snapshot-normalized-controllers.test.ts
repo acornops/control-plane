@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
-import { getTargetIssueSummary, listTargetIssueObservations, listWorkspaceIssues } from '../src/controllers/workspaces-controller.js';
-import { listClusterResources, listClusters } from '../src/controllers/workspaces/kubernetes-cluster-controller.js';
+import {
+  getTargetIssueSummary,
+  listTargetIssueObservations,
+  listWorkspaceIssues
+} from '../src/controllers/workspaces-controller.js';
+import {
+  listClusterResources,
+  listClusters
+} from '../src/controllers/workspaces/kubernetes-cluster-controller.js';
 import { repo } from '../src/store/repository.js';
 import type { Cluster } from '../src/types/domain.js';
 import { encodeCursor } from '../src/utils/pagination.js';

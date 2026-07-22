@@ -166,6 +166,7 @@ import {
   touchExternalWebhookRouteConnection as touchExternalWebhookRouteConnectionRecord,
   updateWebhookSubscription as updateWebhookSubscriptionRecord
 } from './repository-webhooks.js';
+import * as repositoryWebhookOutbox from './repository-webhook-outbox.js';
 import {
   getTarget as getTargetRecord,
   listTargets as listTargetsRecord,
