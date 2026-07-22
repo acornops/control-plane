@@ -401,14 +401,19 @@ export async function updateCluster(req: AuthenticatedRequest, res: Response, ne
       writeConfirmationRequiredOverride !== (cluster.writeConfirmationRequiredOverride ?? null);
     if (updated && ((requestedName !== undefined && requestedName !== cluster.name) || scopeChanged || writeConfirmationChanged)) {
       if (scopeChanged) {
-        agentGateway
-          .updateNamespaceScope(clusterId, {
-            include: updated.namespaceInclude,
-            exclude: updated.namespaceExclude
-          })
-          .catch((err) => {
-            logger.warn({ err, clusterId }, 'Failed to push namespace scope update to connected agent');
+        try {
+          if (await agentGateway.isAgentConnected(clusterId)) {
+            await agentGateway.updateNamespaceScope(clusterId, {
+              include: updated.namespaceInclude,
+              exclude: updated.namespaceExclude
+            });
+          }
+        } catch (err) {
+          logger.warn({ err, clusterId }, 'Failed to push namespace scope update to connected agent');
+          await agentGateway.disconnectCluster(clusterId, 'Namespace scope update failed; reconnect required').catch((disconnectErr) => {
+            logger.warn({ err: disconnectErr, clusterId }, 'Failed to disconnect agent after namespace scope update failure');
           });
+        }
       }
 
       webhooks.emit({

@@ -120,7 +120,8 @@ function routeCalls(source) {
 }
 
 function isRouteActorMiddleware(candidate) {
-  return /\brequireActor\s*\(\s*\[\s*(?:'externalIntegration'|'user'\s*(?:,\s*'externalIntegration'\s*)?)\]\s*\)/.test(candidate);
+  return /\brequireUser\b/.test(candidate) ||
+    /\brequireActor\s*\(\s*\[\s*'user'\s*(?:,\s*'externalIntegration'\s*)?\]\s*\)/.test(candidate);
 }
 
 const authorization = read('src/auth/authorization.ts');
@@ -180,10 +181,11 @@ assert(authMiddleware.includes('export interface AuthContext'), 'auth middleware
 assert(authMiddleware.includes('auth: AuthContext'), 'AuthenticatedRequest must require auth context');
 assert(authMiddleware.includes('export type ActorKind'), 'auth middleware must expose strict actor kinds');
 assert(authMiddleware.includes("export function requireActor(allowedActors: ActorRequirement): RequestHandler"), 'auth middleware must expose requireActor');
-assert(!authMiddleware.includes('export const requireUser'), 'auth middleware must not export requireUser alias');
-assert(!authMiddleware.includes('export const requireExternalIntegration'), 'auth middleware must not export requireExternalIntegration alias');
-assert(!authMiddleware.includes('export function requireExternalIntegrationClient'), 'auth middleware must not export direct external integration client middleware');
-assert(!authMiddleware.includes('export const requireUserOrExternalIntegration'), 'auth middleware must not export requireUserOrExternalIntegration alias');
+assert(authMiddleware.includes("export const requireUser = requireActor(['user'])"), 'auth middleware must preserve explicit user-session middleware');
+assert(
+  authMiddleware.includes("export const requireExternalIntegrationClient = requireActor(['externalIntegrationClient'])"),
+  'auth middleware must preserve explicit external client middleware'
+);
 assert(!listFiles('src').filter((file) => file.endsWith('.ts')).some((file) => read(file).includes('authUserId')), 'authUserId must not remain in src');
 
 const directAuthzForbidden = [
@@ -309,7 +311,7 @@ assert(
     workspaceController.includes('virtualMachines: canReadWorkspaceData ? workspace.quota.virtualMachines.used : 0'),
   'workspace summaries must redact counts after effective permissions are applied'
 );
-assert(workspaceController.includes("getEffectiveWorkspacePermissions(req, 'owner', ws.id)"), 'created workspace response must use effective permissions');
+assert(workspaceController.includes("const permissions = getWorkspacePermissions('owner')"), 'created workspace response must use owner permissions on the user-only route');
 assert(
   workspaceController.includes('applyWorkspaceSummaryPermissions(createdSummary, permissions)'),
   'created workspace response must apply effective-permission redaction'
@@ -320,21 +322,12 @@ assert(matrixDoc.includes('centralized workspace authorization helpers'), 'autho
 const routeFiles = listFiles('src/routes').filter((file) => file.endsWith('.ts'));
 for (const routeFile of routeFiles) {
   const source = read(routeFile);
-  assert(!/\brequireUser\b/.test(source), `${routeFile} must use requireActor(['user']) instead of requireUser`);
-  assert(
-    !/\brequireExternalIntegrationClient\b/.test(source),
-    `${routeFile} must use requireActor(['externalIntegrationClient']) instead of requireExternalIntegrationClient`
-  );
-  assert(
-    !/\brequireUserOrExternalIntegration\b/.test(source),
-    `${routeFile} must use requireActor(['user', 'externalIntegration']) instead of requireUserOrExternalIntegration`
-  );
   for (const call of routeCalls(source)) {
     const args = splitTopLevelArgs(call);
     args.forEach((arg, index) => {
       if (!arg.includes('authed(')) return;
       const actorMiddleware = args.slice(0, index).find(isRouteActorMiddleware);
-      assert(actorMiddleware, `${routeFile} has authed(...) route handler without earlier requireActor middleware`);
+      assert(actorMiddleware, `${routeFile} has authed(...) route handler without earlier user or linked-actor middleware`);
     });
   }
 }

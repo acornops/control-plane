@@ -1,6 +1,6 @@
 import { dateTime, JsonSchema, jsonObject, pageOf, schemaRef, stringArray, uuid } from './schema-types.js';
 import { targetSummarySchema, runSchema, userSchema } from './schema-components-common.js';
-import { externalWebhookRouteSchemas } from './schema-components-webhook-routes.js';
+import { buildTargetMcpWireSchemas } from './schema-components-target-mcp.js';
 
 export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
   return {
@@ -375,10 +375,12 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
     TargetTool: {
       type: 'object',
       properties: {
-        id: { type: 'string', enum: ['web_search', 'target_insights'] },
+        id: { type: 'string' },
         label: { type: 'string' },
         description: { type: 'string' },
         enabled: { type: 'boolean', default: true },
+        toggleable: { type: 'boolean', default: true },
+        origin: { type: 'string', enum: ['target_setting', 'platform_native'] },
         capability: { type: 'string', enum: ['read', 'write'] },
         runtimeKind: { type: 'string', enum: ['provider_native', 'function'] },
         visibility: {
@@ -467,6 +469,9 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         canEditConnection: { type: 'boolean' },
         canToggle: { type: 'boolean' },
         authType: { type: 'string', enum: ['none', 'bearer_token', 'custom_header'] },
+        credentialMode: { type: 'string', enum: ['none', 'workspace', 'individual'] },
+        revision: { type: 'integer', minimum: 1 },
+        provenance: { type: 'object', required: ['sourceId', 'artifactName', 'version', 'digest', 'importedAt'], properties: { sourceId: uuid, artifactName: { type: 'string' }, version: { type: 'string' }, digest: { type: 'string' }, importedAt: dateTime }, additionalProperties: false },
         publicHeaders: { type: 'object', additionalProperties: { type: 'string' } },
         connectionStatus: { type: 'string' },
         lastDiscoveryAt: dateTime,
@@ -485,6 +490,8 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       required: ['name'],
       properties: {
         name: { type: 'string' },
+        serverId: uuid,
+        modelAlias: { type: 'string' },
         description: { type: 'string' },
         capability: { type: 'string', enum: ['read', 'write'] },
         inputSchema: jsonObject,
@@ -495,16 +502,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       additionalProperties: true
     },
     McpToolPage: pageOf('McpTool'),
-    McpTestConnection: {
-      type: 'object',
-      properties: {
-        status: { type: 'string' },
-        connectionStatus: { type: 'string' },
-        tools: { type: 'array', items: schemaRef('McpTool') },
-        error: { type: 'string' }
-      },
-      additionalProperties: true
-    },
+    ...buildTargetMcpWireSchemas(),
     WebhookSubscription: {
       type: 'object',
       required: ['id', 'workspaceId', 'url', 'eventTypes', 'enabled'],

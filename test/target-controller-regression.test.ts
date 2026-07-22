@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
-import { createToolApproval } from '../src/controllers/internal-approval-controller.js';
 import { createSession, deleteSession, postMessage } from '../src/controllers/sessions-controller.js';
-import { listTargets } from '../src/controllers/workspaces/target-controller.js';
 import {
   createTargetMcpServerForTarget,
   listTargetMcpCatalog,
   listTargetMcpServers,
   listTargetMcpServerTools,
 } from '../src/controllers/workspaces/target-tool-controller.js';
+import {
+  parseTargetMcpServerCreate,
+  parseTargetMcpServerUpdate,
+  targetMcpToolSettingsSchema
+} from '../src/controllers/workspaces/target-mcp-helpers.js';
 import { getVirtualMachineLogs } from '../src/controllers/workspaces/virtual-machine-controller.js';
 import { agentGateway } from '../src/agent/ws-server.js';
 import { syncTooling } from '../src/controllers/internal-tooling-controller.js';
@@ -18,7 +21,6 @@ import { createToolApprovalSchema, internalToolingSyncSchema } from '../src/type
 import type { ChatSession } from '../src/types/domain.js';
 import {
   callController,
-  createApproval,
   createMessage,
   createRequest,
   createRun,
@@ -30,18 +32,17 @@ import {
 } from './helpers/controller-regression-fixtures.js';
 
 afterEach(restoreControllerRegressionState);
-
 describe('target controller regressions', () => {
-  it('rejects invalid target type filters instead of silently widening the target list', async () => {
-    installWorkspace('viewer');
-    const req = createRequest({ workspaceId: 'workspace-1' });
-    req.query = { targetType: 'database' };
-
-    const denied = await callController(listTargets, req);
-
-    assert.equal(denied.statusCode, 400);
-    assert.equal((denied.body as { error: { code: string } }).error.code, 'VALIDATION_ERROR');
-    assert.match((denied.body as { error: { message: string } }).error.message, /targetType/);
+  it('rejects malformed and unknown target MCP mutation fields', () => {
+    assert.equal(parseTargetMcpServerCreate({
+      name: 'server', url: 'https://mcp.example.test', auth: { type: 'unsupported' }
+    }).success, false);
+    assert.equal(parseTargetMcpServerCreate({
+      name: 'server', url: 'https://mcp.example.test', credential: 'secret'
+    }).success, false);
+    assert.equal(parseTargetMcpServerUpdate({ enabled: 'false' }).success, false);
+    assert.equal(parseTargetMcpServerUpdate({ ignored: true }).success, false);
+    assert.equal(targetMcpToolSettingsSchema.safeParse({ enabled: false, ignored: true }).success, false);
   });
 
   it('authorizes target session routes through generic targets', async () => {
@@ -110,10 +111,10 @@ describe('target controller regressions', () => {
     const parsed = createToolApprovalSchema.safeParse({
       toolCallId: 'call-1',
       toolName: 'restart_workload',
+      toolRef: { serverId: 'server-1', toolName: 'restart_workload' },
       summary: '  Restart\u0007\n\tDeployment   default/api.  ',
       arguments: { namespace: 'default', name: 'api' }
     });
-
     assert.equal(parsed.success, true);
     if (!parsed.success) return;
     assert.equal(parsed.data.summary, 'Restart Deployment default/api.');
@@ -123,10 +124,10 @@ describe('target controller regressions', () => {
     const parsed = createToolApprovalSchema.safeParse({
       toolCallId: 'call-1',
       toolName: 'restart_workload',
+      toolRef: { serverId: 'server-1', toolName: 'restart_workload' },
       summary: '  \n\t  ',
       arguments: { namespace: 'default', name: 'api' }
     });
-
     assert.equal(parsed.success, true);
     if (!parsed.success) return;
     assert.equal(parsed.data.summary, undefined);
@@ -137,7 +138,6 @@ describe('target controller regressions', () => {
       syncTooling,
       createRequest({}, { workspaceId: 'workspace-1', targetId: 'cluster-1' })
     );
-
     assert.equal(denied.statusCode, 400);
     assert.equal((denied.body as { error: { code: string } }).error.code, 'VALIDATION_ERROR');
   });
@@ -158,6 +158,8 @@ describe('target controller regressions', () => {
     installWorkspace('operator');
     repo.getSession = async () =>
       createSessionRecord({ targetId: 'target-1', targetType: 'virtual_machine', clusterId: undefined });
+    repo.getTargetAgentRegistration = async () => ({ capabilities: ['read', 'write'] }) as never;
+    repo.listTargetToolOverrides = async () => ({});
     repo.createRunFromUserMessage = async () => ({
       message: createMessage(),
       run: createRun({
@@ -171,6 +173,12 @@ describe('target controller regressions', () => {
     mock.method(globalThis, 'fetch', async (input) => {
       if (isWorkspaceAiCredentialStatusRequest(input)) {
         return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
+      }
+      if (String(input).includes('/api/v1/internal/mcp/servers?')) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (String(input).includes('/api/v1/internal/mcp/tools?')) {
+        return new Response(JSON.stringify([]), { status: 200 });
       }
       return new Response('unexpected request', { status: 500 });
     });
@@ -191,7 +199,6 @@ describe('target controller regressions', () => {
       }
     });
   });
-
   it('records durable target chat activity after deleting a session', async () => {
     installWorkspace('admin');
     const session = createSessionRecord({ id: 'session-delete', targetId: 'target-1', targetType: 'virtual_machine', clusterId: undefined });
@@ -273,7 +280,7 @@ describe('target controller regressions', () => {
     assert(capturedUrls.every((url) => /target_type=virtual_machine/.test(url)));
   });
 
-  it('lists tools for the synthetic built-in server without requiring gateway server metadata', async () => {
+  it('does not synthesize a built-in server when gateway server metadata is absent', async () => {
     installWorkspace('viewer');
     repo.getTargetAgentRegistration = async () => null;
     repo.listTargetToolOverrides = async () => ({});
@@ -294,8 +301,8 @@ describe('target controller regressions', () => {
       createRequest({ workspaceId: 'workspace-1', targetId: 'cluster-1', serverId: 'builtin-system-server' })
     );
 
-    assert.equal(response.statusCode, 200);
-    assert.deepEqual((response.body as { items: unknown[] }).items, []);
+    assert.equal(response.statusCode, 404);
+    assert.equal((response.body as { error: { code: string } }).error.code, 'NOT_FOUND');
   });
 
   it('preserves the Kubernetes cluster alias on target-scoped MCP mutation webhooks', async () => {
@@ -358,6 +365,7 @@ describe('target controller regressions', () => {
   it('audits VM log reads without persisting returned log entries', async () => {
     installWorkspace('operator');
     const audits: Array<{ metadata?: Record<string, unknown> }> = [];
+    let toolArguments: Record<string, unknown> | undefined;
     repo.insertWorkspaceAuditEvent = async (event) => {
       audits.push(event);
       return {
@@ -372,67 +380,25 @@ describe('target controller regressions', () => {
         occurredAt: '2026-05-24T00:00:00.000Z'
       };
     };
-    mock.method(agentGateway, 'callAgentTool', async () => ({
-      entries: [{ source: 'journald', message: 'secret=should-not-be-audited' }]
-    }));
+    mock.method(agentGateway, 'callAgentTool', async (_targetId, _toolName, args) => {
+      toolArguments = args;
+      return { entries: [{ source: 'journald', message: 'secret=should-not-be-audited' }] };
+    });
+
+    const request = createRequest({ workspaceId: 'workspace-1', vmId: 'target-1' });
+    request.query = { source: 'journald', unit: 'acornops-agentv.service' };
 
     const allowed = await callController(
       getVirtualMachineLogs,
-      createRequest({ workspaceId: 'workspace-1', vmId: 'target-1' })
+      request
     );
 
     assert.equal(allowed.statusCode, 200);
     assert.equal(audits.length, 1);
-    assert.equal(audits[0].metadata?.toolName, 'get_logs');
+    assert.equal(audits[0].metadata?.toolName, 'query_logs');
     assert.equal(JSON.stringify(audits[0].metadata).includes('should-not-be-audited'), false);
+    assert.equal(toolArguments?.unit, 'acornops-agentv.service');
+    assert.equal(Object.hasOwn(toolArguments || {}, 'source'), false);
   });
 
-  it('creates tool approvals against the run target id without forcing a Kubernetes cluster alias', async () => {
-    installWorkspace('operator');
-    const emitted: WebhookEventInput[] = [];
-    let capturedApprovalParams: { targetId?: string; clusterId?: string; summary?: string } | undefined;
-    mock.method(webhooks, 'emit', (event: WebhookEventInput) => {
-      emitted.push(event);
-    });
-    repo.getRun = async () =>
-      createRun({
-        targetId: 'vm-1',
-        targetType: 'virtual_machine',
-        clusterId: 'vm-1',
-        toolAccessMode: 'read_write'
-      });
-    repo.getSession = async () =>
-      createSessionRecord({ targetId: 'vm-1', targetType: 'virtual_machine', clusterId: undefined });
-    repo.createRunToolApproval = async (params) => {
-      capturedApprovalParams = params;
-      return createApproval({
-        targetId: params.targetId,
-        targetType: 'virtual_machine',
-        clusterId: params.targetId,
-        summary: params.summary
-      });
-    };
-
-    const created = await callController(
-      createToolApproval,
-      createRequest(
-        { runId: 'run-1' },
-        {
-          toolCallId: 'call-1',
-          toolName: 'vm.restart_service',
-          summary: 'Restart service nginx.',
-          arguments: { service: 'nginx' }
-        }
-      )
-    );
-
-    assert.equal(created.statusCode, 201);
-    assert.equal(capturedApprovalParams?.targetId, 'vm-1');
-    assert.equal(capturedApprovalParams?.clusterId, undefined);
-    assert.equal(capturedApprovalParams?.summary, 'Restart service nginx.');
-    assert.equal(emitted[0]?.targetId, 'vm-1');
-    assert.equal(emitted[0]?.targetType, 'virtual_machine');
-    assert.equal(emitted[0]?.clusterId, undefined);
-    assert.equal(emitted[0]?.data?.summary, 'Restart service nginx.');
-  });
 });

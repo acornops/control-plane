@@ -16,6 +16,11 @@ import { recordTargetInsightsAudit } from '../../services/target-insights/audit.
 import { requeuePausedTargetInsightsCheckpoints } from '../../services/target-insights/requeue.js';
 import { targetWebhookScope } from '../../services/target-webhook-scope.js';
 import { webhooks } from '../../services/webhooks.js';
+import {
+  getWorkspaceNativeTool,
+  listWorkspaceNativeToolsForInvocationScope,
+  NativeToolAuthorizationClass
+} from '../../services/workspace-native-tools.js';
 import { repo } from '../../store/repository.js';
 import { TargetType } from '../../types/domain.js';
 import { TargetInsightsToolConfig } from '../../types/target-insights.js';
@@ -31,11 +36,17 @@ interface DomainFiltersConfig extends Record<string, unknown> {
   };
 }
 
+interface PlatformNativeToolConfig extends Record<string, unknown> {
+  authorizationClass: NativeToolAuthorizationClass;
+}
+
 interface TargetNativeToolItem {
-  id: typeof WEB_SEARCH_TOOL_ID | typeof TARGET_INSIGHTS_TOOL_ID;
+  id: string;
   label: string;
   enabled: boolean;
+  toggleable: boolean;
   description: string;
+  origin: 'target_setting' | 'platform_native';
   capability: 'read' | 'write';
   runtimeKind: 'provider_native' | 'function';
   visibility: {
@@ -43,7 +54,7 @@ interface TargetNativeToolItem {
     appearsInRunEnabledTools: boolean;
     appearsInToolCalls: boolean;
   };
-  config: DomainFiltersConfig | TargetInsightsToolConfig;
+  config: DomainFiltersConfig | TargetInsightsToolConfig | PlatformNativeToolConfig;
   readiness?: {
     learningAvailable: boolean;
     learningPausedReason: 'ai_settings_missing' | 'provider_not_allowed' | 'model_not_allowed' | null;
@@ -182,7 +193,9 @@ function buildWebSearchItem(
     id: WEB_SEARCH_TOOL_ID,
     label: 'Web Search',
     enabled: setting?.enabled ?? true,
+    toggleable: true,
     description: 'Allow assistant runs for this target to search the web through the selected LLM provider.',
+    origin: 'target_setting',
     capability: 'read',
     runtimeKind: 'provider_native',
     visibility: {
@@ -206,7 +219,9 @@ function buildTargetInsightsItem(
     id: TARGET_INSIGHTS_TOOL_ID,
     label: 'Insights',
     enabled: setting?.enabled ?? true,
+    toggleable: true,
     description: 'Retrieve and improve target-specific troubleshooting insights for future assistant runs.',
+    origin: 'target_setting',
     capability: 'read',
     runtimeKind: 'function',
     visibility: {
@@ -220,6 +235,33 @@ function buildTargetInsightsItem(
       canEdit
     }
   };
+}
+
+export function buildPlatformNativeTargetToolItems(
+  settingsByToolId: ReadonlyMap<string, { enabled: boolean }> = new Map(),
+  canEdit = false
+): TargetNativeToolItem[] {
+  return listWorkspaceNativeToolsForInvocationScope('target_chat').map((tool) => ({
+    id: tool.id,
+    label: tool.title,
+    enabled: settingsByToolId.get(tool.id)?.enabled ?? true,
+    toggleable: tool.targetToggleable === true,
+    description: tool.targetCatalogDescription || tool.description,
+    origin: 'platform_native',
+    capability: tool.approvalOperation,
+    runtimeKind: 'function',
+    visibility: {
+      appearsInAssistantToolList: true,
+      appearsInRunEnabledTools: true,
+      appearsInToolCalls: true
+    },
+    config: {
+      authorizationClass: tool.authorizationClass
+    },
+    permissions: {
+      canEdit: tool.targetToggleable === true && canEdit
+    }
+  }));
 }
 
 function respondMissingToolsCapability(res: Response): void {
@@ -288,9 +330,13 @@ export async function listTargetTools(
     if (!access) {
       return;
     }
-    const [webSearchSetting, targetInsightsSetting] = await Promise.all([
+    const targetChatNativeTools = listWorkspaceNativeToolsForInvocationScope('target_chat');
+    const [webSearchSetting, targetInsightsSetting, platformNativeSettings] = await Promise.all([
       repo.getTargetToolSetting(targetId, WEB_SEARCH_TOOL_ID),
-      config.TARGET_INSIGHTS_ENABLED ? repo.getTargetToolSetting(targetId, TARGET_INSIGHTS_TOOL_ID) : Promise.resolve(null)
+      config.TARGET_INSIGHTS_ENABLED ? repo.getTargetToolSetting(targetId, TARGET_INSIGHTS_TOOL_ID) : Promise.resolve(null),
+      Promise.all(targetChatNativeTools
+        .filter((tool) => tool.targetToggleable)
+        .map(async (tool) => [tool.id, await repo.getTargetToolSetting(targetId, tool.id)] as const))
     ]);
     const insightsConfig = normalizeTargetInsightsConfig(targetInsightsSetting?.config);
     const items: TargetNativeToolItem[] = [buildWebSearchItem(webSearchSetting, access.authz.can('manage_tools'))];
@@ -298,6 +344,10 @@ export async function listTargetTools(
       const insightsReadiness = await resolveTargetInsightsReadiness(workspaceId, insightsConfig);
       items.push(buildTargetInsightsItem(targetInsightsSetting, insightsReadiness, access.authz.can('manage_target_insights')));
     }
+    const platformNativeSettingsByToolId = new Map(
+      platformNativeSettings.flatMap(([toolId, setting]) => setting ? [[toolId, setting] as const] : [])
+    );
+    items.push(...buildPlatformNativeTargetToolItems(platformNativeSettingsByToolId, access.authz.can('manage_tools')));
     res.status(200).json({
       workspaceId,
       ...targetWebhookScope(targetId, access.target.targetType),
@@ -325,12 +375,20 @@ export async function updateTargetToolSettings(
     if (!access) {
       return;
     }
-    if (toolId !== WEB_SEARCH_TOOL_ID && toolId !== TARGET_INSIGHTS_TOOL_ID) {
+    const platformNativeTool = getWorkspaceNativeTool(toolId);
+    const isToggleablePlatformNativeTool = Boolean(
+      platformNativeTool?.invocationScopes.includes('target_chat') && platformNativeTool.targetToggleable
+    );
+    if (toolId !== WEB_SEARCH_TOOL_ID && toolId !== TARGET_INSIGHTS_TOOL_ID && !isToggleablePlatformNativeTool) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Tool not found', retryable: false } });
       return;
     }
     if (toolId === TARGET_INSIGHTS_TOOL_ID && !config.TARGET_INSIGHTS_ENABLED) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Tool not found', retryable: false } });
+      return;
+    }
+    if (isToggleablePlatformNativeTool && !access.authz.can('manage_tools')) {
+      respondMissingToolsCapability(res);
       return;
     }
     if (toolId === WEB_SEARCH_TOOL_ID && !access.authz.can('manage_tools')) {
@@ -343,6 +401,35 @@ export async function updateTargetToolSettings(
     }
     if (typeof req.body?.enabled !== 'boolean') {
       res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'enabled is required', retryable: false } });
+      return;
+    }
+
+    if (isToggleablePlatformNativeTool && platformNativeTool) {
+      const toolConfig: PlatformNativeToolConfig = {
+        authorizationClass: platformNativeTool.authorizationClass
+      };
+      const setting = await repo.upsertTargetToolSetting(targetId, toolId, req.body.enabled, toolConfig);
+      webhooks.emit({
+        type: 'tool.catalog.changed.v1',
+        workspaceId,
+        ...targetWebhookScope(targetId, access.target.targetType),
+        subject: { type: 'target', id: targetId },
+        data: { reason: 'target_tool_setting_updated', toolId, enabled: req.body.enabled }
+      });
+      await recordNativeToolSettingAudit(
+        workspaceId,
+        targetId,
+        access.target.targetType,
+        req.auth.userId,
+        toolId,
+        req.body.enabled,
+        toolConfig
+      );
+      const updated = buildPlatformNativeTargetToolItems(
+        new Map([[toolId, setting]]),
+        true
+      ).find((tool) => tool.id === toolId);
+      res.status(200).json(updated);
       return;
     }
 

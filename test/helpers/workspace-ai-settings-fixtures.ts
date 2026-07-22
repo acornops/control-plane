@@ -27,6 +27,9 @@ export function installAiCredentialGateway(status: 'configured' | 'missing' | 'd
       }
       return new Response(JSON.stringify(response), { status: 200 });
     }
+    if (url.includes('/api/v1/internal/mcp/servers?') && init?.method === 'GET') {
+      return new Response(JSON.stringify([]), { status: 200 });
+    }
     return new Response('unexpected request', { status: 500 });
   });
 }

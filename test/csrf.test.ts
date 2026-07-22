@@ -116,14 +116,15 @@ describe('csrfProtection', () => {
     assert.equal(res.statusCode, 403);
   });
 
-  it('rejects unauthenticated password auth mutations without a matching token', () => {
+  it('rejects security-sensitive unauthenticated auth mutations without a matching token', () => {
     const paths = [
       '/api/v1/auth/password/login',
       '/api/v1/auth/password/signup',
       '/api/v1/auth/password/verify-email',
       '/api/v1/auth/password/resend-verification',
       '/api/v1/auth/password/forgot',
-      '/api/v1/auth/password/reset'
+      '/api/v1/auth/password/reset',
+      '/api/v1/auth/logout'
     ];
 
     mutableConfig.CORS_ORIGIN = 'https://console.example.com';

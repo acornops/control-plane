@@ -5,12 +5,12 @@ import { handleAgentHandshake } from '../src/agent/handshake.js';
 import { FakeWebSocket, parseLastSent } from './helpers/agent-gateway-fixtures.js';
 
 describe('AgentK handshake contract', () => {
-  it('rejects the legacy k8s_agent type before key lookup', async () => {
+  it('rejects the unsupported k8s_agent type before key lookup', async () => {
     const ws = new FakeWebSocket();
 
     await handleAgentHandshake({
       ws: ws as unknown as WebSocket,
-      requestId: 'legacy-agent-type',
+      requestId: 'unsupported-agent-type',
       params: {
         targetId: 'cluster-1',
         targetType: 'kubernetes',

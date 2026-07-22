@@ -42,6 +42,28 @@ async function withTestServer<T>(run: (baseUrl: string) => Promise<T>): Promise<
 }
 
 describe('internal service routing', () => {
+  it('returns 404 for removed MCP OAuth and service-connection routes', async () => {
+    const connectionBases = [
+      '/api/v1/workspaces/ws-1/targets/target-1/mcp/servers/server-1/connection',
+      '/api/v1/workspaces/ws-1/agents/agent-1/mcp/servers/server-1/connection'
+    ];
+    const removedSuffixes = [
+      '/oauth/start',
+      '/oauth/complete',
+      '/oauth/client-credentials',
+      '/service-connection'
+    ];
+
+    await withTestServer(async (baseUrl) => {
+      for (const connectionBase of connectionBases) {
+        for (const suffix of removedSuffixes) {
+          const response = await fetch(`${baseUrl}${connectionBase}${suffix}`, { method: 'POST' });
+          assert.equal(response.status, 404, `${connectionBase}${suffix}`);
+        }
+      }
+    });
+  });
+
   it('does not mount execution callbacks under the public api prefix', async () => {
     let getRunCalled = false;
     repo.getRun = async () => {
@@ -83,6 +105,7 @@ describe('internal service routing', () => {
       targetId: 'cluster-1',
       targetType: 'kubernetes',
       sessionId: 'session-1',
+      principal: { type: 'user', id: 'user-1' },
       allowedProviders: ['openai'],
       allowedTools: ['get_pods']
     });
@@ -128,6 +151,7 @@ describe('internal service routing', () => {
       targetId: 'cluster-1',
       targetType: 'kubernetes',
       sessionId: 'session-1',
+      principal: { type: 'user', id: 'user-1' },
       allowedProviders: ['openai'],
       allowedTools: ['get_pods']
     });
@@ -141,6 +165,46 @@ describe('internal service routing', () => {
 
       assert.equal(response.status, 401);
       assert.equal(getRunCalled, false);
+    });
+  });
+
+  it('mounts platform-native tool callbacks only on the service-authenticated internal route', async () => {
+    let getRunCalled = false;
+    repo.getRun = async () => {
+      getRunCalled = true;
+      return null;
+    };
+    const headers = {
+      Authorization: `Bearer ${config.ORCH_SERVICE_TOKEN}`,
+      'content-type': 'application/json'
+    };
+    const body = JSON.stringify({ toolCallId: 'call-1', arguments: {} });
+
+    await withTestServer(async (baseUrl) => {
+      const publicResponse = await fetch(
+        `${baseUrl}/api/v1/runs/run-1/native-tools/reports.pdf.generate/call`,
+        { method: 'POST', headers, body }
+      );
+      assert.equal(publicResponse.status, 404);
+      assert.equal(getRunCalled, false);
+
+      const internalResponse = await fetch(
+        `${baseUrl}/internal/v1/runs/run-1/native-tools/reports.pdf.generate/call`,
+        { method: 'POST', headers, body }
+      );
+      assert.equal(internalResponse.status, 404);
+      assert.equal(getRunCalled, true);
+    });
+  });
+
+  it('does not mount the unreleased target-chat response export route', async () => {
+    await withTestServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/v1/runs/run-1/report-artifacts`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}'
+      });
+      assert.equal(response.status, 404);
     });
   });
 

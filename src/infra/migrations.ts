@@ -6,7 +6,6 @@ import { Pool, PoolClient } from 'pg';
 const MIGRATION_TABLE = 'control_plane_schema_migrations';
 const MIGRATION_LOCK_ID = 10_010;
 const DEFAULT_MIGRATIONS_DIR = path.resolve(process.cwd(), 'migrations/control-plane');
-
 export interface Migration {
   version: number;
   name: string;

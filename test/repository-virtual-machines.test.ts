@@ -79,23 +79,18 @@ describe('virtual machine repository reads', () => {
       workspaceId: 'workspace-1',
       timestamp: '2026-05-10T00:00:00.000Z',
       data: {
-        metrics: {
-          loadAverage: [0.1, 0.2, 0.3],
-          cpuUsagePercent: 7.5,
+        host_summary: {
+          load: { one: 0.1, five: 0.2, fifteen: 0.3 },
+          cpu: { usage_percent: 7.5 },
           memory: { totalBytes: 1024, usedBytes: 512 },
-          swap: { totalBytes: 2048, usedBytes: 256 },
-          disks: [{ mountpoint: '/', usedBytes: 128 }]
+          swap: { totalBytes: 2048, usedBytes: 256 }
         },
+        filesystems: [{ mountpoint: '/', usedBytes: 128 }],
         findings: [
           {
-            id: 'finding-1',
             severity: 'error',
-            title: 'Unexpected service state',
-            message: 'Service emitted a non-standard severity.',
-            reason: 'unexpected',
-            objectKind: 'host',
-            objectName: 'vm-1.local',
-            timestamp: '2026-05-10T00:00:00.000Z'
+            code: 'unexpected',
+            summary: 'Service emitted a non-standard severity.'
           }
         ]
       }

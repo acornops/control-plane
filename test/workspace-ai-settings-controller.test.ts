@@ -39,6 +39,25 @@ describe('workspace AI settings controller', () => {
     assert.equal(postMessageSchema.safeParse({ content: '' }).success, false);
   });
 
+  it('accepts bounded unique structured tool and skill references', () => {
+    const parsed = postMessageSchema.safeParse({
+      content: 'diagnose',
+      references: [
+        { kind: 'tool', id: 'mcp__postgres__inspect_cluster' },
+        { kind: 'skill', id: 'd5bd1f0a-9718-47f8-833b-bdd8a71fda20' }
+      ]
+    });
+    assert.equal(parsed.success, true);
+    assert.equal(postMessageSchema.safeParse({
+      content: 'diagnose',
+      references: [{ kind: 'tool', id: 'same' }, { kind: 'tool', id: 'same' }]
+    }).success, false);
+    assert.equal(postMessageSchema.safeParse({
+      content: 'diagnose',
+      references: Array.from({ length: 9 }, (_, index) => ({ kind: 'tool', id: `tool_${index}` }))
+    }).success, false);
+  });
+
   it('returns safe workspace AI settings without credential values or secret names', async () => {
     installWorkspace('viewer');
     installAiCredentialGateway();
@@ -170,7 +189,8 @@ describe('workspace AI settings controller', () => {
       createRequest({ workspaceId: 'workspace-1' })
     );
 
-    assert.equal(response.statusCode, 502);
+    assert.equal(response.statusCode, 503);
+    assert.equal((response.body as { error: { code: string } }).error.code, 'SERVICE_UNAVAILABLE');
     assert.equal(
       (response.body as { error: { message: string } }).error.message,
       'Failed to synchronize AI provider settings with llm-gateway'

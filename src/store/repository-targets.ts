@@ -56,3 +56,14 @@ export async function getTarget(workspaceId: string, targetId: string): Promise<
   if (!result.rowCount) return null;
   return mapTarget(result.rows[0]);
 }
+
+export async function listWorkflowTargetSnapshot(workspaceId: string): Promise<TargetSummary[]> {
+  const result = await db.query<TargetRow>(
+    `SELECT id, workspace_id, target_type, name, status, metadata, created_at, updated_at
+     FROM targets
+     WHERE workspace_id = $1
+     ORDER BY name ASC, id ASC`,
+    [workspaceId]
+  );
+  return result.rows.map(mapTarget);
+}

@@ -47,8 +47,7 @@ function mockRedisForRateLimit(): void {
 }
 
 function mockRedisForSessionRevocation(): void {
-  mock.method(redis, 'smembers', async () => ['session-1', 'session-2']);
-  mock.method(redis, 'del', async (...keys: string[]) => keys.length);
+  mock.method(redis, 'eval', async () => 2);
 }
 
 function genericResetResponse(resendAfterSeconds = config.PASSWORD_RESET_REQUEST_WINDOW_SECONDS): unknown {

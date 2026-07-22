@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
-import { authenticatedHandler, requireActor } from '../src/auth/middleware.js';
+import { authenticatedHandler, requireUser } from '../src/auth/middleware.js';
 import { config } from '../src/config.js';
 import { redis } from '../src/infra/redis.js';
 
-const requireUserActor = requireActor(['user']);
+const iso = (timestamp: number): string => new Date(timestamp).toISOString();
 
 function createResponse() {
   return {
@@ -21,7 +21,9 @@ function createResponse() {
   };
 }
 
-describe("requireActor(['user']) middleware", () => {
+const requireUserActor = requireUser;
+
+describe('requireUser middleware', () => {
   afterEach(() => mock.restoreAll());
 
   it('sets req.auth for a valid session cookie', async () => {
@@ -29,16 +31,18 @@ describe("requireActor(['user']) middleware", () => {
     const refreshedWrites: Array<{ key: string; ttl: number; value: string }> = [];
     mock.method(Date, 'now', () => now);
     mock.method(redis, 'get', async () => JSON.stringify({
+      version: 2,
       id: 'session-1',
       userId: 'user-1',
-      createdAt: now - 60_000,
-      lastSeenAt: now - 60_000,
-      absoluteExpiresAt: now + 7 * 24 * 60 * 60 * 1000,
-      idleExpiresAt: now + 60_000
+      createdAt: iso(now - 60_000),
+      lastSeenAt: iso(now - 60_000),
+      absoluteExpiresAt: iso(now + 7 * 24 * 60 * 60 * 1000),
+      idleExpiresAt: iso(now + 60_000),
+      authMethod: 'password'
     }));
-    mock.method(redis, 'setex', async (key: string, ttl: number, value: string) => {
-      refreshedWrites.push({ key, ttl, value });
-      return 'OK';
+    mock.method(redis, 'eval', async (_script: string, _keyCount: number, key: string, ttl: string, value: string) => {
+      refreshedWrites.push({ key, ttl: Number(ttl), value });
+      return 1;
     });
 
     const req = {
@@ -61,12 +65,14 @@ describe("requireActor(['user']) middleware", () => {
     assert.equal(refreshedWrites[0].key, 'cp:session:session-1');
     assert.equal(refreshedWrites[0].ttl, config.SESSION_IDLE_TIMEOUT_SECONDS);
     assert.deepEqual(JSON.parse(refreshedWrites[0].value), {
+      version: 2,
       id: 'session-1',
       userId: 'user-1',
-      createdAt: now - 60_000,
-      lastSeenAt: now,
-      absoluteExpiresAt: now + 7 * 24 * 60 * 60 * 1000,
-      idleExpiresAt: now + config.SESSION_IDLE_TIMEOUT_SECONDS * 1000
+      createdAt: iso(now - 60_000),
+      lastSeenAt: iso(now),
+      absoluteExpiresAt: iso(now + 7 * 24 * 60 * 60 * 1000),
+      idleExpiresAt: iso(now + config.SESSION_IDLE_TIMEOUT_SECONDS * 1000),
+      authMethod: 'password'
     });
   });
 
@@ -75,16 +81,18 @@ describe("requireActor(['user']) middleware", () => {
     const refreshedWrites: Array<{ ttl: number; value: string }> = [];
     mock.method(Date, 'now', () => now);
     mock.method(redis, 'get', async () => JSON.stringify({
+      version: 2,
       id: 'session-1',
       userId: 'user-1',
-      createdAt: now - 60_000,
-      lastSeenAt: now - 60_000,
-      absoluteExpiresAt: now + 30_000,
-      idleExpiresAt: now + 60_000
+      createdAt: iso(now - 60_000),
+      lastSeenAt: iso(now - 60_000),
+      absoluteExpiresAt: iso(now + 30_000),
+      idleExpiresAt: iso(now + 30_000),
+      authMethod: 'password'
     }));
-    mock.method(redis, 'setex', async (_key: string, ttl: number, value: string) => {
-      refreshedWrites.push({ ttl, value });
-      return 'OK';
+    mock.method(redis, 'eval', async (_script: string, _keyCount: number, _key: string, ttl: string, value: string) => {
+      refreshedWrites.push({ ttl: Number(ttl), value });
+      return 1;
     });
 
     const req = {
@@ -98,15 +106,22 @@ describe("requireActor(['user']) middleware", () => {
 
     assert.equal(res.statusCode, 200);
     assert.equal(refreshedWrites[0].ttl, 30);
-    assert.equal(JSON.parse(refreshedWrites[0].value).idleExpiresAt, now + 30_000);
+    assert.equal(JSON.parse(refreshedWrites[0].value).idleExpiresAt, iso(now + 30_000));
   });
 
-  it('accepts legacy session records until their existing expiry', async () => {
+  it('rejects session records that do not use the current expiry fields', async () => {
+    const deletedKeys: string[] = [];
     mock.method(redis, 'get', async () => JSON.stringify({
+      version: 2,
       id: 'session-1',
       userId: 'user-1',
       expiresAt: Date.now() + 60_000
     }));
+    mock.method(redis, 'del', async (...keys: string[]) => {
+      deletedKeys.push(...keys);
+      return keys.length;
+    });
+    mock.method(redis, 'srem', async () => 1);
 
     const req = {
       cookies: { [config.SESSION_COOKIE_NAME]: 'session-1' }
@@ -119,11 +134,10 @@ describe("requireActor(['user']) middleware", () => {
       nextCalled = true;
     });
 
-    assert.equal(nextCalled, true);
-    assert.deepEqual(req.auth, {
-      userId: 'user-1',
-      credential: { type: 'session', sessionId: 'session-1' }
-    });
+    assert.equal(nextCalled, false);
+    assert.equal(res.statusCode, 401);
+    assert.equal(req.auth, undefined);
+    assert.deepEqual(deletedKeys, ['cp:session:session-1']);
   });
 
   it('returns 401 when the session cookie is missing', async () => {
@@ -149,12 +163,14 @@ describe("requireActor(['user']) middleware", () => {
     const removedSetMembers: Array<[string, string]> = [];
     mock.method(Date, 'now', () => now);
     mock.method(redis, 'get', async () => JSON.stringify({
+      version: 2,
       id: 'session-1',
       userId: 'user-1',
-      createdAt: now - 60_000,
-      lastSeenAt: now - 60_000,
-      absoluteExpiresAt: now + 60_000,
-      idleExpiresAt: now - 1
+      createdAt: iso(now - 60_000),
+      lastSeenAt: iso(now - 60_000),
+      absoluteExpiresAt: iso(now + 60_000),
+      idleExpiresAt: iso(now - 1),
+      authMethod: 'password'
     }));
     mock.method(redis, 'del', async (...keys: string[]) => {
       deletedKeys.push(...keys);
@@ -185,12 +201,14 @@ describe("requireActor(['user']) middleware", () => {
     const removedSetMembers: Array<[string, string]> = [];
     mock.method(Date, 'now', () => now);
     mock.method(redis, 'get', async () => JSON.stringify({
+      version: 2,
       id: 'session-1',
       userId: 'user-1',
-      createdAt: now - config.SESSION_MAX_AGE_SECONDS * 1000,
-      lastSeenAt: now - 60_000,
-      absoluteExpiresAt: now - 1,
-      idleExpiresAt: now + 60_000
+      createdAt: iso(now - config.SESSION_MAX_AGE_SECONDS * 1000),
+      lastSeenAt: iso(now - 60_000),
+      absoluteExpiresAt: iso(now - 1),
+      idleExpiresAt: iso(now + 60_000),
+      authMethod: 'password'
     }));
     mock.method(redis, 'del', async (...keys: string[]) => {
       deletedKeys.push(...keys);
@@ -215,7 +233,7 @@ describe("requireActor(['user']) middleware", () => {
     assert.deepEqual(removedSetMembers, [['cp:user_sessions:user-1', 'session-1']]);
   });
 
-  it('returns 401 and cleans Redis state for an expired legacy session cookie', async () => {
+  it('returns 401 and cleans Redis state for a non-current session cookie', async () => {
     const deletedKeys: string[] = [];
     const removedSetMembers: Array<[string, string]> = [];
     mock.method(redis, 'get', async () => JSON.stringify({
@@ -298,7 +316,7 @@ describe("requireActor(['user']) middleware", () => {
     assert.deepEqual(deletedKeys, ['cp:session:session-1']);
   });
 
-  it('does not accept legacy-shaped records without a valid user id', async () => {
+  it('does not accept non-current records without a valid user id', async () => {
     const deletedKeys: string[] = [];
     mock.method(redis, 'get', async () => JSON.stringify({
       id: 'session-1',

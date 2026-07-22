@@ -6,7 +6,7 @@ export function mapGatewayError(err: LlmGatewayHttpError, options?: { upstreamMe
   status: number;
   body: { error: { code: string; message: string; retryable: boolean } };
 } {
-  if (err.status === 400) {
+  if (err.status === 400 || err.status === 422) {
     return {
       status: 400,
       body: {
@@ -38,6 +38,30 @@ export function mapGatewayError(err: LlmGatewayHttpError, options?: { upstreamMe
           code: 'CONFLICT',
           message: err.message,
           retryable: false
+        }
+      }
+    };
+  }
+  if (err.status === 429) {
+    return {
+      status: 429,
+      body: {
+        error: {
+          code: 'RATE_LIMITED',
+          message: 'Too many MCP connection attempts. Try again later.',
+          retryable: true
+        }
+      }
+    };
+  }
+  if (err.status === 503) {
+    return {
+      status: 503,
+      body: {
+        error: {
+          code: 'SERVICE_UNAVAILABLE',
+          message: options?.upstreamMessage || 'MCP credential service is unavailable',
+          retryable: true
         }
       }
     };

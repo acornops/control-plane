@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isValidWebhookUrl } from '../utils/webhook-url.js';
+import { validateMcpPublicHeaders as enforceMcpPublicHeaderPolicy } from '../services/mcp-public-header-policy.js';
 import { TARGET_TYPES } from './domain.js';
 import { runEventSchema, runEventsBatchSchema } from './run-events-contract.js';
 
@@ -17,7 +17,7 @@ const approvalSummarySchema = z.preprocess(
 );
 
 export const runRequestSchema = z.object({
-  contract_version: z.number().int().default(1),
+  contract_version: z.literal(2),
   run_id: uuidV4Schema,
   workspace_id: uuidV4Schema,
   target_id: uuidV4Schema,
@@ -45,9 +45,18 @@ export const toolResultArtifactCreateSchema = z.object({
   }
 });
 
+export const platformNativeToolCallSchema = z.object({
+  toolCallId: z.string().min(1).max(256),
+  arguments: z.record(z.unknown()).optional().default({})
+}).strict();
+
 export const createToolApprovalSchema = z.object({
   toolCallId: z.string().min(1),
   toolName: z.string().min(1),
+  toolRef: z.object({
+    serverId: z.string().min(1),
+    toolName: z.string().min(1)
+  }).strict(),
   summary: approvalSummarySchema,
   arguments: z.record(z.unknown()).optional().default({}),
   continuation: z.record(z.unknown()).optional()
@@ -90,11 +99,26 @@ export const runCommitSchema = z.object({
   })).max(50).optional()
 });
 
+const assistantReferenceSchema = z.object({
+  kind: z.enum(['tool', 'skill']),
+  id: z.string().trim().min(1).max(256)
+}).strict();
+
 export const postMessageSchema = z.object({
   content: z.string().min(1),
   toolAccessMode: z.enum(['read_only', 'read_write']).optional(),
   clientMessageId: z.string().min(1).max(128).optional(),
-  llm: z.unknown().optional()
+  llm: z.unknown().optional(),
+  references: z.array(assistantReferenceSchema).max(8).optional().default([])
+}).superRefine((value, ctx) => {
+  const seen = new Set<string>();
+  value.references.forEach((reference, index) => {
+    const key = `${reference.kind}:${reference.id}`;
+    if (seen.has(key)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['references', index], message: 'duplicate assistant reference' });
+    }
+    seen.add(key);
+  });
 });
 
 export const createWorkspaceSchema = z.object({
@@ -308,17 +332,6 @@ const reservedHeaderNames = new Set([
   'x-run-id',
   'x-tool-name'
 ]);
-const publicHeaderDeniedNames = new Set([
-  'authorization',
-  'proxy-authorization',
-  'cookie',
-  'set-cookie',
-  'x-api-key',
-  'x-auth-token',
-  'x-access-token'
-]);
-const publicHeaderDeniedPatterns = ['token', 'secret', 'credential', 'api-key', 'apikey'];
-
 function validateHeaderName(name: string, ctx: z.RefinementCtx, path: Array<string | number>): string | null {
   if (name !== name.trim() || name.length === 0) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: 'header name must not be empty or padded' });
@@ -344,45 +357,21 @@ function validateHeaderValue(value: string, ctx: z.RefinementCtx, path: Array<st
   }
 }
 
-function effectiveAuthHeaderPrefix(authType: z.infer<typeof mcpAuthTypeSchema>, headerPrefix: string | undefined): string {
-  if (authType === 'bearer_token') return 'Bearer ';
-  return headerPrefix ?? '';
-}
-
 function validateMcpPublicHeaders(headers: Record<string, string> | undefined, ctx: z.RefinementCtx): void {
-  if (!headers) return;
-  const entries = Object.entries(headers);
-  if (entries.length > 64) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['publicHeaders'], message: 'publicHeaders may include at most 64 headers' });
-    return;
-  }
-  const seen = new Set<string>();
-  for (const [name, value] of entries) {
-    const normalized = validateHeaderName(name, ctx, ['publicHeaders', name]);
-    if (!normalized) continue;
-    if (seen.has(normalized)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['publicHeaders', name],
-        message: 'duplicate exposed header name'
-      });
-    }
-    seen.add(normalized);
-    if (reservedHeaderNames.has(normalized)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['publicHeaders', name], message: 'exposed header is reserved by the platform' });
-    }
-    if (publicHeaderDeniedNames.has(normalized) || publicHeaderDeniedPatterns.some((pattern) => normalized.includes(pattern))) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['publicHeaders', name], message: 'exposed header may not contain credentials' });
-    }
-    validateHeaderValue(value, ctx, ['publicHeaders', name], 'exposed header value');
+  try {
+    enforceMcpPublicHeaderPolicy(headers);
+  } catch (error) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['publicHeaders'],
+      message: error instanceof Error ? error.message : 'publicHeaders are invalid'
+    });
   }
 }
 
 const mcpAuthConfigSchema = z
   .object({
     type: mcpAuthTypeSchema.optional(),
-    secretName: z.string().min(1).optional(),
-    secretValue: z.string().min(1).optional(),
     headerName: z.string().min(1).optional(),
     headerPrefix: z.string().optional()
   })
@@ -404,13 +393,8 @@ function validateMcpAuthConfig(auth: z.infer<typeof mcpAuthConfigSchema>, ctx: z
   if (auth?.headerPrefix !== undefined) {
     validateHeaderValue(auth.headerPrefix, ctx, ['auth', 'headerPrefix'], 'auth.headerPrefix');
   }
-  if (auth?.secretValue !== undefined) {
-    validateHeaderValue(auth.secretValue, ctx, ['auth', 'secretValue'], 'auth.secretValue');
-    validateHeaderValue(`${effectiveAuthHeaderPrefix(authType, auth.headerPrefix)}${auth.secretValue}`, ctx, ['auth', 'secretValue'], 'auth header value');
-  }
-
   if (authType === 'none') {
-    if (auth?.secretName || auth?.secretValue || auth?.headerName || auth?.headerPrefix) {
+    if (auth?.headerName || auth?.headerPrefix) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['auth'],
@@ -418,14 +402,6 @@ function validateMcpAuthConfig(auth: z.infer<typeof mcpAuthConfigSchema>, ctx: z
       });
     }
     return;
-  }
-
-  if (!auth?.secretName && !auth?.secretValue) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['auth'],
-      message: 'auth.secretName or auth.secretValue is required when auth.type is bearer_token or custom_header'
-    });
   }
 
   if (authType === 'custom_header' && !auth?.headerName) {
@@ -442,16 +418,27 @@ export const createMcpServerSchema = z.object({
   url: z.string().url(),
   enabled: z.boolean().optional(),
   publicHeaders: z.record(z.string()).optional(),
+  credentialMode: z.enum(['none', 'workspace', 'individual']).optional(),
   auth: mcpAuthConfigSchema
 }).strict().superRefine((input, ctx) => {
   validateMcpPublicHeaders(input.publicHeaders, ctx);
   validateMcpAuthConfig(input.auth, ctx);
+  const authType = input.auth?.type || 'none';
+  if (authType === 'none' && input.credentialMode && input.credentialMode !== 'none') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['credentialMode'], message: 'credentialMode must be none when authentication is none' });
+  }
+  if (authType !== 'none' && input.credentialMode === 'none') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['credentialMode'], message: 'authenticated MCP servers require workspace or individual credentials' });
+  }
 });
 
 export const updateMcpServerSchema = z.object({
+  url: z.string().url().optional(),
   name: z.string().min(1).optional(),
   enabled: z.boolean().optional(),
   publicHeaders: z.record(z.string()).optional(),
+  credentialMode: z.enum(['none', 'workspace', 'individual']).optional(),
+  expectedRevision: z.number().int().positive().optional(),
   auth: mcpAuthConfigSchema,
   tools: z.array(mcpToolConfigSchema).optional(),
   removeTools: z.array(z.string().min(1)).optional()
@@ -477,63 +464,13 @@ export {
   reimportTargetSkillSchema,
   updateTargetSkillSchema
 } from './target-skill-contracts.js';
-
-export const webhookEventTypes = [
-  'workspace.created.v1',
-  'workspace.deleted.v1',
-  'target.registered.v1',
-  'target.updated.v1',
-  'target.deleted.v1',
-  'target.status_changed.v1',
-  'agent.connected.v1',
-  'agent.disconnected.v1',
-  'agent.capabilities_changed.v1',
-  'agent.key_rotated.v1',
-  'session.created.v1',
-  'session.deleted.v1',
-  'message.received.v1',
-  'run.created.v1',
-  'run.started.v1',
-  'run.completed.v1',
-  'run.failed.v1',
-  'run.cancelled.v1',
-  'run.cancel_requested.v1',
-  'run.tool_approval_requested.v1',
-  'run.tool_approval_decided.v1',
-  'tool.called.v1',
-  'mcp.server.created.v1',
-  'mcp.server.updated.v1',
-  'mcp.server.deleted.v1',
-  'mcp.server.tested.v1',
-  'tool.catalog.changed.v1'
-] as const;
-
-export const webhookEventTypeSchema = z.enum(webhookEventTypes);
-
-const webhookUrlSchema = z.string().url().refine(
-  (value) => isValidWebhookUrl(value),
-  {
-    message: 'webhook URL must use https and must not include credentials'
-  }
-);
-
-export const createWebhookSubscriptionSchema = z.object({
-  name: z.string().min(1).max(120),
-  url: webhookUrlSchema,
-  eventTypes: z.array(webhookEventTypeSchema).min(1),
-  targetId: uuidV4Schema.nullish(),
-  enabled: z.boolean().optional()
-}).strict();
-
-export const updateWebhookSubscriptionSchema = z.object({
-  name: z.string().min(1).max(120).optional(),
-  url: webhookUrlSchema.optional(),
-  eventTypes: z.array(webhookEventTypeSchema).min(1).optional(),
-  targetId: uuidV4Schema.nullable().optional(),
-  enabled: z.boolean().optional()
-}).strict().refine((input) => Object.keys(input).length > 0, {
-  message: 'at least one field is required'
-});
+export {
+  createWebhookSubscriptionSchema,
+  updateWebhookSubscriptionSchema,
+  webhookEventTypes,
+  webhookEventTypeSchema,
+  type WebhookEventType
+} from './webhook-contracts.js';
 
 export const webhookRouteConnectSchema = z.object({
   deliveryUrl: webhookUrlSchema
@@ -543,4 +480,3 @@ export type RunRequest = z.infer<typeof runRequestSchema>;
 export type RunEvent = z.infer<typeof runEventSchema>;
 export type RunEventsBatch = z.infer<typeof runEventsBatchSchema>;
 export type RunCommit = z.infer<typeof runCommitSchema>;
-export type WebhookEventType = z.infer<typeof webhookEventTypeSchema>;
