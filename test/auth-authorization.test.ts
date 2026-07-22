@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  assertExternalIntegrationWorkspaceCapabilities,
   formatScopes,
   groupWorkspaceCapabilities,
   hasEffectiveWorkspaceCapability,
@@ -26,6 +27,21 @@ describe('authorization helpers', () => {
     assert.equal(hasEffectiveWorkspaceCapability('admin', 'manage_targets', narrowToken), false);
     assert.equal(hasEffectiveWorkspaceCapability('admin', 'create_sessions', narrowToken), true);
     assert.equal(hasEffectiveWorkspaceCapability('operator', 'create_read_write_runs', broadToken), false);
+  });
+
+  it('requires session creation when external integrations allow run creation', () => {
+    assert.deepEqual(
+      assertExternalIntegrationWorkspaceCapabilities([
+        'read_workspace_data',
+        'create_sessions',
+        'create_read_write_runs'
+      ]),
+      ['read_workspace_data', 'create_sessions', 'create_read_write_runs']
+    );
+    assert.throws(
+      () => assertExternalIntegrationWorkspaceCapabilities(['read_workspace_data', 'create_read_write_runs']),
+      /create_read_write_runs requires create_sessions/
+    );
   });
 
   it('defines display metadata for every workspace capability', () => {

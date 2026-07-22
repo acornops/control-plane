@@ -638,6 +638,7 @@
       "browserGrantManagement": ["POST /api/v1/auth/external-integrations/link/preview returns grantableWorkspaces[]", "POST /api/v1/auth/external-integrations/link/complete accepts workspaceGrants[]", "PATCH /api/v1/auth/external-integrations/links/{linkId}/grants replaces grants for a signed-in user's link"],
       "linkedBotAuth": "Authorization: Bearer <external integration client token> plus x-acornops-external-user-id: <externalUserId>",
       "linkedBotCapabilities": ["read_workspace_data", "create_sessions", "create_read_only_runs"],
+      "linkedBotOptionalCapabilities": ["create_read_write_runs"],
       "linkedBotAuthorization": "Effective permissions are linked user workspace role ∩ registered client allowedCapabilities/default external allowlist ∩ user-approved workspace grant.",
       "linkedBotPaths": [
         "GET /api/v1/workspaces",
@@ -646,6 +647,10 @@
         "GET /api/v1/workflows/{workflowId}",
         "POST /api/v1/workflows/{workflowId}/sessions",
         "POST /api/v1/workflow-sessions/{sessionId}/messages",
+        "GET /api/v1/workflow-executions/{executionId}",
+        "GET /api/v1/workflow-executions/{executionId}/stream",
+        "GET /api/v1/workflow-reports/{reportId}",
+        "GET /api/v1/workflow-reports/{reportId}/download",
         "GET /api/v1/workspaces/{workspaceId}/issues",
         "GET /api/v1/workspaces/{workspaceId}/issues/{issueId}",
         "GET /api/v1/workspaces/{workspaceId}/issues/{issueId}/observations",
@@ -671,9 +676,13 @@
         "GET /api/v1/runs/{runId}",
         "GET /api/v1/runs/{runId}/events",
         "GET /api/v1/runs/{runId}/stream",
-        "GET /api/v1/runs/{runId}/approvals"
+        "GET /api/v1/runs/{runId}/approvals",
+        "POST /api/v1/runs/{runId}/approvals/{approvalId}/decision"
       ],
-      "linkedBotDeniedCapabilities": ["read_members", "read_audit_log", "manage_targets", "read_target_logs", "create_read_write_runs", "cancel_runs", "delete_sessions"],
+      "linkedBotDeniedCapabilities": ["read_members", "read_audit_log", "manage_targets", "read_target_logs", "cancel_runs", "delete_sessions"],
+      "linkedBotWorkflowPolicy": "Active read-only workflows require create_read_only_runs. Active read-write and approval-gated workflows require create_read_write_runs. External integrations may continue only sessions created by the exact same link and client; every message recompiles current permissions against the pinned Workflow version and requires a new clientRequestId.",
+      "linkedBotWorkflowVisibilityPolicy": "Any linked integration with effective read_workspace_data may inspect the sanitized execution DTO and aggregate replayable execution SSE for any execution in the workspace. Approval decisions, session continuation, and report metadata/downloads remain exact-origin.",
+      "linkedBotApprovalDecisionPolicy": "Requires exact integration link/client execution provenance. Approvals require effective create_read_write_runs; the exact origin may reject with current workspace read access after write permission is removed. Supported records are troubleshooting writes plus Workflow pre-step and runtime tool_write approvals. Browser-created, other-link/client, standalone Agent, scheduled, and system-triggered approvals remain denied.",
       "secretReturnPolicy": "Never returns browser cookies, OIDC access tokens, ID tokens, refresh tokens, or raw link tokens to external integration clients. Link tokens are stored only as hashes."
     },
     "execution-engine": {

@@ -39,6 +39,7 @@ import {
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
 import { closeAutomationDatabaseFixtures, installAutomationTemplateFixtures, resetAutomationDatabaseFixtures } from './helpers/automation-database-fixtures.js';
+import { assertFocusedApprovalInboxFilters } from './helpers/workflow-approval-inbox-assertions.js';
 
 const mutableConfig = config as typeof config & { AUTOMATION_RUNTIME_MODE: 'off' | 'shadow' | 'canary' | 'on' };
 let originalRuntimeMode = config.AUTOMATION_RUNTIME_MODE;
@@ -374,6 +375,8 @@ describe('workflow schedules and approval inbox', () => {
     assert.deepEqual(body.items.map((item) => item.source).sort(), ['target_tool', 'workflow_gate']);
     assert.ok(body.items.some((item) => item.approvalId === workflowApproval.id && item.runId === run.id));
     assert.ok(body.items.some((item) => item.approvalId === targetApproval.id && item.runId === targetRun.id));
+
+    await assertFocusedApprovalInboxFilters({ targetApproval, targetRun, workflowApproval, workflowRun: run });
 
     mock.method(globalThis, 'fetch', async () => new Response(null, { status: 202 }));
     const decided = await callController(decideRunApproval, createRequest(

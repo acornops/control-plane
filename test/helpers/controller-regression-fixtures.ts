@@ -34,6 +34,7 @@ const originals = {
   findRunByClientMessageId: repo.findRunByClientMessageId,
   createRunFromUserMessage: repo.createRunFromUserMessage,
   getRun: repo.getRun,
+  getRunRequestProvenance: repo.getRunRequestProvenance,
   upsertAssistantFinalMessage: repo.upsertAssistantFinalMessage,
   createRunToolApproval: repo.createRunToolApproval,
   getRunToolApproval: repo.getRunToolApproval,
@@ -116,6 +117,7 @@ export function restoreControllerRegressionState(): void {
   repo.findRunByClientMessageId = originals.findRunByClientMessageId;
   repo.createRunFromUserMessage = originals.createRunFromUserMessage;
   repo.getRun = originals.getRun;
+  repo.getRunRequestProvenance = originals.getRunRequestProvenance;
   repo.upsertAssistantFinalMessage = originals.upsertAssistantFinalMessage;
   repo.createRunToolApproval = originals.createRunToolApproval;
   repo.getRunToolApproval = originals.getRunToolApproval;

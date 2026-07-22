@@ -7,6 +7,7 @@ import type { CompiledWorkflowAccessScope, WorkflowDefinitionForAccess } from '.
 import type { PromptResourceBinding } from '../types/prompt-resources.js';
 import { digestBindings, digestPrompt } from '../services/prompt-resources/index.js';
 import { withTransaction } from './repository-transaction.js';
+import type { RunRequestProvenance } from './repository-run-provenance.js';
 
 export interface WorkflowSessionRecord {
   id: string;
@@ -15,6 +16,7 @@ export interface WorkflowSessionRecord {
   workflowVersion: number;
   workflowSnapshot?: WorkflowDefinitionForAccess;
   createdBy: string;
+  requestProvenance: RunRequestProvenance;
   compiledAccessScope: CompiledWorkflowAccessScope;
   createdAt: string;
 }
@@ -82,11 +84,15 @@ export interface WorkflowExecutionRecord {
   triggerId?: string;
   occurrenceKey?: string;
   clientRequestId?: string;
+  requestProvenance: RunRequestProvenance;
   prompt: string;
   promptDigest: string;
   bindingDigest: string;
   resourceBindings: PromptResourceBinding[];
   resolvedAt: string;
+  startedAt?: string;
+  endedAt?: string;
+  errorCode?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -120,11 +126,16 @@ function mapSession(row: Row): WorkflowSessionRecord {
     id: row.id, workflowId: row.workflow_id, workspaceId: row.workspace_id,
     workflowVersion: row.workflow_version, createdBy: row.created_by,
     workflowSnapshot: row.workflow_snapshot || undefined,
+    requestProvenance: {
+      actorType: row.request_actor_type || 'user',
+      ...(row.request_external_integration_link_id ? { externalIntegrationLinkId: row.request_external_integration_link_id } : {}),
+      ...(row.request_external_integration_client_id ? { externalIntegrationClientId: row.request_external_integration_client_id } : {})
+    },
     compiledAccessScope: row.compiled_access_scope, createdAt: iso(row.created_at)!
   };
 }
 
-function mapMessage(row: Row): WorkflowMessageRecord {
+export function mapMessage(row: Row): WorkflowMessageRecord {
   return {
     id: row.id, sessionId: row.session_id, workspaceId: row.workspace_id,
     workflowId: row.workflow_id, role: row.role, content: row.content,
@@ -132,7 +143,7 @@ function mapMessage(row: Row): WorkflowMessageRecord {
   };
 }
 
-function mapRun(row: Row, events?: RunEvent[]): WorkflowRunRecord {
+export function mapRun(row: Row, events?: RunEvent[]): WorkflowRunRecord {
   return {
     id: row.id, workflowRunId: row.workflow_run_id, executionId: row.execution_id,
     workspaceId: row.workspace_id, workflowId: row.workflow_id,
@@ -181,14 +192,18 @@ export async function createWorkflowSession(params: {
   workflow: WorkflowDefinitionForAccess;
   createdBy: string;
   compiledAccessScope: CompiledWorkflowAccessScope;
+  requestProvenance?: RunRequestProvenance;
   sessionId?: string;
 }): Promise<WorkflowSessionRecord> {
+  const provenance = params.requestProvenance || { actorType: 'user' };
   const result = await db.query<Row>(
     `INSERT INTO workflow_sessions (
-       id,workspace_id,workflow_id,workflow_version,created_by,compiled_access_scope,workflow_snapshot
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+       id,workspace_id,workflow_id,workflow_version,created_by,compiled_access_scope,workflow_snapshot,
+       request_actor_type,request_external_integration_link_id,request_external_integration_client_id
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
     [params.sessionId || randomUUID(), params.workflow.workspaceId, params.workflow.id, params.workflow.version,
-     params.createdBy, params.compiledAccessScope, params.workflow]
+     params.createdBy, params.compiledAccessScope, params.workflow, provenance.actorType,
+     provenance.externalIntegrationLinkId || null, provenance.externalIntegrationClientId || null]
   );
   return mapSession(result.rows[0]);
 }
@@ -295,6 +310,8 @@ export async function createWorkflowRun(params: {
 export async function createWorkflowExecution(params: {
   workflow: WorkflowDefinitionForAccess;
   session: WorkflowSessionRecord;
+  compiledAccessScope?: CompiledWorkflowAccessScope;
+  requestProvenance?: RunRequestProvenance;
   content: string;
   messageId?: string;
   triggerType?: string;
@@ -314,11 +331,13 @@ export async function createWorkflowExecution(params: {
   llmReasoningEffort?: WorkflowRunRecord['llmReasoningEffort'];
 }): Promise<{ execution: WorkflowExecutionRecord; message: WorkflowMessageRecord; run: WorkflowRunRecord }> {
   return withTransaction(async (client) => {
+    const compiledAccessScope = params.compiledAccessScope || params.session.compiledAccessScope;
+    const provenance = params.requestProvenance || { actorType: 'user' };
     const executionId = randomUUID();
     const messageId = params.messageId || randomUUID();
-    const agentId = params.session.compiledAccessScope.entryAgent.id;
-    const agentVersion = params.session.compiledAccessScope.entryAgent.version;
-    const approvalGates = params.session.compiledAccessScope.approvalGates;
+    const agentId = compiledAccessScope.entryAgent.id;
+    const agentVersion = compiledAccessScope.entryAgent.version;
+    const approvalGates = compiledAccessScope.approvalGates;
     const messageResult = await client.query<Row>(
       `INSERT INTO workflow_messages (id,session_id,workspace_id,workflow_id,role,content)
        VALUES ($1,$2,$3,$4,'user',$5) RETURNING *`,
@@ -328,14 +347,16 @@ export async function createWorkflowExecution(params: {
       `INSERT INTO workflow_executions (
         id,workspace_id,workflow_id,workflow_version,workflow_session_id,message_id,created_by,trigger_type,
         trigger_id,occurrence_key,client_request_id,status,workflow_snapshot,approved_context_grants,
-        prompt_text,prompt_digest,binding_digest,resource_bindings,resolved_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+        prompt_text,prompt_digest,binding_digest,resource_bindings,resolved_at,
+        request_actor_type,request_external_integration_link_id,request_external_integration_client_id
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
       [executionId, params.workflow.workspaceId, params.workflow.id, params.workflow.version, params.session.id,
        messageId, params.session.createdBy, params.triggerType || 'manual', params.triggerId || null,
        params.occurrenceKey || null, params.clientRequestId || null,
        approvalGates.length ? 'waiting_for_approval' : 'queued', params.workflow,
-       JSON.stringify(params.session.compiledAccessScope.contextGrants), params.content, params.promptDigest,
-       params.bindingDigest, JSON.stringify(params.resourceBindings), params.resolvedAt]
+       JSON.stringify(compiledAccessScope.contextGrants), params.content, params.promptDigest,
+       params.bindingDigest, JSON.stringify(params.resourceBindings), params.resolvedAt, provenance.actorType,
+       provenance.externalIntegrationLinkId || null, provenance.externalIntegrationClientId || null]
     );
     const runId = randomUUID();
     const idempotencyKey = `${executionId}:${params.promptDigest}:${params.bindingDigest}:entry:1`;
@@ -349,7 +370,7 @@ export async function createWorkflowExecution(params: {
       [runId, executionId, params.workflow.workspaceId, params.workflow.id, params.session.id,
        agentId, agentVersion, params.agentSnapshot || null, params.targetId || null, params.targetType || null,
        idempotencyKey, messageId, params.session.createdBy,
-       approvalGates.length ? 'waiting_for_approval' : 'queued', params.session.compiledAccessScope,
+       approvalGates.length ? 'waiting_for_approval' : 'queued', compiledAccessScope,
        params.llmProvider || null, params.llmModel || null,
        params.llmReasoningSummaryMode || null, params.llmReasoningEffort || null,
        params.content, params.promptDigest, params.bindingDigest, JSON.stringify(params.resourceBindings), params.resolvedAt]
@@ -373,6 +394,11 @@ export async function createWorkflowExecution(params: {
         triggerType: row.trigger_type,
         triggerId: row.trigger_id || undefined, occurrenceKey: row.occurrence_key || undefined,
         clientRequestId: row.client_request_id || undefined,
+        requestProvenance: {
+          actorType: row.request_actor_type || 'user',
+          ...(row.request_external_integration_link_id ? { externalIntegrationLinkId: row.request_external_integration_link_id } : {}),
+          ...(row.request_external_integration_client_id ? { externalIntegrationClientId: row.request_external_integration_client_id } : {})
+        },
         prompt: row.prompt_text || '', promptDigest: row.prompt_digest || '', bindingDigest: row.binding_digest || '',
         resourceBindings: row.resource_bindings || [], resolvedAt: iso(row.resolved_at) || iso(row.created_at)!,
         createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)!
@@ -386,6 +412,14 @@ export async function getWorkflowRun(runId: string): Promise<WorkflowRunRecord |
   const result = await db.query<Row>('SELECT * FROM workflow_runs WHERE id=$1', [runId]);
   if (!result.rowCount) return null;
   return mapRun(result.rows[0], await loadRunEvents(runId));
+}
+
+export async function listWorkflowExecutionAttempts(executionId: string): Promise<WorkflowRunRecord[]> {
+  const result = await db.query<Row>(
+    'SELECT * FROM workflow_runs WHERE execution_id=$1 ORDER BY requested_at,attempt_number,id',
+    [executionId]
+  );
+  return Promise.all(result.rows.map(async (row) => mapRun(row, await loadRunEvents(row.id))));
 }
 
 export async function listWorkflowRunsForSession(sessionId: string): Promise<WorkflowRunRecord[]> {

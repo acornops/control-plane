@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import { incrementAutomationApproval } from '../metrics.js';
 import { recordApprovalActivity, recordRunStatusChangedActivity } from '../services/target-chat-activity-events.js';
 import { webhooks } from '../services/webhooks.js';
+import { recordWorkflowExecutionEvent } from '../services/workflow-execution-events.js';
 import { repo } from '../store/repository.js';
 import {
   AutomationApprovalExecutionStartError,
@@ -101,6 +102,23 @@ export async function createToolApproval(req: Request, res: Response, next: Next
         expiresAt: new Date(Date.now() + config.ASSISTANT_WRITE_CONFIRMATION_TIMEOUT_SECONDS * 1000).toISOString(),
         continuationState: req.body.continuation
       });
+      if (automationRun.sourceType === 'workflow') {
+        await recordWorkflowExecutionEvent({
+          executionId: automationRun.sourceId,
+          workspaceId: automationRun.workspaceId,
+          type: 'approval_requested',
+          runId,
+          approvalId: approval.id,
+          dedupeKey: `approval-requested:${approval.id}`,
+          payload: {
+            approvalKind: approval.approvalKind,
+            toolName: approval.toolName,
+            summary: approval.summary,
+            status: approval.status,
+            expiresAt: approval.expiresAt
+          }
+        });
+      }
       incrementAutomationApproval('tool_write', 'requested');
       res.status(201).json(approval);
       return;

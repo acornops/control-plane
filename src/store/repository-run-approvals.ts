@@ -135,6 +135,8 @@ export async function listWorkspaceRunToolApprovals(params: {
   status?: 'pending' | 'decided' | 'all';
   limit?: number;
   cursor?: string;
+  runId?: string;
+  approvalId?: string;
 }): Promise<RunToolApproval[]> {
   const status = params.status || 'pending';
   const limit = Math.max(1, Math.min(100, params.limit || 50));
@@ -148,6 +150,14 @@ export async function listWorkspaceRunToolApprovals(params: {
   if (params.cursor) {
     values.push(params.cursor);
     where.push(`a.created_at < $${values.length}::timestamptz`);
+  }
+  if (params.runId) {
+    values.push(params.runId);
+    where.push(`a.run_id = $${values.length}`);
+  }
+  if (params.approvalId) {
+    values.push(params.approvalId);
+    where.push(`a.id = $${values.length}`);
   }
   values.push(limit);
   const result = await db.query<RunToolApprovalRow>(

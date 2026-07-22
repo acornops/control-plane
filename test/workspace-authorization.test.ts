@@ -48,6 +48,16 @@ function createExternalIntegrationRequest(userId = 'user-1') {
   };
 }
 
+function withExternalIntegrationClientCapabilities(
+  req: ReturnType<typeof createExternalIntegrationRequest>,
+  allowedCapabilities: string[]
+): ReturnType<typeof createExternalIntegrationRequest> & { externalIntegrationClient: { allowedCapabilities: string[] } } {
+  return {
+    ...req,
+    externalIntegrationClient: { allowedCapabilities }
+  };
+}
+
 function createResponse() {
   return {
     statusCode: 200,
@@ -237,6 +247,24 @@ describe('workspace authorization helpers', () => {
     for (const capability of Object.keys(viewerPermissions) as Array<keyof typeof viewerPermissions>) {
       assert.equal(viewerPermissions[capability], capability === 'read_workspace_data', capability);
     }
+  });
+
+  it('allows external integration read-write runs only when client ceiling, grant, and role all allow them', async () => {
+    installExternalIntegrationGrant(['read_workspace_data', 'create_sessions', 'create_read_write_runs']);
+    const req = withExternalIntegrationClientCapabilities(createExternalIntegrationRequest(), [
+      'read_workspace_data',
+      'create_sessions',
+      'create_read_write_runs'
+    ]);
+
+    const adminPermissions = await getEffectiveWorkspacePermissions(req as never, 'admin', 'workspace-1');
+    assert.ok(adminPermissions);
+    assert.equal(adminPermissions.create_read_write_runs, true);
+    assert.equal(adminPermissions.create_read_only_runs, false);
+
+    const operatorPermissions = await getEffectiveWorkspacePermissions(req as never, 'operator', 'workspace-1');
+    assert.ok(operatorPermissions);
+    assert.equal(operatorPermissions.create_read_write_runs, false);
   });
 
   it('denies external integration effective permissions without a workspace grant', async () => {

@@ -31,16 +31,14 @@ export function externalWorkflowBlocker(
   if (workflow.status !== 'active') {
     return 'External integrations can only run active workflows.';
   }
-  if (workflow.capabilityPolicy.mode !== 'read_only') {
-    return 'External integrations can only run read-only workflows.';
-  }
-  if (workflowApprovalGates(workflow).length > 0) {
-    return 'External integrations cannot run workflows that require approval gates.';
-  }
+  const runCapability: WorkspaceCapability = workflow.capabilityPolicy.mode === 'read_write'
+    || workflowApprovalGates(workflow).length > 0
+    ? 'create_read_write_runs'
+    : 'create_read_only_runs';
   const requiredCapabilities = [...new Set([
     'read_workspace_data',
     'create_sessions',
-    'create_read_only_runs',
+    runCapability,
     ...workflow.requiredPermissions
   ])] as WorkspaceCapability[];
   const missingCapability = requiredCapabilities.find((capability) => !authz.can(capability));

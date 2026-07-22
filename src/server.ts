@@ -12,6 +12,7 @@ import { logger } from './logger.js';
 import {
   registerRunEventHandler,
   registerTargetChatActivityEventHandler,
+  registerWorkflowExecutionEventHandler,
   startControlPlaneCoordination,
   stopControlPlaneCoordination,
   withRedisLease
@@ -47,6 +48,11 @@ async function main(): Promise<void> {
   registerTargetChatActivityEventHandler(({ events }) => {
     for (const event of events) {
       emitTargetChatActivityEvent(event);
+    }
+  });
+  registerWorkflowExecutionEventHandler(({ executionId, events }) => {
+    for (const event of events) {
+      runtime.workflowExecutionStreams.emit(`workflow-execution:${executionId}`, { event });
     }
   });
   await startControlPlaneCoordination();

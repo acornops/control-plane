@@ -6,6 +6,7 @@ import { compileWorkflowAccessScope, WorkflowAccessDeniedError } from './workflo
 import { computeWorkflowReadiness } from './automation-readiness.js';
 import { resolveWorkspaceLlmSettings } from './workspace-ai-resolution.js';
 import { recordWorkspaceAuditEvent } from './workspace-audit.js';
+import { recordWorkflowExecutionStarted } from './workflow-execution-events.js';
 import { promptResourceRegistry, PromptResourceProviderError } from './prompt-resources/index.js';
 import { withRedisLease } from './control-plane-coordination/leases.js';
 import { getAgentDefinition } from '../store/repository-agents.js';
@@ -193,7 +194,7 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
 
   const session = await createWorkflowSession({ workflow, createdBy: runtimeSubject.userId, compiledAccessScope, sessionId });
   const occurrenceKey = schedule.nextRunAt || now.toISOString();
-  const { run } = await createWorkflowExecution({
+  const { execution, run } = await createWorkflowExecution({
     workflow,
     session,
     messageId,
@@ -213,6 +214,7 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
     llmReasoningSummaryMode: aiSettings.reasoning.summary_mode,
     llmReasoningEffort: aiSettings.reasoning.effort
   });
+  await recordWorkflowExecutionStarted(execution, run);
   if (run.status === 'waiting_for_approval') {
     await recordWorkflowScheduleDispatch(schedule.id, 'dispatched', { now });
     incrementWorkflowSchedulerEvent('approval_wait');

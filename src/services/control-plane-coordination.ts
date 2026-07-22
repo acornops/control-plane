@@ -4,6 +4,7 @@ import { distributedRoutingEnabled } from './control-plane-coordination/common.j
 import { startAgentRpcBus, stopAgentRpcBus } from './control-plane-coordination/rpc-bus.js';
 import { startRunEventFanout, stopRunEventFanout } from './control-plane-coordination/run-events.js';
 import { startTargetChatActivityEventFanout, stopTargetChatActivityEventFanout } from './control-plane-coordination/chat-activity-events.js';
+import { startWorkflowExecutionEventFanout, stopWorkflowExecutionEventFanout } from './control-plane-coordination/workflow-execution-events.js';
 
 let started = false;
 
@@ -33,15 +34,29 @@ export {
   publishTargetChatActivityEvents,
   registerTargetChatActivityEventHandler
 } from './control-plane-coordination/chat-activity-events.js';
+export {
+  publishWorkflowExecutionEvents,
+  registerWorkflowExecutionEventHandler
+} from './control-plane-coordination/workflow-execution-events.js';
 
 export async function startControlPlaneCoordination(): Promise<void> {
   if (!distributedRoutingEnabled() || started) return;
-  await Promise.all([startAgentRpcBus(), startRunEventFanout(), startTargetChatActivityEventFanout()]);
+  await Promise.all([
+    startAgentRpcBus(),
+    startRunEventFanout(),
+    startTargetChatActivityEventFanout(),
+    startWorkflowExecutionEventFanout()
+  ]);
   started = true;
   logger.info({ instanceId: config.CONTROL_PLANE_INSTANCE_ID }, 'Started control-plane coordination');
 }
 
 export async function stopControlPlaneCoordination(): Promise<void> {
-  await Promise.all([stopAgentRpcBus(), stopRunEventFanout(), stopTargetChatActivityEventFanout()]);
+  await Promise.all([
+    stopAgentRpcBus(),
+    stopRunEventFanout(),
+    stopTargetChatActivityEventFanout(),
+    stopWorkflowExecutionEventFanout()
+  ]);
   started = false;
 }

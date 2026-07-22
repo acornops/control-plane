@@ -31,6 +31,7 @@ export {
   getWorkflowSession,
   listWorkflowApprovalsForWorkspace,
   listWorkflowMessages,
+  listWorkflowExecutionAttempts,
   listWorkflowRunApprovals,
   listWorkflowRunsForSession,
   listWorkflowSessions,
@@ -38,6 +39,10 @@ export {
   upsertWorkflowAssistantFinalMessage
 } from './repository-workflow-runs.js';
 export { getWorkflowOptionsCatalog } from './repository-workflow-options.js';
+export {
+  getWorkflowExecution,
+  getWorkflowExecutionByClientRequestId
+} from './repository-workflow-execution-read.js';
 
 export interface WorkflowDefinitionUpdate {
   name?: string;

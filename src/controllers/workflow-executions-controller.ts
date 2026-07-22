@@ -3,6 +3,7 @@ import type { QueryResultRow } from 'pg';
 import { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { db } from '../infra/db.js';
+import { incrementWorkflowExecutionStream } from '../metrics.js';
 import { cancelRunInExecutionEngine } from '../services/execution-engine-client.js';
 import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
 import { promptResourceRegistry, PromptResourceProviderError } from '../services/prompt-resources/index.js';
@@ -14,6 +15,12 @@ import { resumeWorkflowExecution } from '../services/workflow-state-machine.js';
 import { resolveTargetRunTools } from '../services/target-run-tool-resolution.js';
 import { getAgentDefinition } from '../store/repository-agents.js';
 import { listWorkflowDelegations } from '../store/repository-workflow-delegations.js';
+import { listWorkflowExecutionEvents, type WorkflowExecutionStreamEvent } from '../store/repository-workflow-execution-events.js';
+import {
+  getWorkflowExecution as getWorkflowExecutionRecord,
+  listWorkflowExecutionAttempts
+} from '../store/repository-workflows.js';
+import { runtime } from '../store/runtime.js';
 import { withTransaction } from '../store/repository-transaction.js';
 import { repo } from '../store/repository.js';
 import { isTargetType, type TargetSummary } from '../types/domain.js';
@@ -27,6 +34,38 @@ const WORKFLOW_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider
 async function execution(id: string): Promise<QueryResultRow | null> {
   const result = await db.query<QueryResultRow>('SELECT * FROM workflow_executions WHERE id=$1', [id]);
   return result.rowCount ? result.rows[0] : null;
+}
+
+function publicExecution(record: NonNullable<Awaited<ReturnType<typeof getWorkflowExecutionRecord>>>) {
+  return {
+    id: record.id,
+    workspaceId: record.workspaceId,
+    workflowId: record.workflowId,
+    workflowVersion: record.workflowVersion,
+    workflowSessionId: record.workflowSessionId,
+    status: record.status,
+    triggerType: record.triggerType,
+    errorCode: record.errorCode?.slice(0, 128) || null,
+    startedAt: record.startedAt || null,
+    endedAt: record.endedAt || null,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt
+  };
+}
+
+function publicAttempt(attempt: Awaited<ReturnType<typeof listWorkflowExecutionAttempts>>[number]) {
+  return {
+    id: attempt.id,
+    executionId: attempt.executionId,
+    attemptNumber: attempt.attemptNumber,
+    status: attempt.status,
+    targetId: attempt.targetId || null,
+    targetType: attempt.targetType || null,
+    requestedAt: attempt.requestedAt,
+    startedAt: attempt.startedAt || null,
+    endedAt: attempt.endedAt || null,
+    errorCode: attempt.errorCode?.slice(0, 128) || null
+  };
 }
 
 function boundedFailureCode(value?: string): string {
@@ -44,15 +83,15 @@ function stringArray(value: unknown): string[] {
 export async function getWorkflowExecution(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const id = toSingleParam(req.params.executionId);
+    const record = await getWorkflowExecutionRecord(id);
+    if (!record) { res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow execution not found', retryable: false } }); return; }
+    if (!(await requireWorkspaceDataRead(req, res, record.workspaceId, 'No access to workflow execution'))) return;
     const row = await execution(id);
-    if (!row) { res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow execution not found', retryable: false } }); return; }
-    if (!(await requireWorkspaceDataRead(req, res, row.workspace_id, 'No access to workflow execution'))) return;
-    const attempts = await db.query('SELECT * FROM workflow_runs WHERE execution_id=$1 ORDER BY attempt_number', [id]);
-    const snapshot = row.workflow_snapshot as WorkflowDefinitionForAccess | undefined;
+    const snapshot = row?.workflow_snapshot as WorkflowDefinitionForAccess | undefined;
     const coordinated = snapshot?.executionMode === 'coordinated' || (snapshot?.agentIds?.length || 0) > 1;
     const coordination = coordinated
       ? await Promise.all((await listWorkflowDelegations(id)).map(async (delegation) => {
-        const agent = await getAgentDefinition(row.workspace_id, delegation.selectedAgentId);
+        const agent = await getAgentDefinition(record.workspaceId, delegation.selectedAgentId);
         return {
           id: delegation.id,
           childRunId: delegation.childRunId,
@@ -70,34 +109,110 @@ export async function getWorkflowExecution(req: AuthenticatedRequest, res: Respo
         };
       }))
       : undefined;
-    const publicAttempts = attempts.rows.map((attempt) => {
-      const {
-        agent_id: _agentId,
-        agent_version: _agentVersion,
-        agent_snapshot: _agentSnapshot,
-        compiled_access_scope: compiledScope,
-        ...publicAttempt
-      } = attempt;
-      return {
-        ...publicAttempt,
-        ...(compiledScope ? { compiled_access_scope: publicCompiledWorkflowScope(compiledScope) } : {})
-      };
-    });
+    const externalRequest = req.auth.credential.type === 'external_integration';
+    const publicAttempts = externalRequest
+      ? (await listWorkflowExecutionAttempts(id)).map(publicAttempt)
+      : (await db.query('SELECT * FROM workflow_runs WHERE execution_id=$1 ORDER BY attempt_number', [id])).rows.map((attempt) => {
+        const {
+          agent_id: _agentId,
+          agent_version: _agentVersion,
+          agent_snapshot: _agentSnapshot,
+          compiled_access_scope: compiledScope,
+          ...publicAttemptRecord
+        } = attempt;
+        return {
+          ...publicAttemptRecord,
+          ...(compiledScope ? { compiled_access_scope: publicCompiledWorkflowScope(compiledScope) } : {})
+        };
+      });
     res.status(200).json({
-      execution: {
-        ...row,
-        ...(snapshot ? { workflow_snapshot: publicWorkflowDefinition(snapshot) } : {})
-      },
+      execution: externalRequest
+        ? publicExecution(record)
+        : { ...row, ...(snapshot ? { workflow_snapshot: publicWorkflowDefinition(snapshot) } : {}) },
       attempts: publicAttempts,
       ...(coordination ? {
         coordination: {
           label: 'AcornOps coordination',
-          status: row.status,
+          status: record.status,
           children: coordination
         }
       } : {})
     });
   } catch (err) { next(err); }
+}
+
+function writeExecutionEvent(res: Response, event: WorkflowExecutionStreamEvent): void {
+  res.write(`event: workflow_execution\nid: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`);
+}
+
+function resumeCursor(req: AuthenticatedRequest): number {
+  const value = req.query.after ?? req.headers['last-event-id'];
+  const raw = Array.isArray(value) ? value[0] : value;
+  const parsed = Number(raw || 0);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+export async function streamWorkflowExecution(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const id = toSingleParam(req.params.executionId);
+    const record = await getWorkflowExecutionRecord(id);
+    if (!record) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow execution not found', retryable: false } });
+      return;
+    }
+    if (!(await requireWorkspaceDataRead(req, res, record.workspaceId, 'No access to workflow execution'))) return;
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no'
+    });
+    res.flushHeaders?.();
+    incrementWorkflowExecutionStream('opened');
+
+    const buffered: WorkflowExecutionStreamEvent[] = [];
+    let replaying = true;
+    let lastEventId = resumeCursor(req);
+    const listener = ({ event }: { event: WorkflowExecutionStreamEvent }) => {
+      if (replaying) {
+        buffered.push(event);
+        return;
+      }
+      if (Number(event.id) <= lastEventId) return;
+      lastEventId = Number(event.id);
+      writeExecutionEvent(res, event);
+    };
+    runtime.workflowExecutionStreams.on(`workflow-execution:${id}`, listener);
+
+    try {
+      const replay = await listWorkflowExecutionEvents(id, lastEventId);
+      if (replay.length > 0) incrementWorkflowExecutionStream('replayed', replay.length);
+      for (const event of replay) {
+        lastEventId = Math.max(lastEventId, Number(event.id));
+        writeExecutionEvent(res, event);
+      }
+      replaying = false;
+      for (const event of buffered.sort((left, right) => Number(left.id) - Number(right.id))) {
+        if (Number(event.id) <= lastEventId) continue;
+        lastEventId = Number(event.id);
+        writeExecutionEvent(res, event);
+      }
+    } catch (err) {
+      runtime.workflowExecutionStreams.off(`workflow-execution:${id}`, listener);
+      throw err;
+    }
+
+    const keepAlive = setInterval(() => res.write(': keep-alive\n\n'), 20_000);
+    req.on('close', () => {
+      incrementWorkflowExecutionStream('closed');
+      clearInterval(keepAlive);
+      runtime.workflowExecutionStreams.off(`workflow-execution:${id}`, listener);
+    });
+  } catch (err) {
+    incrementWorkflowExecutionStream('error');
+    next(err);
+  }
 }
 
 export async function cancelWorkflowExecution(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {

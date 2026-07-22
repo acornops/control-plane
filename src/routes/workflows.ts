@@ -38,8 +38,9 @@ workflowsRouter.delete('/workflow-schedules/:scheduleId', requireUser, authed(wo
 workflowsRouter.get('/workflows/:workflowId/sessions', requireUser, authed(workflowsController.listSessions));
 workflowsRouter.post('/workflows/:workflowId/sessions', requireActor(['user', 'externalIntegration']), authed(workflowsController.createSession));
 workflowsRouter.post('/workflow-sessions/:sessionId/messages', requireActor(['user', 'externalIntegration']), authed(workflowsController.postMessage));
-workflowsRouter.get('/workflow-executions/:executionId', requireUser, authed(workflowExecutionsController.getWorkflowExecution));
+workflowsRouter.get('/workflow-executions/:executionId', requireActor(['user', 'externalIntegration']), authed(workflowExecutionsController.getWorkflowExecution));
+workflowsRouter.get('/workflow-executions/:executionId/stream', requireActor(['user', 'externalIntegration']), authed(workflowExecutionsController.streamWorkflowExecution));
 workflowsRouter.post('/workflow-executions/:executionId/cancel', requireUser, authed(workflowExecutionsController.cancelWorkflowExecution));
 workflowsRouter.post('/workflow-executions/:executionId/resume', requireUser, authed(workflowExecutionsController.resumeWorkflowExecutionController));
-workflowsRouter.get('/report-artifacts/:reportId', requireUser, authed(workflowReportsController.getWorkflowReportMetadata));
-workflowsRouter.get('/report-artifacts/:reportId/download', requireUser, authed(workflowReportsController.downloadWorkflowReport));
+workflowsRouter.get('/report-artifacts/:reportId', requireActor(['user', 'externalIntegration']), authed(workflowReportsController.getWorkflowReportMetadata));
+workflowsRouter.get('/report-artifacts/:reportId/download', requireActor(['user', 'externalIntegration']), authed(workflowReportsController.downloadWorkflowReport));

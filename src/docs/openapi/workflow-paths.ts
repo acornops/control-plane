@@ -1,4 +1,5 @@
 import { EXAMPLE_RUN_ID, EXAMPLE_WORKSPACE_ID } from '../../constants/dev-defaults.js';
+import { streamContent } from './schema-types.js';
 
 const workspaceIdParameter = {
   in: 'path',
@@ -278,7 +279,9 @@ export function buildWorkflowPaths(): Record<string, unknown> {
           workspaceIdParameter,
           { in: 'query', name: 'status', required: false, schema: { type: 'string', enum: ['pending', 'decided', 'all'], default: 'pending' } },
           { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100 } },
-          { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } }
+          { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } },
+          { in: 'query', name: 'runId', required: false, schema: { type: 'string', format: 'uuid' }, description: 'Optional exact run filter for approval deep links.' },
+          { in: 'query', name: 'approvalId', required: false, schema: { type: 'string', format: 'uuid' }, description: 'Optional exact approval filter for approval deep links.' }
         ],
         responses: { '200': { description: 'Unified approval inbox page.' } }
       }
@@ -399,7 +402,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       post: {
         tags: ['workflows'],
         summary: 'Post a workflow session message and dispatch a run',
-        description: 'External integration callers can dispatch runs only for externally runnable read-only workflow sessions.',
+        description: 'External integration callers may append only to a Workflow session created by the exact same integration link and client. The current Workflow must remain active. Each message recompiles access against current effective permissions while retaining the session-pinned Workflow version, creates a new execution, and requires a new clientRequestId and fresh approvals.',
         security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
         parameters: [externalUserHeader, sessionIdParameter],
         requestBody: {
@@ -437,9 +440,23 @@ export function buildWorkflowPaths(): Record<string, unknown> {
     },
     '/api/v1/workflow-executions/{executionId}': {
       get: {
-        tags: ['workflows'], summary: 'Get workflow execution, attempts, and sanitized coordination', security: [{ userSession: [] }],
-        parameters: [{ in: 'path', name: 'executionId', required: true, schema: { type: 'string' } }],
+        tags: ['workflows'], summary: 'Get workflow execution, attempts, and sanitized coordination', security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+        parameters: [externalUserHeader, { in: 'path', name: 'executionId', required: true, schema: { type: 'string' } }],
         responses: { '200': { description: 'Workflow execution with retained attempts and, for coordinated runs, a sanitized child summary without prompts, compiled scopes, results, credentials, or coordinator identity.', content: { 'application/json': { schema: { type: 'object', required: ['execution', 'attempts'], properties: { execution: { type: 'object' }, attempts: { type: 'array', items: { type: 'object' } }, coordination: { $ref: '#/components/schemas/WorkflowCoordinationSummary' } } } } } } }
+      }
+    },
+    '/api/v1/workflow-executions/{executionId}/stream': {
+      get: {
+        tags: ['workflows'],
+        summary: 'Replay and stream sanitized workflow execution events',
+        description: 'Workspace-authorized browser and external integration callers may replay durable aggregate execution events and continue over SSE. Prompts, compiled scopes, credentials, integration provenance, and tool arguments are not included.',
+        security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+        parameters: [
+          externalUserHeader,
+          { in: 'path', name: 'executionId', required: true, schema: { type: 'string' } },
+          { in: 'query', name: 'after', required: false, schema: { type: 'integer', minimum: 0 }, description: 'Last durable event id already observed.' }
+        ],
+        responses: { '200': { description: 'Server-sent workflow_execution events, preceded by durable replay after the supplied cursor.', content: streamContent() } }
       }
     },
     '/api/v1/workflow-executions/{executionId}/cancel': {
@@ -458,15 +475,15 @@ export function buildWorkflowPaths(): Record<string, unknown> {
     },
     '/api/v1/report-artifacts/{reportId}': {
       get: {
-        tags: ['runs', 'workflows'], summary: 'Get report artifact metadata', security: [{ userSession: [] }],
-        parameters: [{ in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
+        tags: ['runs', 'workflows'], summary: 'Get report artifact metadata', security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+        parameters: [externalUserHeader, { in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
         responses: { '200': { description: 'Report metadata without report source or PDF bytes.' } }
       }
     },
     '/api/v1/report-artifacts/{reportId}/download': {
       get: {
-        tags: ['runs', 'workflows'], summary: 'Render and stream a report artifact', security: [{ userSession: [] }],
-        parameters: [{ in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
+        tags: ['runs', 'workflows'], summary: 'Render and stream a report artifact', security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+        parameters: [externalUserHeader, { in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
         responses: { '200': { description: 'Freshly rendered PDF stream.', content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } } } }
       }
     }

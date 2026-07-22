@@ -22,6 +22,10 @@ store raw client tokens in config, docs, logs, or API responses.
 If omitted, the client can request the default external integration ceiling:
 `read_workspace_data`, `create_sessions`, and `create_read_only_runs`. It does
 not grant workspace access by itself; users still approve per-workspace grants.
+Operators may add `create_read_write_runs` when the client may request
+write-capable troubleshooting runs. Keep `read_workspace_data` and
+`create_sessions` in that descriptor because run creation depends on them.
+Approval decisions remain browser-user-session only.
 
 The installed client id is the identity boundary. AcornOps scopes durable links
 by `(integrationClientId, provider, externalUserId)`.

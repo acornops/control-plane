@@ -118,13 +118,10 @@ import {
   addMessage as addMessageRecord,
   addRun as addRunRecord,
   addSession as addSessionRecord,
-  appendRunEvents as appendRunEventsRecord,
   createRunFromUserMessage as createRunFromUserMessageRecord,
   deleteSession as deleteSessionRecord,
   findRunByClientMessageId as findRunByClientMessageIdRecord,
   getRun as getRunRecord,
-  getRunEvents as getRunEventsRecord,
-  getLatestRunEventSeq as getLatestRunEventSeqRecord,
   getSession as getSessionRecord,
   listMessages as listMessagesRecord,
   listSessionsByTarget as listSessionsByTargetRecord,
@@ -133,6 +130,8 @@ import {
   updateRun as updateRunRecord,
   upsertAssistantFinalMessage as upsertAssistantFinalMessageRecord
 } from './repository-sessions.js';
+import { appendRunEvents as appendRunEventsRecord, getLatestRunEventSeq as getLatestRunEventSeqRecord, getRunEvents as getRunEventsRecord } from './repository-run-events.js';
+import { getRunRequestProvenance as getRunRequestProvenanceRecord } from './repository-run-provenance.js';
 import {
   insertTargetChatActivityEvent as insertTargetChatActivityEventRecord,
   listRecentTargetChatActivity as listRecentTargetChatActivityRecord,
@@ -380,6 +379,7 @@ export class Repository {
   addRun = addRunRecord;
 
   getRun = getRunRecord;
+  getRunRequestProvenance = getRunRequestProvenanceRecord;
 
   updateRun = updateRunRecord;
 

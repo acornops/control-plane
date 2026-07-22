@@ -47,7 +47,7 @@ describe('controller authorization regressions', () => {
     assert.equal(allowed.statusCode, 201);
   });
 
-  it('allows external integration credentials to create read-only assistant runs without write access', async () => {
+  it('allows external integration credentials to create read-only assistant runs by default', async () => {
     installWorkspace('operator');
     repo.addSession = async () => createSessionRecord();
     const createdSession = await callController(
@@ -80,6 +80,49 @@ describe('controller authorization regressions', () => {
       createExternalIntegrationRequest({ sessionId: 'session-1' }, { content: 'change it', toolAccessMode: 'read_write' })
     );
     assert.equal(readWriteRun.statusCode, 403);
+  });
+  it('allows external integration credentials to request read-write runs only after explicit client and workspace grant opt-in', async () => {
+    installWorkspace('admin');
+    repo.getExternalIntegrationWorkspaceGrant = async () => ({
+      workspaceId: 'workspace-1',
+      capabilities: ['read_workspace_data', 'create_sessions', 'create_read_write_runs'],
+      grantedByUserId: 'user-1',
+      createdAt: '2026-05-24T00:00:00.000Z',
+      updatedAt: '2026-05-24T00:00:00.000Z'
+    });
+    repo.getSession = async () => createSessionRecord();
+    let requestProvenance: { actorType: string; externalIntegrationLinkId?: string;
+      externalIntegrationClientId?: string } | undefined;
+    repo.createRunFromUserMessage = async (input) => {
+      requestProvenance = input.requestProvenance;
+      return {
+        message: createMessage(),
+        run: createRun({ toolAccessMode: 'read_write' }),
+        idempotent: true
+      };
+    };
+    mock.method(globalThis, 'fetch', async (input) => {
+      if (isWorkspaceAiCredentialStatusRequest(input)) {
+        return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
+
+    const req = createExternalIntegrationRequest(
+      { sessionId: 'session-1' },
+      { content: 'restart payments-api if required', toolAccessMode: 'read_write' }
+    );
+    (req as typeof req & { externalIntegrationClient: { allowedCapabilities: string[] } }).externalIntegrationClient = {
+      allowedCapabilities: ['read_workspace_data', 'create_sessions', 'create_read_write_runs']
+    };
+
+    const allowed = await callController(postMessage, req);
+    assert.equal(allowed.statusCode, 202);
+    assert.deepEqual(requestProvenance, {
+      actorType: 'external_integration',
+      externalIntegrationLinkId: 'link-1',
+      externalIntegrationClientId: 'external-chat'
+    });
   });
 
   it('does not fail completed session creation when nontransactional audit logging fails', async () => {
