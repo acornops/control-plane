@@ -173,6 +173,12 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Workspace membership, audit-log access, target mutation, MCP mutation, tool mutation, Target Insights mutation, and AI settings mutation are permission-gated at the control-plane boundary.
 - External integration bot calls use an external integration client token plus `x-acornops-external-user-id`; the resolved `external_integration` credential is default-deny and can only receive `read_workspace_data`, `create_sessions`, and `create_read_only_runs` when allowed by the linked user's workspace role. Implementor-facing endpoint details live in [external-integration-bot-endpoints.md](external-integration-bot-endpoints.md).
 - External webhook route connect/status calls are the narrow exception for outgoing webhook setup. `POST /api/v1/external-integrations/webhook-routes/connect` returns only subscriptions created by the linked AcornOps user for the submitted delivery URL where the user still has `permissions.manage_webhooks`; each successful connect rotates the matching signing secrets and returns them once. `GET /api/v1/external-integrations/webhook-routes/status` refreshes live state and must never return signing secrets.
+- Webhook events use a Postgres outbox with one leased job per matching
+  subscription. Retries retain the same event ID and payload; delivery history
+  exposes `attemptNumber`, `willRetry`, `nextAttemptAt`, and `terminalReason`.
+  Issue created, reopened, and resolved events commit atomically with issue
+  lifecycle changes. The worker pauses recovering-lifecycle alerts and
+  supersedes stale lifecycle versions before delivery where possible.
 - Execution-engine dispatch uses `Authorization: Bearer <EXECUTION_ENGINE_DISPATCH_TOKEN>`.
 - Target adapters register their live built-in tools against the configured internal bridge URL (the local deployment default is `http://control-plane:8081/internal/v1/mcp`). The server identity comes from the registered target, not a seeded workspace integration.
 - Built-in MCP tool calls use `Authorization: Bearer <run-scoped-jwt>` and derive scope from `run-scoped-jwt-claims`.

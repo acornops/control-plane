@@ -3,6 +3,7 @@ import { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { config } from '../config.js';
 import { repo } from '../store/repository.js';
+import { WebhookSubscriptionLimitError } from '../store/repository-webhooks.js';
 import { WebhookHistory, WebhookSubscription } from '../types/domain.js';
 import { encryptWebhookSecret, generateWebhookSecret } from '../utils/crypto.js';
 import { toSingleParam } from '../utils/params.js';
@@ -38,6 +39,10 @@ function serializeHistory(entry: WebhookHistory): Record<string, unknown> {
     responseStatus: entry.responseStatus ?? null,
     error: entry.error ?? null,
     durationMs: entry.durationMs ?? null,
+    attemptNumber: entry.attemptNumber,
+    willRetry: entry.willRetry,
+    nextAttemptAt: entry.nextAttemptAt ?? null,
+    terminalReason: entry.terminalReason ?? null,
     sentAt: entry.sentAt
   };
 }
@@ -123,6 +128,16 @@ export async function createWebhook(req: AuthenticatedRequest, res: Response, ne
       secret
     });
   } catch (err) {
+    if (err instanceof WebhookSubscriptionLimitError) {
+      res.status(409).json({
+        error: {
+          code: 'WEBHOOK_SUBSCRIPTION_LIMIT_REACHED',
+          message: 'Workspace webhook subscription limit reached',
+          retryable: false
+        }
+      });
+      return;
+    }
     next(err);
   }
 }

@@ -101,7 +101,9 @@ const expectedTables = [
   'capability_routing_mappings',
   'workflow_delegations',
   'target_skills',
-  'target_skill_files'
+  'target_skill_files',
+  'webhook_outbox_events',
+  'webhook_delivery_jobs'
 ];
 
 const expectedColumns = [
@@ -116,7 +118,12 @@ const expectedColumns = [
   ['workflow_definitions', 'entry_agent_id'],
   ['workflow_definitions', 'agent_ids'],
   ['workflow_sessions', 'workflow_snapshot'],
-  ['capability_routing_mappings', 'invocation_scopes']
+  ['capability_routing_mappings', 'invocation_scopes'],
+  ['target_issues', 'lifecycle_version'],
+  ['webhook_history', 'attempt_number'],
+  ['webhook_history', 'will_retry'],
+  ['webhook_history', 'next_attempt_at'],
+  ['webhook_history', 'terminal_reason']
 ];
 
 const expectedConstraints = [
@@ -129,7 +136,9 @@ const expectedConstraints = [
   'fk_chat_activity_events_workspace_target',
   'capability_routing_mappings_invocation_scopes_check',
   'workflow_definitions_agent_ids_nonempty',
-  'runs_assistant_references_array'
+  'runs_assistant_references_array',
+  'webhook_delivery_jobs_status_check',
+  'webhook_delivery_jobs_event_id_fkey'
 ];
 
 async function runSqlChecks(databaseUrl) {

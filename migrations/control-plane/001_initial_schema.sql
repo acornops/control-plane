@@ -781,6 +781,7 @@ CREATE TABLE target_issues (
     occurrence_count integer DEFAULT 1 NOT NULL,
     reopened_count integer DEFAULT 0 NOT NULL,
     clean_snapshot_count integer DEFAULT 0 NOT NULL,
+    lifecycle_version integer DEFAULT 1 NOT NULL,
     latest_evidence jsonb DEFAULT '{}'::jsonb NOT NULL,
     search_text text DEFAULT ''::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -954,7 +955,44 @@ CREATE TABLE webhook_history (
     response_status integer,
     error text,
     duration_ms integer,
+    attempt_number integer DEFAULT 1 NOT NULL,
+    will_retry boolean DEFAULT false NOT NULL,
+    next_attempt_at timestamp with time zone,
+    terminal_reason text,
     sent_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE webhook_outbox_events (
+    id text NOT NULL,
+    event_type text NOT NULL,
+    occurred_at timestamp with time zone NOT NULL,
+    workspace_id text NOT NULL,
+    target_id text,
+    target_type text,
+    subject_type text NOT NULL,
+    subject_id text NOT NULL,
+    payload jsonb NOT NULL,
+    dedupe_key text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone NOT NULL
+);
+
+CREATE TABLE webhook_delivery_jobs (
+    id text NOT NULL,
+    event_id text NOT NULL,
+    subscription_id text NOT NULL,
+    status text NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    next_attempt_at timestamp with time zone DEFAULT now() NOT NULL,
+    lease_owner text,
+    lease_expires_at timestamp with time zone,
+    terminal_reason text,
+    snapshot_url text,
+    snapshot_secret_ciphertext text,
+    snapshot_secret_key_id text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT webhook_delivery_jobs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'processing'::text, 'retrying'::text, 'paused'::text, 'succeeded'::text, 'failed'::text, 'superseded'::text, 'cancelled'::text])))
 );
 
 CREATE TABLE webhook_subscriptions (
@@ -1587,6 +1625,18 @@ ALTER TABLE ONLY users
 ALTER TABLE ONLY webhook_history
     ADD CONSTRAINT webhook_history_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY webhook_outbox_events
+    ADD CONSTRAINT webhook_outbox_events_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY webhook_outbox_events
+    ADD CONSTRAINT webhook_outbox_events_dedupe_key_key UNIQUE (dedupe_key);
+
+ALTER TABLE ONLY webhook_delivery_jobs
+    ADD CONSTRAINT webhook_delivery_jobs_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY webhook_delivery_jobs
+    ADD CONSTRAINT webhook_delivery_jobs_event_id_subscription_id_key UNIQUE (event_id, subscription_id);
+
 ALTER TABLE ONLY webhook_subscriptions
     ADD CONSTRAINT webhook_subscriptions_pkey PRIMARY KEY (id);
 
@@ -1853,6 +1903,12 @@ CREATE INDEX idx_webhook_history_event_id ON webhook_history USING btree (event_
 CREATE INDEX idx_webhook_history_subscription_sent_at ON webhook_history USING btree (subscription_id, sent_at DESC);
 
 CREATE INDEX idx_webhook_history_workspace_sent_at ON webhook_history USING btree (workspace_id, sent_at DESC);
+
+CREATE INDEX idx_webhook_delivery_jobs_due ON webhook_delivery_jobs USING btree (status, next_attempt_at, lease_expires_at, created_at);
+
+CREATE INDEX idx_webhook_delivery_jobs_subscription ON webhook_delivery_jobs USING btree (subscription_id, status);
+
+CREATE INDEX idx_webhook_outbox_events_subject ON webhook_outbox_events USING btree (subject_type, subject_id, occurred_at DESC);
 
 CREATE INDEX idx_webhook_subscriptions_workspace_enabled ON webhook_subscriptions USING btree (workspace_id, enabled);
 
@@ -2178,6 +2234,9 @@ ALTER TABLE ONLY webhook_history
 
 ALTER TABLE ONLY webhook_history
     ADD CONSTRAINT webhook_history_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY webhook_delivery_jobs
+    ADD CONSTRAINT webhook_delivery_jobs_event_id_fkey FOREIGN KEY (event_id) REFERENCES webhook_outbox_events(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY webhook_subscriptions
     ADD CONSTRAINT webhook_subscriptions_target_id_fkey FOREIGN KEY (target_id) REFERENCES targets(id) ON DELETE CASCADE;

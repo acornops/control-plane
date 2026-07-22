@@ -1,4 +1,5 @@
 import { increment, metricLine } from './metrics-helpers.js';
+import { renderWebhookDeliveryMetrics } from './metrics-webhook-delivery.js';
 
 const routeRequests = new Map<string, number>();
 const secretRotations = new Map<string, number>();
@@ -24,5 +25,12 @@ export function renderExternalWebhookRouteMetrics(serviceLabels: Record<string, 
     ...Array.from(secretRotations.entries()).map(([integrationClientId, value]) =>
       metricLine('control_plane_external_webhook_route_secret_rotations_total', { ...serviceLabels, integration_client_id: integrationClientId }, value)
     )
+  ];
+}
+
+export function renderWebhookMetrics(serviceLabels: Record<string, string>): string[] {
+  return [
+    ...renderExternalWebhookRouteMetrics(serviceLabels),
+    ...renderWebhookDeliveryMetrics(serviceLabels)
   ];
 }

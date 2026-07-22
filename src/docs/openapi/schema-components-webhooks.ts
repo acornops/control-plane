@@ -44,22 +44,31 @@ export function buildWebhookSchemas(): Record<string, JsonSchema> {
         'subjectId',
         'payload',
         'status',
+        'attemptNumber',
+        'willRetry',
         'sentAt'
       ],
       properties: {
         id: uuid,
         subscriptionId: uuid,
-        eventId: uuid,
+        eventId: {
+          type: 'string',
+          pattern: '^evt_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        },
         eventType: { type: 'string' },
         workspaceId: uuid,
         targetId: uuid,
         subjectType: { type: 'string' },
         subjectId: { type: 'string' },
         payload: { type: 'object', additionalProperties: true },
-        status: { type: 'string', enum: ['success', 'failed'] },
+        status: { type: 'string', enum: ['success', 'failed', 'paused', 'superseded', 'cancelled'] },
         responseStatus: { type: 'integer' },
         error: { type: 'string' },
         durationMs: { type: 'integer' },
+        attemptNumber: { type: 'integer', minimum: 0 },
+        willRetry: { type: 'boolean' },
+        nextAttemptAt: dateTime,
+        terminalReason: { type: 'string' },
         sentAt: dateTime
       },
       additionalProperties: true

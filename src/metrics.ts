@@ -1,6 +1,6 @@
 import { config } from './config.js';
 import { increment, metricLine } from './metrics-helpers.js';
-import { renderExternalWebhookRouteMetrics } from './metrics-external-webhooks.js';
+import { renderWebhookMetrics } from './metrics-external-webhooks.js';
 const adminAuthFailures = new Map<string, number>();
 const adminRequests = new Map<string, number>();
 const runEventIngestCounts = new Map<string, number>();
@@ -543,7 +543,7 @@ export function renderControlPlaneMetrics(): string {
     ...Array.from(toolResultArtifactSizeCounts.entries()).map(([view, value]) =>
       metricLine('control_plane_tool_result_artifact_bytes_count', { ...serviceLabels, view }, value)
     ),
-    ...renderExternalWebhookRouteMetrics(serviceLabels)
+    ...renderWebhookMetrics(serviceLabels)
   ];
   return `${lines.join('\n')}\n`;
 }

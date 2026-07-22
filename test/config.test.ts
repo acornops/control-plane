@@ -155,6 +155,20 @@ describe('parseAppConfig production validation', () => {
     assert.equal(config.TARGET_CHAT_RECENT_ACTIVITY_WINDOW_SECONDS, 300);
     assert.equal(config.WORKSPACE_AUDIT_LOGGING_MODE, 'read_write');
     assert.deepEqual([config.WORKSPACE_AUDIT_RETENTION_DAYS, config.TARGET_METRIC_HISTORY_RETENTION_DAYS], [365, 30]);
+    assert.deepEqual(
+      [
+        config.WEBHOOK_WORKER_ENABLED,
+        config.WEBHOOK_WORKER_BATCH_SIZE,
+        config.WEBHOOK_WORKER_CONCURRENCY,
+        config.WEBHOOK_WORKER_PER_ORIGIN_CONCURRENCY,
+        config.WEBHOOK_MAX_ATTEMPTS,
+        config.WEBHOOK_MAX_RETRY_AGE_SECONDS,
+        config.WEBHOOK_MAX_PAYLOAD_BYTES,
+        config.WEBHOOK_MAX_SUBSCRIPTIONS_PER_WORKSPACE
+      ],
+      [true, 50, 20, 4, 10, 86400, 65536, 100]
+    );
+    assert.equal('WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY' in config, false);
     assert.deepEqual(config.WORKSPACE_ROLE_TEMPLATES.map((role) => role.key), ['owner', 'admin', 'operator', 'viewer', 'auditor']);
     assert.deepEqual(nullConfig.WORKSPACE_ROLE_TEMPLATES.map((role) => role.key), ['owner', 'admin', 'operator', 'viewer', 'auditor']);
     assert.equal(config.INTERNAL_TRANSPORT_TLS_ENABLED, false);

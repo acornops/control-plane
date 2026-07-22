@@ -17,6 +17,12 @@ import {
   recordTargetInsightsCheckpointPatchCount,
   renderControlPlaneMetrics
 } from '../src/metrics.js';
+import {
+  incrementWebhookDeliveryTerminal,
+  incrementWebhookEventEnqueued,
+  recordWebhookDeliveryAttempt,
+  setWebhookQueueMetrics
+} from '../src/metrics-webhook-delivery.js';
 
 describe('control-plane metrics', () => {
   it('renders Prometheus-format runtime metrics', () => {
@@ -121,6 +127,24 @@ describe('control-plane metrics', () => {
     assert.match(payload, /control_plane_tool_result_artifact_bytes_bucket\{[^}]*view="uncompressed",le="16384"[^}]*\} 1/);
     assert.match(payload, /control_plane_tool_result_artifact_bytes_sum\{[^}]*view="uncompressed"[^}]*\} 2048/);
     assert.match(payload, /control_plane_tool_result_artifact_bytes_count\{[^}]*view="uncompressed"[^}]*\} 1/);
+  });
+
+  it('renders bounded durable webhook queue, attempt, and terminal metrics', () => {
+    incrementWebhookEventEnqueued('issue.created.v1');
+    recordWebhookDeliveryAttempt('retrying', 125);
+    incrementWebhookDeliveryTerminal('superseded');
+    setWebhookQueueMetrics({ pending: 3, retrying: 2, paused: 1, oldestAgeSeconds: 42 });
+
+    const payload = renderControlPlaneMetrics();
+
+    assert.match(payload, /control_plane_webhook_events_enqueued_total\{[^}]*event_type="issue\.created\.v1"[^}]*\} 1/);
+    assert.match(payload, /control_plane_webhook_delivery_attempts_total\{[^}]*outcome="retrying"[^}]*\} 1/);
+    assert.match(payload, /control_plane_webhook_delivery_duration_ms_bucket\{[^}]*outcome="retrying",le="500"[^}]*\} 1/);
+    assert.match(payload, /control_plane_webhook_delivery_duration_ms_sum\{[^}]*outcome="retrying"[^}]*\} 125/);
+    assert.match(payload, /control_plane_webhook_delivery_duration_ms_count\{[^}]*outcome="retrying"[^}]*\} 1/);
+    assert.match(payload, /control_plane_webhook_delivery_terminal_total\{[^}]*status="superseded"[^}]*\} 1/);
+    assert.match(payload, /control_plane_webhook_jobs\{[^}]*status="paused"[^}]*\} 1/);
+    assert.doesNotMatch(payload, /control_plane_webhook_[^\n]*\{[^}]*(?:workspace|subscription|event)_id=/);
   });
 
   it('renders workspace-native outcomes with canonical bounded IDs and no correlation labels', () => {

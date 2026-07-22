@@ -21,6 +21,7 @@ import { expireAndResumeTimedOutApprovals } from './services/approval-timeouts.j
 import { syncTargetBuiltInTools } from './services/target-built-in-tool-sync.js';
 import { runControlPlaneRetentionSweep } from './services/conversation-retention.js';
 import { runTargetInsightsCheckpointSweep } from './services/target-insights/checkpoint-worker.js';
+import { runWebhookDeliverySweep } from './services/webhook-worker.js';
 import { runAutomationOutboxTick } from './services/automation-outbox-worker.js';
 import { runAutomationTriggerTick } from './services/automation-trigger-worker.js';
 import { runWorkflowScheduleTick } from './services/workflow-scheduler.js';
@@ -135,6 +136,17 @@ async function main(): Promise<void> {
     }
   }, config.AUTOMATION_WORKER_INTERVAL_MS);
   automationWorkerInterval.unref();
+  let webhookSweepInFlight = false;
+  const webhookDeliveryInterval = setInterval(async () => {
+    if (webhookSweepInFlight) return;
+    webhookSweepInFlight = true;
+    try {
+      await runWebhookDeliverySweep();
+    } finally {
+      webhookSweepInFlight = false;
+    }
+  }, 1000);
+  webhookDeliveryInterval.unref();
 
   server.on('upgrade', (request, socket, head) => {
     const handled = agentGateway.handleUpgrade(request, socket, head);
@@ -168,6 +180,7 @@ async function main(): Promise<void> {
     clearInterval(approvalTimeoutInterval);
     clearInterval(targetInsightsCheckpointInterval);
     clearInterval(automationWorkerInterval);
+    clearInterval(webhookDeliveryInterval);
     const forceExit = setTimeout(() => {
       logger.error('Forced control plane shutdown after timeout');
       process.exit(1);

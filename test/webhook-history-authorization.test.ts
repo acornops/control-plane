@@ -91,6 +91,8 @@ describe('webhook history authorization', () => {
       status: 'success',
       responseStatus: 202,
       durationMs: 12,
+      attemptNumber: 1,
+      willRetry: false,
       sentAt: '2026-01-01T00:00:01.000Z'
     };
     repo.getWorkspaceRole = async () => 'admin';
@@ -118,6 +120,10 @@ describe('webhook history authorization', () => {
         responseStatus: 202,
         error: null,
         durationMs: 12,
+        attemptNumber: 1,
+        willRetry: false,
+        nextAttemptAt: null,
+        terminalReason: null,
         sentAt: '2026-01-01T00:00:01.000Z'
       }]
     });

@@ -19,7 +19,11 @@ export type ToolAccessMode = 'read_only' | 'read_write';
 export type WriteConfirmationPolicySource = 'cluster_override' | 'deployment_default';
 export type ToolApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 export type ToolApprovalExecutionStatus = 'not_started' | 'executing' | 'succeeded' | 'failed' | 'unknown';
-export type WebhookHistoryStatus = 'success' | 'failed';
+export {
+  type WebhookHistory,
+  type WebhookHistoryStatus,
+  type WebhookSubscription
+} from './webhooks.js';
 
 export interface User {
   id: string;
@@ -514,36 +518,4 @@ export interface ClusterSnapshot {
   workspaceId: string;
   timestamp: string;
   data: Record<string, unknown>;
-}
-
-export interface WebhookSubscription {
-  id: string;
-  workspaceId: string;
-  targetId?: string;
-  name: string;
-  url: string;
-  eventTypes: string[];
-  enabled: boolean;
-  secretCiphertext: string;
-  secretKeyId: string;
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface WebhookHistory {
-  id: string;
-  subscriptionId: string;
-  eventId: string;
-  eventType: string;
-  workspaceId: string;
-  targetId?: string;
-  subjectType: string;
-  subjectId: string;
-  payload: Record<string, unknown>;
-  status: WebhookHistoryStatus;
-  responseStatus?: number;
-  error?: string;
-  durationMs?: number;
-  sentAt: string;
 }

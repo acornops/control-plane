@@ -34,6 +34,14 @@ OIDC logout always deletes the current AcornOps browser session before redirecti
 - `LLM_GATEWAY_ADMIN_TOKEN`
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`
 - `WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON` (default `[]`)
+- `WEBHOOK_WORKER_ENABLED` (default `true`)
+- `WEBHOOK_WORKER_BATCH_SIZE` (default `50`)
+- `WEBHOOK_WORKER_CONCURRENCY` (default `20`)
+- `WEBHOOK_WORKER_PER_ORIGIN_CONCURRENCY` (default `4`)
+- `WEBHOOK_MAX_ATTEMPTS` (default `10`)
+- `WEBHOOK_MAX_RETRY_AGE_SECONDS` (default `86400`)
+- `WEBHOOK_MAX_PAYLOAD_BYTES` (default `65536`)
+- `WEBHOOK_MAX_SUBSCRIPTIONS_PER_WORKSPACE` (default `100`)
 
 ## Private Webhook Destinations
 
@@ -60,6 +68,20 @@ This application setting does not grant packet reachability. Kubernetes
 deployments must also configure the platform chart's
 `networkPolicies.webhooks.to` peers and ports, and private PKI deployments must
 provide the control-plane additional CA bundle.
+
+## Durable Webhook Delivery
+
+Webhook events and per-subscription jobs are committed to Postgres before the
+worker sends them. Every control-plane replica may claim jobs through expiring
+leases; stale workers cannot commit delivery results after another replica has
+reclaimed a lease. Retries preserve the event ID and payload, honor bounded
+`Retry-After` values, and stop at the configured attempt or age limit.
+
+Set `WEBHOOK_WORKER_ENABLED=false` during maintenance to pause new claims while
+event enqueueing continues. Re-enable the worker to drain the backlog. Issue
+created/reopened notifications pause while an issue is recovering and are
+superseded when a newer lifecycle version makes them stale. External endpoint
+failures do not affect readiness.
 
 ## Additional CA Trust
 
