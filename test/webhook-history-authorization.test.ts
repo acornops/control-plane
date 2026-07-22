@@ -103,8 +103,8 @@ describe('webhook history authorization', () => {
     });
 
     assert.equal(res.statusCode, 200);
-    assert.deepEqual(res.body, [
-      {
+    assert.deepEqual(res.body, {
+      items: [{
         id: 'history-1',
         subscriptionId: 'webhook-1',
         eventId: 'event-1',
@@ -119,7 +119,7 @@ describe('webhook history authorization', () => {
         error: null,
         durationMs: 12,
         sentAt: '2026-01-01T00:00:01.000Z'
-      }
-    ]);
+      }]
+    });
   });
 });

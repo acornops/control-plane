@@ -1,7 +1,7 @@
 import { dateTime, JsonSchema, jsonObject, pageOf, schemaRef, stringArray, uuid } from './schema-types.js';
 import { targetSummarySchema, runSchema, userSchema } from './schema-components-common.js';
 import { buildTargetMcpWireSchemas } from './schema-components-target-mcp.js';
-import { externalWebhookRouteSchemas } from './schema-components-webhook-routes.js';
+import { buildWebhookSchemas } from './schema-components-webhooks.js';
 
 export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
   return {
@@ -504,39 +504,6 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
     },
     McpToolPage: pageOf('McpTool'),
     ...buildTargetMcpWireSchemas(),
-    WebhookSubscription: {
-      type: 'object',
-      required: ['id', 'workspaceId', 'url', 'eventTypes', 'enabled'],
-      properties: {
-        id: uuid,
-        workspaceId: uuid,
-        targetId: uuid,
-        url: { type: 'string', format: 'uri' },
-        eventTypes: stringArray,
-        enabled: { type: 'boolean' },
-        createdAt: dateTime,
-        updatedAt: dateTime
-      },
-      additionalProperties: true
-    },
-    WebhookCreated: {
-      allOf: [schemaRef('WebhookSubscription')],
-      description: 'Webhook subscription response. Includes signing secret once.'
-    },
-    WebhookPage: pageOf('WebhookSubscription'),
-    WebhookHistory: {
-      type: 'object',
-      properties: {
-        id: uuid,
-        webhookId: uuid,
-        eventType: { type: 'string' },
-        status: { type: 'string', enum: ['success', 'failed'] },
-        responseStatus: { type: 'integer' },
-        deliveredAt: dateTime
-      },
-      additionalProperties: true
-    },
-    WebhookHistoryPage: pageOf('WebhookHistory'),
-    ...externalWebhookRouteSchemas
+    ...buildWebhookSchemas()
   };
 }

@@ -86,6 +86,10 @@ Central tracking: acornops/acornops#12.
 - 2026-07-22, Wave 2: Folded external webhook route connection state and its
   indexes/foreign key into the greenfield schema. Kept route metrics in a
   focused module to preserve the current repository file-size harness.
+- 2026-07-22, Wave 2: Normalized webhook subscription and delivery-history
+  list responses to the current paged `{ items }` contract. Corrected the
+  generated schema to describe the controller's actual subscription name,
+  one-time secret, and history metadata rather than stale legacy field names.
 
 ## Validation Log
 
