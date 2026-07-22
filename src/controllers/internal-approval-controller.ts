@@ -108,7 +108,6 @@ export async function createToolApproval(req: Request, res: Response, next: Next
           workspaceId: automationRun.workspaceId,
           type: 'approval_requested',
           runId,
-          stepIndex: automationRun.stepIndex,
           approvalId: approval.id,
           dedupeKey: `approval-requested:${approval.id}`,
           payload: {

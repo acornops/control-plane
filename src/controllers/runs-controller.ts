@@ -372,7 +372,6 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
         workspaceId: workflowRun.workspaceId,
         type: 'approval_decided',
         runId: workflowRun.id,
-        stepIndex: workflowRun.stepIndex,
         approvalId: decided.id,
         dedupeKey: `approval-decided:${decided.id}:${decided.status}`,
         payload: {

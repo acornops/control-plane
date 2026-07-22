@@ -18,7 +18,6 @@ export interface WorkflowExecutionStreamEvent {
   occurredAt: string;
   runId?: string;
   runEventSeq?: number;
-  stepIndex?: number;
   approvalId?: string;
   payload: Record<string, unknown>;
 }
@@ -31,7 +30,6 @@ export interface InsertWorkflowExecutionEventInput {
   occurredAt?: string;
   runId?: string;
   runEventSeq?: number;
-  stepIndex?: number;
   approvalId?: string;
   payload?: Record<string, unknown>;
 }
@@ -57,7 +55,6 @@ function mapEvent(row: Row): WorkflowExecutionStreamEvent {
     occurredAt: new Date(row.occurred_at).toISOString(),
     runId: row.run_id || undefined,
     runEventSeq: row.run_event_seq ?? undefined,
-    stepIndex: row.step_index ?? undefined,
     approvalId: row.approval_id || undefined,
     payload: runPayload ? { runEvent: runPayload } : (row.payload || {})
   };
@@ -82,12 +79,12 @@ export async function insertWorkflowExecutionEvent(
 ): Promise<WorkflowExecutionStreamEvent | null> {
   const result = await client.query<Row>(
     `INSERT INTO workflow_execution_events (
-       execution_id,workspace_id,event_type,run_id,run_event_seq,step_index,approval_id,dedupe_key,payload,occurred_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       execution_id,workspace_id,event_type,run_id,run_event_seq,approval_id,dedupe_key,payload,occurred_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      ON CONFLICT (execution_id,dedupe_key) DO NOTHING
      RETURNING *`,
     [input.executionId, input.workspaceId, input.type, input.runId || null, input.runEventSeq || null,
-     input.stepIndex ?? null, input.approvalId || null, input.dedupeKey, input.payload || {},
+     input.approvalId || null, input.dedupeKey, input.payload || {},
      input.occurredAt || new Date().toISOString()]
   );
   if (!result.rowCount) return null;
@@ -100,12 +97,12 @@ export async function appendWorkflowExecutionEvent(
 ): Promise<WorkflowExecutionStreamEvent | null> {
   const result = await db.query<Row>(
     `INSERT INTO workflow_execution_events (
-       execution_id,workspace_id,event_type,run_id,run_event_seq,step_index,approval_id,dedupe_key,payload,occurred_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       execution_id,workspace_id,event_type,run_id,run_event_seq,approval_id,dedupe_key,payload,occurred_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      ON CONFLICT (execution_id,dedupe_key) DO NOTHING
      RETURNING id`,
     [input.executionId, input.workspaceId, input.type, input.runId || null, input.runEventSeq || null,
-     input.stepIndex ?? null, input.approvalId || null, input.dedupeKey, input.payload || {},
+     input.approvalId || null, input.dedupeKey, input.payload || {},
      input.occurredAt || new Date().toISOString()]
   );
   if (!result.rowCount) return null;

@@ -596,11 +596,16 @@ CREATE TABLE runs (
     assistant_message jsonb,
     assistant_references jsonb DEFAULT '[]'::jsonb NOT NULL,
     principal jsonb,
+    request_actor_type text DEFAULT 'user'::text NOT NULL,
+    request_external_integration_link_id text,
+    request_external_integration_client_id text,
     CONSTRAINT runs_assistant_references_array CHECK ((jsonb_typeof(assistant_references) = 'array'::text)),
     CONSTRAINT runs_llm_provider_check CHECK ((llm_provider = ANY (ARRAY['openai'::text, 'anthropic'::text, 'gemini'::text]))),
     CONSTRAINT runs_llm_reasoning_effort_check CHECK ((llm_reasoning_effort = ANY (ARRAY['off'::text, 'low'::text, 'medium'::text, 'high'::text]))),
     CONSTRAINT runs_llm_reasoning_summary_mode_check CHECK ((llm_reasoning_summary_mode = ANY (ARRAY['off'::text, 'auto'::text, 'concise'::text, 'detailed'::text]))),
-    CONSTRAINT runs_principal_check CHECK (((principal IS NULL) OR ((jsonb_typeof(principal) = 'object'::text) AND ((principal ->> 'type'::text) = ANY (ARRAY['user'::text, 'service_identity'::text])) AND (COALESCE((principal ->> 'id'::text), ''::text) <> ''::text))))
+    CONSTRAINT runs_principal_check CHECK (((principal IS NULL) OR ((jsonb_typeof(principal) = 'object'::text) AND ((principal ->> 'type'::text) = ANY (ARRAY['user'::text, 'service_identity'::text])) AND (COALESCE((principal ->> 'id'::text), ''::text) <> ''::text)))),
+    CONSTRAINT runs_request_actor_type_check CHECK ((request_actor_type = ANY (ARRAY['user'::text, 'external_integration'::text]))),
+    CONSTRAINT runs_request_actor_provenance_check CHECK ((((request_actor_type = 'user'::text) AND (request_external_integration_link_id IS NULL) AND (request_external_integration_client_id IS NULL)) OR ((request_actor_type = 'external_integration'::text) AND (request_external_integration_link_id IS NOT NULL) AND (request_external_integration_client_id IS NOT NULL))))
 );
 
 CREATE TABLE service_identities (
@@ -1133,10 +1138,14 @@ CREATE TABLE workflow_executions (
     binding_digest text DEFAULT ''::text NOT NULL,
     resource_bindings jsonb DEFAULT '[]'::jsonb NOT NULL,
     resolved_at timestamp with time zone DEFAULT now() NOT NULL,
+    request_actor_type text DEFAULT 'user'::text NOT NULL,
+    request_external_integration_link_id text,
+    request_external_integration_client_id text,
     CONSTRAINT workflow_executions_approved_context_grants_check CHECK ((jsonb_typeof(approved_context_grants) = 'array'::text)),
     CONSTRAINT workflow_executions_resource_bindings_check CHECK ((jsonb_typeof(resource_bindings) = 'array'::text)),
     CONSTRAINT workflow_executions_workflow_snapshot_check CHECK ((jsonb_typeof(workflow_snapshot) = 'object'::text)),
-    CONSTRAINT workflow_executions_workflow_version_check CHECK ((workflow_version > 0))
+    CONSTRAINT workflow_executions_workflow_version_check CHECK ((workflow_version > 0)),
+    CONSTRAINT workflow_executions_request_actor_provenance_check CHECK ((((request_actor_type = 'user'::text) AND (request_external_integration_link_id IS NULL) AND (request_external_integration_client_id IS NULL)) OR ((request_actor_type = 'external_integration'::text) AND (request_external_integration_link_id IS NOT NULL) AND (request_external_integration_client_id IS NOT NULL))))
 );
 
 CREATE TABLE workflow_mcp_servers (
@@ -1253,6 +1262,22 @@ CREATE TABLE workflow_runs (
     CONSTRAINT workflow_runs_resource_bindings_check CHECK ((jsonb_typeof(resource_bindings) = 'array'::text))
 );
 
+CREATE TABLE workflow_execution_events (
+    id bigserial PRIMARY KEY,
+    execution_id text NOT NULL,
+    workspace_id text NOT NULL,
+    event_type text NOT NULL,
+    run_id text,
+    run_event_seq integer,
+    approval_id text,
+    dedupe_key text NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT workflow_execution_events_payload_check CHECK ((jsonb_typeof(payload) = 'object'::text)),
+    CONSTRAINT workflow_execution_events_execution_dedupe_key UNIQUE (execution_id, dedupe_key)
+);
+
 CREATE TABLE workflow_schedules (
     id text NOT NULL,
     workspace_id text NOT NULL,
@@ -1291,10 +1316,14 @@ CREATE TABLE workflow_sessions (
     created_by text NOT NULL,
     compiled_access_scope jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    workflow_snapshot jsonb,
+    workflow_snapshot jsonb NOT NULL,
+    request_actor_type text DEFAULT 'user'::text NOT NULL,
+    request_external_integration_link_id text,
+    request_external_integration_client_id text,
     CONSTRAINT workflow_sessions_compiled_access_scope_check CHECK ((jsonb_typeof(compiled_access_scope) = 'object'::text)),
-    CONSTRAINT workflow_sessions_workflow_snapshot_check CHECK (((workflow_snapshot IS NULL) OR (jsonb_typeof(workflow_snapshot) = 'object'::text))),
-    CONSTRAINT workflow_sessions_workflow_version_check CHECK ((workflow_version > 0))
+    CONSTRAINT workflow_sessions_workflow_snapshot_check CHECK ((jsonb_typeof(workflow_snapshot) = 'object'::text)),
+    CONSTRAINT workflow_sessions_workflow_version_check CHECK ((workflow_version > 0)),
+    CONSTRAINT workflow_sessions_request_actor_provenance_check CHECK ((((request_actor_type = 'user'::text) AND (request_external_integration_link_id IS NULL) AND (request_external_integration_client_id IS NULL)) OR ((request_actor_type = 'external_integration'::text) AND (request_external_integration_link_id IS NOT NULL) AND (request_external_integration_client_id IS NOT NULL))))
 );
 
 CREATE TABLE workspace_ai_settings (
@@ -1824,6 +1853,8 @@ CREATE INDEX idx_runs_session_id ON runs USING btree (session_id);
 
 CREATE INDEX idx_runs_session_requested ON runs USING btree (session_id, requested_at DESC, id DESC);
 
+CREATE INDEX idx_runs_external_integration_origin ON runs USING btree (request_external_integration_link_id, requested_at DESC) WHERE (request_actor_type = 'external_integration'::text);
+
 CREATE INDEX idx_sessions_target_last_message ON sessions USING btree (target_id, last_message_at DESC);
 
 CREATE INDEX idx_sessions_workspace_target ON sessions USING btree (workspace_id, target_id);
@@ -1968,6 +1999,10 @@ CREATE UNIQUE INDEX workflow_reports_target_run_tool_call_unique ON workflow_rep
 
 CREATE INDEX workflow_run_events_created_idx ON workflow_run_events USING btree (run_id, created_at, seq);
 
+CREATE INDEX workflow_execution_events_replay_idx ON workflow_execution_events USING btree (execution_id, id);
+
+CREATE INDEX idx_workflow_executions_external_integration_origin ON workflow_executions USING btree (request_external_integration_link_id, updated_at DESC) WHERE (request_actor_type = 'external_integration'::text);
+
 CREATE INDEX workflow_runs_claim_idx ON workflow_runs USING btree (next_attempt_at, requested_at, id) WHERE ((status = ANY (ARRAY['queued'::text, 'dispatching'::text])) AND (cancellation_requested_at IS NULL));
 
 CREATE INDEX workflow_runs_prompt_digest_idx ON workflow_runs USING btree (workspace_id, prompt_digest, requested_at DESC);
@@ -1981,6 +2016,8 @@ CREATE INDEX workflow_schedules_due_idx ON workflow_schedules USING btree (next_
 CREATE INDEX workflow_schedules_workspace_idx ON workflow_schedules USING btree (workspace_id, next_run_at, id);
 
 CREATE INDEX workflow_sessions_workflow_created_idx ON workflow_sessions USING btree (workspace_id, workflow_id, created_at DESC, id DESC);
+
+CREATE INDEX idx_workflow_sessions_external_integration_origin ON workflow_sessions USING btree (request_external_integration_link_id, created_at DESC) WHERE (request_actor_type = 'external_integration'::text);
 
 CREATE INDEX workspace_skills_workspace_enabled_valid_name_idx ON workspace_skills USING btree (workspace_id, enabled, validation_status, name, id);
 
@@ -2279,6 +2316,15 @@ ALTER TABLE ONLY workflow_executions
 
 ALTER TABLE ONLY workflow_executions
     ADD CONSTRAINT workflow_executions_workspace_id_workflow_id_fkey FOREIGN KEY (workspace_id, workflow_id) REFERENCES workflow_definitions(workspace_id, id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY workflow_execution_events
+    ADD CONSTRAINT workflow_execution_events_execution_id_fkey FOREIGN KEY (execution_id) REFERENCES workflow_executions(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workflow_execution_events
+    ADD CONSTRAINT workflow_execution_events_run_id_fkey FOREIGN KEY (run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workflow_execution_events
+    ADD CONSTRAINT workflow_execution_events_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY workflow_mcp_servers
     ADD CONSTRAINT workflow_mcp_servers_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;

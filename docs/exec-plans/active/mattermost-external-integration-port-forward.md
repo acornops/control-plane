@@ -101,6 +101,29 @@ Central tracking: acornops/acornops#12.
   issues pause current-lifecycle alerts; newer lifecycle versions supersede
   stale jobs. Event payloads match the Mattermost bot's rich-alert fields and
   remain bounded and deduplicated.
+- 2026-07-22, Wave 4: Added external write-run opt-in without restoring the
+  older step/policy execution model. Active read-write or approval-gated
+  Workflows require `create_read_write_runs`; active ungated read-only
+  Workflows continue to require `create_read_only_runs`. Every external
+  Workflow message uses current Workflow V2 typed prompt resolution and exact
+  compiled scope, while its session remains pinned to the original definition
+  and the current definition must still be active and authorized.
+- 2026-07-22, Wave 4: Persisted exact integration link/client provenance for
+  troubleshooting runs, Workflow sessions, and Workflow executions in the
+  greenfield baseline. Session continuation, reports, pre-run gates, and
+  runtime write approvals fail closed unless the exact originating link and
+  client match. Approval requires current write capability; the exact origin
+  may still reject after write revocation while workspace read access remains.
+- 2026-07-22, Wave 4: Replaced legacy step-index events with durable execution,
+  entry-run, approval, accepted run-event, and terminal transition records.
+  Browser execution detail retains the current rich Workflow V2 response;
+  linked integrations receive a deliberately sanitized workspace-readable DTO
+  and replayable SSE stream. Stable external `clientRequestId` values are
+  required, race-safe, and return the exact persisted run scope on retries.
+- 2026-07-22, Wave 4: Kept current Workflow V2 coordination, principal,
+  capability routing, target-tool narrowing, report-artifact routes, and
+  greenfield migration policy. Extracted focused approval-inbox and execution
+  stream metric modules to stay within repository harness budgets.
 
 ## Validation Log
 
@@ -127,6 +150,13 @@ Central tracking: acornops/acornops#12.
   161 suites, SQL/static migration checks, authorization, membership,
   run-event durability, contracts, public/admin OpenAPI coverage, repository
   harness, and the production build.
+- Wave 4 control plane: the consolidated schema initialized successfully in a
+  fresh isolated PostgreSQL database and passed SQL introspection. Focused
+  external Workflow, approval, schedule-inbox, authorization, metrics, and
+  report-isolation tests passed, including idempotent exact-scope replay and
+  preservation of the richer browser execution response. The full suite,
+  authorization, membership, run-event durability, contracts, public/admin
+  OpenAPI coverage, harness, and production build passed before integration.
 - Each wave: run focused external-integration tests, authentication/authorization
   regressions, webhook tests where applicable, migration checks, contract and
   OpenAPI checks, then the complete repository validation.

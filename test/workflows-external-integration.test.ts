@@ -23,6 +23,7 @@ import {
   callController,
   createExternalIntegrationRequest,
   createReadyMcpReadinessResponse,
+  createRequest,
   createWorkspaceAiCredentialStatusResponse,
   installWorkspace,
   isMcpReadinessRequest,
@@ -116,7 +117,7 @@ describe('workflow external integration access', () => {
 
     const messageResponse = await callController(postMessage, createExternalIntegrationRequest(
       { sessionId },
-      { content: 'Triage @target[Test Cluster].' }
+      { content: 'Triage @target[Test Cluster].', clientRequestId: 'external-triage-message-1' }
     ));
     assert.equal(messageResponse.statusCode, 202);
     const runBody = messageResponse.body as { run_id: string; workflow_run_id: string };
@@ -149,7 +150,7 @@ describe('workflow external integration access', () => {
       { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata', 'target_inventory'] }
     ));
     assert.equal(readWriteResponse.statusCode, 403);
-    assert.match((readWriteResponse.body as { error: { message: string } }).error.message, /read-only/);
+    assert.match((readWriteResponse.body as { error: { message: string } }).error.message, /does not permit/);
 
     const approvalGatedResponse = await callController(createSession, createExternalIntegrationRequest(
       { workflowId: 'incident-report-pdf' },
@@ -161,7 +162,7 @@ describe('workflow external integration access', () => {
     installExternalWriteGrant();
     const writeEnabledRequest = withWriteCapability(createExternalIntegrationRequest(
       { workflowId: 'incident-report-pdf' },
-      { workspaceId: 'workspace-1', approvedContextGrants: ['selected_chat_sessions'] }
+      { workspaceId: 'workspace-1', approvedContextGrants: [] }
     ));
     const writeEnabledResponse = await callController(createSession, writeEnabledRequest);
     assert.equal(writeEnabledResponse.statusCode, 201);
@@ -261,8 +262,7 @@ describe('workflow external integration access', () => {
   it('creates fresh gated executions on replies and permits only exact-origin decisions', async () => {
     installWorkspace('admin');
     installExternalWriteGrant();
-    const incidentChat = createSessionRecord({ id: 'incident-chat-1', title: 'Payments incident' });
-    repo.getSession = async (sessionId) => sessionId === incidentChat.id ? incidentChat : null;
+    const incidentChat = await repo.addSession('workspace-1', 'cluster-1', 'user-1', 'Payments incident');
     mock.method(globalThis, 'fetch', async (input) => {
       if (isWorkspaceAiCredentialStatusRequest(input)) {
         return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse('workspace-1')), { status: 200 });
@@ -272,7 +272,7 @@ describe('workflow external integration access', () => {
 
     const sessionResponse = await callController(createSession, withWriteCapability(createExternalIntegrationRequest(
       { workflowId: 'incident-report-pdf' },
-      { workspaceId: 'workspace-1', approvedContextGrants: ['selected_chat_sessions'] }
+      { workspaceId: 'workspace-1', approvedContextGrants: [] }
     )));
     assert.equal(sessionResponse.statusCode, 201);
     const sessionId = (sessionResponse.body as { session: { id: string } }).session.id;
@@ -281,14 +281,13 @@ describe('workflow external integration access', () => {
       { sessionId },
       {
         content: 'Generate the incident report from @chat[Payments incident].',
-        clientRequestId,
-        inputs: { chatSessionIds: [incidentChat.id] }
+        clientRequestId
       }
     )));
     const first = await launch('external-gated-message-1');
     const firstRetry = await launch('external-gated-message-1');
     await updateWorkflowDefinitionScope('workspace-1', 'incident-report-pdf', {
-      starterPrompt: 'Updated prompt for future sessions only.'
+      prompt: 'Updated prompt for future sessions only.'
     });
     const second = await launch('external-gated-message-2');
     assert.equal(first.statusCode, 202);
@@ -322,14 +321,12 @@ describe('workflow external integration access', () => {
       executionId: firstBody.executionId,
       workspaceId: 'workspace-1',
       runId: firstRun.id,
-      stepIndex: firstRun.stepIndex,
       events: acceptedRunEvents
     });
     await recordWorkflowRunEvents({
       executionId: firstBody.executionId,
       workspaceId: 'workspace-1',
       runId: firstRun.id,
-      stepIndex: firstRun.stepIndex,
       events: acceptedRunEvents
     });
     const executionEvents = await listWorkflowExecutionEvents(firstBody.executionId);
@@ -375,6 +372,9 @@ describe('workflow external integration access', () => {
     ]) {
       assert.equal(serializedExecution.includes(privateField), false);
     }
+    const browserExecution = await callController(getWorkflowExecution, createRequest({ executionId: firstBody.executionId }));
+    assert.ok((browserExecution.body as { execution: { workflow_snapshot: unknown } }).execution.workflow_snapshot);
+    assert.ok((browserExecution.body as { attempts: Array<{ compiled_access_scope: unknown }> }).attempts[0].compiled_access_scope);
 
     const report = await createWorkflowReport({
       workspaceId: 'workspace-1',
@@ -383,7 +383,8 @@ describe('workflow external integration access', () => {
       title: 'Payments incident',
       source: { markdown: '# Private report source' },
       provenance: { internal: 'private provenance' },
-      retentionDays: 30
+      retentionDays: 30,
+      toolCallId: 'external-report-1'
     });
     const ownedReport = await callController(getWorkflowReportMetadata, createExternalIntegrationRequest({
       reportId: report.id
@@ -410,7 +411,8 @@ describe('workflow external integration access', () => {
       runId: firstBody.run_id,
       approvalKind: 'tool_write',
       toolCallId: 'external-runtime-write-1',
-      toolName: 'reports.publish',
+      toolName: 'reports.pdf.generate',
+      toolRef: { serverId: 'acornops-workspace-native', toolName: 'reports.pdf.generate' },
       summary: 'Publish the approved report.',
       requestedBy: 'user-1',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),

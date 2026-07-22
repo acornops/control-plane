@@ -38,7 +38,6 @@ export async function recordWorkflowRunEvents(params: {
   executionId: string;
   workspaceId: string;
   runId: string;
-  stepIndex: number;
   events: RunEvent[];
 }): Promise<void> {
   const recorded: WorkflowExecutionStreamEvent[] = [];
@@ -49,7 +48,6 @@ export async function recordWorkflowRunEvents(params: {
       type: 'run_event',
       runId: params.runId,
       runEventSeq: runEvent.seq,
-      stepIndex: params.stepIndex,
       dedupeKey: `run-event:${params.runId}:${runEvent.seq}`,
       occurredAt: runEvent.ts
     });
@@ -84,10 +82,9 @@ async function recordWorkflowRunStarted(run: WorkflowRunRecord): Promise<void> {
     workspaceId: run.workspaceId,
     type: 'run_created',
     runId: run.id,
-    stepIndex: run.stepIndex,
     dedupeKey: `run-created:${run.id}`,
     payload: {
-      workflowStepId: run.workflowStepId || null,
+      agentId: run.agentId || null,
       attemptNumber: run.attemptNumber,
       status: run.status,
       targetId: run.targetId || null,
@@ -100,7 +97,6 @@ async function recordWorkflowRunStarted(run: WorkflowRunRecord): Promise<void> {
       workspaceId: run.workspaceId,
       type: 'approval_requested',
       runId: run.id,
-      stepIndex: run.stepIndex,
       approvalId: approval.id,
       dedupeKey: `approval-requested:${approval.id}`,
       payload: {
@@ -127,7 +123,6 @@ export async function recordWorkflowExecutionTransition(
     workspaceId: run.workspaceId,
     type: 'execution_status_changed',
     runId: run.id,
-    stepIndex: run.stepIndex,
     dedupeKey: `execution-status:${transition.executionStatus}:${transition.nextRunId || run.id}`,
     payload: { status: transition.executionStatus, nextRunId: transition.nextRunId || null }
   });

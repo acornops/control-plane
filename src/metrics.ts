@@ -1,6 +1,8 @@
 import { config } from './config.js';
 import { increment, metricLine } from './metrics-helpers.js';
 import { renderWebhookMetrics } from './metrics-external-webhooks.js';
+import { renderWorkflowExecutionMetrics } from './metrics-workflow-execution.js';
+export { incrementWorkflowExecutionStream } from './metrics-workflow-execution.js';
 const adminAuthFailures = new Map<string, number>();
 const adminRequests = new Map<string, number>();
 const runEventIngestCounts = new Map<string, number>();
@@ -48,15 +50,12 @@ let adminAuditWriteFailures = 0;
 export function incrementAdminAuthFailures(reason: string): void {
   increment(adminAuthFailures, reason);
 }
-
 export function incrementAdminRequests(method: string, route: string, status: number): void {
   increment(adminRequests, `${method}:${route}:${status}`);
 }
-
 export function incrementAdminMutations(): void {
   adminMutations += 1;
 }
-
 export function incrementAdminAuditWriteFailures(): void {
   adminAuditWriteFailures += 1;
 }
@@ -385,6 +384,7 @@ export function renderControlPlaneMetrics(): string {
       const [status, le] = key.split(':');
       return metricLine('control_plane_workflow_schedule_preview_duration_ms_bucket', { ...serviceLabels, status, le }, value);
     }),
+    ...renderWorkflowExecutionMetrics(serviceLabels),
     '# HELP control_plane_workflow_capability_preview_total Workflow capability preview outcomes.',
     '# TYPE control_plane_workflow_capability_preview_total counter',
     ...Array.from(workflowCapabilityPreviewOutcomes.entries()).map(([status, value]) =>

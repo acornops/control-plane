@@ -269,6 +269,7 @@ export async function createRunFromUserMessage(params: {
     clientMessageId?: string;
     assistantReferences: AssistantReference[];
     principal: RunPrincipalRef;
+    requestProvenance?: RunRequestProvenance;
   }): Promise<CreateRunFromMessageResult> {
     return withTransaction(async (client) => {
       const findExistingByClientMessageId = async (): Promise<CreateRunFromMessageResult | null> => {
@@ -346,8 +347,9 @@ export async function createRunFromUserMessage(params: {
              id, workspace_id, target_id, session_id, message_id,
              llm_provider, llm_model, llm_reasoning_summary_mode, llm_reasoning_effort,
              tool_access_mode, status, requested_at, started_at, ended_at,
-             error_code, error_message, usage, assistant_message, principal, assistant_references
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19::jsonb,$20::jsonb)
+             error_code, error_message, usage, assistant_message, principal, assistant_references,
+             request_actor_type,request_external_integration_link_id,request_external_integration_client_id
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19::jsonb,$20::jsonb,$21,$22,$23)
            RETURNING *
          )
          SELECT inserted.*, t.target_type
@@ -373,7 +375,10 @@ export async function createRunFromUserMessage(params: {
           JSON.stringify(null),
           JSON.stringify(null),
           JSON.stringify(params.principal),
-          JSON.stringify(params.assistantReferences)
+          JSON.stringify(params.assistantReferences),
+          params.requestProvenance?.actorType || 'user',
+          params.requestProvenance?.externalIntegrationLinkId || null,
+          params.requestProvenance?.externalIntegrationClientId || null
         ]
       );
 

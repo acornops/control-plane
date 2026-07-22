@@ -40,7 +40,6 @@ import { mapGatewayError } from './workspaces/common.js';
 import { runAuditActor, runRequestProvenance } from './run-actor.js';
 import { acceptedMessageResponse, parseRequestedLlmSelection } from './session-llm-selection.js';
 import { resolveReadySessionAssistantReferences } from './session-assistant-references.js';
-
 function enqueueRunDispatch(run: Run): void {
   queueMicrotask(async () => {
     try {
@@ -455,7 +454,8 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       llmReasoningEffort: llmSettings.reasoning.effort,
       clientMessageId: req.body.clientMessageId,
       assistantReferences,
-      principal: { type: 'user', id: req.auth.userId }
+      principal: { type: 'user', id: req.auth.userId },
+      requestProvenance: runRequestProvenance(req)
     });
     if (!created.idempotent) {
       webhooks.emit({

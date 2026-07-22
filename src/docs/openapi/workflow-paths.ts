@@ -1,4 +1,5 @@
 import { EXAMPLE_RUN_ID, EXAMPLE_WORKSPACE_ID } from '../../constants/dev-defaults.js';
+import { streamContent } from './schema-types.js';
 
 const workspaceIdParameter = {
   in: 'path',
@@ -439,9 +440,23 @@ export function buildWorkflowPaths(): Record<string, unknown> {
     },
     '/api/v1/workflow-executions/{executionId}': {
       get: {
-        tags: ['workflows'], summary: 'Get workflow execution, attempts, and sanitized coordination', security: [{ userSession: [] }],
-        parameters: [{ in: 'path', name: 'executionId', required: true, schema: { type: 'string' } }],
+        tags: ['workflows'], summary: 'Get workflow execution, attempts, and sanitized coordination', security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+        parameters: [externalUserHeader, { in: 'path', name: 'executionId', required: true, schema: { type: 'string' } }],
         responses: { '200': { description: 'Workflow execution with retained attempts and, for coordinated runs, a sanitized child summary without prompts, compiled scopes, results, credentials, or coordinator identity.', content: { 'application/json': { schema: { type: 'object', required: ['execution', 'attempts'], properties: { execution: { type: 'object' }, attempts: { type: 'array', items: { type: 'object' } }, coordination: { $ref: '#/components/schemas/WorkflowCoordinationSummary' } } } } } } }
+      }
+    },
+    '/api/v1/workflow-executions/{executionId}/stream': {
+      get: {
+        tags: ['workflows'],
+        summary: 'Replay and stream sanitized workflow execution events',
+        description: 'Workspace-authorized browser and external integration callers may replay durable aggregate execution events and continue over SSE. Prompts, compiled scopes, credentials, integration provenance, and tool arguments are not included.',
+        security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+        parameters: [
+          externalUserHeader,
+          { in: 'path', name: 'executionId', required: true, schema: { type: 'string' } },
+          { in: 'query', name: 'after', required: false, schema: { type: 'integer', minimum: 0 }, description: 'Last durable event id already observed.' }
+        ],
+        responses: { '200': { description: 'Server-sent workflow_execution events, preceded by durable replay after the supplied cursor.', content: streamContent() } }
       }
     },
     '/api/v1/workflow-executions/{executionId}/cancel': {
@@ -460,15 +475,15 @@ export function buildWorkflowPaths(): Record<string, unknown> {
     },
     '/api/v1/report-artifacts/{reportId}': {
       get: {
-        tags: ['runs', 'workflows'], summary: 'Get report artifact metadata', security: [{ userSession: [] }],
-        parameters: [{ in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
+        tags: ['runs', 'workflows'], summary: 'Get report artifact metadata', security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+        parameters: [externalUserHeader, { in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
         responses: { '200': { description: 'Report metadata without report source or PDF bytes.' } }
       }
     },
     '/api/v1/report-artifacts/{reportId}/download': {
       get: {
-        tags: ['runs', 'workflows'], summary: 'Render and stream a report artifact', security: [{ userSession: [] }],
-        parameters: [{ in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
+        tags: ['runs', 'workflows'], summary: 'Render and stream a report artifact', security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+        parameters: [externalUserHeader, { in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
         responses: { '200': { description: 'Freshly rendered PDF stream.', content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } } } }
       }
     }

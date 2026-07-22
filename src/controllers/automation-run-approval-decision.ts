@@ -83,8 +83,8 @@ export async function decideAutomationApprovalRequest(
             workflowId: workflowRun.workflowId,
             workflowExecutionId: workflowRun.executionId,
             workflowSessionId: workflowRun.workflowSessionId,
-            workflowStepId: workflowRun.workflowStepId || null,
-            stepIndex: workflowRun.stepIndex
+            agentId: workflowRun.agentId || null,
+            attemptNumber: workflowRun.attemptNumber
           }
         : {}),
       ...(req.auth.credential.type === 'external_integration'
@@ -101,7 +101,6 @@ export async function decideAutomationApprovalRequest(
       workspaceId: workflowRun.workspaceId,
       type: 'approval_decided',
       runId: workflowRun.id,
-      stepIndex: workflowRun.stepIndex,
       approvalId: decided.id,
       dedupeKey: `approval-decided:${decided.id}:${decided.status}`,
       payload: {

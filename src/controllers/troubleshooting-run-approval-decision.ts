@@ -60,9 +60,8 @@ export async function decideTroubleshootingRunApproval(
   }
 
   const isRequesterRejecting = (
-    credential.type === 'session'
-    && req.body.decision === 'rejected'
-    && approval.requestedBy === req.auth.userId
+    req.body.decision === 'rejected'
+    && (credential.type === 'external_integration' || approval.requestedBy === req.auth.userId)
   );
   if (!authz.can('create_read_write_runs') && !isRequesterRejecting) {
     res.status(403).json({

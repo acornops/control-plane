@@ -6,6 +6,7 @@ import { compileWorkflowAccessScope, WorkflowAccessDeniedError } from './workflo
 import { computeWorkflowReadiness } from './automation-readiness.js';
 import { resolveWorkspaceLlmSettings } from './workspace-ai-resolution.js';
 import { recordWorkspaceAuditEvent } from './workspace-audit.js';
+import { recordWorkflowExecutionStarted } from './workflow-execution-events.js';
 import { promptResourceRegistry, PromptResourceProviderError } from './prompt-resources/index.js';
 import { withRedisLease } from './control-plane-coordination/leases.js';
 import { getAgentDefinition } from '../store/repository-agents.js';

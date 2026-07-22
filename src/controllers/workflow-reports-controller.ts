@@ -11,10 +11,10 @@ import { toSingleParam } from '../utils/params.js';
 import { getWorkflowExecution } from '../store/repository-workflows.js';
 import { externalIntegrationOwnsWorkflowExecution } from './workflow-execution-access.js';
 
-async function canReadReport(req: AuthenticatedRequest, res: Response, report: { workspaceId: string; executionId: string }): Promise<boolean> {
+async function canReadReport(req: AuthenticatedRequest, res: Response, report: { workspaceId: string; executionId?: string }): Promise<boolean> {
   if (!(await requireWorkspaceDataRead(req, res, report.workspaceId, 'No access to report'))) return false;
   if (req.auth.credential.type !== 'external_integration') return true;
-  const execution = await getWorkflowExecution(report.executionId);
+  const execution = report.executionId ? await getWorkflowExecution(report.executionId) : null;
   if (execution && externalIntegrationOwnsWorkflowExecution(req, execution)) return true;
   res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Report not found', retryable: false } });
   return false;
@@ -32,7 +32,7 @@ export async function getWorkflowReportMetadata(req: AuthenticatedRequest, res: 
   try {
     const report = await getWorkflowReport(toSingleParam(req.params.reportId));
     if (!report) { res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Report not found', retryable: false } }); return; }
-    if (!(await requireWorkspaceDataRead(req, res, report.workspaceId, 'No access to report'))) return;
+    if (!(await canReadReport(req, res, report))) return;
     res.status(200).json({ report: publicReport(report) });
   } catch (err) { next(err); }
 }

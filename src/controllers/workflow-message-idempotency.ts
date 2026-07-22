@@ -1,6 +1,7 @@
 import type { Response } from 'express';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { getWorkflowExecutionByClientRequestId, type WorkflowSessionRecord } from '../store/repository-workflows.js';
+import { publicCompiledWorkflowScope } from './workflow-public.js';
 
 export function isWorkflowClientRequestIdConflict(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
@@ -33,7 +34,7 @@ export async function respondToWorkflowMessageRetry(
     workflow_run_id: existing.run.workflowRunId,
     executionId: existing.execution.id,
     status: existing.run.status,
-    compiledAccessScope: existing.compiledAccessScope
+    compiledAccessScope: publicCompiledWorkflowScope(existing.compiledAccessScope)
   });
   return true;
 }
@@ -43,7 +44,7 @@ export function workflowClientRequestId(
   res: Response
 ): string | null {
   const id = typeof req.body.clientRequestId === 'string' ? req.body.clientRequestId.trim() : '';
-  if (req.auth.credential.type === 'external_integration' && !id) {
+  if (req.auth.credential?.type === 'external_integration' && !id) {
     res.status(400).json({
       error: {
         code: 'WORKFLOW_CLIENT_REQUEST_ID_REQUIRED',

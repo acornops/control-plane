@@ -167,7 +167,6 @@ export async function ingestRunEvents(req: Request, res: Response, next: NextFun
         executionId: currentRun.executionId,
         workspaceId: currentRun.workspaceId,
         runId: currentRun.id,
-        stepIndex: currentRun.stepIndex,
         events: buffered
       });
       const bufferedEventCounts = summarizeRunEventCounts(buffered);

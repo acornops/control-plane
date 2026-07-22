@@ -81,7 +81,6 @@ describe('controller authorization regressions', () => {
     );
     assert.equal(readWriteRun.statusCode, 403);
   });
-
   it('allows external integration credentials to request read-write runs only after explicit client and workspace grant opt-in', async () => {
     installWorkspace('admin');
     repo.getExternalIntegrationWorkspaceGrant = async () => ({

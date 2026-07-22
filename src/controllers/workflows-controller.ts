@@ -7,6 +7,7 @@ import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
 import { WorkflowAccessDeniedError } from '../services/workflow-access.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
+import { recordWorkflowExecutionStarted } from '../services/workflow-execution-events.js';
 import { promptResourceRegistry, PromptResourceProviderError } from '../services/prompt-resources/index.js';
 import {
   getWorkflowCapabilityReadinessReport,
@@ -36,6 +37,7 @@ import {
   parseBoundedLimit
 } from '../utils/pagination.js';
 import { mapGatewayError } from './workspaces/common.js';
+import { runRequestProvenance } from './run-actor.js';
 import {
   publicCompiledWorkflowScope,
   publicWorkflowDefinition,
@@ -48,6 +50,12 @@ import {
   validateApprovedContextGrants,
   workflowAuditActor
 } from './workflow-external-access.js';
+import { externalIntegrationOwnsWorkflowSession } from './workflow-execution-access.js';
+import {
+  isWorkflowClientRequestIdConflict,
+  respondToWorkflowMessageRetry,
+  workflowClientRequestId
+} from './workflow-message-idempotency.js';
 const WORKFLOW_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
 
 function requestWorkspaceId(req: AuthenticatedRequest): string | null {
@@ -165,7 +173,12 @@ export async function createSession(req: AuthenticatedRequest, res: Response, ne
       approvedContextGrants: approvedContextGrants(req),
       resolutionPhase: 'session_ceiling'
     });
-    const session = await createWorkflowSession({ workflow, createdBy: req.auth.userId, compiledAccessScope: compiled.scope });
+    const session = await createWorkflowSession({
+      workflow,
+      createdBy: req.auth.userId,
+      compiledAccessScope: compiled.scope,
+      requestProvenance: runRequestProvenance(req)
+    });
     const publicScope = publicCompiledWorkflowScope(compiled.scope);
     await recordWorkspaceAuditEvent({
       workspaceId,
@@ -233,8 +246,12 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
   try {
     const session = await getWorkflowSession(toSingleParam(req.params.sessionId));
     if (!session) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow session not found', retryable: false } });
-    if (isExternalIntegrationRequest(req) && session.createdBy !== req.auth.userId) {
-      return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow session not found', retryable: false } });
+    if (isExternalIntegrationRequest(req) && !externalIntegrationOwnsWorkflowSession(req, session)) {
+      return void res.status(403).json({ error: {
+        code: 'EXTERNAL_INTEGRATION_WORKFLOW_SESSION_NOT_OWNED',
+        message: 'This Workflow session belongs to another integration origin.',
+        retryable: false
+      } });
     }
     const authz = await requireWorkspaceDataRead(req, res, session.workspaceId);
     if (!authz) return;
@@ -251,10 +268,15 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
         } });
       }
     }
-    const requiredCapability = workflow.capabilityPolicy.mode === 'read_write' ? 'create_read_write_runs' : 'create_read_only_runs';
+    const requiredCapability = workflow.capabilityPolicy.mode === 'read_write'
+      || (isExternalIntegrationRequest(req) && workflow.capabilityPolicy.approvalRequirements.length > 0)
+      ? 'create_read_write_runs'
+      : 'create_read_only_runs';
     if (!(await requireWorkspaceCapability(req, res, session.workspaceId, requiredCapability, 'No permission to create workflow runs'))) return;
     const content = typeof req.body.content === 'string' ? req.body.content : '';
     if (!content.trim()) return void res.status(400).json({ error: { code: 'WORKFLOW_MESSAGE_REQUIRED', message: 'content is required.', retryable: false } });
+    const clientRequestId = workflowClientRequestId(req, res);
+    if (clientRequestId === null) return;
     const unexpectedFields = Object.keys(req.body || {}).filter((field) => field !== 'content' && field !== 'clientRequestId');
     if (unexpectedFields.length > 0) {
       return void res.status(400).json({ error: {
@@ -264,6 +286,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
         details: { fields: unexpectedFields.sort() }
       } });
     }
+    if (clientRequestId && await respondToWorkflowMessageRetry(res, session, clientRequestId)) return;
     const messageId = randomUUID();
     const resolution = await promptResourceRegistry.resolve(content, {
       workspaceId: session.workspaceId,
@@ -361,9 +384,11 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
     const created = await createWorkflowExecution({
       workflow,
       session: { ...session, compiledAccessScope: compiled.scope },
+      compiledAccessScope: compiled.scope,
+      requestProvenance: runRequestProvenance(req),
       messageId,
       content,
-      clientRequestId: typeof req.body.clientRequestId === 'string' ? req.body.clientRequestId : undefined,
+      clientRequestId: clientRequestId || undefined,
       targetId: targetRoute?.id,
       targetType: targetRoute?.targetType,
       promptDigest: resolution.promptDigest,
@@ -376,6 +401,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       llmReasoningSummaryMode: llmSettings.reasoning.summary_mode,
       llmReasoningEffort: llmSettings.reasoning.effort
     });
+    await recordWorkflowExecutionStarted(created.execution, created.run);
     await recordWorkspaceAuditEvent({
       workspaceId: session.workspaceId,
       category: 'run',
@@ -406,6 +432,11 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       compiledAccessScope: publicCompiledWorkflowScope(compiled.scope)
     });
   } catch (error) {
+    if (isWorkflowClientRequestIdConflict(error)) {
+      const session = await getWorkflowSession(toSingleParam(req.params.sessionId));
+      const clientRequestId = typeof req.body?.clientRequestId === 'string' ? req.body.clientRequestId.trim() : '';
+      if (session && clientRequestId && await respondToWorkflowMessageRetry(res, session, clientRequestId)) return;
+    }
     if (error instanceof WorkflowAccessDeniedError) return respondWorkflowAccessError(res, error);
     if (error instanceof PromptResourceProviderError) {
       return void res.status(409).json({ error: { code: error.code, message: error.message, retryable: error.retryable } });

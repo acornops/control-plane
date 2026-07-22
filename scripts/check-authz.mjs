@@ -317,8 +317,8 @@ assert(
 );
 assert(
   workflowController.includes('EXTERNAL_INTEGRATION_WORKFLOW_SESSION_NOT_OWNED')
-    && workflowController.includes('session.requestProvenance.externalIntegrationLinkId !== credential.linkId')
-    && workflowController.includes('session.requestProvenance.externalIntegrationClientId !== credential.integrationId'),
+    && workflowController.includes('externalIntegrationOwnsWorkflowSession')
+    && workflowExecutionAccess.includes('externalIntegrationOwnsProvenance(req, session.requestProvenance)'),
   'external integration Workflow session continuation must require exact origin ownership'
 );
 assert(
