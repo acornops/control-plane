@@ -2,9 +2,28 @@ import { dateTime, JsonSchema, jsonObject, schemaRef, stringArray } from './sche
 
 export function buildAgentSchemas(): Record<string, JsonSchema> {
   return {
+    WorkspaceNativeTool: {
+      type: 'object',
+      required: ['id', 'title', 'description', 'semanticCapabilityId', 'invocationScopes', 'authorizationClass', 'auditOperation', 'approvalOperation', 'inputSchema', 'outputSchema'],
+      properties: {
+        id: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' },
+        semanticCapabilityId: { type: 'string' },
+        invocationScopes: { type: 'array', items: { type: 'string', enum: ['workflow', 'target_chat'] } },
+        authorizationClass: { type: 'string', enum: ['selected_context', 'internal_artifact'] },
+        auditOperation: { type: 'string', enum: ['read', 'write'] },
+        approvalOperation: { type: 'string', enum: ['read', 'write'] },
+        requiredContextGrant: { type: 'string' }, inputSchema: jsonObject, outputSchema: jsonObject
+      },
+      additionalProperties: false
+    },
+    WorkspaceNativeToolList: {
+      type: 'object', required: ['items'],
+      properties: { items: { type: 'array', items: schemaRef('WorkspaceNativeTool') } },
+      additionalProperties: false
+    },
     AgentDefinition: {
       type: 'object',
-      required: ['id', 'workspaceId', 'name', 'instructions', 'status', 'kind', 'providerType', 'version'],
+      required: ['id', 'workspaceId', 'name', 'instructions', 'status', 'origin', 'kind', 'reviewState', 'providerType', 'version', 'ownerUserId', 'createdBy'],
       properties: {
         id: { type: 'string' },
         workspaceId: { type: 'string' },
@@ -12,18 +31,29 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         description: { type: 'string' },
         instructions: { type: 'string' },
         status: { type: 'string', enum: ['active', 'disabled', 'draft'] },
-        source: { type: 'string', enum: ['system', 'user'] },
-        kind: { type: 'string', enum: ['system_orchestrator', 'specialist_agent'] },
+        origin: { type: 'object', required: ['type'], properties: { type: { type: 'string', enum: ['template', 'manual'] }, templateId: { type: 'string' }, templateVersion: { type: 'integer', minimum: 1 } }, additionalProperties: false },
+        kind: { type: 'string', enum: ['specialist'] },
+        reviewState: { type: 'string', enum: ['draft', 'reviewed'] },
         providerType: { type: 'string', enum: ['internal', 'external'] },
         version: { type: 'integer' },
         ownerUserId: { type: 'string' },
+        createdBy: { type: 'string' },
         mcpServers: stringArray,
+        mcpTools: { type: 'array', items: {
+          type: 'object', required: ['serverId', 'toolName'],
+          properties: { serverId: { type: 'string' }, toolName: { type: 'string' } },
+          additionalProperties: false
+        } },
+        mcpInstallations: { type: 'array', items: schemaRef('AgentMcpServer') },
         tools: stringArray,
         skills: stringArray,
+        skillInstallations: { type: 'array', items: schemaRef('AgentSkill') },
         contextGrants: stringArray,
         targetScope: jsonObject,
         approvalPolicy: jsonObject,
         trustPolicy: jsonObject,
+        permissionMode: { type: 'string', enum: ['read_only', 'ask_before_changes', 'auto_allowed_changes'] },
+        semanticCapabilityIds: stringArray,
         capabilities: { type: 'array', items: schemaRef('AgentCapability') },
         workflowsUsingAgent: stringArray,
         triggers: { type: 'array', items: schemaRef('AgentTrigger') },
@@ -36,7 +66,7 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         createdAt: dateTime,
         updatedAt: dateTime
       },
-      additionalProperties: true
+      additionalProperties: false
     },
     AgentCapability: {
       type: 'object',
@@ -62,26 +92,40 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         status: { type: 'string', enum: ['active', 'disabled', 'draft'] },
         providerType: { type: 'string', enum: ['internal', 'external'] },
         ownerUserId: { type: 'string' },
-        mcpServers: stringArray,
-        tools: stringArray,
-        skills: stringArray,
         contextGrants: stringArray,
         approvalPolicy: jsonObject,
         trustPolicy: jsonObject,
-        targetScope: jsonObject
+        targetScope: jsonObject,
+        permissionMode: { type: 'string', enum: ['read_only', 'ask_before_changes', 'auto_allowed_changes'] },
+        semanticCapabilityIds: stringArray
       },
-      additionalProperties: true
+      additionalProperties: false,
+      description: 'Agent profile and policy fields only. Install MCP servers and skills through the Agent-scoped capability routes.'
+    },
+    AgentDuplicateMutation: {
+      type: 'object',
+      required: ['workspaceId'],
+      properties: {
+        workspaceId: { type: 'string' },
+        name: { type: 'string' }
+      },
+      additionalProperties: false
     },
     AgentTrigger: {
       type: 'object',
       required: ['id', 'type', 'enabled'],
       properties: {
         id: { type: 'string' },
-        type: { type: 'string', enum: ['manual', 'workflow_step', 'schedule', 'webhook', 'target_event'] },
+        type: { type: 'string', enum: ['manual', 'workflow', 'schedule', 'webhook', 'target_event'] },
         enabled: { type: 'boolean' },
         name: { type: 'string' },
         schedule: jsonObject,
         eventFilter: jsonObject,
+        principal: {
+          type: 'object', required: ['type', 'id'],
+          properties: { type: { type: 'string', enum: ['user', 'service_identity'] }, id: { type: 'string' } },
+          additionalProperties: false
+        },
         createdAt: dateTime,
         updatedAt: dateTime
       },
@@ -161,6 +205,55 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
       required: ['items'],
       properties: { items: { type: 'array', items: schemaRef('AgentActivityRecord') } }
     },
+    AutomationTemplateSummary: {
+      type: 'object',
+      required: ['id', 'version', 'name', 'description', 'installMode', 'installationStatus', 'setupSteps', 'blockerCodes'],
+      properties: {
+        id: { type: 'string' },
+        version: { type: 'integer', minimum: 1 },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        installMode: { type: 'string', enum: ['automatic', 'opt_in'] },
+        installationStatus: { type: 'string', enum: ['not_installed', 'needs_setup', 'ready', 'active'] },
+        setupSteps: { type: 'array', items: { type: 'string' } },
+        blockerCodes: { type: 'array', items: { type: 'string' } },
+        workflowId: { type: 'string' }
+      },
+      additionalProperties: false
+    },
+    AutomationTemplateInstallation: {
+      type: 'object',
+      required: ['workspaceId', 'templateId', 'templateVersion', 'state', 'installedBy', 'recordIds', 'installedAt'],
+      properties: {
+        workspaceId: { type: 'string' },
+        templateId: { type: 'string' },
+        templateVersion: { type: 'integer', minimum: 1 },
+        state: { type: 'string', enum: ['pending', 'complete'] },
+        installedBy: { type: 'string' },
+        recordIds: { type: 'object', additionalProperties: { type: 'string' } },
+        installedAt: dateTime
+      },
+      additionalProperties: false
+    },
+    AutomationTemplateCatalog: {
+      type: 'object',
+      required: ['templates', 'installations'],
+      properties: {
+        templates: { type: 'array', items: schemaRef('AutomationTemplateSummary') },
+        installations: { type: 'array', items: schemaRef('AutomationTemplateInstallation') }
+      },
+      additionalProperties: false
+    },
+    AutomationTemplateInstallResult: {
+      type: 'object', required: ['workflowId', 'alreadyInstalled'],
+      properties: { workflowId: { type: 'string' }, alreadyInstalled: { type: 'boolean' } },
+      additionalProperties: false
+    },
+    AutomationTemplateActivationResult: {
+      type: 'object', required: ['workflowId', 'status'],
+      properties: { workflowId: { type: 'string' }, status: { type: 'string', enum: ['active'] } },
+      additionalProperties: false
+    },
     AutomationDiagnostics: {
       type: 'object',
       required: ['status', 'runtime', 'dispatch', 'runs', 'triggers', 'approvals', 'templates', 'reports', 'checkedAt'],
@@ -181,6 +274,13 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
       type: 'object',
       required: ['trigger'],
       properties: { trigger: schemaRef('AgentTrigger') }
-    }
+    },
+    ServiceIdentity: {
+      type: 'object', required: ['workspaceId', 'id', 'name', 'status', 'role', 'createdBy', 'createdAt', 'updatedAt'],
+      properties: { workspaceId: { type: 'string' }, id: { type: 'string' }, name: { type: 'string' }, status: { type: 'string', enum: ['active', 'disabled'] }, role: { type: 'string' }, createdBy: { type: 'string' }, createdAt: dateTime, updatedAt: dateTime },
+      additionalProperties: false
+    },
+    ServiceIdentityList: { type: 'object', required: ['items'], properties: { items: { type: 'array', items: schemaRef('ServiceIdentity') } }, additionalProperties: false },
+    ServiceIdentityResponse: { type: 'object', required: ['identity'], properties: { identity: schemaRef('ServiceIdentity') }, additionalProperties: false }
   };
 }

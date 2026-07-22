@@ -14,15 +14,21 @@ authRouter.get('/auth/config', authController.authConfig);
 authRouter.get('/auth/csrf', authController.csrfToken);
 authRouter.get('/auth/oidc/login', authController.oidcLogin);
 authRouter.get('/auth/oidc/callback', authController.oidcCallback);
-authRouter.post('/auth/oidc/link/start', requireActor(['user']), authed(authController.oidcLinkStart));
-authRouter.post('/auth/external-integrations/link/preview', requireActor(['user']), authed(externalIntegrationLinkController.previewExternalIntegrationLinkRequest));
-authRouter.post('/auth/external-integrations/link/complete', requireActor(['user']), authed(externalIntegrationLinkController.completeExternalIntegrationLinkRequest));
-authRouter.get('/auth/external-integrations/links', requireActor(['user']), authed(externalIntegrationLinkController.listExternalIntegrationLinks));
-authRouter.patch('/auth/external-integrations/links/:linkId/grants', requireActor(['user']), authed(externalIntegrationLinkController.replaceExternalIntegrationLinkGrants));
-authRouter.post('/auth/external-integrations/links/unlink', requireActor(['user']), authed(externalIntegrationLinkController.unlinkExternalIntegrationLink));
-authRouter.post('/auth/external-integrations/link', requireExternalIntegrationClientActor, externalIntegrationLinkController.createExternalIntegrationLinkRequest);
-authRouter.post('/auth/external-integrations/resolve', requireExternalIntegrationClientActor, externalIntegrationLinkController.resolveExternalIntegrationLink);
-authRouter.post('/auth/external-integrations/revoke', requireExternalIntegrationClientActor, externalIntegrationLinkController.revokeExternalIntegrationLink);
+authRouter.get('/auth/oidc/logout/start', authController.oidcLogoutStart);
+authRouter.get('/auth/oidc/logout/callback', authController.oidcLogoutCallback);
+authRouter.post(
+  '/auth/oidc/link/start',
+  authController.requireOidcConfigured,
+  requireUser,
+  authed(authController.oidcLinkStart)
+);
+authRouter.post('/auth/external-integrations/link/preview', requireUser, authed(externalIntegrationLinkController.previewExternalIntegrationLinkRequest));
+authRouter.post('/auth/external-integrations/link/complete', requireUser, authed(externalIntegrationLinkController.completeExternalIntegrationLinkRequest));
+authRouter.get('/auth/external-integrations/links', requireUser, authed(externalIntegrationLinkController.listExternalIntegrationLinks));
+authRouter.post('/auth/external-integrations/links/unlink', requireUser, authed(externalIntegrationLinkController.unlinkExternalIntegrationLink));
+authRouter.post('/auth/external-integrations/link', requireExternalIntegrationClient, externalIntegrationLinkController.createExternalIntegrationLinkRequest);
+authRouter.post('/auth/external-integrations/resolve', requireExternalIntegrationClient, externalIntegrationLinkController.resolveExternalIntegrationLink);
+authRouter.post('/auth/external-integrations/revoke', requireExternalIntegrationClient, externalIntegrationLinkController.revokeExternalIntegrationLink);
 authRouter.post('/auth/password/login', authController.passwordLogin);
 authRouter.post('/auth/password/signup', authController.passwordSignup);
 authRouter.post('/auth/password/verify-email', emailVerificationController.verifyPasswordEmail);

@@ -81,17 +81,19 @@ export function summarizeKubernetesSnapshotMetrics(snapshot: ClusterSnapshot): R
 }
 
 export function summarizeVirtualMachineSnapshotMetrics(snapshot: VirtualMachineSnapshot): Record<string, unknown> | null {
-  const metrics = snapshot.data.metrics;
-  if (!metrics || typeof metrics !== 'object') return null;
-  const value = metrics as Record<string, unknown>;
-  const cpuUsagePercent = typeof value.cpuUsagePercent === 'number' && Number.isFinite(value.cpuUsagePercent) && value.cpuUsagePercent >= 0 && value.cpuUsagePercent <= 100
-    ? value.cpuUsagePercent
+  const summary = snapshot.data.host_summary;
+  if (!summary || typeof summary !== 'object') return null;
+  const value = summary as Record<string, unknown>;
+  const cpu = value.cpu && typeof value.cpu === 'object' ? value.cpu as Record<string, unknown> : {};
+  const load = value.load && typeof value.load === 'object' ? value.load as Record<string, unknown> : {};
+  const cpuUsagePercent = typeof cpu.usage_percent === 'number' && Number.isFinite(cpu.usage_percent) && cpu.usage_percent >= 0 && cpu.usage_percent <= 100
+    ? cpu.usage_percent
     : null;
   return {
-    loadAverage: Array.isArray(value.loadAverage) ? value.loadAverage : [],
+    loadAverage: [load.one, load.five, load.fifteen].filter((item) => typeof item === 'number'),
     cpuUsagePercent,
     memory: value.memory && typeof value.memory === 'object' && !Array.isArray(value.memory) ? value.memory : null,
     swap: value.swap && typeof value.swap === 'object' && !Array.isArray(value.swap) ? value.swap : null,
-    disks: Array.isArray(value.disks) ? value.disks : []
+    disks: Array.isArray(snapshot.data.filesystems) ? snapshot.data.filesystems : []
   };
 }

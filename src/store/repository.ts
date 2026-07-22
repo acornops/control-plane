@@ -17,7 +17,8 @@ import {
   userHasWorkspaceAccess as userHasWorkspaceAccessRecord,
   addWorkspace as addWorkspaceRecord
 } from './repository-users.js';
-import * as repositoryUserSeed from './repository-user-seed.js';
+import * as repositoryDevelopmentSeed from './repository-development-seed.js';
+import { ensureOidcPrelinkedIdentities as ensureOidcPrelinkedIdentitiesRecord } from './repository-oidc-prelinks.js';
 import {
   consumeEmailVerificationToken as consumeEmailVerificationTokenRecord,
   invalidateEmailVerificationToken as invalidateEmailVerificationTokenRecord,
@@ -73,6 +74,7 @@ import {
 import {
   getTargetAgentRegistration as getTargetAgentRegistrationRecord,
   listTargetAgentRegistrations as listTargetAgentRegistrationsRecord,
+  listWorkspaceTargetAgentRegistrations as listWorkspaceTargetAgentRegistrationsRecord,
   rotateTargetAgentKey as rotateTargetAgentKeyRecord, updateTargetAgentCapabilities as updateTargetAgentCapabilitiesRecord,
   updateTargetAgentSeen as updateTargetAgentSeenRecord,
   upsertTargetAgentRegistration as upsertTargetAgentRegistrationRecord
@@ -148,7 +150,7 @@ import {
   listWorkspaceRunToolApprovals as listWorkspaceRunToolApprovalsRecord,
   listRunToolApprovals as listRunToolApprovalsRecord,
   markRunToolApprovalExecutionFinished as markRunToolApprovalExecutionFinishedRecord,
-  markRunToolApprovalExecutionStarted as markRunToolApprovalExecutionStartedRecord
+  startRunToolApprovalExecution as startRunToolApprovalExecutionRecord
 } from './repository-run-approvals.js';
 import {
   createWebhookSubscription as createWebhookSubscriptionRecord,
@@ -161,7 +163,11 @@ import {
   purgeOldWebhookHistory as purgeOldWebhookHistoryRecord,
   updateWebhookSubscription as updateWebhookSubscriptionRecord
 } from './repository-webhooks.js';
-import { getTarget as getTargetRecord, listTargets as listTargetsRecord } from './repository-targets.js';
+import {
+  getTarget as getTargetRecord,
+  listTargets as listTargetsRecord,
+  listWorkflowTargetSnapshot as listWorkflowTargetSnapshotRecord
+} from './repository-targets.js';
 import {
   insertWorkspaceAuditEvent as insertWorkspaceAuditEventRecord,
   listWorkspaceAuditEvents as listWorkspaceAuditEventsRecord,
@@ -214,12 +220,9 @@ import {
 } from './repository-target-metrics.js';
 import { insertAccountAuditEvent as insertAccountAuditEventRecord } from './repository-account-audit.js';
 import { getUserQuotaForUser as getUserQuotaForUserRecord } from './repository-quotas.js';
-
 export class Repository {
   upsertUser = upsertUserRecord;
-
   getUserById = getUserByIdRecord;
-
   getUserQuotaForUser = getUserQuotaForUserRecord;
 
   createPasswordUser = createPasswordUserRecord;
@@ -311,7 +314,7 @@ export class Repository {
 
   listClusters = listClustersRecord;
 
-  listTargets = listTargetsRecord;
+  listTargets = listTargetsRecord; listWorkflowTargetSnapshot = listWorkflowTargetSnapshotRecord;
 
   getTarget = getTargetRecord;
 
@@ -336,6 +339,7 @@ export class Repository {
   upsertTargetAgentRegistration = upsertTargetAgentRegistrationRecord;
   getTargetAgentRegistration = getTargetAgentRegistrationRecord;
   listTargetAgentRegistrations = listTargetAgentRegistrationsRecord;
+  listWorkspaceTargetAgentRegistrations = listWorkspaceTargetAgentRegistrationsRecord;
   rotateTargetAgentKey = rotateTargetAgentKeyRecord;
   updateTargetAgentCapabilities = updateTargetAgentCapabilitiesRecord;
   updateTargetAgentSeen = updateTargetAgentSeenRecord;
@@ -355,6 +359,7 @@ export class Repository {
   deleteSession = deleteSessionRecord;
 
   purgeExpiredOrDeletedSessions = purgeExpiredOrDeletedSessionsRecord;
+
 
   addMessage = addMessageRecord;
 
@@ -397,7 +402,7 @@ export class Repository {
 
   expirePendingRunToolApprovals = expirePendingRunToolApprovalsRecord;
 
-  markRunToolApprovalExecutionStarted = markRunToolApprovalExecutionStartedRecord;
+  startRunToolApprovalExecution = startRunToolApprovalExecutionRecord;
 
   markRunToolApprovalExecutionFinished = markRunToolApprovalExecutionFinishedRecord;
 
@@ -535,13 +540,8 @@ export class Repository {
   listRoleTemplates = listRoleTemplatesRecord;
 
   getRoleTemplate = getRoleTemplateRecord;
-
-  ensureDefaultUser = repositoryUserSeed.ensureDefaultUser;
-
-  ensureDevelopmentAccessForUser = repositoryUserSeed.ensureDevelopmentAccessForUser;
-
-  ensureDevelopmentSeed = repositoryUserSeed.ensureDevelopmentSeed;
-
+  ensureDevelopmentTargetSeed = repositoryDevelopmentSeed.ensureDevelopmentTargetSeed;
+  ensureOidcPrelinkedIdentities = ensureOidcPrelinkedIdentitiesRecord;
 }
 
 export const repo = new Repository();

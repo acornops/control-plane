@@ -1,17 +1,7 @@
-import {
-  EXAMPLE_CLUSTER_ID,
-  EXAMPLE_RUN_ID,
-  EXAMPLE_SESSION_ID,
-  EXAMPLE_TARGET_ID,
-  EXAMPLE_TRACE_ID,
-  EXAMPLE_USER_ID,
-  EXAMPLE_WORKSPACE_ID
+import { EXAMPLE_CLUSTER_ID, EXAMPLE_RUN_ID, EXAMPLE_SESSION_ID,
+  EXAMPLE_TARGET_ID, EXAMPLE_TRACE_ID, EXAMPLE_USER_ID, EXAMPLE_WORKSPACE_ID
 } from '../../constants/dev-defaults.js';
-import { buildTargetChatActivityPaths } from './target-chat-activity-paths.js';
-import { buildToolResultArtifactPaths } from './tool-result-artifact-paths.js';
-
-const externalUserHeader = { in: 'header', name: 'x-acornops-external-user-id', required: false, schema: { type: 'string', minLength: 1, maxLength: 128 }, description: 'Required only for external integration client-token requests. Must identify a linked external integration user.' };
-
+import { assistantReferencesRequestProperty, buildToolResultArtifactPaths } from './session-run-schema-fragments.js';
 export function buildSessionRunPaths(): Record<string, unknown> {
   return {
       ...buildToolResultArtifactPaths(),
@@ -57,7 +47,41 @@ export function buildSessionRunPaths(): Record<string, unknown> {
           responses: { '201': { description: 'Session created.' } }
         }
       },
-      ...buildTargetChatActivityPaths(externalUserHeader),
+      '/api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity': {
+        get: {
+          tags: ['sessions'],
+          summary: 'List recent target chat activity',
+          description: 'Returns recent non-deleted, non-expired troubleshooting sessions with message/run activity for the target. Requires target read access, not chat creation permission.',
+          security: [{ userSession: [] }],
+          parameters: [
+            { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
+            { in: 'path', name: 'targetId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_TARGET_ID } },
+            { in: 'query', name: 'windowSeconds', required: false, schema: { type: 'integer', minimum: 60, maximum: 3600, default: 300 } }
+          ],
+          responses: {
+            '200': {
+              description: 'Recent activity payload with target metadata, windowSeconds, generatedAt, and recentActivity rows including owner display metadata, last run, active run, and write-capable activity flags.'
+            }
+          }
+        }
+      },
+      '/api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity/stream': {
+        get: {
+          tags: ['sessions'],
+          summary: 'Stream target chat activity',
+          description: 'Long-lived SSE stream for browser-facing target chat activity. Frames use event: chat_activity, id: activity event id, and JSON data with resource identifiers. Supports Last-Event-ID and the optional after query parameter for resume replay; connections without a resume cursor are live-only.',
+          security: [{ userSession: [] }],
+          parameters: [
+            { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
+            { in: 'path', name: 'targetId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_TARGET_ID } },
+            { in: 'query', name: 'after', required: false, schema: { type: 'string', example: '42' } },
+            { in: 'header', name: 'Last-Event-ID', required: false, schema: { type: 'string', example: '42' } }
+          ],
+          responses: {
+            '200': { description: 'SSE stream of target chat activity events.' }
+          }
+        }
+      },
       '/api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/sessions': {
         get: {
           tags: ['sessions'],
@@ -152,6 +176,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
                     content: { type: 'string', example: 'Pods restarted after rollout, but p95 latency is still elevated. Check likely causes.' },
                     toolAccessMode: { type: 'string', enum: ['read_only', 'read_write'], example: 'read_only' },
                     clientMessageId: { type: 'string', example: '4f004ae2-4288-4baf-9be4-124d61180f0c-msg-1' },
+                    references: assistantReferencesRequestProperty,
                     llm: {
                       type: 'object',
                       properties: {
@@ -166,6 +191,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
                     content: 'Pods restarted after rollout, but p95 latency is still elevated. Check likely causes.',
                     toolAccessMode: 'read_only',
                     clientMessageId: '4f004ae2-4288-4baf-9be4-124d61180f0c-msg-1',
+                    references: [{ kind: 'tool', id: 'list_pods' }],
                     llm: {
                       provider: 'openai',
                       model: 'gpt-5-nano',
@@ -179,7 +205,10 @@ export function buildSessionRunPaths(): Record<string, unknown> {
           responses: {
             '202': { description: 'Run accepted for processing. The response includes the provider, model, and reasoning effort frozen on the accepted run.' },
             '400': { description: 'Invalid AI runtime selection, disallowed model/provider, missing provider credential, or unsupported target type.' },
-            '403': { description: 'CONVERSATION_OWNER_REQUIRED when the authenticated user did not create the conversation, or FORBIDDEN when the owner lacks run creation permission.' }
+            '403': { description: 'CONVERSATION_OWNER_REQUIRED when the authenticated user did not create the conversation, or FORBIDDEN when the owner lacks run creation permission.' },
+            '409': {
+              description: 'Exact MCP readiness failed, or ASSISTANT_REFERENCE_INVALID when a selected tool or skill is stale or unavailable. Structured failures are safe to use for recovery navigation.'
+            }
           }
         }
       },
@@ -221,10 +250,19 @@ export function buildSessionRunPaths(): Record<string, unknown> {
               'application/json': {
                 schema: {
                   type: 'object',
-                  required: ['toolCallId', 'toolName', 'arguments'],
+                  required: ['toolCallId', 'toolName', 'toolRef', 'arguments'],
                   properties: {
                     toolCallId: { type: 'string', example: 'call_01JABCDEF' },
                     toolName: { type: 'string', example: 'restart_workload' },
+                    toolRef: {
+                      type: 'object',
+                      required: ['serverId', 'toolName'],
+                      additionalProperties: false,
+                      properties: {
+                        serverId: { type: 'string', format: 'uuid', example: '955a5e17-5424-48e1-99ab-fdf8415a3a30' },
+                        toolName: { type: 'string', example: 'restart_workload' }
+                      }
+                    },
                     summary: {
                       type: 'string',
                       example: 'Restart Deployment payments/payments-api.',
@@ -240,6 +278,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
                   example: {
                     toolCallId: 'call_01JABCDEF',
                     toolName: 'restart_workload',
+                    toolRef: { serverId: '955a5e17-5424-48e1-99ab-fdf8415a3a30', toolName: 'restart_workload' },
                     summary: 'Restart Deployment payments/payments-api.',
                     arguments: { namespace: 'payments', name: 'payments-api', kind: 'Deployment' },
                     continuation: { schema_version: 1, pending_tool_call: { tool: 'restart_workload' } }
@@ -307,7 +346,11 @@ export function buildSessionRunPaths(): Record<string, unknown> {
             { in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_RUN_ID } },
             { in: 'path', name: 'approvalId', required: true, schema: { type: 'string', format: 'uuid', example: '0f2e8f75-0d66-4f40-b3d0-f4c4661c43a1' } }
           ],
-          responses: { '200': { description: 'Approval execution status returned.' } }
+          responses: {
+            '200': {
+              description: 'Approval execution status and a 60-second, exact-call approvalReceipt returned atomically.'
+            }
+          }
         }
       },
       '/internal/v1/runs/{runId}/approvals/{approvalId}/execution-finished': {

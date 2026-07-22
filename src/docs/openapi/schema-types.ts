@@ -1,7 +1,15 @@
 export type JsonSchema = Record<string, unknown>;
 
+export type ReferenceObject = { $ref: string };
+
+export type ResponseObject = {
+  description?: string;
+  content?: Record<string, unknown>;
+};
+
 export type OperationObject = {
-  responses?: Record<string, { description?: string; content?: Record<string, unknown> }>;
+  parameters?: unknown[];
+  responses?: Record<string, ResponseObject | ReferenceObject>;
 };
 
 export type PathItemObject = Record<string, OperationObject>;
@@ -11,6 +19,9 @@ export interface OpenApiLikeDocument {
   components: {
     schemas: Record<string, JsonSchema>;
     securitySchemes: Record<string, unknown>;
+    responses?: Record<string, ResponseObject>;
+    parameters?: Record<string, unknown>;
+    [group: string]: Record<string, unknown> | undefined;
   };
 }
 

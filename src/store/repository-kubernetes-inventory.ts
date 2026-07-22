@@ -228,12 +228,24 @@ export async function listClusterSnapshotResources(
     kind?: string;
     namespace?: string;
     health?: string;
+    namespaceInclude?: string[];
+    namespaceExclude?: string[];
     signature?: string;
   }
 ): Promise<PagedResult<SnapshotResourceListItem>> {
   const limit = Math.max(1, Math.min(200, options.limit));
-  const params: Array<string | number | boolean> = [clusterId];
+  const params: Array<string | number | boolean | string[]> = [clusterId];
   const clauses = ['r.target_id = $1'];
+  const namespaceSubject = "CASE WHEN r.kind = 'Namespace' THEN r.name ELSE r.scope_name END";
+  const clusterScopedResource = "(r.scope_name IS NULL AND r.kind <> 'Namespace')";
+  if (options.namespaceInclude?.length) {
+    params.push(options.namespaceInclude);
+    clauses.push(`(${clusterScopedResource} OR ${namespaceSubject} = ANY($${params.length}::text[]))`);
+  }
+  if (options.namespaceExclude?.length) {
+    params.push(options.namespaceExclude);
+    clauses.push(`(${clusterScopedResource} OR ${namespaceSubject} IS NULL OR NOT (${namespaceSubject} = ANY($${params.length}::text[])))`);
+  }
   if (options.family) {
     params.push(options.family);
     clauses.push(`r.category = $${params.length}`);

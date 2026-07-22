@@ -166,7 +166,10 @@ export class AgentGateway {
         return (structured as { data: unknown }).data;
       }
     }
-    return result;
+    throw new AgentToolCallError('Target agent returned an invalid MCP tool result', -32603, {
+      code: 'INTERNAL_ERROR',
+      outcome: 'not_started'
+    });
   }
 
   async listAgentTools(clusterId: string): Promise<AgentToolDefinition[]> {
@@ -174,17 +177,7 @@ export class AgentGateway {
       tools?: AgentToolDefinition[];
     };
     const tools = Array.isArray(result?.tools) ? result.tools : [];
-    return tools
-      .filter((tool) => typeof tool?.name === 'string' && typeof tool?.description === 'string')
-      .map((tool) => {
-        const legacyInput = (tool as AgentToolDefinition & { input_schema?: unknown }).input_schema;
-        return {
-          ...tool,
-          inputSchema: tool.inputSchema || (
-            legacyInput && typeof legacyInput === 'object' ? legacyInput as Record<string, unknown> : undefined
-          ),
-        };
-      });
+    return tools.filter((tool) => typeof tool?.name === 'string' && typeof tool?.description === 'string');
   }
 
   async disconnectCluster(clusterId: string, reason = 'Agent connection closed'): Promise<boolean> {

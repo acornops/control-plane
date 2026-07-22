@@ -29,7 +29,8 @@ export function createSessionRecord(overrides: Partial<ChatSession> = {}): ChatS
     id: 'session-1', workspaceId: 'workspace-1', targetId: 'cluster-1', targetType: 'kubernetes',
     clusterId: 'cluster-1', createdBy: 'user-1', title: 'Session', status: 'open',
     createdAt: '2026-05-24T00:00:00.000Z', updatedAt: '2026-05-24T00:00:00.000Z',
-    lastMessageAt: '2026-05-24T00:00:00.000Z', expiresAt: '2026-05-25T00:00:00.000Z', ...overrides
+    lastMessageAt: '2026-05-24T00:00:00.000Z', expiresAt: '2026-05-25T00:00:00.000Z',
+    ...overrides
   };
 }
 
@@ -38,7 +39,7 @@ export function createRun(overrides: Partial<Run> = {}): Run {
     id: 'run-1', workspaceId: 'workspace-1', targetId: 'cluster-1', targetType: 'kubernetes',
     clusterId: 'cluster-1', sessionId: 'session-1', messageId: 'message-1', llmProvider: 'gemini',
     llmModel: 'gemini-2.0-flash', llmReasoningSummaryMode: 'auto', llmReasoningEffort: 'low',
-    toolAccessMode: 'read_write', status: 'completed',
+    principal: { type: 'user', id: 'user-1' }, toolAccessMode: 'read_write', status: 'completed',
     requestedAt: '2026-05-24T00:00:00.000Z', ...overrides
   };
 }

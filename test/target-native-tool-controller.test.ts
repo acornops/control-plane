@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import { listTargetTools, updateTargetToolSettings } from '../src/controllers/workspaces/target-native-tool-controller.js';
+import { listWorkspaceNativeToolsForInvocationScope } from '../src/services/workspace-native-tools.js';
 import { webhooks } from '../src/services/webhooks.js';
 import { repo } from '../src/store/repository.js';
 import {
@@ -32,7 +33,9 @@ describe('target native tool controller', () => {
         id: 'web_search',
         label: 'Web Search',
         enabled: true,
+        toggleable: true,
         description: 'Allow assistant runs for this target to search the web through the selected LLM provider.',
+        origin: 'target_setting',
         capability: 'read',
         runtimeKind: 'provider_native',
         visibility: {
@@ -54,7 +57,9 @@ describe('target native tool controller', () => {
         id: 'target_insights',
         label: 'Insights',
         enabled: true,
+        toggleable: true,
         description: 'Retrieve and improve target-specific troubleshooting insights for future assistant runs.',
+        origin: 'target_setting',
         capability: 'read',
         runtimeKind: 'function',
         visibility: {
@@ -82,9 +87,50 @@ describe('target native tool controller', () => {
         permissions: {
           canEdit: false
         }
+      },
+      {
+        id: 'reports.pdf.generate',
+        label: 'Generate PDF report',
+        enabled: true,
+        toggleable: true,
+        description: 'Create a provenance-linked PDF incident report from the current assistant conversation and available evidence.',
+        origin: 'platform_native',
+        capability: 'read',
+        runtimeKind: 'function',
+        visibility: {
+          appearsInAssistantToolList: true,
+          appearsInRunEnabledTools: true,
+          appearsInToolCalls: true
+        },
+        config: {
+          authorizationClass: 'internal_artifact'
+        },
+        permissions: {
+          canEdit: false
+        }
       }
     ]);
     assert.equal(gatewayFetch.mock.callCount(), 0);
+  });
+
+  it('lists every user-visible platform-native target-chat tool', async () => {
+    installWorkspace('operator');
+    repo.getTargetToolSetting = async () => null;
+
+    const response = await callController(
+      listTargetTools,
+      createRequest({ workspaceId: 'workspace-1', targetId: 'cluster-1' })
+    );
+
+    const body = response.body as { items: Array<{ id: string; origin: string }> };
+    const expectedIds = listWorkspaceNativeToolsForInvocationScope('target_chat')
+      .map((tool) => tool.id)
+      .sort();
+    const actualIds = body.items
+      .filter((tool) => tool.origin === 'platform_native')
+      .map((tool) => tool.id)
+      .sort();
+    assert.deepEqual(actualIds, expectedIds);
   });
 
   it('keeps target tools listing independent from llm gateway availability', async () => {

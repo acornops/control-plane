@@ -4,6 +4,8 @@ import { getSessionUser } from '../src/auth/session.js';
 import { config } from '../src/config.js';
 import { redis } from '../src/infra/redis.js';
 
+const iso = (timestamp: number): string => new Date(timestamp).toISOString();
+
 describe('browser session authentication edge cases', () => {
   afterEach(() => mock.restoreAll());
 
@@ -27,12 +29,14 @@ describe('browser session authentication edge cases', () => {
     const deletedKeys: string[] = [];
     mock.method(Date, 'now', () => now);
     mock.method(redis, 'get', async () => JSON.stringify({
+      version: 2,
       id: 'session-1',
       userId: 'user-1',
-      createdAt: now - 60_000,
-      lastSeenAt: now - 60_000,
-      absoluteExpiresAt: now + 60_000,
-      idleExpiresAt: now
+      createdAt: iso(now - 60_000),
+      lastSeenAt: iso(now - 60_000),
+      absoluteExpiresAt: iso(now + 60_000),
+      idleExpiresAt: iso(now),
+      authMethod: 'password'
     }));
     mock.method(redis, 'del', async (...keys: string[]) => {
       deletedKeys.push(...keys);
@@ -53,12 +57,14 @@ describe('browser session authentication edge cases', () => {
     const deletedKeys: string[] = [];
     mock.method(Date, 'now', () => now);
     mock.method(redis, 'get', async () => JSON.stringify({
+      version: 2,
       id: 'session-1',
       userId: 'user-1',
-      createdAt: now - config.SESSION_MAX_AGE_SECONDS * 1000,
-      lastSeenAt: now - 60_000,
-      absoluteExpiresAt: now,
-      idleExpiresAt: now + 60_000
+      createdAt: iso(now - config.SESSION_MAX_AGE_SECONDS * 1000),
+      lastSeenAt: iso(now - 60_000),
+      absoluteExpiresAt: iso(now),
+      idleExpiresAt: iso(now + 60_000),
+      authMethod: 'password'
     }));
     mock.method(redis, 'del', async (...keys: string[]) => {
       deletedKeys.push(...keys);
@@ -74,7 +80,7 @@ describe('browser session authentication edge cases', () => {
     assert.equal(deletedKeys.includes('cp:session:session-1'), true);
   });
 
-  it('rejects a legacy session at its expiry instant', async () => {
+  it('rejects a non-current session record', async () => {
     const now = 1_700_000_000_000;
     const deletedKeys: string[] = [];
     mock.method(Date, 'now', () => now);
@@ -124,5 +130,27 @@ describe('browser session authentication edge cases', () => {
     assert.equal(result, null);
     assert.deepEqual(deletedKeys, ['cp:session:session-1']);
     assert.deepEqual(removedSetMembers, [['cp:user_sessions:user-1', 'session-1']]);
+  });
+
+  it('does not recreate a session deleted concurrently with idle refresh', async () => {
+    const now = 1_700_000_000_000;
+    mock.method(Date, 'now', () => now);
+    mock.method(redis, 'get', async () => JSON.stringify({
+      version: 2,
+      id: 'session-1',
+      userId: 'user-1',
+      createdAt: iso(now - 60_000),
+      lastSeenAt: iso(now - 60_000),
+      absoluteExpiresAt: iso(now + 60_000),
+      idleExpiresAt: iso(now + 60_000),
+      authMethod: 'password'
+    }));
+    mock.method(redis, 'eval', async () => 0);
+
+    const result = await getSessionUser({
+      cookies: { [config.SESSION_COOKIE_NAME]: 'session-1' }
+    } as never);
+
+    assert.equal(result, null);
   });
 });

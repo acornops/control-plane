@@ -4,6 +4,7 @@ import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { db } from '../src/infra/db.js';
 import { compileAgentRunScope } from '../src/services/agent-access.js';
 import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
+import { digestBindings, digestPrompt } from '../src/services/prompt-resources/registry.js';
 import {
   createAgentDefinition,
   createAgentRunActivity,
@@ -17,9 +18,10 @@ import {
   createAutomationRunApproval,
   decideAutomationRunApproval,
   expirePendingAutomationRunApprovals,
+  getAutomationRunApproval,
   getAutomationRunContinuation,
   listAutomationRunApprovals,
-  markAutomationApprovalExecutionStarted
+  startAutomationApprovalExecution
 } from '../src/store/repository-automation-approvals.js';
 import {
   createWorkflowExecution,
@@ -27,8 +29,10 @@ import {
   getWorkflowDefinition,
   getWorkflowRun
 } from '../src/store/repository-workflows.js';
+import { listCapabilityRoutingMappings } from '../src/store/repository-capability-routing.js';
 import {
   closeAutomationDatabaseFixtures,
+  installAutomationTemplateFixtures,
   resetAutomationDatabaseFixtures
 } from './helpers/automation-database-fixtures.js';
 
@@ -38,20 +42,28 @@ const adminActor = {
   permissions: getWorkspacePermissions('admin')
 };
 
-beforeEach(resetAutomationDatabaseFixtures);
+beforeEach(async () => {
+  await resetAutomationDatabaseFixtures();
+  await installAutomationTemplateFixtures();
+});
 after(closeAutomationDatabaseFixtures);
 
 describe('durable automation approvals', () => {
   it('commits an Agent pre-step approval, run, and outbox atomically and idempotently', async () => {
     const agent = await getAgentDefinition('workspace-1', 'agent-incident-reporter');
     assert.ok(agent);
+    const approvalAgent = {
+      ...agent,
+      approvalPolicy: { mode: 'always' as const, writeToolsRequireApproval: true }
+    };
     const compiledScope = compileAgentRunScope({
-      agent,
+      agent: approvalAgent,
       actor: adminActor,
-      approvedContextGrants: ['selected_chat_sessions']
+      approvedContextGrants: [],
+      mappings: await listCapabilityRoutingMappings('workspace-1', { activeReviewedOnly: true })
     });
     const input = {
-      agent,
+      agent: approvalAgent,
       triggeredBy: { type: 'user' as const, userId: 'user-1' },
       prompt: 'Create the incident report.',
       inputContext: { chatSessionIds: ['session-1'] },
@@ -113,6 +125,7 @@ describe('durable automation approvals', () => {
       approvalKind: 'tool_write',
       toolCallId: 'tool-call-1',
       toolName: 'reports.pdf.generate',
+      toolRef: { serverId: '955a5e17-5424-48e1-99ab-fdf8415a3a30', toolName: 'reports.pdf.generate' },
       summary: 'Generate the approved report source.',
       arguments: { reportId: 'report-1' },
       requestedBy: 'user-1',
@@ -128,8 +141,15 @@ describe('durable automation approvals', () => {
     await db.query("UPDATE automation_dispatch_outbox SET status='delivered',delivered_at=NOW() WHERE run_id=$1", [run.id]);
     await updateAgentActivityRecord(run.id, { status: 'running' });
 
-    assert.equal((await markAutomationApprovalExecutionStarted(approval.id))?.executionStatus, 'executing');
-    const duplicateStart = await markAutomationApprovalExecutionStarted(approval.id);
+    assert.equal(
+      (await startAutomationApprovalExecution(approval.id, async () => 'signed-receipt'))?.approval.executionStatus,
+      'executing'
+    );
+    await assert.rejects(
+      startAutomationApprovalExecution(approval.id, async () => 'must-not-sign'),
+      /APPROVAL_EXECUTION_ALREADY_STARTED/
+    );
+    const duplicateStart = await getAutomationRunApproval(approval.id);
     assert.equal(duplicateStart?.executionStatus, 'unknown');
     assert.equal((await getAgentActivityRecord(run.id))?.status, 'needs_review');
     await applyAutomationApprovalOutcome(duplicateStart!);
@@ -145,19 +165,25 @@ describe('durable automation approvals', () => {
     const workflow = await getWorkflowDefinition('workspace-1', 'cluster-triage');
     assert.ok(workflow);
     const agents = await listAgentDefinitions('workspace-1');
+    const agent = agents.find((candidate) => candidate.id === workflow.entryAgentId);
+    assert.ok(agent);
     const compiledAccessScope = compileWorkflowAccessScope({
       workflow,
-      agents,
+      entryAgent: agent,
+      mappings: await listCapabilityRoutingMappings('workspace-1', { activeReviewedOnly: true }),
+      targetRoute: { id: 'cluster-1', targetType: 'kubernetes' },
       actor: adminActor,
       approvedContextGrants: ['workspace_metadata', 'target_inventory']
     });
     const session = await createWorkflowSession({ workflow, createdBy: 'user-1', compiledAccessScope });
-    const agent = agents.find((candidate) => candidate.id === 'agent-cluster-triage');
-    assert.ok(agent);
     const created = await createWorkflowExecution({
       workflow,
       session,
       content: 'Collect signals.',
+      promptDigest: digestPrompt('Collect signals.'),
+      bindingDigest: digestBindings([]),
+      resourceBindings: [],
+      resolvedAt: new Date().toISOString(),
       inputs: { targetId: 'cluster-1' },
       targetId: 'cluster-1',
       targetType: 'kubernetes',
@@ -177,7 +203,9 @@ describe('durable automation approvals', () => {
       approvalKind: 'tool_write',
       toolCallId: 'workflow-write-1',
       toolName: 'repository.commit.create',
+      toolRef: { serverId: 'f3028f15-7c06-4763-8c17-f70a7be86678', toolName: 'repository.commit.create' },
       summary: 'Approve the exact repository commit.',
+      arguments: {},
       requestedBy: 'user-1',
       expiresAt: new Date(Date.now() - 1_000).toISOString(),
       continuationState: { cursor: 'before-workflow-write' }

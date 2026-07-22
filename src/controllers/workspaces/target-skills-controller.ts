@@ -92,7 +92,7 @@ function normalizeGitImportSource(input: { provider: 'github' | 'gitlab'; repoUr
   };
 }
 
-function gitImportSourceMatches(left: TargetSkillSource, right: TargetSkillSource): boolean {
+export function gitImportSourceMatches(left: TargetSkillSource, right: TargetSkillSource): boolean {
   return left.type === 'git_import' &&
     right.type === 'git_import' &&
     left.provider === right.provider &&
@@ -100,6 +100,10 @@ function gitImportSourceMatches(left: TargetSkillSource, right: TargetSkillSourc
     (left.apiBaseUrl || '') === (right.apiBaseUrl || '') &&
     left.ref === right.ref &&
     (left.subpath || '') === (right.subpath || '');
+}
+
+export function targetSkillImportEnabled(validationStatus: string): boolean {
+  return validationStatus === 'valid';
 }
 
 export async function listTargetSkills(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
@@ -235,7 +239,7 @@ export async function importTargetSkillForTarget(req: AuthenticatedRequest, res:
       respondSkillBundleLimitFailure(res, storageLimitErrors);
       return;
     }
-    const importEnabled = bundle.validationStatus === 'valid';
+    const importEnabled = targetSkillImportEnabled(bundle.validationStatus);
     if (importEnabled) {
       const enabledCount = await repo.countEnabledTargetSkills(targetId);
       if (enabledCount >= TARGET_SKILL_MAX_ENABLED_PER_TARGET) {

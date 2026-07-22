@@ -20,6 +20,12 @@
 - `CORS_ORIGIN`
 - `OIDC_HTTP_TIMEOUT_MS` (default `10000`)
 - `OIDC_CLIENT_SECRET`
+- `OIDC_ENABLED` controls whether OIDC routes and the console sign-in option are available.
+- `OIDC_ADMISSION_POLICY_JSON` defines fail-closed verified-email, email-domain, and required-claim admission rules. An empty object allows any successfully authenticated OIDC identity.
+- `OIDC_END_SESSION_ENDPOINT_OVERRIDE` supplies a public browser-facing RP-initiated logout endpoint when discovery uses an internal hostname.
+- `OIDC_POST_LOGOUT_REDIRECT_URI` must exactly match a post-logout redirect registered with the provider.
+
+OIDC logout always deletes the current AcornOps browser session before redirecting to the provider. If the provider does not advertise or configure an end-session endpoint, logout completes locally and the console warns that the provider session may remain active. Deploying the versioned session format invalidates existing browser sessions.
 - `ORCH_SERVICE_TOKEN`
 - `EXTERNAL_INTEGRATION_CLIENTS_JSON`
 - `EXTERNAL_INTEGRATION_LINK_TOKEN_RETENTION_DAYS` (default `30`)
@@ -65,14 +71,14 @@ plaintext database, Redis, or internal-service URLs.
 
 ## Automation Runtime
 
-Production defaults keep new automation dispatch disabled until migrations and
-template backfill are verified:
+Production defaults keep new automation dispatch disabled until the greenfield
+baseline and current workspace provisioning are verified:
 
 ```bash
 AUTOMATION_RUNTIME_MODE=off
 AUTOMATION_CANARY_WORKSPACE_IDS=
 AUTOMATION_WORKER_INTERVAL_MS=1000
-AGENT_WRITE_CONFIRMATION_TIMEOUT_SECONDS=900
+ASSISTANT_WRITE_CONFIRMATION_TIMEOUT_SECONDS=900
 ```
 
 Use `off`, then `shadow`, then `canary` with an explicit workspace allow-list,
@@ -98,12 +104,12 @@ over 60 seconds, an approval remains pending past 15 minutes, or any run enters
 `needs_review`.
 
 Generated AgentK install commands use the latest chart release by default,
-including experimental releases. Set `AGENT_HELM_CHART_VERSION` when an
+including experimental releases. Set `AGENTK_HELM_CHART_VERSION` when an
 environment needs to pin an exact, tested chart version.
-`AGENT_HELM_VALUES_JSON` supplies platform-default downstream chart values,
+`AGENTK_HELM_VALUES_JSON` supplies platform-default downstream chart values,
 such as an internal image mirror, as a JSON object. Generated identity,
 connectivity, namespace-scope, and write-mode paths cannot be overridden.
-`AGENT_HELM_ADDITIONAL_CA_FILE_PATH` adds a `--set-file` argument for a public
+`AGENTK_HELM_ADDITIONAL_CA_FILE_PATH` adds a `--set-file` argument for a public
 PEM CA bundle; this path is resolved on the operator machine that executes the
 generated command.
 
@@ -245,9 +251,10 @@ Kubernetes deployments run this through the Helm migration Job:
 node dist/scripts/control-plane-db.js migrate
 ```
 
-Automation migrations are additive and forward-compatible. Runtime rollback is
-performed by setting `AUTOMATION_RUNTIME_MODE=off` and restoring the previous
-images; do not roll back the schema.
+This version establishes a greenfield schema epoch. Tear down and recreate every
+pre-release database before running the baseline; in-place upgrades are not
+supported. Deploy the pinned control-plane, execution-engine, and gateway matrix
+together.
 
 ## Failure Modes
 

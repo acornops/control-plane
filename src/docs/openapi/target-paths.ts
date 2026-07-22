@@ -111,7 +111,8 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
       },
       post: {
         tags: ['workspaces'],
-        summary: 'Create a target MCP server and discover its tools',
+        summary: 'Create a target MCP installation',
+        description: 'Authenticated installations explicitly select workspace or individual credential ownership.',
         security: [{ userSession: [] }],
         parameters: [
           { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
@@ -129,25 +130,26 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
                   url: { type: 'string', format: 'uri', example: exampleServerUrl },
                   enabled: { type: 'boolean', default: true },
                   publicHeaders: { type: 'object', additionalProperties: { type: 'string' } },
+                  credentialMode: { type: 'string', enum: ['none', 'workspace', 'individual'], description: 'Required for authenticated installations. Defaults to individual.' },
                   auth: {
                     type: 'object',
                     properties: {
                       type: { type: 'string', enum: ['none', 'bearer_token', 'custom_header'], example: 'bearer_token' },
-                      secretName: { type: 'string', example: 'mcp_server::github' },
-                      secretValue: { type: 'string', example: 'ghp_example_token' },
                       headerName: { type: 'string', example: 'Authorization' },
                       headerPrefix: { type: 'string', example: 'Bearer ' }
-                    }
+                    },
+                    additionalProperties: false
                   }
                 },
+                additionalProperties: false,
                 example: {
                   name: 'github',
                   url: exampleServerUrl,
                   enabled: true,
+                  credentialMode: 'individual',
                   publicHeaders: { 'x-client-version': '2026-05' },
                   auth: {
                     type: 'bearer_token',
-                    secretName: 'mcp_server::github',
                     headerName: 'Authorization',
                     headerPrefix: 'Bearer '
                   }
@@ -179,15 +181,15 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
                   name: { type: 'string', example: 'github' },
                   enabled: { type: 'boolean' },
                   publicHeaders: { type: 'object', additionalProperties: { type: 'string' } },
+                  credentialMode: { type: 'string', enum: ['none', 'workspace', 'individual'] },
                   auth: {
                     type: 'object',
                     properties: {
                       type: { type: 'string', enum: ['none', 'bearer_token', 'custom_header'], example: 'bearer_token' },
-                      secretName: { type: 'string', example: 'mcp_server::github' },
-                      secretValue: { type: 'string', example: 'ghp_rotated_example_token' },
                       headerName: { type: 'string', example: 'Authorization' },
                       headerPrefix: { type: 'string', example: 'Bearer ' }
-                    }
+                    },
+                    additionalProperties: false
                   },
                   tools: {
                     type: 'array',
@@ -199,20 +201,24 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
                         timeoutMs: { type: 'integer', minimum: 100, maximum: 120000 },
                         inputSchema: { type: 'object', additionalProperties: true },
                         enabled: { type: 'boolean' }
-                      }
+                      },
+                      additionalProperties: false
                     }
                   },
                   removeTools: {
                     type: 'array',
                     items: { type: 'string', example: 'github.search_repositories' }
-                  }
+                  },
+                  expectedRevision: { type: 'integer', minimum: 1 }
                 },
+                additionalProperties: false,
                 example: {
                   enabled: true,
+                  expectedRevision: 3,
+                  credentialMode: 'individual',
                   publicHeaders: { 'x-client-version': '2026-05' },
                   auth: {
                     type: 'bearer_token',
-                    secretName: 'mcp_server::github',
                     headerName: 'Authorization',
                     headerPrefix: 'Bearer '
                   },
@@ -240,14 +246,15 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/test-connection': {
       post: {
         tags: ['workspaces'],
-        summary: 'Test target MCP server connectivity and tool discovery',
+        summary: 'Test unauthenticated target MCP server connectivity and tool discovery',
+        description: 'Authenticated installations use the credential connection Verify operation.',
         security: [{ userSession: [] }],
         parameters: [
           { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
           { in: 'path', name: 'targetId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_TARGET_ID } },
           { in: 'path', name: 'serverId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_MCP_SERVER_ID } }
         ],
-        responses: { '200': { description: 'Connection test completed.' } }
+        responses: { '200': { description: 'Connection test completed.' }, '409': { description: 'Authenticated installations require credential connection Verify.' } }
       }
     },
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools': {
@@ -294,6 +301,7 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
                     description: 'Required when enabling a discovered external MCP tool.'
                   }
                 },
+                additionalProperties: false,
                 example: { enabled: true, capability: 'read' }
               }
             }
