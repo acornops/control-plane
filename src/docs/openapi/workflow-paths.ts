@@ -290,7 +290,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       get: {
         tags: ['workflows'],
         summary: 'Get a workflow definition',
-        description: 'External integration callers can fetch only active read-only workflows without approval gates that their linked user grant can run.',
+        description: 'External integration callers can fetch only active workflows permitted by the linked user role, user-approved workspace grant, and client capability ceiling. Read-write or approval-gated workflows require create_read_write_runs.',
         security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
         parameters: [externalUserHeader, workflowIdParameter, workflowWorkspaceIdQueryParameter],
         responses: { '200': { description: 'Workflow definition detail.' } }
@@ -376,7 +376,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       post: {
         tags: ['workflows'],
         summary: 'Create a workflow session',
-        description: 'External integration callers can create sessions only for active read-only workflows without approval gates when read_workspace_data, create_sessions, and create_read_only_runs are granted.',
+        description: 'External integration callers can create sessions only for active workflows permitted by the linked user role, user-approved workspace grant, and client capability ceiling. Read-write or approval-gated workflows require create_read_write_runs; other workflows require create_read_only_runs.',
         security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
         parameters: [externalUserHeader, workflowIdParameter],
         requestBody: {

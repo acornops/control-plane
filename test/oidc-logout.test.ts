@@ -15,26 +15,30 @@ const mutableConfig = config as typeof config & {
   OIDC_END_SESSION_ENDPOINT_OVERRIDE?: string;
 };
 
-const session: BrowserSession = {
-  version: 2,
-  id: 'session-1',
-  userId: 'user-1',
-  createdAt: new Date().toISOString(),
-  lastSeenAt: new Date().toISOString(),
-  absoluteExpiresAt: new Date(Date.now() + 60_000).toISOString(),
-  idleExpiresAt: new Date(Date.now() + 60_000).toISOString(),
-  authMethod: 'oidc',
-  oidc: {
-    provider: config.OIDC_PROVIDER_NAME,
-    issuer: config.OIDC_ISSUER_URL,
-    idToken: 'secret-id-token'
-  }
-};
+function activeOidcSession(): BrowserSession {
+  const now = Date.now();
+  return {
+    version: 2,
+    id: 'session-1',
+    userId: 'user-1',
+    createdAt: new Date(now).toISOString(),
+    lastSeenAt: new Date(now).toISOString(),
+    absoluteExpiresAt: new Date(now + 60_000).toISOString(),
+    idleExpiresAt: new Date(now + 60_000).toISOString(),
+    authMethod: 'oidc',
+    oidc: {
+      provider: config.OIDC_PROVIDER_NAME,
+      issuer: config.OIDC_ISSUER_URL,
+      idToken: 'secret-id-token'
+    }
+  };
+}
 
 afterEach(() => mock.restoreAll());
 
 describe('OIDC RP-initiated logout', () => {
   it('revokes the local session before returning an opaque AcornOps handoff', async () => {
+    const session = activeOidcSession();
     const writes: string[] = [];
     mock.method(redis, 'getdel', async () => JSON.stringify(session));
     mock.method(redis, 'srem', async () => 1);
@@ -73,6 +77,7 @@ describe('OIDC RP-initiated logout', () => {
   });
 
   it('keeps local logout successful when the provider handoff cannot be stored', async () => {
+    const session = activeOidcSession();
     mock.method(redis, 'getdel', async () => JSON.stringify(session));
     mock.method(redis, 'srem', async () => 1);
     mock.method(redis, 'del', async () => 1);
@@ -104,6 +109,7 @@ describe('OIDC RP-initiated logout', () => {
   });
 
   it('clears the browser cookie even if Redis cannot revoke the server session', async () => {
+    const session = activeOidcSession();
     mock.method(redis, 'getdel', async () => { throw new Error('redis unavailable'); });
     let nextError: unknown;
     let cookieCleared = false;
@@ -126,6 +132,7 @@ describe('OIDC RP-initiated logout', () => {
   });
 
   it('keeps the ID token server-side and emits a single-use provider redirect', async () => {
+    const session = activeOidcSession();
     const originalOverride = config.OIDC_END_SESSION_ENDPOINT_OVERRIDE;
     const writes: Array<{ key: string; ttl: number; value: string }> = [];
     try {
@@ -218,6 +225,7 @@ describe('OIDC RP-initiated logout', () => {
   });
 
   it('rejects handoffs created for a different provider', async () => {
+    const session = activeOidcSession();
     const originalOverride = config.OIDC_END_SESSION_ENDPOINT_OVERRIDE;
     try {
       mutableConfig.OIDC_END_SESSION_ENDPOINT_OVERRIDE = 'https://identity.example.com/logout';
@@ -241,6 +249,7 @@ describe('OIDC RP-initiated logout', () => {
   });
 
   it('rejects non-HTTP provider logout endpoints', async () => {
+    const session = activeOidcSession();
     const originalOverride = config.OIDC_END_SESSION_ENDPOINT_OVERRIDE;
     try {
       mutableConfig.OIDC_END_SESSION_ENDPOINT_OVERRIDE = 'javascript:alert(1)';

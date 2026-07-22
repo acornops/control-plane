@@ -9,7 +9,7 @@ const originalGetRunRequestProvenance = repo.getRunRequestProvenance;
 const originalGetRunToolApproval = repo.getRunToolApproval;
 const originalGetWorkspaceRole = repo.getWorkspaceRole;
 const originalGetExternalIntegrationWorkspaceGrant = repo.getExternalIntegrationWorkspaceGrant;
-const originalDecideRunToolApproval = repo.decideRunToolApproval;
+const originalDecideRunToolApprovalOutcome = repo.decideRunToolApprovalOutcome;
 const originalInsertTargetChatActivityEvent = repo.insertTargetChatActivityEvent;
 const originalInsertWorkspaceAuditEvent = repo.insertWorkspaceAuditEvent;
 const originalEnqueueWebhookOutboxEvent = repo.enqueueWebhookOutboxEvent;
@@ -36,7 +36,7 @@ afterEach(() => {
   repo.getRunToolApproval = originalGetRunToolApproval;
   repo.getWorkspaceRole = originalGetWorkspaceRole;
   repo.getExternalIntegrationWorkspaceGrant = originalGetExternalIntegrationWorkspaceGrant;
-  repo.decideRunToolApproval = originalDecideRunToolApproval;
+  repo.decideRunToolApprovalOutcome = originalDecideRunToolApprovalOutcome;
   repo.insertTargetChatActivityEvent = originalInsertTargetChatActivityEvent;
   repo.insertWorkspaceAuditEvent = originalInsertWorkspaceAuditEvent;
   repo.enqueueWebhookOutboxEvent = originalEnqueueWebhookOutboxEvent;
@@ -141,11 +141,14 @@ describe('run approval decisions', () => {
       externalIntegrationClientId: 'external-chat'
     });
     repo.getRunToolApproval = async () => createApproval({ status: 'pending', requestedBy: 'user-1' });
-    repo.decideRunToolApproval = async () => createApproval({
-      status: 'approved',
-      decision: 'approved',
-      requestedBy: 'user-1',
-      decidedBy: 'user-1'
+    repo.decideRunToolApprovalOutcome = async () => ({
+      transitioned: true,
+      approval: createApproval({
+        status: 'approved',
+        decision: 'approved',
+        requestedBy: 'user-1',
+        decidedBy: 'user-1'
+      })
     });
     installExternalIntegrationApprovalAccess();
     let auditActor: { actorType?: string; actorUserId?: string | null; actorTokenId?: string | null } | undefined;
@@ -193,7 +196,7 @@ describe('run approval decisions', () => {
     });
     installExternalIntegrationApprovalAccess();
     let decisionAttempted = false;
-    repo.decideRunToolApproval = async () => {
+    repo.decideRunToolApprovalOutcome = async () => {
       decisionAttempted = true;
       return null;
     };
@@ -266,7 +269,7 @@ describe('run approval decisions', () => {
     });
 
     assert.equal(res.statusCode, 409);
-    assert.deepEqual((res.body as { error: { code: string } }).error.code, 'APPROVAL_ALREADY_DECIDED');
+    assert.deepEqual((res.body as { error: { code: string } }).error.code, 'APPROVAL_EXPIRED');
   });
 
   it('keeps repeated matching decisions idempotent', async () => {
@@ -293,7 +296,10 @@ describe('run approval decisions', () => {
     repo.getRun = async () => createRun();
     repo.getRunToolApproval = async () => createApproval({ status: 'pending' });
     repo.getWorkspaceRole = async () => 'admin';
-    repo.decideRunToolApproval = async () => createApproval({ status: 'expired' });
+    repo.decideRunToolApprovalOutcome = async () => ({
+      transitioned: true,
+      approval: createApproval({ status: 'expired' })
+    });
 
     const req = {
       params: { runId: 'run-1', approvalId: 'approval-1' },

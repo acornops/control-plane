@@ -77,6 +77,13 @@ leases; stale workers cannot commit delivery results after another replica has
 reclaimed a lease. Retries preserve the event ID and payload, honor bounded
 `Retry-After` values, and stop at the configured attempt or age limit.
 
+`WEBHOOK_WORKER_CONCURRENCY` and
+`WEBHOOK_WORKER_PER_ORIGIN_CONCURRENCY` are per-replica limits. Effective
+cluster concurrency scales with the number of control-plane replicas. The
+claim lease is sized for the configured batch's worst-case same-origin drain,
+so queued jobs do not become reclaimable merely because they are waiting for a
+per-origin slot.
+
 Set `WEBHOOK_WORKER_ENABLED=false` during maintenance to pause new claims while
 event enqueueing continues. Re-enable the worker to drain the backlog. Issue
 created/reopened notifications pause while an issue is recovering and are

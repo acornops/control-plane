@@ -5,7 +5,7 @@ import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { incrementAutomationApproval } from '../metrics.js';
 import {
   applyAutomationApprovalOutcome,
-  decideAutomationRunApproval,
+  decideAutomationRunApprovalOutcome,
   type AutomationRunApproval
 } from '../store/repository-automation-approvals.js';
 import { runAuditActor } from './run-actor.js';
@@ -49,9 +49,26 @@ export async function decideAutomationApprovalRequest(
     return;
   }
 
-  const decided = await decideAutomationRunApproval(approval.id, req.body.decision, req.auth.userId);
-  if (!decided) {
+  const outcome = await decideAutomationRunApprovalOutcome(approval.id, req.body.decision, req.auth.userId);
+  if (!outcome) {
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Approval not found', retryable: false } });
+    return;
+  }
+  const decided = outcome.approval;
+  if (!outcome.transitioned) {
+    await applyAutomationApprovalOutcome(decided);
+    if (decided.decision === req.body.decision) {
+      res.status(200).json(decided);
+      return;
+    }
+    res.status(409).json({
+      error: {
+        code: decided.status === 'expired' ? 'APPROVAL_EXPIRED' : 'APPROVAL_ALREADY_DECIDED',
+        message: `Approval is already ${decided.status}`,
+        retryable: false
+      },
+      approval: decided
+    });
     return;
   }
   await applyAutomationApprovalOutcome(decided);

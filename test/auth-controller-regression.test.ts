@@ -236,9 +236,9 @@ describe('controller authorization regressions', () => {
 
     let decidedBy = '';
     repo.getRunToolApproval = async () => createApproval({ requestedBy: 'user-1' });
-    repo.decideRunToolApproval = async (_approvalId: string, decision: 'approved' | 'rejected', userId: string) => {
+    repo.decideRunToolApprovalOutcome = async (_approvalId: string, decision: 'approved' | 'rejected', userId: string) => {
       decidedBy = userId;
-      return createApproval({ status: 'rejected', decision, requestedBy: 'user-1', decidedBy: userId });
+      return { transitioned: true, approval: createApproval({ status: 'rejected', decision, requestedBy: 'user-1', decidedBy: userId }) };
     };
     const allowed = await callController(
       decideRunApproval,

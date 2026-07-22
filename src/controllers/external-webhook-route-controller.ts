@@ -8,7 +8,6 @@ import {
   incrementExternalWebhookRouteRequest,
   incrementExternalWebhookRouteSecretRotations
 } from '../metrics-external-webhooks.js';
-import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { repo } from '../store/repository.js';
 import type { ExternalRouteWebhookSubscription } from '../store/repository-webhooks.js';
 import { webhookRouteConnectSchema } from '../types/contracts.js';
@@ -144,13 +143,14 @@ export async function connectExternalWebhookRoute(req: AuthenticatedRequest, res
       externalUserId: identity.externalUserId,
       acornopsUserId: identity.acornopsUserId,
       deliveryUrl,
+      deliveryUrlHash: hashDeliveryUrl(deliveryUrl),
       allowedRoleKeys: listConfiguredRoleTemplates()
         .filter((role) => role.capabilities.includes('manage_webhooks'))
         .map((role) => role.key),
       rotations: preparedRotations.map((item) => item.rotation)
     });
     const updatedById = new Map(connected.subscriptions.map((subscription) => [subscription.id, subscription]));
-    const rotated = await Promise.all(preparedRotations.map(async ({ subscription, signingSecret }) => {
+    const rotated = preparedRotations.map(({ subscription, signingSecret }) => {
       const updated = updatedById.get(subscription.id);
       if (!updated) {
         throw new Error(`Failed rotating webhook secret for ${subscription.id}`);
@@ -161,28 +161,8 @@ export async function connectExternalWebhookRoute(req: AuthenticatedRequest, res
         workspaceName: subscription.workspaceName,
         workspaceRole: subscription.workspaceRole
       };
-      await recordWorkspaceAuditEvent({
-        workspaceId: subscription.workspaceId,
-        category: 'workspace',
-        eventType: 'webhook.route.connected.v1',
-        operation: 'write',
-        actorType: 'external_integration',
-        actorUserId: identity.acornopsUserId,
-        actorTokenId: identity.integrationClientId,
-        objectType: 'webhook_subscription',
-        objectId: subscription.id,
-        objectName: subscription.name,
-        summary: 'Webhook signing secret rotated by external route connect',
-        metadata: {
-          integrationClientId: identity.integrationClientId,
-          provider: identity.provider,
-          externalUserId: identity.externalUserId,
-          deliveryUrlHash: hashDeliveryUrl(deliveryUrl),
-          webhookId: subscription.id
-        }
-      });
       return { subscription: effectiveSubscription, signingSecret };
-    }));
+    });
 
     incrementExternalWebhookRouteRequest('connect', 'connected');
     incrementExternalWebhookRouteSecretRotations(identity.integrationClientId, rotated.length);

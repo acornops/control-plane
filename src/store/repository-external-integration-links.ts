@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { WorkspaceCapability } from '../auth/authorization.js';
 import { db } from '../infra/db.js';
 import type { Role, User } from '../types/domain.js';
+import { recordExternalIntegrationLinkCompletion } from './repository-external-integration-link-audit.js';
 import { toIso, type UserRow } from './repository-mappers.js';
 import { withTransaction } from './repository-transaction.js';
 
@@ -265,6 +266,8 @@ export async function completeExternalIntegrationLinkToken(input: {
   tokenHash: string;
   acornopsUserId: string;
   linkExpiresAt: Date;
+  workspaceGrants?: ExternalIntegrationWorkspaceGrantInput[];
+  auditCompletion?: boolean;
 }): Promise<ExternalIntegrationUserLinkSummary | null> {
   return withTransaction(async (client) => {
     const tokenResult = await client.query<ExternalIntegrationLinkTokenRow>(
@@ -306,21 +309,49 @@ export async function completeExternalIntegrationLinkToken(input: {
         input.linkExpiresAt
       ]
     );
+    const link = summaryFromRow(linkResult.rows[0]);
+    if (input.workspaceGrants) {
+      await client.query(
+        'DELETE FROM external_integration_workspace_grants WHERE external_integration_user_link_id = $1',
+        [link.id]
+      );
+      for (const grant of input.workspaceGrants) {
+        const grantResult = await client.query<ExternalIntegrationWorkspaceGrantRow>(
+          `INSERT INTO external_integration_workspace_grants (
+             id, external_integration_user_link_id, workspace_id, capabilities,
+             granted_by_user_id, created_at, updated_at
+           )
+           VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+           RETURNING *`,
+          [randomUUID(), link.id, grant.workspaceId, grant.capabilities, input.acornopsUserId]
+        );
+        link.grants.push(grantSummaryFromRow(grantResult.rows[0]));
+      }
+    }
     await client.query('UPDATE external_integration_link_tokens SET consumed_at = NOW() WHERE token_hash = $1', [input.tokenHash]);
-    return summaryFromRow(linkResult.rows[0]);
+    if (input.auditCompletion) {
+      await recordExternalIntegrationLinkCompletion(client, input.acornopsUserId, link);
+    }
+    return link;
   });
 }
 
 export async function resolveExternalIntegrationUserLink(input: ExternalIntegrationIdentityLookup): Promise<ExternalIntegrationLinkResolution | null> {
   const result = await db.query<ExternalIntegrationUserLinkRow>(
-    `SELECT l.*, u.id AS user_id, u.email, u.display_name, u.created_at
-     FROM external_integration_user_links l
+    `WITH resolved AS (
+       UPDATE external_integration_user_links
+       SET last_authenticated_at = NOW()
+       WHERE integration_client_id = $1
+         AND provider = $2
+         AND external_user_id = $3
+         AND revoked_at IS NULL
+         AND expires_at > NOW()
+       RETURNING *
+     )
+     SELECT l.*, u.id AS user_id, u.email, u.display_name, u.created_at
+     FROM resolved l
      JOIN users u ON l.acornops_user_id = u.id
-     WHERE l.integration_client_id = $1
-       AND l.provider = $2
-       AND l.external_user_id = $3
-       AND l.revoked_at IS NULL
-       AND l.expires_at > NOW()`,
+    `,
     [input.integrationClientId, input.provider, input.externalUserId]
   );
   const row = result.rows[0];

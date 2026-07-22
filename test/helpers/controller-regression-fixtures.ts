@@ -41,6 +41,7 @@ const originals = {
   listWorkspaceRunToolApprovals: repo.listWorkspaceRunToolApprovals,
   countPendingWorkspaceRunToolApprovals: repo.countPendingWorkspaceRunToolApprovals,
   decideRunToolApproval: repo.decideRunToolApproval,
+  decideRunToolApprovalOutcome: repo.decideRunToolApprovalOutcome,
   getRunContinuation: repo.getRunContinuation,
   appendRunEvents: repo.appendRunEvents,
   getLatestRunEventSeq: repo.getLatestRunEventSeq,
@@ -124,6 +125,7 @@ export function restoreControllerRegressionState(): void {
   repo.listWorkspaceRunToolApprovals = originals.listWorkspaceRunToolApprovals;
   repo.countPendingWorkspaceRunToolApprovals = originals.countPendingWorkspaceRunToolApprovals;
   repo.decideRunToolApproval = originals.decideRunToolApproval;
+  repo.decideRunToolApprovalOutcome = originals.decideRunToolApprovalOutcome;
   repo.getRunContinuation = originals.getRunContinuation;
   repo.appendRunEvents = originals.appendRunEvents;
   repo.getLatestRunEventSeq = originals.getLatestRunEventSeq;

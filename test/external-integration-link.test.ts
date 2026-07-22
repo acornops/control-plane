@@ -295,21 +295,15 @@ describe('external integration link contract', () => {
         linkedAt: '2026-06-08T00:00:00.000Z',
         lastAuthenticatedAt: '2026-06-08T00:00:00.000Z',
         expiresAt: '2026-07-08T00:00:00.000Z',
-        grants: []
+        grants: [{
+          workspaceId: 'workspace-1',
+          capabilities: ['read_workspace_data'],
+          grantedByUserId: 'user-1',
+          createdAt: '2026-06-08T00:00:00.000Z',
+          updatedAt: '2026-06-08T00:00:00.000Z'
+        }]
       };
     });
-    let replacedGrants: unknown;
-    mock.method(repo, 'replaceExternalIntegrationWorkspaceGrants', async (input: Record<string, unknown>) => {
-      replacedGrants = input.grants;
-      return [{
-        workspaceId: 'workspace-1',
-        capabilities: ['read_workspace_data'],
-        grantedByUserId: 'user-1',
-        createdAt: '2026-06-08T00:00:00.000Z',
-        updatedAt: '2026-06-08T00:00:00.000Z'
-      }];
-    });
-    mock.method(repo, 'insertAccountAuditEvent', async () => undefined);
     const res = createResponse();
 
     await completeExternalIntegrationLinkRequest({
@@ -323,7 +317,8 @@ describe('external integration link contract', () => {
     assert.equal((res.body as { status: string }).status, 'linked');
     assert.equal(completed?.tokenHash, hashExternalIntegrationLinkToken('intlink_token-1'));
     assert.equal(completed?.acornopsUserId, 'user-1');
-    assert.deepEqual(replacedGrants, [{ workspaceId: 'workspace-1', capabilities: ['read_workspace_data'] }]);
+    assert.deepEqual(completed?.workspaceGrants, [{ workspaceId: 'workspace-1', capabilities: ['read_workspace_data'] }]);
+    assert.equal(completed?.auditCompletion, true);
   });
 
   it('returns expired when authenticated browser completion cannot consume the token', async () => {

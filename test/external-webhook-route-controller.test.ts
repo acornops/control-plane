@@ -80,11 +80,13 @@ describe('external webhook route controller', () => {
     const manageable = webhook({ id: 'webhook-admin', workspaceRole: 'admin' });
     const viewer = webhook({ id: 'webhook-viewer', workspaceId: 'workspace-2', workspaceName: 'Read Only', workspaceRole: 'viewer' });
     const rotatedIds: string[] = [];
-    const auditMetadata: Array<Record<string, unknown>> = [];
+    let deliveryUrlHash = '';
     mock.method(repo, 'listWebhookSubscriptionsForExternalRoute', async () => [manageable, viewer]);
     mock.method(repo, 'connectExternalWebhookRoute', async (input: {
+      deliveryUrlHash: string;
       rotations: Array<{ webhookId: string }>;
     }) => {
+      deliveryUrlHash = input.deliveryUrlHash;
       rotatedIds.push(...input.rotations.map((rotation) => rotation.webhookId));
       return {
         connection: {
@@ -98,10 +100,6 @@ describe('external webhook route controller', () => {
         },
         subscriptions: [{ ...manageable, updatedAt: '2026-07-08T01:00:00.000Z' }]
       };
-    });
-    mock.method(repo, 'insertWorkspaceAuditEvent', async (input: { metadata?: Record<string, unknown> }) => {
-      auditMetadata.push(input.metadata || {});
-      return null;
     });
 
     const res = createResponse();
@@ -118,9 +116,7 @@ describe('external webhook route controller', () => {
     assert.equal(body.subscriptions.length, 1);
     assert.equal(body.subscriptions[0].webhookId, 'webhook-admin');
     assert.match(String(body.subscriptions[0].signingSecret), /^whsec_/);
-    assert.equal(auditMetadata.length, 1);
-    assert.equal(Object.hasOwn(auditMetadata[0], 'deliveryUrl'), false);
-    assert.match(String(auditMetadata[0].deliveryUrlHash), /^[a-f0-9]{64}$/);
+    assert.match(deliveryUrlHash, /^[a-f0-9]{64}$/);
   });
 
   it('status returns live subscription state without signing secrets', async () => {

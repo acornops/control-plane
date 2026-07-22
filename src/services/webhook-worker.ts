@@ -80,23 +80,23 @@ async function processWebhookDelivery(job: ClaimedWebhookDelivery): Promise<void
     return;
   }
   if (issueState === 'supersede') {
-    incrementWebhookDeliveryTerminal('superseded');
-    await repo.finishWebhookDeliveryJob({
+    const accepted = await repo.finishWebhookDeliveryJob({
       job,
       status: 'superseded',
       historyStatus: 'superseded',
       terminalReason: 'issue_lifecycle_advanced'
     });
+    if (accepted) incrementWebhookDeliveryTerminal('superseded');
     return;
   }
   if (!subscriptionStillMatches(job)) {
-    incrementWebhookDeliveryTerminal('cancelled');
-    await repo.finishWebhookDeliveryJob({
+    const accepted = await repo.finishWebhookDeliveryJob({
       job,
       status: 'cancelled',
       historyStatus: 'cancelled',
       terminalReason: 'subscription_unavailable'
     });
+    if (accepted) incrementWebhookDeliveryTerminal('cancelled');
     return;
   }
 
@@ -106,8 +106,7 @@ async function processWebhookDelivery(job: ClaimedWebhookDelivery): Promise<void
   try {
     secret = decryptWebhookSecret(job.secretCiphertext!);
   } catch {
-    incrementWebhookDeliveryTerminal('failed');
-    await repo.finishWebhookDeliveryJob({
+    const accepted = await repo.finishWebhookDeliveryJob({
       job,
       status: 'failed',
       historyStatus: 'failed',
@@ -115,6 +114,7 @@ async function processWebhookDelivery(job: ClaimedWebhookDelivery): Promise<void
       durationMs: Date.now() - startedAt,
       terminalReason: 'signing_configuration'
     });
+    if (accepted) incrementWebhookDeliveryTerminal('failed');
     return;
   }
   try {
@@ -135,20 +135,19 @@ async function processWebhookDelivery(job: ClaimedWebhookDelivery): Promise<void
     });
     if (response.ok) {
       recordWebhookDeliveryAttempt('succeeded', Date.now() - startedAt);
-      incrementWebhookDeliveryTerminal('succeeded');
-      await repo.finishWebhookDeliveryJob({
+      const accepted = await repo.finishWebhookDeliveryJob({
         job,
         status: 'succeeded',
         historyStatus: 'success',
         responseStatus: response.status,
         durationMs: Date.now() - startedAt
       });
+      if (accepted) incrementWebhookDeliveryTerminal('succeeded');
       return;
     }
     const retry = retryableStatus(response.status) && canRetry(job);
     recordWebhookDeliveryAttempt(retry ? 'retrying' : 'failed', Date.now() - startedAt);
-    if (!retry) incrementWebhookDeliveryTerminal('failed');
-    await repo.finishWebhookDeliveryJob({
+    const accepted = await repo.finishWebhookDeliveryJob({
       job,
       status: retry ? 'retrying' : 'failed',
       historyStatus: 'failed',
@@ -158,12 +157,12 @@ async function processWebhookDelivery(job: ClaimedWebhookDelivery): Promise<void
       nextAttemptAt: retry ? nextRetryAt(job, response.retryAfter) : undefined,
       terminalReason: retry ? undefined : 'http_terminal'
     });
+    if (!retry && accepted) incrementWebhookDeliveryTerminal('failed');
   } catch (err) {
     const policyFailure = err instanceof WebhookDeliveryPolicyError;
     const retry = !policyFailure && canRetry(job);
     recordWebhookDeliveryAttempt(retry ? 'retrying' : 'failed', Date.now() - startedAt);
-    if (!retry) incrementWebhookDeliveryTerminal('failed');
-    await repo.finishWebhookDeliveryJob({
+    const accepted = await repo.finishWebhookDeliveryJob({
       job,
       status: retry ? 'retrying' : 'failed',
       historyStatus: 'failed',
@@ -172,6 +171,7 @@ async function processWebhookDelivery(job: ClaimedWebhookDelivery): Promise<void
       nextAttemptAt: retry ? nextRetryAt(job) : undefined,
       terminalReason: retry ? undefined : policyFailure ? 'delivery_policy' : 'attempts_exhausted'
     });
+    if (!retry && accepted) incrementWebhookDeliveryTerminal('failed');
   }
 }
 
@@ -211,9 +211,22 @@ async function processWithLimits(jobs: ClaimedWebhookDelivery[]): Promise<void> 
 }
 
 export async function runWebhookDeliverySweep(): Promise<void> {
-  if (!config.WEBHOOK_WORKER_ENABLED) return;
+  if (!config.WEBHOOK_WORKER_ENABLED) {
+    try {
+      setWebhookQueueMetrics(await repo.getWebhookQueueMetrics());
+    } catch (err) {
+      logger.warn({ err }, 'Webhook queue metrics refresh failed while delivery claims are disabled');
+    }
+    return;
+  }
   const leaseOwner = `${config.CONTROL_PLANE_INSTANCE_ID}:${randomUUID()}`;
-  const leaseSeconds = Math.max(30, Math.ceil(config.WEBHOOK_DELIVERY_TIMEOUT_MS * 3 / 1000));
+  const serialOriginWaves = Math.ceil(
+    config.WEBHOOK_WORKER_BATCH_SIZE / config.WEBHOOK_WORKER_PER_ORIGIN_CONCURRENCY
+  );
+  const leaseSeconds = Math.max(
+    30,
+    Math.ceil((serialOriginWaves * config.WEBHOOK_DELIVERY_TIMEOUT_MS * 1.5 + 5_000) / 1000)
+  );
   try {
     await repo.purgeExpiredWebhookOutboxEvents();
     const jobs = await repo.claimWebhookDeliveryJobs(

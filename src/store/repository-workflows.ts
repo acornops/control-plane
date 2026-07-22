@@ -26,6 +26,7 @@ export {
   createWorkflowSession,
   createWorkflowUserMessage,
   decideWorkflowRunApproval,
+  decideWorkflowRunApprovalOutcome,
   getWorkflowRun,
   getWorkflowRunApproval,
   getWorkflowSession,

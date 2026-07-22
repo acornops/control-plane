@@ -179,6 +179,9 @@ The control plane owns the platform API boundary. Keep this README as a short in
   Issue created, reopened, and resolved events commit atomically with issue
   lifecycle changes. The worker pauses recovering-lifecycle alerts and
   supersedes stale lifecycle versions before delivery where possible.
+  Worker batch and concurrency limits are per control-plane replica; database
+  leases and fenced completion coordinate replicas, and leases cover the
+  configured batch's worst-case same-origin drain time.
 - Execution-engine dispatch uses `Authorization: Bearer <EXECUTION_ENGINE_DISPATCH_TOKEN>`.
 - Target adapters register their live built-in tools against the configured internal bridge URL (the local deployment default is `http://control-plane:8081/internal/v1/mcp`). The server identity comes from the registered target, not a seeded workspace integration.
 - Built-in MCP tool calls use `Authorization: Bearer <run-scoped-jwt>` and derive scope from `run-scoped-jwt-claims`.

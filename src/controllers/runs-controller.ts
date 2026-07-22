@@ -8,7 +8,7 @@ import { recordWorkflowExecutionEvent } from '../services/workflow-execution-eve
 import { repo } from '../store/repository.js';
 import {
   appendWorkflowRunEvents,
-  decideWorkflowRunApproval,
+  decideWorkflowRunApprovalOutcome,
   getWorkflowExecution,
   getWorkflowRunApproval,
   getWorkflowRun,
@@ -31,6 +31,25 @@ import { isRunTerminalStatus, terminalizeRunCancellation } from './run-cancellat
 import { decideTroubleshootingRunApproval } from './troubleshooting-run-approval-decision.js';
 import { externalIntegrationOwnsWorkflowExecution } from './workflow-execution-access.js';
 import { workflowAuditActor } from './workflow-external-access.js';
+import {
+  publicAgentRun,
+  publicRunEvent,
+  publicTroubleshootingRun,
+  publicWorkflowRun
+} from './external-run-public.js';
+
+function isExternalIntegrationRequest(req: AuthenticatedRequest): boolean {
+  return req.auth.credential.type === 'external_integration';
+}
+
+async function externalIntegrationOwnsTroubleshootingRun(req: AuthenticatedRequest, runId: string): Promise<boolean> {
+  const credential = req.auth.credential;
+  if (credential.type !== 'external_integration') return false;
+  const provenance = await repo.getRunRequestProvenance(runId);
+  return provenance?.actorType === 'external_integration'
+    && provenance.externalIntegrationLinkId === credential.linkId
+    && provenance.externalIntegrationClientId === credential.integrationId;
+}
 
 export async function getRun(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -40,13 +59,21 @@ export async function getRun(req: AuthenticatedRequest, res: Response, next: Nex
       if (!(await requireWorkspaceDataRead(req, res, workflowRun.workspaceId, 'No access to run'))) {
         return;
       }
+      if (isExternalIntegrationRequest(req)) {
+        const execution = await getWorkflowExecution(workflowRun.executionId);
+        res.status(200).json(publicWorkflowRun(
+          workflowRun,
+          Boolean(execution && externalIntegrationOwnsWorkflowExecution(req, execution))
+        ));
+        return;
+      }
       res.status(200).json(workflowRun);
       return;
     }
     const agentRun = await getAgentActivityRecord(runId);
     if (agentRun) {
       if (!(await requireWorkspaceDataRead(req, res, agentRun.workspaceId, 'No access to run'))) return;
-      res.status(200).json({ ...agentRun, source: 'agent' });
+      res.status(200).json(isExternalIntegrationRequest(req) ? publicAgentRun(agentRun) : { ...agentRun, source: 'agent' });
       return;
     }
     const run = await repo.getRun(runId);
@@ -59,7 +86,9 @@ export async function getRun(req: AuthenticatedRequest, res: Response, next: Nex
       return;
     }
 
-    res.status(200).json(run);
+    res.status(200).json(isExternalIntegrationRequest(req)
+      ? publicTroubleshootingRun(run, await externalIntegrationOwnsTroubleshootingRun(req, run.id))
+      : run);
   } catch (err) {
     next(err);
   }
@@ -210,13 +239,15 @@ export async function listRunEvents(req: AuthenticatedRequest, res: Response, ne
       if (!(await requireWorkspaceDataRead(req, res, workflowRun.workspaceId, 'No access to run'))) {
         return;
       }
-      res.status(200).json(workflowRun.events || runtime.getRunEvents(workflowRun.id));
+      const events = workflowRun.events || runtime.getRunEvents(workflowRun.id);
+      res.status(200).json(isExternalIntegrationRequest(req) ? events.map(publicRunEvent) : events);
       return;
     }
     const agentRun = await getAgentActivityRecord(runId);
     if (agentRun) {
       if (!(await requireWorkspaceDataRead(req, res, agentRun.workspaceId, 'No access to run'))) return;
-      res.status(200).json(await listAgentRunEvents(runId));
+      const events = await listAgentRunEvents(runId);
+      res.status(200).json(isExternalIntegrationRequest(req) ? events.map(publicRunEvent) : events);
       return;
     }
     const run = await repo.getRun(runId);
@@ -230,7 +261,7 @@ export async function listRunEvents(req: AuthenticatedRequest, res: Response, ne
     }
 
     const events = await getReplayRunEvents(run.id);
-    res.status(200).json(events);
+    res.status(200).json(isExternalIntegrationRequest(req) ? events.map(publicRunEvent) : events);
   } catch (err) {
     next(err);
   }
@@ -327,7 +358,7 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
         }
         res.status(409).json({
           error: {
-            code: 'APPROVAL_ALREADY_DECIDED',
+            code: approval.status === 'expired' ? 'APPROVAL_EXPIRED' : 'APPROVAL_ALREADY_DECIDED',
             message: `Approval is already ${approval.status}`,
             retryable: false
           },
@@ -336,9 +367,26 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
         return;
       }
 
-      const decided = await decideWorkflowRunApproval(approval.id, req.body.decision, req.auth.userId);
-      if (!decided) {
+      const outcome = await decideWorkflowRunApprovalOutcome(approval.id, req.body.decision, req.auth.userId);
+      if (!outcome) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Approval not found', retryable: false } });
+        return;
+      }
+      const decided = outcome.approval;
+      if (!outcome.transitioned) {
+        dispatchWorkflowRunAfterApprovals(workflowRun.id);
+        if (decided.decision === req.body.decision) {
+          res.status(200).json(decided);
+          return;
+        }
+        res.status(409).json({
+          error: {
+            code: decided.status === 'expired' ? 'APPROVAL_EXPIRED' : 'APPROVAL_ALREADY_DECIDED',
+            message: `Approval is already ${decided.status}`,
+            retryable: false
+          },
+          approval: decided
+        });
         return;
       }
       await recordWorkspaceAuditEvent({
@@ -380,6 +428,17 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
           decision: decided.decision || null
         }
       });
+      if (decided.status === 'expired') {
+        res.status(409).json({
+          error: {
+            code: 'APPROVAL_EXPIRED',
+            message: 'Approval expired before the decision was recorded',
+            retryable: false
+          },
+          approval: decided
+        });
+        return;
+      }
       res.status(200).json(decided);
       return;
     }
@@ -422,6 +481,7 @@ export async function streamRun(req: AuthenticatedRequest, res: Response, next: 
     if (!(await requireWorkspaceDataRead(req, res, run.workspaceId, 'No access to run'))) {
       return;
     }
+    const publicExternalStream = isExternalIntegrationRequest(req);
 
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -444,7 +504,7 @@ export async function streamRun(req: AuthenticatedRequest, res: Response, next: 
       if (typeof runEvent.seq === 'number' && runEvent.seq <= lastReplayedSeq) {
         return;
       }
-      writeSseRunEvent(res, runEvent);
+      writeSseRunEvent(res, publicExternalStream ? publicRunEvent(runEvent) : runEvent);
     };
 
     runtime.runStreams.on(`run:${run.id}`, listener);
@@ -453,7 +513,7 @@ export async function streamRun(req: AuthenticatedRequest, res: Response, next: 
       const replayExistingEvents = (existing: RunEvent[]) => {
         for (const event of existing) {
           lastReplayedSeq = Math.max(lastReplayedSeq, event.seq);
-          writeSseRunEvent(res, event);
+          writeSseRunEvent(res, publicExternalStream ? publicRunEvent(event) : event);
         }
       };
       if (workflowRun) {
@@ -468,7 +528,7 @@ export async function streamRun(req: AuthenticatedRequest, res: Response, next: 
         if (typeof event.seq === 'number' && event.seq <= lastReplayedSeq) {
           continue;
         }
-        writeSseRunEvent(res, event);
+        writeSseRunEvent(res, publicExternalStream ? publicRunEvent(event) : event);
       }
     } catch (err) {
       runtime.runStreams.off(`run:${run.id}`, listener);

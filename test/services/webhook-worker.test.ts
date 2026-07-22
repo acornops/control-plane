@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
+import { config } from '../../src/config.js';
 import { webhookDeliveryClient } from '../../src/services/webhook-delivery.js';
 import { runWebhookDeliverySweep } from '../../src/services/webhook-worker.js';
 import { repo } from '../../src/store/repository.js';
@@ -7,7 +8,11 @@ import type { ClaimedWebhookDelivery } from '../../src/store/repository-webhook-
 import type { TargetIssue } from '../../src/types/target-issues.js';
 import { encryptWebhookSecret } from '../../src/utils/crypto.js';
 
+const mutableConfig = config as typeof config & { WEBHOOK_WORKER_ENABLED: boolean };
+const originalWebhookWorkerEnabled = config.WEBHOOK_WORKER_ENABLED;
+
 afterEach(() => {
+  mutableConfig.WEBHOOK_WORKER_ENABLED = originalWebhookWorkerEnabled;
   mock.restoreAll();
 });
 
@@ -76,9 +81,11 @@ function arrangeSweep(claimedJob: ClaimedWebhookDelivery) {
   mock.method(repo, 'claimWebhookDeliveryJobs', async () => [claimedJob]);
   mock.method(repo, 'finishWebhookDeliveryJob', async (input) => {
     finishes.push(input);
+    return true;
   });
   mock.method(repo, 'getWebhookQueueMetrics', async () => ({
     pending: 0,
+    processing: 0,
     retrying: 0,
     paused: 0,
     oldestAgeSeconds: 0
@@ -87,6 +94,42 @@ function arrangeSweep(claimedJob: ClaimedWebhookDelivery) {
 }
 
 describe('durable webhook worker', () => {
+  it('refreshes queue metrics without claiming jobs when delivery is disabled', async () => {
+    mutableConfig.WEBHOOK_WORKER_ENABLED = false;
+    let metricsReads = 0;
+    let claims = 0;
+    mock.method(repo, 'getWebhookQueueMetrics', async () => {
+      metricsReads += 1;
+      return { pending: 3, processing: 1, retrying: 2, paused: 4, oldestAgeSeconds: 60 };
+    });
+    mock.method(repo, 'claimWebhookDeliveryJobs', async () => {
+      claims += 1;
+      return [];
+    });
+
+    await runWebhookDeliverySweep();
+
+    assert.equal(metricsReads, 1);
+    assert.equal(claims, 0);
+  });
+
+  it('leases a full same-origin batch for longer than its worst-case timeout waves', async () => {
+    let leaseSeconds = 0;
+    mock.method(repo, 'purgeExpiredWebhookOutboxEvents', async () => 0);
+    mock.method(repo, 'claimWebhookDeliveryJobs', async (_limit, _owner, lease) => {
+      leaseSeconds = lease;
+      return [];
+    });
+    mock.method(repo, 'getWebhookQueueMetrics', async () => ({
+      pending: 0, processing: 0, retrying: 0, paused: 0, oldestAgeSeconds: 0
+    }));
+
+    await runWebhookDeliverySweep();
+
+    const sameOriginWaves = Math.ceil(config.WEBHOOK_WORKER_BATCH_SIZE / config.WEBHOOK_WORKER_PER_ORIGIN_CONCURRENCY);
+    assert.ok(leaseSeconds * 1000 > sameOriginWaves * config.WEBHOOK_DELIVERY_TIMEOUT_MS);
+  });
+
   it('delivers the immutable event ID and records success', async () => {
     const claimed = job();
     const finishes = arrangeSweep(claimed);

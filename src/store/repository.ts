@@ -141,6 +141,7 @@ import {
   countPendingWorkspaceRunToolApprovals as countPendingWorkspaceRunToolApprovalsRecord,
   createRunToolApproval as createRunToolApprovalRecord,
   decideRunToolApproval as decideRunToolApprovalRecord,
+  decideRunToolApprovalOutcome as decideRunToolApprovalOutcomeRecord,
   deleteRunContinuation as deleteRunContinuationRecord,
   expirePendingRunToolApprovals as expirePendingRunToolApprovalsRecord,
   expireRunToolApproval as expireRunToolApprovalRecord,
@@ -399,9 +400,8 @@ export class Repository {
   getRunContinuation = getRunContinuationRecord;
 
   deleteRunContinuation = deleteRunContinuationRecord;
-
   decideRunToolApproval = decideRunToolApprovalRecord;
-
+  decideRunToolApprovalOutcome = decideRunToolApprovalOutcomeRecord;
   expireRunToolApproval = expireRunToolApprovalRecord;
 
   expirePendingRunToolApprovals = expirePendingRunToolApprovalsRecord;

@@ -46,11 +46,13 @@ export function incrementWebhookLeaseRecovery(): void {
 
 export function setWebhookQueueMetrics(input: {
   pending: number;
+  processing: number;
   retrying: number;
   paused: number;
   oldestAgeSeconds: number;
 }): void {
   queueDepth.set('pending', input.pending);
+  queueDepth.set('processing', input.processing);
   queueDepth.set('retrying', input.retrying);
   queueDepth.set('paused', input.paused);
   oldestJobAgeSeconds = input.oldestAgeSeconds;

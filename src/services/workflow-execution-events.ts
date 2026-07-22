@@ -10,7 +10,6 @@ import type { RunEvent } from '../types/domain.js';
 import {
   getWorkflowRun,
   listWorkflowRunApprovals,
-  type WorkflowExecutionRecord,
   type WorkflowRunRecord
 } from '../store/repository-workflows.js';
 
@@ -54,26 +53,6 @@ export async function recordWorkflowRunEvents(params: {
     if (event) recorded.push(event);
   }
   emitWorkflowExecutionEvents(params.executionId, recorded);
-}
-
-export async function recordWorkflowExecutionStarted(
-  execution: WorkflowExecutionRecord,
-  run: WorkflowRunRecord
-): Promise<void> {
-  await recordWorkflowExecutionEvent({
-    executionId: execution.id,
-    workspaceId: execution.workspaceId,
-    type: 'execution_created',
-    dedupeKey: 'execution-created',
-    payload: {
-      workflowId: execution.workflowId,
-      workflowSessionId: execution.workflowSessionId,
-      workflowVersion: execution.workflowVersion,
-      status: execution.status,
-      triggerType: execution.triggerType
-    }
-  });
-  await recordWorkflowRunStarted(run);
 }
 
 async function recordWorkflowRunStarted(run: WorkflowRunRecord): Promise<void> {

@@ -17,6 +17,7 @@ import {
   applyAutomationApprovalOutcome,
   createAutomationRunApproval,
   decideAutomationRunApproval,
+  decideAutomationRunApprovalOutcome,
   expirePendingAutomationRunApprovals,
   getAutomationRunApproval,
   getAutomationRunContinuation,
@@ -89,9 +90,16 @@ describe('durable automation approvals', () => {
     );
     assert.deepEqual(outbox.rows.map((row) => row.status), ['pending']);
 
-    const decided = await decideAutomationRunApproval(approvals[0].id, 'approved', 'user-1');
-    assert.ok(decided);
-    await applyAutomationApprovalOutcome(decided);
+    const concurrent = await Promise.all([
+      decideAutomationRunApprovalOutcome(approvals[0].id, 'approved', 'user-1'),
+      decideAutomationRunApprovalOutcome(approvals[0].id, 'approved', 'user-1')
+    ]);
+    assert.equal(concurrent.filter((outcome) => outcome?.transitioned).length, 1);
+    assert.deepEqual(concurrent.map((outcome) => outcome?.approval.status), ['approved', 'approved']);
+    const conflictingRetry = await decideAutomationRunApprovalOutcome(approvals[0].id, 'rejected', 'user-1');
+    assert.equal(conflictingRetry?.transitioned, false);
+    assert.equal(conflictingRetry?.approval.decision, 'approved');
+    await applyAutomationApprovalOutcome(concurrent[0]!.approval);
     assert.equal((await getAgentActivityRecord(run.id))?.status, 'queued');
   });
 
@@ -189,6 +197,12 @@ describe('durable automation approvals', () => {
       targetType: 'kubernetes',
       agentSnapshot: agent as unknown as Record<string, unknown>
     });
+    assert.deepEqual(created.initialEvents.map((event) => event.type), ['execution_created', 'run_created']);
+    const initialEventRows = await db.query<{ event_type: string }>(
+      'SELECT event_type FROM workflow_execution_events WHERE execution_id=$1 ORDER BY id ASC',
+      [created.execution.id]
+    );
+    assert.deepEqual(initialEventRows.rows.map((row) => row.event_type), ['execution_created', 'run_created']);
     await db.query("UPDATE workflow_runs SET status='running' WHERE id=$1", [created.run.id]);
     await db.query("UPDATE workflow_executions SET status='running' WHERE id=$1", [created.execution.id]);
     await db.query("UPDATE automation_dispatch_outbox SET status='delivered',delivered_at=NOW() WHERE run_id=$1", [created.run.id]);

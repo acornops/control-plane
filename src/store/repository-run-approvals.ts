@@ -197,37 +197,59 @@ export async function decideRunToolApproval(
   decision: 'approved' | 'rejected',
   decidedBy: string
 ): Promise<RunToolApproval | null> {
+  return (await decideRunToolApprovalOutcome(approvalId, decision, decidedBy))?.approval || null;
+}
+
+export interface RunToolApprovalDecisionOutcome {
+  approval: RunToolApproval;
+  transitioned: boolean;
+}
+
+export async function decideRunToolApprovalOutcome(
+  approvalId: string,
+  decision: 'approved' | 'rejected',
+  decidedBy: string
+): Promise<RunToolApprovalDecisionOutcome | null> {
   const status = decision === 'approved' ? 'approved' : 'rejected';
-  const result = await db.query<RunToolApprovalRow>(
-    `WITH updated AS (
+  const result = await db.query<RunToolApprovalRow & { transitioned: boolean }>(
+    `WITH transitioned AS (
        UPDATE run_tool_approvals
        SET status = CASE
              WHEN status = 'pending' AND expires_at <= NOW() THEN 'expired'
-             WHEN status = 'pending' THEN $2
-             ELSE status
+             ELSE $2
            END,
            decision = CASE
-             WHEN status = 'pending' AND expires_at > NOW() THEN $3
+             WHEN expires_at > NOW() THEN $3
              ELSE decision
            END,
            decided_by = CASE
-             WHEN status = 'pending' AND expires_at > NOW() THEN $4
+             WHEN expires_at > NOW() THEN $4
              ELSE decided_by
            END,
            decided_at = CASE
-             WHEN status = 'pending' AND expires_at > NOW() THEN NOW()
+             WHEN expires_at > NOW() THEN NOW()
              ELSE decided_at
            END
-       WHERE id = $1
-       RETURNING *
+       WHERE id = $1 AND status = 'pending'
+       RETURNING *, TRUE AS transitioned
+     ), selected AS (
+       SELECT * FROM transitioned
+       UNION ALL
+       SELECT existing.*, FALSE AS transitioned
+       FROM run_tool_approvals existing
+       WHERE existing.id = $1
+         AND NOT EXISTS (SELECT 1 FROM transitioned)
      )
      SELECT a.*, t.target_type
-     FROM updated a
+     FROM selected a
      JOIN targets t ON t.id = a.target_id`,
     [approvalId, status, decision, decidedBy]
   );
   if (!result.rowCount) return null;
-  return mapRunToolApproval(result.rows[0]);
+  return {
+    approval: mapRunToolApproval(result.rows[0]),
+    transitioned: result.rows[0].transitioned
+  };
 }
 
 export async function expireRunToolApproval(approvalId: string): Promise<RunToolApproval | null> {

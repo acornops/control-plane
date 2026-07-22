@@ -9,6 +9,7 @@ import { AuthenticatedRequest } from '../auth/middleware.js';
 import {
   assertExternalIntegrationWorkspaceCapabilities,
   getWorkspacePermissions,
+  WORKSPACE_CAPABILITIES,
   type WorkspaceCapability
 } from '../auth/authorization.js';
 import { config, type ExternalIntegrationClientDescriptor } from '../config.js';
@@ -36,7 +37,7 @@ const externalIntegrationLinkTokenSchema = z.object({
 
 const externalIntegrationWorkspaceGrantSchema = z.object({
   workspaceId: z.string().trim().min(1).max(128),
-  capabilities: z.array(z.string().trim().min(1)).max(20)
+  capabilities: z.array(z.string().trim().min(1)).max(WORKSPACE_CAPABILITIES.length)
 }).strict();
 
 const externalIntegrationLinkCompletionSchema = z.object({
@@ -306,27 +307,13 @@ export async function completeExternalIntegrationLinkRequest(req: AuthenticatedR
       });
       return;
     }
-    const link = await completeExternalIntegrationLink(parsed.data.token, user);
-    if (!link) {
+    const linkWithGrants = await completeExternalIntegrationLink(parsed.data.token, user, workspaceGrants);
+    if (!linkWithGrants) {
       res.status(410).json({
         error: { code: 'EXTERNAL_INTEGRATION_LINK_EXPIRED', message: 'External integration link token is expired or unavailable', retryable: false }
       });
       return;
     }
-    const grants = await repo.replaceExternalIntegrationWorkspaceGrants({
-      linkId: link.id,
-      grantedByUserId: user.id,
-      grants: workspaceGrants
-    });
-    const linkWithGrants = { ...link, grants };
-    await recordExternalIntegrationAudit({
-      userId: user.id,
-      actorType: 'user',
-      actorUserId: user.id,
-      eventType: 'external_integration.link.completed.v1',
-      summary: 'External integration account link completed',
-      link: linkWithGrants
-    });
     res.status(200).json({ status: 'linked', link: linkWithGrants });
   } catch (err) {
     next(err);

@@ -11,6 +11,7 @@ import {
   mapWebhookHistory,
   mapWebhookSubscription
 } from './repository-webhook-mappers.js';
+import { insertWorkspaceAuditEvent } from './repository-audit-events.js';
 import { withTransaction } from './repository-transaction.js';
 
 export interface ExternalRouteWebhookSubscription extends WebhookSubscription {
@@ -111,6 +112,7 @@ export async function connectExternalWebhookRoute(input: {
     externalUserId: string;
     acornopsUserId: string;
     deliveryUrl: string;
+    deliveryUrlHash: string;
     allowedRoleKeys: string[];
     rotations: Array<{
       workspaceId: string;
@@ -170,6 +172,26 @@ export async function connectExternalWebhookRoute(input: {
           throw new Error(`Webhook subscription ${rotation.webhookId} disappeared during secret rotation`);
         }
         rotated.push(mapWebhookSubscription(result.rows[0] as WebhookSubscriptionRow));
+        await insertWorkspaceAuditEvent({
+          workspaceId: eligibleSubscription.workspaceId,
+          category: 'workspace',
+          eventType: 'webhook.route.connected.v1',
+          operation: 'write',
+          actorType: 'external_integration',
+          actorUserId: input.acornopsUserId,
+          actorTokenId: input.integrationClientId,
+          objectType: 'webhook_subscription',
+          objectId: eligibleSubscription.id,
+          objectName: eligibleSubscription.name,
+          summary: 'Webhook signing secret rotated by external route connect',
+          metadata: {
+            integrationClientId: input.integrationClientId,
+            provider: input.provider,
+            externalUserId: input.externalUserId,
+            deliveryUrlHash: input.deliveryUrlHash,
+            webhookId: eligibleSubscription.id
+          }
+        }, client);
       }
       const connectionResult = await client.query(
         `INSERT INTO external_webhook_route_connections (

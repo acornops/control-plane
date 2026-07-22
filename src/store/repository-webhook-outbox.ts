@@ -253,6 +253,7 @@ export async function claimWebhookDeliveryJobs(
 
 export async function getWebhookQueueMetrics(): Promise<{
   pending: number;
+  processing: number;
   retrying: number;
   paused: number;
   oldestAgeSeconds: number;
@@ -260,6 +261,7 @@ export async function getWebhookQueueMetrics(): Promise<{
   const result = await db.query(
     `SELECT
        COUNT(*) FILTER (WHERE status = 'pending')::text AS pending,
+       COUNT(*) FILTER (WHERE status = 'processing')::text AS processing,
        COUNT(*) FILTER (WHERE status = 'retrying')::text AS retrying,
        COUNT(*) FILTER (WHERE status = 'paused')::text AS paused,
        COALESCE(EXTRACT(EPOCH FROM NOW() - MIN(created_at)), 0)::text AS oldest_age_seconds
@@ -269,6 +271,7 @@ export async function getWebhookQueueMetrics(): Promise<{
   const row = result.rows[0] || {};
   return {
     pending: Number(row.pending || 0),
+    processing: Number(row.processing || 0),
     retrying: Number(row.retrying || 0),
     paused: Number(row.paused || 0),
     oldestAgeSeconds: Math.max(0, Number(row.oldest_age_seconds || 0))
@@ -337,8 +340,8 @@ export async function finishWebhookDeliveryJob(input: {
   durationMs?: number;
   nextAttemptAt?: string;
   terminalReason?: string;
-}): Promise<void> {
-  await withTransaction(async (client) => {
+}): Promise<boolean> {
+  return withTransaction(async (client) => {
     const updated = await client.query(
       `UPDATE webhook_delivery_jobs
        SET status = $2,
@@ -366,8 +369,8 @@ export async function finishWebhookDeliveryJob(input: {
         input.job.leaseOwner
       ]
     );
-    if (!updated.rowCount) return;
-    if (!input.historyStatus) return;
+    if (!updated.rowCount) return false;
+    if (!input.historyStatus) return true;
     const shouldPersistHistory = input.job.eventType !== 'workspace.deleted.v1';
     if (shouldPersistHistory) {
       await client.query(
@@ -411,6 +414,7 @@ export async function finishWebhookDeliveryJob(input: {
         [input.job.eventId]
       );
     }
+    return true;
   });
 }
 

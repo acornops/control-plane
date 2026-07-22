@@ -28,6 +28,7 @@ import type { WorkflowDefinitionForAccess } from '../types/workflows.js';
 import { toSingleParam } from '../utils/params.js';
 import { mapGatewayError } from './workspaces/common.js';
 import { publicCompiledWorkflowScope, publicWorkflowDefinition, respondWorkflowAccessError } from './workflow-public.js';
+import { publicWorkflowExecutionEvent } from './external-run-public.js';
 
 const WORKFLOW_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
 
@@ -141,8 +142,9 @@ export async function getWorkflowExecution(req: AuthenticatedRequest, res: Respo
   } catch (err) { next(err); }
 }
 
-function writeExecutionEvent(res: Response, event: WorkflowExecutionStreamEvent): void {
-  res.write(`event: workflow_execution\nid: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`);
+function writeExecutionEvent(res: Response, event: WorkflowExecutionStreamEvent, publicExternalStream: boolean): void {
+  const output = publicExternalStream ? publicWorkflowExecutionEvent(event) : event;
+  res.write(`event: workflow_execution\nid: ${output.id}\ndata: ${JSON.stringify(output)}\n\n`);
 }
 
 function resumeCursor(req: AuthenticatedRequest): number {
@@ -161,6 +163,7 @@ export async function streamWorkflowExecution(req: AuthenticatedRequest, res: Re
       return;
     }
     if (!(await requireWorkspaceDataRead(req, res, record.workspaceId, 'No access to workflow execution'))) return;
+    const publicExternalStream = req.auth.credential.type === 'external_integration';
 
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -181,7 +184,7 @@ export async function streamWorkflowExecution(req: AuthenticatedRequest, res: Re
       }
       if (Number(event.id) <= lastEventId) return;
       lastEventId = Number(event.id);
-      writeExecutionEvent(res, event);
+      writeExecutionEvent(res, event, publicExternalStream);
     };
     runtime.workflowExecutionStreams.on(`workflow-execution:${id}`, listener);
 
@@ -190,13 +193,13 @@ export async function streamWorkflowExecution(req: AuthenticatedRequest, res: Re
       if (replay.length > 0) incrementWorkflowExecutionStream('replayed', replay.length);
       for (const event of replay) {
         lastEventId = Math.max(lastEventId, Number(event.id));
-        writeExecutionEvent(res, event);
+        writeExecutionEvent(res, event, publicExternalStream);
       }
       replaying = false;
       for (const event of buffered.sort((left, right) => Number(left.id) - Number(right.id))) {
         if (Number(event.id) <= lastEventId) continue;
         lastEventId = Number(event.id);
-        writeExecutionEvent(res, event);
+        writeExecutionEvent(res, event, publicExternalStream);
       }
     } catch (err) {
       runtime.workflowExecutionStreams.off(`workflow-execution:${id}`, listener);

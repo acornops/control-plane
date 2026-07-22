@@ -6,8 +6,11 @@ import type { RunEvent, RunStatus, ToolApprovalStatus } from '../types/domain.js
 import type { CompiledWorkflowAccessScope, WorkflowDefinitionForAccess } from '../types/workflows.js';
 import type { PromptResourceBinding } from '../types/prompt-resources.js';
 import { digestBindings, digestPrompt } from '../services/prompt-resources/index.js';
+import { decideWorkflowApprovalRow } from './repository-approval-decisions.js';
 import { withTransaction } from './repository-transaction.js';
 import type { RunRequestProvenance } from './repository-run-provenance.js';
+import type { WorkflowExecutionStreamEvent } from './repository-workflow-execution-events.js';
+import { insertInitialWorkflowExecutionEvents } from './repository-workflow-initial-events.js';
 
 export interface WorkflowSessionRecord {
   id: string;
@@ -233,18 +236,22 @@ export async function createWorkflowUserMessage(params: {
   return mapMessage(result.rows[0]);
 }
 
-async function insertApprovals(client: PoolClient, run: WorkflowRunRecord, approvalGates: string[]): Promise<void> {
+async function insertApprovals(client: PoolClient, run: WorkflowRunRecord, approvalGates: string[]): Promise<WorkflowApprovalRecord[]> {
+  const approvals: WorkflowApprovalRecord[] = [];
   for (const [index, gate] of approvalGates.entries()) {
-    await client.query(
+    const result = await client.query<Row>(
       `INSERT INTO workflow_approvals (
          id,run_id,workspace_id,workflow_id,workflow_run_id,workflow_session_id,
          tool_call_id,tool_name,summary,arguments,status,execution_status,requested_by,expires_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,'workflow.approval_gate',$8,$9,'pending','not_started',$10,NOW()+INTERVAL '15 minutes')`,
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,'workflow.approval_gate',$8,$9,'pending','not_started',$10,NOW()+INTERVAL '15 minutes')
+       RETURNING *`,
       [randomUUID(), run.id, run.workspaceId, run.workflowId, run.workflowRunId, run.workflowSessionId,
        `workflow-gate-${index + 1}`, gate,
        { executionId: run.executionId, workflowId: run.workflowId }, run.createdBy]
     );
+    approvals.push(mapApproval(result.rows[0]));
   }
+  return approvals;
 }
 
 export async function createWorkflowRun(params: {
@@ -329,7 +336,12 @@ export async function createWorkflowExecution(params: {
   llmModel?: string;
   llmReasoningSummaryMode?: WorkflowRunRecord['llmReasoningSummaryMode'];
   llmReasoningEffort?: WorkflowRunRecord['llmReasoningEffort'];
-}): Promise<{ execution: WorkflowExecutionRecord; message: WorkflowMessageRecord; run: WorkflowRunRecord }> {
+}): Promise<{
+  execution: WorkflowExecutionRecord;
+  message: WorkflowMessageRecord;
+  run: WorkflowRunRecord;
+  initialEvents: WorkflowExecutionStreamEvent[];
+}> {
   return withTransaction(async (client) => {
     const compiledAccessScope = params.compiledAccessScope || params.session.compiledAccessScope;
     const provenance = params.requestProvenance || { actorType: 'user' };
@@ -377,7 +389,7 @@ export async function createWorkflowExecution(params: {
     );
     const run = mapRun(runResult.rows[0], []);
     await client.query('UPDATE workflow_messages SET run_id=$1 WHERE id=$2', [runId, messageId]);
-    await insertApprovals(client, run, approvalGates);
+    const approvals = await insertApprovals(client, run, approvalGates);
     await client.query(
       `INSERT INTO automation_dispatch_outbox (id,workspace_id,source_type,source_id,run_id,idempotency_key,payload)
        VALUES ($1,$2,'workflow',$3,$4,$5,$6)`,
@@ -386,6 +398,19 @@ export async function createWorkflowExecution(params: {
     );
     const executionResult = await client.query<Row>('SELECT * FROM workflow_executions WHERE id=$1', [executionId]);
     const row = executionResult.rows[0];
+    const initialEvents = await insertInitialWorkflowExecutionEvents(client, {
+      execution: {
+        id: executionId,
+        workspaceId: run.workspaceId,
+        workflowId: params.workflow.id,
+        workflowSessionId: params.session.id,
+        workflowVersion: params.workflow.version,
+        status: row.status,
+        triggerType: params.triggerType || 'manual'
+      },
+      run,
+      approvals
+    });
     return {
       execution: {
         id: row.id, workspaceId: row.workspace_id, workflowId: row.workflow_id,
@@ -403,7 +428,7 @@ export async function createWorkflowExecution(params: {
         resourceBindings: row.resource_bindings || [], resolvedAt: iso(row.resolved_at) || iso(row.created_at)!,
         createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)!
       },
-      message: mapMessage(messageResult.rows[0]), run
+      message: mapMessage(messageResult.rows[0]), run, initialEvents
     };
   });
 }
@@ -444,16 +469,24 @@ export async function getWorkflowRunApproval(approvalId: string): Promise<Workfl
 }
 
 export async function decideWorkflowRunApproval(approvalId: string, decision: 'approved'|'rejected', decidedBy: string): Promise<WorkflowApprovalRecord | null> {
-  const result = await db.query<Row>(
-    `UPDATE workflow_approvals SET
-       status=CASE WHEN expires_at<=NOW() THEN 'expired' ELSE $2 END,
-       decision=CASE WHEN expires_at<=NOW() THEN decision ELSE $2 END,
-       decided_by=CASE WHEN expires_at<=NOW() THEN decided_by ELSE $3 END,
-       decided_at=CASE WHEN expires_at<=NOW() THEN decided_at ELSE NOW() END
-     WHERE id=$1 AND status='pending' RETURNING *`, [approvalId, decision, decidedBy]
-  );
-  if (result.rowCount) return mapApproval(result.rows[0]);
-  return getWorkflowRunApproval(approvalId);
+  return (await decideWorkflowRunApprovalOutcome(approvalId, decision, decidedBy))?.approval || null;
+}
+
+export interface WorkflowApprovalDecisionOutcome {
+  approval: WorkflowApprovalRecord;
+  transitioned: boolean;
+}
+
+export async function decideWorkflowRunApprovalOutcome(
+  approvalId: string,
+  decision: 'approved'|'rejected',
+  decidedBy: string
+): Promise<WorkflowApprovalDecisionOutcome | null> {
+  const outcome = await decideWorkflowApprovalRow(approvalId, decision, decidedBy);
+  return outcome ? {
+    approval: mapApproval(outcome.row),
+    transitioned: outcome.transitioned
+  } : null;
 }
 
 export async function listWorkflowMessages(sessionId: string): Promise<WorkflowMessageRecord[]> {

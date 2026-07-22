@@ -191,6 +191,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         get: {
           tags: ['runs'],
           summary: 'Get run state',
+          description: 'Browser sessions receive the normal run detail. Linked external integrations receive a bounded projection; only the exact originating link and client receive the final assistant output and related usage metadata.',
           security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
             externalUserHeader,
@@ -370,6 +371,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         get: {
           tags: ['runs'],
           summary: 'Server-Sent Events stream for run events',
+          description: 'Browser sessions receive the normal run event stream. Linked external integrations receive sanitized lifecycle and approval metadata without prompts, reasoning, token deltas, raw tool arguments, or tool results.',
           security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
             externalUserHeader,
@@ -452,6 +454,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         get: {
           tags: ['runs'],
           summary: 'List run events replay',
+          description: 'Browser sessions receive the normal replay list. Linked external integrations receive sanitized lifecycle and approval metadata without prompts, reasoning, token deltas, raw tool arguments, or tool results.',
           security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
             externalUserHeader,

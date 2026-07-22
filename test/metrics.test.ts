@@ -133,7 +133,7 @@ describe('control-plane metrics', () => {
     incrementWebhookEventEnqueued('issue.created.v1');
     recordWebhookDeliveryAttempt('retrying', 125);
     incrementWebhookDeliveryTerminal('superseded');
-    setWebhookQueueMetrics({ pending: 3, retrying: 2, paused: 1, oldestAgeSeconds: 42 });
+    setWebhookQueueMetrics({ pending: 3, processing: 4, retrying: 2, paused: 1, oldestAgeSeconds: 42 });
 
     const payload = renderControlPlaneMetrics();
 
@@ -144,6 +144,7 @@ describe('control-plane metrics', () => {
     assert.match(payload, /control_plane_webhook_delivery_duration_ms_count\{[^}]*outcome="retrying"[^}]*\} 1/);
     assert.match(payload, /control_plane_webhook_delivery_terminal_total\{[^}]*status="superseded"[^}]*\} 1/);
     assert.match(payload, /control_plane_webhook_jobs\{[^}]*status="paused"[^}]*\} 1/);
+    assert.match(payload, /control_plane_webhook_jobs\{[^}]*status="processing"[^}]*\} 4/);
     assert.doesNotMatch(payload, /control_plane_webhook_[^\n]*\{[^}]*(?:workspace|subscription|event)_id=/);
   });
 

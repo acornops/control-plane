@@ -7,7 +7,7 @@ import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
 import { WorkflowAccessDeniedError } from '../services/workflow-access.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
-import { recordWorkflowExecutionStarted } from '../services/workflow-execution-events.js';
+import { emitWorkflowExecutionEvents } from '../services/workflow-execution-events.js';
 import { promptResourceRegistry, PromptResourceProviderError } from '../services/prompt-resources/index.js';
 import {
   getWorkflowCapabilityReadinessReport,
@@ -401,7 +401,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       llmReasoningSummaryMode: llmSettings.reasoning.summary_mode,
       llmReasoningEffort: llmSettings.reasoning.effort
     });
-    await recordWorkflowExecutionStarted(created.execution, created.run);
+    emitWorkflowExecutionEvents(created.execution.id, created.initialEvents);
     await recordWorkspaceAuditEvent({
       workspaceId: session.workspaceId,
       category: 'run',

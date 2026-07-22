@@ -66,13 +66,14 @@ Central tracking: acornops/acornops#12.
   into a focused test suite to preserve the repository harness budget without
   weakening the original normalized-row regressions.
 - 2026-07-22, Wave 2: Ported external workflow execution onto current Workflow
-  V2 instead of restoring the older step/policy model. Linked external actors
-  can list, inspect, create sessions for, and message only active read-only
-  definitions with no approval requirements and with effective grants for
-  workspace reads, session creation, read-only runs, and every workflow-required
-  permission. Session messages retain the current typed prompt-reference,
-  catalog-readiness, exact target-tool narrowing, compiled-scope, and
-  user-owned session behavior.
+  V2 instead of restoring the older step/policy model. At this wave boundary,
+  linked external actors were limited to active ungated read-only definitions
+  with effective grants for workspace reads, session creation, read-only runs,
+  and every workflow-required permission. Wave 4 deliberately expanded that
+  same path to active read-write and approval-gated definitions behind the
+  three-layer `create_read_write_runs` opt-in. Session messages retain the
+  current typed prompt-reference, catalog-readiness, exact target-tool
+  narrowing, compiled-scope, and user-owned session behavior.
 - 2026-07-22, Wave 2: Kept webhook route connection as a linked-external-only
   boundary. Connections match only the linked AcornOps user's subscriptions at
   the exact canonical HTTPS delivery URL and only while that user's live role
@@ -124,6 +125,48 @@ Central tracking: acornops/acornops#12.
   capability routing, target-tool narrowing, report-artifact routes, and
   greenfield migration policy. Extracted focused approval-inbox and execution
   stream metric modules to stay within repository harness budgets.
+- 2026-07-23, production sweep: Made troubleshooting, automation, and Workflow
+  approval decisions compare-and-set transitions. Only the winning request now
+  emits decision audit, event, and metric side effects; identical retries remain
+  idempotent, while conflicting or expired decisions return explicit conflicts.
+- 2026-07-23, production sweep: Made external account-link completion atomic
+  across token consumption, link upsert, grant replacement, and account audit.
+  Link resolution now refreshes `lastAuthenticatedAt`, and PostgreSQL tests
+  cover commit and rollback behavior so a partial link cannot escape.
+- 2026-07-23, production sweep: Added explicit public projections for
+  external-integration run reads, events, nested Workflow events, and SSE.
+  Internal prompts, model/provider details, tool arguments, and unrelated
+  execution data no longer cross the bot credential boundary; exact-origin
+  output remains available where the bot needs it.
+- 2026-07-23, production sweep: Moved initial Workflow execution/run/approval
+  events into the execution transaction. Scheduler and controller publication
+  now happens only for committed events, closing a durability gap between the
+  persisted execution and its replayable aggregate stream.
+- 2026-07-23, production sweep: Hardened webhook delivery fencing and
+  observability. Terminal metrics require an accepted lease-owned completion,
+  queue metrics include processing jobs and refresh while disabled, leases
+  cover the configured same-origin batch, and secret rotation plus audit are a
+  single transaction using only a delivery URL hash in metadata.
+- 2026-07-23, production sweep: Reconciled stale report paths, public OpenAPI
+  descriptions, bot payload guidance, privacy guarantees, and per-replica
+  worker documentation. The bot oracle rule permitted one independently proven
+  bot defect to be fixed in its own repository: strict Workflow message bodies
+  accept only `content` and `clientRequestId`; launch inputs, grants, and target
+  bindings stay fixed at session creation.
+- 2026-07-23, production sweep: Replaced the OIDC logout test's module-load-time
+  60-second session with a fresh fixture per case. The enlarged suite had made
+  that otherwise unrelated test expire before execution; production logout
+  behavior was unchanged.
+- 2026-07-23, production sweep: Cleared the production dependency audit by
+  updating the resolved `body-parser` and `ws` releases and moving Nodemailer
+  to its patched 9.x release. The mailer uses the same bounded, application-
+  generated message shape; the complete validation covers type and build
+  compatibility after the major dependency update.
+- 2026-07-23, production sweep: Kept every existing repository module within
+  its harness budget by extracting approval compare-and-set queries, initial
+  Workflow stream-event persistence, and link-completion audit construction
+  into focused helpers. This preserves the new transactional behavior without
+  concentrating unrelated responsibilities in the aggregate repositories.
 
 ## Validation Log
 
@@ -157,6 +200,14 @@ Central tracking: acornops/acornops#12.
   preservation of the richer browser execution response. The full suite,
   authorization, membership, run-event durability, contracts, public/admin
   OpenAPI coverage, harness, and production build passed before integration.
+- Production sweep: the current greenfield schema applied to a freshly created
+  isolated PostgreSQL database, and static plus SQL introspection checks passed.
+  Focused approval, link-transaction, scheduler, and Workflow suites passed all
+  37 tests after the repository helper extraction. Final `npm run validate`
+  passed all 834 tests across 163 suites, TypeScript, style, authorization,
+  membership, run-event durability, contracts, public OpenAPI (158 paths / 169
+  schemas), admin OpenAPI (24 paths / 24 schemas), harness, and the production
+  build. `npm audit --audit-level=high` reported zero vulnerabilities.
 - Each wave: run focused external-integration tests, authentication/authorization
   regressions, webhook tests where applicable, migration checks, contract and
   OpenAPI checks, then the complete repository validation.

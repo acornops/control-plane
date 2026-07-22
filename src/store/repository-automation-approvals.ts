@@ -3,6 +3,7 @@ import type { PoolClient, QueryResultRow } from 'pg';
 import { db } from '../infra/db.js';
 import { canonicalJsonSha256 } from '../services/canonical-json.js';
 import type { ApprovalReceiptClaims } from '../services/token-service.js';
+import { decideAutomationApprovalRow } from './repository-approval-decisions.js';
 import { insertWorkspaceAuditEvent } from './repository-audit-events.js';
 import { withTransaction } from './repository-transaction.js';
 
@@ -299,18 +300,24 @@ export async function decideAutomationRunApproval(
   decision: 'approved' | 'rejected',
   decidedBy: string
 ): Promise<AutomationRunApproval | null> {
-  const status = decision === 'approved' ? 'approved' : 'rejected';
-  const result = await db.query<QueryResultRow>(
-    `UPDATE automation_run_approvals SET
-       status=CASE WHEN status='pending' AND expires_at<=NOW() THEN 'expired'
-                   WHEN status='pending' THEN $2 ELSE status END,
-       decision=CASE WHEN status='pending' AND expires_at>NOW() THEN $3 ELSE decision END,
-       decided_by=CASE WHEN status='pending' AND expires_at>NOW() THEN $4 ELSE decided_by END,
-       decided_at=CASE WHEN status='pending' AND expires_at>NOW() THEN NOW() ELSE decided_at END
-     WHERE id=$1 RETURNING *`,
-    [approvalId, status, decision, decidedBy]
-  );
-  return result.rowCount ? mapApproval(result.rows[0]) : null;
+  return (await decideAutomationRunApprovalOutcome(approvalId, decision, decidedBy))?.approval || null;
+}
+
+export interface AutomationApprovalDecisionOutcome {
+  approval: AutomationRunApproval;
+  transitioned: boolean;
+}
+
+export async function decideAutomationRunApprovalOutcome(
+  approvalId: string,
+  decision: 'approved' | 'rejected',
+  decidedBy: string
+): Promise<AutomationApprovalDecisionOutcome | null> {
+  const outcome = await decideAutomationApprovalRow(approvalId, decision, decidedBy);
+  return outcome ? {
+    approval: mapApproval(outcome.row),
+    transitioned: outcome.transitioned
+  } : null;
 }
 
 export async function applyAutomationApprovalOutcome(approval: AutomationRunApproval): Promise<void> {

@@ -419,8 +419,8 @@ fail closed.
 Report metadata and downloads are also exact-origin:
 
 ```http
-GET {ACORNOPS_API_BASE_URL}/api/v1/workflow-reports/{reportId}
-GET {ACORNOPS_API_BASE_URL}/api/v1/workflow-reports/{reportId}/download
+GET {ACORNOPS_API_BASE_URL}/api/v1/report-artifacts/{reportId}
+GET {ACORNOPS_API_BASE_URL}/api/v1/report-artifacts/{reportId}/download
 ```
 
 The metadata response omits report source and provenance.
@@ -850,6 +850,13 @@ Get run state:
 GET {ACORNOPS_API_BASE_URL}/api/v1/runs/{runId}
 ```
 
+Linked integrations receive a bounded public run view. The exact originating
+link/client may receive the final assistant output needed by its adapter;
+other linked integrations with workspace read access receive status and safe
+metadata only. Prompts, compiled scopes, snapshots, resource bindings,
+idempotency keys, raw tool results, reasoning, token deltas, and integration
+provenance are never returned on this external surface.
+
 Representative run:
 
 ```json
@@ -883,6 +890,11 @@ GET {ACORNOPS_API_BASE_URL}/api/v1/runs/{runId}/stream
 Accept: text/event-stream
 ```
 
+External event lists and streams keep lifecycle and approval metadata but
+strip prompt, reasoning, assistant-token, tool-argument, and tool-result
+payloads. Use the aggregate Workflow execution stream for multi-attempt
+Workflow discovery.
+
 The SSE stream emits events as:
 
 ```text
@@ -892,7 +904,8 @@ data: {"run_id":"run-id","seq":1,"type":"run_started","payload":{}}
 
 When a write-capable tool pauses for approval, the stream emits
 `tool_approval_requested` with `payload.approval_id`, `payload.tool`,
-`payload.summary`, `payload.arguments`, and `payload.expires_at`. Adapters may
+`payload.summary`, and `payload.expires_at`. Raw tool arguments are deliberately
+excluded from the external event surface. Adapters may
 render that state and ask the linked external user to approve or reject in the
 integration. The same linked integration may submit that explicit decision only
 when it requested the individual troubleshooting run and still has effective
@@ -1042,8 +1055,8 @@ One possible integration sequence is:
 1. Resolve link status for the external user.
 2. If unlinked, create a link URL and ask the user to complete browser linking.
 3. List workspaces and ask the user to choose when needed.
-4. Use workspace, target, cluster, VM, resource, finding, and investigation
-   reads to gather context.
+4. Use workspace, target, resource, and workspace-wide issue reads to gather
+   context. Cluster- and VM-specific routes remain compatibility surfaces.
 5. For assistant interactions, create a target session if one does not already
    exist for the conversation context.
 6. Post messages with `toolAccessMode: "read_only"` and a stable
