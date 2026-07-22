@@ -972,6 +972,16 @@ CREATE TABLE webhook_subscriptions (
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
+CREATE TABLE external_webhook_route_connections (
+    external_integration_user_link_id text NOT NULL,
+    integration_client_id text NOT NULL,
+    provider text NOT NULL,
+    external_user_id text NOT NULL,
+    delivery_url text NOT NULL,
+    connected_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_synced_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
 CREATE TABLE workflow_approvals (
     id text NOT NULL,
     run_id text NOT NULL,
@@ -1445,6 +1455,9 @@ ALTER TABLE ONLY external_integration_workspace_grants
 ALTER TABLE ONLY external_integration_workspace_grants
     ADD CONSTRAINT external_integration_workspace_grants_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY external_webhook_route_connections
+    ADD CONSTRAINT external_webhook_route_connections_pkey PRIMARY KEY (external_integration_user_link_id, delivery_url);
+
 ALTER TABLE ONLY kubernetes_target_settings
     ADD CONSTRAINT kubernetes_target_settings_pkey PRIMARY KEY (target_id);
 
@@ -1719,6 +1732,8 @@ CREATE INDEX idx_external_integration_workspace_grants_link ON external_integrat
 
 CREATE INDEX idx_external_integration_workspace_grants_workspace ON external_integration_workspace_grants USING btree (workspace_id);
 
+CREATE INDEX idx_external_webhook_route_connections_identity ON external_webhook_route_connections USING btree (external_integration_user_link_id, integration_client_id, provider, external_user_id);
+
 CREATE INDEX idx_inventory_items_search_trgm ON target_inventory_items USING gin (search_text gin_trgm_ops);
 
 CREATE INDEX idx_inventory_items_target_attention_sort ON target_inventory_items USING btree (target_id, needs_attention, sort_key);
@@ -1840,6 +1855,8 @@ CREATE INDEX idx_webhook_history_subscription_sent_at ON webhook_history USING b
 CREATE INDEX idx_webhook_history_workspace_sent_at ON webhook_history USING btree (workspace_id, sent_at DESC);
 
 CREATE INDEX idx_webhook_subscriptions_workspace_enabled ON webhook_subscriptions USING btree (workspace_id, enabled);
+
+CREATE INDEX idx_webhook_subscriptions_created_by_url ON webhook_subscriptions USING btree (created_by, url);
 
 CREATE INDEX idx_webhook_subscriptions_workspace_target ON webhook_subscriptions USING btree (workspace_id, target_id);
 
@@ -1979,6 +1996,9 @@ ALTER TABLE ONLY external_integration_workspace_grants
 
 ALTER TABLE ONLY external_integration_workspace_grants
     ADD CONSTRAINT external_integration_workspace_grants_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY external_webhook_route_connections
+    ADD CONSTRAINT external_webhook_route_connections_link_id_fkey FOREIGN KEY (external_integration_user_link_id) REFERENCES external_integration_user_links(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY chat_activity_events
     ADD CONSTRAINT fk_chat_activity_events_workspace_target FOREIGN KEY (workspace_id, target_id) REFERENCES targets(workspace_id, id) ON DELETE CASCADE;

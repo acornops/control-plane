@@ -1,13 +1,34 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../infra/db.js';
-import { WebhookHistory, WebhookHistoryStatus, WebhookSubscription } from '../types/domain.js';
+import type { ExternalWebhookRouteConnection } from '../types/external-webhooks.js';
+import { Role, WebhookHistory, WebhookHistoryStatus, WebhookSubscription } from '../types/domain.js';
 import {
+  ExternalWebhookRouteConnectionRow,
   WebhookHistoryRow,
   WebhookSubscriptionRow,
+  mapExternalWebhookRouteConnection,
   mapWebhookHistory,
   mapWebhookSubscription
 } from './repository-webhook-mappers.js';
 import { withTransaction } from './repository-transaction.js';
+
+export interface ExternalRouteWebhookSubscription extends WebhookSubscription {
+  workspaceName: string;
+  workspaceRole: Role;
+}
+
+interface ExternalRouteWebhookSubscriptionRow extends WebhookSubscriptionRow {
+  workspace_name: string;
+  workspace_role: Role;
+}
+
+function mapExternalRouteWebhookSubscription(row: ExternalRouteWebhookSubscriptionRow): ExternalRouteWebhookSubscription {
+  return {
+    ...mapWebhookSubscription(row),
+    workspaceName: row.workspace_name || row.workspace_id,
+    workspaceRole: row.workspace_role
+  };
+}
 
 export async function createWebhookSubscription(input: {
     workspaceId: string;
@@ -41,6 +62,162 @@ export async function createWebhookSubscription(input: {
       ]
     );
     return mapWebhookSubscription(result.rows[0] as WebhookSubscriptionRow);
+}
+
+export async function listWebhookSubscriptionsForExternalRoute(input: {
+    acornopsUserId: string;
+    deliveryUrl: string;
+  }): Promise<ExternalRouteWebhookSubscription[]> {
+    const result = await db.query(
+      `SELECT
+         s.*,
+         w.name AS workspace_name,
+         m.role AS workspace_role
+       FROM webhook_subscriptions s
+       JOIN workspaces w ON w.id = s.workspace_id
+       JOIN workspace_memberships m
+         ON m.workspace_id = s.workspace_id
+        AND m.user_id = $1
+       WHERE s.created_by = $1
+         AND s.url = $2
+       ORDER BY w.name ASC, s.created_at ASC, s.id ASC`,
+      [input.acornopsUserId, input.deliveryUrl]
+    );
+    return result.rows.map((row) => mapExternalRouteWebhookSubscription(row as ExternalRouteWebhookSubscriptionRow));
+  }
+
+export async function connectExternalWebhookRoute(input: {
+    externalIntegrationUserLinkId: string;
+    integrationClientId: string;
+    provider: string;
+    externalUserId: string;
+    acornopsUserId: string;
+    deliveryUrl: string;
+    allowedRoleKeys: string[];
+    rotations: Array<{
+      workspaceId: string;
+      webhookId: string;
+      secretCiphertext: string;
+      secretKeyId: string;
+    }>;
+  }): Promise<{
+    connection: ExternalWebhookRouteConnection;
+    subscriptions: ExternalRouteWebhookSubscription[];
+  }> {
+    return withTransaction(async (client) => {
+      const webhookIds = input.rotations.map((rotation) => rotation.webhookId);
+      const eligible = await client.query(
+        `SELECT
+           s.*,
+           w.name AS workspace_name,
+           m.role AS workspace_role
+         FROM webhook_subscriptions s
+         JOIN workspaces w ON w.id = s.workspace_id
+         JOIN workspace_memberships m
+           ON m.workspace_id = s.workspace_id
+          AND m.user_id = $1
+         WHERE s.created_by = $1
+           AND s.url = $2
+           AND m.role = ANY($3::text[])
+           AND s.id = ANY($4::text[])
+         ORDER BY w.name ASC, s.created_at ASC, s.id ASC
+         FOR UPDATE OF s, m`,
+        [input.acornopsUserId, input.deliveryUrl, input.allowedRoleKeys, webhookIds]
+      );
+      if (eligible.rows.length !== input.rotations.length) {
+        throw new Error('Webhook route authorization changed during secret rotation');
+      }
+      const eligibleById = new Map(
+        eligible.rows.map((row) => [
+          String(row.id),
+          mapExternalRouteWebhookSubscription(row as ExternalRouteWebhookSubscriptionRow)
+        ])
+      );
+      const rotated: WebhookSubscription[] = [];
+      for (const rotation of input.rotations) {
+        const eligibleSubscription = eligibleById.get(rotation.webhookId);
+        if (!eligibleSubscription || eligibleSubscription.workspaceId !== rotation.workspaceId) {
+          throw new Error('Webhook route authorization changed during secret rotation');
+        }
+        const result = await client.query(
+          `UPDATE webhook_subscriptions
+           SET secret_ciphertext = $3,
+               secret_key_id = $4,
+               updated_at = NOW()
+           WHERE workspace_id = $1 AND id = $2
+           RETURNING *`,
+          [rotation.workspaceId, rotation.webhookId, rotation.secretCiphertext, rotation.secretKeyId]
+        );
+        if (!result.rowCount) {
+          throw new Error(`Webhook subscription ${rotation.webhookId} disappeared during secret rotation`);
+        }
+        rotated.push(mapWebhookSubscription(result.rows[0] as WebhookSubscriptionRow));
+      }
+      const connectionResult = await client.query(
+        `INSERT INTO external_webhook_route_connections (
+           external_integration_user_link_id, integration_client_id, provider, external_user_id,
+           delivery_url, connected_at, last_synced_at
+         ) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+         ON CONFLICT (external_integration_user_link_id, delivery_url)
+         DO UPDATE SET
+           integration_client_id = EXCLUDED.integration_client_id,
+           provider = EXCLUDED.provider,
+           external_user_id = EXCLUDED.external_user_id,
+           connected_at = NOW(),
+           last_synced_at = NOW()
+         RETURNING *`,
+        [
+          input.externalIntegrationUserLinkId,
+          input.integrationClientId,
+          input.provider,
+          input.externalUserId,
+          input.deliveryUrl
+        ]
+      );
+      const subscriptions = rotated.map((subscription) => {
+        const eligibleSubscription = eligibleById.get(subscription.id)!;
+        return {
+          ...eligibleSubscription,
+          ...subscription,
+          workspaceName: eligibleSubscription.workspaceName,
+          workspaceRole: eligibleSubscription.workspaceRole
+        };
+      });
+      return {
+        connection: mapExternalWebhookRouteConnection(
+          connectionResult.rows[0] as ExternalWebhookRouteConnectionRow
+        ),
+        subscriptions
+      };
+    });
+  }
+
+export async function touchExternalWebhookRouteConnection(input: {
+    externalIntegrationUserLinkId: string;
+    integrationClientId: string;
+    provider: string;
+    externalUserId: string;
+    deliveryUrl: string;
+  }): Promise<ExternalWebhookRouteConnection | null> {
+    const result = await db.query(
+      `UPDATE external_webhook_route_connections
+       SET last_synced_at = NOW()
+       WHERE external_integration_user_link_id = $1
+         AND integration_client_id = $2
+         AND provider = $3
+         AND external_user_id = $4
+         AND delivery_url = $5
+       RETURNING *`,
+      [
+        input.externalIntegrationUserLinkId,
+        input.integrationClientId,
+        input.provider,
+        input.externalUserId,
+        input.deliveryUrl
+      ]
+    );
+    if (!result.rowCount) return null;
+    return mapExternalWebhookRouteConnection(result.rows[0] as ExternalWebhookRouteConnectionRow);
   }
 
 export async function listWebhookSubscriptions(workspaceId: string): Promise<WebhookSubscription[]> {

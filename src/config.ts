@@ -284,7 +284,6 @@ const envSchema = z.object({
   GATEWAY_SIGNING_PRIVATE_KEY_PEM: optionalStringFromEnv,
   GATEWAY_SIGNING_PRIVATE_KEY_PEM_B64: optionalStringFromEnv,
   GATEWAY_VERIFICATION_JWKS_JSON: optionalStringFromEnv,
-
   WEBHOOK_DELIVERY_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
   WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON: z.string().default('[]'),
   WEBHOOK_HISTORY_RETENTION_DAYS: z.coerce.number().int().positive().default(30),

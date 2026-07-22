@@ -35,7 +35,7 @@ export const webhookEventTypes = [
 
 export const webhookEventTypeSchema = z.enum(webhookEventTypes);
 
-const webhookUrlSchema = z.string().url().refine(
+export const webhookUrlSchema = z.string().url().refine(
   (value) => {
     const url = new URL(value);
     return url.protocol === 'https:' && !url.username && !url.password;

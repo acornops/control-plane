@@ -243,7 +243,7 @@ export type WorkspaceAuditOperation = 'read' | 'write';
 export type WorkspaceAuditLoggingMode = 'read_write' | 'write_only' | 'disabled';
 
 export interface WorkspaceAuditActor {
-  type: 'user' | 'system' | 'admin_token';
+  type: 'user' | 'system' | 'admin_token' | 'external_integration';
   userId?: string;
   tokenId?: string;
   email?: string;
@@ -276,7 +276,7 @@ export interface WorkspaceAuditEventInput {
   operation: WorkspaceAuditOperation;
   actorUserId?: string | null;
   actorTokenId?: string | null;
-  actorType?: 'user' | 'system' | 'admin_token';
+  actorType?: 'user' | 'system' | 'admin_token' | 'external_integration';
   objectType: string;
   objectId?: string | null;
   objectName?: string | null;

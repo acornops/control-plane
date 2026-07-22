@@ -62,7 +62,6 @@ describe('parseAppConfig production validation', () => {
     assert.equal(config.AGENT_WS_REQUIRE_SECURE_TRANSPORT, true);
     assert.equal(config.PASSWORD_AUTH_ENABLED, true);
   });
-
   it('accepts cluster-local OIDC issuer URLs when a public issuer is configured', () => {
     const config = parseAppConfig(productionEnv({
       OIDC_ISSUER_URL: 'http://acornops-keycloak.acornops-identity.svc.cluster.local/realms/acornops',
@@ -142,7 +141,6 @@ describe('parseAppConfig production validation', () => {
   it('keeps development defaults usable for local workflows', () => {
     const config = parseAppConfig({});
     const nullConfig = parseAppConfig({ WORKSPACE_ROLES_CONFIG_JSON: 'null' });
-
     assert.equal(config.NODE_ENV, 'development');
     assert.equal(config.ORCH_SERVICE_TOKEN, 'dev_orchestrator_token');
     assert.equal(config.EXTERNAL_INTEGRATION_CLIENTS[0].id, 'dev-client');

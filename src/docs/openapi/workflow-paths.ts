@@ -35,6 +35,14 @@ const workflowWorkspaceIdQueryParameter = {
   schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID }
 };
 
+const externalUserHeader = {
+  in: 'header',
+  name: 'x-acornops-external-user-id',
+  required: false,
+  schema: { type: 'string', minLength: 1, maxLength: 128 },
+  description: 'Required only for external integration client-token requests. Must identify a linked external integration user.'
+};
+
 const workspaceBody = {
   required: true,
   content: {
@@ -279,8 +287,9 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       get: {
         tags: ['workflows'],
         summary: 'Get a workflow definition',
-        security: [{ userSession: [] }],
-        parameters: [workflowIdParameter, workflowWorkspaceIdQueryParameter],
+        description: 'External integration callers can fetch only active read-only workflows without approval gates that their linked user grant can run.',
+        security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+        parameters: [externalUserHeader, workflowIdParameter, workflowWorkspaceIdQueryParameter],
         responses: { '200': { description: 'Workflow definition detail.' } }
       },
       patch: {
@@ -364,8 +373,9 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       post: {
         tags: ['workflows'],
         summary: 'Create a workflow session',
-        security: [{ userSession: [] }],
-        parameters: [workflowIdParameter],
+        description: 'External integration callers can create sessions only for active read-only workflows without approval gates when read_workspace_data, create_sessions, and create_read_only_runs are granted.',
+        security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+        parameters: [externalUserHeader, workflowIdParameter],
         requestBody: {
           required: true,
           content: {
@@ -389,8 +399,9 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       post: {
         tags: ['workflows'],
         summary: 'Post a workflow session message and dispatch a run',
-        security: [{ userSession: [] }],
-        parameters: [sessionIdParameter],
+        description: 'External integration callers can dispatch runs only for externally runnable read-only workflow sessions.',
+        security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+        parameters: [externalUserHeader, sessionIdParameter],
         requestBody: {
           required: true,
           content: {

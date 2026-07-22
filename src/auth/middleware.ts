@@ -221,6 +221,7 @@ export function requireActor(allowedActors: ActorRequirement): RequestHandler {
 // architecture. Linked external actors are admitted only by routes that opt in
 // through requireActor.
 export const requireUser = requireActor(['user']);
+export const requireLinkedExternalIntegration = requireActor(['externalIntegration']);
 export const requireExternalIntegrationClient = requireActor(['externalIntegrationClient']);
 
 export async function requireGatewayRunToken(req: Request, res: Response, next: NextFunction): Promise<void> {

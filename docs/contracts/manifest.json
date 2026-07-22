@@ -639,6 +639,10 @@
       "linkedBotPaths": [
         "GET /api/v1/workspaces",
         "GET /api/v1/workspaces/{workspaceId}",
+        "GET /api/v1/workspaces/{workspaceId}/workflows",
+        "GET /api/v1/workflows/{workflowId}",
+        "POST /api/v1/workflows/{workflowId}/sessions",
+        "POST /api/v1/workflow-sessions/{sessionId}/messages",
         "GET /api/v1/workspaces/{workspaceId}/issues",
         "GET /api/v1/workspaces/{workspaceId}/issues/{issueId}",
         "GET /api/v1/workspaces/{workspaceId}/issues/{issueId}/observations",
@@ -657,6 +661,7 @@
         "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions",
         "POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/sessions",
         "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity",
+        "GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/chat-activity/stream",
         "GET /api/v1/sessions/{sessionId}",
         "GET /api/v1/sessions/{sessionId}/messages",
         "POST /api/v1/sessions/{sessionId}/messages",
