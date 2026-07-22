@@ -8,6 +8,7 @@ import { repo } from '../store/repository.js';
 import { KUBERNETES_TARGET_TYPE, Run } from '../types/domain.js';
 import { redispatchWaitingRunAfterApproval } from './run-controller-helpers.js';
 import { runAuditActor } from './run-actor.js';
+import { approvalForRequest } from './run-external-integration.js';
 
 export async function decideTroubleshootingRunApproval(
   req: AuthenticatedRequest,
@@ -45,7 +46,7 @@ export async function decideTroubleshootingRunApproval(
   if (approval.status !== 'pending') {
     redispatchWaitingRunAfterApproval(run);
     if (approval.decision === req.body.decision) {
-      res.status(200).json(approval);
+      res.status(200).json(approvalForRequest(req, approval));
       return;
     }
     res.status(409).json({
@@ -54,7 +55,7 @@ export async function decideTroubleshootingRunApproval(
         message: `Approval is already ${approval.status}`,
         retryable: false
       },
-      approval
+      approval: approvalForRequest(req, approval)
     });
     return;
   }
@@ -83,7 +84,7 @@ export async function decideTroubleshootingRunApproval(
   redispatchWaitingRunAfterApproval(run);
   if (!outcome.transitioned) {
     if (decided.decision === req.body.decision) {
-      res.status(200).json(decided);
+      res.status(200).json(approvalForRequest(req, decided));
       return;
     }
     res.status(409).json({
@@ -92,7 +93,7 @@ export async function decideTroubleshootingRunApproval(
         message: `Approval is already ${decided.status}`,
         retryable: false
       },
-      approval: decided
+      approval: approvalForRequest(req, decided)
     });
     return;
   }
@@ -104,7 +105,7 @@ export async function decideTroubleshootingRunApproval(
         message: 'Approval expired before the decision was recorded',
         retryable: false
       },
-      approval: decided
+      approval: approvalForRequest(req, decided)
     });
     return;
   }
@@ -150,5 +151,5 @@ export async function decideTroubleshootingRunApproval(
         : {})
     }
   });
-  res.status(200).json(decided);
+  res.status(200).json(approvalForRequest(req, decided));
 }

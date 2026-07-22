@@ -80,7 +80,8 @@ reclaimed a lease. Retries preserve the event ID and payload, honor bounded
 `WEBHOOK_WORKER_CONCURRENCY` and
 `WEBHOOK_WORKER_PER_ORIGIN_CONCURRENCY` are per-replica limits. Effective
 cluster concurrency scales with the number of control-plane replicas. The
-claim lease is sized for the configured batch's worst-case same-origin drain,
+per-origin limit is capped by the lower global concurrency. The claim lease is
+sized for the configured batch's worst-case same-origin drain at that effective limit,
 so queued jobs do not become reclaimable merely because they are waiting for a
 per-origin slot.
 

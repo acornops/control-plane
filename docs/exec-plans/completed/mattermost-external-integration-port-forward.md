@@ -152,7 +152,8 @@ Central tracking: acornops/acornops#12.
   worker documentation. The bot oracle rule permitted one independently proven
   bot defect to be fixed in its own repository: strict Workflow message bodies
   accept only `content` and `clientRequestId`; launch inputs, grants, and target
-  bindings stay fixed at session creation.
+  resource references must therefore be represented in content. Session creation
+  fixes only the workspace, Workflow version, and approved context grants.
 - 2026-07-23, production sweep: Replaced the OIDC logout test's module-load-time
   60-second session with a fresh fixture per case. The enlarged suite had made
   that otherwise unrelated test expire before execution; production logout

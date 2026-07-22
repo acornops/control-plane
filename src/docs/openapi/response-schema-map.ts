@@ -163,7 +163,7 @@ export function schemaForOperation(method: string, path: string, statusCode: str
     'GET /api/v1/sessions/{sessionId}/messages': 'ChatMessagePage',
     'POST /api/v1/sessions/{sessionId}/messages': 'MessageAccepted',
     'GET /api/v1/runs/{runId}': 'Run',
-    'GET /api/v1/runs/{runId}/approvals': 'RunApprovalPage',
+    'GET /api/v1/runs/{runId}/approvals': 'RunApprovalList',
     'POST /api/v1/runs/{runId}/approvals/{approvalId}/decision': 'ApprovalDecision',
     'POST /api/v1/runs/{runId}/cancel': 'GenericAccepted',
     'GET /api/v1/runs/{runId}/events': 'RunEventPage',

@@ -1,5 +1,7 @@
+import assert from 'node:assert/strict';
+import { listRunApprovals } from '../../src/controllers/runs-controller.js';
 import { repo } from '../../src/store/repository.js';
-import { createExternalIntegrationRequest } from './controller-regression-fixtures.js';
+import { callController, createExternalIntegrationRequest } from './controller-regression-fixtures.js';
 
 export function withWriteCapability(
   request: ReturnType<typeof createExternalIntegrationRequest>
@@ -23,4 +25,20 @@ export function installExternalWriteGrant(): void {
     createdAt: '2026-05-24T00:00:00.000Z',
     updatedAt: '2026-05-24T00:00:00.000Z'
   });
+}
+
+export async function assertExternalApprovalListSanitized(runId: string): Promise<void> {
+  const response = await callController(
+    listRunApprovals,
+    withWriteCapability(createExternalIntegrationRequest({ runId }))
+  );
+  assert.equal(response.statusCode, 200);
+  assert.equal((response.body as unknown[]).length, 2);
+  const serializedApprovals = JSON.stringify(response.body);
+  for (const privateField of [
+    'arguments', 'toolRef', 'toolCallId', 'argumentsDigest',
+    'requestedBy', 'decidedBy', 'toolResult', 'private report source'
+  ]) {
+    assert.equal(serializedApprovals.includes(privateField), false);
+  }
 }

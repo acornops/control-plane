@@ -1,12 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, it, mock } from 'node:test';
 import { config } from '../src/config.js';
-import {
-  createSession,
-  getWorkflow,
-  listWorkflows,
-  postMessage
-} from '../src/controllers/workflows-controller.js';
+import { createSession, getWorkflow, listWorkflows, postMessage } from '../src/controllers/workflows-controller.js';
 import { decideRunApproval } from '../src/controllers/runs-controller.js';
 import { getWorkflowExecution } from '../src/controllers/workflow-executions-controller.js';
 import { getWorkflowReportMetadata } from '../src/controllers/workflow-reports-controller.js';
@@ -39,8 +34,11 @@ import { listWorkflowExecutionEvents } from '../src/store/repository-workflow-ex
 import { recordWorkflowRunEvents } from '../src/services/workflow-execution-events.js';
 import { createWorkflowReport } from '../src/store/repository-workflow-reports.js';
 import { createAutomationRunApproval } from '../src/store/repository-automation-approvals.js';
-import { installExternalWriteGrant, withWriteCapability } from './helpers/external-workflow-fixtures.js';
-
+import {
+  assertExternalApprovalListSanitized,
+  installExternalWriteGrant,
+  withWriteCapability
+} from './helpers/external-workflow-fixtures.js';
 beforeEach(async () => {
   await resetAutomationDatabaseFixtures();
   await installAutomationTemplateFixtures();
@@ -414,10 +412,12 @@ describe('workflow external integration access', () => {
       toolName: 'reports.pdf.generate',
       toolRef: { serverId: 'acornops-workspace-native', toolName: 'reports.pdf.generate' },
       summary: 'Publish the approved report.',
+      arguments: { reportSource: 'private report source' },
       requestedBy: 'user-1',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
       continuationState: { cursor: 'before-publish' }
     });
+    await assertExternalApprovalListSanitized(firstBody.run_id);
     const runtimeApproved = await callController(
       decideRunApproval,
       withWriteCapability(createExternalIntegrationRequest(

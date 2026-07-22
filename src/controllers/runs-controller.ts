@@ -37,19 +37,8 @@ import {
   publicTroubleshootingRun,
   publicWorkflowRun
 } from './external-run-public.js';
-
-function isExternalIntegrationRequest(req: AuthenticatedRequest): boolean {
-  return req.auth.credential.type === 'external_integration';
-}
-
-async function externalIntegrationOwnsTroubleshootingRun(req: AuthenticatedRequest, runId: string): Promise<boolean> {
-  const credential = req.auth.credential;
-  if (credential.type !== 'external_integration') return false;
-  const provenance = await repo.getRunRequestProvenance(runId);
-  return provenance?.actorType === 'external_integration'
-    && provenance.externalIntegrationLinkId === credential.linkId
-    && provenance.externalIntegrationClientId === credential.integrationId;
-}
+import { approvalForRequest, approvalsForRequest, isExternalIntegrationRequest } from './run-external-integration.js';
+import { externalIntegrationOwnsTroubleshootingRun } from './run-external-integration.js';
 
 export async function getRun(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -279,13 +268,15 @@ export async function listRunApprovals(req: AuthenticatedRequest, res: Response,
         listWorkflowRunApprovals(workflowRun.id),
         listAutomationRunApprovals('workflow', workflowRun.id)
       ]);
-      res.status(200).json([...workflowApprovals, ...automationApprovals]);
+      const approvals = [...workflowApprovals, ...automationApprovals];
+      res.status(200).json(approvalsForRequest(req, approvals));
       return;
     }
     const agentRun = await getAgentActivityRecord(runId);
     if (agentRun) {
       if (!(await requireWorkspaceDataRead(req, res, agentRun.workspaceId, 'No access to run'))) return;
-      res.status(200).json(await listAutomationRunApprovals('agent', agentRun.id));
+      const approvals = await listAutomationRunApprovals('agent', agentRun.id);
+      res.status(200).json(approvalsForRequest(req, approvals));
       return;
     }
     const run = await repo.getRun(runId);
@@ -296,7 +287,8 @@ export async function listRunApprovals(req: AuthenticatedRequest, res: Response,
     if (!(await requireWorkspaceDataRead(req, res, run.workspaceId, 'No access to run'))) {
       return;
     }
-    res.status(200).json(await repo.listRunToolApprovals(run.id));
+    const approvals = await repo.listRunToolApprovals(run.id);
+    res.status(200).json(approvalsForRequest(req, approvals));
   } catch (err) {
     next(err);
   }
@@ -353,7 +345,7 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
       }
       if (approval.status !== 'pending') {
         if (approval.decision === req.body.decision) {
-          res.status(200).json(approval);
+          res.status(200).json(approvalForRequest(req, approval));
           return;
         }
         res.status(409).json({
@@ -362,7 +354,7 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
             message: `Approval is already ${approval.status}`,
             retryable: false
           },
-          approval
+          approval: approvalForRequest(req, approval)
         });
         return;
       }
@@ -376,7 +368,7 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
       if (!outcome.transitioned) {
         dispatchWorkflowRunAfterApprovals(workflowRun.id);
         if (decided.decision === req.body.decision) {
-          res.status(200).json(decided);
+          res.status(200).json(approvalForRequest(req, decided));
           return;
         }
         res.status(409).json({
@@ -385,7 +377,7 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
             message: `Approval is already ${decided.status}`,
             retryable: false
           },
-          approval: decided
+          approval: approvalForRequest(req, decided)
         });
         return;
       }
@@ -435,11 +427,11 @@ export async function decideRunApproval(req: AuthenticatedRequest, res: Response
             message: 'Approval expired before the decision was recorded',
             retryable: false
           },
-          approval: decided
+          approval: approvalForRequest(req, decided)
         });
         return;
       }
-      res.status(200).json(decided);
+      res.status(200).json(approvalForRequest(req, decided));
       return;
     }
     const agentRun = await getAgentActivityRecord(runId);
@@ -504,6 +496,9 @@ export async function streamRun(req: AuthenticatedRequest, res: Response, next: 
       if (typeof runEvent.seq === 'number' && runEvent.seq <= lastReplayedSeq) {
         return;
       }
+      if (typeof runEvent.seq === 'number') {
+        lastReplayedSeq = runEvent.seq;
+      }
       writeSseRunEvent(res, publicExternalStream ? publicRunEvent(runEvent) : runEvent);
     };
 
@@ -527,6 +522,9 @@ export async function streamRun(req: AuthenticatedRequest, res: Response, next: 
       for (const event of bufferedLiveEvents) {
         if (typeof event.seq === 'number' && event.seq <= lastReplayedSeq) {
           continue;
+        }
+        if (typeof event.seq === 'number') {
+          lastReplayedSeq = event.seq;
         }
         writeSseRunEvent(res, publicExternalStream ? publicRunEvent(event) : event);
       }

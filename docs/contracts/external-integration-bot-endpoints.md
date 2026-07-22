@@ -292,10 +292,13 @@ x-acornops-external-user-id: {externalUserId}
 External integrations only receive workflows that:
 
 - are `active`.
-- use `capabilityPolicy.mode: "read_only"`.
-- have no `capabilityPolicy.approvalRequirements`.
 - are permitted by the linked user role, registered client allowlist, and
   user-approved workspace grant.
+
+Read-only workflows require effective `create_read_only_runs`. Read-write and
+approval-gated workflows require effective `create_read_write_runs` across all
+three permission layers. AcornOps still enforces every approval gate before a
+write can execute.
 
 Create a workflow session before launching a run:
 
@@ -397,7 +400,10 @@ status changes, step/run creation, accepted public run events, approval
 references, safe output metadata, and terminal execution events. This avoids
 having to guess or poll each next-step run ID.
 
-Approval listings are workspace-readable. To decide a pre-step Workflow
+Approval listings are workspace-readable, but external callers receive only
+bounded control metadata such as the approval ID, safe summary, tool name,
+status, decision, and expiry. Executable arguments, tool references and
+results, actor IDs, and continuation state are never returned. To decide a pre-step Workflow
 approval or a runtime `tool_write` approval, require an explicit confirmation
 from the linked user and call:
 

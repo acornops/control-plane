@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  publicRunApproval,
   publicRunEvent,
   publicWorkflowExecutionEvent,
   publicWorkflowRun
@@ -8,6 +9,49 @@ import {
 import type { WorkflowRunRecord } from '../src/store/repository-workflow-runs.js';
 
 describe('external run public projections', () => {
+  it('keeps approval controls while removing executable arguments and results', () => {
+    const approval = publicRunApproval({
+      id: 'approval-1',
+      runId: 'run-1',
+      workspaceId: 'workspace-1',
+      targetId: 'target-1',
+      targetType: 'kubernetes',
+      toolCallId: 'tool-call-private',
+      toolName: 'restart_service',
+      toolRef: { serverId: 'private-server', toolName: 'restart_service' },
+      requestedToolAlias: 'private-alias',
+      argumentsDigest: 'private-digest',
+      summary: 'Restart the selected service.',
+      arguments: { unit: 'private.service', credential: 'must-not-leak' },
+      status: 'approved',
+      executionStatus: 'succeeded',
+      toolResult: { stdout: 'private result' },
+      toolResultIsError: false,
+      requestedBy: 'private-requester',
+      decidedBy: 'private-decider',
+      decision: 'approved',
+      createdAt: '2026-07-23T00:00:00.000Z',
+      decidedAt: '2026-07-23T00:01:00.000Z',
+      expiresAt: '2026-07-23T00:15:00.000Z'
+    });
+
+    assert.deepEqual(approval, {
+      id: 'approval-1',
+      runId: 'run-1',
+      workspaceId: 'workspace-1',
+      targetId: 'target-1',
+      targetType: 'kubernetes',
+      toolName: 'restart_service',
+      summary: 'Restart the selected service.',
+      status: 'approved',
+      executionStatus: 'succeeded',
+      decision: 'approved',
+      createdAt: '2026-07-23T00:00:00.000Z',
+      decidedAt: '2026-07-23T00:01:00.000Z',
+      expiresAt: '2026-07-23T00:15:00.000Z'
+    });
+  });
+
   it('removes token, reasoning, and tool-result payloads while preserving approval controls', () => {
     const token = publicRunEvent({
       schema_version: 1,

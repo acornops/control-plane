@@ -220,8 +220,12 @@ export async function runWebhookDeliverySweep(): Promise<void> {
     return;
   }
   const leaseOwner = `${config.CONTROL_PLANE_INSTANCE_ID}:${randomUUID()}`;
+  const effectivePerOriginConcurrency = Math.min(
+    config.WEBHOOK_WORKER_CONCURRENCY,
+    config.WEBHOOK_WORKER_PER_ORIGIN_CONCURRENCY
+  );
   const serialOriginWaves = Math.ceil(
-    config.WEBHOOK_WORKER_BATCH_SIZE / config.WEBHOOK_WORKER_PER_ORIGIN_CONCURRENCY
+    config.WEBHOOK_WORKER_BATCH_SIZE / effectivePerOriginConcurrency
   );
   const leaseSeconds = Math.max(
     30,

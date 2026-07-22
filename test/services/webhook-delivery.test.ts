@@ -1,12 +1,30 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  deliverWebhookRequest,
   resolveWebhookEndpoint,
   validateWebhookDeliveryUrl,
   WebhookDeliveryPolicyError
 } from '../../src/services/webhook-delivery.js';
 
 describe('webhook delivery policy', () => {
+  it('applies the delivery timeout to DNS resolution as well as the HTTP exchange', async () => {
+    const startedAt = Date.now();
+    await assert.rejects(
+      () => deliverWebhookRequest({
+        url: 'https://hooks.example.com/events',
+        method: 'POST',
+        headers: {},
+        body: '{}',
+        timeoutMs: 20
+      }, {
+        resolveEndpoint: async () => await new Promise(() => undefined)
+      }),
+      /timed out after 20ms/
+    );
+    assert.ok(Date.now() - startedAt < 1000);
+  });
+
   it('requires https webhook URLs without embedded credentials', () => {
     assert.throws(() => validateWebhookDeliveryUrl('http://example.com/hook'), WebhookDeliveryPolicyError);
     assert.throws(() => validateWebhookDeliveryUrl('https://user:pass@example.com/hook'), WebhookDeliveryPolicyError);

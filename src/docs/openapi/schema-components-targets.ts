@@ -264,14 +264,21 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
     },
     RunApproval: {
       type: 'object',
-      required: ['id', 'runId', 'status', 'targetId', 'targetType'],
+      required: ['id', 'runId', 'workspaceId', 'toolName', 'status', 'executionStatus', 'createdAt', 'expiresAt'],
       properties: {
         id: uuid,
         runId: uuid,
+        workspaceId: uuid,
+        workflowId: uuid,
+        workflowRunId: uuid,
+        sourceType: { type: 'string', enum: ['agent', 'workflow'] },
+        approvalKind: { type: 'string', enum: ['pre_step', 'tool_write'] },
         targetId: uuid,
         targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] },
         clusterId: uuid,
         status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'expired'] },
+        executionStatus: { type: 'string', enum: ['not_started', 'executing', 'succeeded', 'failed', 'unknown'] },
+        decision: { type: 'string', enum: ['approved', 'rejected'] },
         toolName: { type: 'string' },
         summary: { type: 'string', description: 'Human-readable, non-authoritative description of the pending write action.' },
         createdAt: dateTime,
@@ -280,20 +287,12 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: true
     },
-    RunApprovalPage: {
-      type: 'object',
-      required: ['items'],
-      properties: { items: { type: 'array', items: schemaRef('RunApproval') } },
-      additionalProperties: true
+    RunApprovalList: {
+      type: 'array',
+      items: schemaRef('RunApproval')
     },
     ApprovalDecision: {
-      type: 'object',
-      required: ['approval'],
-      properties: {
-        approval: schemaRef('RunApproval'),
-        conflict: jsonObject
-      },
-      additionalProperties: true
+      ...schemaRef('RunApproval')
     },
     McpCatalog: {
       type: 'object',

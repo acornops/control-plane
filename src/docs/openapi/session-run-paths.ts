@@ -204,7 +204,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         get: {
           tags: ['runs'],
           summary: 'List write-tool approvals for a run',
-          description: 'Returns pending and decided write-tool approvals. Approval listing follows workspace-read visibility. An external integration may decide a troubleshooting approval or a Workflow pre-step/runtime tool_write approval only when the execution originated through the exact same link and client. Approval requires effective create_read_write_runs; the origin may reject with current workspace read access after write permission is removed.',
+          description: 'Returns pending and decided write-tool approvals. Approval listing follows workspace-read visibility. Browser sessions receive the full approval record; linked external integrations receive bounded control metadata without executable arguments, tool references or digests, actor identifiers, continuations, or tool results. An external integration may decide a troubleshooting approval or a Workflow pre-step/runtime tool_write approval only when the execution originated through the exact same link and client. Approval requires effective create_read_write_runs; the origin may reject with current workspace read access after write permission is removed.',
           security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
             externalUserHeader,
@@ -270,7 +270,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         post: {
           tags: ['runs'],
           summary: 'Approve or reject a pending write-tool approval',
-          description: 'A linked external integration may decide only a troubleshooting write approval or Workflow pre-step/runtime tool_write approval whose run execution was requested through that exact integration link and client. Approvals require effective create_read_write_runs. The exact origin may reject while retaining workspace read access if write permission was removed. Browser-created, other-link/client, standalone Agent, scheduled, and system-triggered approvals remain unavailable.',
+          description: 'A linked external integration may decide only a troubleshooting write approval or Workflow pre-step/runtime tool_write approval whose run execution was requested through that exact integration link and client. Approvals require effective create_read_write_runs. The exact origin may reject while retaining workspace read access if write permission was removed. Browser-created, other-link/client, standalone Agent, scheduled, and system-triggered approvals remain unavailable. Browser responses contain the full approval record; external-integration success and conflict responses contain only the same bounded control metadata returned by the external approval list.',
           security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
             externalUserHeader,

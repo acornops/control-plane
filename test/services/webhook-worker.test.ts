@@ -8,11 +8,19 @@ import type { ClaimedWebhookDelivery } from '../../src/store/repository-webhook-
 import type { TargetIssue } from '../../src/types/target-issues.js';
 import { encryptWebhookSecret } from '../../src/utils/crypto.js';
 
-const mutableConfig = config as typeof config & { WEBHOOK_WORKER_ENABLED: boolean };
+const mutableConfig = config as typeof config & {
+  WEBHOOK_WORKER_ENABLED: boolean;
+  WEBHOOK_WORKER_CONCURRENCY: number;
+  WEBHOOK_WORKER_PER_ORIGIN_CONCURRENCY: number;
+};
 const originalWebhookWorkerEnabled = config.WEBHOOK_WORKER_ENABLED;
+const originalWebhookWorkerConcurrency = config.WEBHOOK_WORKER_CONCURRENCY;
+const originalWebhookWorkerPerOriginConcurrency = config.WEBHOOK_WORKER_PER_ORIGIN_CONCURRENCY;
 
 afterEach(() => {
   mutableConfig.WEBHOOK_WORKER_ENABLED = originalWebhookWorkerEnabled;
+  mutableConfig.WEBHOOK_WORKER_CONCURRENCY = originalWebhookWorkerConcurrency;
+  mutableConfig.WEBHOOK_WORKER_PER_ORIGIN_CONCURRENCY = originalWebhookWorkerPerOriginConcurrency;
   mock.restoreAll();
 });
 
@@ -127,6 +135,25 @@ describe('durable webhook worker', () => {
     await runWebhookDeliverySweep();
 
     const sameOriginWaves = Math.ceil(config.WEBHOOK_WORKER_BATCH_SIZE / config.WEBHOOK_WORKER_PER_ORIGIN_CONCURRENCY);
+    assert.ok(leaseSeconds * 1000 > sameOriginWaves * config.WEBHOOK_DELIVERY_TIMEOUT_MS);
+  });
+
+  it('caps per-origin lease throughput at the lower global concurrency', async () => {
+    mutableConfig.WEBHOOK_WORKER_CONCURRENCY = 1;
+    mutableConfig.WEBHOOK_WORKER_PER_ORIGIN_CONCURRENCY = 4;
+    let leaseSeconds = 0;
+    mock.method(repo, 'purgeExpiredWebhookOutboxEvents', async () => 0);
+    mock.method(repo, 'claimWebhookDeliveryJobs', async (_limit, _owner, lease) => {
+      leaseSeconds = lease;
+      return [];
+    });
+    mock.method(repo, 'getWebhookQueueMetrics', async () => ({
+      pending: 0, processing: 0, retrying: 0, paused: 0, oldestAgeSeconds: 0
+    }));
+
+    await runWebhookDeliverySweep();
+
+    const sameOriginWaves = config.WEBHOOK_WORKER_BATCH_SIZE;
     assert.ok(leaseSeconds * 1000 > sameOriginWaves * config.WEBHOOK_DELIVERY_TIMEOUT_MS);
   });
 

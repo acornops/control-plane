@@ -1,7 +1,8 @@
 import type { AgentActivityRecord } from '../types/agents.js';
-import type { Run, RunEvent } from '../types/domain.js';
+import type { Run, RunEvent, RunToolApproval } from '../types/domain.js';
+import type { AutomationRunApproval } from '../store/repository-automation-approvals.js';
 import type { WorkflowExecutionStreamEvent } from '../store/repository-workflow-execution-events.js';
-import type { WorkflowRunRecord } from '../store/repository-workflow-runs.js';
+import type { WorkflowApprovalRecord, WorkflowRunRecord } from '../store/repository-workflow-runs.js';
 
 const APPROVAL_PAYLOAD_FIELDS = new Set([
   'approval_id', 'approvalId', 'tool', 'toolName', 'summary',
@@ -114,5 +115,37 @@ export function publicTroubleshootingRun(run: Run, includeOutput: boolean): Reco
     errorCode: run.errorCode?.slice(0, 128) || null,
     ...(includeOutput && run.assistantMessage ? { assistantMessage: run.assistantMessage } : {}),
     ...(includeOutput && run.usage ? { usage: run.usage } : {})
+  };
+}
+
+type PublicApprovalSource = RunToolApproval | WorkflowApprovalRecord | AutomationRunApproval;
+
+export function publicRunApproval(approval: PublicApprovalSource): Record<string, unknown> {
+  const source = approval as PublicApprovalSource & {
+    workflowId?: string;
+    workflowRunId?: string;
+    sourceType?: string;
+    approvalKind?: string;
+    targetId?: string;
+    targetType?: string;
+  };
+  return {
+    id: source.id,
+    runId: source.runId,
+    workspaceId: source.workspaceId,
+    ...(source.workflowId ? { workflowId: source.workflowId } : {}),
+    ...(source.workflowRunId ? { workflowRunId: source.workflowRunId } : {}),
+    ...(source.sourceType ? { sourceType: source.sourceType } : {}),
+    ...(source.approvalKind ? { approvalKind: source.approvalKind } : {}),
+    ...(source.targetId ? { targetId: source.targetId } : {}),
+    ...(source.targetType ? { targetType: source.targetType } : {}),
+    toolName: source.toolName.slice(0, 200),
+    ...(source.summary ? { summary: source.summary.slice(0, 500) } : {}),
+    status: source.status,
+    executionStatus: source.executionStatus,
+    ...(source.decision ? { decision: source.decision } : {}),
+    createdAt: source.createdAt,
+    ...(source.decidedAt ? { decidedAt: source.decidedAt } : {}),
+    expiresAt: source.expiresAt
   };
 }

@@ -200,12 +200,60 @@ function createPinnedLookup(
   };
 }
 
-async function deliverWebhookRequest(request: WebhookDeliveryRequest): Promise<WebhookDeliveryResponse> {
-  const endpoint = await resolveWebhookEndpoint(request.url);
+type WebhookEndpointResolver = (
+  rawUrl: string
+) => Promise<Awaited<ReturnType<typeof resolveWebhookEndpoint>>>;
+
+function webhookTimeoutError(timeoutMs: number): Error {
+  return new Error(`Webhook delivery timed out after ${timeoutMs}ms`);
+}
+
+async function resolveWithinDeliveryDeadline(
+  request: WebhookDeliveryRequest,
+  resolveEndpoint: WebhookEndpointResolver
+): Promise<Awaited<ReturnType<typeof resolveWebhookEndpoint>>> {
+  return await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(webhookTimeoutError(request.timeoutMs)), request.timeoutMs);
+    resolveEndpoint(request.url).then(
+      (endpoint) => {
+        clearTimeout(timeout);
+        resolve(endpoint);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      }
+    );
+  });
+}
+
+export async function deliverWebhookRequest(
+  request: WebhookDeliveryRequest,
+  options: { resolveEndpoint?: WebhookEndpointResolver } = {}
+): Promise<WebhookDeliveryResponse> {
+  const startedAt = Date.now();
+  const endpoint = await resolveWithinDeliveryDeadline(
+    request,
+    options.resolveEndpoint || resolveWebhookEndpoint
+  );
+  const remainingMs = request.timeoutMs - (Date.now() - startedAt);
+  if (remainingMs <= 0) throw webhookTimeoutError(request.timeoutMs);
   const client = endpoint.url.protocol === 'https:' ? https : http;
   const lookup = createPinnedLookup(endpoint.address, endpoint.family);
 
   return await new Promise<WebhookDeliveryResponse>((resolve, reject) => {
+    let settled = false;
+    let deadline: NodeJS.Timeout | undefined;
+    const finish = (
+      outcome: 'resolve' | 'reject',
+      value: WebhookDeliveryResponse | Error
+    ) => {
+      if (settled) return;
+      settled = true;
+      if (deadline) clearTimeout(deadline);
+      if (outcome === 'resolve') resolve(value as WebhookDeliveryResponse);
+      else reject(value);
+    };
     const req = client.request(
       {
         protocol: endpoint.url.protocol,
@@ -216,24 +264,31 @@ async function deliverWebhookRequest(request: WebhookDeliveryRequest): Promise<W
         headers: request.headers,
         lookup,
         servername: endpoint.hostname,
-        timeout: request.timeoutMs
+        timeout: remainingMs
       },
       (res) => {
         const status = res.statusCode ?? 0;
         res.resume();
-        res.on('end', () => resolve({
+        res.on('end', () => finish('resolve', {
           status,
           ok: status >= 200 && status < 300,
           retryAfter: typeof res.headers['retry-after'] === 'string' ? res.headers['retry-after'] : undefined
         }));
-        res.on('error', reject);
+        res.on('error', (error) => finish('reject', error));
       }
     );
 
     req.on('timeout', () => {
-      req.destroy(new Error(`Webhook delivery timed out after ${request.timeoutMs}ms`));
+      const error = webhookTimeoutError(request.timeoutMs);
+      finish('reject', error);
+      req.destroy(error);
     });
-    req.on('error', reject);
+    req.on('error', (error) => finish('reject', error));
+    deadline = setTimeout(() => {
+      const error = webhookTimeoutError(request.timeoutMs);
+      finish('reject', error);
+      req.destroy(error);
+    }, remainingMs);
     req.end(request.body);
   });
 }
