@@ -21,6 +21,8 @@ function createResponse() {
   };
 }
 
+const requireUserActor = requireUser;
+
 describe('requireUser middleware', () => {
   afterEach(() => mock.restoreAll());
 
@@ -49,7 +51,7 @@ describe('requireUser middleware', () => {
     const res = createResponse();
     let nextCalled = false;
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
       nextCalled = true;
     });
@@ -98,7 +100,7 @@ describe('requireUser middleware', () => {
     };
     const res = createResponse();
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
     });
 
@@ -127,7 +129,7 @@ describe('requireUser middleware', () => {
     const res = createResponse();
     let nextCalled = false;
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
       nextCalled = true;
     });
@@ -143,7 +145,7 @@ describe('requireUser middleware', () => {
     const res = createResponse();
     let nextCalled = false;
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
       nextCalled = true;
     });
@@ -184,7 +186,7 @@ describe('requireUser middleware', () => {
     };
     const res = createResponse();
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
     });
 
@@ -222,7 +224,7 @@ describe('requireUser middleware', () => {
     };
     const res = createResponse();
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
     });
 
@@ -253,7 +255,7 @@ describe('requireUser middleware', () => {
     };
     const res = createResponse();
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
     });
 
@@ -284,7 +286,7 @@ describe('requireUser middleware', () => {
     };
     const res = createResponse();
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
     });
 
@@ -306,7 +308,7 @@ describe('requireUser middleware', () => {
     };
     const res = createResponse();
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
     });
 
@@ -330,7 +332,7 @@ describe('requireUser middleware', () => {
     };
     const res = createResponse();
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
     });
 
@@ -346,7 +348,7 @@ describe('requireUser middleware', () => {
     const res = createResponse();
     let nextCalled = false;
 
-    await requireUser(req as never, res as never, (err?: unknown) => {
+    await requireUserActor(req as never, res as never, (err?: unknown) => {
       if (err) throw err;
       nextCalled = true;
     });

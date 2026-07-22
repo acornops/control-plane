@@ -7,6 +7,7 @@
 - Password reset tokens prove mailbox possession; a successful reset verifies a pending password-backed account email and revokes existing browser sessions.
 - Internal execution callbacks use `ORCH_SERVICE_TOKEN`.
 - External integration account links use bearer tokens for installed integration clients configured in `EXTERNAL_INTEGRATION_CLIENTS_JSON`. AcornOps derives the integration client from the bearer token hash and scopes external identities by `(integration_client_id, provider, external_user_id)`; request bodies never choose the client or provider. Only an authenticated browser session may complete and bind an external identity to an AcornOps user. External integration client bearer tokens are accepted only on the account-link lifecycle endpoints.
+- Phase-1 linked external integration requests may also read workspace and target operational summaries, create read-only troubleshooting sessions, and post read-only assistant messages by sending a registered external integration client token with `x-acornops-external-user-id`; this creates an `external_integration` auth credential, not a browser session.
 - Admin control-plane operations use `/admin/v1` with admin bearer tokens only.
   Browser session cookies, CSRF tokens, service tokens, run-scoped JWTs, and
   target agent keys are never accepted on admin endpoints.
@@ -53,15 +54,18 @@
   `admin:workspace:write`, `admin:member:write`, `admin:run:write`,
   `admin:agent-key:rotate`, and `admin:*`. These scopes are separate from
   workspace roles and never establish a browser user session.
-- External integration credentials are default-deny except for
-  `read_workspace_data`, `create_sessions`, and `create_read_only_runs`,
-  intersected with the linked user's workspace role. In phase 1 they are
-  accepted only by workspace summary/list, Kubernetes and VM overview/list,
-  snapshot resource and durable issue reads, read-only session/message
-  routes, and run observation routes. Operational target data and read-only
-  assistant conversations are visible; member, audit, logs, read-write runs,
-  approval decisions, cancellation, deletion, settings, and management
-  capabilities remain denied.
+- External integration credentials are default-deny except for user-approved
+  per-workspace grants. Effective workspace permissions are the linked user's
+  workspace role intersected with the registered client capability ceiling and
+  the saved workspace grant. The default registered-client ceiling is
+  `read_workspace_data`, `create_sessions`, and `create_read_only_runs`. In
+  phase 1 they are
+  accepted only by workspace summary/list, generic target summary/list,
+  Kubernetes and VM overview/list, snapshot resource reads, durable issue
+  reads, read-only session/message routes, and run observation routes.
+  Operational target data and read-only assistant conversations are visible;
+  member, audit, logs, read-write runs, approval decisions, cancellation,
+  deletion, settings, and management capabilities remain denied.
 - Direct public agent tool calls are not exposed by the control plane; troubleshooting tool execution must use run-scoped gateway authorization.
 - Agent session policy is a mandatory defense-in-depth allowlist. It may not
   elevate the local AgentK write or namespace policy.

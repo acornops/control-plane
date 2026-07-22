@@ -1,3 +1,9 @@
+import {
+  assertExternalIntegrationWorkspaceCapabilities,
+  DEFAULT_EXTERNAL_INTEGRATION_WORKSPACE_CAPABILITIES,
+  type WorkspaceCapability
+} from './auth/authorization.js';
+
 const PLACEHOLDER_VALUES = new Set([
   'change-me',
   'changeme',
@@ -13,6 +19,7 @@ export interface ExternalIntegrationClientDescriptor {
   displayName: string;
   sha256: string;
   enabled: boolean;
+  allowedCapabilities: WorkspaceCapability[];
 }
 
 function parseJsonArray(raw: string | undefined, label: string): unknown[] {
@@ -90,12 +97,24 @@ export function parseExternalIntegrationClientDescriptors(
       throw new Error(`External integration client ${id} uses an unsafe placeholder value`);
     }
 
+    const rawAllowedCapabilities = value.allowedCapabilities === undefined
+      ? DEFAULT_EXTERNAL_INTEGRATION_WORKSPACE_CAPABILITIES
+      : Array.isArray(value.allowedCapabilities)
+        ? value.allowedCapabilities
+        : (() => {
+            throw new Error(`External integration client ${id} allowedCapabilities must be an array`);
+          })();
+    const allowedCapabilities = assertExternalIntegrationWorkspaceCapabilities(
+      rawAllowedCapabilities.map((capability) => typeof capability === 'string' ? capability.trim() : '')
+    );
+
     descriptors.push({
       id,
       provider,
       displayName,
       sha256,
-      enabled: value.enabled !== false
+      enabled: value.enabled !== false,
+      allowedCapabilities
     });
   }
   return descriptors;

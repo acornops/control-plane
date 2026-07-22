@@ -64,7 +64,10 @@ const originals = {
   createWebhookSubscription: repo.createWebhookSubscription,
   updateWebhookSubscription: repo.updateWebhookSubscription,
   deleteWebhookSubscription: repo.deleteWebhookSubscription,
-  deleteWorkspace: repo.deleteWorkspace
+  deleteWorkspace: repo.deleteWorkspace,
+  getExternalIntegrationWorkspaceGrant: repo.getExternalIntegrationWorkspaceGrant,
+  listExternalIntegrationGrantableWorkspaces: repo.listExternalIntegrationGrantableWorkspaces,
+  replaceExternalIntegrationWorkspaceGrants: repo.replaceExternalIntegrationWorkspaceGrants
 };
 
 const canonicalWorkflowMcpServers: Array<Omit<WorkflowMcpServerRecord, 'workspaceId' | 'createdAt'>> = [{
@@ -144,6 +147,9 @@ export function restoreControllerRegressionState(): void {
   repo.updateWebhookSubscription = originals.updateWebhookSubscription;
   repo.deleteWebhookSubscription = originals.deleteWebhookSubscription;
   repo.deleteWorkspace = originals.deleteWorkspace;
+  repo.getExternalIntegrationWorkspaceGrant = originals.getExternalIntegrationWorkspaceGrant;
+  repo.listExternalIntegrationGrantableWorkspaces = originals.listExternalIntegrationGrantableWorkspaces;
+  repo.replaceExternalIntegrationWorkspaceGrants = originals.replaceExternalIntegrationWorkspaceGrants;
   mock.restoreAll();
 }
 export function createResponse() {
@@ -182,9 +188,28 @@ export function createRequest(params: Record<string, string>, body: Record<strin
     }
   };
 }
+
+export function createExternalIntegrationRequest(params: Record<string, string>, body: Record<string, unknown> = {}) {
+  return {
+    params,
+    body,
+    query: {},
+    auth: {
+      userId: 'user-1',
+      credential: {
+        type: 'external_integration' as const,
+        linkId: 'link-1',
+        integrationId: 'external-chat',
+        provider: 'external',
+        externalUserId: 'external-user-1'
+      }
+    }
+  };
+}
+
 export async function callController(
   handler: (req: never, res: never, next: (err?: unknown) => void) => Promise<void>,
-  req: ReturnType<typeof createRequest>
+  req: ReturnType<typeof createRequest> | ReturnType<typeof createExternalIntegrationRequest>
 ) {
   const res = createResponse();
   await handler(req as never, res as never, (err?: unknown) => {
@@ -234,6 +259,15 @@ export function installWorkspace(role: Role | null): void {
     };
   });
   repo.getWorkspaceRole = async () => role;
+  repo.getExternalIntegrationWorkspaceGrant = async (_input) => role
+    ? {
+        workspaceId: 'workspace-1',
+        capabilities: ['read_workspace_data', 'create_sessions', 'create_read_only_runs'],
+        grantedByUserId: 'user-1',
+        createdAt: '2026-05-24T00:00:00.000Z',
+        updatedAt: '2026-05-24T00:00:00.000Z'
+      }
+    : null;
   repo.getCluster = async (clusterId: string) => clusterId === 'cluster-1' ? createCluster() : null;
   repo.getTarget = async (_workspaceId: string, targetId: string) => {
     if (targetId === 'cluster-1') return createTarget({ id: 'cluster-1', name: 'cluster', targetType: 'kubernetes' });

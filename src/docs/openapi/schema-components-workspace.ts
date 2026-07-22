@@ -55,7 +55,7 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
     },
     ExternalIntegrationLinkSummary: {
       type: 'object',
-      required: ['id', 'integrationClientId', 'provider', 'clientDisplayName', 'externalUserId', 'linkedAt', 'lastAuthenticatedAt', 'expiresAt'],
+      required: ['id', 'integrationClientId', 'provider', 'clientDisplayName', 'externalUserId', 'linkedAt', 'lastAuthenticatedAt', 'expiresAt', 'grants'],
       properties: {
         id: { type: 'string' },
         integrationClientId: { type: 'string' },
@@ -65,12 +65,36 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
         externalDisplayName: { type: 'string' },
         linkedAt: dateTime,
         lastAuthenticatedAt: dateTime,
-        expiresAt: dateTime
+        expiresAt: dateTime,
+        grants: { type: 'array', items: schemaRef('ExternalIntegrationWorkspaceGrant') },
+        grantableWorkspaces: { type: 'array', items: schemaRef('ExternalIntegrationGrantableWorkspace') }
+      }
+    },
+    ExternalIntegrationWorkspaceGrant: {
+      type: 'object',
+      required: ['workspaceId', 'capabilities', 'grantedByUserId', 'createdAt', 'updatedAt'],
+      properties: {
+        workspaceId: { type: 'string' },
+        capabilities: stringArray,
+        grantedByUserId: { type: 'string' },
+        createdAt: dateTime,
+        updatedAt: dateTime
+      }
+    },
+    ExternalIntegrationGrantableWorkspace: {
+      type: 'object',
+      required: ['workspaceId', 'workspaceName', 'role', 'grantedCapabilities', 'grantableCapabilities'],
+      properties: {
+        workspaceId: { type: 'string' },
+        workspaceName: { type: 'string' },
+        role: { type: 'string' },
+        grantedCapabilities: stringArray,
+        grantableCapabilities: stringArray
       }
     },
     ExternalIntegrationLinkPreview: {
       type: 'object',
-      required: ['integrationClientId', 'provider', 'clientDisplayName', 'externalUserId', 'expiresAt', 'signedInUser'],
+      required: ['integrationClientId', 'provider', 'clientDisplayName', 'externalUserId', 'expiresAt', 'signedInUser', 'grantableWorkspaces'],
       properties: {
         integrationClientId: { type: 'string' },
         provider: { type: 'string' },
@@ -78,7 +102,8 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
         externalUserId: { type: 'string' },
         externalDisplayName: { type: 'string' },
         expiresAt: dateTime,
-        signedInUser: userSchema
+        signedInUser: userSchema,
+        grantableWorkspaces: { type: 'array', items: schemaRef('ExternalIntegrationGrantableWorkspace') }
       }
     },
     ExternalIntegrationLinkCompletion: {
@@ -94,6 +119,13 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
       required: ['links'],
       properties: {
         links: { type: 'array', items: schemaRef('ExternalIntegrationLinkSummary') }
+      }
+    },
+    ExternalIntegrationLinkGrantUpdate: {
+      type: 'object',
+      required: ['link'],
+      properties: {
+        link: schemaRef('ExternalIntegrationLinkSummary')
       }
     },
     ExternalIntegrationLinkRevocation: {
@@ -129,8 +161,9 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
             },
             link: {
               type: 'object',
-              required: ['integrationClientId', 'provider', 'clientDisplayName', 'externalUserId', 'linkedAt', 'lastAuthenticatedAt', 'expiresAt'],
+              required: ['id', 'integrationClientId', 'provider', 'clientDisplayName', 'externalUserId', 'linkedAt', 'lastAuthenticatedAt', 'expiresAt'],
               properties: {
+                id: { type: 'string' },
                 integrationClientId: { type: 'string' },
                 provider: { type: 'string' },
                 clientDisplayName: { type: 'string' },

@@ -266,6 +266,11 @@ export async function oidcLinkStart(req: AuthenticatedRequest, res: Response, ne
       return;
     }
 
+    if (req.auth.credential.type !== 'session') {
+      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'User session required', retryable: false } });
+      return;
+    }
+
     await clearPasswordLoginAttempts(`link:${req.auth.userId}`, ipAddress);
     const transaction = createOidcBrowserTransaction();
     const url = await buildLinkAuthorizationUrl(

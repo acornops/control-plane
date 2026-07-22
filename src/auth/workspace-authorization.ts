@@ -1,5 +1,7 @@
 import { Response } from 'express';
 import {
+  capabilitiesToPermissions,
+  DEFAULT_EXTERNAL_INTEGRATION_WORKSPACE_CAPABILITIES,
   getWorkspacePermissions,
   hasWorkspaceCapability,
   isSupportedRole,
@@ -18,10 +20,41 @@ export interface WorkspaceAuthorization {
   can(capability: WorkspaceCapability): boolean;
 }
 
-export function getEffectiveWorkspacePermissions(
-  _req: AuthenticatedRequest,
-  role: Role | null | undefined
+function intersectWorkspacePermissions(
+  left: WorkspacePermissions,
+  right: WorkspacePermissions
 ): WorkspacePermissions {
+  return Object.fromEntries(
+    Object.keys(left).map((capability) => [
+      capability,
+      left[capability as WorkspaceCapability] && right[capability as WorkspaceCapability]
+    ])
+  ) as WorkspacePermissions;
+}
+
+function externalIntegrationClientPermissions(req: AuthenticatedRequest): WorkspacePermissions {
+  return capabilitiesToPermissions(
+    req.externalIntegrationClient?.allowedCapabilities || DEFAULT_EXTERNAL_INTEGRATION_WORKSPACE_CAPABILITIES
+  );
+}
+
+export async function getEffectiveWorkspacePermissions(
+  req: AuthenticatedRequest,
+  role: Role | null | undefined,
+  workspaceId?: string
+): Promise<WorkspacePermissions | null> {
+  if (req.auth.credential?.type === 'external_integration') {
+    if (!workspaceId) return null;
+    const grant = await repo.getExternalIntegrationWorkspaceGrant({
+      linkId: req.auth.credential.linkId,
+      workspaceId
+    });
+    if (!grant || !grant.capabilities.length) return null;
+    return intersectWorkspacePermissions(
+      intersectWorkspacePermissions(getWorkspacePermissions(role), externalIntegrationClientPermissions(req)),
+      capabilitiesToPermissions(grant.capabilities)
+    );
+  }
   return getWorkspacePermissions(role);
 }
 
@@ -33,7 +66,10 @@ export async function getWorkspaceAuthorization(
   if (!role || !isSupportedRole(role)) {
     return null;
   }
-  const permissions = getEffectiveWorkspacePermissions(req, role);
+  const permissions = await getEffectiveWorkspacePermissions(req, role, workspaceId);
+  if (!permissions) {
+    return null;
+  }
   return createWorkspaceAuthorization(req.auth.userId, workspaceId, role, permissions);
 }
 

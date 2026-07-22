@@ -36,6 +36,30 @@ export type WorkspaceCapability = typeof WORKSPACE_CAPABILITIES[number];
 export type WorkspacePermissions = Record<WorkspaceCapability, boolean>;
 export type TokenScope = 'read' | WorkspaceCapability;
 
+export const DEFAULT_EXTERNAL_INTEGRATION_WORKSPACE_CAPABILITIES: WorkspaceCapability[] = [
+  'read_workspace_data',
+  'create_sessions',
+  'create_read_only_runs'
+];
+
+export function assertExternalIntegrationWorkspaceCapabilities(capabilities: readonly string[]): WorkspaceCapability[] {
+  const supported = new Set<string>(WORKSPACE_CAPABILITIES);
+  const unique = [...new Set(capabilities)];
+  for (const capability of unique) {
+    if (!supported.has(capability)) {
+      throw new Error(`Unsupported external integration workspace capability: ${capability}`);
+    }
+  }
+  const capabilitySet = new Set(unique);
+  if (capabilitySet.has('create_read_only_runs') && !capabilitySet.has('create_sessions')) {
+    throw new Error('External integration create_read_only_runs requires create_sessions');
+  }
+  if (capabilitySet.has('create_sessions') && !capabilitySet.has('read_workspace_data')) {
+    throw new Error('External integration create_sessions requires read_workspace_data');
+  }
+  return unique as WorkspaceCapability[];
+}
+
 const WORKSPACE_CAPABILITY_GROUPS: Array<{ key: RoleTemplateCapabilityGroupKey; sortOrder: number }> = [
   { key: 'workspace', sortOrder: 0 },
   { key: 'members', sortOrder: 100 },

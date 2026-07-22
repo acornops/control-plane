@@ -206,8 +206,11 @@ import {
   getExternalIntegrationLinkTokenUser as getExternalIntegrationLinkTokenUserRecord,
   externalIntegrationLinkTokenIsPending as externalIntegrationLinkTokenIsPendingRecord,
   listExternalIntegrationUserLinks as listExternalIntegrationUserLinksRecord,
+  listExternalIntegrationGrantableWorkspaces as listExternalIntegrationGrantableWorkspacesRecord,
   previewExternalIntegrationLinkToken as previewExternalIntegrationLinkTokenRecord,
   purgeOldExternalIntegrationLinkTokens as purgeOldExternalIntegrationLinkTokensRecord,
+  getExternalIntegrationWorkspaceGrant as getExternalIntegrationWorkspaceGrantRecord,
+  replaceExternalIntegrationWorkspaceGrants as replaceExternalIntegrationWorkspaceGrantsRecord,
   revokeExternalIntegrationUserLink as revokeExternalIntegrationUserLinkRecord,
   resolveExternalIntegrationUserLink as resolveExternalIntegrationUserLinkRecord
 } from './repository-external-integration-links.js';
@@ -259,21 +262,16 @@ export class Repository {
   resolveOidcLogin = resolveOidcLoginRecord;
 
   createExternalIntegrationLinkToken = createExternalIntegrationLinkTokenRecord;
-
   completeExternalIntegrationLinkToken = completeExternalIntegrationLinkTokenRecord;
-
   getExternalIntegrationLinkTokenUser = getExternalIntegrationLinkTokenUserRecord;
-
   externalIntegrationLinkTokenIsPending = externalIntegrationLinkTokenIsPendingRecord;
-
   previewExternalIntegrationLinkToken = previewExternalIntegrationLinkTokenRecord;
-
   resolveExternalIntegrationUserLink = resolveExternalIntegrationUserLinkRecord;
-
   listExternalIntegrationUserLinks = listExternalIntegrationUserLinksRecord;
-
+  listExternalIntegrationGrantableWorkspaces = listExternalIntegrationGrantableWorkspacesRecord;
+  getExternalIntegrationWorkspaceGrant = getExternalIntegrationWorkspaceGrantRecord;
+  replaceExternalIntegrationWorkspaceGrants = replaceExternalIntegrationWorkspaceGrantsRecord;
   revokeExternalIntegrationUserLink = revokeExternalIntegrationUserLinkRecord;
-
   purgeOldExternalIntegrationLinkTokens = purgeOldExternalIntegrationLinkTokensRecord;
 
   insertAccountAuditEvent = insertAccountAuditEventRecord;

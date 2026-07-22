@@ -1,19 +1,36 @@
 import { NextFunction, Request, RequestHandler, Response } from 'express';
 import { config, type ExternalIntegrationClientDescriptor } from '../config.js';
 import { gatewayTokenService } from '../services/token-service.js';
+import { repo } from '../store/repository.js';
 import { hashToken } from '../utils/crypto.js';
 import { constantTimeEqual } from '../utils/tokens.js';
 import { getSessionUser } from './session.js';
 
-export type AuthCredential = {
-  type: 'session';
-  sessionId: string;
-};
+export const EXTERNAL_INTEGRATION_USER_ID_HEADER = 'x-acornops-external-user-id';
+export type AuthCredential =
+  | {
+      type: 'session';
+      sessionId: string;
+    }
+  | {
+      type: 'external_integration';
+      linkId: string;
+      integrationId: string;
+      provider: string;
+      externalUserId: string;
+    };
 
 export interface AuthContext {
   userId: string;
   credential: AuthCredential;
 }
+
+// `externalIntegration` is a linked-user credential. `externalIntegrationClient`
+// is the bot service token used for account-link lifecycle endpoints and does
+// not populate req.auth by itself.
+export const ACTOR_KINDS = ['user', 'externalIntegration', 'externalIntegrationClient'] as const;
+export type ActorKind = typeof ACTOR_KINDS[number];
+type ActorRequirement = readonly [ActorKind, ...ActorKind[]];
 
 declare global {
   namespace Express {
@@ -67,20 +84,6 @@ function bearerToken(req: Request): string {
   return auth?.startsWith('Bearer ') ? auth.slice('Bearer '.length) : '';
 }
 
-export async function requireUser(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const auth = await authenticateUser(req);
-    if (!auth) {
-      rejectUnauthorized(res, 'User session required');
-      return;
-    }
-    req.auth = auth;
-    next();
-  } catch (err) {
-    next(err);
-  }
-}
-
 function bearerTokenMatches(req: Request, expectedToken: string): boolean {
   return constantTimeEqual(bearerToken(req), expectedToken);
 }
@@ -106,15 +109,119 @@ function externalIntegrationClientFromBearer(req: Request): ExternalIntegrationC
   )) || null;
 }
 
-export function requireExternalIntegrationClient(req: Request, res: Response, next: NextFunction): void {
+function externalUserIdFromHeader(req: Request): string | null {
+  const raw = req.header(EXTERNAL_INTEGRATION_USER_ID_HEADER);
+  const externalUserId = typeof raw === 'string' ? raw.trim() : '';
+  return externalUserId.length > 0 && externalUserId.length <= 128 ? externalUserId : null;
+}
+
+type ActorAuthenticationResult =
+  | {
+      authenticated: true;
+      auth?: AuthContext;
+    }
+  | {
+      authenticated: false;
+      message?: string;
+    };
+
+function authenticateExternalIntegrationClient(req: Request): ActorAuthenticationResult {
   const client = externalIntegrationClientFromBearer(req);
   if (!client) {
-    rejectUnauthorized(res, 'External integration client token required');
-    return;
+    return { authenticated: false, message: 'External integration client token required' };
   }
   req.externalIntegrationClient = client;
-  next();
+  return { authenticated: true };
 }
+
+async function authenticateExternalIntegration(req: Request): Promise<ActorAuthenticationResult> {
+  const client = externalIntegrationClientFromBearer(req);
+  if (!client) {
+    return { authenticated: false };
+  }
+
+  const externalUserId = externalUserIdFromHeader(req);
+  if (!externalUserId) {
+    return { authenticated: false, message: 'Linked external integration user id required' };
+  }
+
+  const resolution = await repo.resolveExternalIntegrationUserLink({
+    integrationClientId: client.id,
+    provider: client.provider,
+    externalUserId
+  });
+  if (!resolution) {
+    return { authenticated: false, message: 'Linked external integration account required' };
+  }
+
+  req.externalIntegrationClient = client;
+  return {
+    authenticated: true,
+    auth: {
+      userId: resolution.user.id,
+      credential: {
+        type: 'external_integration',
+        linkId: resolution.link.id,
+        integrationId: client.id,
+        provider: client.provider,
+        externalUserId
+      }
+    }
+  };
+}
+
+async function authenticateActor(req: Request, actor: ActorKind): Promise<ActorAuthenticationResult> {
+  if (actor === 'user') {
+    const auth = await authenticateUser(req);
+    return auth ? { authenticated: true, auth } : { authenticated: false };
+  }
+  if (actor === 'externalIntegrationClient') {
+    return authenticateExternalIntegrationClient(req);
+  }
+  return authenticateExternalIntegration(req);
+}
+
+function actorRequirementMessage(allowedActors: ActorRequirement): string {
+  const allowed = new Set<ActorKind>(allowedActors);
+  if (allowed.size === 1 && allowed.has('user')) {
+    return 'User session required';
+  }
+  if (allowed.size === 1 && allowed.has('externalIntegration')) {
+    return 'Linked external integration required';
+  }
+  if (allowed.size === 1 && allowed.has('externalIntegrationClient')) {
+    return 'External integration client token required';
+  }
+  return 'User session or linked external integration required';
+}
+
+export function requireActor(allowedActors: ActorRequirement): RequestHandler {
+  return async (req, res, next): Promise<void> => {
+    try {
+      let failureMessage: string | undefined;
+      for (const actor of allowedActors) {
+        const result = await authenticateActor(req, actor);
+        if (result.authenticated) {
+          if (result.auth) {
+            req.auth = result.auth;
+          }
+          next();
+          return;
+        }
+        failureMessage = result.message ?? failureMessage;
+      }
+      rejectUnauthorized(res, failureMessage ?? actorRequirementMessage(allowedActors));
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+// Preserve the explicit authentication boundaries used by the current route
+// architecture. Linked external actors are admitted only by routes that opt in
+// through requireActor.
+export const requireUser = requireActor(['user']);
+export const requireExternalIntegrationClient = requireActor(['externalIntegrationClient']);
 
 export async function requireGatewayRunToken(req: Request, res: Response, next: NextFunction): Promise<void> {
   const auth = req.header('authorization');

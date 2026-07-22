@@ -14,7 +14,7 @@ The control plane owns the platform API boundary. Keep this README as a short in
 | Counterpart | Contract Surface | Enforcement |
 | --- | --- | --- |
 | Management console | Browser-facing auth, workspace, target, tooling, chat, run, workflow, and webhook APIs | OpenAPI, `manifest.json`, frontend service coverage checks |
-| External integrations | Link creation, browser-link preview/completion, link resolution | OpenAPI and manifest checks |
+| External integrations | Link creation, browser-link preview/completion, link resolution, and linked bot read access | OpenAPI, manifest checks, and endpoint contract docs |
 | Execution engine | Internal run bootstrap, continuation, event ingest, commit, approvals, dispatch auth | Internal route, OpenAPI, and client checks |
 | LLM gateway | Internal MCP registry admin client and built-in MCP bridge | Config, bridge controller, and manifest checks |
 | AgentK | WebSocket lifecycle, snapshots, and built-in tool names | Agent route and tool-name checks |
@@ -171,6 +171,7 @@ The control plane owns the platform API boundary. Keep this README as a short in
 
 - Password signup creates the user account only; it does not create or attach a workspace.
 - Workspace membership, audit-log access, target mutation, MCP mutation, tool mutation, Target Insights mutation, and AI settings mutation are permission-gated at the control-plane boundary.
+- External integration bot calls use an external integration client token plus `x-acornops-external-user-id`; the resolved `external_integration` credential is default-deny and can only receive `read_workspace_data`, `create_sessions`, and `create_read_only_runs` when allowed by the linked user's workspace role. Implementor-facing endpoint details live in [external-integration-bot-endpoints.md](external-integration-bot-endpoints.md).
 - Execution-engine dispatch uses `Authorization: Bearer <EXECUTION_ENGINE_DISPATCH_TOKEN>`.
 - Target adapters register their live built-in tools against the configured internal bridge URL (the local deployment default is `http://control-plane:8081/internal/v1/mcp`). The server identity comes from the registered target, not a seeded workspace integration.
 - Built-in MCP tool calls use `Authorization: Bearer <run-scoped-jwt>` and derive scope from `run-scoped-jwt-claims`.

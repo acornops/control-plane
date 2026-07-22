@@ -1,6 +1,6 @@
 import { NextFunction, Response } from 'express';
 import { AuthenticatedRequest } from '../auth/middleware.js';
-import { getConfiguredRoleTemplate, isSupportedRole } from '../auth/authorization.js';
+import { getConfiguredRoleTemplate, getWorkspacePermissions, isSupportedRole } from '../auth/authorization.js';
 import {
   getEffectiveWorkspacePermissions,
   requireWorkspaceCapability,
@@ -54,11 +54,12 @@ export function applyWorkspaceSummaryPermissions(
   };
 }
 
-function withEffectiveWorkspacePermissions(req: AuthenticatedRequest, workspace: WorkspaceSummary): WorkspaceSummary | null {
+async function withEffectiveWorkspacePermissions(req: AuthenticatedRequest, workspace: WorkspaceSummary): Promise<WorkspaceSummary | null> {
   if (!isSupportedRole(workspace.currentUserRole)) {
     return null;
   }
-  return applyWorkspaceSummaryPermissions(workspace, getEffectiveWorkspacePermissions(req, workspace.currentUserRole));
+  const permissions = await getEffectiveWorkspacePermissions(req, workspace.currentUserRole, workspace.id);
+  return permissions ? applyWorkspaceSummaryPermissions(workspace, permissions) : null;
 }
 
 async function cleanupTargetMcpServers(target: TargetSummary): Promise<void> {
@@ -79,9 +80,8 @@ export async function listWorkspaces(req: AuthenticatedRequest, res: Response, n
       q,
       signature
     });
-    const items = page.items
-      .map((workspace) => withEffectiveWorkspacePermissions(req, workspace))
-      .filter((workspace): workspace is WorkspaceSummary => Boolean(workspace));
+    const resolvedItems = await Promise.all(page.items.map((workspace) => withEffectiveWorkspacePermissions(req, workspace)));
+    const items = resolvedItems.filter((workspace): workspace is WorkspaceSummary => Boolean(workspace));
     res.status(200).json({ ...page, items });
   } catch (err) {
     if (err instanceof CursorMismatchError) {
@@ -100,7 +100,12 @@ export async function getWorkspace(req: AuthenticatedRequest, res: Response, nex
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workspace not found', retryable: false } });
       return;
     }
-    res.status(200).json(withEffectiveWorkspacePermissions(req, workspace));
+    const resolvedWorkspace = await withEffectiveWorkspacePermissions(req, workspace);
+    if (!resolvedWorkspace) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workspace not found', retryable: false } });
+      return;
+    }
+    res.status(200).json(resolvedWorkspace);
   } catch (err) {
     next(err);
   }
@@ -136,7 +141,7 @@ export async function createWorkspace(req: AuthenticatedRequest, res: Response, 
         createdAt: ws.createdAt
       }
     });
-    const permissions = getEffectiveWorkspacePermissions(req, 'owner');
+    const permissions = getWorkspacePermissions('owner');
     const createdSummary: WorkspaceSummary = {
       ...ws,
       currentUserRole: 'owner',

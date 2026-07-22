@@ -76,7 +76,7 @@ export function buildAuthChatPaths(): Record<string, unknown> {
         tags: ['auth'],
         summary: 'Preview an external integration account link',
         description: 'Authenticated browser-session endpoint used by the management console to display safe consent metadata before explicit approval.',
-        security: [{ sessionCookie: [] }],
+        security: [{ userSession: [] }],
         requestBody: {
           required: true,
           content: {
@@ -86,7 +86,19 @@ export function buildAuthChatPaths(): Record<string, unknown> {
                 required: ['token'],
                 additionalProperties: false,
                 properties: {
-                  token: { type: 'string', minLength: 1, maxLength: 256, example: 'intlink_random_abc123' }
+                  token: { type: 'string', minLength: 1, maxLength: 256, example: 'intlink_random_abc123' },
+                  workspaceGrants: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      required: ['workspaceId', 'capabilities'],
+                      additionalProperties: false,
+                      properties: {
+                        workspaceId: { type: 'string' },
+                        capabilities: { type: 'array', items: { type: 'string' } }
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -112,7 +124,7 @@ export function buildAuthChatPaths(): Record<string, unknown> {
         tags: ['auth'],
         summary: 'Complete an external integration account link',
         description: 'Authenticated browser-session endpoint used by the management console after password or OIDC sign-in and explicit user approval. It consumes a valid short-lived external integration link token and binds the external user id to the signed-in AcornOps user.',
-        security: [{ sessionCookie: [] }],
+        security: [{ userSession: [] }],
         requestBody: {
           required: true,
           content: {
@@ -148,7 +160,7 @@ export function buildAuthChatPaths(): Record<string, unknown> {
         tags: ['auth'],
         summary: 'List linked external integrations',
         description: 'Authenticated browser-session endpoint returning active external integration links for the signed-in user.',
-        security: [{ sessionCookie: [] }],
+        security: [{ userSession: [] }],
         responses: {
           '200': {
             description: 'Active external integration links.',
@@ -162,12 +174,62 @@ export function buildAuthChatPaths(): Record<string, unknown> {
         }
       }
     },
+    '/api/v1/auth/external-integrations/links/{linkId}/grants': {
+      patch: {
+        tags: ['auth'],
+        summary: 'Replace external integration workspace grants',
+        description: 'Authenticated browser-session endpoint that replaces the workspace grants for one active external integration link owned by the signed-in user.',
+        security: [{ userSession: [] }],
+        parameters: [
+          { in: 'path', name: 'linkId', required: true, schema: { type: 'string' } }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['workspaceGrants'],
+                additionalProperties: false,
+                properties: {
+                  workspaceGrants: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      required: ['workspaceId', 'capabilities'],
+                      additionalProperties: false,
+                      properties: {
+                        workspaceId: { type: 'string' },
+                        capabilities: { type: 'array', items: { type: 'string' } }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          '200': {
+            description: 'External integration link grants replaced.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ExternalIntegrationLinkGrantUpdate' }
+              }
+            }
+          },
+          '400': { description: 'Invalid grant payload.' },
+          '401': { description: 'User session required.' },
+          '404': { description: 'External integration link not found.' }
+        }
+      }
+    },
     '/api/v1/auth/external-integrations/links/unlink': {
       post: {
         tags: ['auth'],
         summary: 'Unlink an external integration account',
         description: 'Authenticated browser-session endpoint that revokes one active external integration link owned by the signed-in user.',
-        security: [{ sessionCookie: [] }],
+        security: [{ userSession: [] }],
         requestBody: {
           required: true,
           content: {
