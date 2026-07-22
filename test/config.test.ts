@@ -54,13 +54,12 @@ function fieldErrors(error: unknown): Record<string, string[] | undefined> {
 
 describe('parseAppConfig production validation', () => {
   it('accepts generated production secrets and browser-facing https URLs', () => {
-    const config = parseAppConfig(productionEnv({ WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY: 'true' }));
+    const config = parseAppConfig(productionEnv());
 
     assert.equal(config.NODE_ENV, 'production');
     assert.equal(config.PERSIST_RUN_EVENTS, true);
     assert.equal(config.CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED, true);
     assert.equal(config.AGENT_WS_REQUIRE_SECURE_TRANSPORT, true);
-    assert.equal(config.WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY, false);
     assert.equal(config.PASSWORD_AUTH_ENABLED, true);
   });
   it('accepts cluster-local OIDC issuer URLs when a public issuer is configured', () => {
@@ -149,7 +148,6 @@ describe('parseAppConfig production validation', () => {
     assert.equal(config.MANAGEMENT_CONSOLE_BASE_URL, 'http://localhost:3000');
     assert.equal(config.CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED, false);
     assert.equal(config.AGENT_WS_REQUIRE_SECURE_TRANSPORT, false);
-    assert.equal(parseAppConfig({ WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY: 'true' }).WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY, true);
     assert.equal(config.PASSWORD_SIGNUP_ENABLED, true);
     assert.equal(config.SEED_DEVELOPMENT_DATA, false);
     assert.equal(config.SESSION_MAX_AGE_SECONDS, 604800);

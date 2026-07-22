@@ -33,8 +33,6 @@ OIDC logout always deletes the current AcornOps browser session before redirecti
 - `EXECUTION_ENGINE_DISPATCH_TOKEN`
 - `LLM_GATEWAY_ADMIN_TOKEN`
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`
-- `WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY` is a development-only webhook smoke-test
-  bypass and is always forced off when `NODE_ENV=production`.
 - `WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON` (default `[]`)
 
 ## Private Webhook Destinations

@@ -16,18 +16,22 @@ import {
 import {
   callController,
   createExternalIntegrationRequest,
+  createReadyMcpReadinessResponse,
   createWorkspaceAiCredentialStatusResponse,
   installWorkspace,
+  isMcpReadinessRequest,
   isWorkspaceAiCredentialStatusRequest,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
 import {
   closeAutomationDatabaseFixtures,
+  installAutomationTemplateFixtures,
   resetAutomationDatabaseFixtures
 } from './helpers/automation-database-fixtures.js';
 
 beforeEach(async () => {
   await resetAutomationDatabaseFixtures();
+  await installAutomationTemplateFixtures();
 });
 
 afterEach(() => {
@@ -67,7 +71,22 @@ describe('workflow external integration access', () => {
       if (isWorkspaceAiCredentialStatusRequest(input)) {
         return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse('workspace-1')), { status: 200 });
       }
-      if (url === 'http://localhost:8080/api/v1/runs' && init?.method === 'POST') {
+      if (isMcpReadinessRequest(input, init)) return createReadyMcpReadinessResponse();
+      if (url.includes('/api/v1/internal/mcp/tools?') && url.includes('target_id=cluster-1')) {
+        return new Response(JSON.stringify(['get_resource', 'get_resource_logs', 'list_resources'].map((name) => ({
+          name,
+          server_id: 'acornops-target-agent',
+          model_alias: name,
+          mcp_server_url: 'builtin://agentk',
+          timeout_ms: 10_000,
+          description: `${name} fixture`,
+          capability: 'read',
+          source: 'builtin',
+          input_schema: {},
+          enabled: true
+        }))), { status: 200 });
+      }
+      if (url === `${config.EXECUTION_ENGINE_BASE_URL}/api/v1/runs` && init?.method === 'POST') {
         executionDispatches.push(JSON.parse(String(init.body)));
         return new Response(null, { status: 202 });
       }
@@ -86,12 +105,7 @@ describe('workflow external integration access', () => {
 
     const messageResponse = await callController(postMessage, createExternalIntegrationRequest(
       { sessionId },
-      {
-        content: 'Triage @cluster[cluster].',
-        inputs: { targetId: 'cluster-1' },
-        targetId: 'cluster-1',
-        targetType: 'kubernetes'
-      }
+      { content: 'Triage @target[Test Cluster].' }
     ));
     assert.equal(messageResponse.statusCode, 202);
     const runBody = messageResponse.body as { run_id: string; workflow_run_id: string };
@@ -108,24 +122,27 @@ describe('workflow external integration access', () => {
     }
     assert.equal(executionDispatches.length, 1);
     assert.deepEqual(auditEvents, [
-      { actorType: 'external_integration', actorTokenId: 'external-chat', eventType: 'workflow.session_created.v1' },
-      { actorType: 'external_integration', actorTokenId: 'external-chat', eventType: 'workflow.run_created.v1' }
+      { actorType: 'external_integration', actorTokenId: 'external-chat', eventType: 'workflow.session_created.v2' },
+      { actorType: 'external_integration', actorTokenId: 'external-chat', eventType: 'workflow.run_created.v2' }
     ]);
   });
 
   it('blocks external integrations from unavailable workflow categories', async () => {
     installWorkspace('operator');
 
+    await updateWorkflowDefinitionScope('workspace-1', 'cluster-triage', {
+      capabilityPolicy: { mode: 'read_write' }
+    });
     const readWriteResponse = await callController(createSession, createExternalIntegrationRequest(
-      { workflowId: 'repository-operation' },
-      { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata'] }
+      { workflowId: 'cluster-triage' },
+      { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata', 'target_inventory'] }
     ));
     assert.equal(readWriteResponse.statusCode, 403);
-    assert.match((readWriteResponse.body as { error: { message: string } }).error.message, /active/);
+    assert.match((readWriteResponse.body as { error: { message: string } }).error.message, /read-only/);
 
     const approvalGatedResponse = await callController(createSession, createExternalIntegrationRequest(
       { workflowId: 'incident-report-pdf' },
-      { workspaceId: 'workspace-1', approvedContextGrants: ['selected_chat_sessions'] }
+      { workspaceId: 'workspace-1', approvedContextGrants: [] }
     ));
     assert.equal(approvalGatedResponse.statusCode, 403);
     assert.match((approvalGatedResponse.body as { error: { message: string } }).error.message, /approval gates/);
@@ -136,7 +153,7 @@ describe('workflow external integration access', () => {
       { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata', 'target_inventory'] }
     ));
     assert.equal(pausedResponse.statusCode, 403);
-    assert.equal((pausedResponse.body as { error: { code: string } }).error.code, 'WORKFLOW_NOT_ACTIVE');
+    assert.equal((pausedResponse.body as { error: { code: string } }).error.code, 'WORKFLOW_NOT_AVAILABLE_FOR_EXTERNAL_INTEGRATION');
 
     const listResponse = await callController(listWorkflows, createExternalIntegrationRequest({ workspaceId: 'workspace-1' }));
     assert.equal(listResponse.statusCode, 200);
@@ -158,14 +175,14 @@ describe('workflow external integration access', () => {
       { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata', 'target_inventory'] }
     ));
     assert.equal(missingCapabilityResponse.statusCode, 403);
-    assert.equal((missingCapabilityResponse.body as { error: { code: string } }).error.code, 'FORBIDDEN');
+    assert.equal((missingCapabilityResponse.body as { error: { code: string } }).error.code, 'WORKFLOW_NOT_AVAILABLE_FOR_EXTERNAL_INTEGRATION');
 
     installWorkspace('operator');
     const missingGrantResponse = await callController(createSession, createExternalIntegrationRequest(
       { workflowId: 'cluster-triage' },
       { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata'] }
     ));
-    assert.equal(missingGrantResponse.statusCode, 403);
+    assert.equal(missingGrantResponse.statusCode, 409);
     assert.equal((missingGrantResponse.body as { error: { code: string } }).error.code, 'WORKFLOW_CONTEXT_GRANT_DENIED');
 
     const extraGrantResponse = await callController(createSession, createExternalIntegrationRequest(

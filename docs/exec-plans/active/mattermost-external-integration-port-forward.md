@@ -25,7 +25,7 @@ Central tracking: acornops/acornops#12.
   `migrations/control-plane/001_initial_schema.sql`; do not restore obsolete
   numbered pre-release migrations.
 - Preserve the current SSRF-safe webhook delivery policy. Development delivery
-  to a private Mattermost bot must use exact allowed host/IP patterns, never a
+  to a private Mattermost bot must use an allowed DNS hostname pattern, never a
   broad insecure-delivery switch.
 - Regenerate public OpenAPI artifacts from source and keep mirrored contract
   manifests synchronized.
@@ -65,6 +65,27 @@ Central tracking: acornops/acornops#12.
 - 2026-07-22, Wave 1: Split external-integration normalized-snapshot coverage
   into a focused test suite to preserve the repository harness budget without
   weakening the original normalized-row regressions.
+- 2026-07-22, Wave 2: Ported external workflow execution onto current Workflow
+  V2 instead of restoring the older step/policy model. Linked external actors
+  can list, inspect, create sessions for, and message only active read-only
+  definitions with no approval requirements and with effective grants for
+  workspace reads, session creation, read-only runs, and every workflow-required
+  permission. Session messages retain the current typed prompt-reference,
+  catalog-readiness, exact target-tool narrowing, compiled-scope, and
+  user-owned session behavior.
+- 2026-07-22, Wave 2: Kept webhook route connection as a linked-external-only
+  boundary. Connections match only the linked AcornOps user's subscriptions at
+  the exact canonical HTTPS delivery URL and only while that user's live role
+  can manage webhooks. Connect rotates signing secrets transactionally and
+  returns each new secret once; status never returns secret material.
+- 2026-07-22, Wave 2: Removed the older development HTTP-delivery bypass from
+  the port. Private Mattermost destinations must remain HTTPS, use DNS rather
+  than IP literals, and be explicitly permitted by
+  `WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON`; hard-blocked local, link-local,
+  metadata, and reserved destinations remain blocked even when allowlisted.
+- 2026-07-22, Wave 2: Folded external webhook route connection state and its
+  indexes/foreign key into the greenfield schema. Kept route metrics in a
+  focused module to preserve the current repository file-size harness.
 
 ## Validation Log
 
@@ -77,6 +98,12 @@ Central tracking: acornops/acornops#12.
   run-event durability, contracts, public/admin OpenAPI, harness, and build.
   Focused external-integration authentication, grant, target, VM, assistant,
   and normalized-snapshot tests also passed.
+- Wave 2 control plane: the consolidated schema initialized successfully in a
+  fresh isolated PostgreSQL database. Focused workflow, webhook-route,
+  webhook-contract, SSRF-policy, and configuration tests passed. `npm run
+  validate` then passed 811 tests across 159 suites, SQL/static migration
+  checks, authorization, membership, run-event durability, contracts,
+  public/admin OpenAPI coverage, repository harness, and the production build.
 - Each wave: run focused external-integration tests, authentication/authorization
   regressions, webhook tests where applicable, migration checks, contract and
   OpenAPI checks, then the complete repository validation.

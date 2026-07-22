@@ -1,6 +1,6 @@
 import { config } from './config.js';
 import { increment, metricLine } from './metrics-helpers.js';
-
+import { renderExternalWebhookRouteMetrics } from './metrics-external-webhooks.js';
 const adminAuthFailures = new Map<string, number>();
 const adminRequests = new Map<string, number>();
 const runEventIngestCounts = new Map<string, number>();
@@ -276,14 +276,6 @@ export function observeToolResultArtifactBytes(view: 'compressed' | 'uncompresse
   increment(toolResultArtifactSizeSums, view, bytes);
 }
 
-export function incrementExternalWebhookRouteRequest(operation: 'connect' | 'status', status: string, count = 1): void {
-  increment(externalWebhookRouteRequests, `${operation}:${status}`, count);
-}
-
-export function incrementExternalWebhookRouteSecretRotations(integrationClientId: string, count = 1): void {
-  increment(externalWebhookRouteSecretRotations, integrationClientId, count);
-}
-
 export function renderControlPlaneMetrics(): string {
   const serviceLabels = {
     service: 'acornops-control-plane',
@@ -551,17 +543,7 @@ export function renderControlPlaneMetrics(): string {
     ...Array.from(toolResultArtifactSizeCounts.entries()).map(([view, value]) =>
       metricLine('control_plane_tool_result_artifact_bytes_count', { ...serviceLabels, view }, value)
     ),
-    '# HELP control_plane_external_webhook_route_requests_total External webhook route connect/status requests by operation and status.',
-    '# TYPE control_plane_external_webhook_route_requests_total counter',
-    ...Array.from(externalWebhookRouteRequests.entries()).map(([key, value]) => {
-      const [operation, status] = key.split(':');
-      return metricLine('control_plane_external_webhook_route_requests_total', { ...serviceLabels, operation, status }, value);
-    }),
-    '# HELP control_plane_external_webhook_route_secret_rotations_total Webhook signing secrets rotated by external route connect.',
-    '# TYPE control_plane_external_webhook_route_secret_rotations_total counter',
-    ...Array.from(externalWebhookRouteSecretRotations.entries()).map(([integrationClientId, value]) =>
-      metricLine('control_plane_external_webhook_route_secret_rotations_total', { ...serviceLabels, integration_client_id: integrationClientId }, value)
-    )
+    ...renderExternalWebhookRouteMetrics(serviceLabels)
   ];
   return `${lines.join('\n')}\n`;
 }

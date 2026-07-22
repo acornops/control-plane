@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticatedHandler, requireUser } from '../auth/middleware.js';
+import { authenticatedHandler, requireActor, requireUser } from '../auth/middleware.js';
 import * as workflowsController from '../controllers/workflows-controller.js';
 import * as workflowSchedulesController from '../controllers/workflow-schedules-controller.js';
 import * as workflowExecutionsController from '../controllers/workflow-executions-controller.js';
@@ -11,7 +11,7 @@ import * as promptReferencesController from '../controllers/prompt-references-co
 export const workflowsRouter = Router();
 const authed = authenticatedHandler;
 
-workflowsRouter.get('/workspaces/:workspaceId/workflows', requireUser, authed(workflowsController.listWorkflows));
+workflowsRouter.get('/workspaces/:workspaceId/workflows', requireActor(['user', 'externalIntegration']), authed(workflowsController.listWorkflows));
 workflowsRouter.post('/workspaces/:workspaceId/workflows', requireUser, authed(workflowsController.createWorkflow));
 workflowsRouter.get('/workspaces/:workspaceId/workflow-schedules', requireUser, authed(workflowSchedulesController.listWorkspaceWorkflowSchedules));
 workflowsRouter.post('/workspaces/:workspaceId/workflow-schedules', requireUser, authed(workflowSchedulesController.createWorkflowScheduleForWorkspace));
@@ -28,7 +28,7 @@ workflowsRouter.post('/workspaces/:workspaceId/catalog/sources/:sourceId/sync', 
 workflowsRouter.delete('/workspaces/:workspaceId/catalog/sources/:sourceId', requireUser, authed(catalogSourcesController.deleteWorkspaceCatalogSource));
 workflowsRouter.get('/workspaces/:workspaceId/catalog/artifacts', requireUser, authed(catalogController.listWorkspaceCatalogArtifacts));
 workflowsRouter.get('/workspaces/:workspaceId/catalog/artifacts/:artifactId', requireUser, authed(catalogController.getWorkspaceCatalogArtifact));
-workflowsRouter.get('/workflows/:workflowId', requireUser, authed(workflowsController.getWorkflow));
+workflowsRouter.get('/workflows/:workflowId', requireActor(['user', 'externalIntegration']), authed(workflowsController.getWorkflow));
 workflowsRouter.post('/workflows/:workflowId/capabilities-preview', requireUser, authed(workflowsController.previewWorkflowCapabilities));
 workflowsRouter.post('/workflows/:workflowId/duplicate', requireUser, authed(workflowsController.duplicateWorkflow));
 workflowsRouter.patch('/workflows/:workflowId', requireUser, authed(workflowsController.updateWorkflow));
@@ -36,8 +36,8 @@ workflowsRouter.delete('/workflows/:workflowId', requireUser, authed(workflowsCo
 workflowsRouter.patch('/workflow-schedules/:scheduleId', requireUser, authed(workflowSchedulesController.updateWorkflowSchedule));
 workflowsRouter.delete('/workflow-schedules/:scheduleId', requireUser, authed(workflowSchedulesController.deleteWorkflowSchedule));
 workflowsRouter.get('/workflows/:workflowId/sessions', requireUser, authed(workflowsController.listSessions));
-workflowsRouter.post('/workflows/:workflowId/sessions', requireUser, authed(workflowsController.createSession));
-workflowsRouter.post('/workflow-sessions/:sessionId/messages', requireUser, authed(workflowsController.postMessage));
+workflowsRouter.post('/workflows/:workflowId/sessions', requireActor(['user', 'externalIntegration']), authed(workflowsController.createSession));
+workflowsRouter.post('/workflow-sessions/:sessionId/messages', requireActor(['user', 'externalIntegration']), authed(workflowsController.postMessage));
 workflowsRouter.get('/workflow-executions/:executionId', requireUser, authed(workflowExecutionsController.getWorkflowExecution));
 workflowsRouter.post('/workflow-executions/:executionId/cancel', requireUser, authed(workflowExecutionsController.cancelWorkflowExecution));
 workflowsRouter.post('/workflow-executions/:executionId/resume', requireUser, authed(workflowExecutionsController.resumeWorkflowExecutionController));

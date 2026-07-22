@@ -1,6 +1,7 @@
 import { dateTime, JsonSchema, jsonObject, pageOf, schemaRef, stringArray, uuid } from './schema-types.js';
 import { targetSummarySchema, runSchema, userSchema } from './schema-components-common.js';
 import { buildTargetMcpWireSchemas } from './schema-components-target-mcp.js';
+import { externalWebhookRouteSchemas } from './schema-components-webhook-routes.js';
 
 export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
   return {

@@ -121,6 +121,7 @@ function routeCalls(source) {
 
 function isRouteActorMiddleware(candidate) {
   return /\brequireUser\b/.test(candidate) ||
+    /\brequireLinkedExternalIntegration\b/.test(candidate) ||
     /\brequireActor\s*\(\s*\[\s*'user'\s*(?:,\s*'externalIntegration'\s*)?\]\s*\)/.test(candidate);
 }
 

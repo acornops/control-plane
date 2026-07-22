@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../infra/db.js';
-import { ExternalWebhookRouteConnection, Role, WebhookHistory, WebhookHistoryStatus, WebhookSubscription } from '../types/domain.js';
+import type { ExternalWebhookRouteConnection } from '../types/external-webhooks.js';
+import { Role, WebhookHistory, WebhookHistoryStatus, WebhookSubscription } from '../types/domain.js';
 import {
   ExternalWebhookRouteConnectionRow,
   WebhookHistoryRow,

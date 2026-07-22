@@ -59,9 +59,6 @@ Important local and production variables:
 - `LLM_GATEWAY_URL`
 - `LLM_GATEWAY_ADMIN_TOKEN`
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`
-- `WEBHOOK_ALLOW_INSECURE_DEV_DELIVERY` for local-only webhook smoke tests that
-  need HTTP delivery URLs such as `http://host.docker.internal:8077/...`. This
-  flag is ignored in production.
 - `WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON` (default `[]`; exact hostnames or
   leading `*.example.com` wildcard patterns)
 

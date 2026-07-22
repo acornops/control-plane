@@ -41,6 +41,13 @@ import {
   publicWorkflowDefinition,
   respondWorkflowAccessError
 } from './workflow-public.js';
+import {
+  externalWorkflowBlocker,
+  isExternalIntegrationRequest,
+  isExternallyRunnableWorkflow,
+  validateApprovedContextGrants,
+  workflowAuditActor
+} from './workflow-external-access.js';
 
 const WORKFLOW_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
 
@@ -68,10 +75,12 @@ export { previewWorkflowCapabilities } from './workflow-capability-preview-contr
 export async function listWorkflows(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
-    if (!(await requireWorkspaceDataRead(req, res, workspaceId))) return;
+    const authz = await requireWorkspaceDataRead(req, res, workspaceId);
+    if (!authz) return;
     const q = normalizeSearchQuery(req.query.q);
     const signature = makeQuerySignature({ workspaceId, q });
     const rows = (await listWorkflowDefinitions(workspaceId))
+      .filter((workflow) => !isExternalIntegrationRequest(req) || isExternallyRunnableWorkflow(workflow, authz))
       .filter((workflow) => containsSearchText([
         workflow.name,
         workflow.description,
@@ -96,7 +105,18 @@ export async function getWorkflow(req: AuthenticatedRequest, res: Response, next
     if (!workspaceId) return;
     const workflow = await getWorkflowDefinition(workspaceId, toSingleParam(req.params.workflowId));
     if (!workflow) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
-    if (!(await requireWorkspaceDataRead(req, res, workspaceId))) return;
+    const authz = await requireWorkspaceDataRead(req, res, workspaceId);
+    if (!authz) return;
+    if (isExternalIntegrationRequest(req)) {
+      const blocker = externalWorkflowBlocker(workflow, authz);
+      if (blocker) {
+        return void res.status(403).json({ error: {
+          code: 'WORKFLOW_NOT_AVAILABLE_FOR_EXTERNAL_INTEGRATION',
+          message: blocker,
+          retryable: false
+        } });
+      }
+    }
     res.status(200).json({ workflow: publicWorkflowDefinition(workflow) });
   } catch (error) {
     next(error);
@@ -121,6 +141,25 @@ export async function createSession(req: AuthenticatedRequest, res: Response, ne
     if (!workflow) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
     const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
+    if (isExternalIntegrationRequest(req)) {
+      const blocker = externalWorkflowBlocker(workflow, authz);
+      if (blocker) {
+        return void res.status(403).json({ error: {
+          code: 'WORKFLOW_NOT_AVAILABLE_FOR_EXTERNAL_INTEGRATION',
+          message: blocker,
+          retryable: false
+        } });
+      }
+      const grantValidation = validateApprovedContextGrants(workflow, approvedContextGrants(req));
+      if (grantValidation.extra.length > 0) {
+        return void res.status(400).json({ error: {
+          code: 'WORKFLOW_CONTEXT_GRANT_UNKNOWN',
+          message: 'approvedContextGrants includes grants that are not required by this workflow.',
+          retryable: false,
+          details: { extraContextGrants: grantValidation.extra }
+        } });
+      }
+    }
     const compiled = await compileWorkflowScope({
       workflow,
       actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
@@ -195,11 +234,24 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
   try {
     const session = await getWorkflowSession(toSingleParam(req.params.sessionId));
     if (!session) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow session not found', retryable: false } });
+    if (isExternalIntegrationRequest(req) && session.createdBy !== req.auth.userId) {
+      return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow session not found', retryable: false } });
+    }
     const authz = await requireWorkspaceDataRead(req, res, session.workspaceId);
     if (!authz) return;
     const currentWorkflow = await getWorkflowDefinition(session.workspaceId, session.workflowId);
     const workflow = session.workflowSnapshot || currentWorkflow;
     if (!workflow) return void res.status(409).json({ error: { code: 'WORKFLOW_VERSION_UNAVAILABLE', message: 'Workflow definition is unavailable.', retryable: false } });
+    if (isExternalIntegrationRequest(req)) {
+      const blocker = currentWorkflow ? externalWorkflowBlocker(currentWorkflow, authz) : 'External integrations can only run active workflows.';
+      if (blocker) {
+        return void res.status(403).json({ error: {
+          code: 'WORKFLOW_NOT_AVAILABLE_FOR_EXTERNAL_INTEGRATION',
+          message: blocker,
+          retryable: false
+        } });
+      }
+    }
     const requiredCapability = workflow.capabilityPolicy.mode === 'read_write' ? 'create_read_write_runs' : 'create_read_only_runs';
     if (!(await requireWorkspaceCapability(req, res, session.workspaceId, requiredCapability, 'No permission to create workflow runs'))) return;
     const content = typeof req.body.content === 'string' ? req.body.content : '';
@@ -273,7 +325,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       if (compiled.scope.targetToolRefs.length > 0 && narrowed.targetTools.allowedToolRefs.length === 0) {
         await recordWorkspaceAuditEvent({
           workspaceId: session.workspaceId, category: 'run', eventType: 'workflow.launch_blocked.v1', operation: 'read',
-          actorUserId: req.auth.userId, objectType: 'workflow', objectId: workflow.id, objectName: workflow.name,
+          ...workflowAuditActor(req), objectType: 'workflow', objectId: workflow.id, objectName: workflow.name,
           summary: 'Workflow launch blocked', metadata: { workflowId: workflow.id, reasonCodes: ['WORKFLOW_TARGET_TOOLS_UNAVAILABLE'] }
         });
         return void res.status(409).json({ error: { code: 'WORKFLOW_TARGET_TOOLS_UNAVAILABLE', message: 'The selected target tool catalog is unavailable.', retryable: true } });
@@ -289,7 +341,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
     if (mcpReadiness.errors.length > 0) {
       await recordWorkspaceAuditEvent({
         workspaceId: session.workspaceId, category: 'run', eventType: 'workflow.launch_blocked.v1', operation: 'read',
-        actorUserId: req.auth.userId, objectType: 'workflow', objectId: workflow.id, objectName: workflow.name,
+        ...workflowAuditActor(req), objectType: 'workflow', objectId: workflow.id, objectName: workflow.name,
         summary: 'Workflow launch blocked', metadata: {
           workflowId: workflow.id,
           reasonCodes: mcpReadiness.failures.length > 0
