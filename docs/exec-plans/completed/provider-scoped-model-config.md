@@ -1,5 +1,9 @@
 # Provider-scoped model configuration
 
+> Superseded by
+> [Structured LLM provider configuration](structured-llm-provider-config.md),
+> which replaces the serialized provider policy variables with one JSON map.
+
 ## Goal
 
 Remove the legacy flat `LLM_ALLOWED_MODELS` configuration path and make

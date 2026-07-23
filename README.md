@@ -110,7 +110,11 @@ docker compose --profile integration up -d --build
 This profile requires sibling repositories `../execution-engine` and `../llm-gateway`.
 When enabled, execution-engine and llm-gateway are started in reload/watch mode as well.
 Default local run bootstrap is configured to `LLM_DEFAULT_PROVIDER=openai` and
-`LLM_DEFAULT_MODEL=gpt-5.5` (override via env if needed).
+`LLM_DEFAULT_MODEL=gpt-5.5` (override via env if needed). Provider allowance
+and provider-scoped model policy come from `LLM_PROVIDERS_JSON`, a JSON object
+whose keys are allowed providers and whose values are non-empty model arrays.
+The default enables OpenAI, Anthropic, and Gemini. The default provider must be
+a configured key and the default model must belong to that provider.
 Agentic tool-loop guardrails are configurable via env:
 `ASSISTANT_CONTEXT_MAX_TOKENS` (default `120000`),
 `ASSISTANT_BUDGET_CENTS` (default `25`), `ASSISTANT_LLM_TEMPERATURE` (default `0.2`),

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { agentTransportConfigFields, validateAgentTransportConfig } from './config-agent-transport.js';
 import { agentKHelmConfigFields, parseAgentKHelmValues, validateAgentKHelmConfig } from './config-agentk-helm.js';
 import { configureWorkspaceRoleTemplates } from './auth/role-template-config.js';
-import { DEFAULT_LLM_ALLOWED_PROVIDER_MODELS, validateLlmPolicyConfig } from './config-llm-policy.js';
+import { DEFAULT_LLM_PROVIDERS_JSON, validateLlmPolicyConfig } from './config-llm-policy.js';
 import { webhookConfigShape } from './config-webhooks.js';
 import {
   parseAdminTokenDescriptors,
@@ -254,8 +254,9 @@ const envSchema = z.object({
   LLM_GATEWAY_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
   LLM_DEFAULT_PROVIDER: z.enum(['openai', 'anthropic', 'gemini']).default('openai'),
   LLM_DEFAULT_MODEL: z.string().default('gpt-5.5'),
-  LLM_ALLOWED_PROVIDERS: z.string().default('openai,anthropic,gemini'),
-  LLM_ALLOWED_PROVIDER_MODELS: z.string().default(DEFAULT_LLM_ALLOWED_PROVIDER_MODELS),
+  LLM_PROVIDERS_JSON: z.preprocess(emptyStringToUndefined, z.string().default(DEFAULT_LLM_PROVIDERS_JSON)),
+  LLM_ALLOWED_PROVIDERS: z.never().optional(),
+  LLM_ALLOWED_PROVIDER_MODELS: z.never().optional(),
   LLM_MAX_OUTPUT_TOKENS: optionalPositiveIntFromEnv,
   LLM_REASONING_SUMMARIES_ENABLED: envBoolean(true),
   LLM_ALLOWED_REASONING_SUMMARY_MODES: z.string().default('off,auto,concise,detailed'),

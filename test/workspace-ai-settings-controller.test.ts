@@ -164,8 +164,8 @@ describe('workspace AI settings controller', () => {
       }
       return new Response('unexpected request', { status: 500 });
     });
-    const previousAllowedProviders = config.LLM_ALLOWED_PROVIDERS;
-    config.LLM_ALLOWED_PROVIDERS = 'openai,anthropic';
+    const previousProvidersJson = config.LLM_PROVIDERS_JSON;
+    config.LLM_PROVIDERS_JSON = '{"openai":["gpt-5.5"],"anthropic":["claude-sonnet-4-6"]}';
 
     try {
       const response = await callController(
@@ -176,7 +176,7 @@ describe('workspace AI settings controller', () => {
       assert.equal(response.statusCode, 200);
       assert.equal((response.body as { providers: Array<{ provider: string; configured: boolean }> }).providers.find((provider) => provider.provider === 'gemini')?.configured, false);
     } finally {
-      config.LLM_ALLOWED_PROVIDERS = previousAllowedProviders;
+      config.LLM_PROVIDERS_JSON = previousProvidersJson;
     }
   });
 

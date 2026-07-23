@@ -1,9 +1,9 @@
 import { config } from '../config.js';
 import {
+  configuredProviders,
   flatProviderModels,
   parseConfigCsv,
-  parseConfiguredAllowedProviderModels,
-  parseConfiguredAllowedProviders,
+  parseConfiguredProvidersJson,
   parseConfiguredReasoningEfforts,
   parseConfiguredReasoningSummaryModes,
   type ProviderModelMap,
@@ -21,20 +21,20 @@ export function parseCsv(value: string): string[] {
   return parseConfigCsv(value);
 }
 
-export function parseAllowedProviders(value = config.LLM_ALLOWED_PROVIDERS): LlmProvider[] {
-  return parseConfiguredAllowedProviders(value);
+export function parseAllowedProviders(value = config.LLM_PROVIDERS_JSON): LlmProvider[] {
+  return configuredProviders(parseConfiguredProvidersJson(value));
 }
 
 export function parseAllowedProviderModels(
-  value = config.LLM_ALLOWED_PROVIDER_MODELS
+  value = config.LLM_PROVIDERS_JSON
 ): ProviderModelMap {
-  return parseConfiguredAllowedProviderModels(value);
+  return parseConfiguredProvidersJson(value);
 }
 
 export function parseAllowedModels(
-  value = config.LLM_ALLOWED_PROVIDER_MODELS
+  value = config.LLM_PROVIDERS_JSON
 ): string[] {
-  return flatProviderModels(parseConfiguredAllowedProviderModels(value));
+  return flatProviderModels(parseConfiguredProvidersJson(value));
 }
 
 export function parseAllowedReasoningSummaryModes(
