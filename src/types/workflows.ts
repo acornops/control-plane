@@ -184,6 +184,7 @@ export interface CompiledWorkflowAccessScope {
   targetToolRefs: McpToolRef[];
   tools: string[];
   toolOperations: Record<string, WorkspaceAuditOperation>;
+  nativeToolConfigs: Record<string, Record<string, unknown>>;
   enabledSkills: string[];
   contextGrants: string[];
   approvalGates: string[];

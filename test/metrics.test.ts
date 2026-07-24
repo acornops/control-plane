@@ -150,10 +150,12 @@ describe('control-plane metrics', () => {
 
   it('renders workspace-native outcomes with canonical bounded IDs and no correlation labels', () => {
     observeWorkspaceNativeToolCall('reports.pdf.generate', 'success', 42);
+    observeWorkspaceNativeToolCall('http.fetch.get', 'success', 125);
     observeWorkspaceNativeToolCall('unknown.dynamic.tool', 'failure', 75);
     const payload = renderControlPlaneMetrics();
 
     assert.match(payload, /control_plane_workspace_native_tool_calls_total\{[^}]*tool_id="reports\.pdf\.generate",outcome="success"[^}]*\} 1/);
+    assert.match(payload, /control_plane_workspace_native_tool_calls_total\{[^}]*tool_id="http\.fetch\.get",outcome="success"[^}]*\} 1/);
     assert.match(payload, /control_plane_workspace_native_tool_calls_total\{[^}]*tool_id="other",outcome="failure"[^}]*\} 1/);
     assert.match(payload, /control_plane_workspace_native_tool_call_duration_ms_bucket\{[^}]*tool_id="reports\.pdf\.generate",outcome="success",le="50"[^}]*\} 1/);
     assert.doesNotMatch(payload, /control_plane_workspace_native_tool_[^\n]*\{[^}]*(?:run|workspace|tool_call)_id=/);

@@ -4,15 +4,19 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
   return {
     WorkspaceNativeTool: {
       type: 'object',
-      required: ['id', 'title', 'description', 'semanticCapabilityId', 'invocationScopes', 'authorizationClass', 'auditOperation', 'approvalOperation', 'inputSchema', 'outputSchema'],
+      required: ['id', 'modelAlias', 'title', 'description', 'semanticCapabilityId', 'invocationScopes', 'authorizationClass', 'auditOperation', 'approvalOperation', 'inputSchema', 'outputSchema'],
       properties: {
-        id: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' },
+        id: { type: 'string' }, modelAlias: { type: 'string' },
+        title: { type: 'string' }, description: { type: 'string' },
+        targetCatalogDescription: { type: 'string' },
+        targetToggleable: { type: 'boolean' },
         semanticCapabilityId: { type: 'string' },
         invocationScopes: { type: 'array', items: { type: 'string', enum: ['workflow', 'target_chat'] } },
-        authorizationClass: { type: 'string', enum: ['selected_context', 'internal_artifact'] },
+        authorizationClass: { type: 'string', enum: ['prompt_resource', 'internal_artifact', 'external_http_read'] },
         auditOperation: { type: 'string', enum: ['read', 'write'] },
         approvalOperation: { type: 'string', enum: ['read', 'write'] },
-        requiredContextGrant: { type: 'string' }, inputSchema: jsonObject, outputSchema: jsonObject
+        requiredContextGrant: { type: 'string' }, configSchema: jsonObject,
+        inputSchema: jsonObject, outputSchema: jsonObject
       },
       additionalProperties: false
     },
@@ -23,7 +27,7 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
     },
     AgentDefinition: {
       type: 'object',
-      required: ['id', 'workspaceId', 'name', 'instructions', 'status', 'origin', 'reviewState', 'providerType', 'version', 'ownerUserId', 'createdBy', 'workflowUsage'],
+      required: ['id', 'workspaceId', 'name', 'instructions', 'status', 'origin', 'reviewState', 'providerType', 'version', 'ownerUserId', 'createdBy', 'nativeToolConfigs', 'workflowUsage'],
       properties: {
         id: { type: 'string' },
         workspaceId: { type: 'string' },
@@ -45,6 +49,7 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         } },
         mcpInstallations: { type: 'array', items: schemaRef('AgentMcpServer') },
         tools: stringArray,
+        nativeToolConfigs: jsonObject,
         skills: stringArray,
         skillInstallations: { type: 'array', items: schemaRef('AgentSkill') },
         contextGrants: stringArray,

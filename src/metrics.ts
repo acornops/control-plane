@@ -230,6 +230,7 @@ export function observeAutomationPdfRender(outcome: string, durationMs: number, 
 
 const boundedWorkspaceNativeToolIds = new Set([
   'prompt.resources.read',
+  'http.fetch.get',
   'reports.pdf.generate'
 ]);
 

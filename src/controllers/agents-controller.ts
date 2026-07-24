@@ -88,9 +88,9 @@ export async function createAgent(req: AuthenticatedRequest, res: Response, next
     const authz = await requireWorkspaceCapability(req, res, workspaceId, 'manage_agents', 'No permission to manage agents');
     if (!authz) return;
     const body = bodyRecord(req.body);
-    const capabilityKeys = ['mcpServers', 'mcpTools', 'mcpInstallations', 'tools', 'skills', 'skillInstallations'];
+    const capabilityKeys = ['mcpServers', 'mcpTools', 'mcpInstallations', 'tools', 'nativeToolConfigs', 'skills', 'skillInstallations'];
     if (capabilityKeys.some((key) => body[key] !== undefined)) {
-      badRequest(res, 'AGENT_CAPABILITY_ROUTE_REQUIRED', 'Install MCP servers and skills through the Agent-scoped capability APIs. Standalone tools cannot be created.');
+      badRequest(res, 'AGENT_CAPABILITY_ROUTE_REQUIRED', 'Install MCP servers, native tools, and skills through the Agent-scoped capability APIs.');
       return;
     }
     const name = typeof body.name === 'string' ? body.name.trim() : '';
@@ -166,9 +166,9 @@ export async function updateAgent(req: AuthenticatedRequest, res: Response, next
       return;
     }
     const body = bodyRecord(req.body);
-    const capabilityKeys = ['mcpServers', 'mcpTools', 'mcpInstallations', 'tools', 'skills', 'skillInstallations'];
+    const capabilityKeys = ['mcpServers', 'mcpTools', 'mcpInstallations', 'tools', 'nativeToolConfigs', 'skills', 'skillInstallations'];
     if (capabilityKeys.some((key) => body[key] !== undefined)) {
-      badRequest(res, 'AGENT_CAPABILITY_ROUTE_REQUIRED', 'Change MCP servers and skills through the Agent-scoped capability APIs. Standalone tools cannot be created.');
+      badRequest(res, 'AGENT_CAPABILITY_ROUTE_REQUIRED', 'Change MCP servers, native tools, and skills through the Agent-scoped capability APIs.');
       return;
     }
     const patch = agentPatch(body);

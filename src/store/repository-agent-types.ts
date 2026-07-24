@@ -14,6 +14,7 @@ export interface CreateAgentDefinitionInput {
   mcpTools?: AgentDefinition['mcpTools'];
   mcpInstallations?: AgentDefinition['mcpInstallations'];
   tools?: string[];
+  nativeToolConfigs?: AgentDefinition['nativeToolConfigs'];
   skills?: string[];
   skillInstallations?: AgentDefinition['skillInstallations'];
   contextGrants?: string[];
@@ -36,6 +37,7 @@ export interface AgentDefinitionUpdate {
   mcpTools?: AgentDefinition['mcpTools'];
   mcpInstallations?: AgentDefinition['mcpInstallations'];
   tools?: string[];
+  nativeToolConfigs?: AgentDefinition['nativeToolConfigs'];
   skills?: string[];
   skillInstallations?: AgentDefinition['skillInstallations'];
   contextGrants?: string[];

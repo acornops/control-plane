@@ -54,18 +54,21 @@
       "workspaceNativeToolContract": {
         "catalog": [
           "prompt.resources.read",
+          "http.fetch.get",
           "reports.pdf.generate"
         ],
         "modelAliases": {
           "prompt.resources.read": "_acornops_read_prompt_resources",
+          "http.fetch.get": "acornops_fetch",
           "reports.pdf.generate": "acornops_generate_pdf_report"
         },
         "ownership": "Control-plane code owns workspace-native metadata, schemas, authorization class, audit operation, and execution.",
-        "assignment": "manage_agents grants or revokes a tool on a specialist Agent and transactionally rebinds exact reviewed mappings and dependent readiness; manage_mcp is not required.",
-        "invocationScopePolicy": "Workspace-native declarations carry invocationScopes. prompt.resources.read supports workflow; reports.pdf.generate supports workflow and target_chat; delegated specialist Workflow runs receive no workspace-native tools.",
+        "assignment": "manage_agents grants, updates, or revokes a tool on a specialist Agent and transactionally rebinds exact reviewed mappings and dependent readiness; optional code-validated config is accepted on PUT, revoke clears config, and bodyless grants remain valid for unconfigured tools; manage_mcp is not required.",
+        "invocationScopePolicy": "Workspace-native declarations carry invocationScopes. prompt.resources.read and http.fetch.get support workflow; reports.pdf.generate supports workflow and target_chat; delegated specialist Workflow runs receive no workspace-native tools.",
         "artifactSafety": "reports.pdf.generate is a control-plane-owned internal_artifact available to workflows and target chat without crossing the target-adapter boundary. It is allowed in read-only runs without write approval, persisted as a write audit event, bounded, provenance-linked, authenticated, and idempotent by workflow run or target run plus tool_call_id.",
         "promptResources": "prompt.resources.read accepts binding IDs only and dispatches bounded reads through the providers authorized in the run's signed resource bindings.",
-        "ui": "Agent Capabilities > Tools lists AcornOps native tools separately from MCP-discovered tools. Grant and revoke require manage_agents only.",
+        "fetchSafety": "http.fetch.get accepts only a concrete url and executes unauthenticated public HTTPS GET in the control plane against one to 20 run-snapshotted full-URL patterns. Wildcards are restricted to path/query. DNS is public-only and pinned, redirects and IP literals are blocked, timeout is 15 seconds, decompressed output is capped at 256 KiB, and only JSON or text is returned as untrusted external data. Audits and metrics omit full URLs, queries, and bodies.",
+        "ui": "Agent Capabilities > Tools lists AcornOps native tools separately from MCP-discovered tools. Fetch configuration uses a GET-only repeatable full-URL drawer; grant, configuration update, and revoke require manage_agents only.",
         "workflowUi": "Create defaults to inheritance after Agent selection. Advanced restriction supports narrowed and intentionally empty sets; review and readiness copy distinguish policy from effective capabilities.",
         "artifactUi": "Workflow and target-chat assistant responses expose authenticated PDF download cards returned by reports.pdf.generate; Copy remains a separate response action."
       },
@@ -468,6 +471,7 @@
           "ownerUserId",
           "mcpServers[]",
           "tools[]",
+          "nativeToolConfigs",
           "skills[]",
           "contextGrants[]",
           "targetScope",
@@ -780,6 +784,7 @@
       ],
       "toolCallCompletedResultMaxBytes": 12288,
       "platformNativeToolRouting": "A platform function is exposed under its provider-safe model_alias only when that alias intersects bootstrap platform_functions, allowed_tools, and tool_specs. Execution routes the alias back to the canonical control-plane ID with the stable tool-call ID. Missing, duplicate, or invalid mappings fail closed. native_tools and gateway JWT allowed_native_tools contain provider-native tools only; target MCP tools remain gateway/target-adapter owned.",
+      "fetchRouting": "http.fetch.get is exposed as acornops_fetch and dispatches through the existing platform-function client to the control plane; execution-engine never performs the external HTTP request. The platform-function read deadline exceeds Fetch's control-plane-owned 15-second deadline so timeout outcomes remain producer-authoritative. Durable tool-start events redact the URL, and completion or fallback events retain only status, content type, response size, retrieval time, and the untrusted-data marker, never the URL, query, or response body.",
       "commitStatusValues": [
         "completed",
         "failed",

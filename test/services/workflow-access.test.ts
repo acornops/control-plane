@@ -31,6 +31,7 @@ function agent(id: string, version = 2): AgentDefinition {
     mcpTools: [],
     mcpInstallations: [],
     tools: ['workspace.metadata.read'],
+    nativeToolConfigs: {},
     skills: [],
     skillInstallations: [],
     contextGrants: ['workspace_metadata'],
@@ -121,6 +122,38 @@ describe('Workflow executor scope compiler', () => {
     assert.equal(compiled.jwtClaims.agent_id, 'agent-a');
     assert.deepEqual(compiled.tools, ['events.search', 'workspace.metadata.read']);
     assert.deepEqual(compiled.coordinationFunctions, []);
+  });
+
+  it('snapshots Fetch configuration into the direct run scope', () => {
+    const specialist = {
+      ...agent('agent-fetch'),
+      tools: ['http.fetch.get'],
+      nativeToolConfigs: {
+        'http.fetch.get': {
+          allowedUrlPatterns: ['https://status.example.com/api/*']
+        }
+      }
+    };
+    const compiled = compileWorkflowAccessScope({
+      workflow: workflow([specialist]),
+      selectedAgents: [specialist],
+      specialistAgent: specialist,
+      mappings: [{
+        ...mapping(specialist),
+        nativeToolIds: ['http.fetch.get']
+      }],
+      actor,
+      approvedContextGrants: ['workspace_metadata']
+    });
+
+    assert.deepEqual(compiled.nativeToolConfigs, specialist.nativeToolConfigs);
+    specialist.nativeToolConfigs['http.fetch.get'].allowedUrlPatterns[0] =
+      'https://changed.example.com/*';
+    assert.deepEqual(compiled.nativeToolConfigs, {
+      'http.fetch.get': {
+        allowedUrlPatterns: ['https://status.example.com/api/*']
+      }
+    });
   });
 
   it('creates a coordinated root with only internal coordination functions and no Agent identity', () => {

@@ -39,6 +39,11 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - The control plane owns code-defined workspace-native tools. `manage_agents`
   grants or revokes them on specialists without `manage_mcp`. Their reviewed
   mappings authorize workflows, while invocation scope is declared per tool.
+  `http.fetch.get` supports unauthenticated public HTTPS GET for one to 20
+  Agent-configured full-URL patterns. Its normalized configuration is copied
+  into the run snapshot, and the control plane enforces DNS-pinned SSRF,
+  redirect, media-type, timeout, and response-size limits without logging URL
+  queries or response bodies.
   `reports.pdf.generate` supports workflows and target chat; it executes in the
   control plane without crossing a target adapter. Delegated specialist child
   runs reject workspace-native tools. PDF artifact creation is read-only-run safe but

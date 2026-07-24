@@ -25,17 +25,33 @@ async function mutate(req: AuthenticatedRequest, res: Response, next: NextFuncti
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
       return;
     }
+    if (assigned && req.body !== undefined) {
+      if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)
+        || Object.keys(req.body).some((key) => key !== 'config')) {
+        res.status(400).json({
+          error: {
+            code: 'NATIVE_TOOL_CONFIG_INVALID',
+            message: 'Native-tool assignment accepts only an optional config object.',
+            retryable: false
+          }
+        });
+        return;
+      }
+    }
     const agent = await setAgentNativeToolAssignment({
       workspaceId,
       agentId,
       toolId: toSingleParam(req.params.toolId),
       assigned,
-      actorUserId: req.auth.userId
+      actorUserId: req.auth.userId,
+      config: assigned ? req.body?.config : undefined
     });
     res.status(200).json({ agent: await agentResponse(agent) });
   } catch (error) {
     if (error instanceof AgentNativeToolAssignmentError) {
-      res.status(error.code.endsWith('NOT_FOUND') ? 404 : 409).json({
+      res.status(error.code.endsWith('NOT_FOUND') ? 404
+        : error.code === 'NATIVE_TOOL_CONFIG_INVALID' ? 400
+          : 409).json({
         error: { code: error.code, message: error.message, retryable: false }
       });
       return;

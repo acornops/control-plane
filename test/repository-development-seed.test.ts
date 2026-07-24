@@ -67,11 +67,12 @@ describe('development target seed', () => {
             review_state: values[6], provider_type: values[7], version: 1,
             owner_user_id: values[8], created_by: values[9], mcp_servers: JSON.parse(String(values[10])),
             mcp_tools: JSON.parse(String(values[11])), mcp_installations: JSON.parse(String(values[12])),
-            tools: JSON.parse(String(values[13])), skills: JSON.parse(String(values[14])),
-            skill_installations: JSON.parse(String(values[15])), context_grants: JSON.parse(String(values[16])),
-            target_scope: values[17], approval_policy: values[18], trust_policy: values[19],
-            permission_mode: values[20], semantic_capability_ids: JSON.parse(String(values[21])),
-            readiness_status: 'needs_setup', readiness_reasons: JSON.parse(String(values[22])),
+            tools: JSON.parse(String(values[13])), native_tool_configs: JSON.parse(String(values[14])),
+            skills: JSON.parse(String(values[15])), skill_installations: JSON.parse(String(values[16])),
+            context_grants: JSON.parse(String(values[17])), target_scope: values[18],
+            approval_policy: values[19], trust_policy: values[20], permission_mode: values[21],
+            semantic_capability_ids: JSON.parse(String(values[22])),
+            readiness_status: 'needs_setup', readiness_reasons: JSON.parse(String(values[23])),
             created_at: new Date(), updated_at: new Date()
           };
           agentRows.set(String(values[1]), row);

@@ -11,6 +11,14 @@ import type { Run } from '../types/domain.js';
 import { config } from '../config.js';
 import { getWorkspaceNativeTool } from './workspace-native-tools.js';
 import { digestBindings, digestPrompt, promptResourceRegistry } from './prompt-resources/index.js';
+import {
+  assertFetchUrlAllowed,
+  FETCH_TOOL_ID,
+  FetchUrlPolicyError,
+  normalizeFetchToolInput,
+  normalizeFetchToolConfig
+} from './fetch-url-policy.js';
+import { fetchPublicHttpGet, FetchHttpError } from './fetch-http.js';
 
 export class WorkspaceNativeToolExecutionError extends Error {
   constructor(readonly code: string, message: string, readonly status = 400) {
@@ -147,6 +155,50 @@ async function generatePdf(
   };
 }
 
+async function fetchExternalUrl(
+  run: WorkflowRunRecord,
+  args: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  try {
+    const { url: rawUrl } = normalizeFetchToolInput(args);
+    const config = normalizeFetchToolConfig(run.compiledAccessScope.nativeToolConfigs?.[FETCH_TOOL_ID]);
+    const canonicalUrl = assertFetchUrlAllowed(rawUrl, config);
+    return await fetchPublicHttpGet(canonicalUrl) as unknown as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof FetchUrlPolicyError) {
+      const status = error.code === 'FETCH_URL_NOT_ALLOWED' ? 403 : 400;
+      throw new WorkspaceNativeToolExecutionError(error.code, error.message, status);
+    }
+    if (error instanceof FetchHttpError) {
+      throw new WorkspaceNativeToolExecutionError(error.code, error.message, error.status);
+    }
+    throw error;
+  }
+}
+
+function fetchAuditMetadata(
+  toolId: string,
+  args: Record<string, unknown>,
+  result?: Record<string, unknown>
+): Record<string, unknown> {
+  if (toolId !== FETCH_TOOL_ID) return {};
+  const rawUrl = typeof args.url === 'string' ? args.url : '';
+  let hostname: string | undefined;
+  try {
+    hostname = new URL(rawUrl).hostname.toLowerCase();
+  } catch {
+    // Invalid URLs are represented by the error code without logging request content.
+  }
+  const status = typeof result?.status === 'number' ? result.status : undefined;
+  return {
+    ...(hostname ? { hostname } : {}),
+    ...(status ? { statusClass: `${Math.floor(status / 100)}xx` } : {}),
+    ...(typeof result?.responseSizeBytes === 'number'
+      ? { responseSizeBytes: result.responseSizeBytes }
+      : {})
+  };
+}
+
 export async function executeWorkspaceNativeTool(input: {
   run: WorkflowRunRecord | Run;
   toolId: string;
@@ -168,6 +220,16 @@ export async function executeWorkspaceNativeTool(input: {
         );
       }
       result = await readPromptResources(input.run, input.arguments);
+    }
+    else if (tool.id === FETCH_TOOL_ID) {
+      if (!('executionId' in input.run)) {
+        throw new WorkspaceNativeToolExecutionError(
+          'WORKSPACE_NATIVE_TOOL_SCOPE_DENIED',
+          'Fetch is available only to workflow runs.',
+          403
+        );
+      }
+      result = await fetchExternalUrl(input.run, input.arguments);
     }
     else if (tool.id === 'reports.pdf.generate') result = await generatePdf(input.run, input.arguments, input.toolCallId);
     else throw new WorkspaceNativeToolExecutionError('NATIVE_TOOL_NOT_IMPLEMENTED', 'Native tool is not implemented.', 501);
@@ -192,7 +254,8 @@ export async function executeWorkspaceNativeTool(input: {
           sessionId: input.run.sessionId
         }),
         durationMs: Date.now() - startedAt,
-        succeeded: true
+        succeeded: true,
+        ...fetchAuditMetadata(tool.id, input.arguments, result)
       }
     });
     observeWorkspaceNativeToolCall(tool.id, 'success', Date.now() - startedAt);
@@ -220,7 +283,8 @@ export async function executeWorkspaceNativeTool(input: {
         }),
         durationMs: Date.now() - startedAt,
         succeeded: false,
-        errorCode: error instanceof WorkspaceNativeToolExecutionError ? error.code : 'NATIVE_TOOL_EXECUTION_FAILED'
+        errorCode: error instanceof WorkspaceNativeToolExecutionError ? error.code : 'NATIVE_TOOL_EXECUTION_FAILED',
+        ...fetchAuditMetadata(tool.id, input.arguments)
       }
     });
     throw error;
