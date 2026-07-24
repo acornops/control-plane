@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, it, mock } from 'node:test';
 import { getWorkspacePermissions } from '../src/auth/authorization.js';
+import { config } from '../src/config.js';
 import { commitRun } from '../src/controllers/internal-execution-controller.js';
 import { cancelRun } from '../src/controllers/runs-controller.js';
 import { cancelWorkflowExecution } from '../src/controllers/workflow-executions-controller.js';
@@ -41,23 +42,25 @@ import {
   installWorkspace,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
-
 const actor = {
   userId: 'user-1',
   role: 'admin',
   permissions: getWorkspacePermissions('admin')
 };
-
+const mutableConfig = config as typeof config & { AUTOMATION_RUNTIME_MODE: 'off' | 'shadow' | 'canary' | 'on' };
+let originalRuntimeMode = config.AUTOMATION_RUNTIME_MODE;
 beforeEach(async () => {
+  originalRuntimeMode = config.AUTOMATION_RUNTIME_MODE;
+  mutableConfig.AUTOMATION_RUNTIME_MODE = 'on';
   await resetAutomationDatabaseFixtures();
   await installAutomationTemplateFixtures();
 });
 afterEach(() => {
+  mutableConfig.AUTOMATION_RUNTIME_MODE = originalRuntimeMode;
   mock.restoreAll();
   restoreControllerRegressionState();
 });
 after(closeAutomationDatabaseFixtures);
-
 async function coordinatedRoot() {
   const agents = (await Promise.all([
     getAgentDefinition('workspace-1', 'agent-cluster-triage'),
@@ -145,7 +148,6 @@ async function coordinatedRoot() {
   });
   return { parent, specialist, childScope };
 }
-
 function delegationInput(
   setup: Awaited<ReturnType<typeof coordinatedRoot>>,
   toolCallId: string
@@ -164,7 +166,6 @@ function delegationInput(
     maxChildren: 8
   };
 }
-
 function commitBody(status: 'completed' | 'failed', content: string, toolCalls = 0) {
   return {
     status,
@@ -173,7 +174,6 @@ function commitBody(status: 'completed' | 'failed', content: string, toolCalls =
     timing: { started_at: '2026-07-24T00:00:00.000Z', ended_at: '2026-07-24T00:00:01.000Z' }
   };
 }
-
 describe('delegated Workflow run persistence', () => {
   it('returns one child for concurrent identical tool-call delivery and rejects altered replay', async () => {
     const setup = await coordinatedRoot();

@@ -24,11 +24,19 @@ import {
   resetAutomationDatabaseFixtures
 } from './helpers/automation-database-fixtures.js';
 
+const mutableConfig = config as typeof config & { AUTOMATION_RUNTIME_MODE: 'off' | 'shadow' | 'canary' | 'on' };
+let originalRuntimeMode = config.AUTOMATION_RUNTIME_MODE;
+
 beforeEach(async () => {
+  originalRuntimeMode = config.AUTOMATION_RUNTIME_MODE;
+  mutableConfig.AUTOMATION_RUNTIME_MODE = 'on';
   await resetAutomationDatabaseFixtures();
   await installAutomationTemplateFixtures();
 });
-afterEach(restoreControllerRegressionState);
+afterEach(() => {
+  mutableConfig.AUTOMATION_RUNTIME_MODE = originalRuntimeMode;
+  restoreControllerRegressionState();
+});
 after(closeAutomationDatabaseFixtures);
 
 describe('coordinated Workflow schedules', () => {
