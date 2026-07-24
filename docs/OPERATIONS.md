@@ -20,6 +20,12 @@
 - `CORS_ORIGIN`
 - `OIDC_HTTP_TIMEOUT_MS` (default `10000`)
 - `OIDC_CLIENT_SECRET`
+- `OIDC_ENABLED` controls whether OIDC routes and the console sign-in option are available.
+- `OIDC_ADMISSION_POLICY_JSON` defines fail-closed verified-email, email-domain, and required-claim admission rules. An empty object allows any successfully authenticated OIDC identity.
+- `OIDC_END_SESSION_ENDPOINT_OVERRIDE` supplies a public browser-facing RP-initiated logout endpoint when discovery uses an internal hostname.
+- `OIDC_POST_LOGOUT_REDIRECT_URI` must exactly match a post-logout redirect registered with the provider.
+
+OIDC logout always deletes the current AcornOps browser session before redirecting to the provider. If the provider does not advertise or configure an end-session endpoint, logout completes locally and the console warns that the provider session may remain active. Deploying the versioned session format invalidates existing browser sessions.
 - `ORCH_SERVICE_TOKEN`
 - `EXTERNAL_INTEGRATION_CLIENTS_JSON`
 - `EXTERNAL_INTEGRATION_LINK_TOKEN_RETENTION_DAYS` (default `30`)
@@ -28,6 +34,14 @@
 - `LLM_GATEWAY_ADMIN_TOKEN`
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`
 - `WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON` (default `[]`)
+- `WEBHOOK_WORKER_ENABLED` (default `true`)
+- `WEBHOOK_WORKER_BATCH_SIZE` (default `50`)
+- `WEBHOOK_WORKER_CONCURRENCY` (default `20`)
+- `WEBHOOK_WORKER_PER_ORIGIN_CONCURRENCY` (default `4`)
+- `WEBHOOK_MAX_ATTEMPTS` (default `10`)
+- `WEBHOOK_MAX_RETRY_AGE_SECONDS` (default `86400`)
+- `WEBHOOK_MAX_PAYLOAD_BYTES` (default `65536`)
+- `WEBHOOK_MAX_SUBSCRIPTIONS_PER_WORKSPACE` (default `100`)
 
 ## Private Webhook Destinations
 
@@ -55,6 +69,28 @@ deployments must also configure the platform chart's
 `networkPolicies.webhooks.to` peers and ports, and private PKI deployments must
 provide the control-plane additional CA bundle.
 
+## Durable Webhook Delivery
+
+Webhook events and per-subscription jobs are committed to Postgres before the
+worker sends them. Every control-plane replica may claim jobs through expiring
+leases; stale workers cannot commit delivery results after another replica has
+reclaimed a lease. Retries preserve the event ID and payload, honor bounded
+`Retry-After` values, and stop at the configured attempt or age limit.
+
+`WEBHOOK_WORKER_CONCURRENCY` and
+`WEBHOOK_WORKER_PER_ORIGIN_CONCURRENCY` are per-replica limits. Effective
+cluster concurrency scales with the number of control-plane replicas. The
+per-origin limit is capped by the lower global concurrency. The claim lease is
+sized for the configured batch's worst-case same-origin drain at that effective limit,
+so queued jobs do not become reclaimable merely because they are waiting for a
+per-origin slot.
+
+Set `WEBHOOK_WORKER_ENABLED=false` during maintenance to pause new claims while
+event enqueueing continues. Re-enable the worker to drain the backlog. Issue
+created/reopened notifications pause while an issue is recovering and are
+superseded when a newer lifecycle version makes them stale. External endpoint
+failures do not affect readiness.
+
 ## Additional CA Trust
 
 Set both `ADDITIONAL_CA_BUNDLE_FILE` and `NODE_EXTRA_CA_CERTS` to the same
@@ -65,14 +101,14 @@ plaintext database, Redis, or internal-service URLs.
 
 ## Automation Runtime
 
-Production defaults keep new automation dispatch disabled until migrations and
-template backfill are verified:
+Production defaults keep new automation dispatch disabled until the greenfield
+baseline and current workspace provisioning are verified:
 
 ```bash
 AUTOMATION_RUNTIME_MODE=off
 AUTOMATION_CANARY_WORKSPACE_IDS=
 AUTOMATION_WORKER_INTERVAL_MS=1000
-AGENT_WRITE_CONFIRMATION_TIMEOUT_SECONDS=900
+ASSISTANT_WRITE_CONFIRMATION_TIMEOUT_SECONDS=900
 ```
 
 Use `off`, then `shadow`, then `canary` with an explicit workspace allow-list,
@@ -81,12 +117,13 @@ dispatch-outbox entry commit. Postgres row claims are authoritative; Redis
 leases reduce duplicate work but do not own scheduler correctness.
 
 `GET /api/v1/workspaces/{workspaceId}/automation/diagnostics` reports the
-workspace's runtime mode, outbox depth and age, active Agent and Workflow run
-states, trigger delivery state, scheduler lag, pending approval age, template
-readiness reasons, and retained report-source count. It requires workspace read
-access. Keep this dependency view separate from `/ready`: a disconnected
-external MCP server makes affected templates `needs_setup` or `blocked`, but it
-must not remove the control plane from service.
+workspace's runtime mode, outbox depth and age, Workflow run states grouped by
+executor role and root/child graph position, trigger delivery state, scheduler
+lag, pending approval age, template readiness reasons, and retained
+report-source count. It requires workspace read access. Keep this dependency
+view separate from `/ready`: a disconnected external MCP server makes affected
+templates `needs_setup` or `blocked`, but it must not remove the control plane
+from service.
 
 The `/metrics` endpoint exposes low-cardinality `control_plane_automation_*`
 counters and gauges for dispatch, triggers, approvals, terminal outcomes, PDF
@@ -98,12 +135,12 @@ over 60 seconds, an approval remains pending past 15 minutes, or any run enters
 `needs_review`.
 
 Generated AgentK install commands use the latest chart release by default,
-including experimental releases. Set `AGENT_HELM_CHART_VERSION` when an
+including experimental releases. Set `AGENTK_HELM_CHART_VERSION` when an
 environment needs to pin an exact, tested chart version.
-`AGENT_HELM_VALUES_JSON` supplies platform-default downstream chart values,
+`AGENTK_HELM_VALUES_JSON` supplies platform-default downstream chart values,
 such as an internal image mirror, as a JSON object. Generated identity,
 connectivity, namespace-scope, and write-mode paths cannot be overridden.
-`AGENT_HELM_ADDITIONAL_CA_FILE_PATH` adds a `--set-file` argument for a public
+`AGENTK_HELM_ADDITIONAL_CA_FILE_PATH` adds a `--set-file` argument for a public
 PEM CA bundle; this path is resolved on the operator machine that executes the
 generated command.
 
@@ -128,6 +165,19 @@ path-prefixed or otherwise custom deployments.
 descriptors, not raw tokens. Generate a raw bearer token for each installed
 integration client out of band, store only its lowercase SHA-256 hash in the
 descriptor, and deliver the raw token through the operator secret channel.
+If `allowedCapabilities` is omitted, the client ceiling is
+`read_workspace_data`, `create_sessions`, and `create_read_only_runs`. Add
+`create_read_write_runs` only for a client that may request write-capable
+troubleshooting runs or active Workflows, including approval-gated read-only
+Workflows, and keep the three default capabilities when read-only runs must
+continue to work. The linked user must separately approve the capability for
+each workspace, and the user's workspace role remains the final ceiling. An
+external integration can decide troubleshooting and Workflow write approvals
+only for executions requested through the same active integration link and
+client. Adapters must require an explicit linked-user confirmation before
+calling the decision endpoint. Delegated specialist approvals inherit the
+execution's origin boundary; browser-created, other-link/client, scheduled, and
+system-triggered approvals remain denied.
 
 ## Admin API
 
@@ -265,9 +315,10 @@ Kubernetes deployments run this through the Helm migration Job:
 node dist/scripts/control-plane-db.js migrate
 ```
 
-Automation migrations are additive and forward-compatible. Runtime rollback is
-performed by setting `AUTOMATION_RUNTIME_MODE=off` and restoring the previous
-images; do not roll back the schema.
+This version establishes a greenfield schema epoch. Tear down and recreate every
+pre-release database before running the baseline; in-place upgrades are not
+supported. Deploy the pinned control-plane, execution-engine, and gateway matrix
+together.
 
 ## Failure Modes
 

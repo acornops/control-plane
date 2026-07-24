@@ -16,9 +16,11 @@ import { repo } from '../src/store/repository.js';
 import type { Role, RoleTemplate } from '../src/types/domain.js';
 
 const originalGetWorkspaceRole = repo.getWorkspaceRole;
+const originalGetExternalIntegrationWorkspaceGrant = repo.getExternalIntegrationWorkspaceGrant;
 
 afterEach(() => {
   repo.getWorkspaceRole = originalGetWorkspaceRole;
+  repo.getExternalIntegrationWorkspaceGrant = originalGetExternalIntegrationWorkspaceGrant;
   configureRoleTemplates(Object.values(BUILT_IN_ROLE_TEMPLATES));
 });
 
@@ -28,6 +30,31 @@ function createRequest(userId = 'user-1') {
       userId,
       credential: { type: 'session' as const, sessionId: 'session-1' }
     }
+  };
+}
+
+function createExternalIntegrationRequest(userId = 'user-1') {
+  return {
+    auth: {
+      userId,
+      credential: {
+        type: 'external_integration' as const,
+        linkId: 'link-1',
+        integrationId: 'external-chat',
+        provider: 'external',
+        externalUserId: 'external-user-1'
+      }
+    }
+  };
+}
+
+function withExternalIntegrationClientCapabilities(
+  req: ReturnType<typeof createExternalIntegrationRequest>,
+  allowedCapabilities: string[]
+): ReturnType<typeof createExternalIntegrationRequest> & { externalIntegrationClient: { allowedCapabilities: string[] } } {
+  return {
+    ...req,
+    externalIntegrationClient: { allowedCapabilities }
   };
 }
 
@@ -47,6 +74,15 @@ function createResponse() {
 }
 
 describe('workspace authorization helpers', () => {
+  function installExternalIntegrationGrant(capabilities = ['read_workspace_data', 'create_sessions', 'create_read_only_runs'] as const): void {
+    repo.getExternalIntegrationWorkspaceGrant = async () => ({
+      workspaceId: 'workspace-1',
+      capabilities: [...capabilities],
+      grantedByUserId: 'user-1',
+      createdAt: '2026-05-30T00:00:00.000Z',
+      updatedAt: '2026-05-30T00:00:00.000Z'
+    });
+  }
   it('allows viewers to read but not mutate', async () => {
     repo.getWorkspaceRole = async () => 'viewer';
     const req = createRequest();
@@ -177,10 +213,91 @@ describe('workspace authorization helpers', () => {
     assert.equal(canManageMembership('retired_role', 'viewer', 'operator'), false);
   });
 
-  it('keeps session effective permissions equal to role permissions', () => {
+  it('keeps session effective permissions equal to role permissions', async () => {
     const req = createRequest();
     for (const role of ['owner', 'admin', 'operator', 'viewer', 'auditor'] as Role[]) {
-      assert.deepEqual(getEffectiveWorkspacePermissions(req as never, role), getWorkspacePermissions(role));
+      assert.deepEqual(await getEffectiveWorkspacePermissions(req as never, role, 'workspace-1'), getWorkspacePermissions(role));
     }
+  });
+
+  it('limits external integration effective permissions to bot-allowed reads and read-only troubleshooting', async () => {
+    installExternalIntegrationGrant();
+    const req = createExternalIntegrationRequest();
+    const permissions = await getEffectiveWorkspacePermissions(req as never, 'owner', 'workspace-1');
+    assert.ok(permissions);
+    const botAllowedCapabilities = new Set(['read_workspace_data', 'create_sessions', 'create_read_only_runs']);
+
+    for (const capability of Object.keys(permissions) as Array<keyof typeof permissions>) {
+      assert.equal(permissions[capability], botAllowedCapabilities.has(capability), capability);
+    }
+  });
+
+  it('intersects external integration permissions with the linked user workspace role', async () => {
+    installExternalIntegrationGrant();
+    const req = createExternalIntegrationRequest();
+    const auditorPermissions = await getEffectiveWorkspacePermissions(req as never, 'auditor', 'workspace-1');
+    assert.ok(auditorPermissions);
+
+    for (const capability of Object.keys(auditorPermissions) as Array<keyof typeof auditorPermissions>) {
+      assert.equal(auditorPermissions[capability], false, capability);
+    }
+
+    const viewerPermissions = await getEffectiveWorkspacePermissions(req as never, 'viewer', 'workspace-1');
+    assert.ok(viewerPermissions);
+    for (const capability of Object.keys(viewerPermissions) as Array<keyof typeof viewerPermissions>) {
+      assert.equal(viewerPermissions[capability], capability === 'read_workspace_data', capability);
+    }
+  });
+
+  it('allows external integration read-write runs only when client ceiling, grant, and role all allow them', async () => {
+    installExternalIntegrationGrant(['read_workspace_data', 'create_sessions', 'create_read_write_runs']);
+    const req = withExternalIntegrationClientCapabilities(createExternalIntegrationRequest(), [
+      'read_workspace_data',
+      'create_sessions',
+      'create_read_write_runs'
+    ]);
+
+    const adminPermissions = await getEffectiveWorkspacePermissions(req as never, 'admin', 'workspace-1');
+    assert.ok(adminPermissions);
+    assert.equal(adminPermissions.create_read_write_runs, true);
+    assert.equal(adminPermissions.create_read_only_runs, false);
+
+    const operatorPermissions = await getEffectiveWorkspacePermissions(req as never, 'operator', 'workspace-1');
+    assert.ok(operatorPermissions);
+    assert.equal(operatorPermissions.create_read_write_runs, false);
+  });
+
+  it('denies external integration effective permissions without a workspace grant', async () => {
+    repo.getExternalIntegrationWorkspaceGrant = async () => null;
+    const permissions = await getEffectiveWorkspacePermissions(createExternalIntegrationRequest() as never, 'owner', 'workspace-1');
+    assert.equal(permissions, null);
+  });
+
+  it('denies privileged workspace capabilities to external integration credentials even for owner memberships', async () => {
+    installExternalIntegrationGrant();
+    repo.getWorkspaceRole = async () => 'owner';
+    const req = createExternalIntegrationRequest();
+    const res = createResponse();
+
+    const authz = await getWorkspaceAuthorization(req as never, 'workspace-1');
+    assert.equal(authz?.role, 'owner');
+    assert.equal(authz?.can('delete_workspace'), false);
+    assert.equal(authz?.can('read_workspace_data'), true);
+    assert.equal(authz?.can('read_members'), false);
+    assert.equal(authz?.can('create_sessions'), true);
+    assert.equal(authz?.can('create_read_only_runs'), true);
+    assert.equal(authz?.can('create_read_write_runs'), false);
+    assert.equal(authz?.can('read_target_logs'), false);
+    assert.equal(authz?.can('cancel_runs'), false);
+
+    const mutationAuthz = await requireWorkspaceCapability(
+      req as never,
+      res as never,
+      'workspace-1',
+      'delete_workspace',
+      'denied'
+    );
+    assert.equal(mutationAuthz, null);
+    assert.equal(res.statusCode, 403);
   });
 });

@@ -2,7 +2,73 @@ import { EXAMPLE_TARGET_ID, EXAMPLE_WORKSPACE_ID } from '../../constants/dev-def
 
 export function buildWebhookPaths(): Record<string, unknown> {
   return {
-'/api/v1/workspaces/{workspaceId}/webhooks': {
+      '/api/v1/external-integrations/webhook-routes/connect': {
+        post: {
+          tags: ['webhooks'],
+          summary: 'Connect an external integration webhook route and rotate matching signing secrets',
+          security: [{ externalIntegrationClientToken: [] }],
+          parameters: [
+            {
+              in: 'header',
+              name: 'x-acornops-external-user-id',
+              required: true,
+              schema: { type: 'string', example: 'external-user-1' }
+            }
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['deliveryUrl'],
+                  properties: {
+                    deliveryUrl: {
+                      type: 'string',
+                      format: 'uri',
+                      example: 'https://bot.example.com/acornops/webhooks/routes/route-token'
+                    }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            '200': { description: 'External webhook route state. Connected subscriptions include freshly rotated signing secrets.' },
+            '401': { description: 'Requires a linked external integration credential.' }
+          }
+        }
+      },
+      '/api/v1/external-integrations/webhook-routes/status': {
+        get: {
+          tags: ['webhooks'],
+          summary: 'Fetch live external integration webhook route status without returning signing secrets',
+          security: [{ externalIntegrationClientToken: [] }],
+          parameters: [
+            {
+              in: 'header',
+              name: 'x-acornops-external-user-id',
+              required: true,
+              schema: { type: 'string', example: 'external-user-1' }
+            },
+            {
+              in: 'query',
+              name: 'deliveryUrl',
+              required: true,
+              schema: {
+                type: 'string',
+                format: 'uri',
+                example: 'https://bot.example.com/acornops/webhooks/routes/route-token'
+              }
+            }
+          ],
+          responses: {
+            '200': { description: 'External webhook route state. Signing secrets are never included.' },
+            '401': { description: 'Requires a linked external integration credential.' }
+          }
+        }
+      },
+      '/api/v1/workspaces/{workspaceId}/webhooks': {
         get: {
           tags: ['webhooks'],
           summary: 'List webhook subscriptions for a workspace',

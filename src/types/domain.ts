@@ -1,3 +1,10 @@
+import { type TargetType } from './target-types.js';
+export {
+  isTargetType, KUBERNETES_TARGET_TYPE,
+  TARGET_TYPE_DISPLAY_LIST, TARGET_TYPES,
+  type TargetType,
+  VIRTUAL_MACHINE_TARGET_TYPE
+} from './target-types.js';
 export type Role = string;
 export type RunStatus =
   | 'queued'
@@ -9,20 +16,14 @@ export type RunStatus =
   | 'cancelled'
   | 'cancelling';
 export type ToolAccessMode = 'read_only' | 'read_write';
-export const TARGET_TYPES = ['kubernetes', 'virtual_machine'] as const;
-export type TargetType = typeof TARGET_TYPES[number];
-export const KUBERNETES_TARGET_TYPE: TargetType = 'kubernetes';
-export const VIRTUAL_MACHINE_TARGET_TYPE: TargetType = 'virtual_machine';
-export const TARGET_TYPE_DISPLAY_LIST = TARGET_TYPES.join(', ');
-
-export function isTargetType(value: string): value is TargetType {
-  return TARGET_TYPES.includes(value as TargetType);
-}
-
 export type WriteConfirmationPolicySource = 'cluster_override' | 'deployment_default';
 export type ToolApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 export type ToolApprovalExecutionStatus = 'not_started' | 'executing' | 'succeeded' | 'failed' | 'unknown';
-export type WebhookHistoryStatus = 'success' | 'failed';
+export {
+  type WebhookHistory,
+  type WebhookHistoryStatus,
+  type WebhookSubscription
+} from './webhooks.js';
 
 export interface User {
   id: string;
@@ -102,6 +103,7 @@ export interface WorkspacePermissions {
   delete_workspace: boolean;
   manage_members: boolean;
   manage_targets: boolean;
+  manage_catalog_sources: boolean;
   manage_mcp: boolean;
   manage_tools: boolean;
   manage_target_insights: boolean;
@@ -245,7 +247,7 @@ export type WorkspaceAuditOperation = 'read' | 'write';
 export type WorkspaceAuditLoggingMode = 'read_write' | 'write_only' | 'disabled';
 
 export interface WorkspaceAuditActor {
-  type: 'user' | 'system' | 'admin_token';
+  type: 'user' | 'system' | 'admin_token' | 'external_integration';
   userId?: string;
   tokenId?: string;
   email?: string;
@@ -278,7 +280,7 @@ export interface WorkspaceAuditEventInput {
   operation: WorkspaceAuditOperation;
   actorUserId?: string | null;
   actorTokenId?: string | null;
-  actorType?: 'user' | 'system' | 'admin_token';
+  actorType?: 'user' | 'system' | 'admin_token' | 'external_integration';
   objectType: string;
   objectId?: string | null;
   objectName?: string | null;
@@ -357,6 +359,11 @@ export interface ChatSession {
   createdAt: string;
   updatedAt: string;
   lastMessageAt: string;
+  lastRuntimeSelection?: {
+    provider: LlmProvider;
+    model: string;
+    reasoningEffort: ReasoningEffort;
+  };
   expiresAt: string;
   deletedAt?: string;
 }
@@ -435,6 +442,7 @@ export interface Run {
   clusterId?: string;
   sessionId: string;
   messageId: string;
+  principal?: import('./agents.js').RunPrincipalRef;
   llmProvider: LlmProvider;
   llmModel: string;
   llmReasoningSummaryMode: ReasoningSummaryMode;
@@ -456,6 +464,7 @@ export interface Run {
     content: string;
     format: 'markdown';
   };
+  assistantReferences?: import('./assistant-references.js').AssistantReference[];
 }
 
 export interface RunEvent {
@@ -476,6 +485,9 @@ export interface RunToolApproval {
   clusterId?: string;
   toolCallId: string;
   toolName: string;
+  toolRef: { serverId: string; toolName: string };
+  requestedToolAlias: string;
+  argumentsDigest: string;
   summary?: string;
   arguments: Record<string, unknown>;
   status: ToolApprovalStatus;
@@ -506,36 +518,4 @@ export interface ClusterSnapshot {
   workspaceId: string;
   timestamp: string;
   data: Record<string, unknown>;
-}
-
-export interface WebhookSubscription {
-  id: string;
-  workspaceId: string;
-  targetId?: string;
-  name: string;
-  url: string;
-  eventTypes: string[];
-  enabled: boolean;
-  secretCiphertext: string;
-  secretKeyId: string;
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface WebhookHistory {
-  id: string;
-  subscriptionId: string;
-  eventId: string;
-  eventType: string;
-  workspaceId: string;
-  targetId?: string;
-  subjectType: string;
-  subjectId: string;
-  payload: Record<string, unknown>;
-  status: WebhookHistoryStatus;
-  responseStatus?: number;
-  error?: string;
-  durationMs?: number;
-  sentAt: string;
 }

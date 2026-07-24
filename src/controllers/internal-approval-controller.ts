@@ -3,18 +3,22 @@ import { config } from '../config.js';
 import { incrementAutomationApproval } from '../metrics.js';
 import { recordApprovalActivity, recordRunStatusChangedActivity } from '../services/target-chat-activity-events.js';
 import { webhooks } from '../services/webhooks.js';
+import { recordWorkflowExecutionEvent } from '../services/workflow-execution-events.js';
 import { repo } from '../store/repository.js';
 import {
+  AutomationApprovalConflictError,
+  AutomationApprovalExecutionStartError,
   createAutomationRunApproval,
   deleteAutomationRunContinuation,
   expireAutomationRunApproval,
   getAutomationRunApproval,
   getAutomationRunContinuation,
   markAutomationApprovalExecutionFinished,
-  markAutomationApprovalExecutionStarted,
-  type AutomationApprovalSource
+  startAutomationApprovalExecution
 } from '../store/repository-automation-approvals.js';
-import { getAgentActivityRecord } from '../store/repository-agents.js';
+import { ApprovalExecutionStartError } from '../store/repository-run-approvals.js';
+import { gatewayTokenService } from '../services/token-service.js';
+import { resolveTargetRunTools } from '../services/target-run-tool-resolution.js';
 import { getWorkflowRun } from '../store/repository-workflows.js';
 import { KUBERNETES_TARGET_TYPE } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
@@ -23,27 +27,17 @@ async function resolveAutomationRun(runId: string) {
   const workflowRun = await getWorkflowRun(runId);
   if (workflowRun) {
     return {
-      sourceType: 'workflow' as const,
-      sourceId: workflowRun.executionId,
+      executionId: workflowRun.executionId,
       workspaceId: workflowRun.workspaceId,
       targetId: workflowRun.targetId,
       targetType: workflowRun.targetType,
       requestedBy: workflowRun.createdBy,
       status: workflowRun.status,
-      toolOperations: workflowRun.compiledAccessScope.toolOperations
-    };
-  }
-  const agentRun = await getAgentActivityRecord(runId);
-  if (agentRun) {
-    return {
-      sourceType: 'agent' as const,
-      sourceId: agentRun.agentId,
-      workspaceId: agentRun.workspaceId,
-      targetId: agentRun.targetId,
-      targetType: agentRun.targetType,
-      requestedBy: agentRun.compiledScope.actor.userId,
-      status: agentRun.status,
-      toolOperations: agentRun.compiledScope.toolOperations
+      toolOperations: workflowRun.compiledAccessScope.toolOperations,
+      allowedToolRefs: [
+        ...(workflowRun.compiledAccessScope.mcpTools || []),
+        ...(workflowRun.compiledAccessScope.targetToolRefs || [])
+      ]
     };
   }
   return null;
@@ -62,25 +56,45 @@ export async function createToolApproval(req: Request, res: Response, next: Next
         res.status(400).json({ error: { code: 'WRITE_TOOL_NOT_GRANTED', message: 'Run is not granted this write tool', retryable: false } });
         return;
       }
+      if (!automationRun.allowedToolRefs.some((ref) => (
+        ref.serverId === req.body.toolRef.serverId && ref.toolName === req.body.toolRef.toolName
+      ))) {
+        res.status(400).json({ error: { code: 'MCP_TOOL_REF_NOT_GRANTED', message: 'Run is not granted this exact MCP tool', retryable: false } });
+        return;
+      }
       if (!req.body.continuation) {
         res.status(400).json({ error: { code: 'CONTINUATION_REQUIRED', message: 'A durable continuation is required before requesting approval', retryable: false } });
         return;
       }
       const approval = await createAutomationRunApproval({
         workspaceId: automationRun.workspaceId,
-        sourceType: automationRun.sourceType,
-        sourceId: automationRun.sourceId,
         runId,
         targetId: automationRun.targetId,
         targetType: automationRun.targetType,
         approvalKind: 'tool_write',
         toolCallId: req.body.toolCallId,
         toolName: req.body.toolName,
+        toolRef: req.body.toolRef,
         summary: req.body.summary || `Approve write tool: ${req.body.toolName}`,
         arguments: req.body.arguments || {},
         requestedBy: automationRun.requestedBy,
-        expiresAt: new Date(Date.now() + config.AGENT_WRITE_CONFIRMATION_TIMEOUT_SECONDS * 1000).toISOString(),
+        expiresAt: new Date(Date.now() + config.ASSISTANT_WRITE_CONFIRMATION_TIMEOUT_SECONDS * 1000).toISOString(),
         continuationState: req.body.continuation
+      });
+      await recordWorkflowExecutionEvent({
+        executionId: automationRun.executionId,
+        workspaceId: automationRun.workspaceId,
+        type: 'approval_requested',
+        runId,
+        approvalId: approval.id,
+        dedupeKey: `approval-requested:${approval.id}`,
+        payload: {
+          approvalKind: approval.approvalKind,
+          toolName: approval.toolName,
+          summary: approval.summary,
+          status: approval.status,
+          expiresAt: approval.expiresAt
+        }
       });
       incrementAutomationApproval('tool_write', 'requested');
       res.status(201).json(approval);
@@ -96,13 +110,32 @@ export async function createToolApproval(req: Request, res: Response, next: Next
       return;
     }
     const session = await repo.getSession(run.sessionId, true);
-    const expiresAt = new Date(Date.now() + config.AGENT_WRITE_CONFIRMATION_TIMEOUT_SECONDS * 1000).toISOString();
+    const resolvedTools = await resolveTargetRunTools({
+      workspaceId: run.workspaceId,
+      targetId: run.targetId,
+      targetType: run.targetType,
+      toolAccessMode: run.toolAccessMode,
+      runId: run.id,
+      strictMcpResolution: true
+    });
+    const exactTool = resolvedTools.allowedToolSpecs.find((tool) => (
+      tool.name === req.body.toolName
+      && tool.server_id === req.body.toolRef.serverId
+      && tool.tool_name === req.body.toolRef.toolName
+      && tool.capability === 'write'
+    ));
+    if (!exactTool) {
+      res.status(400).json({ error: { code: 'MCP_TOOL_REF_NOT_GRANTED', message: 'Run is not granted this exact MCP write tool', retryable: false } });
+      return;
+    }
+    const expiresAt = new Date(Date.now() + config.ASSISTANT_WRITE_CONFIRMATION_TIMEOUT_SECONDS * 1000).toISOString();
     const approval = await repo.createRunToolApproval({
       runId: run.id,
       workspaceId: run.workspaceId,
       targetId: run.targetId,
       toolCallId: req.body.toolCallId,
       toolName: req.body.toolName,
+      toolRef: req.body.toolRef,
       summary: req.body.summary,
       arguments: req.body.arguments || {},
       requestedBy: session?.createdBy,
@@ -132,6 +165,16 @@ export async function createToolApproval(req: Request, res: Response, next: Next
     });
     res.status(201).json(approval);
   } catch (err) {
+    if (err instanceof AutomationApprovalConflictError) {
+      res.status(409).json({
+        error: {
+          code: err.code,
+          message: err.message,
+          retryable: false
+        }
+      });
+      return;
+    }
     next(err);
   }
 }
@@ -141,7 +184,7 @@ export async function getRunContinuation(req: Request, res: Response, next: Next
     const runId = toSingleParam(req.params.runId);
     const automationRun = await resolveAutomationRun(runId);
     if (automationRun) {
-      const continuation = await getAutomationRunContinuation(automationRun.sourceType, runId);
+      const continuation = await getAutomationRunContinuation(runId);
       if (!continuation) {
         res.status(200).json(null);
         return;
@@ -190,15 +233,15 @@ export async function markToolApprovalExecutionStarted(req: Request, res: Respon
     const automationRun = await resolveAutomationRun(runId);
     if (automationRun) {
       const approval = await getAutomationRunApproval(approvalId);
-      if (!approval || approval.runId !== runId || approval.sourceType !== automationRun.sourceType) {
+      if (!approval || approval.runId !== runId) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Approval not found', retryable: false } });
         return;
       }
-      if (approval.status !== 'approved') {
-        res.status(409).json({ error: { code: 'APPROVAL_NOT_GRANTED', message: 'Write approval was not granted', retryable: false }, approval });
-        return;
-      }
-      res.status(200).json(await markAutomationApprovalExecutionStarted(approval.id));
+      const started = await startAutomationApprovalExecution(
+        approval.id,
+        (claims) => gatewayTokenService.signApprovalReceipt(claims)
+      );
+      res.status(200).json(started);
       return;
     }
     const approval = await repo.getRunToolApproval(approvalId);
@@ -206,9 +249,21 @@ export async function markToolApprovalExecutionStarted(req: Request, res: Respon
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Approval not found', retryable: false } });
       return;
     }
-    const updated = await repo.markRunToolApprovalExecutionStarted(approval.id);
-    res.status(200).json(updated);
+    const started = await repo.startRunToolApprovalExecution(
+      approval.id,
+      (claims) => gatewayTokenService.signApprovalReceipt(claims)
+    );
+    res.status(200).json(started);
   } catch (err) {
+    if (err instanceof ApprovalExecutionStartError || err instanceof AutomationApprovalExecutionStartError) {
+      res.status(409).json({
+        error: { code: err.code, message: err.code === 'APPROVAL_NOT_GRANTED'
+          ? 'Write approval was not granted'
+          : 'Approval execution has already started', retryable: false },
+        approval: err.approval
+      });
+      return;
+    }
     next(err);
   }
 }
@@ -220,7 +275,7 @@ export async function markToolApprovalExecutionFinished(req: Request, res: Respo
     const automationRun = await resolveAutomationRun(runId);
     if (automationRun) {
       const approval = await getAutomationRunApproval(approvalId);
-      if (!approval || approval.runId !== runId || approval.sourceType !== automationRun.sourceType) {
+      if (!approval || approval.runId !== runId) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Approval not found', retryable: false } });
         return;
       }
@@ -252,7 +307,7 @@ export async function consumeRunContinuation(req: Request, res: Response, next: 
     const runId = toSingleParam(req.params.runId);
     const automationRun = await resolveAutomationRun(runId);
     if (automationRun) {
-      await deleteAutomationRunContinuation(automationRun.sourceType as AutomationApprovalSource, runId);
+      await deleteAutomationRunContinuation(runId);
       res.status(204).send();
       return;
     }

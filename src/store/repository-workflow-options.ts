@@ -2,15 +2,13 @@ import { performance } from 'node:perf_hooks';
 import { db } from '../infra/db.js';
 import { logger } from '../logger.js';
 import { incrementWorkflowCatalogSource } from '../metrics.js';
-import { loadWorkflowBuiltInMcpCatalog } from '../services/workflow-built-in-mcp-catalog.js';
-import { KUBERNETES_TARGET_TYPE, type TargetSummary } from '../types/domain.js';
 import type {
   WorkflowCatalogSourceAvailability,
   WorkflowCatalogSourceName,
   WorkflowOption,
   WorkflowOptionsCatalog
 } from '../types/workflows.js';
-import { listWorkflowMcpServers } from './repository-workflow-mcp.js';
+import { effectiveWorkflowRuntimePolicy } from '../services/workflow-runtime-policy.js';
 
 type CatalogSourceResult = {
   options: WorkflowOption[];
@@ -26,25 +24,15 @@ export function configureWorkflowOptionsCatalogLoaderForTests(loader?: CatalogLo
   catalogLoaderOverride = loader;
 }
 
-interface TargetRow {
-  id: string;
-  workspace_id: string;
-  target_type: 'kubernetes';
-  name: string;
-  status: string;
-  metadata: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
-}
-
-interface SkillRow {
-  id: string;
-  name: string;
-  description: string;
-  source_kind: 'workspace' | 'target';
-  target_id: string | null;
-  target_name: string | null;
-  source_provider: 'github' | 'gitlab' | null;
+interface AgentCapabilityRow extends AgentRow {
+  tools: string[];
+  skills: string[];
+  mcp_servers: string[];
+  mcp_installations: Array<{
+    id: string; name: string; enabled: boolean;
+    tools: Array<{ serverId: string; toolName: string; alias: string; capability: 'read' | 'write'; enabled: boolean; reviewState: string }>;
+  }>;
+  skill_installations: Array<{ id: string; name: string; description: string; enabled: boolean }>;
 }
 
 interface AgentRow {
@@ -52,13 +40,6 @@ interface AgentRow {
   name: string;
   description: string | null;
   status: string;
-}
-
-interface SessionRow {
-  id: string;
-  title: string;
-  target_id: string;
-  target_name: string;
 }
 
 function availability(options: WorkflowOption[], emptyMessage: string): WorkflowCatalogSourceAvailability {
@@ -103,146 +84,70 @@ async function runSource(
   }
 }
 
-async function loadClusters(workspaceId: string): Promise<CatalogSourceResult> {
-  const result = await db.query<TargetRow>(
-    `SELECT id, workspace_id, target_type, name, status, metadata, created_at, updated_at
-     FROM targets
-     WHERE workspace_id = $1 AND target_type = 'kubernetes'
+async function loadAgentCapabilities(workspaceId: string, agentId?: string): Promise<{
+  servers: CatalogSourceResult; tools: CatalogSourceResult; skills: CatalogSourceResult;
+}> {
+  const result = await db.query<AgentCapabilityRow>(
+    `SELECT id, name, description, status, tools, skills, mcp_servers, mcp_installations, skill_installations
+     FROM agent_definitions
+     WHERE workspace_id = $1 AND ($2::text IS NULL OR id = $2)
      ORDER BY name ASC, id ASC`,
-    [workspaceId]
+    [workspaceId, agentId || null]
   );
-  const options = result.rows.map((row) => ({
-    value: row.id,
-    label: row.name,
-    description: `Kubernetes cluster · ${row.status}`,
-    disabled: row.status === 'offline' || row.status === 'unknown',
-    disabledReason: row.status === 'offline'
-      ? 'Cluster is offline'
-      : row.status === 'unknown' ? 'Cluster connection is not ready' : undefined,
-    provenance: { source: 'target' as const, targetId: row.id, targetName: row.name }
-  }));
-  return { options, availability: availability(options, 'No Kubernetes clusters are registered.') };
-}
-
-async function loadMcp(workspaceId: string): Promise<{ servers: CatalogSourceResult; tools: CatalogSourceResult }> {
-  const result = await db.query<TargetRow>(
-    `SELECT id, workspace_id, target_type, name, status, metadata, created_at, updated_at
-     FROM targets
-     WHERE workspace_id = $1 AND target_type = 'kubernetes'
-     ORDER BY name ASC, id ASC`,
-    [workspaceId]
-  );
-  const targets: TargetSummary[] = result.rows.map((row) => ({
-    id: row.id,
-    workspaceId: row.workspace_id,
-    targetType: KUBERNETES_TARGET_TYPE,
-    name: row.name,
-    status: row.status as TargetSummary['status'],
-    metadata: row.metadata || {},
-    createdAt: new Date(row.created_at).toISOString(),
-    updatedAt: new Date(row.updated_at).toISOString()
-  }));
-  const [catalog, workspaceServers] = await Promise.all([
-    loadWorkflowBuiltInMcpCatalog(workspaceId, targets),
-    listWorkflowMcpServers(workspaceId)
-  ]);
-  const clusterCount = catalog.server.targetIds.length;
-  const serverOptions: WorkflowOption[] = [{
-    value: catalog.server.id,
-    label: catalog.server.name,
-    description: `System-owned Kubernetes tools · ${clusterCount} available ${clusterCount === 1 ? 'cluster' : 'clusters'}`,
-    disabled: !catalog.server.enabled,
-    disabledReason: !catalog.server.enabled ? 'No registered Kubernetes cluster exposes the built-in server' : undefined,
-    provenance: { source: 'target' as const }
-  }, ...workspaceServers.map((server) => ({
-    value: server.id,
-    label: server.name,
-    description: 'User-configured workspace MCP server',
-    disabled: !server.enabled || server.status !== 'connected',
-    disabledReason: !server.enabled
-      ? 'MCP server disabled'
-      : server.status !== 'connected' ? 'MCP server is not connected' : undefined,
-    provenance: { source: 'workspace' as const }
-  }))];
-  const builtInToolOptions: WorkflowOption[] = catalog.tools.map((tool) => ({
-    value: tool.name,
-    label: tool.name,
-    description: `${catalog.server.name} · ${tool.capability}`,
-    disabled: !tool.enabled,
-    disabledReason: !tool.enabled ? 'Built-in tool is disabled on every Kubernetes cluster' : undefined,
-    provenance: { source: 'target' as const }
-  }));
-  const internalToolOptions: WorkflowOption[] = [
-    {
-      value: 'chat.sessions.read_selected',
-      label: 'Read selected chats',
-      description: 'AcornOps built-in workflow tool · read',
-      provenance: { source: 'workspace' as const }
-    },
-    {
-      value: 'reports.pdf.generate',
-      label: 'Generate incident report PDF',
-      description: 'AcornOps built-in workflow tool · write',
-      provenance: { source: 'workspace' as const }
-    }
-  ];
-  const workspaceToolOptions: WorkflowOption[] = workspaceServers.flatMap((server) => server.tools.map((tool) => ({
-    value: tool.name,
-    label: tool.title || tool.name,
-    description: `${server.name} · ${tool.capability}`,
-    disabled: !server.enabled || server.status !== 'connected' || tool.enabled === false,
-    disabledReason: !server.enabled
-      ? 'MCP server disabled'
-      : server.status !== 'connected' ? 'MCP server is not connected' : tool.enabled === false ? 'Tool disabled' : undefined,
-    provenance: { source: 'workspace' as const }
+  const active = result.rows.filter((agent) => agent.status === 'active');
+  const serverOptions = active.flatMap((agent) => {
+    const installed = new Map((agent.mcp_installations || []).map((server) => [server.id, server]));
+    return (agent.mcp_servers || []).map((serverId) => {
+      const server = installed.get(serverId);
+      return {
+        value: serverId,
+        label: server?.name || serverId,
+        description: `${agent.name} capability`,
+        disabled: server ? !server.enabled : false,
+        disabledReason: server && !server.enabled ? 'Disabled on selected Agent' : undefined,
+        provenance: { source: 'agent' as const, agentId: agent.id }
+      };
+    });
+  });
+  const remoteTools = active.flatMap((agent) => (agent.mcp_installations || []).flatMap((server) => server.tools
+    .filter((tool) => server.enabled && tool.enabled && tool.reviewState === 'approved')
+    .map((tool) => ({
+      value: tool.alias,
+      label: tool.toolName,
+      description: `${agent.name} · ${server.name} · ${tool.capability}`,
+      provenance: { source: 'agent' as const, agentId: agent.id, serverId: tool.serverId, toolName: tool.toolName }
+    }))));
+  const localTools = active.flatMap((agent) => (agent.tools || []).map((tool) => ({
+    value: tool, label: tool, description: `${agent.name} built-in capability`,
+    provenance: { source: 'agent' as const, agentId: agent.id }
   })));
-  const toolOptions = [...new Map(
-    [...builtInToolOptions, ...internalToolOptions, ...workspaceToolOptions]
-      .map((option) => [option.value, option])
-  ).values()];
+  const installedSkills = active.flatMap((agent) => (agent.skill_installations || [])
+    .filter((skill) => skill.enabled)
+    .map((skill) => ({
+      value: skill.id, label: skill.name, description: `${skill.description} · ${agent.name}`,
+      provenance: { source: 'agent' as const, agentId: agent.id }
+    })));
+  const installedSkillIds = new Set(installedSkills.map((skill) => `${skill.provenance.agentId}\u0000${skill.value}`));
+  const systemSkills = active.flatMap((agent) => (agent.skills || [])
+    .filter((skill) => !installedSkillIds.has(`${agent.id}\u0000${skill}`))
+    .map((skill) => ({
+      value: skill, label: skill, description: `${agent.name} built-in skill`,
+      provenance: { source: 'agent' as const, agentId: agent.id }
+    })));
+  const toolOptions = [...localTools, ...remoteTools];
+  const skillOptions = [...installedSkills, ...systemSkills];
   return {
-    servers: { options: serverOptions, availability: availability(serverOptions, 'The built-in Kubernetes MCP server is unavailable.') },
-    tools: { options: toolOptions, availability: availability(toolOptions, 'No built-in Kubernetes tools are available.') }
+    servers: { options: serverOptions, availability: availability(serverOptions, 'The selected Agent has no MCP servers.') },
+    tools: { options: toolOptions, availability: availability(toolOptions, 'The selected Agent has no tools.') },
+    skills: { options: skillOptions, availability: availability(skillOptions, 'The selected Agent has no skills.') }
   };
-}
-
-async function loadSkills(workspaceId: string): Promise<CatalogSourceResult> {
-  const result = await db.query<SkillRow>(
-    `SELECT skill.id, skill.name, skill.description, skill.source_kind,
-            skill.target_id, skill.target_name, skill.source_provider
-     FROM (
-       SELECT ws.id, ws.name, ws.description, 'workspace'::text AS source_kind,
-              NULL::text AS target_id, NULL::text AS target_name, NULL::text AS source_provider
-       FROM workspace_skills ws
-       WHERE ws.workspace_id = $1 AND ws.enabled = true AND ws.validation_status = 'valid'
-       UNION ALL
-       SELECT ts.id, ts.name, ts.description, 'target'::text AS source_kind,
-              ts.target_id, target.name AS target_name, ts.source_provider
-       FROM target_skills ts
-       JOIN targets target ON target.id = ts.target_id AND target.workspace_id = ts.workspace_id
-       WHERE ts.workspace_id = $1 AND ts.enabled = true AND ts.validation_status = 'valid'
-     ) skill
-     ORDER BY skill.name ASC, skill.id ASC`,
-    [workspaceId]
-  );
-  const options = result.rows.map((row) => ({
-    value: row.source_kind === 'target' ? `target:${row.target_id}:${row.id}` : row.id,
-    label: row.name,
-    description: row.source_kind === 'target' && row.target_name
-      ? `${row.description} · ${row.target_name}`
-      : row.description,
-    provenance: row.source_kind === 'target'
-      ? { source: 'target' as const, targetId: row.target_id || undefined, targetName: row.target_name || undefined, provider: row.source_provider || undefined }
-      : { source: 'workspace' as const }
-  }));
-  return { options, availability: availability(options, 'No enabled, valid skills are available.') };
 }
 
 async function loadAgents(workspaceId: string): Promise<CatalogSourceResult> {
   const result = await db.query<AgentRow>(
     `SELECT id, name, description, status
      FROM agent_definitions
-     WHERE workspace_id = $1 AND kind = 'specialist_agent'
+     WHERE workspace_id = $1
      ORDER BY name ASC, id ASC`,
     [workspaceId]
   );
@@ -257,45 +162,24 @@ async function loadAgents(workspaceId: string): Promise<CatalogSourceResult> {
   return { options, availability: availability(options, 'No specialist agents are available.') };
 }
 
-async function loadChatSessions(workspaceId: string): Promise<CatalogSourceResult> {
-  const result = await db.query<SessionRow>(
-    `SELECT session.id, session.title, session.target_id, target.name AS target_name
-     FROM sessions session
-     JOIN targets target ON target.id = session.target_id AND target.workspace_id = session.workspace_id
-     WHERE session.workspace_id = $1
-       AND session.status = 'open'
-       AND session.deleted_at IS NULL
-       AND session.expires_at > NOW()
-     ORDER BY session.last_message_at DESC, session.id DESC`,
-    [workspaceId]
-  );
-  const options = result.rows.map((row) => ({
-    value: row.id,
-    label: row.title,
-    description: row.target_name,
-    provenance: { source: 'target' as const, targetId: row.target_id, targetName: row.target_name }
-  }));
-  return { options, availability: availability(options, 'No active chat sessions are available.') };
-}
-
-export async function getWorkflowOptionsCatalog(workspaceId: string): Promise<WorkflowOptionsCatalog> {
+export async function getWorkflowOptionsCatalog(workspaceId: string, agentId?: string): Promise<WorkflowOptionsCatalog> {
   if (catalogLoaderOverride) return catalogLoaderOverride(workspaceId);
-  const mcp = loadMcp(workspaceId);
-  const [clusters, mcpServers, mcpTools, skills, agents, chatSessions] = await Promise.all([
-    runSource(workspaceId, 'clusters', () => loadClusters(workspaceId)),
-    runSource(workspaceId, 'mcpServers', async () => (await mcp).servers),
-    runSource(workspaceId, 'mcpTools', async () => (await mcp).tools),
-    runSource(workspaceId, 'skills', () => loadSkills(workspaceId)),
-    runSource(workspaceId, 'agents', () => loadAgents(workspaceId)),
-    runSource(workspaceId, 'chatSessions', () => loadChatSessions(workspaceId))
+  const capabilities = loadAgentCapabilities(workspaceId, agentId);
+  const [mcpServers, mcpTools, skills, agents] = await Promise.all([
+    runSource(workspaceId, 'mcpServers', async () => (await capabilities).servers),
+    runSource(workspaceId, 'mcpTools', async () => (await capabilities).tools),
+    runSource(workspaceId, 'skills', async () => (await capabilities).skills),
+    runSource(workspaceId, 'agents', () => loadAgents(workspaceId))
   ]);
+  const runtimePolicy = effectiveWorkflowRuntimePolicy();
+  const runtimeLabel = runtimePolicy.maxRuntimeSeconds % 60 === 0
+    ? `${runtimePolicy.maxRuntimeSeconds / 60} minutes (deployment limit)`
+    : `${runtimePolicy.maxRuntimeSeconds} seconds (deployment limit)`;
   return {
-    clusters: clusters.options,
     mcpServers: mcpServers.options,
     mcpTools: mcpTools.options,
     skills: skills.options,
     agents: agents.options,
-    chatSessions: chatSessions.options,
     outputFormats: [
       { value: 'pdf', label: 'PDF' },
       { value: 'markdown', label: 'Markdown' }
@@ -304,23 +188,16 @@ export async function getWorkflowOptionsCatalog(workspaceId: string): Promise<Wo
       { value: 'read_only', label: 'Read only' },
       { value: 'read_write', label: 'Read/write with approvals' }
     ],
-    runtimeLimits: [
-      { value: '300', label: '5 minutes' },
-      { value: '900', label: '15 minutes' },
-      { value: '1800', label: '30 minutes' }
-    ],
-    retentionPolicies: [
-      { value: '30', label: '30 days' },
-      { value: '90', label: '90 days' },
-      { value: '180', label: '180 days' }
-    ],
+    runtimeLimits: [{ value: String(runtimePolicy.maxRuntimeSeconds), label: runtimeLabel }],
+    retentionPolicies: [{
+      value: String(runtimePolicy.retentionDays),
+      label: `${runtimePolicy.retentionDays} days (deployment limit)`
+    }],
     sourceAvailability: {
-      clusters: clusters.availability,
       mcpServers: mcpServers.availability,
       mcpTools: mcpTools.availability,
       skills: skills.availability,
-      agents: agents.availability,
-      chatSessions: chatSessions.availability
+      agents: agents.availability
     }
   };
 }

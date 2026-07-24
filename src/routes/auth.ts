@@ -13,10 +13,22 @@ authRouter.get('/auth/config', authController.authConfig);
 authRouter.get('/auth/csrf', authController.csrfToken);
 authRouter.get('/auth/oidc/login', authController.oidcLogin);
 authRouter.get('/auth/oidc/callback', authController.oidcCallback);
-authRouter.post('/auth/oidc/link/start', requireUser, authed(authController.oidcLinkStart));
+authRouter.get('/auth/oidc/logout/start', authController.oidcLogoutStart);
+authRouter.get('/auth/oidc/logout/callback', authController.oidcLogoutCallback);
+authRouter.post(
+  '/auth/oidc/link/start',
+  authController.requireOidcConfigured,
+  requireUser,
+  authed(authController.oidcLinkStart)
+);
 authRouter.post('/auth/external-integrations/link/preview', requireUser, authed(externalIntegrationLinkController.previewExternalIntegrationLinkRequest));
 authRouter.post('/auth/external-integrations/link/complete', requireUser, authed(externalIntegrationLinkController.completeExternalIntegrationLinkRequest));
 authRouter.get('/auth/external-integrations/links', requireUser, authed(externalIntegrationLinkController.listExternalIntegrationLinks));
+authRouter.patch(
+  '/auth/external-integrations/links/:linkId/grants',
+  requireUser,
+  authed(externalIntegrationLinkController.replaceExternalIntegrationLinkGrants)
+);
 authRouter.post('/auth/external-integrations/links/unlink', requireUser, authed(externalIntegrationLinkController.unlinkExternalIntegrationLink));
 authRouter.post('/auth/external-integrations/link', requireExternalIntegrationClient, externalIntegrationLinkController.createExternalIntegrationLinkRequest);
 authRouter.post('/auth/external-integrations/resolve', requireExternalIntegrationClient, externalIntegrationLinkController.resolveExternalIntegrationLink);

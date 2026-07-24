@@ -1,108 +1,90 @@
-import { NextFunction, Response } from 'express';
+import { randomUUID } from 'node:crypto';
+import type { NextFunction, Response } from 'express';
+import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
-import { AuthenticatedRequest } from '../auth/middleware.js';
-import { dispatchWorkflowRunToExecutionEngine } from '../services/execution-engine-client.js';
 import { isModelAllowedForProvider } from '../services/llm-policy.js';
 import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
-import { compileWorkflowAccessScope, WorkflowAccessDeniedError } from '../services/workflow-access.js';
+import { WorkflowAccessDeniedError } from '../services/workflow-access.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
-import { getWorkflowCapabilityReadinessErrors } from '../services/workflow-readiness.js';
-import { resolveWorkflowTarget, WorkflowTargetResolutionError } from '../services/workflow-target-resolution.js';
-import { validateWorkflowInputs, WorkflowInputValidationError } from '../services/workflow-input-validation.js';
+import { emitWorkflowExecutionEvents } from '../services/workflow-execution-events.js';
+import { promptResourceRegistry, PromptResourceProviderError } from '../services/prompt-resources/index.js';
 import {
-  appendWorkflowRunEvents,
-  createWorkflowDefinition,
-  createWorkflowMcpServer,
+  getWorkflowCapabilityReadinessReport,
+  publicMcpReadinessError
+} from '../services/workflow-readiness.js';
+import { narrowWorkflowScopeToTargetTools } from '../services/workflow-capability-preview.js';
+import { compileWorkflowScope } from '../services/workflow-scope-compiler.js';
+import { resolveTargetRunTools } from '../services/target-run-tool-resolution.js';
+import { repo } from '../store/repository.js';
+import {
   createWorkflowExecution,
   createWorkflowSession,
-  createWorkflowUserMessage,
-  deleteWorkflowDefinition,
-  deleteWorkflowMcpServer,
   getWorkflowDefinition,
   getWorkflowOptionsCatalog,
-  getWorkflowRun,
   getWorkflowSession,
-  listWorkflowMcpServers,
-  listWorkflowMcpServerTools,
   listWorkflowDefinitions,
   listWorkflowRunsForSession,
-  listWorkflowSessions,
-  testWorkflowMcpServerConnection,
-  updateWorkflowDefinitionScope,
-  updateWorkflowMcpServer,
-  updateWorkflowRun
+  listWorkflowSessions
 } from '../store/repository-workflows.js';
-import { listAgentDefinitions } from '../store/repository-agents.js';
-import type { WorkflowDefinitionForAccess, WorkflowStepDefinition } from '../types/workflows.js';
+import { isTargetType, type TargetSummary } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
-import { containsSearchText, makeQuerySignature, normalizeSearchQuery, pageArray, parseBoundedLimit } from '../utils/pagination.js';
+import {
+  containsSearchText,
+  makeQuerySignature,
+  normalizeSearchQuery,
+  pageArray,
+  parseBoundedLimit
+} from '../utils/pagination.js';
 import { mapGatewayError } from './workspaces/common.js';
-import { requestWorkflowScopeUpdate } from './workflow-request-parsers.js';
-
+import { runRequestProvenance } from './run-actor.js';
+import {
+  publicWorkflowDefinition,
+  respondWorkflowAccessError
+} from './workflow-public.js';
+import { publicWorkflowRun } from './external-run-public.js';
+import {
+  externalWorkflowBlocker,
+  isExternalIntegrationRequest,
+  isExternallyRunnableWorkflow,
+  validateApprovedContextGrants,
+  workflowAuditActor
+} from './workflow-external-access.js';
+import { externalIntegrationOwnsWorkflowSession } from './workflow-execution-access.js';
+import {
+  isWorkflowClientRequestIdConflict,
+  respondToWorkflowMessageRetry,
+  workflowClientRequestId,
+  workflowMessageRequestFingerprint
+} from './workflow-message-idempotency.js';
+import {
+  compileWorkflowFollowUp,
+  compileWorkflowPrompt,
+  WorkflowParameterValuesError,
+  WorkflowTemplateValidationError
+} from '../services/workflow-template.js';
 const WORKFLOW_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
 
 function requestWorkspaceId(req: AuthenticatedRequest): string | null {
   const raw = req.body?.workspaceId || req.query.workspaceId;
-  return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
 }
 
 function requireWorkflowWorkspaceId(req: AuthenticatedRequest, res: Response): string | null {
   const workspaceId = requestWorkspaceId(req);
   if (!workspaceId) {
-    res.status(400).json({
-      error: {
-        code: 'WORKFLOW_WORKSPACE_REQUIRED',
-        message: 'workspaceId is required for workspace-scoped workflow routes.',
-        retryable: false
-      }
-    });
-    return null;
+    res.status(400).json({ error: { code: 'WORKFLOW_WORKSPACE_REQUIRED', message: 'workspaceId is required.', retryable: false } });
   }
   return workspaceId;
 }
 
-function requestInputs(req: AuthenticatedRequest): Record<string, unknown> {
-  return req.body.inputs && typeof req.body.inputs === 'object' && !Array.isArray(req.body.inputs)
-    ? req.body.inputs as Record<string, unknown>
-    : {};
+function approvedContextGrants(req: AuthenticatedRequest): string[] {
+  return Array.isArray(req.body.approvedContextGrants)
+    ? req.body.approvedContextGrants.filter((value: unknown): value is string => typeof value === 'string')
+    : [];
 }
 
-function requestContent(req: AuthenticatedRequest): string {
-  return typeof req.body.content === 'string' ? req.body.content.trim() : '';
-}
-
-
-async function collectWorkflowReferenceErrors(workspaceId: string, steps: WorkflowStepDefinition[]): Promise<string[]> {
-  const options = await getWorkflowOptionsCatalog(workspaceId);
-  const knownTools = new Set(options.mcpTools.map((option) => option.value));
-  const knownAgents = new Set(options.agents.map((option) => option.value));
-  const errors: string[] = [];
-  for (const step of steps) {
-    if ((step.agentIds || []).length !== 1) errors.push(`Step ${step.id} must select exactly one Agent.`);
-    for (const agent of step.agentIds || []) {
-      if (!knownAgents.has(agent)) errors.push(`Unknown agent: ${agent}`);
-    }
-    for (const tool of step.allowedTools) {
-      if (!knownTools.has(tool)) errors.push(`Unknown MCP tool: ${tool}`);
-    }
-  }
-  return errors;
-}
-
-async function collectWorkflowScopeReferenceErrors(workspaceId: string, mcpServers: string[], skills: string[]): Promise<string[]> {
-  const options = await getWorkflowOptionsCatalog(workspaceId);
-  const knownServers = new Set(options.mcpServers.map((option) => option.value));
-  const knownSkills = new Set(options.skills.map((option) => option.value));
-  const errors: string[] = [];
-  for (const server of mcpServers) {
-    if (!knownServers.has(server)) errors.push(`Unknown MCP server: ${server}`);
-  }
-  for (const skill of skills) {
-    if (!knownSkills.has(skill)) errors.push(`Unknown skill: ${skill}`);
-  }
-  return errors;
-}
+export { previewWorkflowCapabilities } from './workflow-capability-preview-controller.js';
 
 export async function listWorkflows(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -112,305 +94,454 @@ export async function listWorkflows(req: AuthenticatedRequest, res: Response, ne
     const q = normalizeSearchQuery(req.query.q);
     const signature = makeQuerySignature({ workspaceId, q });
     const rows = (await listWorkflowDefinitions(workspaceId))
-      .filter((workflow) => containsSearchText([workflow.name, workflow.description, workflow.category, workflow.status], q));
-    res.status(200).json(pageArray(rows, {
-      limit: parseBoundedLimit(req.query.limit), cursor: req.query.cursor, signature
+      .filter((workflow) => !isExternalIntegrationRequest(req) || isExternallyRunnableWorkflow(workflow, authz))
+      .filter((workflow) => containsSearchText([
+        workflow.name,
+        workflow.description,
+        workflow.prompt,
+        workflow.status,
+        ...workflow.agentIds,
+        ...workflow.capabilityPolicy.semanticCapabilityIds
+      ], q));
+    res.status(200).json(pageArray(rows.map(publicWorkflowDefinition), {
+      limit: parseBoundedLimit(req.query.limit),
+      cursor: req.query.cursor,
+      signature
     }));
-  } catch (err) {
-    next(err);
+  } catch (error) {
+    next(error);
   }
 }
 
 export async function getWorkflow(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const workflowId = toSingleParam(req.params.workflowId);
     const workspaceId = requireWorkflowWorkspaceId(req, res);
     if (!workspaceId) return;
-    const workflow = await getWorkflowDefinition(workspaceId, workflowId);
-    if (!workflow) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
-      return;
-    }
-    const authz = await requireWorkspaceDataRead(req, res, workflow.workspaceId);
+    const workflow = await getWorkflowDefinition(workspaceId, toSingleParam(req.params.workflowId));
+    if (!workflow) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
+    const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
-    res.status(200).json({ workflow });
-  } catch (err) {
-    next(err);
+    if (isExternalIntegrationRequest(req)) {
+      const blocker = externalWorkflowBlocker(workflow, authz);
+      if (blocker) {
+        return void res.status(403).json({ error: {
+          code: 'WORKFLOW_NOT_AVAILABLE_FOR_EXTERNAL_INTEGRATION',
+          message: blocker,
+          retryable: false
+        } });
+      }
+    }
+    res.status(200).json({ workflow: publicWorkflowDefinition(workflow) });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function listWorkflowOptions(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const workspaceId = toSingleParam(req.params.workspaceId);
+    if (!(await requireWorkspaceDataRead(req, res, workspaceId))) return;
+    res.status(200).json(await getWorkflowOptionsCatalog(workspaceId));
+  } catch (error) {
+    next(error);
   }
 }
 
 export async function createSession(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const workflowId = toSingleParam(req.params.workflowId);
     const workspaceId = requireWorkflowWorkspaceId(req, res);
     if (!workspaceId) return;
-    const workflow = await getWorkflowDefinition(workspaceId, workflowId);
-    if (!workflow) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
-      return;
-    }
-    const authz = await requireWorkspaceDataRead(req, res, workflow.workspaceId);
+    const workflow = await getWorkflowDefinition(workspaceId, toSingleParam(req.params.workflowId));
+    if (!workflow) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
+    const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
-
-    const approvedContextGrants = Array.isArray(req.body.approvedContextGrants)
-      ? req.body.approvedContextGrants.filter((grant: unknown): grant is string => typeof grant === 'string')
-      : [];
-
-    let compiledAccessScope;
-    try {
-      compiledAccessScope = compileWorkflowAccessScope({
-        workflow,
-        agents: await listAgentDefinitions(workflow.workspaceId),
-        actor: {
-          userId: req.auth.userId,
-          role: authz.role,
-          permissions: authz.permissions
-        },
-        approvedContextGrants
-      });
-    } catch (err) {
-      if (err instanceof WorkflowAccessDeniedError) {
-        res.status(403).json({
-          error: {
-            code: err.code,
-            message: err.message,
-            retryable: false,
-            details: {
-              missingPermissions: err.missingPermissions,
-              missingContextGrants: err.missingContextGrants
-            }
-          }
-        });
-        return;
+    if (isExternalIntegrationRequest(req)) {
+      const blocker = externalWorkflowBlocker(workflow, authz);
+      if (blocker) {
+        return void res.status(403).json({ error: {
+          code: 'WORKFLOW_NOT_AVAILABLE_FOR_EXTERNAL_INTEGRATION',
+          message: blocker,
+          retryable: false
+        } });
       }
-      throw err;
+      const grantValidation = validateApprovedContextGrants(workflow, approvedContextGrants(req));
+      if (grantValidation.extra.length > 0) {
+        return void res.status(400).json({ error: {
+          code: 'WORKFLOW_CONTEXT_GRANT_UNKNOWN',
+          message: 'approvedContextGrants includes grants that are not required by this workflow.',
+          retryable: false,
+          details: { extraContextGrants: grantValidation.extra }
+        } });
+      }
     }
-
-    const readinessErrors = await getWorkflowCapabilityReadinessErrors(workflow.workspaceId, compiledAccessScope);
-    if (readinessErrors.length > 0) {
-      res.status(409).json({ error: {
-        code: 'WORKFLOW_CAPABILITY_NOT_READY', message: readinessErrors[0], retryable: false, details: { readinessErrors }
-      } });
-      return;
-    }
-
+    const compiled = await compileWorkflowScope({
+      workflow,
+      actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
+      approvedContextGrants: approvedContextGrants(req),
+      resolutionPhase: 'session_ceiling'
+    });
     const session = await createWorkflowSession({
       workflow,
       createdBy: req.auth.userId,
-      compiledAccessScope
+      compiledAccessScope: compiled.scope,
+      requestProvenance: runRequestProvenance(req)
     });
-
     await recordWorkspaceAuditEvent({
-      workspaceId: workflow.workspaceId,
+      workspaceId,
       category: 'run',
-      eventType: 'workflow.session_created.v1',
+      eventType: 'workflow.session_created.v2',
       operation: 'write',
-      actorUserId: req.auth.userId,
+      ...workflowAuditActor(req),
       objectType: 'workflow_session',
       objectId: session.id,
       objectName: workflow.name,
-      summary: 'Workflow session created',
+      summary: 'Workflow V2 session created',
       metadata: {
         workflowId: workflow.id,
         workflowVersion: workflow.version,
-        mode: compiledAccessScope.mode,
-        tools: compiledAccessScope.tools,
-        contextGrants: compiledAccessScope.contextGrants
+        executionMode: workflow.executionMode,
+        selectedAgentCount: workflow.agentIds.length
       }
     });
-
-    res.status(201).json({ session, compiledAccessScope });
-  } catch (err) {
-    next(err);
+    res.status(201).json({
+      session: {
+        id: session.id,
+        workspaceId: session.workspaceId,
+        workflowId: session.workflowId,
+        workflowVersion: session.workflowVersion,
+        createdBy: session.createdBy,
+        launchedAt: session.launchedAt,
+        createdAt: session.createdAt,
+        workflowSnapshot: session.workflowSnapshot ? publicWorkflowDefinition(session.workflowSnapshot) : undefined
+      }
+    });
+  } catch (error) {
+    if (error instanceof WorkflowAccessDeniedError) return respondWorkflowAccessError(res, error);
+    next(error);
   }
 }
 
 export async function listSessions(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const workflowId = toSingleParam(req.params.workflowId);
     const workspaceId = requireWorkflowWorkspaceId(req, res);
     if (!workspaceId) return;
-    const workflow = await getWorkflowDefinition(workspaceId, workflowId);
-    if (!workflow) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
-      return;
-    }
-    const authz = await requireWorkspaceDataRead(req, res, workflow.workspaceId);
-    if (!authz) return;
+    const workflowId = toSingleParam(req.params.workflowId);
+    if (!(await requireWorkspaceDataRead(req, res, workspaceId))) return;
     res.status(200).json({
       items: await Promise.all((await listWorkflowSessions(workspaceId, workflowId)).map(async (session) => ({
-        ...session,
-        runs: await listWorkflowRunsForSession(session.id)
+        id: session.id,
+        workspaceId: session.workspaceId,
+        workflowId: session.workflowId,
+        workflowVersion: session.workflowVersion,
+        createdBy: session.createdBy,
+        launchedAt: session.launchedAt,
+        createdAt: session.createdAt,
+        workflowSnapshot: session.workflowSnapshot ? publicWorkflowDefinition(session.workflowSnapshot) : undefined,
+        runs: (await listWorkflowRunsForSession(session.id)).map((run) => publicWorkflowRun(run, true))
       })))
     });
-  } catch (err) {
-    next(err);
+  } catch (error) {
+    next(error);
   }
 }
 
 export async function postMessage(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const sessionId = toSingleParam(req.params.sessionId);
-    const session = await getWorkflowSession(sessionId);
-    if (!session) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow session not found', retryable: false } });
-      return;
+    const session = await getWorkflowSession(toSingleParam(req.params.sessionId));
+    if (!session) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow session not found', retryable: false } });
+    if (isExternalIntegrationRequest(req) && !externalIntegrationOwnsWorkflowSession(req, session)) {
+      return void res.status(403).json({ error: {
+        code: 'EXTERNAL_INTEGRATION_WORKFLOW_SESSION_NOT_OWNED',
+        message: 'This Workflow session belongs to another integration origin.',
+        retryable: false
+      } });
     }
     const authz = await requireWorkspaceDataRead(req, res, session.workspaceId);
     if (!authz) return;
-
-    const requiredCapability = session.compiledAccessScope.mode === 'read_write'
+    const currentWorkflow = await getWorkflowDefinition(session.workspaceId, session.workflowId);
+    const workflow = session.workflowSnapshot || currentWorkflow;
+    if (!workflow) return void res.status(409).json({ error: { code: 'WORKFLOW_VERSION_UNAVAILABLE', message: 'Workflow definition is unavailable.', retryable: false } });
+    if (isExternalIntegrationRequest(req)) {
+      const blocker = currentWorkflow ? externalWorkflowBlocker(currentWorkflow, authz) : 'External integrations can only run active workflows.';
+      if (blocker) {
+        return void res.status(403).json({ error: {
+          code: 'WORKFLOW_NOT_AVAILABLE_FOR_EXTERNAL_INTEGRATION',
+          message: blocker,
+          retryable: false
+        } });
+      }
+    }
+    const requiredCapability = workflow.capabilityPolicy.mode === 'read_write'
+      || (isExternalIntegrationRequest(req) && workflow.capabilityPolicy.approvalRequirements.length > 0)
       ? 'create_read_write_runs'
       : 'create_read_only_runs';
-    const runAuthz = await requireWorkspaceCapability(
-      req,
-      res,
-      session.workspaceId,
-      requiredCapability,
-      'No permission to create workflow runs'
-    );
-    if (!runAuthz) return;
-
-    const content = requestContent(req);
-    if (!content) {
-      res.status(400).json({ error: { code: 'WORKFLOW_MESSAGE_REQUIRED', message: 'content is required.', retryable: false } });
-      return;
-    }
-
-    const workflow = await getWorkflowDefinition(session.workspaceId, session.workflowId);
-    if (!workflow) {
-      res.status(409).json({ error: { code: 'WORKFLOW_VERSION_UNAVAILABLE', message: 'Workflow definition is unavailable.', retryable: false } });
-      return;
-    }
-    const firstStep = workflow.steps[0];
-    if (!firstStep || firstStep.agentIds?.length !== 1) {
-      res.status(409).json({ error: { code: 'WORKFLOW_STEP_AGENT_INVALID', message: 'Each executable workflow step must select exactly one active Agent.', retryable: false } });
-      return;
-    }
-    const agent = (await listAgentDefinitions(session.workspaceId, { includeInactive: true }))
-      .find((candidate) => candidate.id === firstStep.agentIds![0]);
-    if (!agent || agent.status !== 'active') {
-      res.status(409).json({ error: { code: 'WORKFLOW_AGENT_NOT_READY', message: 'The selected workflow Agent is not active.', retryable: false } });
-      return;
-    }
-    const inputs = requestInputs(req);
-    await validateWorkflowInputs({ workspaceId: session.workspaceId, workflow, inputs, content });
-    const target = await resolveWorkflowTarget({
-      workspaceId: session.workspaceId,
-      workflow,
-      inputs,
-      content,
-      targetId: typeof req.body.targetId === 'string' ? req.body.targetId : undefined,
-      targetType: typeof req.body.targetType === 'string' ? req.body.targetType : undefined
-    });
-    const readinessErrors = await getWorkflowCapabilityReadinessErrors(
-      session.workspaceId,
-      session.compiledAccessScope,
-      target
-    );
-    if (readinessErrors.length > 0) {
-      res.status(409).json({ error: {
-        code: 'WORKFLOW_CAPABILITY_NOT_READY', message: readinessErrors[0], retryable: false, details: { readinessErrors }
+    if (!(await requireWorkspaceCapability(req, res, session.workspaceId, requiredCapability, 'No permission to create workflow runs'))) return;
+    const kind = req.body?.kind;
+    if (kind !== 'launch' && kind !== 'follow_up') {
+      return void res.status(400).json({ error: {
+        code: 'WORKFLOW_MESSAGE_KIND_INVALID',
+        message: 'kind must be launch or follow_up.',
+        retryable: false
       } });
-      return;
     }
-
+    const clientRequestId = workflowClientRequestId(req, res);
+    if (clientRequestId === null) return;
+    const allowedFields = kind === 'launch'
+      ? new Set(['kind', 'inputs', 'clientRequestId'])
+      : new Set(['kind', 'content', 'clientRequestId']);
+    const unexpectedFields = Object.keys(req.body || {}).filter((field) => !allowedFields.has(field));
+    if (unexpectedFields.length > 0) {
+      return void res.status(400).json({ error: {
+        code: 'WORKFLOW_MESSAGE_FIELDS_INVALID',
+        message: `Workflow ${kind} messages contain unsupported fields.`,
+        retryable: false,
+        details: { fields: unexpectedFields.sort() }
+      } });
+    }
+    if (kind === 'launch' && (!req.body.inputs || typeof req.body.inputs !== 'object' || Array.isArray(req.body.inputs))) {
+      return void res.status(400).json({ error: {
+        code: 'WORKFLOW_PARAMETER_VALUES_INVALID',
+        message: 'One or more workflow parameter values are invalid.',
+        retryable: false,
+        details: { errors: [{ key: '', code: 'WORKFLOW_PARAMETER_VALUE_INVALID', message: 'inputs must be an object.' }] }
+      } });
+    }
+    if (kind === 'follow_up' && (typeof req.body.content !== 'string' || !req.body.content.trim())) {
+      return void res.status(400).json({ error: {
+        code: 'WORKFLOW_MESSAGE_REQUIRED',
+        message: 'content is required for a follow-up.',
+        retryable: false
+      } });
+    }
+    const clientRequestFingerprint = clientRequestId
+      ? workflowMessageRequestFingerprint(req.body as Record<string, unknown>)
+      : '';
+    if (clientRequestId && await respondToWorkflowMessageRetry(
+      res,
+      session,
+      clientRequestId,
+      clientRequestFingerprint
+    )) return;
+    if (kind === 'launch' && session.launchedAt) {
+      return void res.status(409).json({ error: {
+        code: 'WORKFLOW_SESSION_ALREADY_LAUNCHED',
+        message: 'This workflow session has already been launched.',
+        retryable: false
+      } });
+    }
+    if (kind === 'follow_up' && !session.launchedAt) {
+      return void res.status(409).json({ error: {
+        code: 'WORKFLOW_SESSION_NOT_LAUNCHED',
+        message: 'Launch this workflow session before sending a follow-up.',
+        retryable: false
+      } });
+    }
+    const messageId = randomUUID();
+    const inputValues = req.body?.inputs && typeof req.body.inputs === 'object' && !Array.isArray(req.body.inputs)
+      ? req.body.inputs as Record<string, unknown>
+      : {};
+    const resolution = kind === 'launch'
+      ? await compileWorkflowPrompt({
+          workflow,
+          inputValues,
+          actorUserId: req.auth.userId,
+          workflowSessionId: session.id,
+          initiatingMessageId: messageId
+        })
+      : await compileWorkflowFollowUp({
+          workflow,
+          launchWorkflow: session.workflowSnapshot,
+          content: typeof req.body?.content === 'string' ? req.body.content : '',
+          resourceInputValues: session.launchResourceInputs,
+          actorUserId: req.auth.userId,
+          workflowSessionId: session.id,
+          initiatingMessageId: messageId
+        });
+    const content = resolution.content;
+    const runtimeProjection = promptResourceRegistry.projectRuntime(resolution.bindings, messageId);
+    const projectedTarget = runtimeProjection.targetRoute && typeof runtimeProjection.targetRoute === 'object'
+      ? runtimeProjection.targetRoute as Record<string, unknown>
+      : undefined;
+    const targetRoute = projectedTarget
+      && typeof projectedTarget.id === 'string'
+      && typeof projectedTarget.targetType === 'string'
+      && isTargetType(projectedTarget.targetType)
+      ? { id: projectedTarget.id, targetType: projectedTarget.targetType }
+      : undefined;
+    const target: TargetSummary | undefined = targetRoute
+      ? await repo.getTarget(session.workspaceId, targetRoute.id) || undefined
+      : undefined;
+    if (targetRoute && !target) {
+      return void res.status(409).json({ error: { code: 'PROMPT_REFERENCE_NOT_FOUND', message: 'The bound target is no longer available.', retryable: false } });
+    }
+    let compiled = await compileWorkflowScope({
+      workflow,
+      actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
+      approvedContextGrants: session.compiledAccessScope.contextGrants,
+      targetRoute,
+      resourceBindings: resolution.bindings,
+      promptDigest: resolution.promptDigest,
+      bindingDigest: resolution.bindingDigest
+    });
+    if (target) {
+      const resolution = await resolveTargetRunTools({
+        workspaceId: session.workspaceId,
+        targetId: target.id,
+        targetType: target.targetType,
+        toolAccessMode: compiled.scope.mode,
+        includeNativeTools: false,
+        strictMcpResolution: true
+      });
+      const narrowed = narrowWorkflowScopeToTargetTools({
+        scope: compiled.scope,
+        mappings: compiled.mappings,
+        resolution
+      });
+      if (compiled.scope.targetToolRefs.length > 0 && narrowed.targetTools.allowedToolRefs.length === 0) {
+        await recordWorkspaceAuditEvent({
+          workspaceId: session.workspaceId, category: 'run', eventType: 'workflow.launch_blocked.v1', operation: 'read',
+          ...workflowAuditActor(req), objectType: 'workflow', objectId: workflow.id, objectName: workflow.name,
+          summary: 'Workflow launch blocked', metadata: { workflowId: workflow.id, reasonCodes: ['WORKFLOW_TARGET_TOOLS_UNAVAILABLE'] }
+        });
+        return void res.status(409).json({ error: { code: 'WORKFLOW_TARGET_TOOLS_UNAVAILABLE', message: 'The selected target tool catalog is unavailable.', retryable: true } });
+      }
+      compiled = { ...compiled, scope: narrowed.scope };
+    }
+    const mcpReadiness = await getWorkflowCapabilityReadinessReport(
+      session.workspaceId,
+      compiled.scope,
+      target,
+      { principal: compiled.scope.principal }
+    );
+    if (mcpReadiness.errors.length > 0) {
+      await recordWorkspaceAuditEvent({
+        workspaceId: session.workspaceId, category: 'run', eventType: 'workflow.launch_blocked.v1', operation: 'read',
+        ...workflowAuditActor(req), objectType: 'workflow', objectId: workflow.id, objectName: workflow.name,
+        summary: 'Workflow launch blocked', metadata: {
+          workflowId: workflow.id,
+          reasonCodes: mcpReadiness.failures.length > 0
+            ? [...new Set(mcpReadiness.failures.map((failure) => failure.code))]
+            : ['MCP_CONNECTION_UNAVAILABLE']
+        }
+      });
+      return void res.status(409).json({
+        error: publicMcpReadinessError(mcpReadiness)
+      });
+    }
     const llmSettings = await resolveWorkspaceLlmSettings(session.workspaceId);
-    if (!llmSettings.allowedProviders.includes(llmSettings.provider)) {
-      res.status(400).json({ error: { code: 'PROVIDER_NOT_ALLOWED', message: 'Workspace AI provider is not enabled', retryable: false } });
-      return;
+    if (!llmSettings.allowedProviders.includes(llmSettings.provider)) return void res.status(400).json({ error: { code: 'PROVIDER_NOT_ALLOWED', message: 'Workspace AI provider is not enabled', retryable: false } });
+    if (!llmSettings.allowedModels.includes(llmSettings.model) || !isModelAllowedForProvider(llmSettings.provider, llmSettings.model, llmSettings.allowedProviderModels)) {
+      return void res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Workspace AI model is not allowed', retryable: false } });
     }
-    if (!llmSettings.allowedModels.includes(llmSettings.model)) {
-      res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Workspace AI model is not allowed', retryable: false } });
-      return;
-    }
-    if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, llmSettings.allowedProviderModels)) {
-      res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Workspace AI model is not available for the selected provider', retryable: false } });
-      return;
-    }
-    if (!llmSettings.credentialConfigured) {
-      res.status(400).json({ error: { code: 'AI_PROVIDER_CREDENTIAL_MISSING', message: 'Configure an AI provider API key in AI Settings before starting a workflow run.', retryable: false } });
-      return;
-    }
+    if (!llmSettings.credentialConfigured) return void res.status(400).json({ error: { code: 'AI_PROVIDER_CREDENTIAL_MISSING', message: 'Configure an AI provider credential before starting a workflow run.', retryable: false } });
     const created = await createWorkflowExecution({
       workflow,
-      session,
+      session: { ...session, compiledAccessScope: compiled.scope },
+      compiledAccessScope: compiled.scope,
+      requestProvenance: runRequestProvenance(req),
+      messageId,
       content,
-      inputs,
-      clientRequestId: typeof req.body.clientRequestId === 'string' ? req.body.clientRequestId : undefined,
-      targetId: target?.id,
-      targetType: target?.targetType,
-      agentSnapshot: agent as unknown as Record<string, unknown>,
+      clientRequestId: clientRequestId || undefined,
+      clientRequestFingerprint: clientRequestFingerprint || undefined,
+      targetId: targetRoute?.id,
+      targetType: targetRoute?.targetType,
+      promptDigest: resolution.promptDigest,
+      bindingDigest: resolution.bindingDigest,
+      resourceBindings: resolution.bindings,
+      resolvedAt: resolution.resolvedAt,
+      specialistSnapshot: compiled.specialistAgent,
       llmProvider: llmSettings.provider,
       llmModel: llmSettings.model,
       llmReasoningSummaryMode: llmSettings.reasoning.summary_mode,
-      llmReasoningEffort: llmSettings.reasoning.effort
+      llmReasoningEffort: llmSettings.reasoning.effort,
+      ...(kind === 'launch' ? { launchResourceInputs: resolution.resourceInputValues } : {})
     });
-    const { execution, message, run } = created;
-
+    emitWorkflowExecutionEvents(created.execution.id, created.initialEvents);
     await recordWorkspaceAuditEvent({
       workspaceId: session.workspaceId,
       category: 'run',
-      eventType: 'workflow.run_created.v1',
+      eventType: 'workflow.run_created.v2',
       operation: 'write',
-      actorUserId: req.auth.userId,
+      ...workflowAuditActor(req),
       objectType: 'workflow_run',
-      objectId: run.id,
-      objectName: session.workflowId,
-      summary: 'Workflow run created',
+      objectId: created.run.id,
+      objectName: workflow.name,
+      summary: 'Workflow V2 run created',
       metadata: {
-        workflowId: session.workflowId,
-        workflowRunId: run.workflowRunId,
-        workflowSessionId: session.id,
-        workflowStepId: run.workflowStepId,
-        targetId: run.targetId || null,
-        targetType: run.targetType || null,
-        mode: session.compiledAccessScope.mode,
-        tools: session.compiledAccessScope.tools,
-        contextGrants: session.compiledAccessScope.contextGrants
+        workflowId: workflow.id,
+        workflowVersion: workflow.version,
+        executionMode: workflow.executionMode,
+        selectedAgentCount: workflow.agentIds.length,
+        promptDigest: resolution.promptDigest,
+        bindingDigest: resolution.bindingDigest,
+        resourceBindingCount: resolution.bindings.length,
+        semanticCapabilityIds: compiled.scope.semanticCapabilityIds
       }
     });
-
     res.status(202).json({
-      message_id: message.id,
-      run_id: run.id,
-      workflow_run_id: run.workflowRunId,
-      executionId: execution.id,
-      status: run.status,
-      compiledAccessScope: session.compiledAccessScope
+      message_id: created.message.id,
+      run_id: created.run.id,
+      executionId: created.execution.id,
+      status: created.run.status
     });
-  } catch (err) {
-    if (err instanceof WorkflowInputValidationError) {
-      res.status(400).json({
-        error: { code: err.code, message: err.message, retryable: false, details: { field: err.field } }
-      });
-      return;
+  } catch (error) {
+    if (isWorkflowClientRequestIdConflict(error)) {
+      const session = await getWorkflowSession(toSingleParam(req.params.sessionId));
+      const clientRequestId = typeof req.body?.clientRequestId === 'string' ? req.body.clientRequestId.trim() : '';
+      const clientRequestFingerprint = clientRequestId
+        ? workflowMessageRequestFingerprint(req.body as Record<string, unknown>)
+        : '';
+      if (session && clientRequestId && await respondToWorkflowMessageRetry(
+        res,
+        session,
+        clientRequestId,
+        clientRequestFingerprint
+      )) return;
     }
-    if (err instanceof WorkflowTargetResolutionError) {
-      res.status(err.code === 'WORKFLOW_TARGET_NOT_FOUND' ? 404 : 409).json({
-        error: { code: err.code, message: err.message, retryable: false }
-      });
-      return;
+    if (error instanceof WorkflowAccessDeniedError) return respondWorkflowAccessError(res, error);
+    if (error instanceof WorkflowParameterValuesError) {
+      return void res.status(400).json({ error: {
+        code: 'WORKFLOW_PARAMETER_VALUES_INVALID',
+        message: error.message,
+        retryable: false,
+        details: { errors: error.errors }
+      } });
     }
-    if (err instanceof LlmGatewayHttpError) {
-      const mapped = mapGatewayError(err, { upstreamMessage: WORKFLOW_GATEWAY_UPSTREAM_MESSAGE });
-      res.status(mapped.status).json(mapped.body);
-      return;
+    if (error instanceof WorkflowTemplateValidationError) {
+      return void res.status(400).json({ error: {
+        code: 'WORKFLOW_PROMPT_TEMPLATE_INVALID',
+        message: error.message,
+        retryable: false,
+        details: { errors: error.errors }
+      } });
     }
-    next(err);
+    if (error instanceof Error && error.name === 'WORKFLOW_SESSION_ALREADY_LAUNCHED') {
+      const session = await getWorkflowSession(toSingleParam(req.params.sessionId));
+      const clientRequestId = typeof req.body?.clientRequestId === 'string' ? req.body.clientRequestId.trim() : '';
+      const clientRequestFingerprint = clientRequestId
+        ? workflowMessageRequestFingerprint(req.body as Record<string, unknown>)
+        : '';
+      if (session && clientRequestId && await respondToWorkflowMessageRetry(
+        res,
+        session,
+        clientRequestId,
+        clientRequestFingerprint
+      )) return;
+      return void res.status(409).json({ error: {
+        code: 'WORKFLOW_SESSION_ALREADY_LAUNCHED',
+        message: error.message,
+        retryable: false
+      } });
+    }
+    if (error instanceof PromptResourceProviderError) {
+      return void res.status(409).json({ error: { code: error.code, message: error.message, retryable: error.retryable } });
+    }
+    if (error instanceof LlmGatewayHttpError) {
+      const mapped = mapGatewayError(error, { upstreamMessage: WORKFLOW_GATEWAY_UPSTREAM_MESSAGE });
+      return void res.status(mapped.status).json(mapped.body);
+    }
+    next(error);
   }
 }
 
-export {
-  createWorkflow,
-  createWorkflowMcpServerForWorkspace,
-  deleteWorkflow,
-  deleteWorkflowMcpServerForWorkspace,
-  listWorkflowMcpServersForWorkspace,
-  listWorkflowMcpServerToolsForWorkspace,
-  listWorkflowOptions,
-  testWorkflowMcpServerConnectionForWorkspace,
-  updateWorkflow,
-  updateWorkflowMcpServerForWorkspace
-} from './workflows-management-controller.js';
-export { updateWorkflowMcpToolForWorkspace } from './workflows-mcp-tool-controller.js';
+export { createWorkflow, deleteWorkflow, duplicateWorkflow, updateWorkflow } from './workflows-management-controller.js';

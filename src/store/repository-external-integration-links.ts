@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import type { WorkspaceCapability } from '../auth/authorization.js';
 import { db } from '../infra/db.js';
-import type { User } from '../types/domain.js';
+import type { Role, User } from '../types/domain.js';
+import { recordExternalIntegrationLinkCompletion } from './repository-external-integration-link-audit.js';
 import { toIso, type UserRow } from './repository-mappers.js';
 import { withTransaction } from './repository-transaction.js';
 
@@ -36,6 +38,18 @@ interface ExternalIntegrationUserLinkRow {
   created_at?: Date | string;
 }
 
+interface ExternalIntegrationWorkspaceGrantRow {
+  id: string;
+  external_integration_user_link_id: string;
+  workspace_id: string;
+  capabilities: WorkspaceCapability[];
+  granted_by_user_id: string;
+  created_at: Date | string;
+  updated_at: Date | string;
+  workspace_name?: string;
+  role?: Role;
+}
+
 export interface ExternalIntegrationClientIdentity {
   integrationClientId: string;
   provider: string;
@@ -60,6 +74,7 @@ export interface ExternalIntegrationLinkResolution {
   status: 'linked';
   user: Pick<User, 'id' | 'email' | 'displayName'>;
   link: {
+    id: string;
     integrationClientId: string;
     provider: string;
     clientDisplayName: string;
@@ -90,6 +105,27 @@ export interface ExternalIntegrationUserLinkSummary {
   linkedAt: string;
   lastAuthenticatedAt: string;
   expiresAt: string;
+  grants: ExternalIntegrationWorkspaceGrantSummary[];
+}
+
+export interface ExternalIntegrationWorkspaceGrantSummary {
+  workspaceId: string;
+  capabilities: WorkspaceCapability[];
+  grantedByUserId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExternalIntegrationGrantableWorkspace {
+  workspaceId: string;
+  workspaceName: string;
+  role: Role;
+  grantedCapabilities: WorkspaceCapability[];
+}
+
+export interface ExternalIntegrationWorkspaceGrantInput {
+  workspaceId: string;
+  capabilities: WorkspaceCapability[];
 }
 
 export interface RevokeExternalIntegrationLinkResult {
@@ -135,7 +171,18 @@ function summaryFromRow(row: ExternalIntegrationUserLinkRow): ExternalIntegratio
     ...(row.external_display_name ? { externalDisplayName: row.external_display_name } : {}),
     linkedAt: toIso(row.linked_at)!,
     lastAuthenticatedAt: toIso(row.last_authenticated_at)!,
-    expiresAt: toIso(row.expires_at)!
+    expiresAt: toIso(row.expires_at)!,
+    grants: []
+  };
+}
+
+function grantSummaryFromRow(row: ExternalIntegrationWorkspaceGrantRow): ExternalIntegrationWorkspaceGrantSummary {
+  return {
+    workspaceId: row.workspace_id,
+    capabilities: row.capabilities || [],
+    grantedByUserId: row.granted_by_user_id,
+    createdAt: toIso(row.created_at)!,
+    updatedAt: toIso(row.updated_at)!
   };
 }
 
@@ -219,6 +266,8 @@ export async function completeExternalIntegrationLinkToken(input: {
   tokenHash: string;
   acornopsUserId: string;
   linkExpiresAt: Date;
+  workspaceGrants?: ExternalIntegrationWorkspaceGrantInput[];
+  auditCompletion?: boolean;
 }): Promise<ExternalIntegrationUserLinkSummary | null> {
   return withTransaction(async (client) => {
     const tokenResult = await client.query<ExternalIntegrationLinkTokenRow>(
@@ -260,21 +309,49 @@ export async function completeExternalIntegrationLinkToken(input: {
         input.linkExpiresAt
       ]
     );
+    const link = summaryFromRow(linkResult.rows[0]);
+    if (input.workspaceGrants) {
+      await client.query(
+        'DELETE FROM external_integration_workspace_grants WHERE external_integration_user_link_id = $1',
+        [link.id]
+      );
+      for (const grant of input.workspaceGrants) {
+        const grantResult = await client.query<ExternalIntegrationWorkspaceGrantRow>(
+          `INSERT INTO external_integration_workspace_grants (
+             id, external_integration_user_link_id, workspace_id, capabilities,
+             granted_by_user_id, created_at, updated_at
+           )
+           VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+           RETURNING *`,
+          [randomUUID(), link.id, grant.workspaceId, grant.capabilities, input.acornopsUserId]
+        );
+        link.grants.push(grantSummaryFromRow(grantResult.rows[0]));
+      }
+    }
     await client.query('UPDATE external_integration_link_tokens SET consumed_at = NOW() WHERE token_hash = $1', [input.tokenHash]);
-    return summaryFromRow(linkResult.rows[0]);
+    if (input.auditCompletion) {
+      await recordExternalIntegrationLinkCompletion(client, input.acornopsUserId, link);
+    }
+    return link;
   });
 }
 
 export async function resolveExternalIntegrationUserLink(input: ExternalIntegrationIdentityLookup): Promise<ExternalIntegrationLinkResolution | null> {
   const result = await db.query<ExternalIntegrationUserLinkRow>(
-    `SELECT l.*, u.id AS user_id, u.email, u.display_name, u.created_at
-     FROM external_integration_user_links l
+    `WITH resolved AS (
+       UPDATE external_integration_user_links
+       SET last_authenticated_at = NOW()
+       WHERE integration_client_id = $1
+         AND provider = $2
+         AND external_user_id = $3
+         AND revoked_at IS NULL
+         AND expires_at > NOW()
+       RETURNING *
+     )
+     SELECT l.*, u.id AS user_id, u.email, u.display_name, u.created_at
+     FROM resolved l
      JOIN users u ON l.acornops_user_id = u.id
-     WHERE l.integration_client_id = $1
-       AND l.provider = $2
-       AND l.external_user_id = $3
-       AND l.revoked_at IS NULL
-       AND l.expires_at > NOW()`,
+    `,
     [input.integrationClientId, input.provider, input.externalUserId]
   );
   const row = result.rows[0];
@@ -287,6 +364,7 @@ export async function resolveExternalIntegrationUserLink(input: ExternalIntegrat
       displayName: row.display_name
     },
     link: {
+      id: row.id,
       integrationClientId: row.integration_client_id,
       provider: row.provider,
       clientDisplayName: row.client_display_name,
@@ -309,7 +387,101 @@ export async function listExternalIntegrationUserLinks(acornopsUserId: string): 
      ORDER BY provider ASC, client_display_name ASC, external_user_id ASC`,
     [acornopsUserId]
   );
-  return result.rows.map(summaryFromRow);
+  const links = result.rows.map(summaryFromRow);
+  if (!links.length) return links;
+  const grantResult = await db.query<ExternalIntegrationWorkspaceGrantRow>(
+    `SELECT *
+     FROM external_integration_workspace_grants
+     WHERE external_integration_user_link_id = ANY($1::text[])
+     ORDER BY workspace_id ASC`,
+    [links.map((link) => link.id)]
+  );
+  const grantsByLinkId = new Map<string, ExternalIntegrationWorkspaceGrantSummary[]>();
+  for (const row of grantResult.rows) {
+    const current = grantsByLinkId.get(row.external_integration_user_link_id) || [];
+    current.push(grantSummaryFromRow(row));
+    grantsByLinkId.set(row.external_integration_user_link_id, current);
+  }
+  return links.map((link) => ({
+    ...link,
+    grants: grantsByLinkId.get(link.id) || []
+  }));
+}
+
+export async function listExternalIntegrationGrantableWorkspaces(input: ExternalIntegrationIdentityLookup & {
+  acornopsUserId: string;
+}): Promise<ExternalIntegrationGrantableWorkspace[]> {
+  const result = await db.query<ExternalIntegrationWorkspaceGrantRow>(
+    `SELECT
+       w.id AS workspace_id,
+       w.name AS workspace_name,
+       m.role,
+       COALESCE(g.capabilities, ARRAY[]::text[]) AS capabilities
+     FROM workspaces w
+     JOIN workspace_memberships m
+       ON m.workspace_id = w.id
+      AND m.user_id = $4
+     LEFT JOIN external_integration_user_links l
+       ON l.integration_client_id = $1
+      AND l.provider = $2
+      AND l.external_user_id = $3
+      AND l.acornops_user_id = $4
+      AND l.revoked_at IS NULL
+      AND l.expires_at > NOW()
+     LEFT JOIN external_integration_workspace_grants g
+       ON g.external_integration_user_link_id = l.id
+      AND g.workspace_id = w.id
+     ORDER BY w.name ASC, w.id ASC`,
+    [input.integrationClientId, input.provider, input.externalUserId, input.acornopsUserId]
+  );
+  return result.rows.map((row) => ({
+    workspaceId: row.workspace_id,
+    workspaceName: row.workspace_name || row.workspace_id,
+    role: row.role!,
+    grantedCapabilities: row.capabilities || []
+  }));
+}
+
+export async function getExternalIntegrationWorkspaceGrant(input: {
+  linkId: string;
+  workspaceId: string;
+}): Promise<ExternalIntegrationWorkspaceGrantSummary | null> {
+  const result = await db.query<ExternalIntegrationWorkspaceGrantRow>(
+    `SELECT *
+     FROM external_integration_workspace_grants
+     WHERE external_integration_user_link_id = $1
+       AND workspace_id = $2
+     LIMIT 1`,
+    [input.linkId, input.workspaceId]
+  );
+  return result.rows[0] ? grantSummaryFromRow(result.rows[0]) : null;
+}
+
+export async function replaceExternalIntegrationWorkspaceGrants(input: {
+  linkId: string;
+  grantedByUserId: string;
+  grants: ExternalIntegrationWorkspaceGrantInput[];
+}): Promise<ExternalIntegrationWorkspaceGrantSummary[]> {
+  return withTransaction(async (client) => {
+    await client.query(
+      'DELETE FROM external_integration_workspace_grants WHERE external_integration_user_link_id = $1',
+      [input.linkId]
+    );
+    const summaries: ExternalIntegrationWorkspaceGrantSummary[] = [];
+    for (const grant of input.grants) {
+      const result = await client.query<ExternalIntegrationWorkspaceGrantRow>(
+        `INSERT INTO external_integration_workspace_grants (
+           id, external_integration_user_link_id, workspace_id, capabilities,
+           granted_by_user_id, created_at, updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+         RETURNING *`,
+        [randomUUID(), input.linkId, grant.workspaceId, grant.capabilities, input.grantedByUserId]
+      );
+      summaries.push(grantSummaryFromRow(result.rows[0]));
+    }
+    return summaries;
+  });
 }
 
 export async function revokeExternalIntegrationUserLink(input: ExternalIntegrationIdentityLookup & {

@@ -5,10 +5,14 @@ import { repo } from '../src/store/repository.js';
 import type { Run, RunToolApproval } from '../src/types/domain.js';
 
 const originalGetRun = repo.getRun;
+const originalGetRunRequestProvenance = repo.getRunRequestProvenance;
 const originalGetRunToolApproval = repo.getRunToolApproval;
 const originalGetWorkspaceRole = repo.getWorkspaceRole;
-const originalDecideRunToolApproval = repo.decideRunToolApproval;
+const originalGetExternalIntegrationWorkspaceGrant = repo.getExternalIntegrationWorkspaceGrant;
+const originalDecideRunToolApprovalOutcome = repo.decideRunToolApprovalOutcome;
 const originalInsertTargetChatActivityEvent = repo.insertTargetChatActivityEvent;
+const originalInsertWorkspaceAuditEvent = repo.insertWorkspaceAuditEvent;
+const originalEnqueueWebhookOutboxEvent = repo.enqueueWebhookOutboxEvent;
 
 beforeEach(() => {
   repo.insertTargetChatActivityEvent = async (event) => ({
@@ -28,10 +32,14 @@ beforeEach(() => {
 
 afterEach(() => {
   repo.getRun = originalGetRun;
+  repo.getRunRequestProvenance = originalGetRunRequestProvenance;
   repo.getRunToolApproval = originalGetRunToolApproval;
   repo.getWorkspaceRole = originalGetWorkspaceRole;
-  repo.decideRunToolApproval = originalDecideRunToolApproval;
+  repo.getExternalIntegrationWorkspaceGrant = originalGetExternalIntegrationWorkspaceGrant;
+  repo.decideRunToolApprovalOutcome = originalDecideRunToolApprovalOutcome;
   repo.insertTargetChatActivityEvent = originalInsertTargetChatActivityEvent;
+  repo.insertWorkspaceAuditEvent = originalInsertWorkspaceAuditEvent;
+  repo.enqueueWebhookOutboxEvent = originalEnqueueWebhookOutboxEvent;
 });
 
 function createRun(overrides: Partial<Run> = {}): Run {
@@ -93,7 +101,157 @@ function createAuth(userId = 'user-1') {
   };
 }
 
+function createExternalIntegrationRequest(linkId = 'link-1') {
+  return {
+    params: { runId: 'run-1', approvalId: 'approval-1' },
+    body: { decision: 'approved' },
+    auth: {
+      userId: 'user-1',
+      credential: {
+        type: 'external_integration' as const,
+        linkId,
+        integrationId: 'external-chat',
+        provider: 'external',
+        externalUserId: 'external-user-1'
+      }
+    },
+    externalIntegrationClient: {
+      allowedCapabilities: ['read_workspace_data', 'create_sessions', 'create_read_write_runs']
+    }
+  };
+}
+
+function installExternalIntegrationApprovalAccess(): void {
+  repo.getWorkspaceRole = async () => 'admin';
+  repo.getExternalIntegrationWorkspaceGrant = async () => ({
+    workspaceId: 'workspace-1',
+    capabilities: ['read_workspace_data', 'create_sessions', 'create_read_write_runs'],
+    grantedByUserId: 'user-1',
+    createdAt: '2026-05-06T00:00:00.000Z',
+    updatedAt: '2026-05-06T00:00:00.000Z'
+  });
+}
+
 describe('run approval decisions', () => {
+  it('allows the same linked external integration to approve its troubleshooting write', async () => {
+    repo.getRun = async () => createRun();
+    repo.getRunRequestProvenance = async () => ({
+      actorType: 'external_integration',
+      externalIntegrationLinkId: 'link-1',
+      externalIntegrationClientId: 'external-chat'
+    });
+    repo.getRunToolApproval = async () => createApproval({ status: 'pending', requestedBy: 'user-1' });
+    repo.decideRunToolApprovalOutcome = async () => ({
+      transitioned: true,
+      approval: createApproval({
+        status: 'approved',
+        decision: 'approved',
+        requestedBy: 'user-1',
+        decidedBy: 'user-1'
+      })
+    });
+    installExternalIntegrationApprovalAccess();
+    let auditActor: { actorType?: string; actorUserId?: string | null; actorTokenId?: string | null } | undefined;
+    repo.insertWorkspaceAuditEvent = async (input) => {
+      auditActor = input;
+      return null;
+    };
+    repo.enqueueWebhookOutboxEvent = async () => null;
+    const res = createResponse();
+
+    await decideRunApproval(createExternalIntegrationRequest() as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal((res.body as RunToolApproval).status, 'approved');
+    assert.equal(auditActor?.actorType, 'external_integration');
+    assert.equal(auditActor?.actorUserId, 'user-1');
+    assert.equal(auditActor?.actorTokenId, 'external-chat');
+  });
+
+  it('denies an external integration approval when the run was created in the browser', async () => {
+    repo.getRun = async () => createRun();
+    repo.getRunRequestProvenance = async () => ({ actorType: 'user' });
+    installExternalIntegrationApprovalAccess();
+    const res = createResponse();
+
+    await decideRunApproval(createExternalIntegrationRequest() as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.equal(res.statusCode, 403);
+    assert.equal(
+      (res.body as { error: { code: string } }).error.code,
+      'EXTERNAL_INTEGRATION_APPROVAL_NOT_OWNED'
+    );
+  });
+
+  it('denies an external integration approval when the run originated from another link', async () => {
+    repo.getRun = async () => createRun();
+    repo.getRunRequestProvenance = async () => ({
+      actorType: 'external_integration',
+      externalIntegrationLinkId: 'link-2',
+      externalIntegrationClientId: 'external-chat'
+    });
+    installExternalIntegrationApprovalAccess();
+    let decisionAttempted = false;
+    repo.decideRunToolApprovalOutcome = async () => {
+      decisionAttempted = true;
+      return null;
+    };
+    const res = createResponse();
+
+    await decideRunApproval(createExternalIntegrationRequest('link-1') as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.equal(res.statusCode, 403);
+    assert.equal(
+      (res.body as { error: { code: string } }).error.code,
+      'EXTERNAL_INTEGRATION_APPROVAL_NOT_OWNED'
+    );
+    assert.equal(decisionAttempted, false);
+  });
+
+  it('requires effective create_read_write_runs for an external integration approval', async () => {
+    repo.getRun = async () => createRun();
+    repo.getRunRequestProvenance = async () => ({
+      actorType: 'external_integration',
+      externalIntegrationLinkId: 'link-1',
+      externalIntegrationClientId: 'external-chat'
+    });
+    repo.getRunToolApproval = async () => createApproval({ status: 'pending', requestedBy: 'user-1' });
+    repo.getWorkspaceRole = async () => 'operator';
+    repo.getExternalIntegrationWorkspaceGrant = async () => ({
+      workspaceId: 'workspace-1',
+      capabilities: ['read_workspace_data', 'create_sessions', 'create_read_write_runs'],
+      grantedByUserId: 'user-1',
+      createdAt: '2026-05-06T00:00:00.000Z',
+      updatedAt: '2026-05-06T00:00:00.000Z'
+    });
+    const res = createResponse();
+
+    await decideRunApproval(createExternalIntegrationRequest() as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.equal(res.statusCode, 403);
+    assert.equal((res.body as { error: { code: string } }).error.code, 'FORBIDDEN');
+  });
+
+  it('does not allow external integrations to fall through to Workflow or Agent approvals', async () => {
+    repo.getRun = async () => null;
+    const res = createResponse();
+
+    await decideRunApproval(createExternalIntegrationRequest() as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.equal(res.statusCode, 404);
+    assert.equal((res.body as { error: { code: string } }).error.code, 'NOT_FOUND');
+  });
+
   it('rejects decisions for expired approvals instead of treating them as idempotent', async () => {
     repo.getRun = async () => createRun();
     repo.getWorkspaceRole = async () => 'admin';
@@ -111,7 +269,7 @@ describe('run approval decisions', () => {
     });
 
     assert.equal(res.statusCode, 409);
-    assert.deepEqual((res.body as { error: { code: string } }).error.code, 'APPROVAL_ALREADY_DECIDED');
+    assert.deepEqual((res.body as { error: { code: string } }).error.code, 'APPROVAL_EXPIRED');
   });
 
   it('keeps repeated matching decisions idempotent', async () => {
@@ -138,7 +296,10 @@ describe('run approval decisions', () => {
     repo.getRun = async () => createRun();
     repo.getRunToolApproval = async () => createApproval({ status: 'pending' });
     repo.getWorkspaceRole = async () => 'admin';
-    repo.decideRunToolApproval = async () => createApproval({ status: 'expired' });
+    repo.decideRunToolApprovalOutcome = async () => ({
+      transitioned: true,
+      approval: createApproval({ status: 'expired' })
+    });
 
     const req = {
       params: { runId: 'run-1', approvalId: 'approval-1' },

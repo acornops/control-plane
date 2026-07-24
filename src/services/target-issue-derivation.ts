@@ -376,10 +376,10 @@ export function deriveVirtualMachineIssueObservations(
   const data = snapshot.data || {};
   const observations: TargetIssueObservationInput[] = [];
   const serviceStates = new Map<string, Record<string, unknown>>();
-  for (const service of toArray(data.services)) {
-    const name = text(service.name);
-    const activeState = text(service.activeState, 'unknown');
-    const subState = text(service.subState);
+  for (const service of toArray(data.degraded_services)) {
+    const name = text(service.unit);
+    const activeState = text(service.active_state, 'unknown');
+    const subState = text(service.sub_state);
     const normalizedActiveState = activeState.toLowerCase();
     if (name) serviceStates.set(name, service);
     if (!name || !/failed|degraded/i.test(`${activeState} ${subState}`)) continue;
@@ -410,16 +410,16 @@ export function deriveVirtualMachineIssueObservations(
   for (const finding of toArray(data.findings)) {
     const severity = vmSeverity(finding.severity);
     if (severity === 'info') continue;
-    const objectKind = text(finding.objectKind, 'host');
-    const objectName = text(finding.objectName, vm.hostname || vm.name);
-    const reason = text(finding.reason, 'finding');
+    const objectKind = finding.unit ? 'systemd_service' : 'host';
+    const objectName = text(finding.unit, text(finding.mount, vm.hostname || vm.name));
+    const reason = text(finding.code, 'finding');
     const serviceLike = /service|systemd/i.test(objectKind);
     const issueType = serviceLike ? 'vm_service_unhealthy' : 'vm_host_finding';
-    const title = text(finding.title, 'VM issue');
-    const summary = text(finding.message, 'VM diagnostic issue');
+    const title = text(finding.summary, 'VM issue');
+    const summary = text(finding.summary, 'VM diagnostic issue');
     const matchingService = serviceLike ? serviceStates.get(objectName) : undefined;
-    const activeState = text(matchingService?.activeState, reason);
-    const subState = text(matchingService?.subState, activeState);
+    const activeState = text(matchingService?.active_state, reason);
+    const subState = text(matchingService?.sub_state, activeState);
     observations.push({
       targetId: vm.id,
       workspaceId: vm.workspaceId,
@@ -438,7 +438,7 @@ export function deriveVirtualMachineIssueObservations(
       objectKind,
       objectName,
       reason,
-      findingId: text(finding.id) || null,
+      findingId: null,
       evidence: { source: 'vm_snapshot_finding', finding },
       searchText: buildSearchText([title, summary, vm.name, objectKind, objectName, reason])
     });

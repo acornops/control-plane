@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import { createExternalIntegrationLink, hashExternalIntegrationLinkToken } from '../src/auth/external-integration-link.js';
-import { requireExternalIntegrationClient } from '../src/auth/middleware.js';
 import {
   completeExternalIntegrationLinkRequest,
   createExternalIntegrationLinkRequest,
@@ -26,13 +25,13 @@ const mutableConfig = config as typeof config & {
   OIDC_TOKEN_ENDPOINT_AUTH_METHOD: 'client_secret_basic' | 'client_secret_post' | 'none';
 };
 const DEV_EXTERNAL_INTEGRATION_CLIENT = config.EXTERNAL_INTEGRATION_CLIENTS[0];
-const DEV_EXTERNAL_INTEGRATION_TOKEN = 'dev_external_integration_client_token';
 
 function createResponse() {
   return {
     statusCode: 200,
     body: undefined as unknown,
     redirectUrl: '',
+    cookies: new Map<string, string>(),
     status(code: number) {
       this.statusCode = code;
       return this;
@@ -43,6 +42,10 @@ function createResponse() {
     },
     redirect(url: string) {
       this.redirectUrl = url;
+      return this;
+    },
+    cookie(name: string, value: string) {
+      this.cookies.set(name, value);
       return this;
     }
   };
@@ -250,6 +253,8 @@ describe('external integration link contract', () => {
       assert.match(res.redirectUrl, /^https:\/\/issuer-external-integration-link\.example\.com\/auth\?/);
       assert.equal(stateRecord?.purpose, 'integration_link');
       assert.equal(stateRecord?.returnTo, 'https://console.example.com/integrations/external/link?token=intlink_token-1');
+      assert.equal(typeof stateRecord?.browserBindingHash, 'string');
+      assert.equal(res.cookies.size, 1);
     } finally {
       mutableConfig.OIDC_ISSUER_URL = originalIssuer;
       mutableConfig.OIDC_REDIRECT_URI = originalRedirectUri;
@@ -266,6 +271,19 @@ describe('external integration link contract', () => {
       createdAt: '2026-06-08T00:00:00.000Z'
     }));
     let completed: Record<string, unknown> | undefined;
+    mock.method(repo, 'previewExternalIntegrationLinkToken', async () => ({
+      integrationClientId: 'dev-client',
+      provider: 'external',
+      clientDisplayName: 'Development external integration',
+      externalUserId: 'user-1',
+      expiresAt: '2026-06-08T00:10:00.000Z'
+    }));
+    mock.method(repo, 'listExternalIntegrationGrantableWorkspaces', async () => [{
+      workspaceId: 'workspace-1',
+      workspaceName: 'Workspace',
+      role: 'operator',
+      grantedCapabilities: []
+    }]);
     mock.method(repo, 'completeExternalIntegrationLinkToken', async (input: Record<string, unknown>) => {
       completed = input;
       return {
@@ -276,15 +294,21 @@ describe('external integration link contract', () => {
         externalUserId: 'user-1',
         linkedAt: '2026-06-08T00:00:00.000Z',
         lastAuthenticatedAt: '2026-06-08T00:00:00.000Z',
-        expiresAt: '2026-07-08T00:00:00.000Z'
+        expiresAt: '2026-07-08T00:00:00.000Z',
+        grants: [{
+          workspaceId: 'workspace-1',
+          capabilities: ['read_workspace_data'],
+          grantedByUserId: 'user-1',
+          createdAt: '2026-06-08T00:00:00.000Z',
+          updatedAt: '2026-06-08T00:00:00.000Z'
+        }]
       };
     });
-    mock.method(repo, 'insertAccountAuditEvent', async () => undefined);
     const res = createResponse();
 
     await completeExternalIntegrationLinkRequest({
       auth: { userId: 'user-1', credential: { type: 'session', sessionId: 'session-1' } },
-      body: { token: 'intlink_token-1' }
+      body: { token: 'intlink_token-1', workspaceGrants: [{ workspaceId: 'workspace-1', capabilities: ['read_workspace_data'] }] }
     } as never, res as never, (err?: unknown) => {
       if (err) throw err;
     });
@@ -293,6 +317,8 @@ describe('external integration link contract', () => {
     assert.equal((res.body as { status: string }).status, 'linked');
     assert.equal(completed?.tokenHash, hashExternalIntegrationLinkToken('intlink_token-1'));
     assert.equal(completed?.acornopsUserId, 'user-1');
+    assert.deepEqual(completed?.workspaceGrants, [{ workspaceId: 'workspace-1', capabilities: ['read_workspace_data'] }]);
+    assert.equal(completed?.auditCompletion, true);
   });
 
   it('returns expired when authenticated browser completion cannot consume the token', async () => {
@@ -302,6 +328,14 @@ describe('external integration link contract', () => {
       displayName: 'Alice',
       createdAt: '2026-06-08T00:00:00.000Z'
     }));
+    mock.method(repo, 'previewExternalIntegrationLinkToken', async () => ({
+      integrationClientId: 'dev-client',
+      provider: 'external',
+      clientDisplayName: 'Development external integration',
+      externalUserId: 'user-1',
+      expiresAt: '2026-06-08T00:10:00.000Z'
+    }));
+    mock.method(repo, 'listExternalIntegrationGrantableWorkspaces', async () => []);
     mock.method(repo, 'completeExternalIntegrationLinkToken', async () => null);
     const res = createResponse();
 
@@ -327,6 +361,7 @@ describe('external integration link contract', () => {
       status: 'linked',
       user: { id: 'user-1', email: 'alice@example.com', displayName: 'Alice' },
       link: {
+        id: 'link-1',
         integrationClientId: 'dev-client',
         provider: 'external',
         clientDisplayName: 'Development external integration',
@@ -370,6 +405,12 @@ describe('external integration link contract', () => {
       externalDisplayName: 'External Alice',
       expiresAt: '2026-06-08T00:10:00.000Z'
     }));
+    mock.method(repo, 'listExternalIntegrationGrantableWorkspaces', async () => [{
+      workspaceId: 'workspace-1',
+      workspaceName: 'Workspace',
+      role: 'viewer',
+      grantedCapabilities: ['read_workspace_data']
+    }]);
     const res = createResponse();
 
     await previewExternalIntegrationLinkRequest({
@@ -386,33 +427,13 @@ describe('external integration link contract', () => {
       email: 'alice@example.com',
       displayName: 'Alice'
     });
+    assert.deepEqual((res.body as { grantableWorkspaces: unknown[] }).grantableWorkspaces, [{
+      workspaceId: 'workspace-1',
+      workspaceName: 'Workspace',
+      role: 'viewer',
+      grantedCapabilities: ['read_workspace_data'],
+      grantableCapabilities: ['read_workspace_data']
+    }]);
   });
 
-  it('requires a registered external integration client token', () => {
-    const deniedRes = createResponse();
-    let nextCalled = false;
-    requireExternalIntegrationClient(
-      { header: () => 'Bearer wrong-token' } as never,
-      deniedRes as never,
-      () => {
-        nextCalled = true;
-      }
-    );
-    assert.equal(deniedRes.statusCode, 401);
-    assert.equal(nextCalled, false);
-
-    const allowedReq = {
-      header: () => `Bearer ${DEV_EXTERNAL_INTEGRATION_TOKEN}`
-    } as { externalIntegrationClient?: unknown; header(name: string): string };
-    const allowedRes = createResponse();
-    requireExternalIntegrationClient(
-      allowedReq as never,
-      allowedRes as never,
-      () => {
-        nextCalled = true;
-      }
-    );
-    assert.equal(nextCalled, true);
-    assert.deepEqual(allowedReq.externalIntegrationClient, DEV_EXTERNAL_INTEGRATION_CLIENT);
-  });
 });

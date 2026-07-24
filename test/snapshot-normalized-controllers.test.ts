@@ -23,6 +23,7 @@ const originalListWorkspaceIssues = repo.listWorkspaceIssues;
 const originalSummarizeTargetIssues = repo.summarizeTargetIssues;
 const originalGetTargetIssue = repo.getTargetIssue;
 const originalListTargetIssueObservations = repo.listTargetIssueObservations;
+const originalGetExternalIntegrationWorkspaceGrant = repo.getExternalIntegrationWorkspaceGrant;
 
 afterEach(() => {
   repo.getWorkspaceRole = originalGetWorkspaceRole;
@@ -35,6 +36,7 @@ afterEach(() => {
   repo.summarizeTargetIssues = originalSummarizeTargetIssues;
   repo.getTargetIssue = originalGetTargetIssue;
   repo.listTargetIssueObservations = originalListTargetIssueObservations;
+  repo.getExternalIntegrationWorkspaceGrant = originalGetExternalIntegrationWorkspaceGrant;
 });
 
 function createRequest(query: Record<string, string | undefined> = {}) {
@@ -51,6 +53,36 @@ function createRequest(query: Record<string, string | undefined> = {}) {
     },
     query
   };
+}
+
+function createExternalIntegrationRequest(query: Record<string, string | undefined> = {}) {
+  return {
+    auth: {
+      userId: 'user-1',
+      credential: {
+        type: 'external_integration' as const,
+        linkId: 'link-1',
+        integrationId: 'external-chat',
+        provider: 'external',
+        externalUserId: 'external-user-1'
+      }
+    },
+    params: {
+      workspaceId: 'workspace-1',
+      clusterId: 'cluster-1'
+    },
+    query
+  };
+}
+
+function installExternalIntegrationGrant(): void {
+  repo.getExternalIntegrationWorkspaceGrant = async () => ({
+    workspaceId: 'workspace-1',
+    capabilities: ['read_workspace_data', 'create_sessions', 'create_read_only_runs'],
+    grantedByUserId: 'user-1',
+    createdAt: '2026-06-01T00:00:00.000Z',
+    updatedAt: '2026-06-01T00:00:00.000Z'
+  });
 }
 
 function createResponse() {
@@ -89,26 +121,34 @@ function createCluster(id = 'cluster-1'): Cluster {
 describe('normalized snapshot controller reads', () => {
   it('lists cluster resources through normalized rows instead of raw snapshots', async () => {
     repo.getWorkspaceRole = async () => 'viewer';
-    repo.getCluster = async () => createCluster();
+    repo.getCluster = async () => ({
+      ...createCluster(),
+      namespaceInclude: ['payments'],
+      namespaceExclude: ['sandbox']
+    });
     repo.getClusterSnapshot = async () => {
       throw new Error('raw snapshot should not be read');
     };
-    repo.listClusterSnapshotResources = async (clusterId, options) => ({
-      items: [
-        {
-          id: 'pod-1',
-          family: 'workloads',
-          kind: 'Pod',
-          name: 'pod-1',
-          namespace: 'default',
-          status: 'Running',
-          clusterId,
-          clusterName: 'cluster-1',
-          item: {}
-        }
-      ],
-      nextCursor: options.signature
-    });
+    repo.listClusterSnapshotResources = async (clusterId, options) => {
+      assert.deepEqual(options.namespaceInclude, ['payments']);
+      assert.deepEqual(options.namespaceExclude, ['sandbox']);
+      return {
+        items: [
+          {
+            id: 'pod-1',
+            family: 'workloads',
+            kind: 'Pod',
+            name: 'pod-1',
+            namespace: 'default',
+            status: 'Running',
+            clusterId,
+            clusterName: 'cluster-1',
+            item: {}
+          }
+        ],
+        nextCursor: options.signature
+      };
+    };
     const res = createResponse();
 
     await listClusterResources(
@@ -123,7 +163,8 @@ describe('normalized snapshot controller reads', () => {
     assert.deepEqual((res.body as { items: Array<{ id: string }> }).items.map((item) => item.id), ['pod-1']);
   });
 
-  it('lists workspace issues through durable issue rows without scanning clusters', async () => {
+  it('lists workspace issues through durable issue rows for external integrations', async () => {
+    installExternalIntegrationGrant();
     repo.getWorkspaceRole = async () => 'viewer';
     repo.listClusters = async () => {
       throw new Error('workspace issues should not scan clusters');
@@ -166,7 +207,7 @@ describe('normalized snapshot controller reads', () => {
     const res = createResponse();
 
     await listWorkspaceIssues(
-      createRequest({ severity: 'critical', targetId: 'cluster-1' }) as never,
+      createExternalIntegrationRequest({ severity: 'critical', targetId: 'cluster-1' }) as never,
       res as never,
       (err?: unknown) => {
         if (err) throw err;

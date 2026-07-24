@@ -14,9 +14,18 @@ External integration clients call the control-plane API with:
 
 The control plane receives registered clients from `EXTERNAL_INTEGRATION_CLIENTS_JSON`.
 The JSON contains installed-client descriptors with `id`, `provider`,
-`displayName`, `sha256`, and optional `enabled`. Store only SHA-256 token hashes
-in the descriptor. Do not store raw client tokens in config, docs, logs, or API
-responses.
+`displayName`, `sha256`, optional `enabled`, and optional
+`allowedCapabilities`. Store only SHA-256 token hashes in the descriptor. Do not
+store raw client tokens in config, docs, logs, or API responses.
+
+`allowedCapabilities` is an operator-managed maximum for the registered client.
+If omitted, the client can request the default external integration ceiling:
+`read_workspace_data`, `create_sessions`, and `create_read_only_runs`. It does
+not grant workspace access by itself; users still approve per-workspace grants.
+Operators may add `create_read_write_runs` when the client may request
+write-capable troubleshooting runs. Keep `read_workspace_data` and
+`create_sessions` in that descriptor because run creation depends on them.
+Approval decisions remain browser-user-session only.
 
 The installed client id is the identity boundary. AcornOps scopes durable links
 by `(integrationClientId, provider, externalUserId)`.
@@ -71,8 +80,10 @@ POST {ACORNOPS_API_BASE_URL}/api/v1/auth/external-integrations/link/preview
 ```
 
 The preview response returns provider, registered client display name, external
-account metadata, expiry, and the signed-in AcornOps user. It never returns raw
-link tokens, browser cookies, OIDC tokens, or client tokens.
+account metadata, expiry, the signed-in AcornOps user, and
+`grantableWorkspaces[]`. Each grantable workspace includes the workspace id,
+name, signed-in user's role, current `grantedCapabilities`, and
+`grantableCapabilities`.
 
 The durable link is completed only after the user clicks approve:
 
@@ -82,7 +93,13 @@ POST {ACORNOPS_API_BASE_URL}/api/v1/auth/external-integrations/link/complete
 
 ```json
 {
-  "token": "intlink_..."
+  "token": "intlink_...",
+  "workspaceGrants": [
+    {
+      "workspaceId": "workspace-id",
+      "capabilities": ["read_workspace_data"]
+    }
+  ]
 }
 ```
 
@@ -134,9 +151,28 @@ Content-Type: application/json
 Signed-in users can list and unlink their own active links with:
 
 - `GET /api/v1/auth/external-integrations/links`
+- `PATCH /api/v1/auth/external-integrations/links/{linkId}/grants`
 - `POST /api/v1/auth/external-integrations/links/unlink`
 
 Revocation sets `revoked_at`; durable rows are not deleted.
+
+Grant replacement accepts:
+
+```json
+{
+  "workspaceGrants": [
+    {
+      "workspaceId": "workspace-id",
+      "capabilities": ["read_workspace_data", "create_sessions", "create_read_only_runs"]
+    }
+  ]
+}
+```
+
+Missing grant rows mean the external integration has no access to that
+workspace. Effective permissions are always computed as the linked user's
+workspace role intersected with the registered client's allowed capabilities and
+the user-approved workspace grant.
 
 ## Security rules
 

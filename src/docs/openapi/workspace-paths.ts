@@ -14,26 +14,37 @@ const llmProviderSchema = {
   enum: ['openai', 'anthropic', 'gemini']
 };
 
+const externalUserHeader = {
+  in: 'header',
+  name: 'x-acornops-external-user-id',
+  required: false,
+  schema: { type: 'string', minLength: 1, maxLength: 128 },
+  description: 'Required only for external integration client-token requests. Must identify a linked external integration user.'
+};
+
 export function buildWorkspacePaths(): Record<string, unknown> {
   return {
 '/api/v1/workspaces': {
         get: {
           tags: ['workspaces'],
           summary: 'List workspaces available to current user',
-          security: [{ userSession: [] }],
+          description: 'Browser callers use the session cookie. Phase-1 external integration callers may use the external integration client token plus x-acornops-external-user-id for a linked external user; external integration workspace summaries are scoped to read_workspace_data only.',
+          security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
+            externalUserHeader,
             { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
             { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } },
             { in: 'query', name: 'q', required: false, schema: { type: 'string' } }
           ],
           responses: {
-            '200': { description: 'Workspace page payload: { items, nextCursor? }. Workspace items include plan.{key,name} and quota.{members,kubernetesClusters,virtualMachines}.{used,limit}; operational quota usage is redacted to 0 when permissions.read_workspace_data is false, and member usage requires permissions.read_members.' },
-            '401': { description: 'Missing browser session.' }
+            '200': { description: 'Workspace page payload: { items, nextCursor? }. Workspace items include plan.{key,name} and quota.{members,kubernetesClusters,virtualMachines}.{used,limit}; operational quota usage is redacted to 0 when permissions.read_workspace_data is false, and member usage requires permissions.read_members. External integration requests receive read_workspace_data only, so member usage is redacted.' },
+            '401': { description: 'Missing browser session or missing/invalid/unlinked external integration credentials.' }
           }
         },
         post: {
           tags: ['workspaces'],
           summary: 'Create a workspace',
+          description: 'Creates the workspace, owner membership, and starter automation v1 atomically before returning 201.',
           security: [{ userSession: [] }],
           requestBody: {
             required: true,
@@ -58,8 +69,10 @@ export function buildWorkspacePaths(): Record<string, unknown> {
         get: {
           tags: ['workspaces'],
           summary: 'Get a workspace summary available to current user',
-          security: [{ userSession: [] }],
+          description: 'Browser callers use the session cookie. Phase-1 external integration callers may use the external integration client token plus x-acornops-external-user-id for a linked external user; external integration workspace summaries are scoped to read_workspace_data only.',
+          security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
+            externalUserHeader,
             {
               in: 'path',
               name: 'workspaceId',
@@ -407,8 +420,10 @@ export function buildWorkspacePaths(): Record<string, unknown> {
         get: {
           tags: ['workspaces'],
           summary: 'List durable operational issues for a workspace',
-          security: [{ userSession: [] }],
+          description: 'Browser callers use the session cookie. External integration callers may use the external integration client token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
+          security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
+            externalUserHeader,
             { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
             { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
             { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } },
@@ -426,8 +441,10 @@ export function buildWorkspacePaths(): Record<string, unknown> {
         get: {
           tags: ['workspaces'],
           summary: 'Get a durable operational issue',
-          security: [{ userSession: [] }],
+          description: 'Browser callers use the session cookie. External integration callers may use the external integration client token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
+          security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
+            externalUserHeader,
             { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
             { in: 'path', name: 'issueId', required: true, schema: { type: 'string', format: 'uuid' } }
           ],
@@ -438,8 +455,10 @@ export function buildWorkspacePaths(): Record<string, unknown> {
         get: {
           tags: ['workspaces'],
           summary: 'List observations for a durable operational issue',
-          security: [{ userSession: [] }],
+          description: 'Browser callers use the session cookie. External integration callers may use the external integration client token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
+          security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
+            externalUserHeader,
             { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
             { in: 'path', name: 'issueId', required: true, schema: { type: 'string', format: 'uuid' } },
             { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },

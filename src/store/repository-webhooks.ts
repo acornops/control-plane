@@ -1,13 +1,43 @@
 import { randomUUID } from 'node:crypto';
+import { config } from '../config.js';
 import { db } from '../infra/db.js';
-import { WebhookHistory, WebhookHistoryStatus, WebhookSubscription } from '../types/domain.js';
+import type { ExternalWebhookRouteConnection } from '../types/external-webhooks.js';
+import { Role, WebhookHistory, WebhookHistoryStatus, WebhookSubscription } from '../types/domain.js';
 import {
+  ExternalWebhookRouteConnectionRow,
   WebhookHistoryRow,
   WebhookSubscriptionRow,
+  mapExternalWebhookRouteConnection,
   mapWebhookHistory,
   mapWebhookSubscription
 } from './repository-webhook-mappers.js';
+import { insertWorkspaceAuditEvent } from './repository-audit-events.js';
 import { withTransaction } from './repository-transaction.js';
+
+export interface ExternalRouteWebhookSubscription extends WebhookSubscription {
+  workspaceName: string;
+  workspaceRole: Role;
+}
+
+export class WebhookSubscriptionLimitError extends Error {
+  constructor() {
+    super('Webhook subscription limit reached');
+    this.name = 'WebhookSubscriptionLimitError';
+  }
+}
+
+interface ExternalRouteWebhookSubscriptionRow extends WebhookSubscriptionRow {
+  workspace_name: string;
+  workspace_role: Role;
+}
+
+function mapExternalRouteWebhookSubscription(row: ExternalRouteWebhookSubscriptionRow): ExternalRouteWebhookSubscription {
+  return {
+    ...mapWebhookSubscription(row),
+    workspaceName: row.workspace_name || row.workspace_id,
+    workspaceRole: row.workspace_role
+  };
+}
 
 export async function createWebhookSubscription(input: {
     workspaceId: string;
@@ -20,8 +50,17 @@ export async function createWebhookSubscription(input: {
     secretKeyId: string;
     createdBy: string;
   }): Promise<WebhookSubscription> {
-    const id = randomUUID();
-    const result = await db.query(
+    return withTransaction(async (client) => {
+      await client.query('SELECT id FROM workspaces WHERE id = $1 FOR UPDATE', [input.workspaceId]);
+      const countResult = await client.query<{ count: string }>(
+        'SELECT COUNT(*)::text AS count FROM webhook_subscriptions WHERE workspace_id = $1',
+        [input.workspaceId]
+      );
+      if (Number(countResult.rows[0]?.count || 0) >= config.WEBHOOK_MAX_SUBSCRIPTIONS_PER_WORKSPACE) {
+        throw new WebhookSubscriptionLimitError();
+      }
+      const id = randomUUID();
+      const result = await client.query(
       `INSERT INTO webhook_subscriptions (
          id, workspace_id, target_id, name, url, event_types, enabled,
          secret_ciphertext, secret_key_id, created_by, created_at, updated_at
@@ -40,7 +79,185 @@ export async function createWebhookSubscription(input: {
         input.createdBy
       ]
     );
-    return mapWebhookSubscription(result.rows[0] as WebhookSubscriptionRow);
+      return mapWebhookSubscription(result.rows[0] as WebhookSubscriptionRow);
+    });
+  }
+
+export async function listWebhookSubscriptionsForExternalRoute(input: {
+    acornopsUserId: string;
+    deliveryUrl: string;
+  }): Promise<ExternalRouteWebhookSubscription[]> {
+    const result = await db.query(
+      `SELECT
+         s.*,
+         w.name AS workspace_name,
+         m.role AS workspace_role
+       FROM webhook_subscriptions s
+       JOIN workspaces w ON w.id = s.workspace_id
+       JOIN workspace_memberships m
+         ON m.workspace_id = s.workspace_id
+        AND m.user_id = $1
+       WHERE s.created_by = $1
+         AND s.url = $2
+       ORDER BY w.name ASC, s.created_at ASC, s.id ASC`,
+      [input.acornopsUserId, input.deliveryUrl]
+    );
+    return result.rows.map((row) => mapExternalRouteWebhookSubscription(row as ExternalRouteWebhookSubscriptionRow));
+  }
+
+export async function connectExternalWebhookRoute(input: {
+    externalIntegrationUserLinkId: string;
+    integrationClientId: string;
+    provider: string;
+    externalUserId: string;
+    acornopsUserId: string;
+    deliveryUrl: string;
+    deliveryUrlHash: string;
+    allowedRoleKeys: string[];
+    rotations: Array<{
+      workspaceId: string;
+      webhookId: string;
+      secretCiphertext: string;
+      secretKeyId: string;
+    }>;
+  }): Promise<{
+    connection: ExternalWebhookRouteConnection;
+    subscriptions: ExternalRouteWebhookSubscription[];
+  }> {
+    return withTransaction(async (client) => {
+      const webhookIds = input.rotations.map((rotation) => rotation.webhookId);
+      const eligible = await client.query(
+        `SELECT
+           s.*,
+           w.name AS workspace_name,
+           m.role AS workspace_role
+         FROM webhook_subscriptions s
+         JOIN workspaces w ON w.id = s.workspace_id
+         JOIN workspace_memberships m
+           ON m.workspace_id = s.workspace_id
+          AND m.user_id = $1
+         WHERE s.created_by = $1
+           AND s.url = $2
+           AND m.role = ANY($3::text[])
+           AND s.id = ANY($4::text[])
+         ORDER BY w.name ASC, s.created_at ASC, s.id ASC
+         FOR UPDATE OF s, m`,
+        [input.acornopsUserId, input.deliveryUrl, input.allowedRoleKeys, webhookIds]
+      );
+      if (eligible.rows.length !== input.rotations.length) {
+        throw new Error('Webhook route authorization changed during secret rotation');
+      }
+      const eligibleById = new Map(
+        eligible.rows.map((row) => [
+          String(row.id),
+          mapExternalRouteWebhookSubscription(row as ExternalRouteWebhookSubscriptionRow)
+        ])
+      );
+      const rotated: WebhookSubscription[] = [];
+      for (const rotation of input.rotations) {
+        const eligibleSubscription = eligibleById.get(rotation.webhookId);
+        if (!eligibleSubscription || eligibleSubscription.workspaceId !== rotation.workspaceId) {
+          throw new Error('Webhook route authorization changed during secret rotation');
+        }
+        const result = await client.query(
+          `UPDATE webhook_subscriptions
+           SET secret_ciphertext = $3,
+               secret_key_id = $4,
+               updated_at = NOW()
+           WHERE workspace_id = $1 AND id = $2
+           RETURNING *`,
+          [rotation.workspaceId, rotation.webhookId, rotation.secretCiphertext, rotation.secretKeyId]
+        );
+        if (!result.rowCount) {
+          throw new Error(`Webhook subscription ${rotation.webhookId} disappeared during secret rotation`);
+        }
+        rotated.push(mapWebhookSubscription(result.rows[0] as WebhookSubscriptionRow));
+        await insertWorkspaceAuditEvent({
+          workspaceId: eligibleSubscription.workspaceId,
+          category: 'workspace',
+          eventType: 'webhook.route.connected.v1',
+          operation: 'write',
+          actorType: 'external_integration',
+          actorUserId: input.acornopsUserId,
+          actorTokenId: input.integrationClientId,
+          objectType: 'webhook_subscription',
+          objectId: eligibleSubscription.id,
+          objectName: eligibleSubscription.name,
+          summary: 'Webhook signing secret rotated by external route connect',
+          metadata: {
+            integrationClientId: input.integrationClientId,
+            provider: input.provider,
+            externalUserId: input.externalUserId,
+            deliveryUrlHash: input.deliveryUrlHash,
+            webhookId: eligibleSubscription.id
+          }
+        }, client);
+      }
+      const connectionResult = await client.query(
+        `INSERT INTO external_webhook_route_connections (
+           external_integration_user_link_id, integration_client_id, provider, external_user_id,
+           delivery_url, connected_at, last_synced_at
+         ) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+         ON CONFLICT (external_integration_user_link_id, delivery_url)
+         DO UPDATE SET
+           integration_client_id = EXCLUDED.integration_client_id,
+           provider = EXCLUDED.provider,
+           external_user_id = EXCLUDED.external_user_id,
+           connected_at = NOW(),
+           last_synced_at = NOW()
+         RETURNING *`,
+        [
+          input.externalIntegrationUserLinkId,
+          input.integrationClientId,
+          input.provider,
+          input.externalUserId,
+          input.deliveryUrl
+        ]
+      );
+      const subscriptions = rotated.map((subscription) => {
+        const eligibleSubscription = eligibleById.get(subscription.id)!;
+        return {
+          ...eligibleSubscription,
+          ...subscription,
+          workspaceName: eligibleSubscription.workspaceName,
+          workspaceRole: eligibleSubscription.workspaceRole
+        };
+      });
+      return {
+        connection: mapExternalWebhookRouteConnection(
+          connectionResult.rows[0] as ExternalWebhookRouteConnectionRow
+        ),
+        subscriptions
+      };
+    });
+  }
+
+export async function touchExternalWebhookRouteConnection(input: {
+    externalIntegrationUserLinkId: string;
+    integrationClientId: string;
+    provider: string;
+    externalUserId: string;
+    deliveryUrl: string;
+  }): Promise<ExternalWebhookRouteConnection | null> {
+    const result = await db.query(
+      `UPDATE external_webhook_route_connections
+       SET last_synced_at = NOW()
+       WHERE external_integration_user_link_id = $1
+         AND integration_client_id = $2
+         AND provider = $3
+         AND external_user_id = $4
+         AND delivery_url = $5
+       RETURNING *`,
+      [
+        input.externalIntegrationUserLinkId,
+        input.integrationClientId,
+        input.provider,
+        input.externalUserId,
+        input.deliveryUrl
+      ]
+    );
+    if (!result.rowCount) return null;
+    return mapExternalWebhookRouteConnection(result.rows[0] as ExternalWebhookRouteConnectionRow);
   }
 
 export async function listWebhookSubscriptions(workspaceId: string): Promise<WebhookSubscription[]> {
@@ -150,12 +367,18 @@ export async function insertWebhookHistory(input: {
     responseStatus?: number;
     error?: string;
     durationMs?: number;
+    attemptNumber?: number;
+    willRetry?: boolean;
+    nextAttemptAt?: string;
+    terminalReason?: string;
   }): Promise<WebhookHistory> {
     const result = await db.query(
       `INSERT INTO webhook_history (
          id, subscription_id, event_id, event_type, workspace_id, target_id,
-         subject_type, subject_id, payload, status, response_status, error, duration_ms, sent_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, NOW())
+         subject_type, subject_id, payload, status, response_status, error, duration_ms,
+         attempt_number, will_retry, next_attempt_at, terminal_reason, sent_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13,
+         $14, $15, $16, $17, NOW())
        RETURNING *`,
       [
         randomUUID(),
@@ -170,7 +393,11 @@ export async function insertWebhookHistory(input: {
         input.status,
         input.responseStatus ?? null,
         input.error || null,
-        input.durationMs ?? null
+        input.durationMs ?? null,
+        input.attemptNumber ?? 1,
+        input.willRetry ?? false,
+        input.nextAttemptAt ?? null,
+        input.terminalReason ?? null
       ]
     );
     return mapWebhookHistory(result.rows[0] as WebhookHistoryRow);

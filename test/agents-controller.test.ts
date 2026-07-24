@@ -1,22 +1,16 @@
 import assert from 'node:assert/strict';
-import { after, afterEach, beforeEach, describe, it } from 'node:test';
+import { after, afterEach, beforeEach, describe, it, mock } from 'node:test';
 import {
   createAgent,
   createAgentVersion,
   deleteAgent,
+  duplicateAgent,
   getAgent,
-  listAgentActivity,
   listAgentVersions,
   listAgents,
   restoreAgentVersion,
-  testAgent,
   updateAgent,
 } from '../src/controllers/agents-controller.js';
-import {
-  createAgentTrigger,
-  deleteAgentTrigger,
-  updateAgentTrigger
-} from '../src/controllers/agent-triggers-controller.js';
 import { repo } from '../src/store/repository.js';
 import { createWorkflowDefinition } from '../src/store/repository-workflows.js';
 import {
@@ -25,7 +19,7 @@ import {
   installWorkspace,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
-import { closeAutomationDatabaseFixtures, resetAutomationDatabaseFixtures } from './helpers/automation-database-fixtures.js';
+import { closeAutomationDatabaseFixtures, installAutomationTemplateFixtures, resetAutomationDatabaseFixtures } from './helpers/automation-database-fixtures.js';
 
 beforeEach(async () => {
   await resetAutomationDatabaseFixtures();
@@ -38,70 +32,143 @@ afterEach(() => {
 after(closeAutomationDatabaseFixtures);
 
 describe('agents controller', () => {
-  it('lets data-read users list active system agents', async () => {
+  it('returns a truthful empty state in a fresh workspace', async () => {
     installWorkspace('viewer');
 
     const response = await callController(listAgents, createRequest({ workspaceId: 'workspace-1' }));
 
     assert.equal(response.statusCode, 200);
-    const body = response.body as { items: Array<{ id: string; source: string; status: string }> };
-    assert.ok(body.items.some((agent) => agent.id === 'agent-cluster-triage' && agent.source === 'system'));
-    assert.ok(body.items.every((agent) => agent.status === 'active'));
+    const body = response.body as { items: unknown[] };
+    assert.deepEqual(body.items, []);
   });
 
-  it('keeps only the workflow orchestrator owned by the system actor', async () => {
-    installWorkspace('viewer');
+  it('attributes manually created agents to their actual creator', async () => {
+    installWorkspace('admin');
+    const created = await callController(createAgent, createRequest(
+      { workspaceId: 'workspace-1' },
+      { name: 'Manual specialist', instructions: 'Inspect only granted evidence.' }
+    ));
+    assert.equal(created.statusCode, 201);
 
     const response = await callController(listAgents, createRequest({ workspaceId: 'workspace-1' }));
 
     assert.equal(response.statusCode, 200);
-    const body = response.body as { items: Array<{ id: string; ownerUserId: string }> };
-    const ownerByAgentId = new Map(body.items.map((agent) => [agent.id, agent.ownerUserId]));
-    assert.equal(ownerByAgentId.get('agent-workflow-orchestrator'), 'system');
-    assert.equal(ownerByAgentId.get('agent-cluster-triage'), 'user-1');
-    assert.equal(ownerByAgentId.get('agent-release-coordinator'), 'user-1');
-    assert.equal(ownerByAgentId.get('agent-incident-reporter'), 'user-1');
+    const body = response.body as { items: Array<{ origin: { type: string }; ownerUserId: string; createdBy: string }> };
+    assert.equal(body.items.length, 1);
+    assert.deepEqual(body.items[0].origin, { type: 'manual' });
+    assert.equal(body.items[0].ownerUserId, 'user-1');
+    assert.equal(body.items[0].createdBy, 'user-1');
   });
 
   it('can include disabled agents for management views without changing the default list', async () => {
     installWorkspace('admin');
 
+    const created = await callController(createAgent, createRequest(
+      { workspaceId: 'workspace-1' },
+      { name: 'Disableable specialist', instructions: 'Use only reviewed capabilities.' }
+    ));
+    const agentId = (created.body as { agent: { id: string } }).agent.id;
+
     const disabled = await callController(updateAgent, createRequest(
-      { agentId: 'agent-cluster-triage' },
+      { agentId },
       { workspaceId: 'workspace-1', status: 'disabled' }
     ));
     assert.equal(disabled.statusCode, 200);
 
     const activeOnly = await callController(listAgents, createRequest({ workspaceId: 'workspace-1' }));
     assert.equal(activeOnly.statusCode, 200);
-    assert.ok(!(activeOnly.body as { items: Array<{ id: string }> }).items.some((agent) => agent.id === 'agent-cluster-triage'));
+    assert.ok(!(activeOnly.body as { items: Array<{ id: string }> }).items.some((agent) => agent.id === agentId));
 
     const request = createRequest({ workspaceId: 'workspace-1' });
     request.query = { includeInactive: 'true' };
     const allAgents = await callController(listAgents, request);
     assert.equal(allAgents.statusCode, 200);
-    assert.ok((allAgents.body as { items: Array<{ id: string; status: string }> }).items.some((agent) => agent.id === 'agent-cluster-triage' && agent.status === 'disabled'));
+    assert.ok((allAgents.body as { items: Array<{ id: string; status: string }> }).items.some((agent) => agent.id === agentId && agent.status === 'disabled'));
+  });
+
+  it('requires manage_agents before duplicating an agent', async () => {
+    installWorkspace('admin');
+    const created = await callController(createAgent, createRequest(
+      { workspaceId: 'workspace-1' },
+      { name: 'Protected specialist', instructions: 'Inspect assigned work.' }
+    ));
+    const agentId = (created.body as { agent: { id: string } }).agent.id;
+    installWorkspace('viewer');
+    const response = await callController(duplicateAgent, createRequest(
+      { agentId },
+      { workspaceId: 'workspace-1' }
+    ));
+    assert.equal(response.statusCode, 403);
+  });
+
+  it('requires duplication before editing or versioning a system-provided Agent and uses normal deletion dependencies', async () => {
+    installWorkspace('admin');
+    await installAutomationTemplateFixtures(['workspace-1']);
+
+    const edited = await callController(updateAgent, createRequest(
+      { agentId: 'agent-cluster-triage' },
+      { workspaceId: 'workspace-1', instructions: 'Replace system instructions.' }
+    ));
+    assert.equal(edited.statusCode, 409);
+    assert.equal((edited.body as { error: { code: string } }).error.code, 'SYSTEM_AGENT_DEFINITION_IMMUTABLE');
+
+    const availability = await callController(updateAgent, createRequest(
+      { agentId: 'agent-cluster-triage' },
+      { workspaceId: 'workspace-1', status: 'disabled' }
+    ));
+    assert.equal(availability.statusCode, 200);
+    assert.equal((availability.body as { agent: { status: string } }).agent.status, 'disabled');
+
+    const versioned = await callController(createAgentVersion, createRequest(
+      { agentId: 'agent-cluster-triage' },
+      { workspaceId: 'workspace-1' }
+    ));
+    assert.equal(versioned.statusCode, 409);
+    assert.equal((versioned.body as { error: { code: string } }).error.code, 'SYSTEM_AGENT_DEFINITION_IMMUTABLE');
+
+    const deleted = await callController(deleteAgent, createRequest(
+      { agentId: 'agent-cluster-triage' },
+      { workspaceId: 'workspace-1' }
+    ));
+    assert.equal(deleted.statusCode, 409);
+    assert.equal((deleted.body as { error: { code: string } }).error.code, 'AGENT_ASSIGNED_TO_WORKFLOWS');
+    assert.deepEqual(
+      (deleted.body as { error: { details: { workflows: Array<{ id: string; relation: string }> } } }).error.details.workflows,
+      [{ id: 'cluster-triage', name: 'Target diagnostics', relation: 'selected_agent' }]
+    );
+
+    const duplicated = await callController(duplicateAgent, createRequest(
+      { agentId: 'agent-cluster-triage' },
+      { workspaceId: 'workspace-1', name: 'Custom diagnostics' }
+    ));
+    assert.equal(duplicated.statusCode, 201);
+    assert.equal((duplicated.body as { agent: { origin: { type: string }; status: string } }).agent.origin.type, 'manual');
+    assert.equal((duplicated.body as { agent: { origin: { type: string }; status: string } }).agent.status, 'draft');
   });
 
   it('enriches agent responses with workflow usage and derived capability rows', async () => {
     installWorkspace('admin');
+    const created = await callController(createAgent, createRequest(
+      { workspaceId: 'workspace-1' },
+      {
+        name: 'Cluster specialist', instructions: 'Inspect the selected cluster.',
+        contextGrants: ['workspace_metadata'],
+        targetScope: { type: 'selected_target', targetTypes: ['kubernetes'] },
+        semanticCapabilityIds: ['target.diagnostics.read']
+      }
+    ));
+    assert.equal(created.statusCode, 201);
+    const agentId = (created.body as { agent: { id: string } }).agent.id;
     await createWorkflowDefinition({
       workspaceId: 'workspace-1',
       name: 'Cluster incident workflow',
-      category: 'incident-review',
+      prompt: 'Inspect the selected cluster.',
+      agentIds: [agentId],
       requiredPermissions: ['create_read_only_runs'],
-      policy: { mode: 'read_only', maxRuntimeSeconds: 300, retentionDays: 7, approvalRequirements: [] },
-      steps: [{
-        id: 'triage',
-        title: 'Triage',
-        requiredInputs: [],
-        agentIds: ['agent-cluster-triage'],
-        enabledSkills: [],
-        allowedMcpServers: [],
-        allowedTools: [],
-        contextGrants: [],
-        approvalRequired: false
-      }],
+      capabilityPolicy: {
+        mode: 'read_only', restrictionMode: 'restrict', semanticCapabilityIds: ['target.diagnostics.read'],
+        contextGrants: [], maxRuntimeSeconds: 300, retentionDays: 7, approvalRequirements: []
+      },
       createdBy: 'user-1'
     });
 
@@ -109,15 +176,14 @@ describe('agents controller', () => {
     assert.equal(listed.statusCode, 200);
     const listAgent = (listed.body as {
       items: Array<{ id: string; workflowsUsingAgent?: string[]; capabilities?: Array<{ source: string; resourceScope: string }> }>;
-    }).items.find((agent) => agent.id === 'agent-cluster-triage');
+    }).items.find((agent) => agent.id === agentId);
     assert.ok(listAgent);
     assert.ok(listAgent.workflowsUsingAgent?.includes('Cluster incident workflow'));
     assert.ok(listAgent.capabilities?.some((capability) => capability.source === 'target' && capability.resourceScope === 'kubernetes'));
-    assert.ok(listAgent.capabilities?.some((capability) => capability.source === 'context' && capability.resourceScope === 'target_inventory'));
-    assert.ok(listAgent.capabilities?.some((capability) => capability.source === 'builtin_tool' && capability.resourceScope === 'get_resource'));
+    assert.ok(listAgent.capabilities?.some((capability) => capability.source === 'context' && capability.resourceScope === 'workspace_metadata'));
 
     const fetched = await callController(getAgent, createRequest(
-      { agentId: 'agent-cluster-triage' },
+      { agentId },
       { workspaceId: 'workspace-1' }
     ));
     assert.equal(fetched.statusCode, 200);
@@ -136,7 +202,7 @@ describe('agents controller', () => {
     assert.equal((response.body as { error: { code: string } }).error.code, 'FORBIDDEN');
   });
 
-  it('creates, updates, versions, tests, and triggers custom agents for managers', async () => {
+  it('creates, updates, and versions custom agents for managers', async () => {
     installWorkspace('admin');
     const auditEvents: string[] = [];
     repo.insertWorkspaceAuditEvent = async (event) => {
@@ -161,9 +227,6 @@ describe('agents controller', () => {
         description: 'Coordinates release checks.',
         instructions: 'Prepare release notes and ask before write tools.',
         providerType: 'internal',
-        mcpServers: ['acornops-cluster-agent'],
-        tools: ['get_resource', 'list_resources'],
-        skills: ['acornops-observability'],
         contextGrants: ['workspace_metadata'],
         approvalPolicy: { mode: 'before_write', writeToolsRequireApproval: true }
       }
@@ -180,13 +243,11 @@ describe('agents controller', () => {
       { agentId: agent.id },
       {
         workspaceId: 'workspace-1',
-        instructions: 'Prepare release notes and draft a PR plan.',
-        tools: ['get_resource']
+        instructions: 'Prepare release notes and draft a PR plan.'
       }
     ));
     assert.equal(patched.statusCode, 200);
-    assert.equal((patched.body as { agent: { version: number; tools: string[] } }).agent.version, 2);
-    assert.deepEqual((patched.body as { agent: { tools: string[] } }).agent.tools, ['get_resource']);
+    assert.equal((patched.body as { agent: { version: number } }).agent.version, 2);
 
     const version = await callController(createAgentVersion, createRequest(
       { agentId: agent.id },
@@ -209,63 +270,13 @@ describe('agents controller', () => {
       { workspaceId: 'workspace-1' }
     ));
     assert.equal(restored.statusCode, 200);
-    assert.equal((restored.body as { agent: { version: number; tools: string[] } }).agent.version, 3);
-    assert.deepEqual((restored.body as { agent: { tools: string[] } }).agent.tools, ['get_resource']);
+    assert.equal((restored.body as { agent: { version: number } }).agent.version, 3);
 
-    const trigger = await callController(createAgentTrigger, createRequest(
-      { agentId: agent.id },
-      {
-        workspaceId: 'workspace-1',
-        type: 'schedule',
-        name: 'Weekday release scan',
-        schedule: { cron: '0 9 * * 1-5', timezone: 'UTC' }
-      }
-    ));
-    assert.equal(trigger.statusCode, 201);
-    const triggerId = (trigger.body as { trigger: { id: string; enabled: boolean } }).trigger.id;
-    assert.equal((trigger.body as { trigger: { enabled: boolean } }).trigger.enabled, true);
-
-    const disabledTrigger = await callController(updateAgentTrigger, createRequest(
-      { agentId: agent.id, triggerId },
-      { workspaceId: 'workspace-1', enabled: false }
-    ));
-    assert.equal(disabledTrigger.statusCode, 200);
-    assert.equal((disabledTrigger.body as { trigger: { enabled: boolean } }).trigger.enabled, false);
-
-    const testRun = await callController(testAgent, createRequest(
-      { agentId: agent.id },
-      {
-        workspaceId: 'workspace-1',
-        approvedContextGrants: ['workspace_metadata'],
-        inputContext: { release: 'v1.2.3' }
-      }
-    ));
-    assert.equal(testRun.statusCode, 200);
-    assert.equal((testRun.body as { compiledScope: { agentId: string } }).compiledScope.agentId, agent.id);
-    assert.equal((testRun.body as { executing: boolean; deprecated: boolean }).executing, false);
-    assert.equal((testRun.body as { executing: boolean; deprecated: boolean }).deprecated, true);
-    assert.equal(testRun.headers.get('deprecation'), 'true');
-
-    const activity = await callController(listAgentActivity, createRequest(
-      { agentId: agent.id },
-      { workspaceId: 'workspace-1' }
-    ));
-    assert.equal(activity.statusCode, 200);
-    assert.equal((activity.body as { items: Array<{ triggerId?: string }> }).items.length, 0);
-
-    const deletedTrigger = await callController(deleteAgentTrigger, createRequest(
-      { agentId: agent.id, triggerId },
-      { workspaceId: 'workspace-1' }
-    ));
-    assert.equal(deletedTrigger.statusCode, 204);
     assert.deepEqual(auditEvents, [
       'agent.definition_created.v1',
       'agent.definition_updated.v1',
       'agent.version_snapshot_created.v1',
-      'agent.version_restored.v1',
-      'agent.trigger_created.v1',
-      'agent.trigger_updated.v1',
-      'agent.trigger_deleted.v1'
+      'agent.version_restored.v1'
     ]);
 
     const fetched = await callController(getAgent, createRequest(
@@ -305,6 +316,13 @@ describe('agents controller', () => {
 
   it('deletes only unassigned custom agents', async () => {
     installWorkspace('admin');
+    mock.method(globalThis, 'fetch', async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/v1/internal/mcp/servers' && init?.method === 'GET') {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
 
     const created = await callController(createAgent, createRequest(
       { workspaceId: 'workspace-1' },
@@ -326,15 +344,8 @@ describe('agents controller', () => {
     assert.equal(fetched.statusCode, 404);
   });
 
-  it('blocks deleting system agents or agents still assigned to workflows', async () => {
+  it('blocks deleting agents still assigned to workflows', async () => {
     installWorkspace('admin');
-
-    const systemDelete = await callController(deleteAgent, createRequest(
-      { agentId: 'agent-cluster-triage' },
-      { workspaceId: 'workspace-1' }
-    ));
-    assert.equal(systemDelete.statusCode, 409);
-    assert.equal((systemDelete.body as { error: { code: string } }).error.code, 'SYSTEM_AGENT_IMMUTABLE');
 
     const created = await callController(createAgent, createRequest(
       { workspaceId: 'workspace-1' },
@@ -344,20 +355,13 @@ describe('agents controller', () => {
     await createWorkflowDefinition({
       workspaceId: 'workspace-1',
       name: 'Assigned helper workflow',
-      category: 'release-operations',
+      prompt: 'Run the assigned helper.',
+      agentIds: [agentId],
       requiredPermissions: ['create_read_only_runs'],
-      policy: { mode: 'read_only', maxRuntimeSeconds: 300, retentionDays: 7, approvalRequirements: [] },
-      steps: [{
-        id: 'assigned-step',
-        title: 'Assigned step',
-        requiredInputs: [],
-        agentIds: [agentId],
-        enabledSkills: [],
-        allowedMcpServers: [],
-        allowedTools: [],
-        contextGrants: [],
-        approvalRequired: false
-      }],
+      capabilityPolicy: {
+        mode: 'read_only', restrictionMode: 'restrict', semanticCapabilityIds: [], contextGrants: [],
+        maxRuntimeSeconds: 300, retentionDays: 7, approvalRequirements: []
+      },
       createdBy: 'user-1'
     });
 
@@ -385,6 +389,6 @@ describe('agents controller', () => {
     ));
 
     assert.equal(response.statusCode, 400);
-    assert.equal((response.body as { error: { code: string } }).error.code, 'AGENT_OPTION_INVALID');
+    assert.equal((response.body as { error: { code: string } }).error.code, 'AGENT_CAPABILITY_ROUTE_REQUIRED');
   });
 });

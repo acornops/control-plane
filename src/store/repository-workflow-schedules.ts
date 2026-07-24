@@ -16,8 +16,9 @@ function nowIso(now = new Date()): string {
 function cloneSchedule(schedule: WorkflowScheduleRecord): WorkflowScheduleRecord {
   return {
     ...schedule,
-    inputDefaults: { ...schedule.inputDefaults },
+    inputs: { ...schedule.inputs },
     approvedContextGrants: [...schedule.approvedContextGrants],
+    principal: { ...schedule.principal },
     createdBy: { ...schedule.createdBy },
     updatedBy: { ...schedule.updatedBy }
   };
@@ -164,9 +165,11 @@ type ScheduleRow = QueryResultRow;
 function mapSchedule(row: ScheduleRow): WorkflowScheduleRecord {
   return {
     id: row.id, workspaceId: row.workspace_id, workflowId: row.workflow_id,
-    workflowVersion: row.workflow_version, name: row.name, status: row.status,
-    cron: row.cron, timezone: row.timezone, inputDefaults: row.input_defaults || {},
+    workflowVersion: row.workflow_version, parameterSignature: row.parameter_signature,
+    name: row.name, status: row.status,
+    cron: row.cron, timezone: row.timezone, inputs: row.inputs || {},
     approvedContextGrants: row.approved_context_grants || [], createdBy: row.created_by,
+    principal: row.principal,
     updatedBy: row.updated_by, createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
     nextRunAt: row.next_run_at ? new Date(row.next_run_at).toISOString() : undefined,
@@ -178,6 +181,7 @@ function mapSchedule(row: ScheduleRow): WorkflowScheduleRecord {
 export async function createWorkflowSchedule(params: {
   workspaceId: string;
   workflowVersion: number;
+  parameterSignature: string;
   input: WorkflowScheduleInput;
   actorUserId: string;
   now?: Date;
@@ -190,12 +194,14 @@ export async function createWorkflowSchedule(params: {
     workspaceId: params.workspaceId,
     workflowId: params.input.workflowId,
     workflowVersion: params.workflowVersion,
+    parameterSignature: params.parameterSignature,
     name: params.input.name.trim(),
     status,
     cron: params.input.cron.trim(),
     timezone: params.input.timezone.trim(),
-    inputDefaults: params.input.inputDefaults || {},
+    inputs: { ...params.input.inputs },
     approvedContextGrants: [...new Set(params.input.approvedContextGrants || [])],
+    principal: { ...params.input.principal },
     createdBy: { userId: params.actorUserId },
     updatedBy: { userId: params.actorUserId },
     createdAt,
@@ -204,12 +210,12 @@ export async function createWorkflowSchedule(params: {
   };
   const result = await db.query<ScheduleRow>(
     `INSERT INTO workflow_schedules (
-      id,workspace_id,workflow_id,workflow_version,name,status,cron,timezone,input_defaults,
-      approved_context_grants,created_by,updated_by,next_run_at,created_at,updated_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,$13,$13) RETURNING *`,
-    [schedule.id, schedule.workspaceId, schedule.workflowId, schedule.workflowVersion, schedule.name,
-     schedule.status, schedule.cron, schedule.timezone, schedule.inputDefaults, JSON.stringify(schedule.approvedContextGrants),
-     schedule.createdBy, schedule.nextRunAt || null, schedule.createdAt]
+      id,workspace_id,workflow_id,workflow_version,parameter_signature,name,status,cron,timezone,inputs,
+      approved_context_grants,principal,created_by,updated_by,next_run_at,created_at,updated_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,$14,$15,$15) RETURNING *`,
+    [schedule.id, schedule.workspaceId, schedule.workflowId, schedule.workflowVersion, schedule.parameterSignature, schedule.name,
+     schedule.status, schedule.cron, schedule.timezone, JSON.stringify(schedule.inputs), JSON.stringify(schedule.approvedContextGrants),
+     schedule.principal, schedule.createdBy, schedule.nextRunAt || null, schedule.createdAt]
   );
   return mapSchedule(result.rows[0]);
 }
@@ -228,7 +234,7 @@ export async function getWorkflowSchedule(scheduleId: string): Promise<WorkflowS
 
 export async function updateWorkflowScheduleRecord(
   scheduleId: string,
-  patch: WorkflowSchedulePatch & { workflowVersion?: number },
+  patch: WorkflowSchedulePatch & { workflowVersion?: number; parameterSignature?: string },
   actorUserId: string,
   now = new Date()
 ): Promise<WorkflowScheduleRecord | null> {
@@ -241,23 +247,41 @@ export async function updateWorkflowScheduleRecord(
     ...current,
     workflowId: patch.workflowId || current.workflowId,
     workflowVersion: patch.workflowVersion || current.workflowVersion,
+    parameterSignature: patch.parameterSignature || current.parameterSignature,
     name: patch.name?.trim() || current.name,
     status,
     cron,
     timezone,
-    inputDefaults: patch.inputDefaults || current.inputDefaults,
+    inputs: patch.inputs ? { ...patch.inputs } : current.inputs,
     approvedContextGrants: patch.approvedContextGrants ? [...new Set(patch.approvedContextGrants)] : current.approvedContextGrants,
+    principal: patch.principal ? { ...patch.principal } : current.principal,
     updatedBy: { userId: actorUserId },
     updatedAt: nowIso(now),
     nextRunAt: status === 'enabled' ? computeNextWorkflowScheduleRunAt(cron, now, timezone) : undefined
   };
   const result = await db.query<ScheduleRow>(
-    `UPDATE workflow_schedules SET workflow_id=$2,workflow_version=$3,name=$4,status=$5,cron=$6,timezone=$7,
-      input_defaults=$8,approved_context_grants=$9,updated_by=$10,next_run_at=$11,updated_at=$12
+    `UPDATE workflow_schedules SET workflow_id=$2,workflow_version=$3,parameter_signature=$4,name=$5,status=$6,cron=$7,timezone=$8,
+      inputs=$9,approved_context_grants=$10,principal=$11,updated_by=$12,next_run_at=$13,updated_at=$14
      WHERE id=$1 RETURNING *`,
-    [scheduleId, updated.workflowId, updated.workflowVersion, updated.name, updated.status, updated.cron,
-     updated.timezone, updated.inputDefaults, JSON.stringify(updated.approvedContextGrants), updated.updatedBy,
+    [scheduleId, updated.workflowId, updated.workflowVersion, updated.parameterSignature, updated.name, updated.status, updated.cron,
+     updated.timezone, JSON.stringify(updated.inputs), JSON.stringify(updated.approvedContextGrants), updated.principal, updated.updatedBy,
      updated.nextRunAt || null, updated.updatedAt]
+  );
+  return result.rowCount ? mapSchedule(result.rows[0]) : null;
+}
+
+export async function pauseWorkflowScheduleForConfigurationChange(
+  scheduleId: string,
+  error: string,
+  actorUserId: string,
+  now = new Date()
+): Promise<WorkflowScheduleRecord | null> {
+  const result = await db.query<ScheduleRow>(
+    `UPDATE workflow_schedules
+     SET status='paused',last_status='auto_paused',last_error=$2,next_run_at=NULL,
+       lease_owner=NULL,lease_expires_at=NULL,updated_by=$3,updated_at=$4
+     WHERE id=$1 AND status='enabled' RETURNING *`,
+    [scheduleId, error, { userId: actorUserId }, nowIso(now)]
   );
   return result.rowCount ? mapSchedule(result.rows[0]) : null;
 }

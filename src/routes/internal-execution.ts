@@ -2,12 +2,15 @@ import { Router } from 'express';
 import { requireGatewayRunToken, requireServiceToken } from '../auth/middleware.js';
 import * as internalApprovalController from '../controllers/internal-approval-controller.js';
 import * as internalExecutionController from '../controllers/internal-execution-controller.js';
+import * as internalDelegationController from '../controllers/internal-delegation-controller.js';
 import * as internalMcpBridgeController from '../controllers/internal-mcp-bridge-controller.js';
+import * as internalPlatformNativeToolController from '../controllers/internal-platform-native-tool-controller.js';
 import * as internalToolingController from '../controllers/internal-tooling-controller.js';
 import * as toolResultArtifactController from '../controllers/tool-result-artifact-controller.js';
 import {
   createToolApprovalSchema,
   internalMcpToolCallSchema,
+  platformNativeToolCallSchema,
   internalToolingSyncSchema,
   toolApprovalExecutionFinishedSchema,
   runCommitSchema,
@@ -19,7 +22,16 @@ import { validateBody } from '../utils/http.js';
 export const internalExecutionRouter = Router();
 
 internalExecutionRouter.post('/runs/:runId/bootstrap', requireServiceToken, internalExecutionController.bootstrap);
+internalExecutionRouter.post(
+  '/runs/:runId/native-tools/:toolId/call',
+  requireServiceToken,
+  validateBody(platformNativeToolCallSchema),
+  internalPlatformNativeToolController.callPlatformNativeTool
+);
+internalExecutionRouter.post('/runs/:runId/delegations', requireServiceToken, internalDelegationController.delegateSpecialist);
+internalExecutionRouter.get('/runs/:runId/delegations', requireServiceToken, internalDelegationController.awaitDelegations);
 internalExecutionRouter.get('/runs/:runId/skills/:skillRef', requireServiceToken, internalExecutionController.getRunSkillSnapshot);
+internalExecutionRouter.get('/runs/:runId/context', requireServiceToken, internalExecutionController.getWorkflowRunContext);
 internalExecutionRouter.post(
   '/runs/:runId/approvals',
   requireServiceToken,
@@ -48,8 +60,6 @@ internalExecutionRouter.delete(
   internalApprovalController.consumeRunContinuation
 );
 internalExecutionRouter.get('/sessions/:sessionId/context', requireServiceToken, internalExecutionController.getSessionContext);
-internalExecutionRouter.get('/workflow-sessions/:sessionId/context', requireServiceToken, internalExecutionController.getWorkflowSessionContext);
-internalExecutionRouter.get('/agent-runs/:runId/context', requireServiceToken, internalExecutionController.getAgentRunContext);
 internalExecutionRouter.post(
   '/runs/:runId/events',
   requireServiceToken,

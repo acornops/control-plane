@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { PoolClient } from 'pg';
 import { db } from '../infra/db.js';
 import { sanitizeAuditMetadata } from './repository-audit-events.js';
 
@@ -17,9 +18,13 @@ export interface AccountAuditEventInput {
   metadata?: Record<string, unknown>;
 }
 
-export async function insertAccountAuditEvent(input: AccountAuditEventInput): Promise<void> {
+interface Queryable {
+  query: PoolClient['query'];
+}
+
+export async function insertAccountAuditEvent(input: AccountAuditEventInput, queryable: Queryable = db): Promise<void> {
   const actorType = input.actorType || (input.actorUserId ? 'user' : 'system');
-  await db.query(
+  await queryable.query(
     `INSERT INTO account_audit_events (
        id, user_id, category, event_type, operation, actor_type, actor_user_id, actor_token_id,
        object_type, object_id, object_name, summary, metadata, occurred_at

@@ -52,6 +52,17 @@ export async function listTargetAgentRegistrations(): Promise<TargetAgentRegistr
   return result.rows.map(mapTargetAgentRegistration);
 }
 
+export async function listWorkspaceTargetAgentRegistrations(workspaceId: string): Promise<TargetAgentRegistration[]> {
+  const result = await db.query(
+    `SELECT r.*, t.target_type
+     FROM target_agent_registrations r
+     INNER JOIN targets t ON t.id = r.target_id
+     WHERE r.workspace_id = $1`,
+    [workspaceId]
+  );
+  return result.rows.map(mapTargetAgentRegistration);
+}
+
 export async function updateTargetAgentCapabilities(targetId: string, capabilities: string[]): Promise<void> {
   await db.query(
     `UPDATE target_agent_registrations

@@ -5,6 +5,7 @@ import {
 } from '../../auth/workspace-authorization.js';
 import { isSupportedRole } from '../../auth/authorization.js';
 import { repo } from '../../store/repository.js';
+import { cleanupRemovedMemberMcpConnections } from '../../services/mcp-secret-cleanup-worker.js';
 import { Role, WorkspaceInvitation, WorkspaceMembership } from '../../types/domain.js';
 import { generateWorkspaceInviteToken, hashToken } from '../../utils/crypto.js';
 import { toSingleParam } from '../../utils/params.js';
@@ -428,6 +429,8 @@ export async function deleteWorkspaceMember(req: AuthenticatedRequest, res: Resp
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workspace member not found', retryable: false } });
       return;
     }
+
+    await cleanupRemovedMemberMcpConnections(workspaceId, userId);
 
     res.status(204).send();
   } catch (err) {

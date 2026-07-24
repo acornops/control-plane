@@ -10,6 +10,7 @@ export interface InternalHttpResponse {
   ok: boolean;
   status: number;
   body: ReadableStream<Uint8Array> | null;
+  headers: Headers;
   text(): Promise<string>;
   json(): Promise<unknown>;
 }
@@ -60,6 +61,7 @@ export async function internalFetch(url: string, init: RequestInit = {}, timeout
         ok: response.ok,
         status: response.status,
         body: response.body,
+        headers: response.headers,
         text: () => response.text(),
         json: () => response.json()
       });

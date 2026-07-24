@@ -1,22 +1,16 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import {
+  gitImportSourceMatches,
+  targetSkillImportEnabled
+} from '../src/controllers/workspaces/target-skills-controller.js';
 import { importTargetSkillSchema, reimportTargetSkillSchema } from '../src/types/contracts.js';
-
-const controllerSource = readFileSync(resolve('src/controllers/workspaces/target-skills-controller.ts'), 'utf8');
 
 describe('target skills controller regression guards', () => {
   it('derives Git import enablement from validation status instead of request input', () => {
-    const importHandler = controllerSource.slice(
-      controllerSource.indexOf('export async function importTargetSkillForTarget'),
-      controllerSource.indexOf('export async function getTargetSkillForTarget')
-    );
-
-    assert.match(importHandler, /const importEnabled = bundle\.validationStatus === 'valid';/);
-    assert.match(importHandler, /enabled: importEnabled/);
-    assert.doesNotMatch(importHandler, /Only valid imported skills can be created in the enabled state/);
-    assert.doesNotMatch(importHandler, /req\.body\.enabled/);
+    assert.equal(targetSkillImportEnabled('valid'), true);
+    assert.equal(targetSkillImportEnabled('invalid'), false);
+    assert.equal(targetSkillImportEnabled('unvalidated'), false);
   });
 
   it('requires client-resolved Git snapshots for import and reimport', () => {
@@ -71,12 +65,16 @@ describe('target skills controller regression guards', () => {
   });
 
   it('rejects reimport payloads that change the stored Git source', () => {
-    const reimportHandler = controllerSource.slice(
-      controllerSource.indexOf('export async function reimportTargetSkillForTarget'),
-      controllerSource.length
-    );
-
-    assert.match(reimportHandler, /gitImportSourceMatches\(existing\.source, source\)/);
-    assert.match(reimportHandler, /SOURCE_MISMATCH/);
+    const stored = {
+      type: 'git_import' as const,
+      provider: 'github' as const,
+      repoUrl: 'https://github.com/acornops/skills',
+      ref: 'main',
+      subpath: 'skills/demo',
+      syncStatus: 'current' as const
+    };
+    assert.equal(gitImportSourceMatches(stored, { ...stored }), true);
+    assert.equal(gitImportSourceMatches(stored, { ...stored, ref: 'next' }), false);
+    assert.equal(gitImportSourceMatches(stored, { ...stored, repoUrl: 'https://github.com/acornops/other' }), false);
   });
 });

@@ -3,16 +3,22 @@ import { config } from '../config.js';
 import { db } from '../infra/db.js';
 import { logger } from '../logger.js';
 import { incrementAutomationDispatch, observeAutomationDispatchDurationMs } from '../metrics.js';
-import { getWorkflowRun, updateWorkflowRun } from '../store/repository-workflows.js';
+import {
+  getWorkflowRun,
+  updateWorkflowRun,
+  updateWorkflowRunIfStatus
+} from '../store/repository-workflows.js';
+import { recomputeWorkflowExecutionStatusForRun } from '../store/repository-automation-approvals.js';
 import { withTransaction } from '../store/repository-transaction.js';
-import { dispatchWorkflowRunToExecutionEngine } from './execution-engine-client.js';
-import { dispatchAgentRunToExecutionEngine } from './execution-engine-client.js';
-import { getAgentActivityRecord, updateAgentActivityRecord } from '../store/repository-agents.js';
+import {
+  cancelRunInExecutionEngine,
+  dispatchWorkflowRunToExecutionEngine
+} from './execution-engine-client.js';
 
 type OutboxRow = {
   id: string;
   workspace_id: string;
-  source_type: 'agent' | 'workflow' | 'target';
+  source_type: 'workflow' | 'target';
   source_id: string;
   run_id: string;
   idempotency_key: string;
@@ -37,12 +43,10 @@ async function claim(limit: number): Promise<OutboxRow[]> {
          SELECT outbox.id
          FROM automation_dispatch_outbox outbox
          LEFT JOIN workflow_runs run ON outbox.source_type='workflow' AND run.id=outbox.run_id
-         LEFT JOIN agent_activity agent_run ON outbox.source_type='agent' AND agent_run.id=outbox.run_id
          WHERE outbox.status IN ('pending','failed')
            AND outbox.next_attempt_at <= NOW()
            AND (outbox.claim_expires_at IS NULL OR outbox.claim_expires_at < NOW())
            AND (outbox.source_type <> 'workflow' OR run.status='queued')
-           AND (outbox.source_type <> 'agent' OR agent_run.status='queued')
          ORDER BY outbox.created_at,outbox.id
          FOR UPDATE OF outbox SKIP LOCKED
          LIMIT $1
@@ -60,27 +64,23 @@ async function retry(row: OutboxRow, error: unknown, startedAt: number): Promise
   const attempt = row.attempt_count + 1;
   const message = (error instanceof Error ? error.message : 'Dispatch failed').slice(0, 500);
   const terminal = attempt >= 3;
-  await db.query(
+  const retried = await db.query(
     `UPDATE automation_dispatch_outbox SET status=$2,attempt_count=$3,
        next_attempt_at=NOW()+($4::text||' seconds')::interval,claim_owner=NULL,claim_expires_at=NULL,
-       last_error_code='DISPATCH_FAILED',last_error_message=$5,updated_at=NOW() WHERE id=$1`,
+       last_error_code='DISPATCH_FAILED',last_error_message=$5,updated_at=NOW()
+     WHERE id=$1 AND status='claimed'
+     RETURNING id`,
     [row.id, terminal ? 'needs_review' : 'failed', attempt, Math.min(30, 2 ** attempt), message]
   );
+  if (!retried.rowCount) {
+    incrementAutomationDispatch(row.source_type, 'stale_claim');
+    return;
+  }
   if (terminal && row.source_type === 'workflow') {
     await updateWorkflowRun(row.run_id, {
       status: 'needs_review', errorCode: 'DISPATCH_RETRIES_EXHAUSTED', errorMessage: message
     });
-    await db.query(
-      `UPDATE workflow_executions SET status='needs_review',error_code='DISPATCH_RETRIES_EXHAUSTED',
-       error_message=$2,updated_at=NOW() WHERE id=$1`,
-      [row.source_id, message]
-    );
-  }
-  if (terminal && row.source_type === 'agent') {
-    await updateAgentActivityRecord(row.run_id, {
-      status: 'failed', errorCode: 'DISPATCH_RETRIES_EXHAUSTED', errorMessage: message,
-      endedAt: new Date().toISOString()
-    });
+    await recomputeWorkflowExecutionStatusForRun(row.run_id);
   }
   logger.warn({ outboxId: row.id, runId: row.run_id, attempt, terminal }, 'Automation dispatch failed');
   incrementAutomationDispatch(row.source_type, terminal ? 'needs_review' : 'retry');
@@ -97,27 +97,6 @@ async function deliver(row: OutboxRow): Promise<void> {
     incrementAutomationDispatch(row.source_type, 'deferred');
     return;
   }
-  if (row.source_type === 'agent') {
-    const run = await getAgentActivityRecord(row.run_id);
-    if (!run || run.status !== 'queued') {
-      await db.query("UPDATE automation_dispatch_outbox SET status='cancelled',claim_owner=NULL,claim_expires_at=NULL,updated_at=NOW() WHERE id=$1", [row.id]);
-      incrementAutomationDispatch(row.source_type, 'stale_claim');
-      return;
-    }
-    try {
-      await dispatchAgentRunToExecutionEngine(run);
-      await updateAgentActivityRecord(run.id, { status: 'running', startedAt: new Date().toISOString() });
-      await db.query(
-        `UPDATE automation_dispatch_outbox SET status='delivered',attempt_count=attempt_count+1,
-         delivered_at=NOW(),claim_owner=NULL,claim_expires_at=NULL,updated_at=NOW() WHERE id=$1`, [row.id]
-      );
-      incrementAutomationDispatch(row.source_type, 'delivered');
-      observeAutomationDispatchDurationMs(row.source_type, 'delivered', Date.now() - startedAt);
-    } catch (error) {
-      await retry(row, error, startedAt);
-    }
-    return;
-  }
   if (row.source_type !== 'workflow') return retry(row, new Error(`Unsupported outbox source ${row.source_type}`), startedAt);
   const run = await getWorkflowRun(row.run_id);
   if (!run || run.status !== 'queued') {
@@ -126,23 +105,60 @@ async function deliver(row: OutboxRow): Promise<void> {
     return;
   }
   try {
-    await updateWorkflowRun(run.id, { status: 'dispatching' });
-    await dispatchWorkflowRunToExecutionEngine(run);
-    await withTransaction(async (client) => {
-      await client.query("UPDATE workflow_runs SET status='running',started_at=COALESCE(started_at,NOW()),updated_at=NOW() WHERE id=$1", [run.id]);
-      await client.query(
-        "UPDATE workflow_executions SET status='running',started_at=COALESCE(started_at,NOW()),updated_at=NOW() WHERE id=$1",
-        [run.executionId]
+    const dispatching = await updateWorkflowRunIfStatus(run.id, ['queued'], { status: 'dispatching' });
+    if (!dispatching) {
+      await db.query(
+        `UPDATE automation_dispatch_outbox
+         SET status='cancelled',claim_owner=NULL,claim_expires_at=NULL,updated_at=NOW()
+         WHERE id=$1 AND status='claimed'`,
+        [row.id]
       );
+      incrementAutomationDispatch(row.source_type, 'stale_claim');
+      return;
+    }
+    await dispatchWorkflowRunToExecutionEngine(run);
+    let activated = false;
+    await withTransaction(async (client) => {
+      const result = await client.query(
+        `UPDATE workflow_runs
+         SET status='running',started_at=COALESCE(started_at,NOW()),updated_at=NOW()
+         WHERE id=$1 AND status='dispatching' AND cancellation_requested_at IS NULL
+         RETURNING id`,
+        [run.id]
+      );
+      activated = Boolean(result.rowCount);
+      if (activated && !run.parentRunId) {
+        await client.query(
+          `UPDATE workflow_executions
+           SET status='running',started_at=COALESCE(started_at,NOW()),updated_at=NOW()
+           WHERE id=$1 AND status NOT IN ('completed','failed','cancelled')`,
+          [run.executionId]
+        );
+      }
       await client.query(
-        `UPDATE automation_dispatch_outbox SET status='delivered',attempt_count=attempt_count+1,
-         delivered_at=NOW(),claim_owner=NULL,claim_expires_at=NULL,updated_at=NOW() WHERE id=$1`, [row.id]
+        `UPDATE automation_dispatch_outbox
+         SET status=$2,attempt_count=attempt_count+1,
+             delivered_at=CASE WHEN $2='delivered' THEN NOW() ELSE delivered_at END,
+             claim_owner=NULL,claim_expires_at=NULL,updated_at=NOW()
+         WHERE id=$1 AND status='claimed'`,
+        [row.id, activated ? 'delivered' : 'cancelled']
       );
     });
-    incrementAutomationDispatch(row.source_type, 'delivered');
-    observeAutomationDispatchDurationMs(row.source_type, 'delivered', Date.now() - startedAt);
+    if (!activated) {
+      await cancelRunInExecutionEngine(run.id).catch(() => undefined);
+    }
+    incrementAutomationDispatch(row.source_type, activated ? 'delivered' : 'stale_claim');
+    observeAutomationDispatchDurationMs(
+      row.source_type,
+      activated ? 'delivered' : 'stale_claim',
+      Date.now() - startedAt
+    );
   } catch (error) {
-    await updateWorkflowRun(run.id, { status: 'queued' });
+    await db.query(
+      `UPDATE workflow_runs SET status='queued',updated_at=NOW()
+       WHERE id=$1 AND status='dispatching' AND cancellation_requested_at IS NULL`,
+      [run.id]
+    );
     await retry(row, error, startedAt);
   }
 }

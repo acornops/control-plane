@@ -14,35 +14,46 @@ import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
 import { runWorkflowScheduleTick } from '../src/services/workflow-scheduler.js';
 import { runAutomationOutboxTick } from '../src/services/automation-outbox-worker.js';
+import { db } from '../src/infra/db.js';
 import {
   createWorkflowRun,
+  createWorkflowDefinition,
   createWorkflowSession,
   createWorkflowUserMessage,
   getWorkflowDefinition,
   listWorkflowRunApprovals
 } from '../src/store/repository-workflows.js';
-import {
-  computeNextWorkflowScheduleRunAt
-} from '../src/store/repository-workflow-schedules.js';
-import { listAgentDefinitions } from '../src/store/repository-agents.js';
+import { getAgentDefinition } from '../src/store/repository-agents.js';
+import { listCapabilityRoutingMappings } from '../src/store/repository-capability-routing.js';
 import type { Run, RunToolApproval } from '../src/types/domain.js';
 import {
   callController,
+  createReadyMcpReadinessResponse,
   createRequest,
   createWorkspaceAiCredentialStatusResponse,
   installWorkspace,
+  isMcpReadinessRequest,
   isWorkspaceAiCredentialStatusRequest,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
-import { closeAutomationDatabaseFixtures, resetAutomationDatabaseFixtures } from './helpers/automation-database-fixtures.js';
+import { closeAutomationDatabaseFixtures, installAutomationTemplateFixtures, resetAutomationDatabaseFixtures } from './helpers/automation-database-fixtures.js';
+import { assertFocusedApprovalInboxFilters } from './helpers/workflow-approval-inbox-assertions.js';
 
 const mutableConfig = config as typeof config & { AUTOMATION_RUNTIME_MODE: 'off' | 'shadow' | 'canary' | 'on' };
 let originalRuntimeMode = config.AUTOMATION_RUNTIME_MODE;
+
+function installReadyMcpReadinessFetch(): void {
+  mock.method(globalThis, 'fetch', async (input, init) => {
+    if (isMcpReadinessRequest(input, init)) return createReadyMcpReadinessResponse();
+    return new Response(`unexpected request: ${String(input)}`, { status: 500 });
+  });
+}
 
 beforeEach(async () => {
   originalRuntimeMode = config.AUTOMATION_RUNTIME_MODE;
   mutableConfig.AUTOMATION_RUNTIME_MODE = 'on';
   await resetAutomationDatabaseFixtures();
+  await installAutomationTemplateFixtures();
 });
 
 afterEach(() => {
@@ -90,13 +101,6 @@ function createTargetRun(overrides: Partial<Run> = {}): Run {
 }
 
 describe('workflow schedules and approval inbox', () => {
-  it('computes next schedule due time in the stored timezone', () => {
-    assert.equal(
-      computeNextWorkflowScheduleRunAt('0 9 * * *', new Date('2026-01-01T00:30:00.000Z'), 'Asia/Singapore'),
-      '2026-01-01T01:00:00.000Z'
-    );
-  });
-
   it('requires manage_workflows to create, update, and delete schedules', async () => {
     installWorkspace('operator');
 
@@ -107,7 +111,7 @@ describe('workflow schedules and approval inbox', () => {
         name: 'Hourly triage',
         cron: '0 * * * *',
         timezone: 'UTC',
-        inputDefaults: { targetId: 'cluster-1' },
+        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
@@ -118,6 +122,7 @@ describe('workflow schedules and approval inbox', () => {
 
   it('previews valid schedules without mutating schedule state', async () => {
     installWorkspace('admin');
+    installReadyMcpReadinessFetch();
     const response = await callController(previewWorkflowSchedule, createRequest(
       { workspaceId: 'workspace-1' },
       {
@@ -125,7 +130,8 @@ describe('workflow schedules and approval inbox', () => {
         name: 'Weekday triage',
         cron: '0 9 * * 1-5',
         timezone: 'UTC',
-        inputDefaults: { targetId: 'cluster-1', severity: 'high' },
+        principal: { type: 'user', id: 'user-1' },
+        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
@@ -148,7 +154,8 @@ describe('workflow schedules and approval inbox', () => {
         workflowId: 'cluster-triage',
         cron: 'invalid',
         timezone: 'Not/AZone',
-        inputDefaults: {},
+        principal: { type: 'user', id: 'user-1' },
+        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['unapproved_context']
       }
     ));
@@ -164,6 +171,7 @@ describe('workflow schedules and approval inbox', () => {
 
   it('creates, lists, pauses, and deletes workflow schedules for authorized users', async () => {
     installWorkspace('admin');
+    installReadyMcpReadinessFetch();
 
     const created = await callController(createWorkflowScheduleForWorkspace, createRequest(
       { workspaceId: 'workspace-1' },
@@ -173,7 +181,8 @@ describe('workflow schedules and approval inbox', () => {
         cron: '0 * * * *',
         timezone: 'UTC',
         enabled: true,
-        inputDefaults: { targetId: 'cluster-1' },
+        principal: { type: 'user', id: 'user-1' },
+        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
@@ -202,6 +211,27 @@ describe('workflow schedules and approval inbox', () => {
     assert.equal(deleted.statusCode, 204);
   });
 
+  it('rejects service identities for workflow schedules', async () => {
+    installWorkspace('admin');
+    const response = await callController(createWorkflowScheduleForWorkspace, createRequest(
+      { workspaceId: 'workspace-1' },
+      {
+        workflowId: 'cluster-triage',
+        name: 'Service schedule',
+        cron: '0 * * * *',
+        timezone: 'UTC',
+        principal: { type: 'service_identity', id: 'service-1' },
+        inputs: { target: 'cluster-1' }
+      }
+    ));
+
+    assert.equal(response.statusCode, 400);
+    assert.equal(
+      (response.body as { error: { code: string } }).error.code,
+      'WORKFLOW_SCHEDULE_USER_PRINCIPAL_REQUIRED'
+    );
+  });
+
   it('dispatches due schedules into workflow runs and records dispatch status', async () => {
     installWorkspace('admin');
     const executionDispatches: unknown[] = [];
@@ -210,6 +240,7 @@ describe('workflow schedules and approval inbox', () => {
       if (isWorkspaceAiCredentialStatusRequest(input)) {
         return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse('workspace-1')), { status: 200 });
       }
+      if (isMcpReadinessRequest(input, init)) return createReadyMcpReadinessResponse();
       if (url === `${config.EXECUTION_ENGINE_BASE_URL}/api/v1/runs` && init?.method === 'POST') {
         executionDispatches.push(JSON.parse(String(init.body)));
         return new Response(null, { status: 202 });
@@ -225,12 +256,20 @@ describe('workflow schedules and approval inbox', () => {
         cron: '* * * * *',
         timezone: 'UTC',
         enabled: true,
-        inputDefaults: { targetId: 'cluster-1' },
+        principal: { type: 'user', id: 'user-1' },
+        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
     const createdSchedule = (created.body as { schedule: { id: string; nextRunAt: string } }).schedule;
     const scheduleId = createdSchedule.id;
+    assert.equal('parameterSignature' in createdSchedule, false);
+    await db.query(
+      `UPDATE workflow_definitions
+       SET prompt='Use the latest definition to inspect {{target:target}}.',
+           version=version+1
+       WHERE workspace_id='workspace-1' AND id='cluster-triage'`
+    );
 
     const tickNow = new Date(createdSchedule.nextRunAt);
     const result = await runWorkflowScheduleTick({ now: tickNow });
@@ -239,13 +278,21 @@ describe('workflow schedules and approval inbox', () => {
     assert.equal(result.dispatched, 1);
     assert.equal(await runAutomationOutboxTick(), 1);
     assert.equal(executionDispatches.length, 1);
+    const execution = await db.query<{ prompt_text: string }>(
+      'SELECT prompt_text FROM workflow_executions WHERE trigger_id=$1',
+      [scheduleId]
+    );
+    assert.equal(
+      execution.rows[0]?.prompt_text,
+      'Use the latest definition to inspect @target[Test Cluster].'
+    );
     const listed = await callController(listWorkspaceWorkflowSchedules, createRequest({ workspaceId: 'workspace-1' }));
     const schedule = (listed.body as { items: Array<{ id: string; lastStatus?: string; lastRunAt?: string }> }).items.find((item) => item.id === scheduleId);
     assert.equal(schedule?.lastStatus, 'dispatched');
     assert.equal(schedule?.lastRunAt, tickNow.toISOString());
   });
 
-  it('dispatches due schedules with an explicit workflow runtime subject after creator role changes', async () => {
+  it('auto-pauses a delegated user schedule after the user loses run permission', async () => {
     installWorkspace('admin');
     const executionDispatches: unknown[] = [];
     mock.method(globalThis, 'fetch', async (input, init) => {
@@ -253,6 +300,7 @@ describe('workflow schedules and approval inbox', () => {
       if (isWorkspaceAiCredentialStatusRequest(input)) {
         return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse('workspace-1')), { status: 200 });
       }
+      if (isMcpReadinessRequest(input, init)) return createReadyMcpReadinessResponse();
       if (url === `${config.EXECUTION_ENGINE_BASE_URL}/api/v1/runs` && init?.method === 'POST') {
         executionDispatches.push(JSON.parse(String(init.body)));
         return new Response(null, { status: 202 });
@@ -267,7 +315,8 @@ describe('workflow schedules and approval inbox', () => {
         cron: '* * * * *',
         timezone: 'UTC',
         enabled: true,
-        inputDefaults: { targetId: 'cluster-1' },
+        principal: { type: 'user', id: 'user-1' },
+        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
@@ -277,29 +326,37 @@ describe('workflow schedules and approval inbox', () => {
 
     const result = await runWorkflowScheduleTick({ now: new Date(createdSchedule.nextRunAt) });
 
-    assert.equal(result.dispatched, 1);
-    assert.equal(await runAutomationOutboxTick(), 1);
-    assert.equal(executionDispatches.length, 1);
+    assert.equal(result.dispatched, 0);
+    assert.equal(result.autoPaused, 1);
+    assert.equal(await runAutomationOutboxTick(), 0);
+    assert.equal(executionDispatches.length, 0);
     const listed = await callController(listWorkspaceWorkflowSchedules, createRequest({ workspaceId: 'workspace-1' }));
     const schedule = (listed.body as { items: Array<{ id: string; status: string; lastStatus?: string }> }).items.find((item) => item.id === scheduleId);
-    assert.equal(schedule?.status, 'enabled');
-    assert.equal(schedule?.lastStatus, 'dispatched');
+    assert.equal(schedule?.status, 'paused');
+    assert.equal(schedule?.lastStatus, 'auto_paused');
   });
 
   it('lists target approvals and workflow approval gates in one workspace inbox', async () => {
     installWorkspace('admin');
     const workflow = await getWorkflowDefinition('workspace-1', 'cluster-triage');
     assert.ok(workflow);
+    const selectedAgents = (await Promise.all(
+      workflow.agentIds.map((agentId) => getAgentDefinition('workspace-1', agentId))
+    )).filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
+    assert.equal(selectedAgents.length, workflow.agentIds.length);
     const compiledAccessScope = compileWorkflowAccessScope({
       workflow: {
         ...workflow,
-        policy: {
-          ...workflow.policy,
+        capabilityPolicy: {
+          ...workflow.capabilityPolicy,
           mode: 'read_write',
           approvalRequirements: ['Before running write-capable workflow automation']
         }
       },
-      agents: await listAgentDefinitions('workspace-1'),
+      selectedAgents,
+      specialistAgent: selectedAgents[0],
+      mappings: await listCapabilityRoutingMappings('workspace-1', { activeReviewedOnly: true }),
+      targetRoute: { id: 'cluster-1', targetType: 'kubernetes' },
       actor: {
         userId: 'user-1',
         role: 'admin',
@@ -307,9 +364,9 @@ describe('workflow schedules and approval inbox', () => {
       },
       approvedContextGrants: ['workspace_metadata', 'target_inventory']
     });
-    const session = await createWorkflowSession({ workflow: { ...workflow, policy: { ...workflow.policy, mode: 'read_write', approvalRequirements: ['Before running write-capable workflow automation'] } }, createdBy: 'user-1', compiledAccessScope });
+    const session = await createWorkflowSession({ workflow: { ...workflow, capabilityPolicy: { ...workflow.capabilityPolicy, mode: 'read_write', approvalRequirements: ['Before running write-capable workflow automation'] } }, createdBy: 'user-1', compiledAccessScope });
     const message = await createWorkflowUserMessage({ session, content: 'Run gated workflow' });
-    const run = await createWorkflowRun({ session, message, workflowStepId: 'collect-cluster-signals' });
+    const run = await createWorkflowRun({ session, message });
     const workflowApproval = (await listWorkflowRunApprovals(run.id))[0];
 
     const targetApproval = createTargetRunApproval();
@@ -327,6 +384,8 @@ describe('workflow schedules and approval inbox', () => {
     assert.deepEqual(body.items.map((item) => item.source).sort(), ['target_tool', 'workflow_gate']);
     assert.ok(body.items.some((item) => item.approvalId === workflowApproval.id && item.runId === run.id));
     assert.ok(body.items.some((item) => item.approvalId === targetApproval.id && item.runId === targetRun.id));
+
+    await assertFocusedApprovalInboxFilters({ targetApproval, targetRun, workflowApproval, workflowRun: run });
 
     mock.method(globalThis, 'fetch', async () => new Response(null, { status: 202 }));
     const decided = await callController(decideRunApproval, createRequest(

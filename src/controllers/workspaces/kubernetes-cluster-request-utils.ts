@@ -112,18 +112,18 @@ export function buildAgentInstallInstructions(
   }
 
   const lines = [
-    `helm upgrade --install ${toShellSingleQuoted(config.AGENT_HELM_RELEASE_NAME)} ${toShellSingleQuoted(config.AGENT_HELM_CHART_REF)}`,
-    config.AGENT_HELM_CHART_VERSION
-      ? `  --version ${toShellSingleQuoted(config.AGENT_HELM_CHART_VERSION)}`
+    `helm upgrade --install ${toShellSingleQuoted(config.AGENTK_HELM_RELEASE_NAME)} ${toShellSingleQuoted(config.AGENTK_HELM_CHART_REF)}`,
+    config.AGENTK_HELM_CHART_VERSION
+      ? `  --version ${toShellSingleQuoted(config.AGENTK_HELM_CHART_VERSION)}`
       : '  --devel',
-    `  --namespace ${toShellSingleQuoted(config.AGENT_HELM_NAMESPACE)}`,
+    `  --namespace ${toShellSingleQuoted(config.AGENTK_HELM_NAMESPACE)}`,
     '  --create-namespace'
   ];
-  for (const [key, value] of Object.entries(config.AGENT_HELM_VALUES).sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [key, value] of Object.entries(config.AGENTK_HELM_VALUES).sort(([left], [right]) => left.localeCompare(right))) {
     lines.push(helmSetJson(key, value));
   }
-  if (config.AGENT_HELM_ADDITIONAL_CA_FILE_PATH) {
-    lines.push(helmSetFile('config.tls.additionalCaBundle.inlinePem', config.AGENT_HELM_ADDITIONAL_CA_FILE_PATH));
+  if (config.AGENTK_HELM_ADDITIONAL_CA_FILE_PATH) {
+    lines.push(helmSetFile('config.tls.additionalCaBundle.inlinePem', config.AGENTK_HELM_ADDITIONAL_CA_FILE_PATH));
   }
   lines.push(
     helmSetString('clusterName', cluster.name),
@@ -138,9 +138,9 @@ export function buildAgentInstallInstructions(
   }
   return {
     command: lines.join(' \\\n'),
-    releaseName: config.AGENT_HELM_RELEASE_NAME,
-    chartRef: config.AGENT_HELM_CHART_REF,
-    namespace: config.AGENT_HELM_NAMESPACE,
+    releaseName: config.AGENTK_HELM_RELEASE_NAME,
+    chartRef: config.AGENTK_HELM_CHART_REF,
+    namespace: config.AGENTK_HELM_NAMESPACE,
     controlPlaneUrl: config.CONTROL_PLANE_BASE_URL,
     namespaceInclude: include,
     namespaceExclude: exclude,

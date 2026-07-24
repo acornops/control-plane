@@ -119,6 +119,12 @@ function routeCalls(source) {
   return calls;
 }
 
+function isRouteActorMiddleware(candidate) {
+  return /\brequireUser\b/.test(candidate) ||
+    /\brequireLinkedExternalIntegration\b/.test(candidate) ||
+    /\brequireActor\s*\(\s*\[\s*'user'\s*(?:,\s*'externalIntegration'\s*)?\]\s*\)/.test(candidate);
+}
+
 const authorization = read('src/auth/authorization.ts');
 const workspaceAuthorization = read('src/auth/workspace-authorization.ts');
 const authMiddleware = read('src/auth/middleware.ts');
@@ -140,6 +146,13 @@ const targetNativeToolController = read(targetNativeToolControllerPath);
 const sessionController = read('src/controllers/sessions-controller.ts');
 const runToolAccessMode = read(runToolAccessModePath);
 const runController = read('src/controllers/runs-controller.ts');
+const automationApprovalDecision = read('src/controllers/automation-run-approval-decision.ts');
+const troubleshootingApprovalDecision = read('src/controllers/troubleshooting-run-approval-decision.ts');
+const workflowExecutionAccess = read('src/controllers/workflow-execution-access.ts');
+const workflowController = read('src/controllers/workflows-controller.ts');
+const workflowReportsController = read('src/controllers/workflow-reports-controller.ts');
+const workflowRoutes = read('src/routes/workflows.ts');
+const runsRoutes = read('src/routes/runs.ts');
 const webhooksController = read(webhooksControllerPath);
 const workspaceScopedControllerPaths = [
   workspaceControllerPath,
@@ -174,6 +187,13 @@ const matrixDoc = read('docs/authorization-matrix.md');
 
 assert(authMiddleware.includes('export interface AuthContext'), 'auth middleware must expose AuthContext');
 assert(authMiddleware.includes('auth: AuthContext'), 'AuthenticatedRequest must require auth context');
+assert(authMiddleware.includes('export type ActorKind'), 'auth middleware must expose strict actor kinds');
+assert(authMiddleware.includes("export function requireActor(allowedActors: ActorRequirement): RequestHandler"), 'auth middleware must expose requireActor');
+assert(authMiddleware.includes("export const requireUser = requireActor(['user'])"), 'auth middleware must preserve explicit user-session middleware');
+assert(
+  authMiddleware.includes("export const requireExternalIntegrationClient = requireActor(['externalIntegrationClient'])"),
+  'auth middleware must preserve explicit external client middleware'
+);
 assert(!listFiles('src').filter((file) => file.endsWith('.ts')).some((file) => read(file).includes('authUserId')), 'authUserId must not remain in src');
 
 const directAuthzForbidden = [
@@ -279,7 +299,38 @@ assert(
   'getSession must remain readable for viewer/operator roles'
 );
 assert(runController.includes('cancel_runs'), 'run cancellation must be capability-gated');
-assert(runController.includes('create_read_write_runs'), 'approval decisions must be read-write capability-gated');
+assert(automationApprovalDecision.includes('create_read_write_runs'), 'approval decisions must be read-write capability-gated');
+assert(
+  runsRoutes.includes("'/runs/:runId/approvals/:approvalId/decision',\n  requireActor(['user', 'externalIntegration'])"),
+  'approval decisions must accept browser users and linked external integrations'
+);
+assert(
+  troubleshootingApprovalDecision.includes('EXTERNAL_INTEGRATION_APPROVAL_NOT_OWNED')
+    && troubleshootingApprovalDecision.includes('getRunRequestProvenance')
+    && troubleshootingApprovalDecision.includes('provenance.externalIntegrationLinkId !== credential.linkId'),
+  'external integration approval decisions must be restricted to troubleshooting runs requested through the same link'
+);
+assert(
+  runController.includes('externalIntegrationOwnsWorkflowExecution')
+    && workflowExecutionAccess.includes('externalIntegrationLinkId === credential.linkId')
+    && workflowExecutionAccess.includes('externalIntegrationClientId === credential.integrationId'),
+  'external integration Workflow decisions must require exact execution-origin link and client provenance'
+);
+assert(
+  workflowController.includes('EXTERNAL_INTEGRATION_WORKFLOW_SESSION_NOT_OWNED')
+    && workflowController.includes('externalIntegrationOwnsWorkflowSession')
+    && workflowExecutionAccess.includes('externalIntegrationOwnsProvenance(req, session.requestProvenance)'),
+  'external integration Workflow session continuation must require exact origin ownership'
+);
+assert(
+  workflowReportsController.includes('externalIntegrationOwnsWorkflowExecution'),
+  'external integration Workflow report access must require exact execution ownership'
+);
+assert(
+  workflowRoutes.includes("'/workflow-executions/:executionId/stream'")
+    && workflowRoutes.includes("requireActor(['user', 'externalIntegration'])"),
+  'Workflow execution inspection and streaming must accept workspace-authorized external integrations'
+);
 assert(clusterController.includes("'read_target_logs'"), 'pod log endpoint must be read_target_logs capability-gated');
 assert(webhooksController.includes("'manage_webhooks'"), 'webhook mutations must be manage_webhooks capability-gated');
 assert(!webhooksController.includes('canManageWebhooks'), 'webhook mutations must not use local role-specific authorization helpers');
@@ -288,7 +339,7 @@ assert(targetNativeToolController.includes("canEdit: access.authz.can('manage_to
 assert(!read('src/services/kubernetes-cluster-tools-catalog.ts').includes('role: string | null'), 'tool catalog composer must not recompute editability from role');
 assert(workspaceController.includes('withEffectiveWorkspacePermissions'), 'workspace responses must serialize effective permissions');
 assert(
-  workspaceController.includes('applyWorkspaceSummaryPermissions(workspace, getEffectiveWorkspacePermissions(req, workspace.currentUserRole))'),
+  workspaceController.includes('getEffectiveWorkspacePermissions(req, workspace.currentUserRole, workspace.id)'),
   'workspace summaries must use effective permissions'
 );
 assert(
@@ -299,7 +350,7 @@ assert(
     workspaceController.includes('virtualMachines: canReadWorkspaceData ? workspace.quota.virtualMachines.used : 0'),
   'workspace summaries must redact counts after effective permissions are applied'
 );
-assert(workspaceController.includes("const permissions = getEffectiveWorkspacePermissions(req, 'owner')"), 'created workspace response must use effective permissions');
+assert(workspaceController.includes("const permissions = getWorkspacePermissions('owner')"), 'created workspace response must use owner permissions on the user-only route');
 assert(
   workspaceController.includes('applyWorkspaceSummaryPermissions(createdSummary, permissions)'),
   'created workspace response must apply effective-permission redaction'
@@ -307,14 +358,15 @@ assert(
 assert(repository.includes('m.role AS current_user_role'), 'workspace list must expose server-owned current role');
 assert(matrixDoc.includes('centralized workspace authorization helpers'), 'authorization doc must mention centralized helpers');
 
-for (const routeFile of listFiles('src/routes').filter((file) => file.endsWith('.ts'))) {
+const routeFiles = listFiles('src/routes').filter((file) => file.endsWith('.ts'));
+for (const routeFile of routeFiles) {
   const source = read(routeFile);
   for (const call of routeCalls(source)) {
     const args = splitTopLevelArgs(call);
     args.forEach((arg, index) => {
       if (!arg.includes('authed(')) return;
-      const hasEarlierRequireUser = args.slice(0, index).some((candidate) => /\brequireUser\b/.test(candidate));
-      assert(hasEarlierRequireUser, `${routeFile} has authed(...) route handler without earlier requireUser`);
+      const actorMiddleware = args.slice(0, index).find(isRouteActorMiddleware);
+      assert(actorMiddleware, `${routeFile} has authed(...) route handler without earlier user or linked-actor middleware`);
     });
   }
 }

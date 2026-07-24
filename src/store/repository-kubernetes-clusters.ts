@@ -12,7 +12,6 @@ import {
 import { replaceClusterSnapshotDerivedRows } from './repository-kubernetes-inventory.js';
 import { upsertTargetMetricSample } from './repository-target-metrics.js';
 import { withTransaction } from './repository-transaction.js';
-import { enqueueTargetAutomationEvent } from './repository-automation-events.js';
 import { assertWorkspaceTargetQuota } from './repository-quotas.js';
 
 const clusterSelect = `
@@ -209,7 +208,8 @@ export async function upsertClusterSnapshot(snapshot: ClusterSnapshot): Promise<
     const previousSnapshotResult = await client.query<ClusterSnapshotRow>(
       `SELECT target_id, workspace_id, snapshot_ts, data
        FROM target_snapshots
-       WHERE target_id = $1`,
+       WHERE target_id = $1
+       FOR UPDATE`,
       [canonicalSnapshot.clusterId]
     );
     const previousSnapshot: ClusterSnapshot | null = previousSnapshotResult.rows.length > 0
@@ -240,14 +240,6 @@ export async function upsertClusterSnapshot(snapshot: ClusterSnapshot): Promise<
       metrics: metricSample
     });
     await replaceClusterSnapshotDerivedRows(client, cluster, canonicalSnapshot, previousSnapshot);
-    await enqueueTargetAutomationEvent(client, {
-      workspaceId: canonicalSnapshot.workspaceId,
-      targetId: canonicalSnapshot.clusterId,
-      targetType: 'kubernetes',
-      eventType: 'target.snapshot.updated.v1',
-      occurrenceKey: canonicalSnapshot.timestamp,
-      occurredAt: canonicalSnapshot.timestamp
-    });
   });
 }
 

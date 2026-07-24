@@ -37,8 +37,9 @@ import {
   parseBoundedLimit
 } from '../utils/pagination.js';
 import { mapGatewayError } from './workspaces/common.js';
-import { parseRequestedLlmSelection } from './session-llm-selection.js';
-
+import { runAuditActor, runRequestProvenance } from './run-actor.js';
+import { acceptedMessageResponse, parseRequestedLlmSelection } from './session-llm-selection.js';
+import { resolveReadySessionAssistantReferences } from './session-assistant-references.js';
 function enqueueRunDispatch(run: Run): void {
   queueMicrotask(async () => {
     try {
@@ -80,7 +81,6 @@ function enqueueRunDispatch(run: Run): void {
     }
   });
 }
-
 async function requireSessionTargetAccess(
   req: AuthenticatedRequest,
   res: Response,
@@ -222,17 +222,12 @@ export async function listSessions(req: AuthenticatedRequest, res: Response, nex
 
 export async function getSession(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const sessionId = toSingleParam(req.params.sessionId);
-    const session = await repo.getSession(sessionId);
+    const session = await repo.getSession(toSingleParam(req.params.sessionId));
     if (!session) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Session not found', retryable: false } });
       return;
     }
-
-    if (!(await requireWorkspaceDataRead(req, res, session.workspaceId, 'No access to session'))) {
-      return;
-    }
-
+    if (!(await requireWorkspaceDataRead(req, res, session.workspaceId, 'No access to session'))) return;
     res.status(200).json(session);
   } catch (err) {
     next(err);
@@ -384,17 +379,23 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       });
       return;
     }
+    // A retry for an already accepted client message must remain idempotent even
+    // if provider or MCP credential connection state changed after dispatch.
+    if (req.body.clientMessageId) {
+      const existing = await repo.findRunByClientMessageId(session.id, req.body.clientMessageId);
+      if (existing) {
+        res.status(202).json(acceptedMessageResponse(existing.message.id, existing.run));
+        return;
+      }
+    }
     const target = await requireRunnableSessionTarget(res, session);
     if (!target) {
       return;
     }
-    if (req.body.clientMessageId) {
-      const existing = await repo.findRunByClientMessageId(session.id, req.body.clientMessageId);
-      if (existing) {
-        res.status(202).json({ message_id: existing.message.id, run_id: existing.run.id });
-        return;
-      }
-    }
+    const assistantReferences = await resolveReadySessionAssistantReferences(
+      res, session.workspaceId, target, req.auth.userId, toolAccessMode, req.body.references || []
+    );
+    if (!assistantReferences) return;
     const requestedLlm = parseRequestedLlmSelection(req, res);
     if (requestedLlm === null) {
       return;
@@ -451,7 +452,10 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       llmModel: llmSettings.model,
       llmReasoningSummaryMode: llmSettings.reasoning.summary_mode,
       llmReasoningEffort: llmSettings.reasoning.effort,
-      clientMessageId: req.body.clientMessageId
+      clientMessageId: req.body.clientMessageId,
+      assistantReferences,
+      principal: { type: 'user', id: req.auth.userId },
+      requestProvenance: runRequestProvenance(req)
     });
     if (!created.idempotent) {
       webhooks.emit({
@@ -519,7 +523,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
         category: 'run',
         eventType: 'run.created.v1',
         operation: 'write',
-        actorUserId: req.auth.userId,
+        ...runAuditActor(req),
         objectType: 'run',
         objectId: created.run.id,
         summary: 'Troubleshooting run created',
@@ -527,12 +531,13 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
           sessionId: session.id,
           targetId: target.targetId,
           targetType: target.targetType,
-          toolAccessMode: created.run.toolAccessMode
+          toolAccessMode: created.run.toolAccessMode,
+          assistantReferences: assistantReferences.map((reference) => ({ kind: reference.kind, id: reference.id }))
         }
       });
       enqueueRunDispatch(created.run);
     }
-    res.status(202).json({ message_id: created.message.id, run_id: created.run.id });
+    res.status(202).json(acceptedMessageResponse(created.message.id, created.run));
   } catch (err) {
     if (err instanceof LlmGatewayHttpError) {
       const mapped = mapGatewayError(err, { upstreamMessage: 'Failed to check workspace AI provider settings with llm-gateway' });

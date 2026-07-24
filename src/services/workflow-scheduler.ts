@@ -1,15 +1,26 @@
-import { capabilitiesToPermissions, type WorkspaceCapability } from '../auth/authorization.js';
+import { randomUUID } from 'node:crypto';
 import { logger } from '../logger.js';
 import { incrementWorkflowSchedulerEvent } from '../metrics.js';
 import { isModelAllowedForProvider } from './llm-policy.js';
-import { compileWorkflowAccessScope, WorkflowAccessDeniedError } from './workflow-access.js';
+import {
+  compileWorkflowAccessScope,
+  compileWorkflowSessionCeiling,
+  WorkflowAccessDeniedError
+} from './workflow-access.js';
+import { computeWorkflowReadiness } from './automation-readiness.js';
 import { resolveWorkspaceLlmSettings } from './workspace-ai-resolution.js';
 import { recordWorkspaceAuditEvent } from './workspace-audit.js';
-import { getWorkflowCapabilityReadinessErrors } from './workflow-readiness.js';
-import { resolveWorkflowTarget } from './workflow-target-resolution.js';
-import { validateWorkflowInputs } from './workflow-input-validation.js';
+import { emitWorkflowExecutionEvents } from './workflow-execution-events.js';
+import { promptResourceRegistry, PromptResourceProviderError } from './prompt-resources/index.js';
+import {
+  compileWorkflowPrompt,
+  workflowParameterSignature,
+  WorkflowParameterValuesError,
+  WorkflowTemplateValidationError
+} from './workflow-template.js';
 import { withRedisLease } from './control-plane-coordination/leases.js';
-import { listAgentDefinitions } from '../store/repository-agents.js';
+import { getAgentDefinition } from '../store/repository-agents.js';
+import { listCapabilityRoutingMappings } from '../store/repository-capability-routing.js';
 import { repo } from '../store/repository.js';
 import {
   createWorkflowExecution,
@@ -22,6 +33,10 @@ import {
   recordWorkflowScheduleDispatch
 } from '../store/repository-workflow-schedules.js';
 import type { WorkflowDefinitionForAccess, WorkflowScheduleRecord } from '../types/workflows.js';
+import { resolveRunPrincipal } from './run-principal.js';
+import { getWorkflowCapabilityReadinessErrors } from './workflow-readiness.js';
+import { resolveEffectiveWorkflowCapabilityIds } from './workflow-capability-policy.js';
+import { isTargetType, type TargetSummary } from '../types/domain.js';
 
 export interface WorkflowScheduleTickResult {
   claimed: number;
@@ -33,22 +48,6 @@ export interface WorkflowScheduleTickResult {
 function sanitizeError(err: unknown): string {
   const message = err instanceof Error ? err.message : 'Unknown schedule dispatch failure';
   return message.slice(0, 240);
-}
-
-function requiredRunCapability(workflow: WorkflowDefinitionForAccess): WorkspaceCapability {
-  return workflow.policy.mode === 'read_write' ? 'create_read_write_runs' : 'create_read_only_runs';
-}
-
-function workflowRuntimeSubject(schedule: WorkflowScheduleRecord, workflow: WorkflowDefinitionForAccess) {
-  const permissions = capabilitiesToPermissions([
-    ...workflow.requiredPermissions,
-    requiredRunCapability(workflow)
-  ]);
-  return {
-    userId: `workflow-schedule:${schedule.id}`,
-    role: 'workflow_runtime',
-    permissions
-  };
 }
 
 async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Promise<'dispatched' | 'failed' | 'auto_paused'> {
@@ -70,18 +69,99 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
     incrementWorkflowSchedulerEvent('auto_paused');
     return 'auto_paused';
   }
+  if (schedule.parameterSignature !== workflowParameterSignature(workflow.parameters)) {
+    await recordWorkflowScheduleDispatch(schedule.id, 'auto_paused', {
+      now,
+      error: 'Workflow runtime parameters changed. Review and save the schedule before enabling it again.'
+    });
+    await recordWorkspaceAuditEvent({
+      workspaceId: schedule.workspaceId,
+      category: 'run',
+      eventType: 'workflow.schedule_auto_paused.v1',
+      operation: 'write',
+      actorUserId: schedule.updatedBy.userId,
+      objectType: 'workflow_schedule',
+      objectId: schedule.id,
+      objectName: schedule.name,
+      summary: 'Workflow schedule auto-paused',
+      metadata: { workflowId: schedule.workflowId, reason: 'workflow_parameters_changed' }
+    });
+    incrementWorkflowSchedulerEvent('auto_paused');
+    return 'auto_paused';
+  }
 
   let compiledAccessScope;
-  const runtimeSubject = workflowRuntimeSubject(schedule, workflow);
+  let sessionAccessScope;
+  let specialistAgent: NonNullable<Awaited<ReturnType<typeof getAgentDefinition>>> | undefined;
+  const runtimeSubject = await resolveRunPrincipal(schedule.workspaceId, schedule.principal);
+  if (!runtimeSubject) {
+    await recordWorkflowScheduleDispatch(schedule.id, 'auto_paused', { now, error: 'Delegated principal is no longer authorized.' });
+    incrementWorkflowSchedulerEvent('auto_paused');
+    return 'auto_paused';
+  }
+  let target: TargetSummary | undefined;
+  let targetRoute: { id: string; targetType: 'kubernetes' | 'virtual_machine' } | undefined;
+  let resolution;
+  const messageId = randomUUID();
+  const sessionId = randomUUID();
   try {
-    compiledAccessScope = compileWorkflowAccessScope({
+    resolution = await compileWorkflowPrompt({
       workflow,
-      agents: await listAgentDefinitions(schedule.workspaceId),
+      inputValues: schedule.inputs,
+      actorUserId: runtimeSubject.userId,
+      initiatingMessageId: messageId,
+      source: 'trigger'
+    });
+    const runtimeProjection = promptResourceRegistry.projectRuntime(resolution.bindings, messageId);
+    const projectedTarget = runtimeProjection.targetRoute && typeof runtimeProjection.targetRoute === 'object'
+      ? runtimeProjection.targetRoute as Record<string, unknown>
+      : undefined;
+    if (projectedTarget && typeof projectedTarget.id === 'string' && typeof projectedTarget.targetType === 'string' && isTargetType(projectedTarget.targetType)) {
+      targetRoute = { id: projectedTarget.id, targetType: projectedTarget.targetType };
+      target = await repo.getTarget(schedule.workspaceId, targetRoute.id) || undefined;
+    }
+    const readiness = await computeWorkflowReadiness(workflow);
+    if (readiness.status !== 'ready') {
+      throw new WorkflowAccessDeniedError(
+        'WORKFLOW_CAPABILITY_MAPPING_UNAVAILABLE',
+        readiness.reasons.slice(0, 4).join(' ') || 'Selected workflow Agents are not ready.'
+      );
+    }
+    const selectedAgents = (await Promise.all(workflow.agentIds.map((agentId) => (
+      getAgentDefinition(schedule.workspaceId, agentId)
+    )))).filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
+    specialistAgent = workflow.executionMode === 'direct' ? selectedAgents[0] : undefined;
+    const mappings = await listCapabilityRoutingMappings(schedule.workspaceId, {
+      activeReviewedOnly: true,
+      capabilityIds: resolveEffectiveWorkflowCapabilityIds(workflow.capabilityPolicy, selectedAgents)
+    });
+    sessionAccessScope = compileWorkflowSessionCeiling({
+      workflow,
+      selectedAgents,
+      specialistAgent,
+      mappings,
       actor: runtimeSubject,
+      principal: schedule.principal,
       approvedContextGrants: schedule.approvedContextGrants
     });
+    compiledAccessScope = compileWorkflowAccessScope({
+      workflow,
+      selectedAgents,
+      specialistAgent,
+      mappings,
+      actor: runtimeSubject,
+      principal: schedule.principal,
+      approvedContextGrants: schedule.approvedContextGrants,
+      targetRoute,
+      resourceBindings: resolution.bindings,
+      promptDigest: resolution.promptDigest,
+      bindingDigest: resolution.bindingDigest
+    });
   } catch (err) {
-    if (err instanceof WorkflowAccessDeniedError) {
+    if (err instanceof WorkflowAccessDeniedError
+      || err instanceof PromptResourceProviderError
+      || err instanceof WorkflowParameterValuesError
+      || err instanceof WorkflowTemplateValidationError) {
       await recordWorkflowScheduleDispatch(schedule.id, 'auto_paused', { now, error: sanitizeError(err) });
       await recordWorkspaceAuditEvent({
         workspaceId: schedule.workspaceId,
@@ -93,12 +173,49 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
         objectId: schedule.id,
         objectName: schedule.name,
         summary: 'Workflow schedule auto-paused',
-        metadata: { workflowId: schedule.workflowId, reason: 'access_denied' }
+        metadata: {
+          workflowId: schedule.workflowId,
+          reason: err instanceof WorkflowParameterValuesError || err instanceof WorkflowTemplateValidationError
+            ? 'workflow_parameters_changed'
+            : 'access_denied'
+        }
       });
       incrementWorkflowSchedulerEvent('auto_paused');
       return 'auto_paused';
     }
     throw err;
+  }
+
+  const mcpReadinessErrors = await getWorkflowCapabilityReadinessErrors(
+    schedule.workspaceId,
+    compiledAccessScope,
+    target,
+    { principal: schedule.principal }
+  );
+  if (mcpReadinessErrors.length > 0) {
+    const error = sanitizeError(new Error(mcpReadinessErrors[0]));
+    await recordWorkflowScheduleDispatch(schedule.id, 'auto_paused', { now, error });
+    await recordWorkspaceAuditEvent({
+      workspaceId: schedule.workspaceId,
+      category: 'run',
+      eventType: 'workflow.schedule_auto_paused.v1',
+      operation: 'write',
+      actorUserId: schedule.createdBy.userId,
+      objectType: 'workflow_schedule',
+      objectId: schedule.id,
+      objectName: schedule.name,
+      summary: 'Workflow schedule auto-paused',
+      metadata: {
+        workflowId: schedule.workflowId,
+        reason: 'mcp_readiness_failed',
+        readinessCode: mcpReadinessErrors[0].startsWith('MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED')
+          ? 'MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED'
+          : 'MCP_CONNECTION_REQUIRED'
+      }
+    });
+    incrementWorkflowSchedulerEvent('auto_paused');
+    incrementWorkflowSchedulerEvent('mcp_readiness_auto_paused');
+    return 'auto_paused';
   }
 
   const aiSettings = await resolveWorkspaceLlmSettings(schedule.workspaceId);
@@ -108,43 +225,36 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
     return 'auto_paused';
   }
 
-  const step = workflow.steps[0];
-  if (!step || step.agentIds?.length !== 1) throw new Error('Scheduled workflow step must select exactly one Agent');
-  const agent = (await listAgentDefinitions(schedule.workspaceId, { includeInactive: true }))
-    .find((candidate) => candidate.id === step.agentIds![0]);
-  if (!agent || agent.status !== 'active') throw new Error('Scheduled workflow Agent is not active');
-  await validateWorkflowInputs({ workspaceId: schedule.workspaceId, workflow, inputs: schedule.inputDefaults });
-  const target = await resolveWorkflowTarget({
-    workspaceId: schedule.workspaceId,
+  const session = await createWorkflowSession({
     workflow,
-    inputs: schedule.inputDefaults
+    createdBy: runtimeSubject.userId,
+    compiledAccessScope: sessionAccessScope,
+    sessionId
   });
-  const readinessErrors = await getWorkflowCapabilityReadinessErrors(
-    schedule.workspaceId,
-    compiledAccessScope,
-    target
-  );
-  if (readinessErrors.length > 0) {
-    throw new Error(`Scheduled workflow capabilities are not ready: ${readinessErrors[0]}`);
-  }
-  const session = await createWorkflowSession({ workflow, createdBy: runtimeSubject.userId, compiledAccessScope });
   const occurrenceKey = schedule.nextRunAt || now.toISOString();
-  const { run } = await createWorkflowExecution({
+  const { execution, run, initialEvents } = await createWorkflowExecution({
     workflow,
     session,
-    content: `Scheduled workflow: ${schedule.name}`,
-    inputs: schedule.inputDefaults,
+    compiledAccessScope,
+    messageId,
+    content: resolution.content,
     triggerType: 'schedule',
     triggerId: schedule.id,
     occurrenceKey,
     targetId: target?.id,
     targetType: target?.targetType,
-    agentSnapshot: agent as unknown as Record<string, unknown>,
+    promptDigest: resolution.promptDigest,
+    bindingDigest: resolution.bindingDigest,
+    resourceBindings: resolution.bindings,
+    resolvedAt: resolution.resolvedAt,
+    specialistSnapshot: specialistAgent,
     llmProvider: aiSettings.provider,
     llmModel: aiSettings.model,
     llmReasoningSummaryMode: aiSettings.reasoning.summary_mode,
-    llmReasoningEffort: aiSettings.reasoning.effort
+    llmReasoningEffort: aiSettings.reasoning.effort,
+    launchResourceInputs: resolution.resourceInputValues
   });
+  emitWorkflowExecutionEvents(execution.id, initialEvents);
   if (run.status === 'waiting_for_approval') {
     await recordWorkflowScheduleDispatch(schedule.id, 'dispatched', { now });
     incrementWorkflowSchedulerEvent('approval_wait');
@@ -165,7 +275,7 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
       summary: 'Workflow schedule dispatched',
       metadata: {
         workflowId: schedule.workflowId,
-        workflowRunId: run.workflowRunId,
+        executionId: run.executionId,
         runId: run.id,
         scheduleId: schedule.id,
         createdBy: schedule.createdBy.userId,

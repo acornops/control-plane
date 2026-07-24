@@ -1,59 +1,25 @@
 import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { db } from '../infra/db.js';
-import { TargetIssue, TargetIssueObservation, TargetIssueSeverity, TargetIssueStatus, TargetIssueSummary, TargetType } from '../types/domain.js';
+import { TargetIssue, TargetIssueObservation, TargetIssueStatus, TargetIssueSummary } from '../types/domain.js';
 import { containsSearchText, encodeCursor, pageWithCursor, PagedResult } from '../utils/pagination.js';
 import { severityRank } from '../services/snapshot-derived-data.js';
 import { TargetIssueObservationInput } from '../services/target-issue-derivation.js';
+import {
+  enqueueWebhookOutboxEvent,
+  pauseIssueWebhookJobs,
+  resumeIssueWebhookJobs,
+  supersedeOlderIssueWebhookJobs
+} from './repository-webhook-outbox.js';
 import { toIso } from './repository-mappers.js';
+import {
+  mapIssueRow,
+  mapObservationRow,
+  TargetIssueDbRow,
+  TargetIssueObservationDbRow
+} from './repository-target-issue-mappers.js';
 
 type QueryClient = Pick<PoolClient, 'query'>;
-
-interface TargetIssueDbRow {
-  id: string;
-  workspace_id: string;
-  target_id: string;
-  target_type: TargetType;
-  target_name?: string;
-  fingerprint: string;
-  issue_type: string;
-  status: TargetIssueStatus;
-  severity: TargetIssueSeverity;
-  severity_rank: number;
-  title: string;
-  summary: string;
-  scope_kind: string | null;
-  scope_name: string | null;
-  object_kind: string | null;
-  object_name: string | null;
-  reason: string | null;
-  first_seen_at: Date | string;
-  last_seen_at: Date | string;
-  last_observed_snapshot_at: Date | string;
-  resolved_at: Date | string | null;
-  occurrence_count: number | string;
-  reopened_count: number | string;
-  clean_snapshot_count: number | string;
-  latest_evidence: Record<string, unknown> | null;
-  created_at: Date | string;
-  updated_at: Date | string;
-}
-
-interface TargetIssueObservationDbRow {
-  id: string;
-  issue_id: string;
-  workspace_id: string;
-  target_id: string;
-  target_type: TargetType;
-  snapshot_ts: Date | string;
-  finding_id: string | null;
-  severity: TargetIssueSeverity;
-  title: string;
-  message: string;
-  reason: string | null;
-  evidence: Record<string, unknown> | null;
-  created_at: Date | string;
-}
 
 interface TargetIssueSummaryDbRow {
   total: number | string;
@@ -84,56 +50,6 @@ function statusRank(status: TargetIssueStatus): number {
   if (status === 'active') return 0;
   if (status === 'recovering') return 1;
   return 2;
-}
-
-function mapIssueRow(row: TargetIssueDbRow): TargetIssue {
-  return {
-    id: row.id,
-    workspaceId: row.workspace_id,
-    targetId: row.target_id,
-    targetType: row.target_type,
-    targetName: row.target_name,
-    fingerprint: row.fingerprint,
-    issueType: row.issue_type,
-    status: row.status,
-    severity: row.severity,
-    title: row.title,
-    summary: row.summary,
-    scopeKind: row.scope_kind || undefined,
-    scopeName: row.scope_name || undefined,
-    namespace: row.scope_name || undefined,
-    objectKind: row.object_kind || undefined,
-    objectName: row.object_name || undefined,
-    reason: row.reason || undefined,
-    firstSeenAt: toIso(row.first_seen_at)!,
-    lastSeenAt: toIso(row.last_seen_at)!,
-    lastObservedSnapshotAt: toIso(row.last_observed_snapshot_at)!,
-    resolvedAt: toIso(row.resolved_at),
-    occurrenceCount: Number(row.occurrence_count),
-    reopenedCount: Number(row.reopened_count),
-    cleanSnapshotCount: Number(row.clean_snapshot_count),
-    latestEvidence: row.latest_evidence || {},
-    createdAt: toIso(row.created_at)!,
-    updatedAt: toIso(row.updated_at)!
-  };
-}
-
-function mapObservationRow(row: TargetIssueObservationDbRow): TargetIssueObservation {
-  return {
-    id: row.id,
-    issueId: row.issue_id,
-    workspaceId: row.workspace_id,
-    targetId: row.target_id,
-    targetType: row.target_type,
-    snapshotTs: toIso(row.snapshot_ts)!,
-    findingId: row.finding_id || undefined,
-    severity: row.severity,
-    title: row.title,
-    message: row.message,
-    reason: row.reason || undefined,
-    evidence: row.evidence || {},
-    createdAt: toIso(row.created_at)!
-  };
 }
 
 function chooseIssueObservation(observations: TargetIssueObservationInput[]): TargetIssueObservationInput {
@@ -192,15 +108,23 @@ async function upsertObservedIssue(
   client: QueryClient,
   observation: TargetIssueObservationInput
 ): Promise<string> {
-  const result = await client.query<{ id: string }>(
+  const previousResult = await client.query<Pick<TargetIssueDbRow, 'status' | 'lifecycle_version'>>(
+    `SELECT status, lifecycle_version
+     FROM target_issues
+     WHERE target_id = $1 AND fingerprint = $2
+     FOR UPDATE`,
+    [observation.targetId, observation.fingerprint]
+  );
+  const previous = previousResult.rows[0];
+  const result = await client.query<TargetIssueDbRow>(
     `INSERT INTO target_issues (
        id, workspace_id, target_id, target_type, fingerprint, issue_type, status, severity, severity_rank,
        title, summary, scope_kind, scope_name, object_kind, object_name, reason, first_seen_at, last_seen_at,
        last_observed_snapshot_at, resolved_at, occurrence_count, reopened_count, clean_snapshot_count,
-       latest_evidence, search_text
+       lifecycle_version, latest_evidence, search_text
      )
      VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16, $16,
-       NULL, 1, 0, 0, $17::jsonb, $18)
+       NULL, 1, 0, 0, 1, $17::jsonb, $18)
      ON CONFLICT (target_id, fingerprint) DO UPDATE
      SET workspace_id = EXCLUDED.workspace_id,
          target_type = EXCLUDED.target_type,
@@ -221,10 +145,12 @@ async function upsertObservedIssue(
          occurrence_count = target_issues.occurrence_count + 1,
          reopened_count = target_issues.reopened_count + CASE WHEN target_issues.status = 'resolved' THEN 1 ELSE 0 END,
          clean_snapshot_count = 0,
+         lifecycle_version = target_issues.lifecycle_version +
+           CASE WHEN target_issues.status = 'resolved' THEN 1 ELSE 0 END,
          latest_evidence = EXCLUDED.latest_evidence,
          search_text = EXCLUDED.search_text,
          updated_at = NOW()
-     RETURNING id`,
+     RETURNING *`,
     [
       randomUUID(),
       observation.workspaceId,
@@ -246,7 +172,64 @@ async function upsertObservedIssue(
       observation.searchText
     ]
   );
-  return result.rows[0].id;
+  const row = result.rows[0];
+  const issue = mapIssueRow(row);
+  if (!previous) {
+    await enqueueWebhookOutboxEvent({
+      type: 'issue.created.v1',
+      workspaceId: issue.workspaceId,
+      targetId: issue.targetId,
+      targetType: issue.targetType,
+      subject: { type: 'issue', id: issue.id },
+      occurredAt: observation.snapshotTs,
+      dedupeKey: `issue:${issue.id}:${issue.lifecycleVersion}:created`,
+      data: issueWebhookData(issue, null, observation.snapshotTs)
+    }, client);
+  } else if (previous.status === 'resolved') {
+    await supersedeOlderIssueWebhookJobs(client, issue.id, issue.lifecycleVersion);
+    await enqueueWebhookOutboxEvent({
+      type: 'issue.reopened.v1',
+      workspaceId: issue.workspaceId,
+      targetId: issue.targetId,
+      targetType: issue.targetType,
+      subject: { type: 'issue', id: issue.id },
+      occurredAt: observation.snapshotTs,
+      dedupeKey: `issue:${issue.id}:${issue.lifecycleVersion}:reopened`,
+      data: issueWebhookData(issue, 'resolved', observation.snapshotTs)
+    }, client);
+  } else if (previous.status === 'recovering') {
+    await resumeIssueWebhookJobs(client, issue.id, issue.lifecycleVersion);
+  }
+  return issue.id;
+}
+
+function issueWebhookData(
+  issue: TargetIssue,
+  previousStatus: TargetIssueStatus | null,
+  stateAsOf: string
+): Record<string, unknown> {
+  const truncate = (value: string | undefined, limit: number): string | null =>
+    value ? [...value].slice(0, limit).join('') : null;
+  return {
+    previousStatus,
+    status: issue.status,
+    lifecycleVersion: issue.lifecycleVersion,
+    issueType: issue.issueType,
+    severity: issue.severity,
+    title: truncate(issue.title, 240),
+    summary: truncate(issue.summary, 1000),
+    scopeKind: truncate(issue.scopeKind, 120),
+    scopeName: truncate(issue.scopeName, 255),
+    objectKind: truncate(issue.objectKind, 120),
+    objectName: truncate(issue.objectName, 255),
+    reason: truncate(issue.reason, 255),
+    firstSeenAt: issue.firstSeenAt,
+    lastSeenAt: issue.lastSeenAt,
+    resolvedAt: issue.resolvedAt || null,
+    occurrenceCount: issue.occurrenceCount,
+    reopenedCount: issue.reopenedCount,
+    stateAsOf
+  };
 }
 
 async function markUnobservedIssues(
@@ -257,10 +240,11 @@ async function markUnobservedIssues(
     observedFingerprints: Set<string>;
   }
 ): Promise<void> {
-  const existing = await client.query<Pick<TargetIssueDbRow, 'id' | 'fingerprint' | 'last_seen_at' | 'clean_snapshot_count'>>(
-    `SELECT id, fingerprint, last_seen_at, clean_snapshot_count
+  const existing = await client.query<TargetIssueDbRow>(
+    `SELECT *
      FROM target_issues
-     WHERE target_id = $1 AND status IN ('active', 'recovering')`,
+     WHERE target_id = $1 AND status IN ('active', 'recovering')
+     FOR UPDATE`,
     [input.targetId]
   );
   for (const row of existing.rows) {
@@ -269,15 +253,33 @@ async function markUnobservedIssues(
     const nextStatus: TargetIssueStatus = shouldResolveIssue(input.snapshotTs, row.last_seen_at, nextCleanCount)
       ? 'resolved'
       : 'recovering';
-    await client.query(
+    const updated = await client.query<TargetIssueDbRow>(
       `UPDATE target_issues
        SET status = $2,
            clean_snapshot_count = $3,
            resolved_at = CASE WHEN $2 = 'resolved' THEN $4::timestamptz ELSE resolved_at END,
+           lifecycle_version = lifecycle_version + CASE WHEN $2 = 'resolved' THEN 1 ELSE 0 END,
            updated_at = NOW()
-       WHERE id = $1`,
+       WHERE id = $1
+       RETURNING *`,
       [row.id, nextStatus, nextCleanCount, input.snapshotTs]
     );
+    const issue = mapIssueRow(updated.rows[0]);
+    if (nextStatus === 'recovering') {
+      await pauseIssueWebhookJobs(client, issue.id, issue.lifecycleVersion);
+      continue;
+    }
+    await supersedeOlderIssueWebhookJobs(client, issue.id, issue.lifecycleVersion);
+    await enqueueWebhookOutboxEvent({
+      type: 'issue.resolved.v1',
+      workspaceId: issue.workspaceId,
+      targetId: issue.targetId,
+      targetType: issue.targetType,
+      subject: { type: 'issue', id: issue.id },
+      occurredAt: input.snapshotTs,
+      dedupeKey: `issue:${issue.id}:${issue.lifecycleVersion}:resolved`,
+      data: issueWebhookData(issue, row.status, input.snapshotTs)
+    }, client);
   }
 }
 

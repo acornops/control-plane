@@ -3,7 +3,10 @@ import { config, type ExternalIntegrationClientDescriptor } from '../config.js';
 import { repo } from '../store/repository.js';
 import type { User } from '../types/domain.js';
 import { hashToken } from '../utils/crypto.js';
-import type { ExternalIntegrationUserLinkSummary } from '../store/repository-external-integration-links.js';
+import type {
+  ExternalIntegrationUserLinkSummary,
+  ExternalIntegrationWorkspaceGrantInput
+} from '../store/repository-external-integration-links.js';
 
 const INTEGRATION_LINK_TOKEN_PREFIX = 'intlink_';
 const INTEGRATION_LINK_PATH = '/integrations/external/link';
@@ -70,10 +73,16 @@ export async function createExternalIntegrationLink(
   };
 }
 
-export async function completeExternalIntegrationLink(token: string, user: User): Promise<ExternalIntegrationUserLinkSummary | null> {
+export async function completeExternalIntegrationLink(
+  token: string,
+  user: User,
+  workspaceGrants: ExternalIntegrationWorkspaceGrantInput[]
+): Promise<ExternalIntegrationUserLinkSummary | null> {
   return repo.completeExternalIntegrationLinkToken({
     tokenHash: hashExternalIntegrationLinkToken(token),
     acornopsUserId: user.id,
-    linkExpiresAt: new Date(Date.now() + config.EXTERNAL_INTEGRATION_LINK_TTL_SECONDS * 1000)
+    linkExpiresAt: new Date(Date.now() + config.EXTERNAL_INTEGRATION_LINK_TTL_SECONDS * 1000),
+    workspaceGrants,
+    auditCompletion: true
   });
 }

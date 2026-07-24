@@ -1,188 +1,249 @@
 import { randomUUID } from 'node:crypto';
 import type { QueryResultRow } from 'pg';
-import { withTransaction } from '../store/repository-transaction.js';
 import type { WorkflowRunRecord } from '../store/repository-workflows.js';
-import type { CompiledWorkflowAccessScope, WorkflowDefinitionForAccess, WorkflowStepDefinition } from '../types/workflows.js';
-import { workflowToolOperation } from './workflow-access.js';
+import { withTransaction } from '../store/repository-transaction.js';
+import type { TargetType } from '../types/domain.js';
+import type { PromptResourceBinding } from '../types/prompt-resources.js';
+import type { CompiledWorkflowAccessScope } from '../types/workflows.js';
+import type { AgentDefinition } from '../types/agents.js';
+import { insertWorkflowExecutionEvent } from '../store/repository-workflow-execution-events.js';
+import { WORKFLOW_COORDINATOR_INSTRUCTIONS, WORKFLOW_COORDINATOR_PROFILE_VERSION } from './workflow-coordinator.js';
 
 type Artifact = { id: string; type: string; title: string };
 
-function stepScope(
-  base: CompiledWorkflowAccessScope,
-  workflow: WorkflowDefinitionForAccess,
-  step: WorkflowStepDefinition,
-  agentId: string,
-  agentVersion: number
-): CompiledWorkflowAccessScope {
-  const tools = step.allowedTools.length ? step.allowedTools : base.tools;
-  const mcpServers = step.allowedMcpServers.length ? step.allowedMcpServers : base.mcpServers;
-  const operations: CompiledWorkflowAccessScope['toolOperations'] = Object.fromEntries(
-    tools.map((tool) => [tool, workflowToolOperation(tool, workflow.policy.mode)])
-  );
-  const approvalGates = step.approvalRequired ? [`Approve workflow step: ${step.title}`] : [];
-  return {
-    ...base,
-    mcpServers,
-    tools,
-    toolOperations: operations,
-    enabledSkills: step.enabledSkills,
-    contextGrants: step.contextGrants,
-    approvalGates,
-    jwtClaims: {
-      ...base.jwtClaims,
-      agent_id: agentId,
-      agent_version: agentVersion,
-      permissions: {
-        allowed_tools: tools,
-        allowed_tool_operations: operations,
-        context_grants: step.contextGrants
-      }
-    }
-  };
+export interface WorkflowRetrySnapshot {
+  workspaceId: string;
+  workflowId: string;
+  workflowSessionId: string;
+  messageId: string;
+  executorRole: 'coordinator' | 'specialist';
+  specialistSnapshot?: AgentDefinition;
+  targetId?: string;
+  targetType?: TargetType;
+  compiledAccessScope: CompiledWorkflowAccessScope;
+  prompt: string;
+  promptDigest: string;
+  bindingDigest: string;
+  resourceBindings: PromptResourceBinding[];
+  resolvedAt: string;
 }
 
 export async function advanceWorkflowExecution(
   run: WorkflowRunRecord,
-  terminalStatus: 'completed'|'failed'|'cancelled',
-  artifacts: Artifact[] = []
-): Promise<{ executionStatus: string; nextRunId?: string }> {
+  terminalStatus: 'completed' | 'failed' | 'cancelled',
+  _artifacts: Artifact[] = []
+): Promise<{ executionStatus: string; cancelledChildRunIds?: string[] }> {
+  if (run.parentRunId) return { executionStatus: 'running' };
   return withTransaction(async (client) => {
-    const executionResult = await client.query<QueryResultRow>(
-      'SELECT * FROM workflow_executions WHERE id=$1 FOR UPDATE', [run.executionId]
+    const execution = await client.query<QueryResultRow>(
+      'SELECT status FROM workflow_executions WHERE id=$1 FOR UPDATE',
+      [run.executionId]
     );
-    if (!executionResult.rowCount) throw new Error('Workflow execution not found');
-    const execution = executionResult.rows[0];
-    if (['completed','cancelled'].includes(execution.status)) return { executionStatus: execution.status };
-    if (terminalStatus !== 'completed') {
-      await client.query(
-        `UPDATE workflow_executions SET status=$2,ended_at=NOW(),error_code=$3,error_message=$4,updated_at=NOW() WHERE id=$1`,
-        [run.executionId, terminalStatus, run.errorCode || null, run.errorMessage || null]
-      );
-      return { executionStatus: terminalStatus };
+    if (!execution.rowCount) throw new Error('Workflow execution not found');
+    if (['completed', 'failed', 'cancelled'].includes(execution.rows[0].status)) {
+      return { executionStatus: execution.rows[0].status };
     }
-    const workflow = execution.workflow_snapshot as WorkflowDefinitionForAccess;
-    const completedStep = workflow.steps[run.stepIndex];
-    const artifactIds = new Set(artifacts.map((artifact) => artifact.id));
-    const missing = (completedStep?.outputArtifacts || []).filter((artifact) => artifact.required && !artifactIds.has(artifact.id));
-    if (missing.length) {
-      const message = `Required workflow outputs were not produced: ${missing.map((item) => item.id).join(', ')}`;
-      await client.query(
-        `UPDATE workflow_runs SET status='failed',error_code='REQUIRED_OUTPUT_MISSING',error_message=$2,ended_at=NOW(),updated_at=NOW() WHERE id=$1`,
-        [run.id, message]
-      );
-      await client.query(
-        `UPDATE workflow_executions SET status='failed',error_code='REQUIRED_OUTPUT_MISSING',error_message=$2,ended_at=NOW(),updated_at=NOW() WHERE id=$1`,
-        [run.executionId, message]
-      );
-      return { executionStatus: 'failed' };
-    }
-    const nextStepIndex = run.stepIndex + 1;
-    const nextStep = workflow.steps[nextStepIndex];
-    if (!nextStep) {
-      await client.query("UPDATE workflow_executions SET status='completed',ended_at=NOW(),updated_at=NOW() WHERE id=$1", [run.executionId]);
-      return { executionStatus: 'completed' };
-    }
-    if (nextStep.agentIds?.length !== 1) throw new Error(`Workflow step ${nextStep.id} must select exactly one Agent`);
-    const agentId = nextStep.agentIds[0];
-    const agentResult = await client.query<QueryResultRow>(
-      `SELECT * FROM agent_definitions WHERE workspace_id=$1 AND id=$2 AND status='active' FOR SHARE`,
-      [run.workspaceId, agentId]
+    const activeChildren = await client.query<{ id: string }>(
+      `SELECT id FROM workflow_runs
+       WHERE parent_run_id=$1 AND status NOT IN ('completed','failed','cancelled')
+       FOR UPDATE`,
+      [run.id]
     );
-    if (!agentResult.rowCount) throw new Error(`Workflow Agent ${agentId} is not active`);
-    const agent = agentResult.rows[0];
-    const sessionResult = await client.query<QueryResultRow>('SELECT compiled_access_scope FROM workflow_sessions WHERE id=$1', [run.workflowSessionId]);
-    const scope = stepScope(sessionResult.rows[0].compiled_access_scope, workflow, nextStep, agentId, agent.version);
-    const nextRunId = randomUUID();
-    const idempotencyKey = `${run.executionId}:${nextStepIndex}:1`;
-    const status = scope.approvalGates.length ? 'waiting_for_approval' : 'queued';
-    await client.query(
-      `INSERT INTO workflow_runs (
-        id,workflow_run_id,execution_id,workspace_id,workflow_id,workflow_session_id,workflow_step_id,
-        step_index,attempt_number,agent_id,agent_version,agent_snapshot,step_snapshot,step_scope,target_id,target_type,
-        idempotency_key,message_id,created_by,status,compiled_access_scope,llm_provider,llm_model,
-        llm_reasoning_summary_mode,llm_reasoning_effort,requested_at
-       ) VALUES ($1,$2,$2,$3,$4,$5,$6,$7,1,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$12,$19,$20,$21,$22,NOW())`,
-      [nextRunId, run.executionId, run.workspaceId, run.workflowId, run.workflowSessionId, nextStep.id,
-       nextStepIndex, agentId, agent.version, agent, nextStep, scope, run.targetId || null, run.targetType || null,
-       idempotencyKey, run.messageId, run.createdBy, status, run.llmProvider || null, run.llmModel || null,
-       run.llmReasoningSummaryMode || null, run.llmReasoningEffort || null]
-    );
-    for (const [index, gate] of scope.approvalGates.entries()) {
+    const cancelledChildRunIds = activeChildren.rows.map((child) => child.id);
+    if (cancelledChildRunIds.length > 0) {
       await client.query(
-        `INSERT INTO workflow_approvals (
-          id,run_id,workspace_id,workflow_id,workflow_run_id,workflow_session_id,workflow_step_id,
-          tool_call_id,tool_name,summary,arguments,status,execution_status,requested_by,expires_at
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'workflow.approval_gate',$9,$10,'pending','not_started',$11,NOW()+INTERVAL '15 minutes')`,
-        [randomUUID(), nextRunId, run.workspaceId, run.workflowId, run.executionId, run.workflowSessionId,
-         nextStep.id, `workflow-gate-${index + 1}`, gate,
-         { executionId: run.executionId, workflowStepId: nextStep.id }, run.createdBy]
+        `UPDATE workflow_runs
+         SET status='cancelled',cancellation_requested_at=NOW(),ended_at=NOW(),
+             error_code='PARENT_RUN_TERMINATED',
+             error_message='The coordinator root terminated before this specialist completed.',
+             updated_at=NOW()
+         WHERE id=ANY($1::text[])`,
+        [cancelledChildRunIds]
+      );
+      await client.query(
+        `UPDATE workflow_run_approvals
+         SET status='expired'
+         WHERE run_id=ANY($1::text[]) AND status='pending'`,
+        [cancelledChildRunIds]
+      );
+      await client.query(
+        'DELETE FROM workflow_run_continuations WHERE run_id=ANY($1::text[])',
+        [cancelledChildRunIds]
+      );
+      await client.query(
+        `UPDATE automation_dispatch_outbox
+         SET status='cancelled',claim_owner=NULL,claim_expires_at=NULL,updated_at=NOW()
+         WHERE run_id=ANY($1::text[]) AND status<>'delivered'`,
+        [cancelledChildRunIds]
       );
     }
     await client.query(
-      `INSERT INTO automation_dispatch_outbox (id,workspace_id,source_type,source_id,run_id,idempotency_key,payload)
-       VALUES ($1,$2,'workflow',$3,$4,$5,$6)`,
-      [randomUUID(), run.workspaceId, run.executionId, nextRunId, idempotencyKey,
-       { runId: nextRunId, executionId: run.executionId, workflowId: run.workflowId, stepIndex: nextStepIndex }]
+      `UPDATE workflow_executions
+       SET status=$2,ended_at=NOW(),error_code=$3,error_message=$4,updated_at=NOW()
+       WHERE id=$1`,
+      [run.executionId, terminalStatus, run.errorCode || null, run.errorMessage || null]
     );
-    await client.query(
-      `UPDATE workflow_executions SET status=$2,current_step_index=$3,started_at=COALESCE(started_at,NOW()),updated_at=NOW() WHERE id=$1`,
-      [run.executionId, status, nextStepIndex]
-    );
-    return { executionStatus: status, nextRunId };
+    return { executionStatus: terminalStatus, cancelledChildRunIds };
   });
 }
 
-export async function resumeWorkflowExecution(executionId: string, actorUserId: string): Promise<{ runId: string; status: string }> {
+export async function resumeWorkflowExecution(
+  executionId: string,
+  actorUserId: string,
+  retry: WorkflowRetrySnapshot
+): Promise<{ runId: string; status: string }> {
   return withTransaction(async (client) => {
     const executionResult = await client.query<QueryResultRow>(
-      'SELECT * FROM workflow_executions WHERE id=$1 FOR UPDATE', [executionId]
+      'SELECT * FROM workflow_executions WHERE id=$1 FOR UPDATE',
+      [executionId]
     );
     if (!executionResult.rowCount) throw new Error('WORKFLOW_EXECUTION_NOT_FOUND');
-    const execution = executionResult.rows[0];
-    if (!['failed','needs_review'].includes(execution.status)) throw new Error('WORKFLOW_EXECUTION_NOT_RESUMABLE');
-    const priorResult = await client.query<QueryResultRow>(
-      `SELECT * FROM workflow_runs WHERE execution_id=$1 AND step_index=$2 ORDER BY attempt_number DESC LIMIT 1 FOR UPDATE`,
-      [executionId, execution.current_step_index]
+    if (!['failed', 'needs_review'].includes(executionResult.rows[0].status)) {
+      throw new Error('WORKFLOW_EXECUTION_NOT_RESUMABLE');
+    }
+    const previousResult = await client.query<QueryResultRow>(
+      `SELECT * FROM workflow_runs WHERE execution_id=$1 AND parent_run_id IS NULL ORDER BY attempt_number DESC LIMIT 1 FOR UPDATE`,
+      [executionId]
     );
-    if (!priorResult.rowCount) throw new Error('WORKFLOW_EXECUTION_ATTEMPT_NOT_FOUND');
-    const prior = priorResult.rows[0];
-    const attempt = prior.attempt_number + 1;
+    if (!previousResult.rowCount) throw new Error('WORKFLOW_RUN_NOT_FOUND');
+    const previous = previousResult.rows[0];
+    if (previous.uncertain_write) throw new Error('WORKFLOW_UNCERTAIN_WRITE_REVIEW_REQUIRED');
+    if (
+      previous.workspace_id !== retry.workspaceId
+      || previous.workflow_id !== retry.workflowId
+      || previous.workflow_session_id !== retry.workflowSessionId
+      || previous.message_id !== retry.messageId
+    ) {
+      throw new Error('WORKFLOW_RETRY_SNAPSHOT_MISMATCH');
+    }
+    const attempt = Number(previous.attempt_number) + 1;
     const runId = randomUUID();
-    const idempotencyKey = `${executionId}:${prior.step_index}:${attempt}`;
-    const approvalGates: string[] = prior.step_scope?.approvalGates || [];
-    const status = approvalGates.length ? 'waiting_for_approval' : 'queued';
+    const idempotencyKey = `${executionId}:${retry.promptDigest}:${retry.bindingDigest}:root:${attempt}`;
+    const status = retry.compiledAccessScope.approvalGates.length > 0
+      ? 'waiting_for_approval'
+      : 'queued';
+    const executor = retry.compiledAccessScope.executor;
+    const compiledAccessScope = executor.role === 'coordinator'
+      ? {
+          ...retry.compiledAccessScope,
+          executor: {
+            role: 'coordinator' as const,
+            profileVersion: WORKFLOW_COORDINATOR_PROFILE_VERSION
+          }
+        }
+      : retry.compiledAccessScope;
+    const executorSnapshot = executor.role === 'coordinator'
+      ? { role: 'coordinator', profileVersion: WORKFLOW_COORDINATOR_PROFILE_VERSION, instructions: WORKFLOW_COORDINATOR_INSTRUCTIONS }
+      : {
+          role: 'specialist',
+          agentId: executor.agentId,
+          agentVersion: executor.agentVersion,
+          agent: retry.specialistSnapshot || (() => { throw new Error('SPECIALIST_EXECUTOR_SNAPSHOT_REQUIRED'); })()
+        };
     await client.query(
       `INSERT INTO workflow_runs (
-        id,workflow_run_id,execution_id,workspace_id,workflow_id,workflow_session_id,workflow_step_id,
-        step_index,attempt_number,agent_id,agent_version,agent_snapshot,step_snapshot,step_scope,target_id,target_type,
-        idempotency_key,message_id,created_by,status,compiled_access_scope,llm_provider,llm_model,
-        llm_reasoning_summary_mode,llm_reasoning_effort,requested_at
-       ) SELECT $2,workflow_run_id,execution_id,workspace_id,workflow_id,workflow_session_id,workflow_step_id,
-         step_index,$3,agent_id,agent_version,agent_snapshot,step_snapshot,step_scope,target_id,target_type,
-         $4,message_id,$5,$6,compiled_access_scope,llm_provider,llm_model,llm_reasoning_summary_mode,llm_reasoning_effort,NOW()
-       FROM workflow_runs WHERE id=$1`, [prior.id, runId, attempt, idempotencyKey, actorUserId, status]
+         id,execution_id,workspace_id,workflow_id,workflow_session_id,
+         attempt_number,executor_role,agent_id,agent_version,executor_snapshot,target_id,target_type,
+         idempotency_key,message_id,created_by,status,compiled_access_scope,llm_provider,llm_model,
+         llm_reasoning_summary_mode,llm_reasoning_effort,prompt_text,prompt_digest,binding_digest,
+         resource_bindings,resolved_at,requested_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,NOW())`,
+      [
+        runId,
+        executionId,
+        retry.workspaceId,
+        retry.workflowId,
+        retry.workflowSessionId,
+        attempt,
+        executor.role,
+        executor.role === 'specialist' ? executor.agentId : null,
+        executor.role === 'specialist' ? executor.agentVersion : null,
+        executorSnapshot,
+        retry.targetId || null,
+        retry.targetType || null,
+        idempotencyKey,
+        retry.messageId,
+        actorUserId,
+        status,
+        compiledAccessScope,
+        previous.llm_provider,
+        previous.llm_model,
+        previous.llm_reasoning_summary_mode,
+        previous.llm_reasoning_effort,
+        retry.prompt,
+        retry.promptDigest,
+        retry.bindingDigest,
+        JSON.stringify(retry.resourceBindings),
+        retry.resolvedAt
+      ]
     );
-    for (const [index, gate] of approvalGates.entries()) {
-      await client.query(
-        `INSERT INTO workflow_approvals (
-          id,run_id,workspace_id,workflow_id,workflow_run_id,workflow_session_id,workflow_step_id,
-          tool_call_id,tool_name,summary,arguments,status,execution_status,requested_by,expires_at
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'workflow.approval_gate',$9,$10,'pending','not_started',$11,NOW()+INTERVAL '15 minutes')`,
-        [randomUUID(), runId, execution.workspace_id, execution.workflow_id, executionId,
-         execution.workflow_session_id, prior.workflow_step_id, `workflow-gate-${index + 1}`, gate,
-         { executionId, workflowStepId: prior.workflow_step_id, resumeAttempt: attempt }, actorUserId]
+    const approvals: Array<{
+      id: string;
+      tool_name: string;
+      summary: string;
+      status: string;
+      expires_at: string;
+    }> = [];
+    for (const [index, gate] of retry.compiledAccessScope.approvalGates.entries()) {
+      const approval = await client.query<{
+        id: string;
+        tool_name: string;
+        summary: string;
+        status: string;
+        expires_at: string;
+      }>(
+        `INSERT INTO workflow_run_approvals (
+           id,run_id,workspace_id,approval_kind,tool_call_id,tool_name,summary,arguments,
+           status,execution_status,requested_by,expires_at
+         ) VALUES ($1,$2,$3,'pre_step',$4,'workflow.approval_gate',$5,$6,'pending','not_started',$7,NOW()+INTERVAL '15 minutes')
+         RETURNING id,tool_name,summary,status,expires_at`,
+        [randomUUID(), runId, retry.workspaceId, `workflow-gate-${index + 1}`, gate,
+         { executionId, workflowId: retry.workflowId, attemptNumber: attempt }, actorUserId]
       );
+      approvals.push(approval.rows[0]);
     }
     await client.query(
       `INSERT INTO automation_dispatch_outbox (id,workspace_id,source_type,source_id,run_id,idempotency_key,payload)
        VALUES ($1,$2,'workflow',$3,$4,$5,$6)`,
-      [randomUUID(), execution.workspace_id, executionId, runId, idempotencyKey,
-       { runId, executionId, workflowId: execution.workflow_id, stepIndex: prior.step_index, attempt }]
+      [randomUUID(), retry.workspaceId, executionId, runId, idempotencyKey, { runId, executionId, workflowId: retry.workflowId }]
     );
     await client.query(
       `UPDATE workflow_executions SET status=$2,error_code=NULL,error_message=NULL,ended_at=NULL,updated_at=NOW() WHERE id=$1`,
       [executionId, status]
     );
+    await insertWorkflowExecutionEvent(client, {
+      executionId,
+      workspaceId: retry.workspaceId,
+      type: 'run_created',
+      runId,
+      dedupeKey: `run-created:${runId}`,
+      payload: {
+        executorRole: executor.role,
+        parentRunId: null,
+        agentId: executor.role === 'specialist' ? executor.agentId : null,
+        attemptNumber: attempt,
+        status,
+        targetId: retry.targetId || null,
+        targetType: retry.targetType || null
+      }
+    });
+    for (const approval of approvals) {
+      await insertWorkflowExecutionEvent(client, {
+        executionId,
+        workspaceId: retry.workspaceId,
+        type: 'approval_requested',
+        runId,
+        approvalId: approval.id,
+        dedupeKey: `approval-requested:${approval.id}`,
+        payload: {
+          approvalKind: 'pre_step',
+          toolName: approval.tool_name,
+          summary: approval.summary,
+          status: approval.status,
+          expiresAt: new Date(approval.expires_at).toISOString()
+        }
+      });
+    }
     return { runId, status };
   });
 }

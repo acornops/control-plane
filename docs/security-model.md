@@ -6,7 +6,9 @@
 - Password self-service signup requires AcornOps email verification unless an operator explicitly enables unverified signup for a private deployment.
 - Password reset tokens prove mailbox possession; a successful reset verifies a pending password-backed account email and revokes existing browser sessions.
 - Internal execution callbacks use `ORCH_SERVICE_TOKEN`.
-- External integration account links use bearer tokens for installed integration clients configured in `EXTERNAL_INTEGRATION_CLIENTS_JSON`. AcornOps derives the integration client from the bearer token hash and scopes external identities by `(integration_client_id, provider, external_user_id)`; request bodies never choose the client or provider. Only an authenticated browser session may complete and bind an external identity to an AcornOps user. External integration client bearer tokens are accepted only on the account-link lifecycle endpoints.
+- External integration account links use bearer tokens for installed integration clients configured in `EXTERNAL_INTEGRATION_CLIENTS_JSON`. AcornOps derives the integration client from the bearer token hash and scopes external identities by `(integration_client_id, provider, external_user_id)`; request bodies never choose the client or provider. Only an authenticated browser session may complete and bind an external identity to an AcornOps user. External integration client bearer tokens are accepted only by the account-link lifecycle, linked-user bot, and external webhook route connect/status endpoints.
+- Linked external integration requests may also read permitted workspace and target operational summaries, create troubleshooting sessions, and post assistant messages by sending a registered external integration client token with `x-acornops-external-user-id`; this creates an `external_integration` auth credential, not a browser session. Runs are read-only by default. Read-write runs require explicit client, workspace-grant, and workspace-role opt-in.
+- A linked integration with effective `create_read_write_runs` may launch active read-write or approval-gated Workflows and decide a write approval only when the individual troubleshooting run or Workflow execution records that exact active external integration link and client as its request origin. Workflow session continuation and report access use the same exact-origin rule; execution metadata and redacted aggregate execution events remain workspace-readable. The exact origin may reject a pending approval with current workspace read access after write permission is removed. External credentials fail closed for browser-created executions, another link/client, delegated specialist children, schedules, and system triggers. Adapters must obtain an explicit confirmation from the linked external user before submitting a decision; the client bearer credential is trusted to preserve that user interaction.
 - Production platform-admin operations use `/admin/v1` and require two
   independent credentials: the console BFF's scoped bearer token and the
   human administrator's opaque OIDC-backed session. The effective permission is
@@ -28,7 +30,12 @@
 - Treat external integration `intlink_` link tokens as short-lived bearer secrets. Store them only as hashes, invalidate older pending tokens when a new token is issued for the same external user, never log them, and never return browser cookies or OIDC provider tokens to external integration clients.
 - Treat raw external integration client tokens as operator secrets. Commit only descriptor examples with SHA-256 hashes, never raw client tokens, and never return raw client tokens in API responses or audit metadata.
 - Treat MCP `publicHeaders` as visible non-secret metadata only; credential-like, hop-by-hop, and platform routing headers must be rejected before forwarding to the gateway.
-- Treat Agent webhook HMAC secrets as one-time-disclosed credentials. Persist only encrypted secret material, validate the signed raw body and timestamp, and deduplicate durable event IDs before dispatch.
+- Accept individual MCP credentials only on the current user's installation-scoped
+  connection route and workspace-managed credentials only from authorized
+  administrators. Forward them once to the gateway and never place them in
+  logs, response bodies, or audit metadata. Clients cannot select the outbound
+  authentication header; the MCP installation owns that configuration.
+- Agents are invoked only through Workflows. Public standalone Agent runs and Agent-level inbound webhook triggers are not supported.
 - Never log Agent or Workflow prompts, chat bodies, tool arguments, webhook payloads, report source, PDF contents, credentials, or continuation state. Audit stable IDs, actors, capability snapshots, decisions, and terminal outcomes.
 
 ## High-Risk Changes
@@ -40,7 +47,8 @@
   agent-key rotation behavior
 - Internal execution auth or llm-gateway admin auth
 - Cross-workspace, cross-target, or cross-cluster data access logic
-- Agent/Workflow version, step, target, context-grant, tool-operation, approval, or idempotency claims
+- Agent/Workflow version, executor role, parent run, target, context-grant,
+  tool-operation, approval, or idempotency claims
 
 ## Authorization
 
@@ -50,15 +58,20 @@
   `admin:workspace:write`, `admin:member:write`, `admin:run:write`,
   `admin:agent-key:rotate`, and `admin:*`. These scopes are separate from
   workspace roles and never establish a browser user session.
-- External integration credentials are default-deny except for
-  `read_workspace_data`, `create_sessions`, and `create_read_only_runs`,
-  intersected with the linked user's workspace role. In phase 1 they are
-  accepted only by workspace summary/list, Kubernetes and VM overview/list,
-  snapshot resource and durable issue reads, read-only session/message
-  routes, and run observation routes. Operational target data and read-only
-  assistant conversations are visible; member, audit, logs, read-write runs,
-  approval decisions, cancellation, deletion, settings, and management
-  capabilities remain denied.
+- External integration credentials are default-deny except for user-approved
+  per-workspace grants. Effective workspace permissions are the linked user's
+  workspace role intersected with the registered client capability ceiling and
+  the saved workspace grant. The default registered-client ceiling is
+  `read_workspace_data`, `create_sessions`, and `create_read_only_runs`.
+  Deployments may explicitly add `create_read_write_runs` to a client
+  descriptor and the user's workspace grant when a linked integration may
+  request write-capable troubleshooting runs and active Workflows. In that case
+  write tools still use run-scoped authorization and configured write approval gates. Operational
+  target data and permitted assistant conversations are visible; member, audit,
+  logs, unrelated approval decisions, cancellation, deletion, settings, and
+  management capabilities remain denied. Approval decisions are limited to
+  exact-link/client troubleshooting runs and Workflow executions and retain
+  external-integration audit attribution.
 - Direct public agent tool calls are not exposed by the control plane; troubleshooting tool execution must use run-scoped gateway authorization.
 - Agent session policy is a mandatory defense-in-depth allowlist. It may not
   elevate the local AgentK write or namespace policy.

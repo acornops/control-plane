@@ -17,7 +17,8 @@ import {
   userHasWorkspaceAccess as userHasWorkspaceAccessRecord,
   addWorkspace as addWorkspaceRecord
 } from './repository-users.js';
-import * as repositoryUserSeed from './repository-user-seed.js';
+import * as repositoryDevelopmentSeed from './repository-development-seed.js';
+import { ensureOidcPrelinkedIdentities as ensureOidcPrelinkedIdentitiesRecord } from './repository-oidc-prelinks.js';
 import {
   consumeEmailVerificationToken as consumeEmailVerificationTokenRecord,
   invalidateEmailVerificationToken as invalidateEmailVerificationTokenRecord,
@@ -73,6 +74,7 @@ import {
 import {
   getTargetAgentRegistration as getTargetAgentRegistrationRecord,
   listTargetAgentRegistrations as listTargetAgentRegistrationsRecord,
+  listWorkspaceTargetAgentRegistrations as listWorkspaceTargetAgentRegistrationsRecord,
   rotateTargetAgentKey as rotateTargetAgentKeyRecord, updateTargetAgentCapabilities as updateTargetAgentCapabilitiesRecord,
   updateTargetAgentSeen as updateTargetAgentSeenRecord,
   upsertTargetAgentRegistration as upsertTargetAgentRegistrationRecord
@@ -116,13 +118,10 @@ import {
   addMessage as addMessageRecord,
   addRun as addRunRecord,
   addSession as addSessionRecord,
-  appendRunEvents as appendRunEventsRecord,
   createRunFromUserMessage as createRunFromUserMessageRecord,
   deleteSession as deleteSessionRecord,
   findRunByClientMessageId as findRunByClientMessageIdRecord,
   getRun as getRunRecord,
-  getRunEvents as getRunEventsRecord,
-  getLatestRunEventSeq as getLatestRunEventSeqRecord,
   getSession as getSessionRecord,
   listMessages as listMessagesRecord,
   listSessionsByTarget as listSessionsByTargetRecord,
@@ -131,6 +130,8 @@ import {
   updateRun as updateRunRecord,
   upsertAssistantFinalMessage as upsertAssistantFinalMessageRecord
 } from './repository-sessions.js';
+import { appendRunEvents as appendRunEventsRecord, getLatestRunEventSeq as getLatestRunEventSeqRecord, getRunEvents as getRunEventsRecord } from './repository-run-events.js';
+import { getRunRequestProvenance as getRunRequestProvenanceRecord } from './repository-run-provenance.js';
 import {
   insertTargetChatActivityEvent as insertTargetChatActivityEventRecord,
   listRecentTargetChatActivity as listRecentTargetChatActivityRecord,
@@ -140,6 +141,7 @@ import {
   countPendingWorkspaceRunToolApprovals as countPendingWorkspaceRunToolApprovalsRecord,
   createRunToolApproval as createRunToolApprovalRecord,
   decideRunToolApproval as decideRunToolApprovalRecord,
+  decideRunToolApprovalOutcome as decideRunToolApprovalOutcomeRecord,
   deleteRunContinuation as deleteRunContinuationRecord,
   expirePendingRunToolApprovals as expirePendingRunToolApprovalsRecord,
   expireRunToolApproval as expireRunToolApprovalRecord,
@@ -148,20 +150,28 @@ import {
   listWorkspaceRunToolApprovals as listWorkspaceRunToolApprovalsRecord,
   listRunToolApprovals as listRunToolApprovalsRecord,
   markRunToolApprovalExecutionFinished as markRunToolApprovalExecutionFinishedRecord,
-  markRunToolApprovalExecutionStarted as markRunToolApprovalExecutionStartedRecord
+  startRunToolApprovalExecution as startRunToolApprovalExecutionRecord
 } from './repository-run-approvals.js';
 import {
   createWebhookSubscription as createWebhookSubscriptionRecord,
+  connectExternalWebhookRoute as connectExternalWebhookRouteRecord,
   deleteWebhookSubscription as deleteWebhookSubscriptionRecord,
   getWebhookSubscription as getWebhookSubscriptionRecord,
   insertWebhookHistory as insertWebhookHistoryRecord,
   listMatchingWebhookSubscriptions as listMatchingWebhookSubscriptionsRecord,
+  listWebhookSubscriptionsForExternalRoute as listWebhookSubscriptionsForExternalRouteRecord,
   listWebhookHistory as listWebhookHistoryRecord,
   listWebhookSubscriptions as listWebhookSubscriptionsRecord,
   purgeOldWebhookHistory as purgeOldWebhookHistoryRecord,
+  touchExternalWebhookRouteConnection as touchExternalWebhookRouteConnectionRecord,
   updateWebhookSubscription as updateWebhookSubscriptionRecord
 } from './repository-webhooks.js';
-import { getTarget as getTargetRecord, listTargets as listTargetsRecord } from './repository-targets.js';
+import * as repositoryWebhookOutbox from './repository-webhook-outbox.js';
+import {
+  getTarget as getTargetRecord,
+  listTargets as listTargetsRecord,
+  listWorkflowTargetSnapshot as listWorkflowTargetSnapshotRecord
+} from './repository-targets.js';
 import {
   insertWorkspaceAuditEvent as insertWorkspaceAuditEventRecord,
   listWorkspaceAuditEvents as listWorkspaceAuditEventsRecord,
@@ -202,8 +212,11 @@ import {
   getExternalIntegrationLinkTokenUser as getExternalIntegrationLinkTokenUserRecord,
   externalIntegrationLinkTokenIsPending as externalIntegrationLinkTokenIsPendingRecord,
   listExternalIntegrationUserLinks as listExternalIntegrationUserLinksRecord,
+  listExternalIntegrationGrantableWorkspaces as listExternalIntegrationGrantableWorkspacesRecord,
   previewExternalIntegrationLinkToken as previewExternalIntegrationLinkTokenRecord,
   purgeOldExternalIntegrationLinkTokens as purgeOldExternalIntegrationLinkTokensRecord,
+  getExternalIntegrationWorkspaceGrant as getExternalIntegrationWorkspaceGrantRecord,
+  replaceExternalIntegrationWorkspaceGrants as replaceExternalIntegrationWorkspaceGrantsRecord,
   revokeExternalIntegrationUserLink as revokeExternalIntegrationUserLinkRecord,
   resolveExternalIntegrationUserLink as resolveExternalIntegrationUserLinkRecord
 } from './repository-external-integration-links.js';
@@ -213,12 +226,9 @@ import {
 } from './repository-target-metrics.js';
 import { insertAccountAuditEvent as insertAccountAuditEventRecord } from './repository-account-audit.js';
 import { getUserQuotaForUser as getUserQuotaForUserRecord } from './repository-quotas.js';
-
 export class Repository {
   upsertUser = upsertUserRecord;
-
   getUserById = getUserByIdRecord;
-
   getUserQuotaForUser = getUserQuotaForUserRecord;
 
   createPasswordUser = createPasswordUserRecord;
@@ -258,21 +268,16 @@ export class Repository {
   resolveOidcLogin = resolveOidcLoginRecord;
 
   createExternalIntegrationLinkToken = createExternalIntegrationLinkTokenRecord;
-
   completeExternalIntegrationLinkToken = completeExternalIntegrationLinkTokenRecord;
-
   getExternalIntegrationLinkTokenUser = getExternalIntegrationLinkTokenUserRecord;
-
   externalIntegrationLinkTokenIsPending = externalIntegrationLinkTokenIsPendingRecord;
-
   previewExternalIntegrationLinkToken = previewExternalIntegrationLinkTokenRecord;
-
   resolveExternalIntegrationUserLink = resolveExternalIntegrationUserLinkRecord;
-
   listExternalIntegrationUserLinks = listExternalIntegrationUserLinksRecord;
-
+  listExternalIntegrationGrantableWorkspaces = listExternalIntegrationGrantableWorkspacesRecord;
+  getExternalIntegrationWorkspaceGrant = getExternalIntegrationWorkspaceGrantRecord;
+  replaceExternalIntegrationWorkspaceGrants = replaceExternalIntegrationWorkspaceGrantsRecord;
   revokeExternalIntegrationUserLink = revokeExternalIntegrationUserLinkRecord;
-
   purgeOldExternalIntegrationLinkTokens = purgeOldExternalIntegrationLinkTokensRecord;
 
   insertAccountAuditEvent = insertAccountAuditEventRecord;
@@ -315,7 +320,7 @@ export class Repository {
 
   listClusters = listClustersRecord;
 
-  listTargets = listTargetsRecord;
+  listTargets = listTargetsRecord; listWorkflowTargetSnapshot = listWorkflowTargetSnapshotRecord;
 
   getTarget = getTargetRecord;
 
@@ -340,6 +345,7 @@ export class Repository {
   upsertTargetAgentRegistration = upsertTargetAgentRegistrationRecord;
   getTargetAgentRegistration = getTargetAgentRegistrationRecord;
   listTargetAgentRegistrations = listTargetAgentRegistrationsRecord;
+  listWorkspaceTargetAgentRegistrations = listWorkspaceTargetAgentRegistrationsRecord;
   rotateTargetAgentKey = rotateTargetAgentKeyRecord;
   updateTargetAgentCapabilities = updateTargetAgentCapabilitiesRecord;
   updateTargetAgentSeen = updateTargetAgentSeenRecord;
@@ -360,6 +366,7 @@ export class Repository {
 
   purgeExpiredOrDeletedSessions = purgeExpiredOrDeletedSessionsRecord;
 
+
   addMessage = addMessageRecord;
 
   listMessages = listMessagesRecord;
@@ -375,6 +382,7 @@ export class Repository {
   addRun = addRunRecord;
 
   getRun = getRunRecord;
+  getRunRequestProvenance = getRunRequestProvenanceRecord;
 
   updateRun = updateRunRecord;
 
@@ -394,14 +402,13 @@ export class Repository {
   getRunContinuation = getRunContinuationRecord;
 
   deleteRunContinuation = deleteRunContinuationRecord;
-
   decideRunToolApproval = decideRunToolApprovalRecord;
-
+  decideRunToolApprovalOutcome = decideRunToolApprovalOutcomeRecord;
   expireRunToolApproval = expireRunToolApprovalRecord;
 
   expirePendingRunToolApprovals = expirePendingRunToolApprovalsRecord;
 
-  markRunToolApprovalExecutionStarted = markRunToolApprovalExecutionStartedRecord;
+  startRunToolApprovalExecution = startRunToolApprovalExecutionRecord;
 
   markRunToolApprovalExecutionFinished = markRunToolApprovalExecutionFinishedRecord;
 
@@ -420,9 +427,7 @@ export class Repository {
   summarizeTargetIssues = summarizeTargetIssuesRecord;
   getTargetIssue = getTargetIssueRecord;
   listTargetIssueObservations = listTargetIssueObservationsRecord;
-
   listTargetMetricHistory = listTargetMetricHistoryRecord;
-
   purgeOldTargetMetricHistory = purgeOldTargetMetricHistoryRecord;
 
   upsertVirtualMachineSnapshot = upsertVirtualMachineSnapshotRecord;
@@ -475,22 +480,22 @@ export class Repository {
   getToolResultArtifact = toolResultArtifacts.getToolResultArtifact;
   purgeExpiredToolResultArtifacts = toolResultArtifacts.purgeExpiredToolResultArtifacts;
   createWebhookSubscription = createWebhookSubscriptionRecord;
-
+  connectExternalWebhookRoute = connectExternalWebhookRouteRecord;
   listWebhookSubscriptions = listWebhookSubscriptionsRecord;
-
   getWebhookSubscription = getWebhookSubscriptionRecord;
-
   updateWebhookSubscription = updateWebhookSubscriptionRecord;
-
   deleteWebhookSubscription = deleteWebhookSubscriptionRecord;
-
   listMatchingWebhookSubscriptions = listMatchingWebhookSubscriptionsRecord;
-
+  listWebhookSubscriptionsForExternalRoute = listWebhookSubscriptionsForExternalRouteRecord;
+  touchExternalWebhookRouteConnection = touchExternalWebhookRouteConnectionRecord;
   insertWebhookHistory = insertWebhookHistoryRecord;
-
   listWebhookHistory = listWebhookHistoryRecord;
-
   purgeOldWebhookHistory = purgeOldWebhookHistoryRecord;
+  enqueueWebhookOutboxEvent = repositoryWebhookOutbox.enqueueWebhookOutboxEvent;
+  claimWebhookDeliveryJobs = repositoryWebhookOutbox.claimWebhookDeliveryJobs;
+  finishWebhookDeliveryJob = repositoryWebhookOutbox.finishWebhookDeliveryJob;
+  purgeExpiredWebhookOutboxEvents = repositoryWebhookOutbox.purgeExpiredWebhookOutboxEvents;
+  getWebhookQueueMetrics = repositoryWebhookOutbox.getWebhookQueueMetrics;
 
   insertWorkspaceAuditEvent = insertWorkspaceAuditEventRecord;
 
@@ -536,13 +541,8 @@ export class Repository {
   listRoleTemplates = listRoleTemplatesRecord;
 
   getRoleTemplate = getRoleTemplateRecord;
-
-  ensureDefaultUser = repositoryUserSeed.ensureDefaultUser;
-
-  ensureDevelopmentAccessForUser = repositoryUserSeed.ensureDevelopmentAccessForUser;
-
-  ensureDevelopmentSeed = repositoryUserSeed.ensureDevelopmentSeed;
-
+  ensureDevelopmentTargetSeed = repositoryDevelopmentSeed.ensureDevelopmentTargetSeed;
+  ensureOidcPrelinkedIdentities = ensureOidcPrelinkedIdentitiesRecord;
 }
 
 export const repo = new Repository();

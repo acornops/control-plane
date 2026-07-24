@@ -52,14 +52,14 @@ export function buildTargetToolPaths(): Record<string, unknown> {
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/tools': {
       get: {
         tags: ['workspaces'],
-        summary: 'List built-in tools configured for a target',
+        summary: 'List target-configured and platform-native tools available to target chat',
         security: [{ userSession: [] }],
         parameters: [
           { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
           { in: 'path', name: 'targetId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_TARGET_ID } }
         ],
         responses: {
-          '200': { description: 'Target built-in tool catalog.' }
+          '200': { description: 'Target tool catalog, including platform-native tools scoped to target chat.' }
         }
       }
     },

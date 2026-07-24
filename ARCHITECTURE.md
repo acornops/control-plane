@@ -160,6 +160,34 @@ flowchart TD
 6. maintain the outbound-only websocket bridge for target agents
 7. persist raw Kubernetes and VM snapshots and materialize latest resources, findings, summaries, and metrics for indexed browser-facing list APIs
 
+## Workflow Execution Model
+
+Workflows are the only runnable automation aggregate. Agents are reusable
+specialist capability profiles; they contribute pinned instructions, tools,
+skills, MCP installations, context grants, and policy, but never own or start a
+run.
+
+Every executor invocation is a `workflow_runs` row attached to one
+`workflow_executions` occurrence:
+
+- a direct Workflow has one root `specialist` run with a pinned Agent snapshot;
+- a coordinated Workflow has one root `coordinator` run with a versioned,
+  code-owned coordinator profile and no Agent identity;
+- delegated work is a child `specialist` run whose `parent_run_id` identifies
+  the coordinator root and whose delegation call ID provides idempotency.
+
+Rootness is topology (`parent_run_id IS NULL`), not an executor role. Only a
+root may finalize the execution and append the final assistant message.
+Coordinator runs receive only internal delegate and await functions. Child
+specialist scopes are compiled as least-privilege intersections of the pinned
+Workflow authorization envelope, the selected Agent snapshot, one semantic
+capability, and one exact target binding.
+
+Root retries create a new root attempt and child graph. Approval continuation
+resumes the same run. Cancellation traverses every nonterminal run in the
+execution graph. All roles use the same Workflow dispatch, bootstrap, event,
+approval, continuation, context, skill, commit, and run-token contracts.
+
 ## Module Boundaries
 
 - `routes/workspaces/workspace-routes.ts` registers workspace, member, invitation, and workspace issue routes.

@@ -1,9 +1,7 @@
 import { mock } from 'node:test';
 import { repo } from '../../src/store/repository.js';
-import { defaultAgentDefinitions } from '../../src/store/repository-agents.js';
-import { configureWorkflowMcpRepositoryForTests } from '../../src/store/repository-workflow-mcp.js';
 import { configureWorkflowOptionsCatalogLoaderForTests } from '../../src/store/repository-workflow-options.js';
-import { configureWorkflowBuiltInMcpCatalogForTests } from '../../src/services/workflow-built-in-mcp-catalog.js';
+import { effectiveWorkflowRuntimePolicy } from '../../src/services/workflow-runtime-policy.js';
 import type { WorkflowMcpServerRecord } from '../../src/store/repository-workflows.js';
 import type {
   Role
@@ -36,12 +34,14 @@ const originals = {
   findRunByClientMessageId: repo.findRunByClientMessageId,
   createRunFromUserMessage: repo.createRunFromUserMessage,
   getRun: repo.getRun,
+  getRunRequestProvenance: repo.getRunRequestProvenance,
   upsertAssistantFinalMessage: repo.upsertAssistantFinalMessage,
   createRunToolApproval: repo.createRunToolApproval,
   getRunToolApproval: repo.getRunToolApproval,
   listWorkspaceRunToolApprovals: repo.listWorkspaceRunToolApprovals,
   countPendingWorkspaceRunToolApprovals: repo.countPendingWorkspaceRunToolApprovals,
   decideRunToolApproval: repo.decideRunToolApproval,
+  decideRunToolApprovalOutcome: repo.decideRunToolApprovalOutcome,
   getRunContinuation: repo.getRunContinuation,
   appendRunEvents: repo.appendRunEvents,
   getLatestRunEventSeq: repo.getLatestRunEventSeq,
@@ -66,7 +66,10 @@ const originals = {
   createWebhookSubscription: repo.createWebhookSubscription,
   updateWebhookSubscription: repo.updateWebhookSubscription,
   deleteWebhookSubscription: repo.deleteWebhookSubscription,
-  deleteWorkspace: repo.deleteWorkspace
+  deleteWorkspace: repo.deleteWorkspace,
+  getExternalIntegrationWorkspaceGrant: repo.getExternalIntegrationWorkspaceGrant,
+  listExternalIntegrationGrantableWorkspaces: repo.listExternalIntegrationGrantableWorkspaces,
+  replaceExternalIntegrationWorkspaceGrants: repo.replaceExternalIntegrationWorkspaceGrants
 };
 
 const canonicalWorkflowMcpServers: Array<Omit<WorkflowMcpServerRecord, 'workspaceId' | 'createdAt'>> = [{
@@ -80,7 +83,7 @@ const canonicalWorkflowMcpServers: Array<Omit<WorkflowMcpServerRecord, 'workspac
     { name: 'github.prs.create', title: 'Create pull requests', capability: 'write', enabled: true }
   ]
 }, {
-  id: 'acornops-cluster-agent', scope: 'workspace', name: 'Cluster agent', url: 'builtin://cluster-agent', enabled: true,
+  id: 'acornops-target-agent', scope: 'workspace', name: 'Cluster agent', url: 'builtin://cluster-agent', enabled: true,
   authType: 'none', credentialConfigured: false, publicHeaders: {}, status: 'connected', createdBy: 'test',
   tools: [
     { name: 'get_resource', title: 'Get resource', capability: 'read', enabled: true },
@@ -90,7 +93,7 @@ const canonicalWorkflowMcpServers: Array<Omit<WorkflowMcpServerRecord, 'workspac
 }, {
   id: 'workspace-chat', scope: 'workspace', name: 'Workspace chat', url: 'builtin://workspace-chat', enabled: true,
   authType: 'none', credentialConfigured: false, publicHeaders: {}, status: 'connected', createdBy: 'test',
-  tools: [{ name: 'chat.sessions.read_selected', title: 'Read selected chats', capability: 'read', enabled: true }]
+  tools: [{ name: 'prompt.resources.read', title: 'Read prompt resources', capability: 'read', enabled: true }]
 }, {
   id: 'artifact-writer', scope: 'workspace', name: 'Artifact writer', url: 'builtin://artifacts', enabled: true,
   authType: 'none', credentialConfigured: false, publicHeaders: {}, status: 'connected', createdBy: 'test',
@@ -99,8 +102,6 @@ const canonicalWorkflowMcpServers: Array<Omit<WorkflowMcpServerRecord, 'workspac
 
 export function restoreControllerRegressionState(): void {
   configureWorkflowOptionsCatalogLoaderForTests();
-  configureWorkflowBuiltInMcpCatalogForTests();
-  configureWorkflowMcpRepositoryForTests();
   repo.getWorkspaceSummaryForUser = originals.getWorkspaceSummaryForUser;
   repo.getWorkspaceRole = originals.getWorkspaceRole;
   repo.getCluster = originals.getCluster;
@@ -117,12 +118,14 @@ export function restoreControllerRegressionState(): void {
   repo.findRunByClientMessageId = originals.findRunByClientMessageId;
   repo.createRunFromUserMessage = originals.createRunFromUserMessage;
   repo.getRun = originals.getRun;
+  repo.getRunRequestProvenance = originals.getRunRequestProvenance;
   repo.upsertAssistantFinalMessage = originals.upsertAssistantFinalMessage;
   repo.createRunToolApproval = originals.createRunToolApproval;
   repo.getRunToolApproval = originals.getRunToolApproval;
   repo.listWorkspaceRunToolApprovals = originals.listWorkspaceRunToolApprovals;
   repo.countPendingWorkspaceRunToolApprovals = originals.countPendingWorkspaceRunToolApprovals;
   repo.decideRunToolApproval = originals.decideRunToolApproval;
+  repo.decideRunToolApprovalOutcome = originals.decideRunToolApprovalOutcome;
   repo.getRunContinuation = originals.getRunContinuation;
   repo.appendRunEvents = originals.appendRunEvents;
   repo.getLatestRunEventSeq = originals.getLatestRunEventSeq;
@@ -148,6 +151,9 @@ export function restoreControllerRegressionState(): void {
   repo.updateWebhookSubscription = originals.updateWebhookSubscription;
   repo.deleteWebhookSubscription = originals.deleteWebhookSubscription;
   repo.deleteWorkspace = originals.deleteWorkspace;
+  repo.getExternalIntegrationWorkspaceGrant = originals.getExternalIntegrationWorkspaceGrant;
+  repo.listExternalIntegrationGrantableWorkspaces = originals.listExternalIntegrationGrantableWorkspaces;
+  repo.replaceExternalIntegrationWorkspaceGrants = originals.replaceExternalIntegrationWorkspaceGrants;
   mock.restoreAll();
 }
 export function createResponse() {
@@ -186,9 +192,28 @@ export function createRequest(params: Record<string, string>, body: Record<strin
     }
   };
 }
+
+export function createExternalIntegrationRequest(params: Record<string, string>, body: Record<string, unknown> = {}) {
+  return {
+    params,
+    body,
+    query: {},
+    auth: {
+      userId: 'user-1',
+      credential: {
+        type: 'external_integration' as const,
+        linkId: 'link-1',
+        integrationId: 'external-chat',
+        provider: 'external',
+        externalUserId: 'external-user-1'
+      }
+    }
+  };
+}
+
 export async function callController(
   handler: (req: never, res: never, next: (err?: unknown) => void) => Promise<void>,
-  req: ReturnType<typeof createRequest>
+  req: ReturnType<typeof createRequest> | ReturnType<typeof createExternalIntegrationRequest>
 ) {
   const res = createResponse();
   await handler(req as never, res as never, (err?: unknown) => {
@@ -208,64 +233,10 @@ export function installWorkspace(role: Role | null): void {
     publicHeaders: { ...server.publicHeaders },
     tools: server.tools.map((tool) => ({ ...tool }))
   }]));
-  configureWorkflowMcpRepositoryForTests({
-    list: async () => [...mcpServers.values()],
-    create: async (workspaceId, input) => {
-      const id = `server-${mcpServers.size + 1}`;
-      const server: WorkflowMcpServerRecord = {
-        id, workspaceId, scope: 'workspace', name: input.name, url: input.url, enabled: input.enabled !== false,
-        authType: input.auth?.type || 'none', publicHeaders: input.publicHeaders || {},
-        credentialConfigured: Boolean(input.auth?.credential),
-        status: input.enabled === false ? 'disabled' : 'not_checked', tools: [],
-        createdBy: input.createdBy, createdAt: now, updatedAt: now
-      };
-      mcpServers.set(id, server);
-      return server;
-    },
-    update: async (_workspaceId, serverId, patch) => {
-      const current = mcpServers.get(serverId);
-      if (!current) return null;
-      const updated = {
-        ...current,
-        name: patch.name || current.name,
-        url: patch.url || current.url,
-        enabled: patch.enabled ?? current.enabled,
-        status: patch.enabled === false ? 'disabled' as const : current.status,
-        authType: patch.auth?.type || current.authType,
-        publicHeaders: patch.publicHeaders || current.publicHeaders,
-        updatedAt: now
-      };
-      mcpServers.set(serverId, updated);
-      return updated;
-    },
-    delete: async (_workspaceId, serverId) => mcpServers.delete(serverId),
-    test: async (_workspaceId, serverId) => {
-      const current = mcpServers.get(serverId);
-      if (!current) return null;
-      const updated = { ...current, status: current.enabled ? 'connected' as const : 'disabled' as const, lastCheckedAt: now };
-      mcpServers.set(serverId, updated);
-      return updated;
-    },
-    tools: async (_workspaceId, serverId) => mcpServers.get(serverId)?.tools || null
-  });
-  configureWorkflowBuiltInMcpCatalogForTests(async () => ({
-    server: {
-      id: 'acornops-cluster-agent',
-      name: 'AcornOps Kubernetes Tools',
-      enabled: true,
-      targetIds: ['cluster-1']
-    },
-    tools: [
-      { name: 'get_resource', capability: 'read', inputSchema: { type: 'object' }, enabled: true, targetIds: ['cluster-1'] },
-      { name: 'get_resource_logs', capability: 'read', inputSchema: { type: 'object' }, enabled: true, targetIds: ['cluster-1'] },
-      { name: 'list_resources', capability: 'read', inputSchema: { type: 'object' }, enabled: true, targetIds: ['cluster-1'] }
-    ]
-  }));
-  configureWorkflowOptionsCatalogLoaderForTests(async (workspaceId) => {
-    const agents = defaultAgentDefinitions(workspaceId).filter((agent) => agent.kind === 'specialist_agent');
-    const servers = [...mcpServers.values()].filter((server) => server.id === 'acornops-cluster-agent');
+  configureWorkflowOptionsCatalogLoaderForTests(async (_workspaceId) => {
+    const servers = [...mcpServers.values()].filter((server) => server.id === 'acornops-target-agent');
+    const runtimePolicy = effectiveWorkflowRuntimePolicy();
     return {
-      clusters: [{ value: 'cluster-1', label: 'Test cluster', provenance: { source: 'target' as const, targetId: 'cluster-1', targetName: 'Test cluster' } }],
       mcpServers: servers.map((server) => ({ value: server.id, label: server.name, disabled: !server.enabled })),
       skills: [
         { value: 'acornops-observability', label: 'AcornOps observability' },
@@ -277,23 +248,30 @@ export function installWorkspace(role: Role | null): void {
         ...servers.flatMap((server) => server.tools.map((tool) => ({
           value: tool.name, label: tool.title, disabled: !server.enabled || !tool.enabled
         }))),
-        { value: 'chat.sessions.read_selected', label: 'Read selected chats' },
+        { value: 'prompt.resources.read', label: 'Read prompt resources' },
         { value: 'reports.pdf.generate', label: 'Generate incident report PDF' }
       ],
-      agents: agents.map((agent) => ({ value: agent.id, label: agent.name })),
-      chatSessions: [],
+      agents: [],
       outputFormats: [{ value: 'pdf', label: 'PDF' }, { value: 'markdown', label: 'Markdown' }],
       approvalPolicies: [],
-      runtimeLimits: [],
-      retentionPolicies: [],
+      runtimeLimits: [{ value: String(runtimePolicy.maxRuntimeSeconds), label: 'Deployment limit' }],
+      retentionPolicies: [{ value: String(runtimePolicy.retentionDays), label: 'Deployment limit' }],
       sourceAvailability: {
-        clusters: { status: 'available' },
         mcpServers: { status: 'available' }, mcpTools: { status: 'available' },
-        skills: { status: 'available' }, agents: { status: 'available' }, chatSessions: { status: 'empty' }
+        skills: { status: 'available' }, agents: { status: 'available' }
       }
     };
   });
   repo.getWorkspaceRole = async () => role;
+  repo.getExternalIntegrationWorkspaceGrant = async (_input) => role
+    ? {
+        workspaceId: 'workspace-1',
+        capabilities: ['read_workspace_data', 'create_sessions', 'create_read_only_runs'],
+        grantedByUserId: 'user-1',
+        createdAt: '2026-05-24T00:00:00.000Z',
+        updatedAt: '2026-05-24T00:00:00.000Z'
+      }
+    : null;
   repo.getCluster = async (clusterId: string) => clusterId === 'cluster-1' ? createCluster() : null;
   repo.getTarget = async (_workspaceId: string, targetId: string) => {
     if (targetId === 'cluster-1') return createTarget({ id: 'cluster-1', name: 'cluster', targetType: 'kubernetes' });
@@ -351,4 +329,13 @@ export function createWorkspaceAiCredentialStatusResponse(workspaceId = 'workspa
 
 export function isWorkspaceAiCredentialStatusRequest(input: unknown): boolean {
   return String(input).includes('/api/v1/internal/llm/provider-credentials?');
+}
+
+export function isMcpReadinessRequest(input: unknown, init?: RequestInit): boolean {
+  return String(input).endsWith('/api/v1/internal/mcp/connections/readiness')
+    && init?.method === 'POST';
+}
+
+export function createReadyMcpReadinessResponse(): Response {
+  return new Response(JSON.stringify({ ready: true, failures: [] }), { status: 200 });
 }

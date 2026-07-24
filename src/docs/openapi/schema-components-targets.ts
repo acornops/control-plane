@@ -1,8 +1,20 @@
 import { dateTime, JsonSchema, jsonObject, pageOf, schemaRef, stringArray, uuid } from './schema-types.js';
 import { targetSummarySchema, runSchema, userSchema } from './schema-components-common.js';
+import { buildTargetMcpWireSchemas } from './schema-components-target-mcp.js';
+import { buildWebhookSchemas } from './schema-components-webhooks.js';
 
 export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
   return {
+    ChatRuntimeSelection: {
+      type: 'object',
+      required: ['provider', 'model', 'reasoningEffort'],
+      properties: {
+        provider: { type: 'string', enum: ['openai', 'anthropic', 'gemini'] },
+        model: { type: 'string' },
+        reasoningEffort: { type: 'string', enum: ['off', 'low', 'medium', 'high'] }
+      },
+      additionalProperties: false
+    },
     TargetSummary: targetSummarySchema,
     TargetPage: pageOf('TargetSummary'),
     SnapshotReference: {
@@ -189,6 +201,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         title: { type: 'string' },
         createdBy: uuid,
         createdByUser: userSchema,
+        lastRuntimeSelection: schemaRef('ChatRuntimeSelection'),
         createdAt: dateTime,
         updatedAt: dateTime
       },
@@ -211,10 +224,11 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
     ChatMessagePage: pageOf('ChatMessage'),
     MessageAccepted: {
       type: 'object',
-      required: ['message_id', 'run_id'],
+      required: ['message_id', 'run_id', 'runtimeSelection'],
       properties: {
         message_id: uuid,
-        run_id: uuid
+        run_id: uuid,
+        runtimeSelection: schemaRef('ChatRuntimeSelection')
       }
     },
     TargetChatActivity: {
@@ -250,14 +264,20 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
     },
     RunApproval: {
       type: 'object',
-      required: ['id', 'runId', 'status', 'targetId', 'targetType'],
+      required: ['id', 'runId', 'workspaceId', 'toolName', 'status', 'executionStatus', 'createdAt', 'expiresAt'],
       properties: {
         id: uuid,
         runId: uuid,
+        workspaceId: uuid,
+        workflowId: uuid,
+        executionId: uuid,
+        approvalKind: { type: 'string', enum: ['pre_step', 'tool_write'] },
         targetId: uuid,
         targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] },
         clusterId: uuid,
         status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'expired'] },
+        executionStatus: { type: 'string', enum: ['not_started', 'executing', 'succeeded', 'failed', 'unknown'] },
+        decision: { type: 'string', enum: ['approved', 'rejected'] },
         toolName: { type: 'string' },
         summary: { type: 'string', description: 'Human-readable, non-authoritative description of the pending write action.' },
         createdAt: dateTime,
@@ -266,20 +286,12 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: true
     },
-    RunApprovalPage: {
-      type: 'object',
-      required: ['items'],
-      properties: { items: { type: 'array', items: schemaRef('RunApproval') } },
-      additionalProperties: true
+    RunApprovalList: {
+      type: 'array',
+      items: schemaRef('RunApproval')
     },
     ApprovalDecision: {
-      type: 'object',
-      required: ['approval'],
-      properties: {
-        approval: schemaRef('RunApproval'),
-        conflict: jsonObject
-      },
-      additionalProperties: true
+      ...schemaRef('RunApproval')
     },
     McpCatalog: {
       type: 'object',
@@ -362,10 +374,12 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
     TargetTool: {
       type: 'object',
       properties: {
-        id: { type: 'string', enum: ['web_search', 'target_insights'] },
+        id: { type: 'string' },
         label: { type: 'string' },
         description: { type: 'string' },
         enabled: { type: 'boolean', default: true },
+        toggleable: { type: 'boolean', default: true },
+        origin: { type: 'string', enum: ['target_setting', 'platform_native'] },
         capability: { type: 'string', enum: ['read', 'write'] },
         runtimeKind: { type: 'string', enum: ['provider_native', 'function'] },
         visibility: {
@@ -454,6 +468,9 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         canEditConnection: { type: 'boolean' },
         canToggle: { type: 'boolean' },
         authType: { type: 'string', enum: ['none', 'bearer_token', 'custom_header'] },
+        credentialMode: { type: 'string', enum: ['none', 'workspace', 'individual'] },
+        revision: { type: 'integer', minimum: 1 },
+        provenance: { type: 'object', required: ['sourceId', 'artifactName', 'version', 'digest', 'importedAt'], properties: { sourceId: uuid, artifactName: { type: 'string' }, version: { type: 'string' }, digest: { type: 'string' }, importedAt: dateTime }, additionalProperties: false },
         publicHeaders: { type: 'object', additionalProperties: { type: 'string' } },
         connectionStatus: { type: 'string' },
         lastDiscoveryAt: dateTime,
@@ -472,6 +489,8 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       required: ['name'],
       properties: {
         name: { type: 'string' },
+        serverId: uuid,
+        modelAlias: { type: 'string' },
         description: { type: 'string' },
         capability: { type: 'string', enum: ['read', 'write'] },
         inputSchema: jsonObject,
@@ -482,48 +501,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       additionalProperties: true
     },
     McpToolPage: pageOf('McpTool'),
-    McpTestConnection: {
-      type: 'object',
-      properties: {
-        status: { type: 'string' },
-        connectionStatus: { type: 'string' },
-        tools: { type: 'array', items: schemaRef('McpTool') },
-        error: { type: 'string' }
-      },
-      additionalProperties: true
-    },
-    WebhookSubscription: {
-      type: 'object',
-      required: ['id', 'workspaceId', 'url', 'eventTypes', 'enabled'],
-      properties: {
-        id: uuid,
-        workspaceId: uuid,
-        targetId: uuid,
-        url: { type: 'string', format: 'uri' },
-        eventTypes: stringArray,
-        enabled: { type: 'boolean' },
-        createdAt: dateTime,
-        updatedAt: dateTime
-      },
-      additionalProperties: true
-    },
-    WebhookCreated: {
-      allOf: [schemaRef('WebhookSubscription')],
-      description: 'Webhook subscription response. Includes signing secret once.'
-    },
-    WebhookPage: pageOf('WebhookSubscription'),
-    WebhookHistory: {
-      type: 'object',
-      properties: {
-        id: uuid,
-        webhookId: uuid,
-        eventType: { type: 'string' },
-        status: { type: 'string', enum: ['success', 'failed'] },
-        responseStatus: { type: 'integer' },
-        deliveredAt: dateTime
-      },
-      additionalProperties: true
-    },
-    WebhookHistoryPage: pageOf('WebhookHistory')
+    ...buildTargetMcpWireSchemas(),
+    ...buildWebhookSchemas()
   };
 }

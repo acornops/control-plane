@@ -3,9 +3,11 @@ import { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { config } from '../config.js';
 import { repo } from '../store/repository.js';
+import { WebhookSubscriptionLimitError } from '../store/repository-webhooks.js';
 import { WebhookHistory, WebhookSubscription } from '../types/domain.js';
 import { encryptWebhookSecret, generateWebhookSecret } from '../utils/crypto.js';
 import { toSingleParam } from '../utils/params.js';
+import { canonicalizeWebhookUrl } from '../utils/webhook-url.js';
 
 function serializeWebhook(subscription: WebhookSubscription): Record<string, unknown> {
   return {
@@ -37,6 +39,10 @@ function serializeHistory(entry: WebhookHistory): Record<string, unknown> {
     responseStatus: entry.responseStatus ?? null,
     error: entry.error ?? null,
     durationMs: entry.durationMs ?? null,
+    attemptNumber: entry.attemptNumber,
+    willRetry: entry.willRetry,
+    nextAttemptAt: entry.nextAttemptAt ?? null,
+    terminalReason: entry.terminalReason ?? null,
     sentAt: entry.sentAt
   };
 }
@@ -69,7 +75,7 @@ export async function listWebhooks(req: AuthenticatedRequest, res: Response, nex
     }
 
     const webhooks = await repo.listWebhookSubscriptions(workspaceId);
-    res.status(200).json(webhooks.map(serializeWebhook));
+    res.status(200).json({ items: webhooks.map(serializeWebhook) });
   } catch (err) {
     next(err);
   }
@@ -109,7 +115,7 @@ export async function createWebhook(req: AuthenticatedRequest, res: Response, ne
       workspaceId,
       targetId: req.body.targetId || null,
       name: req.body.name,
-      url: req.body.url,
+      url: canonicalizeWebhookUrl(req.body.url),
       eventTypes: req.body.eventTypes,
       enabled: req.body.enabled ?? true,
       secretCiphertext: encryptWebhookSecret(secret),
@@ -122,6 +128,16 @@ export async function createWebhook(req: AuthenticatedRequest, res: Response, ne
       secret
     });
   } catch (err) {
+    if (err instanceof WebhookSubscriptionLimitError) {
+      res.status(409).json({
+        error: {
+          code: 'WEBHOOK_SUBSCRIPTION_LIMIT_REACHED',
+          message: 'Workspace webhook subscription limit reached',
+          retryable: false
+        }
+      });
+      return;
+    }
     next(err);
   }
 }
@@ -172,7 +188,7 @@ export async function updateWebhook(req: AuthenticatedRequest, res: Response, ne
       enabled?: boolean;
     } = {
       name: req.body.name,
-      url: req.body.url,
+      url: req.body.url ? canonicalizeWebhookUrl(req.body.url) : undefined,
       eventTypes: req.body.eventTypes,
       enabled: req.body.enabled
     };
@@ -244,7 +260,7 @@ export async function listWebhookHistory(req: AuthenticatedRequest, res: Respons
     const history = await repo.listWebhookHistory(workspaceId, webhookId, {
       limit: parseHistoryLimit(req.query.limit)
     });
-    res.status(200).json(history.map(serializeHistory));
+    res.status(200).json({ items: history.map(serializeHistory) });
   } catch (err) {
     next(err);
   }

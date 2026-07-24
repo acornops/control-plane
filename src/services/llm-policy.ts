@@ -1,15 +1,11 @@
 import { config } from '../config.js';
 import {
-  configuredAllowedModelsForProvider,
-  configuredModelBelongsToProvider,
-  emptyProviderModelMap,
+  configuredProviders,
   flatProviderModels,
   parseConfigCsv,
-  parseConfiguredAllowedProviderModels,
-  parseConfiguredAllowedProviders,
+  parseConfiguredProvidersJson,
   parseConfiguredReasoningEfforts,
   parseConfiguredReasoningSummaryModes,
-  providerModelsConfigured,
   type ProviderModelMap,
   SUPPORTED_LLM_PROVIDER_VALUES
 } from '../config-llm-policy.js';
@@ -25,33 +21,20 @@ export function parseCsv(value: string): string[] {
   return parseConfigCsv(value);
 }
 
-export function parseAllowedProviders(value = config.LLM_ALLOWED_PROVIDERS): LlmProvider[] {
-  return parseConfiguredAllowedProviders(value);
+export function parseAllowedProviders(value = config.LLM_PROVIDERS_JSON): LlmProvider[] {
+  return configuredProviders(parseConfiguredProvidersJson(value));
 }
 
 export function parseAllowedProviderModels(
-  value = config.LLM_ALLOWED_PROVIDER_MODELS,
-  legacyModels = config.LLM_ALLOWED_MODELS
+  value = config.LLM_PROVIDERS_JSON
 ): ProviderModelMap {
-  if (providerModelsConfigured(value)) {
-    return parseConfiguredAllowedProviderModels(value);
-  }
-  const models = parseConfigCsv(legacyModels);
-  const providerModels = emptyProviderModelMap();
-  for (const provider of SUPPORTED_LLM_PROVIDER_VALUES) {
-    providerModels[provider] = configuredAllowedModelsForProvider(provider, models);
-  }
-  return providerModels;
+  return parseConfiguredProvidersJson(value);
 }
 
 export function parseAllowedModels(
-  value = config.LLM_ALLOWED_PROVIDER_MODELS,
-  legacyModels = config.LLM_ALLOWED_MODELS
+  value = config.LLM_PROVIDERS_JSON
 ): string[] {
-  if (providerModelsConfigured(value)) {
-    return flatProviderModels(parseConfiguredAllowedProviderModels(value));
-  }
-  return parseConfigCsv(legacyModels);
+  return flatProviderModels(parseConfiguredProvidersJson(value));
 }
 
 export function parseAllowedReasoningSummaryModes(
@@ -66,24 +49,17 @@ export function parseAllowedReasoningEfforts(
   return parseConfiguredReasoningEfforts(value);
 }
 
-export function modelBelongsToProvider(model: string, provider: LlmProvider): boolean {
-  return configuredModelBelongsToProvider(model, provider);
-}
-
 export function allowedModelsForProvider(
   provider: LlmProvider,
-  models: string[] | ProviderModelMap = parseAllowedProviderModels()
+  models: ProviderModelMap = parseAllowedProviderModels()
 ): string[] {
-  if (!Array.isArray(models)) {
-    return models[provider] || [];
-  }
-  return configuredAllowedModelsForProvider(provider, models);
+  return models[provider] || [];
 }
 
 export function isModelAllowedForProvider(
   provider: LlmProvider,
   model: string,
-  models: string[] | ProviderModelMap = parseAllowedProviderModels()
+  models: ProviderModelMap = parseAllowedProviderModels()
 ): boolean {
   return allowedModelsForProvider(provider, models).includes(model);
 }

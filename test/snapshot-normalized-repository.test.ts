@@ -79,6 +79,23 @@ describe('normalized snapshot repository reads', () => {
     ]);
   });
 
+  it('applies the saved namespace scope while retaining cluster-scoped resources', async () => {
+    mock.method(db, 'query', async (sql: string, params: unknown[]) => {
+      assert.match(sql, /r\.scope_name IS NULL AND r\.kind <> 'Namespace'/);
+      assert.match(sql, /CASE WHEN r\.kind = 'Namespace' THEN r\.name ELSE r\.scope_name END = ANY\(\$2::text\[\]\)/);
+      assert.match(sql, /NOT \(CASE WHEN r\.kind = 'Namespace' THEN r\.name ELSE r\.scope_name END = ANY\(\$3::text\[\]\)\)/);
+      assert.deepEqual(params, ['cluster-1', ['payments', 'shared'], ['shared'], 3]);
+      return { rows: [] };
+    });
+
+    await listClusterSnapshotResources('cluster-1', {
+      limit: 2,
+      namespaceInclude: ['payments', 'shared'],
+      namespaceExclude: ['shared'],
+      signature: 'sig'
+    });
+  });
+
 });
 
 describe('normalized snapshot repository ingest', () => {
@@ -89,11 +106,54 @@ describe('normalized snapshot repository ingest', () => {
       query: async (sql: string, params?: unknown[]) => {
         statements.push(sql);
         queryParams.push(params ?? []);
-        if (sql.includes('INSERT INTO target_issues') && sql.includes('RETURNING id')) {
-          return { rowCount: 1, rows: [{ id: 'issue-1' }] };
+        if (sql.includes('INSERT INTO target_issues')) {
+          return {
+            rowCount: 1,
+            rows: [{
+              id: 'issue-1',
+              workspace_id: 'workspace-1',
+              target_id: 'cluster-1',
+              target_type: 'kubernetes',
+              fingerprint: 'fp-1',
+              issue_type: 'kubernetes_pod_unhealthy',
+              status: 'active',
+              severity: 'warning',
+              severity_rank: 1,
+              title: 'Pod unhealthy',
+              summary: 'Pod unhealthy',
+              scope_kind: 'Namespace',
+              scope_name: 'default',
+              object_kind: 'Pod',
+              object_name: 'pod-1',
+              reason: 'Pending',
+              first_seen_at: '2026-05-10T00:00:00.000Z',
+              last_seen_at: '2026-05-10T00:00:00.000Z',
+              last_observed_snapshot_at: '2026-05-10T00:00:00.000Z',
+              resolved_at: null,
+              occurrence_count: 1,
+              reopened_count: 0,
+              clean_snapshot_count: 0,
+              lifecycle_version: 1,
+              latest_evidence: {},
+              search_text: 'pod unhealthy',
+              created_at: '2026-05-10T00:00:00.000Z',
+              updated_at: '2026-05-10T00:00:00.000Z'
+            }]
+          };
         }
         if (sql.includes('FROM target_issues')) {
           return { rowCount: 0, rows: [] };
+        }
+        if (sql.includes('FROM webhook_subscriptions')) {
+          return {
+            rowCount: 1,
+            rows: [{
+              id: 'sub-1',
+              url: 'https://example.com/webhook',
+              secret_ciphertext: 'encrypted',
+              secret_key_id: 'default'
+            }]
+          };
         }
         if (sql.includes('FROM targets t') && sql.includes("t.target_type = 'kubernetes'")) {
           assert.deepEqual(params, ['cluster-1']);
@@ -161,6 +221,13 @@ describe('normalized snapshot repository ingest', () => {
     assert(statements.some((sql) => sql.includes('INSERT INTO target_findings')));
     assert(statements.some((sql) => sql.includes('INSERT INTO target_issues')));
     assert(statements.some((sql) => sql.includes('INSERT INTO target_issue_observations')));
+    const issueEventIndex = statements.findIndex((sql) => sql.includes('INSERT INTO webhook_outbox_events'));
+    assert.notEqual(issueEventIndex, -1);
+    assert.equal(queryParams[issueEventIndex][1], 'issue.created.v1');
+    const issuePayload = JSON.parse(String(queryParams[issueEventIndex][8]));
+    assert.equal(issuePayload.data.lifecycleVersion, 1);
+    assert.equal(issuePayload.data.status, 'active');
+    assert.equal('latestEvidence' in issuePayload.data, false);
     assert(statements.some((sql) => sql.includes('INSERT INTO target_snapshot_summaries')));
     assert.equal(statements.at(-1), 'COMMIT');
   });

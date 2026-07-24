@@ -43,40 +43,27 @@ describe('target issue derivation', () => {
     const observations = deriveVirtualMachineIssueObservations(
       virtualMachine(),
       vmSnapshot({
-        services: [
-          { name: 'backup.service', loadState: 'loaded', activeState: 'failed', subState: 'failed' },
-          { name: 'stopped.service', loadState: 'loaded', activeState: 'inactive', subState: 'dead' }
+        degraded_services: [
+          { unit: 'backup.service', load_state: 'loaded', active_state: 'failed', sub_state: 'failed' },
+          { unit: 'stopped.service', load_state: 'loaded', active_state: 'inactive', sub_state: 'dead' }
         ],
         findings: [
           {
-            id: 'service-backup.service',
             severity: 'warning',
-            title: 'Service backup.service is failed',
-            message: 'backup.service state is failed/failed.',
-            reason: 'failed',
-            objectKind: 'systemd_service',
-            objectName: 'backup.service',
-            timestamp: '2026-05-10T00:00:00.000Z'
+            code: 'SERVICE_FAILED',
+            summary: 'backup.service state is failed/failed.',
+            unit: 'backup.service'
           },
           {
-            id: 'service-stopped.service',
             severity: 'info',
-            title: 'Service stopped.service is inactive',
-            message: 'stopped.service state is inactive/dead.',
-            reason: 'inactive',
-            objectKind: 'systemd_service',
-            objectName: 'stopped.service',
-            timestamp: '2026-05-10T00:00:00.000Z'
+            code: 'SERVICE_INACTIVE',
+            summary: 'stopped.service state is inactive/dead.',
+            unit: 'stopped.service'
           },
           {
-            id: 'vm-healthy',
             severity: 'info',
-            title: 'VM telemetry is healthy',
-            message: 'No pressure or failed service findings were detected.',
-            reason: 'healthy',
-            objectKind: 'host',
-            objectName: 'prod-vm.local',
-            timestamp: '2026-05-10T00:00:00.000Z'
+            code: 'HEALTHY',
+            summary: 'No pressure or failed service findings were detected.'
           }
         ]
       })
@@ -92,8 +79,8 @@ describe('target issue derivation', () => {
     const observations = deriveVirtualMachineIssueObservations(
       virtualMachine(),
       vmSnapshot({
-        services: [
-          { name: 'api.service', loadState: 'loaded', activeState: 'Failed', subState: 'Failed' }
+        degraded_services: [
+          { unit: 'api.service', load_state: 'loaded', active_state: 'Failed', sub_state: 'Failed' }
         ]
       })
     );
@@ -108,29 +95,84 @@ describe('target issue reconciliation', () => {
   it('updates one durable issue, marks it recovering, resolves after grace, then reopens it', async () => {
     const statements: string[] = [];
     const updates: Array<{ status: string; cleanSnapshotCount: number }> = [];
+    const issueEvents: string[] = [];
     let upsertCount = 0;
     let currentIssue = {
       id: 'issue-1',
+      workspace_id: 'workspace-1',
+      target_id: 'cluster-1',
+      target_type: 'kubernetes',
+      target_name: 'prod-cluster',
       fingerprint: 'fp-1',
+      issue_type: 'kubernetes_pod_unhealthy',
+      status: 'active',
+      severity: 'critical',
+      severity_rank: 0,
+      title: 'Pod unhealthy',
+      summary: 'Pod is unhealthy.',
+      scope_kind: 'Namespace',
+      scope_name: 'default',
+      object_kind: 'Deployment',
+      object_name: 'api',
+      reason: 'CrashLoopBackOff',
+      first_seen_at: '2026-05-10T00:00:00.000Z',
       last_seen_at: '2026-05-10T00:00:00.000Z',
-      clean_snapshot_count: 0
+      last_observed_snapshot_at: '2026-05-10T00:00:00.000Z',
+      resolved_at: null as string | null,
+      occurrence_count: 1,
+      reopened_count: 0,
+      clean_snapshot_count: 0,
+      lifecycle_version: 1,
+      latest_evidence: {},
+      search_text: 'pod unhealthy api',
+      created_at: '2026-05-10T00:00:00.000Z',
+      updated_at: '2026-05-10T00:00:00.000Z'
     };
     const client = {
       query: async (sql: string, params?: unknown[]) => {
         statements.push(sql);
-        if (sql.includes('INSERT INTO target_issues') && sql.includes('RETURNING id')) {
+        if (sql.includes('INSERT INTO target_issues')) {
           upsertCount += 1;
-          return { rowCount: 1, rows: [{ id: 'issue-1' }] };
+          const wasResolved = currentIssue.status === 'resolved';
+          currentIssue = {
+            ...currentIssue,
+            status: 'active',
+            clean_snapshot_count: 0,
+            resolved_at: null,
+            occurrence_count: currentIssue.occurrence_count + 1,
+            reopened_count: currentIssue.reopened_count + (wasResolved ? 1 : 0),
+            lifecycle_version: currentIssue.lifecycle_version + (wasResolved ? 1 : 0)
+          };
+          return { rowCount: 1, rows: [currentIssue] };
         }
         if (sql.includes('FROM target_issues')) {
           return { rowCount: 1, rows: [currentIssue] };
+        }
+        if (sql.includes('FROM webhook_subscriptions')) {
+          return {
+            rowCount: 1,
+            rows: [{
+              id: 'sub-1',
+              url: 'https://example.com/webhook',
+              secret_ciphertext: 'encrypted',
+              secret_key_id: 'default'
+            }]
+          };
+        }
+        if (sql.includes('INSERT INTO webhook_outbox_events')) {
+          issueEvents.push(String(params?.[1]));
+          return { rowCount: 1, rows: [{ id: String(params?.[0]) }] };
         }
         if (sql.includes('UPDATE target_issues')) {
           updates.push({ status: String(params?.[1]), cleanSnapshotCount: Number(params?.[2]) });
           currentIssue = {
             ...currentIssue,
-            clean_snapshot_count: Number(params?.[2])
+            status: String(params?.[1]),
+            clean_snapshot_count: Number(params?.[2]),
+            resolved_at: String(params?.[1]) === 'resolved' ? String(params?.[3]) : currentIssue.resolved_at,
+            lifecycle_version: currentIssue.lifecycle_version + (String(params?.[1]) === 'resolved' ? 1 : 0)
           };
+          return { rowCount: 1, rows: [currentIssue] };
         }
         return { rowCount: 1, rows: [] };
       }
@@ -184,6 +226,10 @@ describe('target issue reconciliation', () => {
 
     assert.equal(upsertCount, 2);
     assert.equal(statements.filter((sql) => sql.includes('INSERT INTO target_issue_observations')).length, 3);
+    assert.equal(statements.filter((sql) => sql.includes('INSERT INTO webhook_outbox_events')).length, 2);
+    assert.deepEqual(issueEvents, ['issue.resolved.v1', 'issue.reopened.v1']);
+    assert(statements.some((sql) => sql.includes("SET status = 'paused'")));
+    assert(statements.some((sql) => sql.includes("SET status = 'superseded'")));
     assert.deepEqual(updates, [
       { status: 'recovering', cleanSnapshotCount: 1 },
       { status: 'recovering', cleanSnapshotCount: 2 },
