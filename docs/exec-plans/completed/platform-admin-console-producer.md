@@ -26,14 +26,14 @@ The consumer remains plan-only, excludes quota overrides and operational admin r
 
 ## Validation
 
-- Full `npm run validate` passed against isolated PostgreSQL and Redis: 627/627 tests, typecheck, style, migrations 001-012, authorization, membership, run-event durability, contracts, OpenAPI, harness, and build.
-- Platform-admin `npm run validate` passed: 79/79 tests plus the 15-route/7-scope consumer contract, requirements, harness, build, and smoke checks.
+- Full `npm run validate` passed against isolated PostgreSQL and Redis after merging the current Workflow V2 `main`: tests, typecheck, style, the single greenfield schema, authorization, membership, run-event durability, contracts, OpenAPI, harness, and build.
+- Platform-admin `npm run validate` passed: 86/86 tests plus the 15-route/7-scope consumer contract, requirements, harness, build, and smoke checks.
 - The platform-admin production Docker image built successfully from the pinned Node 22 Alpine base digest with zero dependency vulnerabilities reported during installation.
 - A packaged-container smoke confirmed the non-root image binds on `0.0.0.0:4173`, serves health and shell routes, and denies a non-allowlisted API route.
 - Parent and deployment contract validation passed.
 
 ## Rollout
 
-1. Apply migrations `011_workspace_lifecycle.sql` and `012_platform_admin_human_audit.sql`.
+1. Provision new databases from `001_initial_schema.sql`, which includes the platform-admin lifecycle and protected human-audit fields. Do not restore obsolete incremental migrations `002`-`012`.
 2. Deploy the control-plane producer before the console consumer.
 3. Keep the console disabled until staging verifies OIDC claims, secrets, ingress TLS, internal mTLS, NetworkPolicy, readiness, and rollback.
