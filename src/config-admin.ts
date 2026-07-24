@@ -102,6 +102,9 @@ export function platformAdminConfigIssues(value: PlatformAdminConfig, descriptor
   if (value.ADMIN_SESSION_IDLE_TIMEOUT_SECONDS > value.ADMIN_SESSION_MAX_AGE_SECONDS) add('ADMIN_SESSION_IDLE_TIMEOUT_SECONDS', 'ADMIN_SESSION_IDLE_TIMEOUT_SECONDS must be less than or equal to ADMIN_SESSION_MAX_AGE_SECONDS');
   if (value.ADMIN_SESSION_REAUTH_SECONDS > value.ADMIN_SESSION_MAX_AGE_SECONDS) add('ADMIN_SESSION_REAUTH_SECONDS', 'ADMIN_SESSION_REAUTH_SECONDS must be less than or equal to ADMIN_SESSION_MAX_AGE_SECONDS');
   if (value.NODE_ENV !== 'production' || !value.CONTROL_PLANE_ADMIN_API_ENABLED || !value.CONTROL_PLANE_ADMIN_HUMAN_AUTH_REQUIRED) return issues;
+  if (value.ADMIN_SESSION_MAX_AGE_SECONDS > 3600) add('ADMIN_SESSION_MAX_AGE_SECONDS', 'Production admin sessions must not exceed one hour');
+  if (value.ADMIN_SESSION_IDLE_TIMEOUT_SECONDS > 900) add('ADMIN_SESSION_IDLE_TIMEOUT_SECONDS', 'Production admin idle timeout must not exceed 15 minutes');
+  if (value.ADMIN_SESSION_REAUTH_SECONDS > 900) add('ADMIN_SESSION_REAUTH_SECONDS', 'Production admin recent-authentication window must not exceed 15 minutes');
   if (!descriptors.some((descriptor) => descriptor.enabled && descriptor.id === value.PLATFORM_ADMIN_BFF_TOKEN_ID)) add('PLATFORM_ADMIN_BFF_TOKEN_ID', 'PLATFORM_ADMIN_BFF_TOKEN_ID must identify an enabled platform-admin BFF token descriptor');
   for (const issue of httpsUrlProductionIssues('PLATFORM_ADMIN_CONSOLE_BASE_URL', value.PLATFORM_ADMIN_CONSOLE_BASE_URL)) add(issue.field, issue.message);
   for (const issue of httpsUrlProductionIssues('ADMIN_OIDC_REDIRECT_URI', value.ADMIN_OIDC_REDIRECT_URI)) add(issue.field, issue.message);

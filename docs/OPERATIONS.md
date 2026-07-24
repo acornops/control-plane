@@ -160,6 +160,11 @@ creating a one-hour session with a 15-minute idle timeout. Writes require
 authentication no older than 15 minutes and signed CSRF evidence. Failed admin
 auth attempts are rate-counted with Redis when available and recorded in
 `control_plane_admin_auth_failures_total`. All responses are `no-store`.
+Production startup rejects privileged session limits above those one-hour and
+15-minute bounds. OIDC discovery, token endpoint, and JWKS dependency failures
+return a stable retryable `503` with a request ID; detailed failure reasons stay
+in the metric, structured security log, and protected Admin Audit rather than
+being exposed to the browser.
 
 All mutating admin requests require a `reason` field and write append-only admin audit
 events. Workspace membership mutations commit the membership change, protected

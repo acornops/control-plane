@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import { buildAdminAuthorizationUrl, exchangeAdminAuthorizationCode } from '../auth/admin-oidc.js';
+import { adminOidcFailure } from '../auth/admin-oidc-errors.js';
 import { getOrSetAdminCsrfToken } from '../auth/admin-csrf.js';
 import { adminSessionReference, clearAdminSessionCookie, createAdminSession, deleteAdminSession, getAdminSession, setAdminSessionCookie } from '../auth/admin-session.js';
 import { config } from '../config.js';
@@ -40,7 +41,13 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
     const returnTo = typeof req.query.return_to === 'string' ? req.query.return_to : '/';
     const reauthenticate = req.query.reauthenticate === 'true';
     res.redirect(await buildAdminAuthorizationUrl(returnTo, reauthenticate));
-  } catch (err) { next(err); }
+  } catch (err) {
+    const failure = adminOidcFailure(err);
+    incrementAdminAuthFailures(failure.reason.toLowerCase());
+    logger.warn({ code: failure.reason, requestId: requestId(res) }, 'Platform admin login could not start');
+    await auditAuth(req, res, { action: 'admin.auth.login.failure', outcome: 'failure', reason: failure.reason }).catch(() => undefined);
+    res.status(failure.status).json({ error: { ...failure.error, request_id: requestId(res) } });
+  }
 }
 
 export async function callback(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -63,12 +70,11 @@ export async function callback(req: Request, res: Response, next: NextFunction):
   } catch (err) {
     if (sessionId) await deleteAdminSession(sessionId).catch(() => undefined);
     clearAdminSessionCookie(res);
-    const code = err instanceof Error ? err.message : 'ADMIN_OIDC_LOGIN_FAILED';
-    incrementAdminAuthFailures(code.toLowerCase());
-    logger.warn({ code, requestId: requestId(res) }, 'Platform admin login failed');
-    await auditAuth(req, res, { action: 'admin.auth.login.failure', outcome: 'failure', reason: code }).catch(() => undefined);
-    const status = code === 'ADMIN_ROLE_REQUIRED' || code === 'ADMIN_MFA_REQUIRED' ? 403 : 401;
-    res.status(status).json({ error: { code, message: 'Platform administrator sign-in was not accepted', retryable: false } });
+    const failure = adminOidcFailure(err);
+    incrementAdminAuthFailures(failure.reason.toLowerCase());
+    logger.warn({ code: failure.reason, requestId: requestId(res) }, 'Platform admin login failed');
+    await auditAuth(req, res, { action: 'admin.auth.login.failure', outcome: 'failure', reason: failure.reason }).catch(() => undefined);
+    res.status(failure.status).json({ error: { ...failure.error, request_id: requestId(res) } });
   }
 }
 

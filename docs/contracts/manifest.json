@@ -12,6 +12,7 @@
         "GET /admin-auth/csrf",
         "POST /admin-auth/logout"
       ],
+      "adminAuthFailure": ["status=503", "error.code=ADMIN_IDENTITY_PROVIDER_UNAVAILABLE|ADMIN_IDENTITY_PROVIDER_MISCONFIGURED|ADMIN_SIGN_IN_UNAVAILABLE", "error.retryable", "error.request_id"],
       "platformAdminRoles": {
         "platform-admin": ["read", "write", "audit"],
         "platform-admin-viewer": ["read"],

@@ -48,4 +48,11 @@ describe('production platform admin configuration', () => {
     assert.throws(() => parse({ ADMIN_SESSION_COOKIE_NAME: 'admin_session' }), (error) => hasField(error, 'ADMIN_SESSION_COOKIE_NAME'));
     assert.throws(() => parse({ ADMIN_OIDC_REDIRECT_URI: 'https://ops.example.com/admin-auth/oidc/callback' }), (error) => hasField(error, 'ADMIN_OIDC_REDIRECT_URI'));
   });
+
+  it('rejects production platform-admin sessions longer than the privileged baseline', () => {
+    const parse = (overrides: NodeJS.ProcessEnv = {}) => parseAppConfig({ ...baseProductionEnv, ...validAdmin, ...overrides });
+    assert.throws(() => parse({ ADMIN_SESSION_MAX_AGE_SECONDS: '315360000' }), (error) => hasField(error, 'ADMIN_SESSION_MAX_AGE_SECONDS'));
+    assert.throws(() => parse({ ADMIN_SESSION_IDLE_TIMEOUT_SECONDS: '901' }), (error) => hasField(error, 'ADMIN_SESSION_IDLE_TIMEOUT_SECONDS'));
+    assert.throws(() => parse({ ADMIN_SESSION_REAUTH_SECONDS: '901' }), (error) => hasField(error, 'ADMIN_SESSION_REAUTH_SECONDS'));
+  });
 });

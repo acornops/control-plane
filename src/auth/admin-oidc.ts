@@ -3,6 +3,7 @@ import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 import { config } from '../config.js';
 import { redis } from '../infra/redis.js';
 import { PLATFORM_ADMIN_ROLES, type AdminSessionIdentity, type PlatformAdminRole } from './admin-session.js';
+import { AdminOidcError } from './admin-oidc-errors.js';
 
 interface Discovery {
   issuer: string;
@@ -30,11 +31,33 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Re
 }
 
 async function discovery(): Promise<Discovery> {
-  const response = await fetchWithTimeout(`${config.ADMIN_OIDC_ISSUER_URL}/.well-known/openid-configuration`);
-  if (!response.ok) throw new Error('ADMIN_OIDC_DISCOVERY_FAILED');
-  const value = await response.json() as Record<string, unknown>;
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(`${config.ADMIN_OIDC_ISSUER_URL}/.well-known/openid-configuration`);
+  } catch (cause) {
+    throw new AdminOidcError('ADMIN_OIDC_DISCOVERY_UNAVAILABLE', { cause });
+  }
+  if (!response.ok) {
+    throw new AdminOidcError(
+      response.status === 429 || response.status >= 500
+        ? 'ADMIN_OIDC_DISCOVERY_UNAVAILABLE'
+        : 'ADMIN_OIDC_DISCOVERY_REJECTED'
+    );
+  }
+  let value: Record<string, unknown>;
+  try {
+    value = await response.json() as Record<string, unknown>;
+  } catch (cause) {
+    throw new AdminOidcError('ADMIN_OIDC_DISCOVERY_INVALID', { cause });
+  }
   for (const field of ['issuer', 'authorization_endpoint', 'token_endpoint', 'jwks_uri']) {
-    if (typeof value[field] !== 'string' || !value[field]) throw new Error('ADMIN_OIDC_DISCOVERY_INVALID');
+    if (typeof value[field] !== 'string' || !value[field]) throw new AdminOidcError('ADMIN_OIDC_DISCOVERY_INVALID');
+    try {
+      const endpoint = new URL(value[field]);
+      if (config.NODE_ENV === 'production' && endpoint.protocol !== 'https:') throw new Error('https_required');
+    } catch (cause) {
+      throw new AdminOidcError('ADMIN_OIDC_DISCOVERY_INVALID', { cause });
+    }
   }
   return value as unknown as Discovery;
 }
@@ -116,16 +139,41 @@ export async function exchangeAdminAuthorizationCode(state: string, code: string
   } else {
     body.set('client_secret', config.ADMIN_OIDC_CLIENT_SECRET);
   }
-  const tokenResponse = await fetchWithTimeout(config.ADMIN_OIDC_TOKEN_ENDPOINT_OVERRIDE || metadata.token_endpoint, { method: 'POST', headers, body: body.toString() });
-  if (!tokenResponse.ok) throw new Error('ADMIN_OIDC_TOKEN_EXCHANGE_FAILED');
-  const tokens = await tokenResponse.json() as Record<string, unknown>;
+  let tokenResponse: Response;
+  try {
+    tokenResponse = await fetchWithTimeout(config.ADMIN_OIDC_TOKEN_ENDPOINT_OVERRIDE || metadata.token_endpoint, { method: 'POST', headers, body: body.toString() });
+  } catch (cause) {
+    throw new AdminOidcError('ADMIN_OIDC_TOKEN_ENDPOINT_UNAVAILABLE', { cause });
+  }
+  if (!tokenResponse.ok) {
+    throw new AdminOidcError(
+      tokenResponse.status === 429 || tokenResponse.status >= 500
+        ? 'ADMIN_OIDC_TOKEN_ENDPOINT_UNAVAILABLE'
+        : 'ADMIN_OIDC_TOKEN_EXCHANGE_FAILED'
+    );
+  }
+  let tokens: Record<string, unknown>;
+  try {
+    tokens = await tokenResponse.json() as Record<string, unknown>;
+  } catch (cause) {
+    throw new AdminOidcError('ADMIN_OIDC_TOKEN_EXCHANGE_FAILED', { cause });
+  }
   if (typeof tokens.id_token !== 'string') throw new Error('ADMIN_OIDC_ID_TOKEN_REQUIRED');
   const jwks = createRemoteJWKSet(new URL(config.ADMIN_OIDC_JWKS_URI_OVERRIDE || metadata.jwks_uri), { timeoutDuration: config.ADMIN_OIDC_HTTP_TIMEOUT_MS });
-  const verified = await jwtVerify(tokens.id_token, jwks, {
-    issuer: expectedIssuer,
-    audience: config.ADMIN_OIDC_CLIENT_ID,
-    clockTolerance: 30
-  });
+  let verified;
+  try {
+    verified = await jwtVerify(tokens.id_token, jwks, {
+      issuer: expectedIssuer,
+      audience: config.ADMIN_OIDC_CLIENT_ID,
+      clockTolerance: 30
+    });
+  } catch (cause) {
+    const code = cause && typeof cause === 'object' && 'code' in cause ? String(cause.code) : '';
+    if (code === 'ERR_JWKS_TIMEOUT' || code === 'ERR_JWKS_FETCH_FAILED') {
+      throw new AdminOidcError('ADMIN_OIDC_JWKS_UNAVAILABLE', { cause });
+    }
+    throw new AdminOidcError('ADMIN_OIDC_ID_TOKEN_INVALID', { cause });
+  }
   if (verified.payload.nonce !== record.nonce) throw new Error('ADMIN_OIDC_NONCE_INVALID');
   if (!verified.payload.sub) throw new Error('ADMIN_OIDC_SUBJECT_REQUIRED');
   const roles = adminRolesFromClaims(verified.payload);
