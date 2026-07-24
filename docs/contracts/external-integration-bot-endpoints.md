@@ -324,9 +324,9 @@ Unknown extra grants return `WORKFLOW_CONTEXT_GRANT_UNKNOWN`.
 Persist the returned `session.id` as the adapter's external-thread mapping.
 Only the exact integration link and client that created the Workflow session
 may post external replies to it. The session pins the Workflow definition
-version. Each message recompiles execution access from that pinned definition
-and the caller's current effective permissions, and the current Workflow must
-remain active.
+version and accepts one successful launch. Follow-ups reuse the session's
+resource parameter IDs and reauthorize them against current provider and
+workspace state. The current Workflow must remain active.
 
 Post the launch message to create the run:
 
@@ -339,15 +339,35 @@ Content-Type: application/json
 
 ```json
 {
-  "content": "Triage @target[Production Cluster]. Start by showing the compiled read scope.",
+  "kind": "launch",
+  "inputs": {
+    "cluster": "target-id",
+    "investigation_focus": "Start by showing the compiled read scope."
+  },
   "clientRequestId": "mattermost-post-id"
 }
 ```
 
-Workflow V2 resolves typed prompt references such as `@target[...]` when the
-message is launched. The message body accepts only `content` and the optional
-idempotency key `clientRequestId`; target IDs, target types, and arbitrary input
-objects are not accepted.
+Workflow responses expose `parameters` derived from the saved prompt. Launch
+`inputs` must contain exactly those keys. Text parameters contain operator
+text; target and chat parameters contain stable resource IDs rather than
+labels. The control plane compiles the saved prompt, resolves concrete
+`@type[label]` references, resolves resource parameters by ID, and performs the
+same authorization used by interactive launch and schedules. A second launch
+is rejected, while an exact idempotent retry returns the original execution.
+
+Post later thread replies as ordinary follow-ups:
+
+```json
+{
+  "kind": "follow_up",
+  "content": "Check the previous hour as well.",
+  "clientRequestId": "mattermost-reply-post-id"
+}
+```
+
+`{{...}}` has no template meaning in follow-up content. Explicit concrete
+`@type[label]` references retain their normal behavior.
 
 Response:
 

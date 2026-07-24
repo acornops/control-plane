@@ -47,6 +47,7 @@
           "unavailable",
           "unsupported"
         ],
+        "digests": "Responses include promptDigest and bindingDigest from the exact runtime-parameter compilation used for an accepted launch.",
         "mcpAuthRequirements": "Every credentialed MCP server in the compiled Agent scope emits mcpRequirements[].{serverId,serverName,authType,owningAgent.{id,name},connectionState,authRequirement.{scope,credentialLabel,requiredInformation[].{name,description}},action}; generic connection metadata and guidance only, never provider profiles, URLs, headers, or credential values",
         "privacy": "Responses expose bounded reason codes and explicit capability-preview metadata only; compiled scopes, credentials, URLs, headers, tool arguments, input schemas, private connection state, and internal coordinator identity are excluded.",
         "mutation": "Preview creates no session, execution, run, approval, or audit record. Dispatch recompiles an internal authoritative scope that is never returned by the public API."
@@ -288,15 +289,12 @@
           "allowedLogSources?"
         ],
         "workflowSchedule": [
-          "controlMessage",
+          "inputs.{parameterKey:string}",
           "principal.{type=user,id=currentUserId}"
         ],
         "promptReferenceResolve": [
           "prompt",
           "workflowId?",
-          "workflowSessionId?",
-          "initiatingMessageId?",
-          "mode=authoring|launch",
           "requirements[]?"
         ],
         "catalogImport": [
@@ -317,8 +315,15 @@
           "references[].{kind=tool|skill,id}?"
         ],
         "postWorkflowMessage": [
-          "content",
-          "clientRequestId?"
+          "launch.{kind=launch,inputs.{parameterKey:string},clientRequestId?}",
+          "followUp.{kind=follow_up,content,clientRequestId?}"
+        ],
+        "workflowCapabilityPreview": [
+          "inputs.{parameterKey:string}"
+        ],
+        "workflowDefinitionMutation": [
+          "prompt",
+          "no inputs or parameters fields"
         ]
       },
       "responseFields": {
@@ -496,6 +501,9 @@
           "run_id",
           "status"
         ],
+        "workflowDefinition": [
+          "parameters[].{key,type=text|target|chat,required=true}"
+        ],
         "promptReferenceDescriptor": [
           "type",
           "displayName",
@@ -551,7 +559,7 @@
           "status",
           "cron",
           "timezone",
-          "controlMessage",
+          "inputs",
           "approvedContextGrants",
           "principal.{type=user,id}",
           "nextRunAt?",

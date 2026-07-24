@@ -177,13 +177,10 @@ describe('workflows management controller', () => {
       {
         name: 'Custom incident report',
         description: 'Generate a tailored incident report from selected chats.',
-        prompt: 'Generate a tailored incident report from @chat[].',
+        prompt: 'Generate {{text:report_title}} from {{chat:incident_context}}.',
         agentIds: ['agent-incident-reporter'],
         resourceRequirements: [{ type: 'chat', minimum: 1, maximum: 20, requiredOperations: ['read'] }],
         tags: ['incident', 'custom'],
-        inputs: [
-          { name: 'outputFormat', label: 'Output format', type: 'output_format', required: true, optionSource: 'outputFormats' }
-        ],
         capabilityPolicy: {
           mode: 'read_only',
           restrictionMode: 'restrict',
@@ -252,6 +249,36 @@ describe('workflows management controller', () => {
 
   });
 
+  it('rejects concrete target references outside the workflow resource policy', async () => {
+    installWorkspace('owner');
+
+    const response = await callController(createWorkflow, createRequest(
+      { workspaceId: 'workspace-1' },
+      {
+        name: 'Out of policy concrete target',
+        prompt: 'Inspect @target[Test Cluster] and report findings.',
+        agentIds: ['agent-cluster-triage'],
+        resourceRequirements: [{
+          type: 'target',
+          minimum: 1,
+          maximum: 1,
+          requiredOperations: ['read'],
+          constraints: { targetIds: ['different-target'] }
+        }]
+      }
+    ));
+
+    assert.equal(response.statusCode, 400);
+    assert.equal(
+      (response.body as { error: { code: string } }).error.code,
+      'WORKFLOW_PROMPT_REFERENCES_INVALID'
+    );
+    assert.match(
+      (response.body as { error: { message: string } }).error.message,
+      /outside this Workflow resource policy/
+    );
+  });
+
   it('rejects unknown fields through the strict workflow request schema', async () => {
     installWorkspace('owner');
     for (const field of ['workspaceId', 'executionMode']) {
@@ -275,7 +302,7 @@ describe('workflows management controller', () => {
       { capabilityPolicy: { mode: 'unsafe' } },
       { capabilityPolicy: { contextGrants: ['workspace_metadata', 42] } },
       { resourceRequirements: [{ type: 'chat', minimum: 1, maximum: 20, requiredOperations: ['read'], extra: true }] },
-      { inputs: [{ name: 'format', label: 'Format', type: 'output_format', required: 'yes' }] },
+      { parameters: [{ key: 'format', type: 'text', required: true }] },
       { tags: ['valid', 42] }
     ];
 

@@ -74,7 +74,7 @@ describe('prompt resource provider contract', () => {
     assert.equal(descriptor.availability, 'unavailable');
     assert(descriptor.unavailableReason);
     await assert.rejects(
-      provider.resolve({ type: descriptor.type, label: 'repo', start: 0, end: 17, state: 'concrete' }, context),
+      provider.resolve({ type: descriptor.type, label: 'repo', start: 0, end: 17 }, context),
       (error: unknown) => error instanceof PromptResourceProviderError
         && error.code === 'PROMPT_REFERENCE_UNAVAILABLE'
     );

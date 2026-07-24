@@ -4,6 +4,10 @@ import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { promptResourceRegistry, PromptResourceProviderError } from '../services/prompt-resources/index.js';
 import { getWorkflowDefinition } from '../store/repository-workflows.js';
+import {
+  parseWorkflowTemplate,
+  workflowTemplateResourceCardinalityBlockers
+} from '../services/workflow-template.js';
 import { parseBoundedLimit } from '../utils/pagination.js';
 import { toSingleParam } from '../utils/params.js';
 
@@ -18,9 +22,6 @@ const promptResourceRequirementSchema = z.object({
 const promptReferenceResolveBodySchema = z.object({
   prompt: z.string().max(32_768),
   workflowId: z.string().trim().min(1).optional(),
-  workflowSessionId: z.string().trim().min(1).optional(),
-  initiatingMessageId: z.string().trim().min(1).optional(),
-  mode: z.enum(['authoring', 'launch']).optional(),
   requirements: z.array(promptResourceRequirementSchema).optional()
 }).strict();
 
@@ -56,10 +57,16 @@ export async function suggestPromptReferences(req: AuthenticatedRequest, res: Re
     const offset = suggestionOffset(req.query.cursor);
     if (offset === null) return void res.status(400).json({ error: { code: 'INVALID_CURSOR', message: 'cursor is invalid.', retryable: false } });
     const limit = parseBoundedLimit(req.query.limit, 20, 50);
+    const workflowId = stringValue(req.query.workflowId);
+    const workflow = workflowId ? await getWorkflowDefinition(workspaceId, workflowId) : null;
+    if (workflowId && !workflow) {
+      return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found.', retryable: false } });
+    }
     const candidates = await promptResourceRegistry.suggest(type, {
       workspaceId,
       actorUserId: req.auth.userId,
-      workflowId: stringValue(req.query.workflowId),
+      workflowId,
+      requirements: workflow?.resourceRequirements || [],
       query: stringValue(req.query.q) || '',
       limit: offset + limit + 1
     });
@@ -91,18 +98,38 @@ export async function resolvePromptReferences(req: AuthenticatedRequest, res: Re
     } });
     const body = parsedBody.data;
     const prompt = body.prompt;
+    const template = parseWorkflowTemplate(prompt);
+    if (template.errors.length > 0) {
+      return void res.status(400).json({ error: {
+        code: 'WORKFLOW_PROMPT_TEMPLATE_INVALID',
+        message: template.errors[0]?.message || 'Workflow prompt template is invalid.',
+        retryable: false,
+        details: { errors: template.errors.slice(0, 64) }
+      } });
+    }
     const workflowId = body.workflowId;
     const workflow = workflowId ? await getWorkflowDefinition(workspaceId, workflowId) : null;
     if (workflowId && !workflow) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found.', retryable: false } });
+    const requirements = workflow?.resourceRequirements || body.requirements || [];
     const result = await promptResourceRegistry.resolve(prompt, {
       workspaceId,
       actorUserId: req.auth.userId,
       workflowId,
-      workflowSessionId: body.workflowSessionId,
-      initiatingMessageId: body.initiatingMessageId,
-      mode: body.mode ?? 'authoring',
-      requirements: workflow?.resourceRequirements || body.requirements || []
+      mode: 'authoring',
+      requirements
+    }, {
+      enforceCardinality: false,
+      includeImplicit: false
     });
-    res.status(200).json(result);
+    const cardinalityBlockers = workflowTemplateResourceCardinalityBlockers({
+      parameters: template.parameters,
+      concreteBindings: result.bindings,
+      requirements
+    });
+    res.status(200).json({
+      ...result,
+      blockers: [...result.blockers, ...cardinalityBlockers],
+      parameters: template.parameters
+    });
   } catch (error) { next(error); }
 }

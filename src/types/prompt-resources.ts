@@ -8,13 +8,11 @@ export const PROMPT_REFERENCE_ERROR_CODES = [
   'PROMPT_REFERENCE_UNAVAILABLE',
   'PROMPT_REFERENCE_NOT_FOUND',
   'PROMPT_REFERENCE_DENIED',
-  'PROMPT_REFERENCE_PLACEHOLDER',
   'PROMPT_REFERENCE_CARDINALITY',
   'PROMPT_REFERENCE_PROVIDER_TIMEOUT'
 ] as const;
 
 export type PromptReferenceErrorCode = typeof PROMPT_REFERENCE_ERROR_CODES[number];
-export type PromptReferenceState = 'placeholder' | 'concrete';
 export type PromptResourceBindingSource = 'explicit' | 'implicit' | 'trigger';
 export type PromptResourceContextMode = 'inline' | 'tool' | 'routing_only';
 
@@ -23,7 +21,6 @@ export interface PromptReferenceToken {
   label: string;
   start: number;
   end: number;
-  state: PromptReferenceState;
 }
 
 export interface PromptReferenceParseError {
@@ -117,6 +114,7 @@ export interface PromptResourceSuggestionContext {
   workspaceId: string;
   actorUserId: string;
   workflowId?: string;
+  requirements?: PromptResourceRequirement[];
   query: string;
   limit: number;
 }
@@ -125,6 +123,7 @@ export interface PromptResourceProvider {
   descriptor(): PromptReferenceTypeDescriptor;
   suggest(context: PromptResourceSuggestionContext): Promise<PromptResourceCandidate[]>;
   resolve(token: PromptReferenceToken, context: PromptResolutionContext): Promise<PromptResourceCandidate>;
+  resolveById?(resourceId: string, context: PromptResolutionContext): Promise<PromptResourceCandidate>;
   authorize(
     candidate: PromptResourceCandidate,
     context: PromptResolutionContext

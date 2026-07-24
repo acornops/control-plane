@@ -16,6 +16,7 @@ import { parsePromptReferences } from './parser.js';
 
 const PROVIDER_TIMEOUT_MS = 3_000;
 const MAX_BINDING_BYTES = 16_384;
+const CONTROL_CHARACTER = /[\p{Cc}\p{Cf}]/u;
 
 export function digestPrompt(prompt: string): string {
   return createHash('sha256').update(prompt.normalize('NFC'), 'utf8').digest('hex');
@@ -25,8 +26,86 @@ export function digestBindings(bindings: PromptResourceBinding[]): string {
   return createHash('sha256').update(canonicalJson(bindings), 'utf8').digest('hex');
 }
 
+export interface PromptResourceResolutionOptions {
+  enforceCardinality?: boolean;
+  includeImplicit?: boolean;
+}
+
 function bindingId(binding: Omit<PromptResourceBinding, 'bindingId'>): string {
   return `prb_${createHash('sha256').update(canonicalJson(binding), 'utf8').digest('hex').slice(0, 24)}`;
+}
+
+function validateCandidate(
+  descriptor: PromptReferenceTypeDescriptor,
+  type: string,
+  candidate: PromptResourceCandidate,
+  expectedId?: string
+): PromptResourceCandidate {
+  if (!candidate
+    || candidate.type !== type
+    || candidate.provider !== descriptor.provider
+    || typeof candidate.id !== 'string'
+    || !candidate.id
+    || (expectedId !== undefined && candidate.id !== expectedId)
+    || typeof candidate.label !== 'string'
+    || !candidate.label.trim()
+    || CONTROL_CHARACTER.test(candidate.label)
+    || (candidate.description !== undefined && typeof candidate.description !== 'string')
+    || (candidate.unavailableReason !== undefined && typeof candidate.unavailableReason !== 'string')
+    || (candidate.availability !== 'available' && candidate.availability !== 'unavailable')
+    || (candidate.metadata !== undefined
+      && (!candidate.metadata || typeof candidate.metadata !== 'object' || Array.isArray(candidate.metadata)))) {
+    throw new PromptResourceProviderError(
+      'PROMPT_REFERENCE_DENIED',
+      'The prompt resource provider returned an invalid candidate identity.'
+    );
+  }
+  return {
+    ...candidate,
+    label: candidate.label.normalize('NFC')
+  };
+}
+
+function validateBoundResource(
+  descriptor: PromptReferenceTypeDescriptor,
+  type: string,
+  candidate: PromptResourceCandidate,
+  bound: Omit<PromptResourceBinding, 'bindingId'>,
+  context: PromptResolutionContext
+): PromptResourceBinding {
+  const expectedSource = context.source || 'explicit';
+  const requiredOperations = [...new Set((context.requirements || [])
+    .filter((requirement) => requirement.type === type)
+    .flatMap((requirement) => requirement.requiredOperations))];
+  if (!bound
+    || typeof bound !== 'object'
+    || bound.type !== type
+    || bound.resourceId !== candidate.id
+    || bound.provider !== descriptor.provider
+    || bound.providerVersion !== descriptor.providerVersion
+    || bound.workspaceId !== context.workspaceId
+    || bound.labelSnapshot !== candidate.label
+    || bound.source !== expectedSource
+    || !['inline', 'tool', 'routing_only'].includes(bound.contextMode)
+    || !Array.isArray(bound.operations)
+    || bound.operations.length > 64
+    || new Set(bound.operations).size !== bound.operations.length
+    || bound.operations.some((operation) => typeof operation !== 'string' || !operation)
+    || requiredOperations.some((operation) => !bound.operations.includes(operation))
+    || (bound.providerData !== undefined
+      && (!bound.providerData || typeof bound.providerData !== 'object' || Array.isArray(bound.providerData)))) {
+    throw new PromptResourceProviderError(
+      'PROMPT_REFERENCE_DENIED',
+      'The prompt resource provider returned an invalid binding identity.'
+    );
+  }
+  if (Buffer.byteLength(canonicalJson(bound), 'utf8') > MAX_BINDING_BYTES) {
+    throw new PromptResourceProviderError(
+      'PROMPT_REFERENCE_DENIED',
+      'The prompt resource binding exceeds the platform size limit.'
+    );
+  }
+  return { ...bound, bindingId: bindingId(bound) };
 }
 
 async function bounded<T>(promise: Promise<T>): Promise<T> {
@@ -121,10 +200,60 @@ export class PromptResourceRegistry {
         descriptor.unavailableReason || `${descriptor.displayName} references are unavailable.`
       );
     }
-    return bounded(provider.suggest(context));
+    const candidates = await bounded(provider.suggest(context));
+    if (!Array.isArray(candidates)) {
+      throw new PromptResourceProviderError(
+        'PROMPT_REFERENCE_DENIED',
+        'The prompt resource provider returned an invalid suggestion collection.'
+      );
+    }
+    return candidates
+      .slice(0, context.limit)
+      .map((candidate) => validateCandidate(descriptor, type, candidate));
   }
 
-  async resolve(prompt: string, context: PromptResolutionContext): Promise<PromptReferenceResolution> {
+  async resolveById(
+    type: string,
+    resourceId: string,
+    context: PromptResolutionContext
+  ): Promise<{ candidate: PromptResourceCandidate; binding: PromptResourceBinding }> {
+    const provider = this.provider(type);
+    if (!provider) {
+      throw new PromptResourceProviderError('PROMPT_REFERENCE_UNKNOWN_TYPE', `Unknown prompt reference type: ${type}.`);
+    }
+    const descriptor = provider.descriptor();
+    if (!provider.resolveById) {
+      throw new PromptResourceProviderError('PROMPT_REFERENCE_DENIED', `${descriptor.displayName} does not support runtime parameter selection.`);
+    }
+    const candidate = validateCandidate(
+      descriptor,
+      type,
+      await bounded(provider.resolveById(resourceId, context)),
+      resourceId
+    );
+    if (candidate.availability !== 'available') {
+      throw new PromptResourceProviderError(
+        'PROMPT_REFERENCE_UNAVAILABLE',
+        candidate.unavailableReason || 'The selected resource is unavailable.',
+        true
+      );
+    }
+    const authorization = await bounded(provider.authorize(candidate, context));
+    const bound = await bounded(provider.bind(candidate, authorization, {
+      ...context,
+      source: context.source || 'explicit'
+    }));
+    return {
+      candidate,
+      binding: validateBoundResource(descriptor, type, candidate, bound, context)
+    };
+  }
+
+  async resolve(
+    prompt: string,
+    context: PromptResolutionContext,
+    options: PromptResourceResolutionOptions = {}
+  ): Promise<PromptReferenceResolution> {
     const parsed = parsePromptReferences(prompt);
     const blockers: PromptReferenceBlocker[] = parsed.errors.map((error) => ({
       code: error.code,
@@ -156,7 +285,7 @@ export class PromptResourceRegistry {
       }
       const descriptor = provider.descriptor();
       if (descriptor.availability === 'unavailable') {
-        values.filter(({ token }) => context.mode === 'launch' || token.state === 'concrete').forEach(({ token, index }) => blockers.push({
+        values.forEach(({ token, index }) => blockers.push({
           code: 'PROMPT_REFERENCE_UNAVAILABLE',
           message: descriptor.unavailableReason || `${descriptor.displayName} references are unavailable.`,
           tokenIndex: index,
@@ -166,31 +295,12 @@ export class PromptResourceRegistry {
         return;
       }
       for (const { token, index } of values) {
-        if (token.state === 'placeholder') {
-          if (context.mode === 'launch') blockers.push({
-            code: 'PROMPT_REFERENCE_PLACEHOLDER',
-            message: `Complete the ${descriptor.displayName} reference before launching.`,
-            tokenIndex: index,
-            type: token.type,
-            retryable: false
-          });
-          continue;
-        }
-        if (context.mode === 'authoring' && !descriptor.allowPinnedReferences) {
-          blockers.push({
-            code: 'PROMPT_REFERENCE_DENIED',
-            message: `${descriptor.displayName} references must remain reusable placeholders in starter prompts.`,
-            tokenIndex: index,
-            type: token.type,
-            retryable: false
-          });
-          continue;
-        }
         try {
-          const candidate = await bounded(provider.resolve(token, context));
-          if (candidate.type !== type || candidate.provider !== descriptor.provider) {
-            throw new PromptResourceProviderError('PROMPT_REFERENCE_DENIED', 'The prompt resource provider returned an invalid candidate identity.');
-          }
+          const candidate = validateCandidate(
+            descriptor,
+            type,
+            await bounded(provider.resolve(token, context))
+          );
           if (candidate.availability !== 'available') {
             throw new PromptResourceProviderError('PROMPT_REFERENCE_UNAVAILABLE', candidate.unavailableReason || 'The referenced resource is unavailable.', true);
           }
@@ -212,64 +322,53 @@ export class PromptResourceRegistry {
             ...context,
             source: context.source || 'explicit'
           }));
-          const requiredOperations = [...new Set((context.requirements || [])
-            .filter((requirement) => requirement.type === type)
-            .flatMap((requirement) => requirement.requiredOperations))];
-          if (bound.type !== type || bound.resourceId !== candidate.id || bound.provider !== descriptor.provider
-            || bound.providerVersion !== descriptor.providerVersion || bound.workspaceId !== context.workspaceId
-            || bound.source !== (context.source || 'explicit')
-            || bound.operations.length > 64 || new Set(bound.operations).size !== bound.operations.length
-            || bound.operations.some((operation) => typeof operation !== 'string' || !operation)
-            || requiredOperations.some((operation) => !bound.operations.includes(operation))) {
-            throw new PromptResourceProviderError('PROMPT_REFERENCE_DENIED', 'The prompt resource provider returned an invalid binding identity.');
-          }
-          if (Buffer.byteLength(canonicalJson(bound), 'utf8') > MAX_BINDING_BYTES) {
-            throw new PromptResourceProviderError('PROMPT_REFERENCE_DENIED', 'The prompt resource binding exceeds the platform size limit.');
-          }
-          bindingsByIndex[index] = { ...bound, bindingId: bindingId(bound) };
+          bindingsByIndex[index] = validateBoundResource(descriptor, type, candidate, bound, context);
         } catch (error) {
           blockers.push(blocker(error, token, index));
         }
       }
     }));
 
-    const explicitCounts = new Map<string, number>();
-    parsed.tokens.forEach((token) => explicitCounts.set(token.type, (explicitCounts.get(token.type) || 0) + 1));
-    for (const provider of this.providers.values()) {
-      const descriptor = provider.descriptor();
-      const count = explicitCounts.get(descriptor.type) || 0;
-      if (count < descriptor.minimum || count > descriptor.maximum) {
-        blockers.push({
-          code: 'PROMPT_REFERENCE_CARDINALITY',
-          message: `Prompt permits between ${descriptor.minimum} and ${descriptor.maximum} ${descriptor.type} references; found ${count}.`,
-          type: descriptor.type,
-          retryable: false
-        });
+    if (options.enforceCardinality !== false) {
+      const explicitCounts = new Map<string, number>();
+      parsed.tokens.forEach((token) => explicitCounts.set(token.type, (explicitCounts.get(token.type) || 0) + 1));
+      for (const provider of this.providers.values()) {
+        const descriptor = provider.descriptor();
+        const count = explicitCounts.get(descriptor.type) || 0;
+        if (count < descriptor.minimum || count > descriptor.maximum) {
+          blockers.push({
+            code: 'PROMPT_REFERENCE_CARDINALITY',
+            message: `Prompt permits between ${descriptor.minimum} and ${descriptor.maximum} ${descriptor.type} references; found ${count}.`,
+            type: descriptor.type,
+            retryable: false
+          });
+        }
       }
-    }
-    for (const requirement of context.requirements || []) {
-      if (!this.provider(requirement.type)) {
-        blockers.push({
-          code: 'PROMPT_REFERENCE_UNKNOWN_TYPE',
-          message: `Unknown prompt resource requirement type: ${requirement.type}.`,
-          type: requirement.type,
-          retryable: false
-        });
-        continue;
-      }
-      const count = explicitCounts.get(requirement.type) || 0;
-      if (count < requirement.minimum || count > requirement.maximum) {
-        blockers.push({
-          code: 'PROMPT_REFERENCE_CARDINALITY',
-          message: `Prompt requires between ${requirement.minimum} and ${requirement.maximum} ${requirement.type} references; found ${count}.`,
-          type: requirement.type,
-          retryable: false
-        });
+      for (const requirement of context.requirements || []) {
+        if (!this.provider(requirement.type)) {
+          blockers.push({
+            code: 'PROMPT_REFERENCE_UNKNOWN_TYPE',
+            message: `Unknown prompt resource requirement type: ${requirement.type}.`,
+            type: requirement.type,
+            retryable: false
+          });
+          continue;
+        }
+        const count = explicitCounts.get(requirement.type) || 0;
+        if (count < requirement.minimum || count > requirement.maximum) {
+          blockers.push({
+            code: 'PROMPT_REFERENCE_CARDINALITY',
+            message: `Prompt requires between ${requirement.minimum} and ${requirement.maximum} ${requirement.type} references; found ${count}.`,
+            type: requirement.type,
+            retryable: false
+          });
+        }
       }
     }
 
     const bindings = bindingsByIndex.filter((value): value is PromptResourceBinding => Boolean(value));
-    if (context.workflowSessionId) {
+    const includeImplicit = options.includeImplicit ?? Boolean(context.workflowSessionId);
+    if (context.workflowSessionId && includeImplicit) {
       if (bindings.length >= 64) {
         blockers.push({
           code: 'PROMPT_REFERENCE_CARDINALITY',
@@ -286,12 +385,15 @@ export class PromptResourceRegistry {
             type: implicitDescriptor.type,
             label: context.workflowSessionId,
             start: parsed.prompt.length,
-            end: parsed.prompt.length,
-            state: 'concrete'
+            end: parsed.prompt.length
           };
-          const candidate = await bounded(implicitProvider.resolve(implicitToken, context));
-          if (candidate.type !== implicitDescriptor.type || candidate.provider !== implicitDescriptor.provider
-            || candidate.availability !== 'available') {
+          const candidate = validateCandidate(
+            implicitDescriptor,
+            implicitDescriptor.type,
+            await bounded(implicitProvider.resolve(implicitToken, context)),
+            context.workflowSessionId
+          );
+          if (candidate.availability !== 'available') {
             throw new PromptResourceProviderError('PROMPT_REFERENCE_DENIED', 'An implicit prompt resource provider returned an invalid candidate.');
           }
           const authorization = await bounded(implicitProvider.authorize(candidate, context));

@@ -100,7 +100,11 @@ describe('external integration Workflow launch', () => {
     const sessionId = (sessionResponse.body as { session: { id: string } }).session.id;
     const messageResponse = await callController(postMessage, createExternalIntegrationRequest(
       { sessionId },
-      { content: 'Triage @target[Test Cluster].', clientRequestId: 'external-triage-message-1' }
+      {
+        kind: 'launch',
+        inputs: { target: 'cluster-1' },
+        clientRequestId: 'external-triage-message-1'
+      }
     ));
     assert.equal(messageResponse.statusCode, 202);
     const runBody = messageResponse.body as { run_id: string; executionId: string };

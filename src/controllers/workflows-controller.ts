@@ -54,8 +54,15 @@ import { externalIntegrationOwnsWorkflowSession } from './workflow-execution-acc
 import {
   isWorkflowClientRequestIdConflict,
   respondToWorkflowMessageRetry,
-  workflowClientRequestId
+  workflowClientRequestId,
+  workflowMessageRequestFingerprint
 } from './workflow-message-idempotency.js';
+import {
+  compileWorkflowFollowUp,
+  compileWorkflowPrompt,
+  WorkflowParameterValuesError,
+  WorkflowTemplateValidationError
+} from '../services/workflow-template.js';
 const WORKFLOW_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
 
 function requestWorkspaceId(req: AuthenticatedRequest): string | null {
@@ -203,6 +210,7 @@ export async function createSession(req: AuthenticatedRequest, res: Response, ne
         workflowId: session.workflowId,
         workflowVersion: session.workflowVersion,
         createdBy: session.createdBy,
+        launchedAt: session.launchedAt,
         createdAt: session.createdAt,
         workflowSnapshot: session.workflowSnapshot ? publicWorkflowDefinition(session.workflowSnapshot) : undefined
       }
@@ -226,6 +234,7 @@ export async function listSessions(req: AuthenticatedRequest, res: Response, nex
         workflowId: session.workflowId,
         workflowVersion: session.workflowVersion,
         createdBy: session.createdBy,
+        launchedAt: session.launchedAt,
         createdAt: session.createdAt,
         workflowSnapshot: session.workflowSnapshot ? publicWorkflowDefinition(session.workflowSnapshot) : undefined,
         runs: (await listWorkflowRunsForSession(session.id)).map((run) => publicWorkflowRun(run, true))
@@ -267,38 +276,88 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       ? 'create_read_write_runs'
       : 'create_read_only_runs';
     if (!(await requireWorkspaceCapability(req, res, session.workspaceId, requiredCapability, 'No permission to create workflow runs'))) return;
-    const content = typeof req.body.content === 'string' ? req.body.content : '';
-    if (!content.trim()) return void res.status(400).json({ error: { code: 'WORKFLOW_MESSAGE_REQUIRED', message: 'content is required.', retryable: false } });
+    const kind = req.body?.kind;
+    if (kind !== 'launch' && kind !== 'follow_up') {
+      return void res.status(400).json({ error: {
+        code: 'WORKFLOW_MESSAGE_KIND_INVALID',
+        message: 'kind must be launch or follow_up.',
+        retryable: false
+      } });
+    }
     const clientRequestId = workflowClientRequestId(req, res);
     if (clientRequestId === null) return;
-    const unexpectedFields = Object.keys(req.body || {}).filter((field) => field !== 'content' && field !== 'clientRequestId');
+    const allowedFields = kind === 'launch'
+      ? new Set(['kind', 'inputs', 'clientRequestId'])
+      : new Set(['kind', 'content', 'clientRequestId']);
+    const unexpectedFields = Object.keys(req.body || {}).filter((field) => !allowedFields.has(field));
     if (unexpectedFields.length > 0) {
       return void res.status(400).json({ error: {
         code: 'WORKFLOW_MESSAGE_FIELDS_INVALID',
-        message: 'Workflow messages accept only content and an optional clientRequestId.',
+        message: `Workflow ${kind} messages contain unsupported fields.`,
         retryable: false,
         details: { fields: unexpectedFields.sort() }
       } });
     }
-    if (clientRequestId && await respondToWorkflowMessageRetry(res, session, clientRequestId)) return;
-    const messageId = randomUUID();
-    const resolution = await promptResourceRegistry.resolve(content, {
-      workspaceId: session.workspaceId,
-      actorUserId: req.auth.userId,
-      workflowId: workflow.id,
-      workflowSessionId: session.id,
-      initiatingMessageId: messageId,
-      mode: 'launch',
-      requirements: workflow.resourceRequirements || []
-    });
-    if (resolution.blockers.length > 0) {
-      return void res.status(409).json({ error: {
-        code: 'WORKFLOW_PROMPT_REFERENCES_BLOCKED',
-        message: 'One or more prompt resource references could not be resolved.',
-        retryable: resolution.blockers.some((blocker) => blocker.retryable),
-        details: { blockers: resolution.blockers, tokens: resolution.tokens }
+    if (kind === 'launch' && (!req.body.inputs || typeof req.body.inputs !== 'object' || Array.isArray(req.body.inputs))) {
+      return void res.status(400).json({ error: {
+        code: 'WORKFLOW_PARAMETER_VALUES_INVALID',
+        message: 'One or more workflow parameter values are invalid.',
+        retryable: false,
+        details: { errors: [{ key: '', code: 'WORKFLOW_PARAMETER_VALUE_INVALID', message: 'inputs must be an object.' }] }
       } });
     }
+    if (kind === 'follow_up' && (typeof req.body.content !== 'string' || !req.body.content.trim())) {
+      return void res.status(400).json({ error: {
+        code: 'WORKFLOW_MESSAGE_REQUIRED',
+        message: 'content is required for a follow-up.',
+        retryable: false
+      } });
+    }
+    const clientRequestFingerprint = clientRequestId
+      ? workflowMessageRequestFingerprint(req.body as Record<string, unknown>)
+      : '';
+    if (clientRequestId && await respondToWorkflowMessageRetry(
+      res,
+      session,
+      clientRequestId,
+      clientRequestFingerprint
+    )) return;
+    if (kind === 'launch' && session.launchedAt) {
+      return void res.status(409).json({ error: {
+        code: 'WORKFLOW_SESSION_ALREADY_LAUNCHED',
+        message: 'This workflow session has already been launched.',
+        retryable: false
+      } });
+    }
+    if (kind === 'follow_up' && !session.launchedAt) {
+      return void res.status(409).json({ error: {
+        code: 'WORKFLOW_SESSION_NOT_LAUNCHED',
+        message: 'Launch this workflow session before sending a follow-up.',
+        retryable: false
+      } });
+    }
+    const messageId = randomUUID();
+    const inputValues = req.body?.inputs && typeof req.body.inputs === 'object' && !Array.isArray(req.body.inputs)
+      ? req.body.inputs as Record<string, unknown>
+      : {};
+    const resolution = kind === 'launch'
+      ? await compileWorkflowPrompt({
+          workflow,
+          inputValues,
+          actorUserId: req.auth.userId,
+          workflowSessionId: session.id,
+          initiatingMessageId: messageId
+        })
+      : await compileWorkflowFollowUp({
+          workflow,
+          launchWorkflow: session.workflowSnapshot,
+          content: typeof req.body?.content === 'string' ? req.body.content : '',
+          resourceInputValues: session.launchResourceInputs,
+          actorUserId: req.auth.userId,
+          workflowSessionId: session.id,
+          initiatingMessageId: messageId
+        });
+    const content = resolution.content;
     const runtimeProjection = promptResourceRegistry.projectRuntime(resolution.bindings, messageId);
     const projectedTarget = runtimeProjection.targetRoute && typeof runtimeProjection.targetRoute === 'object'
       ? runtimeProjection.targetRoute as Record<string, unknown>
@@ -383,6 +442,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       messageId,
       content,
       clientRequestId: clientRequestId || undefined,
+      clientRequestFingerprint: clientRequestFingerprint || undefined,
       targetId: targetRoute?.id,
       targetType: targetRoute?.targetType,
       promptDigest: resolution.promptDigest,
@@ -393,7 +453,8 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       llmProvider: llmSettings.provider,
       llmModel: llmSettings.model,
       llmReasoningSummaryMode: llmSettings.reasoning.summary_mode,
-      llmReasoningEffort: llmSettings.reasoning.effort
+      llmReasoningEffort: llmSettings.reasoning.effort,
+      ...(kind === 'launch' ? { launchResourceInputs: resolution.resourceInputValues } : {})
     });
     emitWorkflowExecutionEvents(created.execution.id, created.initialEvents);
     await recordWorkspaceAuditEvent({
@@ -427,9 +488,51 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
     if (isWorkflowClientRequestIdConflict(error)) {
       const session = await getWorkflowSession(toSingleParam(req.params.sessionId));
       const clientRequestId = typeof req.body?.clientRequestId === 'string' ? req.body.clientRequestId.trim() : '';
-      if (session && clientRequestId && await respondToWorkflowMessageRetry(res, session, clientRequestId)) return;
+      const clientRequestFingerprint = clientRequestId
+        ? workflowMessageRequestFingerprint(req.body as Record<string, unknown>)
+        : '';
+      if (session && clientRequestId && await respondToWorkflowMessageRetry(
+        res,
+        session,
+        clientRequestId,
+        clientRequestFingerprint
+      )) return;
     }
     if (error instanceof WorkflowAccessDeniedError) return respondWorkflowAccessError(res, error);
+    if (error instanceof WorkflowParameterValuesError) {
+      return void res.status(400).json({ error: {
+        code: 'WORKFLOW_PARAMETER_VALUES_INVALID',
+        message: error.message,
+        retryable: false,
+        details: { errors: error.errors }
+      } });
+    }
+    if (error instanceof WorkflowTemplateValidationError) {
+      return void res.status(400).json({ error: {
+        code: 'WORKFLOW_PROMPT_TEMPLATE_INVALID',
+        message: error.message,
+        retryable: false,
+        details: { errors: error.errors }
+      } });
+    }
+    if (error instanceof Error && error.name === 'WORKFLOW_SESSION_ALREADY_LAUNCHED') {
+      const session = await getWorkflowSession(toSingleParam(req.params.sessionId));
+      const clientRequestId = typeof req.body?.clientRequestId === 'string' ? req.body.clientRequestId.trim() : '';
+      const clientRequestFingerprint = clientRequestId
+        ? workflowMessageRequestFingerprint(req.body as Record<string, unknown>)
+        : '';
+      if (session && clientRequestId && await respondToWorkflowMessageRetry(
+        res,
+        session,
+        clientRequestId,
+        clientRequestFingerprint
+      )) return;
+      return void res.status(409).json({ error: {
+        code: 'WORKFLOW_SESSION_ALREADY_LAUNCHED',
+        message: error.message,
+        retryable: false
+      } });
+    }
     if (error instanceof PromptResourceProviderError) {
       return void res.status(409).json({ error: { code: error.code, message: error.message, retryable: error.retryable } });
     }
@@ -441,9 +544,4 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
   }
 }
 
-export {
-  createWorkflow,
-  deleteWorkflow,
-  duplicateWorkflow,
-  updateWorkflow
-} from './workflows-management-controller.js';
+export { createWorkflow, deleteWorkflow, duplicateWorkflow, updateWorkflow } from './workflows-management-controller.js';

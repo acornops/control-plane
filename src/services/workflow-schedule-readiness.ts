@@ -1,5 +1,5 @@
 import type { RunPrincipalRef } from '../types/agents.js';
-import type { PromptReferenceResolution } from '../types/prompt-resources.js';
+import type { PromptResourceBinding } from '../types/prompt-resources.js';
 import type { WorkflowAccessActor, WorkflowDefinitionForAccess } from '../types/workflows.js';
 import { isTargetType, type TargetSummary } from '../types/domain.js';
 import { repo } from '../store/repository.js';
@@ -14,7 +14,11 @@ export async function getWorkflowScheduleMcpReadinessReport(input: {
   actor: WorkflowAccessActor;
   principal: RunPrincipalRef;
   approvedContextGrants: string[];
-  resolution: PromptReferenceResolution;
+  resolution: {
+    bindings: PromptResourceBinding[];
+    promptDigest: string;
+    bindingDigest: string;
+  };
 }): Promise<McpReadinessReport> {
   const runtimeProjection = promptResourceRegistry.projectRuntime(
     input.resolution.bindings,

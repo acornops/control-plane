@@ -14,7 +14,7 @@ import { withTransaction } from '../store/repository-transaction.js';
 import { getWorkflowDefinition } from '../store/repository-workflows.js';
 import type { DefinitionOrigin } from '../types/agents.js';
 import type { WorkflowCapabilityMode } from '../types/workflows.js';
-import type { WorkflowCapabilityRestrictionMode, WorkflowInputDefinition, WorkflowStatus } from '../types/workflows.js';
+import type { WorkflowCapabilityRestrictionMode, WorkflowStatus } from '../types/workflows.js';
 import type { PromptResourceRequirement } from '../types/prompt-resources.js';
 import { refreshAgentReadiness, refreshWorkflowReadiness } from './automation-readiness.js';
 import { effectiveWorkflowRuntimePolicy } from './workflow-runtime-policy.js';
@@ -44,7 +44,6 @@ export interface WorkflowTemplate {
   capabilityMode: WorkflowCapabilityMode;
   restrictionMode: WorkflowCapabilityRestrictionMode;
   contextGrants?: string[];
-  inputs?: WorkflowInputDefinition[];
   approvalRequirements?: string[];
   status?: WorkflowStatus;
   resourceRequirements?: PromptResourceRequirement[];
@@ -126,7 +125,7 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       key: 'targetDiagnostics',
       name: 'Target diagnostics',
       description: 'Inspect one exact target using live diagnostic evidence.',
-      prompt: 'Inspect @target[] using live diagnostic evidence and summarize findings and safe next actions.',
+      prompt: 'Inspect {{target:target}} using live diagnostic evidence and summarize findings and safe next actions.',
       agentKeys: ['targetDiagnostics'],
       semanticCapabilityIds: ['target.diagnostics.read'],
       capabilityMode: 'read_only',
@@ -139,14 +138,13 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       key: 'targetRemediation',
       name: 'Target remediation',
       description: 'Diagnose and safely change one exact target with approval-gated writes.',
-      prompt: 'Diagnose @target[] using live evidence. Propose the smallest safe change, request approval before each mutation, verify the result, and summarize rollback guidance.',
+      prompt: 'Diagnose {{target:target}} using live evidence. Apply this operator request: {{text:requested_change}}. Propose the smallest safe change, request approval before each mutation, verify the result, and summarize rollback guidance.',
       agentKeys: ['targetRemediation'],
       semanticCapabilityIds: ['target.diagnostics.read', 'target.remediation.write'],
       capabilityMode: 'read_write',
       restrictionMode: 'restrict',
       approvalRequirements: ['Before every write-capable target tool'],
       resourceRequirements: [{ type: 'target', minimum: 1, maximum: 1, requiredOperations: ['read', 'write'], constraints: { targetTypes: ['kubernetes'], targetIds: [] } }],
-      inputs: [{ name: 'requestedChange', label: 'Requested change', type: 'text', required: true }],
       status: 'paused',
       installMode: 'opt_in',
       setupSteps: ['Install paused workflow', 'Select an exact Kubernetes target', 'Preview approval-gated tools', 'Activate']
@@ -155,12 +153,11 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       key: 'incidentReporter',
       name: 'Incident report',
       description: 'Generate an incident report from explicitly granted evidence.',
-      prompt: 'Generate an incident report with provenance from @chat[] and only the granted evidence.',
+      prompt: 'Generate an incident report titled {{text:report_title}} with provenance from {{chat:incident_context}} and only the granted evidence.',
       agentKeys: ['incidentReporter'],
       semanticCapabilityIds: [],
       capabilityMode: 'read_only',
       restrictionMode: 'inherit',
-      inputs: [{ name: 'title', label: 'Report title', type: 'text', required: false }],
       resourceRequirements: [{ type: 'chat', minimum: 1, maximum: 20, requiredOperations: ['read'] }],
       status: 'active',
       installMode: 'automatic',
@@ -170,12 +167,11 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       key: 'managedResponse',
       name: 'Incident investigation',
       description: 'Coordinate target diagnostics and incident reporting for an exact target and selected chats.',
-      prompt: 'Investigate @target[] using @chat[], then produce a provenance-preserving report.',
+      prompt: 'Investigate {{target:target}} using {{chat:incident_context}}. Answer this operator question: {{text:investigation_question}}. Then produce a provenance-preserving report.',
       agentKeys: ['targetDiagnostics', 'incidentReporter'],
       semanticCapabilityIds: ['prompt.resources.read', 'reports.pdf.generate', 'target.diagnostics.read'],
       capabilityMode: 'read_only',
       restrictionMode: 'restrict',
-      inputs: [{ name: 'investigationQuestion', label: 'Investigation question', type: 'text', required: true }],
       resourceRequirements: [
         { type: 'target', minimum: 1, maximum: 1, requiredOperations: ['read'], constraints: { targetTypes: ['kubernetes', 'virtual_machine'], targetIds: [] } },
         { type: 'chat', minimum: 1, maximum: 20, requiredOperations: ['read'] }
@@ -308,7 +304,6 @@ export async function insertStarterWorkflow(
     resourceRequirements: input.template.resourceRequirements,
     capabilityPolicy,
     tags: [],
-    inputs: input.template.inputs || [],
     requiredPermissions: [],
     createdBy: input.installedBy,
     origin: definitionOrigin(),

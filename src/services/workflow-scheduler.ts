@@ -12,6 +12,12 @@ import { resolveWorkspaceLlmSettings } from './workspace-ai-resolution.js';
 import { recordWorkspaceAuditEvent } from './workspace-audit.js';
 import { emitWorkflowExecutionEvents } from './workflow-execution-events.js';
 import { promptResourceRegistry, PromptResourceProviderError } from './prompt-resources/index.js';
+import {
+  compileWorkflowPrompt,
+  workflowParameterSignature,
+  WorkflowParameterValuesError,
+  WorkflowTemplateValidationError
+} from './workflow-template.js';
 import { withRedisLease } from './control-plane-coordination/leases.js';
 import { getAgentDefinition } from '../store/repository-agents.js';
 import { listCapabilityRoutingMappings } from '../store/repository-capability-routing.js';
@@ -63,6 +69,26 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
     incrementWorkflowSchedulerEvent('auto_paused');
     return 'auto_paused';
   }
+  if (schedule.parameterSignature !== workflowParameterSignature(workflow.parameters)) {
+    await recordWorkflowScheduleDispatch(schedule.id, 'auto_paused', {
+      now,
+      error: 'Workflow runtime parameters changed. Review and save the schedule before enabling it again.'
+    });
+    await recordWorkspaceAuditEvent({
+      workspaceId: schedule.workspaceId,
+      category: 'run',
+      eventType: 'workflow.schedule_auto_paused.v1',
+      operation: 'write',
+      actorUserId: schedule.updatedBy.userId,
+      objectType: 'workflow_schedule',
+      objectId: schedule.id,
+      objectName: schedule.name,
+      summary: 'Workflow schedule auto-paused',
+      metadata: { workflowId: schedule.workflowId, reason: 'workflow_parameters_changed' }
+    });
+    incrementWorkflowSchedulerEvent('auto_paused');
+    return 'auto_paused';
+  }
 
   let compiledAccessScope;
   let sessionAccessScope;
@@ -79,22 +105,13 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
   const messageId = randomUUID();
   const sessionId = randomUUID();
   try {
-    resolution = await promptResourceRegistry.resolve(schedule.controlMessage, {
-      workspaceId: schedule.workspaceId,
+    resolution = await compileWorkflowPrompt({
+      workflow,
+      inputValues: schedule.inputs,
       actorUserId: runtimeSubject.userId,
-      workflowId: workflow.id,
       initiatingMessageId: messageId,
-      source: 'trigger',
-      mode: 'launch',
-      requirements: workflow.resourceRequirements || []
+      source: 'trigger'
     });
-    if (resolution.blockers.length > 0) {
-      throw new PromptResourceProviderError(
-        resolution.blockers[0].code,
-        resolution.blockers.map((blocker) => blocker.message).slice(0, 3).join(' '),
-        resolution.blockers.some((blocker) => blocker.retryable)
-      );
-    }
     const runtimeProjection = promptResourceRegistry.projectRuntime(resolution.bindings, messageId);
     const projectedTarget = runtimeProjection.targetRoute && typeof runtimeProjection.targetRoute === 'object'
       ? runtimeProjection.targetRoute as Record<string, unknown>
@@ -141,7 +158,10 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
       bindingDigest: resolution.bindingDigest
     });
   } catch (err) {
-    if (err instanceof WorkflowAccessDeniedError || err instanceof PromptResourceProviderError) {
+    if (err instanceof WorkflowAccessDeniedError
+      || err instanceof PromptResourceProviderError
+      || err instanceof WorkflowParameterValuesError
+      || err instanceof WorkflowTemplateValidationError) {
       await recordWorkflowScheduleDispatch(schedule.id, 'auto_paused', { now, error: sanitizeError(err) });
       await recordWorkspaceAuditEvent({
         workspaceId: schedule.workspaceId,
@@ -153,7 +173,12 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
         objectId: schedule.id,
         objectName: schedule.name,
         summary: 'Workflow schedule auto-paused',
-        metadata: { workflowId: schedule.workflowId, reason: 'access_denied' }
+        metadata: {
+          workflowId: schedule.workflowId,
+          reason: err instanceof WorkflowParameterValuesError || err instanceof WorkflowTemplateValidationError
+            ? 'workflow_parameters_changed'
+            : 'access_denied'
+        }
       });
       incrementWorkflowSchedulerEvent('auto_paused');
       return 'auto_paused';
@@ -212,7 +237,7 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
     session,
     compiledAccessScope,
     messageId,
-    content: schedule.controlMessage,
+    content: resolution.content,
     triggerType: 'schedule',
     triggerId: schedule.id,
     occurrenceKey,
@@ -226,7 +251,8 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
     llmProvider: aiSettings.provider,
     llmModel: aiSettings.model,
     llmReasoningSummaryMode: aiSettings.reasoning.summary_mode,
-    llmReasoningEffort: aiSettings.reasoning.effort
+    llmReasoningEffort: aiSettings.reasoning.effort,
+    launchResourceInputs: resolution.resourceInputValues
   });
   emitWorkflowExecutionEvents(execution.id, initialEvents);
   if (run.status === 'waiting_for_approval') {

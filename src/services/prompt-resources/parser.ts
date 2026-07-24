@@ -79,12 +79,17 @@ export function parsePromptReferences(rawPrompt: string): PromptReferenceParseRe
       errors.push(malformed(start, prompt.length, 'Prompt reference is missing a closing bracket.'));
       break;
     }
+    const normalizedLabel = label.normalize('NFC').trim();
+    if (!normalizedLabel) {
+      errors.push(malformed(start, cursor, 'Prompt references must select a concrete resource. Use {{type:key}} for runtime input.'));
+      index = cursor - 1;
+      continue;
+    }
     tokens.push({
       type,
-      label: label.normalize('NFC').trim(),
+      label: normalizedLabel,
       start,
-      end: cursor,
-      state: label.trim() ? 'concrete' : 'placeholder'
+      end: cursor
     });
     index = cursor - 1;
   }

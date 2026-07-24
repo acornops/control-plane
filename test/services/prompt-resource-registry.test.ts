@@ -14,6 +14,8 @@ import type {
 import { digestBindings, PromptResourceProviderError, PromptResourceRegistry } from '../../src/services/prompt-resources/index.js';
 
 class ContractProvider implements PromptResourceProvider {
+  readonly authorizationContexts: PromptResolutionContext[] = [];
+
   constructor(
     private readonly type: string,
     private readonly behavior: 'ok' | 'missing' = 'ok',
@@ -45,8 +47,17 @@ class ContractProvider implements PromptResourceProvider {
     return { type: this.type, id: token.label.toLocaleLowerCase(), label: token.label, provider: `test.${this.type}`, availability: 'available' };
   }
 
-  async authorize(_candidate: PromptResourceCandidate, _context: PromptResolutionContext): Promise<PromptResourceAuthorization> {
-    return { operations: ['read'], contextMode: 'tool' };
+  async resolveById(resourceId: string, _context: PromptResolutionContext): Promise<PromptResourceCandidate> {
+    if (this.behavior === 'missing') throw new PromptResourceProviderError('PROMPT_REFERENCE_NOT_FOUND', `${this.type} was not found.`);
+    return { type: this.type, id: resourceId, label: resourceId, provider: `test.${this.type}`, availability: 'available' };
+  }
+
+  async authorize(_candidate: PromptResourceCandidate, context: PromptResolutionContext): Promise<PromptResourceAuthorization> {
+    this.authorizationContexts.push(context);
+    const requiredOperations = (context.requirements || [])
+      .filter((requirement) => requirement.type === this.type)
+      .flatMap((requirement) => requirement.requiredOperations);
+    return { operations: requiredOperations.length > 0 ? [...new Set(requiredOperations)] : ['read'], contextMode: 'tool' };
   }
 
   async bind(candidate: PromptResourceCandidate, authorization: PromptResourceAuthorization, context: PromptResolutionContext): Promise<Omit<PromptResourceBinding, 'bindingId'>> {
@@ -106,6 +117,80 @@ test('prompt and binding digests are deterministic', async () => {
   assert.equal(left.promptDigest, right.promptDigest);
   assert.equal(left.bindingDigest, right.bindingDigest);
   assert.equal(left.bindings[0]?.bindingId, right.bindings[0]?.bindingId);
+});
+
+test('cardinality can be deferred without dropping provider authorization requirements', async () => {
+  const provider = new ContractProvider('target');
+  const registry = new PromptResourceRegistry().register(provider);
+  const requirements = [{
+    type: 'target',
+    minimum: 2,
+    maximum: 2,
+    requiredOperations: ['write'],
+    constraints: { targetIds: ['one'] }
+  }];
+  const resolved = await registry.resolve(
+    'Inspect @target[One].',
+    { ...context, requirements },
+    { enforceCardinality: false, includeImplicit: false }
+  );
+
+  assert.deepEqual(resolved.blockers, []);
+  assert.deepEqual(resolved.bindings[0]?.operations, ['write']);
+  assert.deepEqual(provider.authorizationContexts[0]?.requirements, requirements);
+});
+
+test('ID resolution enforces the same authorization and binding invariants as label resolution', async () => {
+  const provider = new ContractProvider('target');
+  const registry = new PromptResourceRegistry().register(provider);
+  const requirements = [{
+    type: 'target',
+    minimum: 1,
+    maximum: 1,
+    requiredOperations: ['write']
+  }];
+  const resolved = await registry.resolveById('target', 'target-1', {
+    ...context,
+    requirements
+  });
+  assert.equal(resolved.binding.resourceId, 'target-1');
+  assert.deepEqual(resolved.binding.operations, ['write']);
+  assert.deepEqual(provider.authorizationContexts[0]?.requirements, requirements);
+
+  class InvalidBindingProvider extends ContractProvider {
+    override async bind(
+      candidate: PromptResourceCandidate,
+      authorization: PromptResourceAuthorization,
+      bindingContext: PromptResolutionContext
+    ): Promise<Omit<PromptResourceBinding, 'bindingId'>> {
+      return {
+        ...(await super.bind(candidate, authorization, bindingContext)),
+        workspaceId: 'different-workspace'
+      };
+    }
+  }
+  const invalidRegistry = new PromptResourceRegistry().register(new InvalidBindingProvider('target'));
+  await assert.rejects(
+    invalidRegistry.resolveById('target', 'target-1', { ...context, requirements }),
+    (error) => error instanceof PromptResourceProviderError
+      && error.code === 'PROMPT_REFERENCE_DENIED'
+  );
+
+  class InvalidCandidateProvider extends ContractProvider {
+    override async resolveById(resourceId: string, candidateContext: PromptResolutionContext): Promise<PromptResourceCandidate> {
+      return {
+        ...(await super.resolveById(resourceId, candidateContext)),
+        label: 'unsafe\nlabel'
+      };
+    }
+  }
+  const invalidCandidateRegistry = new PromptResourceRegistry()
+    .register(new InvalidCandidateProvider('target'));
+  await assert.rejects(
+    invalidCandidateRegistry.resolveById('target', 'target-1', { ...context, requirements }),
+    (error) => error instanceof PromptResourceProviderError
+      && error.code === 'PROMPT_REFERENCE_DENIED'
+  );
 });
 
 test('binding digest matches the cross-service canonical contract vector', () => {

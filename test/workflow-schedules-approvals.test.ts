@@ -14,6 +14,7 @@ import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
 import { runWorkflowScheduleTick } from '../src/services/workflow-scheduler.js';
 import { runAutomationOutboxTick } from '../src/services/automation-outbox-worker.js';
+import { db } from '../src/infra/db.js';
 import {
   createWorkflowRun,
   createWorkflowDefinition,
@@ -22,9 +23,6 @@ import {
   getWorkflowDefinition,
   listWorkflowRunApprovals
 } from '../src/store/repository-workflows.js';
-import {
-  computeNextWorkflowScheduleRunAt
-} from '../src/store/repository-workflow-schedules.js';
 import { getAgentDefinition } from '../src/store/repository-agents.js';
 import { listCapabilityRoutingMappings } from '../src/store/repository-capability-routing.js';
 import type { Run, RunToolApproval } from '../src/types/domain.js';
@@ -103,13 +101,6 @@ function createTargetRun(overrides: Partial<Run> = {}): Run {
 }
 
 describe('workflow schedules and approval inbox', () => {
-  it('computes next schedule due time in the stored timezone', () => {
-    assert.equal(
-      computeNextWorkflowScheduleRunAt('0 9 * * *', new Date('2026-01-01T00:30:00.000Z'), 'Asia/Singapore'),
-      '2026-01-01T01:00:00.000Z'
-    );
-  });
-
   it('requires manage_workflows to create, update, and delete schedules', async () => {
     installWorkspace('operator');
 
@@ -120,7 +111,7 @@ describe('workflow schedules and approval inbox', () => {
         name: 'Hourly triage',
         cron: '0 * * * *',
         timezone: 'UTC',
-        controlMessage: 'Inspect @target[Test Cluster] and summarize findings.',
+        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
@@ -140,7 +131,7 @@ describe('workflow schedules and approval inbox', () => {
         cron: '0 9 * * 1-5',
         timezone: 'UTC',
         principal: { type: 'user', id: 'user-1' },
-        controlMessage: 'Inspect @target[Test Cluster] for high-severity issues.',
+        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
@@ -164,7 +155,7 @@ describe('workflow schedules and approval inbox', () => {
         cron: 'invalid',
         timezone: 'Not/AZone',
         principal: { type: 'user', id: 'user-1' },
-        controlMessage: 'Inspect @target[Test Cluster].',
+        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['unapproved_context']
       }
     ));
@@ -191,7 +182,7 @@ describe('workflow schedules and approval inbox', () => {
         timezone: 'UTC',
         enabled: true,
         principal: { type: 'user', id: 'user-1' },
-        controlMessage: 'Inspect @target[Test Cluster] and summarize findings.',
+        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
@@ -230,7 +221,7 @@ describe('workflow schedules and approval inbox', () => {
         cron: '0 * * * *',
         timezone: 'UTC',
         principal: { type: 'service_identity', id: 'service-1' },
-        controlMessage: 'Inspect @target[Test Cluster].'
+        inputs: { target: 'cluster-1' }
       }
     ));
 
@@ -266,12 +257,19 @@ describe('workflow schedules and approval inbox', () => {
         timezone: 'UTC',
         enabled: true,
         principal: { type: 'user', id: 'user-1' },
-        controlMessage: 'Inspect @target[Test Cluster] and summarize findings.',
+        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
     const createdSchedule = (created.body as { schedule: { id: string; nextRunAt: string } }).schedule;
     const scheduleId = createdSchedule.id;
+    assert.equal('parameterSignature' in createdSchedule, false);
+    await db.query(
+      `UPDATE workflow_definitions
+       SET prompt='Use the latest definition to inspect {{target:target}}.',
+           version=version+1
+       WHERE workspace_id='workspace-1' AND id='cluster-triage'`
+    );
 
     const tickNow = new Date(createdSchedule.nextRunAt);
     const result = await runWorkflowScheduleTick({ now: tickNow });
@@ -280,6 +278,14 @@ describe('workflow schedules and approval inbox', () => {
     assert.equal(result.dispatched, 1);
     assert.equal(await runAutomationOutboxTick(), 1);
     assert.equal(executionDispatches.length, 1);
+    const execution = await db.query<{ prompt_text: string }>(
+      'SELECT prompt_text FROM workflow_executions WHERE trigger_id=$1',
+      [scheduleId]
+    );
+    assert.equal(
+      execution.rows[0]?.prompt_text,
+      'Use the latest definition to inspect @target[Test Cluster].'
+    );
     const listed = await callController(listWorkspaceWorkflowSchedules, createRequest({ workspaceId: 'workspace-1' }));
     const schedule = (listed.body as { items: Array<{ id: string; lastStatus?: string; lastRunAt?: string }> }).items.find((item) => item.id === scheduleId);
     assert.equal(schedule?.lastStatus, 'dispatched');
@@ -310,7 +316,7 @@ describe('workflow schedules and approval inbox', () => {
         timezone: 'UTC',
         enabled: true,
         principal: { type: 'user', id: 'user-1' },
-        controlMessage: 'Inspect @target[Test Cluster] and summarize findings.',
+        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));

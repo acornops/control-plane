@@ -27,6 +27,7 @@ function mapExecution(row: QueryResultRow): WorkflowExecutionRecord {
     triggerId: row.trigger_id || undefined,
     occurrenceKey: row.occurrence_key || undefined,
     clientRequestId: row.client_request_id || undefined,
+    clientRequestFingerprint: row.client_request_fingerprint || undefined,
     requestProvenance: {
       actorType: row.request_actor_type || 'user',
       ...(row.request_external_integration_link_id

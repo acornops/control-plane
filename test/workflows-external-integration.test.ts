@@ -139,10 +139,8 @@ describe('workflow external integration access', () => {
     const missingRequestId = await callController(postMessage, createExternalIntegrationRequest(
       { sessionId },
       {
-        content: 'Triage @cluster[cluster].',
-        inputs: { targetId: 'cluster-1' },
-        targetId: 'cluster-1',
-        targetType: 'kubernetes'
+        kind: 'launch',
+        inputs: { target: 'cluster-1' }
       }
     ));
     assert.equal(missingRequestId.statusCode, 400);
@@ -151,14 +149,26 @@ describe('workflow external integration access', () => {
       'WORKFLOW_CLIENT_REQUEST_ID_REQUIRED'
     );
 
+    const invalidRequestId = await callController(postMessage, createExternalIntegrationRequest(
+      { sessionId },
+      {
+        kind: 'launch',
+        inputs: { target: 'cluster-1' },
+        clientRequestId: 123
+      }
+    ));
+    assert.equal(invalidRequestId.statusCode, 400);
+    assert.equal(
+      (invalidRequestId.body as { error: { code: string } }).error.code,
+      'WORKFLOW_CLIENT_REQUEST_ID_INVALID'
+    );
+
     const otherLinkRequest = createExternalIntegrationRequest(
       { sessionId },
       {
-        content: 'Triage @cluster[cluster].',
+        kind: 'launch',
+        inputs: { target: 'cluster-1' },
         clientRequestId: 'external-message-other-link',
-        inputs: { targetId: 'cluster-1' },
-        targetId: 'cluster-1',
-        targetType: 'kubernetes'
       }
     );
     otherLinkRequest.auth.credential.linkId = 'link-2';
@@ -191,18 +201,54 @@ describe('workflow external integration access', () => {
     const launch = async (clientRequestId: string) => callController(postMessage, withWriteCapability(createExternalIntegrationRequest(
       { sessionId },
       {
-        content: 'Generate the incident report from @chat[Payments incident].',
+        kind: 'launch',
+        inputs: {
+          report_title: 'Payments incident',
+          incident_context: incidentChat.id
+        },
         clientRequestId
       }
     )));
-    const first = await launch('external-gated-message-1');
-    const firstRetry = await launch('external-gated-message-1');
+    const followUp = async (clientRequestId: string) => callController(postMessage, withWriteCapability(createExternalIntegrationRequest(
+      { sessionId },
+      {
+        kind: 'follow_up',
+        content: 'Include the previous hour as well.',
+        clientRequestId
+      }
+    )));
+    const [first, firstRetry] = await Promise.all([
+      launch('external-gated-message-1'),
+      launch('external-gated-message-1')
+    ]);
+    const changedRetry = await callController(postMessage, withWriteCapability(createExternalIntegrationRequest(
+      { sessionId },
+      {
+        kind: 'launch',
+        inputs: {
+          report_title: 'A different report',
+          incident_context: incidentChat.id
+        },
+        clientRequestId: 'external-gated-message-1'
+      }
+    )));
     await updateWorkflowDefinitionScope('workspace-1', 'incident-report-pdf', {
       prompt: 'Updated prompt for future sessions only.'
     });
-    const second = await launch('external-gated-message-2');
+    const secondLaunch = await launch('external-gated-message-2');
+    const second = await followUp('external-gated-message-3');
     assert.equal(first.statusCode, 202);
     assert.equal(firstRetry.statusCode, 202);
+    assert.equal(changedRetry.statusCode, 409);
+    assert.equal(
+      (changedRetry.body as { error: { code: string } }).error.code,
+      'WORKFLOW_CLIENT_REQUEST_ID_CONFLICT'
+    );
+    assert.equal(secondLaunch.statusCode, 409);
+    assert.equal(
+      (secondLaunch.body as { error: { code: string } }).error.code,
+      'WORKFLOW_SESSION_ALREADY_LAUNCHED'
+    );
     assert.equal(second.statusCode, 202);
     const firstBody = first.body as { executionId: string; run_id: string };
     const firstRetryBody = firstRetry.body as { executionId: string; run_id: string };
@@ -220,6 +266,17 @@ describe('workflow external integration access', () => {
     );
     const firstRun = await getWorkflowRun(firstBody.run_id);
     assert.ok(firstRun);
+    assert.deepEqual(firstRun.resourceBindings.map((binding) => binding.type), ['chat']);
+    const followUpRun = await getWorkflowRun(secondBody.run_id);
+    assert.ok(followUpRun);
+    assert.deepEqual(
+      followUpRun.resourceBindings.map((binding) => binding.type).sort(),
+      ['chat', 'workflow_session']
+    );
+    assert.equal(
+      followUpRun.resourceBindings.filter((binding) => binding.type === 'workflow_session').length,
+      1
+    );
     const acceptedRunEvents = await appendWorkflowRunEvents(firstRun.id, [{
       schema_version: 1,
       run_id: firstRun.id,

@@ -21,13 +21,16 @@ import {
 } from '../store/repository-workflows.js';
 import type {
   WorkflowCapabilityPolicy,
-  WorkflowDefinitionForAccess,
-  WorkflowInputDefinition
+  WorkflowDefinitionForAccess
 } from '../types/workflows.js';
 import type { PromptResourceRequirement } from '../types/prompt-resources.js';
 import { promptResourceRegistry } from '../services/prompt-resources/index.js';
 import { toSingleParam } from '../utils/params.js';
 import { publicWorkflowDefinition } from './workflow-public.js';
+import {
+  parseWorkflowTemplate,
+  workflowTemplateResourceCardinalityBlockers
+} from '../services/workflow-template.js';
 
 function bodyRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -62,14 +65,6 @@ const resourceRequirementBodySchema = z.object({
   maximum: z.number().int().nonnegative(),
   requiredOperations: stringListSchema,
   constraints: z.record(z.unknown()).optional()
-}).strict();
-
-const workflowInputBodySchema = z.object({
-  name: nonEmptyStringSchema,
-  label: nonEmptyStringSchema,
-  type: z.enum(['text', 'select', 'mcp_server', 'mcp_tool', 'skill', 'output_format', 'approval_policy', 'runtime', 'retention']),
-  required: z.boolean(),
-  optionSource: z.string().min(1).optional()
 }).strict();
 
 function capabilityPolicy(value: unknown, fallback?: WorkflowCapabilityPolicy): WorkflowCapabilityPolicy {
@@ -139,7 +134,6 @@ const workflowAuthoringBodySchema = z.object({
   resourceRequirements: z.array(resourceRequirementBodySchema).optional(),
   capabilityPolicy: workflowCapabilityPolicyBodySchema.optional(),
   tags: stringListSchema.optional(),
-  inputs: z.array(workflowInputBodySchema).optional(),
   requiredPermissions: stringListSchema.optional(),
   status: z.enum(['active', 'draft', 'paused']).optional()
 }).strict();
@@ -171,49 +165,6 @@ function strictWorkflowBody(
   return result.data;
 }
 
-function inputs(value: unknown): WorkflowInputDefinition[] {
-  if (value === undefined || value === null) return [];
-  if (!Array.isArray(value)) {
-    throw new DefinitionValidationError('WORKFLOW_INPUTS_INVALID', 'inputs must be an array.');
-  }
-  const allowedTypes = new Set<WorkflowInputDefinition['type']>([
-    'text', 'select', 'mcp_server', 'mcp_tool', 'skill', 'output_format', 'approval_policy', 'runtime', 'retention'
-  ]);
-  const optionSources: Partial<Record<WorkflowInputDefinition['type'], string>> = {
-    mcp_server: 'mcpServers',
-    mcp_tool: 'mcpTools',
-    skill: 'skills',
-    output_format: 'outputFormats',
-    approval_policy: 'approvalPolicies',
-    runtime: 'runtimeLimits',
-    retention: 'retentionPolicies'
-  };
-  return value.map((item, index) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      throw new DefinitionValidationError('WORKFLOW_INPUTS_INVALID', `Input ${index + 1} must be an object.`);
-    }
-    const parsed = workflowInputBodySchema.safeParse(item);
-    if (!parsed.success) {
-      throw new DefinitionValidationError(
-        'WORKFLOW_INPUTS_INVALID',
-        parsed.error.issues[0]?.message || `Input ${index + 1} is invalid.`
-      );
-    }
-    const body = parsed.data;
-    const name = body.name;
-    const label = body.label;
-    const type = allowedTypes.has(body.type) ? body.type : null;
-    const optionSource = body.optionSource;
-    if (!name || !label || !type || (optionSource !== undefined && optionSources[type] !== optionSource)) {
-      throw new DefinitionValidationError(
-        'WORKFLOW_INPUTS_INVALID',
-        `Input ${index + 1} has an invalid name, label, type, or option source.`
-      );
-    }
-    return { name, label, type, required: body.required, optionSource };
-  });
-}
-
 function validationError(res: Response, error: DefinitionValidationError): void {
   if (error.code === 'SYSTEM_WORKFLOW_DEFINITION_IMMUTABLE') {
     incrementAutomationDefinitionMutation('workflow', 'definition', 'rejected');
@@ -229,17 +180,40 @@ async function validateAuthoringPrompt(
   prompt: string,
   requirements: PromptResourceRequirement[]
 ): Promise<void> {
+  const template = parseWorkflowTemplate(prompt);
+  if (template.errors.length > 0) {
+    throw new DefinitionValidationError(
+      'WORKFLOW_PROMPT_TEMPLATE_INVALID',
+      template.errors.map((error) => error.message).slice(0, 3).join(' '),
+      template.errors.map((error) => error.code)
+    );
+  }
   const resolution = await promptResourceRegistry.resolve(prompt, {
     workspaceId,
     actorUserId,
     mode: 'authoring',
     requirements
+  }, {
+    enforceCardinality: false,
+    includeImplicit: false
   });
   if (resolution.blockers.length > 0) {
     throw new DefinitionValidationError(
       'WORKFLOW_PROMPT_REFERENCES_INVALID',
       resolution.blockers.map((blocker) => blocker.message).slice(0, 3).join(' '),
       resolution.blockers.map((blocker) => blocker.code)
+    );
+  }
+  const cardinalityBlockers = workflowTemplateResourceCardinalityBlockers({
+    parameters: template.parameters,
+    concreteBindings: resolution.bindings,
+    requirements
+  });
+  if (cardinalityBlockers.length > 0) {
+    throw new DefinitionValidationError(
+      'WORKFLOW_PROMPT_RESOURCE_CARDINALITY_INVALID',
+      cardinalityBlockers.map((blocker) => blocker.message).slice(0, 3).join(' '),
+      cardinalityBlockers.map((blocker) => blocker.code)
     );
   }
 }
@@ -294,7 +268,6 @@ export async function createWorkflow(req: AuthenticatedRequest, res: Response, n
       resourceRequirements: parsedRequirements,
       capabilityPolicy: capabilityPolicy(body.capabilityPolicy),
       tags: strings(body.tags),
-      inputs: inputs(body.inputs),
       requiredPermissions: (body.requiredPermissions === undefined
         ? manualWorkflowRequiredPermissions()
         : strings(body.requiredPermissions)) as WorkflowDefinitionForAccess['requiredPermissions'],
@@ -327,7 +300,6 @@ export async function duplicateWorkflow(req: AuthenticatedRequest, res: Response
       resourceRequirements: source.resourceRequirements,
       capabilityPolicy: withEffectiveWorkflowRuntimePolicy(source.capabilityPolicy),
       tags: source.tags,
-      inputs: source.inputs,
       requiredPermissions: source.requiredPermissions,
       createdBy: req.auth.userId,
       status: 'draft'
@@ -371,7 +343,6 @@ export async function updateWorkflow(req: AuthenticatedRequest, res: Response, n
       resourceRequirements: body.resourceRequirements === undefined ? undefined : nextRequirements,
       capabilityPolicy: body.capabilityPolicy === undefined ? undefined : capabilityPolicy(body.capabilityPolicy, current.capabilityPolicy),
       tags: body.tags === undefined ? undefined : strings(body.tags),
-      inputs: body.inputs === undefined ? undefined : inputs(body.inputs),
       requiredPermissions: body.requiredPermissions === undefined ? undefined : strings(body.requiredPermissions) as WorkflowDefinitionForAccess['requiredPermissions']
     });
     if (!updated) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });

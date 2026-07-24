@@ -29,7 +29,7 @@ const descriptor: PromptReferenceTypeDescriptor = {
   availability: 'available',
   minimum: 0,
   maximum: 20,
-  allowPinnedReferences: false,
+  allowPinnedReferences: true,
   provider: 'acornops.target-chat',
   providerVersion: '1'
 };
@@ -78,6 +78,12 @@ export class ChatPromptResourceProvider implements PromptResourceProvider {
     if (matches.length === 0) throw new PromptResourceProviderError('PROMPT_REFERENCE_NOT_FOUND', 'The referenced chat is not active in this workspace.');
     if (matches.length > 1) throw new PromptResourceProviderError('PROMPT_REFERENCE_AMBIGUOUS', 'The referenced chat title is ambiguous.');
     return candidate(matches[0]);
+  }
+
+  async resolveById(resourceId: string, context: PromptResolutionContext): Promise<PromptResourceCandidate> {
+    const row = (await chats(context.workspaceId)).find((value) => value.id === resourceId);
+    if (!row) throw new PromptResourceProviderError('PROMPT_REFERENCE_NOT_FOUND', 'The selected chat is not active in this workspace.');
+    return candidate(row);
   }
 
   async authorize(candidateValue: PromptResourceCandidate, context: PromptResolutionContext): Promise<PromptResourceAuthorization> {

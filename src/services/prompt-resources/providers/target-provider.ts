@@ -63,7 +63,19 @@ export class TargetPromptResourceProvider implements PromptResourceProvider {
 
   async suggest(context: PromptResourceSuggestionContext): Promise<PromptResourceCandidate[]> {
     const query = normalized(context.query);
+    const policy = requirements({
+      ...context,
+      mode: 'authoring'
+    });
+    const targetIds = Array.isArray(policy.constraints.targetIds)
+      ? policy.constraints.targetIds.filter((value): value is string => typeof value === 'string')
+      : [];
+    const targetTypes = Array.isArray(policy.constraints.targetTypes)
+      ? policy.constraints.targetTypes.filter((value): value is TargetType => value === 'kubernetes' || value === 'virtual_machine')
+      : [];
     return (await listWorkflowTargetSnapshot(context.workspaceId))
+      .filter((target) => targetIds.length === 0 || targetIds.includes(target.id))
+      .filter((target) => targetTypes.length === 0 || targetTypes.includes(target.targetType))
       .filter((target) => !query || normalized(target.name).includes(query))
       .slice(0, context.limit)
       .map((target) => ({
@@ -88,6 +100,24 @@ export class TargetPromptResourceProvider implements PromptResourceProvider {
       throw new PromptResourceProviderError('PROMPT_REFERENCE_AMBIGUOUS', 'The referenced target label is ambiguous.');
     }
     const target = matches[0];
+    return {
+      type: descriptor.type,
+      id: target.id,
+      label: target.name,
+      description: target.targetType === 'kubernetes' ? 'Kubernetes target' : 'Virtual machine',
+      provider: descriptor.provider,
+      availability: target.status === 'online' ? 'available' : 'unavailable',
+      unavailableReason: target.status === 'online' ? undefined : `Target is ${target.status}.`,
+      metadata: { targetType: target.targetType }
+    };
+  }
+
+  async resolveById(resourceId: string, context: PromptResolutionContext): Promise<PromptResourceCandidate> {
+    const target = (await listWorkflowTargetSnapshot(context.workspaceId))
+      .find((value) => value.id === resourceId);
+    if (!target) {
+      throw new PromptResourceProviderError('PROMPT_REFERENCE_NOT_FOUND', 'The selected target does not exist in this workspace.');
+    }
     return {
       type: descriptor.type,
       id: target.id,

@@ -60,7 +60,7 @@ describe('coordinated Workflow schedules', () => {
     const workflow = await createWorkflowDefinition({
       workspaceId: 'workspace-1',
       name: 'Scheduled coordination',
-      prompt: 'Inspect @target[] using a specialist.',
+      prompt: 'Inspect {{target:target}} using a specialist.',
       agentIds: ['agent-cluster-triage', 'agent-incident-reporter'],
       resourceRequirements: [{
         type: 'target',
@@ -91,7 +91,7 @@ describe('coordinated Workflow schedules', () => {
         timezone: 'UTC',
         enabled: true,
         principal: { type: 'user', id: 'user-1' },
-        controlMessage: 'Inspect @target[Test Cluster] using a specialist.',
+        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));

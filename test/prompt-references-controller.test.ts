@@ -16,11 +16,48 @@ describe('prompt reference controller', () => {
     installWorkspace('viewer');
     const response = await callController(resolvePromptReferences, createRequest(
       { workspaceId: 'workspace-1' },
-      { prompt: 'Summarize current operations.', mode: 'authoring' }
+      { prompt: 'Summarize {{text:focus}}.' }
     ));
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual((response.body as { blockers: unknown[] }).blockers, []);
+    assert.deepEqual((response.body as { parameters: unknown[] }).parameters, [
+      { key: 'focus', type: 'text', required: true }
+    ]);
+  });
+
+  it('counts distinct runtime resource parameters in authoring cardinality', async () => {
+    installWorkspace('viewer');
+    const parameterOnly = await callController(resolvePromptReferences, createRequest(
+      { workspaceId: 'workspace-1' },
+      {
+        prompt: 'Investigate {{target:target}}.',
+        requirements: [{
+          type: 'target',
+          minimum: 1,
+          maximum: 1,
+          requiredOperations: ['read']
+        }]
+      }
+    ));
+    assert.equal(parameterOnly.statusCode, 200);
+    assert.deepEqual((parameterOnly.body as { blockers: unknown[] }).blockers, []);
+
+    const twoParameters = await callController(resolvePromptReferences, createRequest(
+      { workspaceId: 'workspace-1' },
+      {
+        prompt: 'Compare {{target:first_target}} with {{target:second_target}}.',
+        requirements: [{
+          type: 'target',
+          minimum: 1,
+          maximum: 1,
+          requiredOperations: ['read']
+        }]
+      }
+    ));
+    assert.equal(twoParameters.statusCode, 200);
+    assert.ok((twoParameters.body as { blockers: Array<{ code: string }> }).blockers
+      .some((blocker) => blocker.code === 'PROMPT_REFERENCE_CARDINALITY'));
   });
 
   it('rejects unknown and malformed nested fields instead of coercing them', async () => {

@@ -89,9 +89,9 @@ describe('development target seed', () => {
             description: values[4], status: values[5], prompt: values[6],
             agent_ids: JSON.parse(String(values[7])), resource_requirements: JSON.parse(String(values[8])),
             capability_policy: values[9], tags: JSON.parse(String(values[10])),
-            inputs: JSON.parse(String(values[11])), required_permissions: JSON.parse(String(values[12])),
-            created_by: values[13], readiness_status: values[14],
-            readiness_reasons: JSON.parse(String(values[15])),
+            required_permissions: JSON.parse(String(values[11])),
+            created_by: values[12], readiness_status: values[13],
+            readiness_reasons: JSON.parse(String(values[14])),
             created_at: new Date(), updated_at: new Date()
           };
           workflowRows.set(String(values[1]), row);
@@ -152,7 +152,7 @@ describe('development target seed', () => {
     const targetDiagnosticsWorkflow = [...workflowRows.values()].find((row) => row.name === 'Target diagnostics');
     assert.equal(
       targetDiagnosticsWorkflow?.prompt,
-      'Inspect @target[] using live diagnostic evidence and summarize findings and safe next actions.'
+      'Inspect {{target:target}} using live diagnostic evidence and summarize findings and safe next actions.'
     );
     assert.equal(targetDiagnosticsWorkflow?.description, 'Inspect one exact target using live diagnostic evidence.');
     assert.equal(transactionQueries.some(({ sql }) => sql.includes("SET state='complete'")), true);

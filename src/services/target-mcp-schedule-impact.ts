@@ -4,7 +4,7 @@ import {
   pauseWorkflowScheduleForConfigurationChange
 } from '../store/repository-workflow-schedules.js';
 import { getWorkflowDefinition } from '../store/repository-workflows.js';
-import { promptResourceRegistry } from './prompt-resources/index.js';
+import { compileWorkflowPrompt } from './workflow-template.js';
 import { resolveRunPrincipal } from './run-principal.js';
 import { getWorkflowScheduleMcpReadinessReport } from './workflow-schedule-readiness.js';
 import { recordWorkspaceAuditEvent } from './workspace-audit.js';
@@ -25,15 +25,12 @@ export async function pauseSchedulesForTargetIndividualCredentials(input: {
       if (!workflow) continue;
       const actor = await resolveRunPrincipal(input.workspaceId, schedule.principal);
       if (!actor) continue;
-      const resolution = await promptResourceRegistry.resolve(schedule.controlMessage, {
-        workspaceId: input.workspaceId,
+      const resolution = await compileWorkflowPrompt({
+        workflow,
+        inputValues: schedule.inputs,
         actorUserId: actor.userId,
-        workflowId: workflow.id,
-        source: 'trigger',
-        mode: 'launch',
-        requirements: workflow.resourceRequirements || []
+        source: 'trigger'
       });
-      if (resolution.blockers.length > 0) continue;
       const readiness = await getWorkflowScheduleMcpReadinessReport({
         workspaceId: input.workspaceId,
         workflow,

@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
 import type { Response } from 'express';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
+import { canonicalJson } from '../services/canonical-json.js';
 import { getWorkflowExecutionByClientRequestId, type WorkflowSessionRecord } from '../store/repository-workflows.js';
 
 export function isWorkflowClientRequestIdConflict(err: unknown): boolean {
@@ -12,16 +14,18 @@ export function isWorkflowClientRequestIdConflict(err: unknown): boolean {
 export async function respondToWorkflowMessageRetry(
   res: Response,
   session: WorkflowSessionRecord,
-  clientRequestId: string
+  clientRequestId: string,
+  clientRequestFingerprint: string
 ): Promise<boolean> {
   if (!clientRequestId) return false;
   const existing = await getWorkflowExecutionByClientRequestId(session.workspaceId, clientRequestId);
   if (!existing) return false;
-  if (existing.execution.workflowSessionId !== session.id) {
+  if (existing.execution.workflowSessionId !== session.id
+    || existing.execution.clientRequestFingerprint !== clientRequestFingerprint) {
     res.status(409).json({
       error: {
         code: 'WORKFLOW_CLIENT_REQUEST_ID_CONFLICT',
-        message: 'clientRequestId was already used for a different Workflow session.',
+        message: 'clientRequestId was already used for a different Workflow request.',
         retryable: false
       }
     });
@@ -36,11 +40,34 @@ export async function respondToWorkflowMessageRetry(
   return true;
 }
 
+export function workflowMessageRequestFingerprint(
+  body: Record<string, unknown>
+): string {
+  const request = body.kind === 'launch'
+    ? { kind: 'launch', inputs: body.inputs }
+    : { kind: 'follow_up', content: body.content };
+  return createHash('sha256').update(canonicalJson(request), 'utf8').digest('hex');
+}
+
 export function workflowClientRequestId(
   req: AuthenticatedRequest,
   res: Response
 ): string | null {
-  const id = typeof req.body.clientRequestId === 'string' ? req.body.clientRequestId.trim() : '';
+  const body = req.body && typeof req.body === 'object'
+    ? req.body as Record<string, unknown>
+    : {};
+  const supplied = Object.prototype.hasOwnProperty.call(body, 'clientRequestId');
+  if (supplied && typeof body.clientRequestId !== 'string') {
+    res.status(400).json({
+      error: {
+        code: 'WORKFLOW_CLIENT_REQUEST_ID_INVALID',
+        message: 'clientRequestId must be a non-empty string of at most 128 characters.',
+        retryable: false
+      }
+    });
+    return null;
+  }
+  const id = typeof body.clientRequestId === 'string' ? body.clientRequestId.trim() : '';
   if (req.auth.credential?.type === 'external_integration' && !id) {
     res.status(400).json({
       error: {
@@ -51,11 +78,11 @@ export function workflowClientRequestId(
     });
     return null;
   }
-  if (id.length <= 128) return id;
+  if (!supplied || (id.length > 0 && id.length <= 128)) return id;
   res.status(400).json({
     error: {
       code: 'WORKFLOW_CLIENT_REQUEST_ID_INVALID',
-      message: 'clientRequestId must be at most 128 characters.',
+      message: 'clientRequestId must be a non-empty string of at most 128 characters.',
       retryable: false
     }
   });

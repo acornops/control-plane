@@ -3,12 +3,12 @@ import type { PoolClient, QueryResultRow } from 'pg';
 import { db } from '../infra/db.js';
 import type {
   WorkflowCapabilityPolicy,
-  WorkflowDefinitionForAccess,
-  WorkflowInputDefinition
+  WorkflowDefinitionForAccess
 } from '../types/workflows.js';
 import type { PromptResourceRequirement } from '../types/prompt-resources.js';
 import type { DefinitionOrigin } from '../types/agents.js';
 import { resetWorkflowRunRepositoryForTests } from './repository-workflow-runs.js';
+import { workflowParameters } from '../services/workflow-template.js';
 
 export type {
   WorkflowExecutionRecord,
@@ -59,7 +59,6 @@ export interface WorkflowDefinitionUpdate {
   resourceRequirements?: PromptResourceRequirement[];
   capabilityPolicy?: Partial<WorkflowCapabilityPolicy>;
   tags?: string[];
-  inputs?: WorkflowInputDefinition[];
   requiredPermissions?: WorkflowDefinitionForAccess['requiredPermissions'];
 }
 
@@ -72,7 +71,6 @@ export interface CreateWorkflowDefinitionInput {
   resourceRequirements?: PromptResourceRequirement[];
   capabilityPolicy: WorkflowCapabilityPolicy;
   tags?: string[];
-  inputs?: WorkflowInputDefinition[];
   requiredPermissions?: WorkflowDefinitionForAccess['requiredPermissions'];
   createdBy: string;
   origin?: DefinitionOrigin;
@@ -129,7 +127,7 @@ function mapWorkflowDefinition(row: WorkflowRow): WorkflowDefinitionForAccess {
     resourceRequirements: normalizeResourceRequirements(row.resource_requirements || []),
     capabilityPolicy: normalizeCapabilityPolicy(row.capability_policy),
     tags: row.tags || [],
-    inputs: row.inputs || [],
+    parameters: workflowParameters(row.prompt),
     requiredPermissions: row.required_permissions || [],
     createdBy: row.created_by,
     createdAt: iso(row.created_at),
@@ -176,8 +174,8 @@ export async function createWorkflowDefinition(
   const result = await queryable.query<WorkflowRow>(
     `INSERT INTO workflow_definitions (
        workspace_id,id,version,origin,name,description,status,prompt,agent_ids,resource_requirements,
-       capability_policy,tags,inputs,required_permissions,created_by,readiness_status,readiness_reasons
-     ) VALUES ($1,$2,1,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+       capability_policy,tags,required_permissions,created_by,readiness_status,readiness_reasons
+     ) VALUES ($1,$2,1,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
     [
       input.workspaceId,
       `${slug}-${randomUUID().slice(0, 8)}`,
@@ -190,7 +188,6 @@ export async function createWorkflowDefinition(
       JSON.stringify(resourceRequirements),
       capabilityPolicy,
       JSON.stringify(uniqueSorted(input.tags)),
-      JSON.stringify(input.inputs || []),
       JSON.stringify(uniqueSorted(input.requiredPermissions || []) as WorkflowDefinitionForAccess['requiredPermissions']),
       input.createdBy,
       readiness.status,
@@ -217,7 +214,6 @@ export async function duplicateWorkflowDefinition(
     resourceRequirements: source.resourceRequirements,
     capabilityPolicy: source.capabilityPolicy,
     tags: source.tags,
-    inputs: source.inputs,
     requiredPermissions: source.requiredPermissions,
     createdBy,
     origin: { type: 'manual' },
@@ -240,8 +236,8 @@ export async function updateWorkflowDefinitionScope(
   const result = await queryable.query<WorkflowRow>(
     `UPDATE workflow_definitions SET
        version=version+1,name=$3,description=$4,status=$5,prompt=$6,agent_ids=$7,resource_requirements=$8,
-       capability_policy=$9,tags=$10,inputs=$11,required_permissions=$12,
-       readiness_status='needs_setup',readiness_reasons=$13,updated_at=NOW()
+       capability_policy=$9,tags=$10,required_permissions=$11,
+       readiness_status='needs_setup',readiness_reasons=$12,updated_at=NOW()
      WHERE workspace_id=$1 AND id=$2 RETURNING *`,
     [
       workspaceId,
@@ -256,7 +252,6 @@ export async function updateWorkflowDefinitionScope(
         : current.resourceRequirements),
       capabilityPolicy,
       JSON.stringify(update.tags ? uniqueSorted(update.tags) : current.tags || []),
-      JSON.stringify(update.inputs || current.inputs || []),
       JSON.stringify(update.requiredPermissions ? uniqueSorted(update.requiredPermissions) : current.requiredPermissions),
       JSON.stringify(['Readiness has not been evaluated against the live capability catalog.'])
     ]

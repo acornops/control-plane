@@ -75,11 +75,6 @@ const workflowAuthoringProperties = {
     approvalRequirements: { type: 'array', items: { type: 'string' } }
   }, additionalProperties: false },
   tags: { type: 'array', items: { type: 'string' } },
-  inputs: { type: 'array', items: { type: 'object', required: ['name', 'label', 'type', 'required'], properties: {
-    name: { type: 'string' }, label: { type: 'string' },
-    type: { type: 'string', enum: ['text', 'select', 'mcp_server', 'mcp_tool', 'skill', 'output_format', 'approval_policy', 'runtime', 'retention'] },
-    required: { type: 'boolean' }, optionSource: { type: 'string' }
-  }, additionalProperties: false } },
   requiredPermissions: { type: 'array', items: { type: 'string' } }
 };
 
@@ -120,11 +115,11 @@ const workflowCapabilitiesPreviewBody = {
     'application/json': {
       schema: {
         type: 'object',
-        required: ['workspaceId', 'approvedContextGrants', 'content'],
+        required: ['workspaceId', 'approvedContextGrants', 'inputs'],
         properties: {
           workspaceId: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID },
           approvedContextGrants: { type: 'array', items: { type: 'string' } },
-          content: { type: 'string', description: 'Prompt used for non-authoritative resource and capability preview.' }
+          inputs: { type: 'object', additionalProperties: { type: 'string' }, description: 'Exact runtime parameter values compiled using the same path as launch.' }
         },
         additionalProperties: false
       }
@@ -138,7 +133,7 @@ const workflowScheduleBody = {
     'application/json': {
       schema: {
         type: 'object',
-        required: ['workflowId', 'name', 'cron', 'timezone', 'controlMessage', 'principal'],
+        required: ['workflowId', 'name', 'cron', 'timezone', 'inputs', 'principal'],
         properties: {
           workspaceId: { type: 'string', format: 'uuid' },
           workflowId: { type: 'string' },
@@ -146,7 +141,7 @@ const workflowScheduleBody = {
           enabled: { type: 'boolean' },
           cron: { type: 'string', example: '0 9 * * 1-5' },
           timezone: { type: 'string', example: 'UTC' },
-          controlMessage: { type: 'string', description: 'Prompt template re-resolved and reauthorized for every occurrence.' },
+          inputs: { type: 'object', additionalProperties: { type: 'string' }, description: 'Exact workflow runtime parameter values re-resolved and reauthorized for every occurrence.' },
           approvedContextGrants: { type: 'array', items: { type: 'string' } },
           principal: { type: 'object', required: ['type', 'id'], properties: {
             type: { type: 'string', enum: ['user'] }, id: { type: 'string' }
@@ -215,10 +210,10 @@ export function buildWorkflowPaths(): Record<string, unknown> {
     '/api/v1/workspaces/{workspaceId}/prompt-references/resolve': {
       post: {
         tags: ['prompt resources'], summary: 'Preview prompt resource resolution',
-        description: 'Parses all reference types, resolves provider groups concurrently, and returns display-only binding previews and blockers. Run creation always resolves and authorizes again.',
+        description: 'Authoring-only preview that parses concrete @type[label] references and returns derived runtime parameters. Run creation always resolves and authorizes again.',
         security: [{ userSession: [] }], parameters: [workspaceIdParameter],
-        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['prompt'], properties: { prompt: { type: 'string', maxLength: 32768 }, workflowId: { type: 'string' }, workflowSessionId: { type: 'string' }, initiatingMessageId: { type: 'string' }, mode: { type: 'string', enum: ['authoring', 'launch'] }, requirements: { type: 'array', items: { $ref: '#/components/schemas/PromptResourceRequirement' } } }, additionalProperties: false } } } },
-        responses: { '200': { description: 'Parsed references, candidate status, binding preview, and blockers.' } }
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['prompt'], properties: { prompt: { type: 'string', maxLength: 32768 }, workflowId: { type: 'string' }, requirements: { type: 'array', items: { $ref: '#/components/schemas/PromptResourceRequirement' } } }, additionalProperties: false } } } },
+        responses: { '200': { description: 'Parsed concrete references, derived parameters, candidate status, binding preview, and blockers.' } }
       }
     },
     '/api/v1/workspaces/{workspaceId}/workflow-schedules': {
@@ -244,7 +239,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       patch: {
         tags: ['workflows'],
         summary: 'Update workflow schedule',
-        description: 'Updates schedule cadence, enabled state, workflow, grants, or the control message. Requires manage_workflows.',
+        description: 'Updates schedule cadence, enabled state, workflow, grants, or runtime inputs. Requires manage_workflows.',
         security: [{ userSession: [] }],
         parameters: [scheduleIdParameter],
         requestBody: workflowScheduleBody,
@@ -262,7 +257,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       post: {
         tags: ['workflows'],
         summary: 'Preview a workflow schedule',
-        description: 'Resolves the control-message prompt and validates context grants, cron, and timezone without creating or changing a schedule.',
+        description: 'Compiles the active workflow with the submitted inputs and validates context grants, cron, and timezone without creating or changing a schedule.',
         security: [{ userSession: [] }],
         parameters: [workspaceIdParameter],
         requestBody: workflowScheduleBody,
@@ -402,7 +397,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       post: {
         tags: ['workflows'],
         summary: 'Post a workflow session message and dispatch a run',
-        description: 'External integration callers may append only to a Workflow session created by the exact same integration link and client. The current Workflow must remain active. Each message recompiles access against current effective permissions while retaining the session-pinned Workflow version, creates a new execution, and requires a new clientRequestId and fresh approvals.',
+        description: 'A session accepts one launch followed by ordinary follow-up messages. Idempotent launch retries return the original execution. Resource parameters are reauthorized by stable ID on every follow-up.',
         security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
         parameters: [externalUserHeader, sessionIdParameter],
         requestBody: {
@@ -410,16 +405,38 @@ export function buildWorkflowPaths(): Record<string, unknown> {
           content: {
             'application/json': {
               schema: {
-                type: 'object',
-                required: ['content'],
-                properties: {
-                  content: {
-                    type: 'string',
-                    description: 'Authoritative control message. Resources are selected only through registered @type[label] references.'
+                oneOf: [
+                  {
+                    type: 'object',
+                    required: ['kind', 'inputs'],
+                    properties: {
+                      kind: { type: 'string', enum: ['launch'] },
+                      inputs: { type: 'object', additionalProperties: { type: 'string' } },
+                      clientRequestId: {
+                        type: 'string',
+                        minLength: 1,
+                        maxLength: 128,
+                        description: 'Optional non-empty idempotency key supplied by the client.'
+                      }
+                    },
+                    additionalProperties: false
                   },
-                  clientRequestId: { type: 'string', description: 'Optional idempotency key supplied by the client.' }
-                },
-                additionalProperties: false
+                  {
+                    type: 'object',
+                    required: ['kind', 'content'],
+                    properties: {
+                      kind: { type: 'string', enum: ['follow_up'] },
+                      content: { type: 'string', minLength: 1, maxLength: 32768 },
+                      clientRequestId: {
+                        type: 'string',
+                        minLength: 1,
+                        maxLength: 128,
+                        description: 'Optional non-empty idempotency key supplied by the client.'
+                      }
+                    },
+                    additionalProperties: false
+                  }
+                ]
               }
             }
           }

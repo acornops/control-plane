@@ -8,6 +8,7 @@ import {
   postMessage,
   updateWorkflow
 } from '../src/controllers/workflows-controller.js';
+import { previewWorkflowCapabilities } from '../src/controllers/workflow-capability-preview-controller.js';
 import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
 import { runAutomationOutboxTick } from '../src/services/automation-outbox-worker.js';
@@ -81,6 +82,9 @@ describe('workflows controller', () => {
         return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse('workspace-1')), { status: 200 });
       }
       if (isMcpReadinessRequest(input, init)) return createReadyMcpReadinessResponse();
+      if (url.includes('/api/v1/internal/mcp/servers?')) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
       if (url.includes('/api/v1/internal/mcp/tools?') && url.includes('target_id=cluster-1')) {
         return new Response(JSON.stringify(['get_resource', 'get_resource_logs', 'list_resources'].map((name) => ({
           name,
@@ -102,6 +106,18 @@ describe('workflows controller', () => {
       return new Response(`unexpected request: ${url}`, { status: 500 });
     });
 
+    const preview = await callController(previewWorkflowCapabilities, createRequest(
+      { workflowId: 'cluster-triage' },
+      {
+        workspaceId: 'workspace-1',
+        approvedContextGrants: ['workspace_metadata', 'target_inventory'],
+        inputs: { target: 'cluster-1' }
+      }
+    ));
+    assert.equal(preview.statusCode, 200);
+    const previewDigests = preview.body as { promptDigest: string; bindingDigest: string; status: string };
+    assert.equal(previewDigests.status, 'ready');
+
     const createdSession = await callController(createSession, createRequest(
       { workflowId: 'cluster-triage' },
       {
@@ -115,7 +131,7 @@ describe('workflows controller', () => {
 
     const response = await callController(postMessage, createRequest(
       { sessionId },
-      { content: 'Triage @target[Test Cluster].' }
+      { kind: 'launch', inputs: { target: 'cluster-1' } }
     ));
 
     assert.equal(response.statusCode, 202);
@@ -143,6 +159,9 @@ describe('workflows controller', () => {
     assert.equal(run.status, 'running');
     assert.equal(run.workflowSessionId, sessionId);
     assert.equal(run.messageId, body.message_id);
+    assert.equal(run.promptDigest, previewDigests.promptDigest);
+    assert.equal(run.bindingDigest, previewDigests.bindingDigest);
+    assert.deepEqual(run.resourceBindings.map((binding) => binding.type), ['target']);
     assert.deepEqual(run.compiledAccessScope.tools, [
       'get_resource',
       'get_resource_logs',
@@ -195,7 +214,7 @@ describe('workflows controller', () => {
 
   it('creates an approval-gated incident report run from selected workspace chats', async () => {
     installWorkspace('operator');
-    await repo.addSession('workspace-1', 'cluster-1', 'user-1', 'Payments incident');
+    const incidentSession = await repo.addSession('workspace-1', 'cluster-1', 'user-1', 'Payments incident');
     mock.method(globalThis, 'fetch', async (input) => {
       if (isWorkspaceAiCredentialStatusRequest(input)) {
         return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse('workspace-1')), { status: 200 });
@@ -212,7 +231,13 @@ describe('workflows controller', () => {
 
     const response = await callController(postMessage, createRequest(
       { sessionId },
-      { content: 'Generate the incident report from @chat[Payments incident].' }
+      {
+        kind: 'launch',
+        inputs: {
+          report_title: 'Payments incident report',
+          incident_context: incidentSession.id
+        }
+      }
     ));
 
     assert.equal(response.statusCode, 202);
@@ -402,7 +427,7 @@ describe('workflows controller', () => {
     const sessionId = (createdSession.body as { session: { id: string } }).session.id;
     const response = await callController(postMessage, createRequest(
       { sessionId },
-      { content: 'Triage @target[Test Cluster].' }
+      { kind: 'launch', inputs: { target: 'cluster-1' } }
     ));
 
     assert.equal(response.statusCode, 409);

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import { replaceExternalIntegrationLinkGrants } from '../src/controllers/external-integration-link-controller.js';
+import { authRouter } from '../src/routes/auth.js';
 import { repo } from '../src/store/repository.js';
 
 function createResponse() {
@@ -23,6 +24,17 @@ afterEach(() => {
 });
 
 describe('external integration link grant management', () => {
+  it('registers the authenticated PATCH route advertised by OpenAPI and the console client', () => {
+    const routes = (authRouter as unknown as {
+      stack: Array<{ route?: { path: string; methods: Record<string, boolean> } }>;
+    }).stack;
+    const route = routes.find((layer) =>
+      layer.route?.path === '/auth/external-integrations/links/:linkId/grants'
+    )?.route;
+
+    assert.equal(route?.methods.patch, true);
+  });
+
   it('returns refreshed granted workspace capabilities after grant updates', async () => {
     mock.method(repo, 'listExternalIntegrationUserLinks', async () => [{
       id: 'link-1',

@@ -3,7 +3,7 @@ import test from 'node:test';
 import contractJson from '../fixtures/prompt-reference-conformance.json' with { type: 'json' };
 import { parsePromptReferences } from '../../src/services/prompt-resources/parser.js';
 
-type TokenVector = { type: string; label: string; state: 'placeholder' | 'concrete' };
+type TokenVector = { type: string; label: string };
 type Contract = {
   valid: Array<{ name: string; prompt: string; normalizedPrompt?: string; tokens: TokenVector[] }>;
   invalid: Array<{ name: string; prompt?: string; repeat?: { token: string; count: number }; errorCode: string }>;
@@ -15,7 +15,7 @@ for (const vector of contract.valid) {
   test(`prompt parser: ${vector.name}`, () => {
     const result = parsePromptReferences(vector.prompt);
     assert.equal(result.prompt, vector.normalizedPrompt || vector.prompt);
-    assert.deepEqual(result.tokens.map(({ type, label, state }) => ({ type, label, state })), vector.tokens);
+    assert.deepEqual(result.tokens.map(({ type, label }) => ({ type, label })), vector.tokens);
     assert.deepEqual(result.errors, []);
   });
 }

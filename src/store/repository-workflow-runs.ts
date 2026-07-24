@@ -25,6 +25,8 @@ export interface WorkflowSessionRecord {
   createdBy: string;
   requestProvenance: RunRequestProvenance;
   compiledAccessScope: CompiledWorkflowAccessScope;
+  launchedAt?: string;
+  launchResourceInputs: Record<string, string>;
   createdAt: string;
 }
 
@@ -97,6 +99,7 @@ export interface WorkflowExecutionRecord {
   triggerId?: string;
   occurrenceKey?: string;
   clientRequestId?: string;
+  clientRequestFingerprint?: string;
   requestProvenance: RunRequestProvenance;
   prompt: string;
   promptDigest: string;
@@ -123,7 +126,10 @@ function mapSession(row: Row): WorkflowSessionRecord {
       ...(row.request_external_integration_link_id ? { externalIntegrationLinkId: row.request_external_integration_link_id } : {}),
       ...(row.request_external_integration_client_id ? { externalIntegrationClientId: row.request_external_integration_client_id } : {})
     },
-    compiledAccessScope: row.compiled_access_scope, createdAt: iso(row.created_at)!
+    compiledAccessScope: row.compiled_access_scope,
+    launchedAt: iso(row.launched_at),
+    launchResourceInputs: row.launch_resource_inputs || {},
+    createdAt: iso(row.created_at)!
   };
 }
 
@@ -301,6 +307,7 @@ export async function createWorkflowExecution(params: {
   triggerId?: string;
   occurrenceKey?: string;
   clientRequestId?: string;
+  clientRequestFingerprint?: string;
   targetId?: string;
   targetType?: string;
   promptDigest: string;
@@ -312,6 +319,7 @@ export async function createWorkflowExecution(params: {
   llmModel?: string;
   llmReasoningSummaryMode?: WorkflowRunRecord['llmReasoningSummaryMode'];
   llmReasoningEffort?: WorkflowRunRecord['llmReasoningEffort'];
+  launchResourceInputs?: Record<string, string>;
 }): Promise<{
   execution: WorkflowExecutionRecord;
   message: WorkflowMessageRecord;
@@ -337,6 +345,20 @@ export async function createWorkflowExecution(params: {
           agent: params.specialistSnapshot || (() => { throw new Error('SPECIALIST_EXECUTOR_SNAPSHOT_REQUIRED'); })()
         };
     const approvalGates = compiledAccessScope.approvalGates;
+    if (params.launchResourceInputs) {
+      const launchResult = await client.query(
+        `UPDATE workflow_sessions
+         SET launched_at=NOW(),launch_resource_inputs=$2
+         WHERE id=$1 AND launched_at IS NULL
+         RETURNING id`,
+        [params.session.id, JSON.stringify(params.launchResourceInputs)]
+      );
+      if (!launchResult.rowCount) {
+        const error = new Error('Workflow session was already launched.');
+        error.name = 'WORKFLOW_SESSION_ALREADY_LAUNCHED';
+        throw error;
+      }
+    }
     const messageResult = await client.query<Row>(
       `INSERT INTO workflow_messages (id,session_id,workspace_id,workflow_id,role,content)
        VALUES ($1,$2,$3,$4,'user',$5) RETURNING *`,
@@ -345,13 +367,13 @@ export async function createWorkflowExecution(params: {
     await client.query(
       `INSERT INTO workflow_executions (
         id,workspace_id,workflow_id,workflow_version,workflow_session_id,message_id,created_by,trigger_type,
-        trigger_id,occurrence_key,client_request_id,status,workflow_snapshot,approved_context_grants,
+        trigger_id,occurrence_key,client_request_id,client_request_fingerprint,status,workflow_snapshot,approved_context_grants,
         prompt_text,prompt_digest,binding_digest,resource_bindings,resolved_at,
         request_actor_type,request_external_integration_link_id,request_external_integration_client_id
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
       [executionId, params.workflow.workspaceId, params.workflow.id, params.workflow.version, params.session.id,
        messageId, params.session.createdBy, params.triggerType || 'manual', params.triggerId || null,
-       params.occurrenceKey || null, params.clientRequestId || null,
+       params.occurrenceKey || null, params.clientRequestId || null, params.clientRequestFingerprint || null,
        approvalGates.length ? 'waiting_for_approval' : 'queued', params.workflow,
        JSON.stringify(compiledAccessScope.contextGrants), params.content, params.promptDigest,
        params.bindingDigest, JSON.stringify(params.resourceBindings), params.resolvedAt, provenance.actorType,
@@ -409,6 +431,7 @@ export async function createWorkflowExecution(params: {
         triggerType: row.trigger_type,
         triggerId: row.trigger_id || undefined, occurrenceKey: row.occurrence_key || undefined,
         clientRequestId: row.client_request_id || undefined,
+        clientRequestFingerprint: row.client_request_fingerprint || undefined,
         requestProvenance: {
           actorType: row.request_actor_type || 'user',
           ...(row.request_external_integration_link_id ? { externalIntegrationLinkId: row.request_external_integration_link_id } : {}),

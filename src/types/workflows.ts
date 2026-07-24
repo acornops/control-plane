@@ -16,23 +16,12 @@ export type WorkflowContextGrant =
   | 'target_inventory'
   | string;
 
-export type WorkflowInputType =
-  | 'text'
-  | 'select'
-  | 'mcp_server'
-  | 'mcp_tool'
-  | 'skill'
-  | 'output_format'
-  | 'approval_policy'
-  | 'runtime'
-  | 'retention';
+export type WorkflowParameterType = 'text' | 'target' | 'chat';
 
-export interface WorkflowInputDefinition {
-  name: string;
-  label: string;
-  type: WorkflowInputType;
-  required: boolean;
-  optionSource?: string;
+export interface WorkflowParameterDefinition {
+  key: string;
+  type: WorkflowParameterType;
+  required: true;
 }
 
 export interface WorkflowCapabilityPolicy {
@@ -59,7 +48,7 @@ export interface WorkflowDefinitionForAccess {
   resourceRequirements: PromptResourceRequirement[];
   capabilityPolicy: WorkflowCapabilityPolicy;
   tags?: string[];
-  inputs?: WorkflowInputDefinition[];
+  parameters: WorkflowParameterDefinition[];
   requiredPermissions: WorkspaceCapability[];
   createdBy: string;
   createdAt?: string;
@@ -267,6 +256,8 @@ export type WorkflowMcpRequirementPreview = WorkflowMcpRequirementPreviewBase & 
 export interface WorkflowCapabilitiesPreview {
   workflowId: string;
   workflowVersion: number;
+  promptDigest: string;
+  bindingDigest: string;
   mode: WorkflowCapabilityMode;
   semanticCapabilityIds: string[];
   checkedAt: string;
@@ -312,11 +303,13 @@ export interface WorkflowScheduleRecord {
   workspaceId: string;
   workflowId: string;
   workflowVersion: number;
+  /** Internal persisted schema fingerprint; omit from external schedule responses. */
+  parameterSignature: string;
   name: string;
   status: WorkflowScheduleStatus;
   cron: string;
   timezone: string;
-  controlMessage: string;
+  inputs: Record<string, string>;
   approvedContextGrants: string[];
   principal: WorkflowSchedulePrincipal;
   createdBy: WorkflowScheduleActorMetadata;
@@ -336,7 +329,7 @@ export interface WorkflowScheduleInput {
   status?: WorkflowScheduleStatus;
   cron: string;
   timezone: string;
-  controlMessage: string;
+  inputs: Record<string, string>;
   approvedContextGrants?: string[];
   principal: WorkflowSchedulePrincipal;
 }
@@ -349,7 +342,7 @@ export interface WorkflowSchedulePatch {
   status?: WorkflowScheduleStatus;
   cron?: string;
   timezone?: string;
-  controlMessage?: string;
+  inputs?: Record<string, string>;
   approvedContextGrants?: string[];
   principal?: WorkflowSchedulePrincipal;
 }
