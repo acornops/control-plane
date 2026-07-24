@@ -63,7 +63,7 @@ export interface WebhookDeliveryResponse {
   retryAfter?: string;
 }
 
-interface ResolvedWebhookEndpoint {
+export interface ResolvedWebhookEndpoint {
   url: URL;
   hostname: string;
   address: string;
@@ -181,7 +181,7 @@ export async function resolveWebhookEndpoint(
   return { url, hostname, address: record.address, family };
 }
 
-function createPinnedLookup(
+export function createPinnedLookup(
   address: string,
   family: 4 | 6
 ): NonNullable<http.RequestOptions['lookup']> {

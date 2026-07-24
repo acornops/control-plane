@@ -233,6 +233,9 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
     ]))
   } as Record<string, WorkspaceAuditOperation>;
   const effectiveTools = tools.filter((tool) => mode === 'read_write' || toolOperations[tool] === 'read');
+  const nativeToolConfigs = Object.fromEntries(nativeToolIds
+    .filter((toolId) => effectiveTools.includes(toolId) && specialist?.nativeToolConfigs[toolId])
+    .map((toolId) => [toolId, structuredClone(specialist!.nativeToolConfigs[toolId])]));
   const effectiveRefs = mcpTools.filter((ref) => mode === 'read_write' || ref.operation === 'read');
   const contextGrants = uniqueSorted([
     ...requestedContext,
@@ -263,6 +266,7 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
     targetToolRefs: targetToolRefs.map((ref) => ({ serverId: ref.serverId, toolName: ref.toolName })),
     tools: effectiveTools,
     toolOperations,
+    nativeToolConfigs,
     enabledSkills: coordinator ? [] : uniqueSorted([
       ...(directAttachmentMode
         ? specialist!.skillInstallations.filter((skill) => skill.enabled).map((skill) => skill.id)
@@ -325,7 +329,8 @@ export function compileWorkflowSessionCeiling(
     capabilityRestrictionMode: input.workflow.capabilityPolicy.restrictionMode,
     requiredPermissions,
     grantedCapabilities: requiredPermissions,
-    mcpServers: [], mcpTools: [], targetToolRefs: [], tools: [], toolOperations: {}, enabledSkills: [],
+    mcpServers: [], mcpTools: [], targetToolRefs: [], tools: [], toolOperations: {},
+    nativeToolConfigs: {}, enabledSkills: [],
     contextGrants: requestedContext,
     approvalGates: uniqueSorted(input.workflow.capabilityPolicy.approvalRequirements),
     permissionMode: input.workflow.capabilityPolicy.mode === 'read_only' || !specialist

@@ -18,6 +18,81 @@ beforeEach(async () => {
 after(closeAutomationDatabaseFixtures);
 
 describe('Agent workspace-native tool assignments', () => {
+  it('atomically grants, updates, and clears normalized Fetch configuration', async () => {
+    const before = await getAgentDefinition('workspace-1', 'agent-cluster-triage');
+    assert.ok(before);
+
+    const granted = await setAgentNativeToolAssignment({
+      workspaceId: 'workspace-1',
+      agentId: before.id,
+      toolId: 'http.fetch.get',
+      assigned: true,
+      actorUserId: 'user-1',
+      config: {
+        allowedUrlPatterns: [
+          'https://STATUS.Example.com:443/api/*',
+          'https://api.example.com/search?q=*'
+        ]
+      }
+    });
+    assert.deepEqual(granted.nativeToolConfigs['http.fetch.get'], {
+      allowedUrlPatterns: [
+        'https://api.example.com/search?q=*',
+        'https://status.example.com/api/*'
+      ]
+    });
+    assert.ok(granted.tools.includes('http.fetch.get'));
+    const grantedMapping = (await listCapabilityRoutingMappings('workspace-1'))
+      .find((mapping) => mapping.id === `native:${before.id}:http.fetch.get`);
+    assert.ok(grantedMapping);
+
+    const updated = await setAgentNativeToolAssignment({
+      workspaceId: 'workspace-1',
+      agentId: before.id,
+      toolId: 'http.fetch.get',
+      assigned: true,
+      actorUserId: 'user-1',
+      config: { allowedUrlPatterns: ['https://status.example.com/health'] }
+    });
+    assert.equal(updated.version, granted.version + 1);
+    assert.deepEqual(updated.nativeToolConfigs['http.fetch.get'], {
+      allowedUrlPatterns: ['https://status.example.com/health']
+    });
+    const updatedMapping = (await listCapabilityRoutingMappings('workspace-1'))
+      .find((mapping) => mapping.id === `native:${before.id}:http.fetch.get`);
+    assert.equal(updatedMapping?.agentVersion, updated.version);
+    assert.equal(updatedMapping?.version, grantedMapping.version + 1);
+
+    const revoked = await setAgentNativeToolAssignment({
+      workspaceId: 'workspace-1',
+      agentId: before.id,
+      toolId: 'http.fetch.get',
+      assigned: false,
+      actorUserId: 'user-1'
+    });
+    assert.equal(revoked.nativeToolConfigs['http.fetch.get'], undefined);
+    assert.equal(revoked.tools.includes('http.fetch.get'), false);
+  });
+
+  it('requires valid Fetch configuration without changing bodyless grants for other tools', async () => {
+    const agent = await getAgentDefinition('workspace-1', 'agent-cluster-triage');
+    assert.ok(agent);
+    await assert.rejects(() => setAgentNativeToolAssignment({
+      workspaceId: 'workspace-1',
+      agentId: agent.id,
+      toolId: 'http.fetch.get',
+      assigned: true,
+      actorUserId: 'user-1'
+    }), /configuration must be an object/);
+    await assert.doesNotReject(() => setAgentNativeToolAssignment({
+      workspaceId: 'workspace-1',
+      agentId: agent.id,
+      toolId: 'reports.pdf.generate',
+      assigned: true,
+      actorUserId: 'user-1'
+    }));
+  });
+
   it('versions and rebinds reviewed mappings while refreshing dependent readiness', async () => {
     const before = await getAgentDefinition('workspace-1', 'agent-cluster-triage');
     assert.ok(before);

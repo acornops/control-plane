@@ -55,8 +55,20 @@ export function buildAgentPaths(): Record<string, unknown> {
     '/api/v1/workspaces/{workspaceId}/agents/{agentId}/native-tools/{toolId}': {
       put: {
         tags: ['agents'], summary: 'Grant a workspace-native tool to a specialist Agent',
-        description: 'Transactionally updates the Agent version, reviewed routing mappings, semantic ceiling, and dependent readiness. Requires manage_agents; manage_mcp is not required.',
+        description: 'Transactionally grants or updates a workspace-native tool, its optional validated configuration, the Agent version, reviewed routing mappings, semantic ceiling, and dependent readiness. Requires manage_agents; manage_mcp is not required.',
         security: [{ userSession: [] }], parameters: [workspaceIdParameter, agentIdPathParameter, nativeToolIdPathParameter],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: { config: { type: 'object', additionalProperties: true } },
+                additionalProperties: false
+              }
+            }
+          }
+        },
         responses: { '200': { description: 'Updated Agent.', content: { 'application/json': { schema: { $ref: '#/components/schemas/AgentResponse' } } } }, '403': { description: 'Requires manage_agents.' }, '404': { description: 'Agent or tool not found.' } }
       },
       delete: {

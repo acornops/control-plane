@@ -115,6 +115,7 @@ export interface AgentDefinition {
   mcpTools: McpToolRef[];
   mcpInstallations: AgentMcpInstallationSnapshot[];
   tools: string[];
+  nativeToolConfigs: Record<string, Record<string, unknown>>;
   skills: string[];
   skillInstallations: AgentSkillInstallationSnapshot[];
   contextGrants: string[];
