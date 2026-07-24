@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireAdminCsrf } from '../auth/admin-csrf.js';
 import * as controller from '../controllers/admin-auth-controller.js';
 import { incrementAdminRequests } from '../metrics.js';
 
@@ -11,4 +12,4 @@ adminAuthRouter.use((req, res, next) => {
 adminAuthRouter.get('/oidc/login', controller.login);
 adminAuthRouter.get('/oidc/callback', controller.callback);
 adminAuthRouter.get('/csrf', controller.csrf);
-adminAuthRouter.post('/logout', controller.logout);
+adminAuthRouter.post('/logout', requireAdminCsrf, controller.logout);

@@ -257,7 +257,23 @@ async function runSqlChecks(databaseUrl) {
     const functions = await client.query(
       `SELECT proname FROM pg_proc WHERE pronamespace = current_schema()::regnamespace`
     );
-    assert.equal(functions.rowCount, 0, 'pre-release seeding and upgrade functions must not survive');
+    assert.deepEqual(
+      functions.rows.map(({ proname }) => proname).sort(),
+      ['prevent_admin_audit_event_mutation'],
+      'only the append-only admin audit trigger function may survive'
+    );
+
+    const adminAuditTriggers = await client.query(
+      `SELECT tgname
+       FROM pg_trigger
+       WHERE tgrelid = 'admin_audit_events'::regclass
+         AND NOT tgisinternal`
+    );
+    assert.deepEqual(
+      adminAuditTriggers.rows.map(({ tgname }) => tgname).sort(),
+      ['admin_audit_events_append_only'],
+      'the append-only admin audit trigger must be installed'
+    );
   } finally {
     await client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
     client.release();

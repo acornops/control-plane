@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { Request, Response } from 'express';
+import { NextFunction, Request, Response } from 'express';
 import { config } from '../config.js';
 
 function signature(nonce: string): string {
@@ -31,6 +31,15 @@ export function getOrSetAdminCsrfToken(req: Request, res: Response): string {
   return token;
 }
 
+export function clearAdminCsrfCookie(res: Response): void {
+  res.clearCookie(config.ADMIN_CSRF_COOKIE_NAME, {
+    httpOnly: false,
+    secure: config.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/'
+  });
+}
+
 export function validAdminCsrfRequest(req: Request): boolean {
   const expectedOrigin = new URL(config.PLATFORM_ADMIN_CONSOLE_BASE_URL).origin;
   const origin = req.header('origin');
@@ -39,4 +48,12 @@ export function validAdminCsrfRequest(req: Request): boolean {
   try { actualOrigin = new URL(origin || referer || '').origin; } catch { return false; }
   const cookie = req.cookies?.[config.ADMIN_CSRF_COOKIE_NAME] as string | undefined;
   return actualOrigin === expectedOrigin && validAdminCsrfToken(cookie) && req.header(config.ADMIN_CSRF_HEADER_NAME) === cookie;
+}
+
+export function requireAdminCsrf(req: Request, res: Response, next: NextFunction): void {
+  if (!validAdminCsrfRequest(req)) {
+    res.status(403).json({ error: { code: 'CSRF_TOKEN_REQUIRED', message: 'A valid CSRF token is required for this request', retryable: false } });
+    return;
+  }
+  next();
 }

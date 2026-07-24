@@ -1,7 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import { buildAdminAuthorizationUrl, exchangeAdminAuthorizationCode } from '../auth/admin-oidc.js';
 import { adminOidcFailure } from '../auth/admin-oidc-errors.js';
-import { getOrSetAdminCsrfToken } from '../auth/admin-csrf.js';
+import { clearAdminCsrfCookie, getOrSetAdminCsrfToken } from '../auth/admin-csrf.js';
 import { adminSessionReference, clearAdminSessionCookie, createAdminSession, deleteAdminSession, getAdminSession, setAdminSessionCookie } from '../auth/admin-session.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
@@ -92,7 +92,7 @@ export async function logout(req: Request, res: Response, next: NextFunction): P
     }
     if (sessionId) await deleteAdminSession(sessionId);
     clearAdminSessionCookie(res);
-    res.clearCookie(config.ADMIN_CSRF_COOKIE_NAME, { path: '/' });
+    clearAdminCsrfCookie(res);
     res.status(200).json({ status: 'ok' });
   } catch (err) { next(err); }
 }

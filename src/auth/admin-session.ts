@@ -70,7 +70,12 @@ export function setAdminSessionCookie(res: Response, id: string): void {
 }
 
 export function clearAdminSessionCookie(res: Response): void {
-  res.clearCookie(config.ADMIN_SESSION_COOKIE_NAME, { path: '/' });
+  res.clearCookie(config.ADMIN_SESSION_COOKIE_NAME, {
+    httpOnly: true,
+    secure: config.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/'
+  });
 }
 
 export async function deleteAdminSession(id: string): Promise<void> {
