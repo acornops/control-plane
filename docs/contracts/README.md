@@ -14,6 +14,7 @@ The control plane owns the platform API boundary. Keep this README as a short in
 | Counterpart | Contract Surface | Enforcement |
 | --- | --- | --- |
 | Management console | Browser-facing auth, workspace, target, tooling, chat, run, workflow, and webhook APIs | OpenAPI, `manifest.json`, frontend service coverage checks |
+| Platform admin console | Governance-only `/admin/v1` subset with least-privilege scopes and browser response minimization | OpenAPI, mirrored manifests, route-policy checks, consumer projection tests |
 | External integrations | Link creation, browser-link preview/completion, link resolution, and linked bot read access | OpenAPI, manifest checks, and endpoint contract docs |
 | Execution engine | Internal run bootstrap, continuation, event ingest, commit, approvals, dispatch auth | Internal route, OpenAPI, and client checks |
 | LLM gateway | Internal MCP registry admin client and built-in MCP bridge | Config, bridge controller, and manifest checks |
@@ -22,6 +23,8 @@ The control plane owns the platform API boundary. Keep this README as a short in
 ## Shared Invariants
 
 - Browser clients use cookie-backed auth and CSRF protection where required.
+- The platform admin console uses only its mirrored `/admin/v1` subset. Its BFF rejects `admin:*` and all target, run, agent-key, and tooling scopes, and removes operational fields before browser delivery.
+- The platform-admin consumer requires exact workspace-name confirmation for suspension and restoration. The producer requires it for suspension and validates it when supplied for restoration, retaining compatibility with existing restore clients. Both actions retain memberships, targets, workload state, references, and audit history and never issue workload commands.
 - OIDC admission evaluates verified ID-token claims and subject-bound UserInfo claims before account or identity-link mutation; conflicting values fail closed.
 - Browser logout revokes the current session before any provider redirect and returns only an AcornOps path to the console. ID tokens and provider logout URLs never cross the logout JSON response.
 - RP-initiated logout handoffs and callback states are single-use Redis records. Provider logout failure never restores the local session.
@@ -181,6 +184,11 @@ The control plane owns the platform API boundary. Keep this README as a short in
 
 - Password signup creates the user account only; it does not create or attach a workspace.
 - Workspace membership, audit-log access, target mutation, MCP mutation, tool mutation, Target Insights mutation, and AI settings mutation are permission-gated at the control-plane boundary.
+- Admin-initiated membership additions, role changes, removals, and owner
+  replacements are visible in the affected workspace audit stream as actions by
+  a generic platform administrator. An opaque correlation id links that record
+  to the separately protected Admin Audit record; real admin credential identity
+  and request security context are never projected into the workspace stream.
 - External integration bot calls use an external integration client token plus `x-acornops-external-user-id`; the resolved `external_integration` credential is default-deny and can receive only the registered client's `allowedCapabilities` intersected with the linked user's workspace role and user-approved workspace grant. The default client ceiling is `read_workspace_data`, `create_sessions`, and `create_read_only_runs`; deployments may explicitly add `create_read_write_runs` for integrations allowed to request write-capable troubleshooting runs and active Workflows, including approval-gated Workflows. Any integration with workspace read access may inspect sanitized execution state and aggregate execution SSE. Only the exact originating integration link/client may continue a Workflow session, decide its pre-step or runtime write approvals, or retrieve its reports. Browser-created, other-link/client, delegated specialist, scheduled, and system-triggered approvals remain denied. Implementor-facing endpoint details live in [external-integration-bot-endpoints.md](external-integration-bot-endpoints.md).
 - External webhook route connect/status calls are the narrow exception for outgoing webhook setup. `POST /api/v1/external-integrations/webhook-routes/connect` returns only subscriptions created by the linked AcornOps user for the submitted delivery URL where the user still has `permissions.manage_webhooks`; each successful connect rotates the matching signing secrets and returns them once. `GET /api/v1/external-integrations/webhook-routes/status` refreshes live state and must never return signing secrets.
 - Webhook events use a Postgres outbox with one leased job per matching

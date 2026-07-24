@@ -268,9 +268,9 @@ async function recordInvitationLifecycleAudit(
 
 export async function acceptWorkspaceInvitation(tokenHash: string, userId: string): Promise<AcceptWorkspaceInvitationResult> {
   return withTransaction(async (client) => {
-    const invitationResult = await client.query<WorkspaceInvitationRow>(
+    const invitationResult = await client.query<WorkspaceInvitationRow & { lifecycle_status?: 'active' | 'suspended' }>(
       `SELECT
-         i.id, i.workspace_id, w.name AS workspace_name, i.email, i.role, i.invited_by,
+         i.id, i.workspace_id, w.name AS workspace_name, w.lifecycle_status, i.email, i.role, i.invited_by,
          i.status, i.accepted_by, i.created_at, i.expires_at, i.accepted_at, i.revoked_at
        FROM workspace_invitations i
        INNER JOIN workspaces w ON w.id = i.workspace_id
@@ -281,6 +281,9 @@ export async function acceptWorkspaceInvitation(tokenHash: string, userId: strin
     if (!invitationResult.rowCount) return { status: 'not_found' };
 
     const invitation = invitationResult.rows[0];
+    if (invitation.lifecycle_status === 'suspended') {
+      return { status: 'workspace_suspended' };
+    }
     if (invitation.status !== 'pending') return { status: 'unavailable' };
     if (new Date(invitation.expires_at).getTime() <= Date.now()) {
       await client.query(

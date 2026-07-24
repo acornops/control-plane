@@ -10,6 +10,18 @@ export function buildAdminSchemas(): Record<string, JsonSchema> {
         tokenId: { type: 'string' },
         tokenName: { type: 'string' },
         scopes: stringArray,
+        actor: {
+          type: 'object',
+          properties: {
+            issuer: { type: 'string' },
+            subject: { type: 'string' },
+            email: { type: 'string' },
+            displayName: { type: 'string' },
+            roles: stringArray,
+            scopes: stringArray,
+            authenticatedAt: dateTime
+          }
+        },
         adminApiEnabled: { type: 'boolean' }
       },
       additionalProperties: true
@@ -47,10 +59,22 @@ export function buildAdminSchemas(): Record<string, JsonSchema> {
       additionalProperties: true
     },
     AdminWorkspace: {
-      allOf: [schemaRef('Workspace')],
+      allOf: [
+        schemaRef('Workspace'),
+        {
+          type: 'object',
+          required: ['virtualMachineCount', 'lifecycleStatus'],
+          properties: {
+            virtualMachineCount: { type: 'integer', minimum: 0 },
+            lifecycleStatus: { type: 'string', enum: ['active', 'suspended'] },
+            suspendedAt: dateTime
+          }
+        }
+      ],
       description: 'Support-safe workspace detail.'
     },
     AdminWorkspacePage: pageOf('AdminWorkspace'),
+    AdminWorkspaceMemberPage: pageOf('WorkspaceMember'),
     AdminUser: {
       allOf: [userSchema],
       description: 'Support-safe user detail. Password hashes, reset tokens, and OIDC subjects are never returned.'
@@ -100,16 +124,29 @@ export function buildAdminSchemas(): Record<string, JsonSchema> {
     },
     AdminAuditEvent: {
       type: 'object',
+      required: ['id', 'action', 'outcome', 'requestId', 'metadata', 'occurredAt'],
       properties: {
         id: uuid,
-        tokenId: { type: 'string' },
-        scope: { type: 'string' },
-        method: { type: 'string' },
-        path: { type: 'string' },
-        statusCode: { type: 'integer' },
+        adminTokenId: { type: 'string' },
+        adminActorIssuer: { type: 'string' },
+        adminActorSubject: { type: 'string' },
+        adminActorEmail: { type: 'string' },
+        adminActorDisplayName: { type: 'string' },
+        adminActorRole: { type: 'string', enum: ['platform-admin', 'platform-admin-viewer', 'platform-admin-auditor'] },
+        authenticationTime: dateTime,
+        action: { type: 'string' },
+        outcome: { type: 'string', enum: ['success', 'failure'] },
+        workspaceId: { type: 'string' },
+        targetType: { type: 'string' },
+        targetId: { type: 'string' },
+        subjectType: { type: 'string' },
+        subjectId: { type: 'string' },
         reason: { type: 'string' },
+        requestId: { type: 'string' },
+        sourceIpHash: { type: 'string' },
+        userAgent: { type: 'string' },
         metadata: jsonObject,
-        createdAt: dateTime
+        occurredAt: dateTime
       },
       additionalProperties: true
     },

@@ -36,6 +36,19 @@ for (const forbidden of [
 ]) {
   assert(!forbidden.test(baseline), `greenfield baseline contains historical operation ${forbidden}`);
 }
+for (const required of [
+  'admin_actor_issuer',
+  'admin_actor_subject',
+  'admin_actor_role',
+  'admin_session_id_hash',
+  'authentication_time',
+  'lifecycle_status',
+  'suspended_at',
+  'admin_audit_events_append_only',
+  'REVOKE UPDATE, DELETE ON admin_audit_events FROM PUBLIC'
+]) {
+  assert(baseline.includes(required), `greenfield baseline must include ${required}`);
+}
 
 const dbSource = read('src/infra/db.ts');
 assert(!dbSource.includes('SCHEMA_SQL'), 'startup must not carry boot-time schema SQL');
@@ -108,6 +121,15 @@ const expectedTables = [
 ];
 
 const expectedColumns = [
+  ['admin_audit_events', 'admin_actor_issuer'],
+  ['admin_audit_events', 'admin_actor_subject'],
+  ['admin_audit_events', 'admin_actor_email'],
+  ['admin_audit_events', 'admin_actor_display_name'],
+  ['admin_audit_events', 'admin_actor_role'],
+  ['admin_audit_events', 'admin_session_id_hash'],
+  ['admin_audit_events', 'authentication_time'],
+  ['workspaces', 'lifecycle_status'],
+  ['workspaces', 'suspended_at'],
   ['runs', 'assistant_references'],
   ['runs', 'tool_access_mode'],
   ['workflow_executions', 'resource_bindings'],
@@ -137,6 +159,7 @@ const expectedColumns = [
 ];
 
 const expectedConstraints = [
+  'ck_workspaces_lifecycle_status',
   'fk_messages_session',
   'fk_runs_session',
   'fk_run_events_run',
@@ -234,7 +257,23 @@ async function runSqlChecks(databaseUrl) {
     const functions = await client.query(
       `SELECT proname FROM pg_proc WHERE pronamespace = current_schema()::regnamespace`
     );
-    assert.equal(functions.rowCount, 0, 'pre-release seeding and upgrade functions must not survive');
+    assert.deepEqual(
+      functions.rows.map(({ proname }) => proname).sort(),
+      ['prevent_admin_audit_event_mutation'],
+      'only the append-only admin audit trigger function may survive'
+    );
+
+    const adminAuditTriggers = await client.query(
+      `SELECT tgname
+       FROM pg_trigger
+       WHERE tgrelid = 'admin_audit_events'::regclass
+         AND NOT tgisinternal`
+    );
+    assert.deepEqual(
+      adminAuditTriggers.rows.map(({ tgname }) => tgname).sort(),
+      ['admin_audit_events_append_only'],
+      'the append-only admin audit trigger must be installed'
+    );
   } finally {
     await client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
     client.release();

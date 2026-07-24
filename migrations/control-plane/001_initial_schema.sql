@@ -26,6 +26,13 @@ CREATE TABLE account_audit_events (
 CREATE TABLE admin_audit_events (
     id text NOT NULL,
     admin_token_id text,
+    admin_actor_issuer text,
+    admin_actor_subject text,
+    admin_actor_email text,
+    admin_actor_display_name text,
+    admin_actor_role text,
+    admin_session_id_hash text,
+    authentication_time timestamp with time zone,
     action text NOT NULL,
     outcome text NOT NULL,
     workspace_id text,
@@ -1336,7 +1343,10 @@ CREATE TABLE workspaces (
     name text NOT NULL,
     plan_key text DEFAULT 'default'::text NOT NULL,
     created_by text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    lifecycle_status text DEFAULT 'active'::text NOT NULL,
+    suspended_at timestamp with time zone,
+    CONSTRAINT ck_workspaces_lifecycle_status CHECK ((lifecycle_status = ANY (ARRAY['active'::text, 'suspended'::text])))
 );
 
 ALTER TABLE ONLY chat_activity_events ALTER COLUMN id SET DEFAULT nextval('chat_activity_events_id_seq'::regclass);
@@ -1637,11 +1647,15 @@ ALTER TABLE ONLY workspaces
 
 CREATE INDEX admin_audit_events_action_idx ON admin_audit_events USING btree (action, occurred_at DESC, id DESC);
 
+CREATE INDEX admin_audit_events_actor_idx ON admin_audit_events USING btree (admin_actor_issuer, admin_actor_subject, occurred_at DESC);
+
 CREATE INDEX admin_audit_events_occurred_at_idx ON admin_audit_events USING btree (occurred_at DESC, id DESC);
 
 CREATE INDEX admin_audit_events_token_idx ON admin_audit_events USING btree (admin_token_id, occurred_at DESC, id DESC);
 
 CREATE INDEX admin_audit_events_workspace_idx ON admin_audit_events USING btree (workspace_id, occurred_at DESC, id DESC);
+
+CREATE INDEX idx_workspaces_lifecycle_status ON workspaces USING btree (lifecycle_status);
 
 CREATE INDEX agent_definitions_workspace_owner_idx ON agent_definitions USING btree (workspace_id, owner_user_id, updated_at DESC);
 
@@ -2249,3 +2263,17 @@ ALTER TABLE ONLY workspace_quota_overrides
 
 ALTER TABLE ONLY workspace_skills
     ADD CONSTRAINT workspace_skills_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+
+REVOKE UPDATE, DELETE ON admin_audit_events FROM PUBLIC;
+
+CREATE FUNCTION prevent_admin_audit_event_mutation() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  RAISE EXCEPTION 'admin_audit_events is append-only';
+END;
+$$;
+
+CREATE TRIGGER admin_audit_events_append_only
+    BEFORE UPDATE OR DELETE ON admin_audit_events
+    FOR EACH ROW EXECUTE FUNCTION prevent_admin_audit_event_mutation();

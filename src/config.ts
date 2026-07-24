@@ -7,6 +7,8 @@ import { DEFAULT_LLM_PROVIDERS_JSON, validateLlmPolicyConfig } from './config-ll
 import { webhookConfigShape } from './config-webhooks.js';
 import {
   parseAdminTokenDescriptors,
+  platformAdminConfigFields,
+  platformAdminConfigIssues,
   parseWorkspacePlansConfig,
   type AdminTokenDescriptor,
   type WorkspacePlanDefinition
@@ -148,10 +150,7 @@ const envSchema = z.object({
   QUOTA_MAX_VIRTUAL_MACHINES_PER_WORKSPACE: z.coerce.number().int().positive().default(30),
   WORKSPACE_PLANS_CONFIG_JSON: z.string().optional(),
   WORKSPACE_ROLES_CONFIG_JSON: z.string().optional(),
-  CONTROL_PLANE_ADMIN_API_ENABLED: envBoolean(false),
-  CONTROL_PLANE_ADMIN_TOKENS_JSON: z.string().default('[]'),
-  CONTROL_PLANE_ADMIN_AUTH_FAILURE_WINDOW_SECONDS: z.coerce.number().int().positive().default(300),
-  CONTROL_PLANE_ADMIN_AUTH_FAILURE_MAX_ATTEMPTS: z.coerce.number().int().positive().default(20),
+  ...platformAdminConfigFields,
   CORS_ORIGIN: z.string().default('*'),
   SESSION_COOKIE_NAME: z.string().default('acornops_cp_session'),
   SESSION_MAX_AGE_SECONDS: optionalPositiveIntFromEnv,
@@ -318,6 +317,7 @@ const envSchema = z.object({
       'SESSION_IDLE_TIMEOUT_SECONDS must be less than or equal to SESSION_MAX_AGE_SECONDS'
     );
   }
+  for (const issue of platformAdminConfigIssues(value, adminDescriptors)) addConfigIssue(ctx, issue.field, issue.message);
   validateAgentTransportConfig(ctx, value);
   validateLlmPolicyConfig(ctx, value);
   validateAgentKHelmConfig(ctx, value);

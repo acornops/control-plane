@@ -8,10 +8,12 @@ import { adminRouter } from '../src/routes/admin.js';
 
 const mutableConfig = config as typeof config & {
   CONTROL_PLANE_ADMIN_API_ENABLED: boolean;
+  CONTROL_PLANE_ADMIN_HUMAN_AUTH_REQUIRED: boolean;
   ADMIN_TOKEN_DESCRIPTORS: typeof config.ADMIN_TOKEN_DESCRIPTORS;
 };
 
 const originalAdminEnabled = config.CONTROL_PLANE_ADMIN_API_ENABLED;
+const originalHumanAuthRequired = config.CONTROL_PLANE_ADMIN_HUMAN_AUTH_REQUIRED;
 const originalDescriptors = config.ADMIN_TOKEN_DESCRIPTORS;
 
 function createResponse() {
@@ -44,6 +46,7 @@ function firstAdminRouterMiddleware() {
 describe('admin token configuration and middleware', () => {
   afterEach(() => {
     mutableConfig.CONTROL_PLANE_ADMIN_API_ENABLED = originalAdminEnabled;
+    mutableConfig.CONTROL_PLANE_ADMIN_HUMAN_AUTH_REQUIRED = originalHumanAuthRequired;
     mutableConfig.ADMIN_TOKEN_DESCRIPTORS = originalDescriptors;
     mock.restoreAll();
   });
@@ -98,6 +101,129 @@ describe('admin token configuration and middleware', () => {
       scopes: ['admin:self'],
       credential: { type: 'admin_token' }
     });
+  });
+
+  it('does not impose platform-admin browser sessions on existing operational tokens', async () => {
+    mock.method(redis, 'incr', async () => 1);
+    mock.method(redis, 'expire', async () => 1);
+    mutableConfig.CONTROL_PLANE_ADMIN_HUMAN_AUTH_REQUIRED = true;
+    mutableConfig.ADMIN_TOKEN_DESCRIPTORS = [{
+      id: 'ops-primary',
+      sha256: hashAdminToken('raw-operations-token'),
+      scopes: ['admin:target:read'],
+      enabled: true
+    }];
+    const req = {
+      method: 'GET',
+      header: (name: string) => name.toLowerCase() === 'authorization' ? 'Bearer raw-operations-token' : undefined,
+      ip: '127.0.0.1',
+      socket: {}
+    };
+    const res = createResponse();
+    let nextCalled = false;
+
+    await requireAdminScope('admin:target:read')(req as never, res as never, () => { nextCalled = true; });
+
+    assert.equal(nextCalled, true);
+    assert.equal((req as { admin?: { actor?: unknown } }).admin?.actor, undefined);
+  });
+
+  it('requires the human session role as well as the gateway workload scope', async () => {
+    mock.method(redis, 'incr', async () => 1);
+    mock.method(redis, 'expire', async () => 1);
+    mock.method(redis, 'setex', async () => 'OK');
+    mutableConfig.CONTROL_PLANE_ADMIN_HUMAN_AUTH_REQUIRED = true;
+    mutableConfig.ADMIN_TOKEN_DESCRIPTORS = [{
+      id: 'platform-admin-console',
+      sha256: hashAdminToken('bff-workload-token'),
+      scopes: ['admin:*'],
+      enabled: true
+    }];
+
+    const session = {
+      id: 'viewer-session',
+      issuer: 'https://idp.example.test/realms/acornops',
+      subject: 'user-123',
+      email: 'viewer@example.test',
+      roles: ['platform-admin-viewer'],
+      amr: ['mfa'],
+      authenticatedAt: Date.now(),
+      createdAt: Date.now(),
+      lastSeenAt: Date.now(),
+      absoluteExpiresAt: Date.now() + 3_600_000,
+      idleExpiresAt: Date.now() + 900_000
+    };
+    mock.method(redis, 'get', async () => JSON.stringify(session));
+
+    const readReq = {
+      method: 'GET',
+      cookies: { [config.ADMIN_SESSION_COOKIE_NAME]: session.id },
+      header: (name: string) => name.toLowerCase() === 'authorization' ? 'Bearer bff-workload-token' : undefined,
+      ip: '127.0.0.1',
+      socket: {}
+    };
+    const readRes = createResponse();
+    let nextCalled = false;
+    await requireAdminScope('admin:user:read')(readReq as never, readRes as never, () => { nextCalled = true; });
+    assert.equal(nextCalled, true);
+    assert.equal((readReq as { admin?: { actor?: { subject?: string } } }).admin?.actor?.subject, 'user-123');
+
+    const auditReq = { ...readReq };
+    const auditRes = createResponse();
+    await requireAdminScope('admin:audit:read')(auditReq as never, auditRes as never, () => assert.fail('viewer must not read audit records'));
+    assert.equal(auditRes.statusCode, 403);
+    assert.equal((auditRes.body as { error: { code: string } }).error.code, 'ADMIN_ROLE_FORBIDDEN');
+  });
+
+  it('limits auditors to audit data and requires recent authentication for writes', async () => {
+    mock.method(redis, 'incr', async () => 1);
+    mock.method(redis, 'expire', async () => 1);
+    mock.method(redis, 'setex', async () => 'OK');
+    mutableConfig.CONTROL_PLANE_ADMIN_HUMAN_AUTH_REQUIRED = true;
+    mutableConfig.ADMIN_TOKEN_DESCRIPTORS = [{
+      id: 'platform-admin-console',
+      sha256: hashAdminToken('bff-workload-token'),
+      scopes: ['admin:*'],
+      enabled: true
+    }];
+
+    const base = {
+      issuer: 'https://idp.example.test/realms/acornops',
+      subject: 'user-456',
+      amr: ['mfa'],
+      createdAt: Date.now(),
+      lastSeenAt: Date.now(),
+      absoluteExpiresAt: Date.now() + 3_600_000,
+      idleExpiresAt: Date.now() + 900_000
+    };
+    let stored = { ...base, id: 'auditor-session', roles: ['platform-admin-auditor'], authenticatedAt: Date.now() };
+    mock.method(redis, 'get', async () => JSON.stringify(stored));
+    const request = (method: string) => ({
+      method,
+      cookies: { [config.ADMIN_SESSION_COOKIE_NAME]: stored.id },
+      header: (name: string) => name.toLowerCase() === 'authorization' ? 'Bearer bff-workload-token' : undefined,
+      ip: '127.0.0.1',
+      socket: {}
+    });
+
+    const auditRes = createResponse();
+    let auditAllowed = false;
+    await requireAdminScope('admin:audit:read')(request('GET') as never, auditRes as never, () => { auditAllowed = true; });
+    assert.equal(auditAllowed, true);
+
+    const userRes = createResponse();
+    await requireAdminScope('admin:user:read')(request('GET') as never, userRes as never, () => assert.fail('auditor must not read users'));
+    assert.equal((userRes.body as { error: { code: string } }).error.code, 'ADMIN_ROLE_FORBIDDEN');
+
+    stored = { ...base, id: 'admin-session', roles: ['platform-admin'], authenticatedAt: Date.now() - (config.ADMIN_SESSION_REAUTH_SECONDS + 1) * 1000 };
+    const writeRes = createResponse();
+    await requireAdminScope('admin:workspace:write')(request('PATCH') as never, writeRes as never, () => assert.fail('stale admin authentication must not authorize a write'));
+    assert.equal((writeRes.body as { error: { code: string } }).error.code, 'ADMIN_REAUTH_REQUIRED');
+
+    stored = { ...base, id: 'admin-session', roles: ['platform-admin'], authenticatedAt: Date.now() };
+    const csrfRes = createResponse();
+    await requireAdminScope('admin:workspace:write')(request('PATCH') as never, csrfRes as never, () => assert.fail('platform-admin writes require CSRF evidence'));
+    assert.equal((csrfRes.body as { error: { code: string } }).error.code, 'CSRF_TOKEN_REQUIRED');
   });
 
   it('rejects browser cookies, service tokens, run JWTs, and missing scopes', async () => {

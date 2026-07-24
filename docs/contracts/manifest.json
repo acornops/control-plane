@@ -4,12 +4,76 @@
   "executionContractVersion": 2,
   "runtimeDependencies": [
     "management-console",
+    "platform-admin-console",
     "execution-engine",
     "llm-gateway",
     "agentk",
     "agentv"
   ],
   "counterparts": {
+    "platform-admin-console": {
+      "adminBasePath": "/admin/v1",
+      "adminAuth": "Internal BFF bearer credential plus a host-only human platform-admin session; neither credential is sufficient alone in production",
+      "adminAuthPaths": [
+        "GET /admin-auth/oidc/login",
+        "GET /admin-auth/oidc/callback",
+        "GET /admin-auth/csrf",
+        "POST /admin-auth/logout"
+      ],
+      "adminAuthFailure": ["status=503", "error.code=ADMIN_IDENTITY_PROVIDER_UNAVAILABLE|ADMIN_IDENTITY_PROVIDER_MISCONFIGURED|ADMIN_SIGN_IN_UNAVAILABLE", "error.retryable", "error.request_id"],
+      "platformAdminRoles": {
+        "platform-admin": ["read", "write", "audit"],
+        "platform-admin-viewer": ["read"],
+        "platform-admin-auditor": ["audit"]
+      },
+      "platformAdminPaths": [
+        "GET /admin/v1/me",
+        "GET /admin/v1/system/readiness",
+        "GET /admin/v1/system/config",
+        "GET /admin/v1/workspaces",
+        "GET /admin/v1/workspaces/{workspaceId}",
+        "GET /admin/v1/workspaces/{workspaceId}/members",
+        "PATCH /admin/v1/workspaces/{workspaceId}/plan",
+        "POST /admin/v1/workspaces/{workspaceId}/suspend",
+        "POST /admin/v1/workspaces/{workspaceId}/restore",
+        "GET /admin/v1/users",
+        "GET /admin/v1/users/{userId}",
+        "POST /admin/v1/workspaces/{workspaceId}/members",
+        "PATCH /admin/v1/workspaces/{workspaceId}/members/{userId}/role",
+        "DELETE /admin/v1/workspaces/{workspaceId}/members/{userId}",
+        "GET /admin/v1/admin-audit-events"
+      ],
+      "requiredScopes": [
+        "admin:self",
+        "admin:system:read",
+        "admin:workspace:read",
+        "admin:workspace:write",
+        "admin:user:read",
+        "admin:member:write",
+        "admin:audit:read"
+      ],
+      "forbiddenScopes": [
+        "admin:*",
+        "admin:target:read",
+        "admin:target:write",
+        "admin:agent-key:rotate",
+        "admin:run:read",
+        "admin:run:write",
+        "admin:tooling:write"
+      ],
+      "paginationShape": ["items", "nextCursor?"],
+      "mutationFields": ["reason", "ticketRef?"],
+      "workspacePlanPatchFields": ["planKey", "reason", "ticketRef?"],
+      "workspaceSuspendFields": ["workspaceName", "reason", "ticketRef?"],
+      "workspaceRestoreFields": ["workspaceName?", "reason", "ticketRef?"],
+      "adminWorkspaceResponseFields": ["clusterCount", "virtualMachineCount", "memberCount", "lifecycleStatus=active|suspended", "suspendedAt?"],
+      "memberCreateFields": ["userId", "role", "createUserIfMissing=false", "reason", "ticketRef?"],
+      "memberRolePatchFields": ["role", "reason", "ticketRef?"],
+      "memberDeleteFields": ["reason", "replacementOwnerUserId?", "ticketRef?"],
+      "responseCachePolicy": "All /admin/v1 responses set Cache-Control: no-store",
+      "adminAuditActorFields": ["adminActorIssuer", "adminActorSubject", "adminActorEmail?", "adminActorDisplayName?", "adminActorRole", "authenticationTime"],
+      "privacyProjection": "BFF removes operational workspace fields, filters admin audit to governance action families, and removes target/run identifiers before browser delivery"
+    },
     "management-console": {
       "authContract": {
         "config": "GET /api/v1/auth/config returns the real OIDC capability flag and never exposes admission policy.",
@@ -601,22 +665,39 @@
         "admin:run:read",
         "admin:run:write"
       ],
-      "adminMutationFields": [
-        "reason"
+      "adminPaths": [
+        "GET /admin/v1/me",
+        "GET /admin/v1/system/readiness",
+        "GET /admin/v1/system/config",
+        "GET /admin/v1/workspaces",
+        "GET /admin/v1/workspaces/{workspaceId}",
+        "GET /admin/v1/workspaces/{workspaceId}/members",
+        "PATCH /admin/v1/workspaces/{workspaceId}/plan",
+        "POST /admin/v1/workspaces/{workspaceId}/suspend",
+        "POST /admin/v1/workspaces/{workspaceId}/restore",
+        "PATCH /admin/v1/workspaces/{workspaceId}/quotas",
+        "GET /admin/v1/users",
+        "GET /admin/v1/users/{userId}",
+        "POST /admin/v1/users/{userId}/sessions/revoke",
+        "POST /admin/v1/workspaces/{workspaceId}/members",
+        "PATCH /admin/v1/workspaces/{workspaceId}/members/{userId}/role",
+        "DELETE /admin/v1/workspaces/{workspaceId}/members/{userId}",
+        "GET /admin/v1/targets",
+        "GET /admin/v1/targets/{targetId}/agent",
+        "POST /admin/v1/targets/{targetId}/agent/disconnect",
+        "POST /admin/v1/targets/{targetId}/agent-key/rotate",
+        "GET /admin/v1/runs",
+        "GET /admin/v1/runs/{runId}",
+        "POST /admin/v1/runs/{runId}/cancel",
+        "POST /admin/v1/runs/{runId}/mark-failed",
+        "POST /admin/v1/tooling/sync",
+        "GET /admin/v1/admin-audit-events",
+        "GET /admin/v1/audit-events"
       ],
-      "adminAuditFields": [
-        "tokenId",
-        "scope",
-        "method",
-        "path",
-        "statusCode",
-        "reason",
-        "metadata"
-      ],
-      "workspacePlanConfig": [
-        "WORKSPACE_PLANS_CONFIG_JSON.defaultPlanKey",
-        "WORKSPACE_PLANS_CONFIG_JSON.plans[].{key,name,quotas}"
-      ],
+      "adminMutationFields": ["reason"],
+      "adminWorkspaceLifecycleFields": ["lifecycleStatus=active|suspended", "suspendedAt?", "suspend.workspaceName", "restore.workspaceName?", "reason", "ticketRef?"],
+      "adminAuditFields": ["id", "adminTokenId?", "action", "outcome", "workspaceId?", "targetType?", "targetId?", "subjectType?", "subjectId?", "reason?", "requestId", "sourceIpHash?", "userAgent?", "metadata", "occurredAt"],
+      "workspacePlanConfig": ["WORKSPACE_PLANS_CONFIG_JSON.defaultPlanKey", "WORKSPACE_PLANS_CONFIG_JSON.plans[].{key,name,quotas}"],
       "responseCachePolicy": "All /admin/v1 responses set Cache-Control: no-store",
       "secretReturnPolicy": "No admin response returns secrets except one-time agent-key rotation, returned once"
     },

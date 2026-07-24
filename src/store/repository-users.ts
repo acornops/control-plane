@@ -445,7 +445,7 @@ export async function listWorkspacesForUser(
 ): Promise<PagedResult<WorkspaceSummary>> {
   const limit = Math.max(1, Math.min(100, options.limit ?? 50));
   const params: Array<string | number> = [userId, limit + 1];
-  const clauses = ['m.user_id = $1'];
+  const clauses = ["m.user_id = $1", "w.lifecycle_status = 'active'"];
   if (options.q) {
     params.push(`%${options.q}%`);
     clauses.push(`LOWER(w.name) LIKE $${params.length}`);
@@ -477,7 +477,7 @@ export async function getWorkspaceSummaryForUser(userId: string, workspaceId: st
     `SELECT ${WORKSPACE_SUMMARY_COLUMNS}
      FROM workspaces w
      ${WORKSPACE_SUMMARY_JOINS}
-     WHERE w.id = $1 AND m.user_id = $2
+     WHERE w.id = $1 AND m.user_id = $2 AND w.lifecycle_status = 'active'
      LIMIT 1`,
     [workspaceId, userId]
   );
@@ -486,14 +486,22 @@ export async function getWorkspaceSummaryForUser(userId: string, workspaceId: st
 
 export async function userHasWorkspaceAccess(userId: string, workspaceId: string): Promise<boolean> {
     const result = await db.query(
-      'SELECT 1 FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2 LIMIT 1',
+      `SELECT 1
+       FROM workspace_memberships m
+       INNER JOIN workspaces w ON w.id = m.workspace_id
+       WHERE m.workspace_id = $1 AND m.user_id = $2 AND w.lifecycle_status = 'active'
+       LIMIT 1`,
       [workspaceId, userId]
     );
     return result.rows.length > 0;
   }
 export async function getWorkspaceRole(userId: string, workspaceId: string): Promise<Role | null> {
     const result = await db.query(
-      'SELECT role FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2 LIMIT 1',
+      `SELECT m.role
+       FROM workspace_memberships m
+       INNER JOIN workspaces w ON w.id = m.workspace_id
+       WHERE m.workspace_id = $1 AND m.user_id = $2 AND w.lifecycle_status = 'active'
+       LIMIT 1`,
       [workspaceId, userId]
     );
     if (!result.rowCount) return null;

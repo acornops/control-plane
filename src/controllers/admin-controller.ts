@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { NextFunction, Response } from 'express';
 import { AdminAuthenticatedRequest } from '../auth/admin-token.js';
 import { countUserSessions, revokeUserSessionsWithCount } from '../auth/session.js';
@@ -21,14 +22,28 @@ import {
   parseStringFilter,
   validationError
 } from './admin-controller-common.js';
+import { membershipAudit } from './admin-membership-audit.js';
 export * from './admin-target-run-controller.js';
 export * from './admin-audit-controller.js';
+export * from './admin-workspace-lifecycle-controller.js';
+export * from './admin-workspace-member-search-controller.js';
 
 export async function me(req: AdminAuthenticatedRequest, res: Response): Promise<void> {
   res.status(200).json({
     tokenId: req.admin.tokenId,
     ...(req.admin.tokenName ? { tokenName: req.admin.tokenName } : {}),
     scopes: req.admin.scopes,
+    ...(req.admin.actor ? {
+      actor: {
+        issuer: req.admin.actor.issuer,
+        subject: req.admin.actor.subject,
+        email: req.admin.actor.email,
+        displayName: req.admin.actor.displayName,
+        roles: req.admin.actor.roles,
+        scopes: req.admin.actor.scopes,
+        authenticatedAt: new Date(req.admin.actor.authenticatedAt).toISOString()
+      }
+    } : {}),
     adminApiEnabled: true
   });
 }
@@ -184,11 +199,12 @@ export async function patchWorkspacePlan(req: AdminAuthenticatedRequest, res: Re
       metadata: { beforePlan: before.plan.key, requestedPlan: targetPlan.key, ticketRef: req.body.ticketRef || null }
     });
     const after = await repo.updateWorkspacePlan(workspaceId, targetPlan.key);
+    const correlationId = randomUUID();
     await auditAdmin(req, {
       action: 'admin.workspace.plan.update',
       workspaceId,
       reason: req.body.reason,
-      metadata: { beforePlan: before.plan.key, afterPlan: targetPlan.key, ticketRef: req.body.ticketRef || null }
+      metadata: { beforePlan: before.plan.key, afterPlan: targetPlan.key, correlationId }
     });
     await bestEffortWorkspaceAudit({
       workspaceId,
@@ -199,7 +215,7 @@ export async function patchWorkspacePlan(req: AdminAuthenticatedRequest, res: Re
       objectId: workspaceId,
       objectName: before.name,
       summary: 'Workspace plan updated by admin token',
-      metadata: { beforePlan: before.plan.key, afterPlan: targetPlan.key, reason: req.body.reason, ticketRef: req.body.ticketRef || null }
+      metadata: { beforePlan: before.plan.key, afterPlan: targetPlan.key, reason: req.body.reason, correlationId }
     });
     res.status(200).json({ before, after, usage, overLimit });
   } catch (err) {
@@ -395,7 +411,11 @@ export async function addWorkspaceMember(req: AdminAuthenticatedRequest, res: Re
         metadata: { role: req.body.role, ticketRef: req.body.ticketRef || null }
       });
     }
-    const result = await repo.addExistingWorkspaceMember(workspaceId, userId!, req.body.role);
+    const result = await repo.addExistingWorkspaceMember(workspaceId, userId!, req.body.role, membershipAudit(req, {
+      action: 'admin.workspace.member.add', workspaceId, userId: userId!, reason: req.body.reason,
+      eventType: 'workspace.member.added.v1', summary: 'Workspace access granted by a platform administrator',
+      metadata: { role: req.body.role, ticketRef: req.body.ticketRef || null }
+    }));
     if (result.status === 'user_not_found') {
       notFound(res, 'User not found');
       return;
@@ -404,24 +424,6 @@ export async function addWorkspaceMember(req: AdminAuthenticatedRequest, res: Re
       res.status(409).json({ error: { code: 'CONFLICT', message: 'User is already a workspace member', retryable: false } });
       return;
     }
-    await auditAdmin(req, {
-      action: 'admin.workspace.member.add',
-      workspaceId,
-      subjectType: 'user',
-      subjectId: userId,
-      reason: req.body.reason,
-      metadata: { role: req.body.role, ticketRef: req.body.ticketRef || null }
-    });
-    await bestEffortWorkspaceAudit({
-      workspaceId,
-      tokenId: req.admin.tokenId,
-      category: 'membership',
-      eventType: 'workspace.member.added.v1',
-      objectType: 'member',
-      objectId: userId,
-      summary: 'Workspace member added by admin token',
-      metadata: { role: req.body.role, reason: req.body.reason, ticketRef: req.body.ticketRef || null }
-    });
     res.status(201).json(result.member);
   } catch (err) {
     if (err instanceof QuotaExceededError) {
@@ -449,7 +451,11 @@ export async function updateWorkspaceMemberRole(req: AdminAuthenticatedRequest, 
       reason: req.body.reason,
       metadata: { requestedRole: req.body.role, ticketRef: req.body.ticketRef || null }
     });
-    const result = await repo.updateExistingWorkspaceMemberRole(workspaceId, userId, req.body.role);
+    const result = await repo.updateExistingWorkspaceMemberRole(workspaceId, userId, req.body.role, membershipAudit(req, {
+      action: 'admin.workspace.member.role.update', workspaceId, userId, reason: req.body.reason,
+      eventType: 'workspace.member.role_updated.v1', summary: 'Workspace access role changed by a platform administrator',
+      metadata: { afterRole: req.body.role, ticketRef: req.body.ticketRef || null }
+    }));
     if (result.status === 'not_found') {
       notFound(res, 'Workspace member not found');
       return;
@@ -458,24 +464,6 @@ export async function updateWorkspaceMemberRole(req: AdminAuthenticatedRequest, 
       res.status(409).json({ error: { code: 'LAST_OWNER', message: 'Workspace must keep at least one owner', retryable: false } });
       return;
     }
-    await auditAdmin(req, {
-      action: 'admin.workspace.member.role.update',
-      workspaceId,
-      subjectType: 'user',
-      subjectId: userId,
-      reason: req.body.reason,
-      metadata: { beforeRole: result.previousRole || null, afterRole: req.body.role, ticketRef: req.body.ticketRef || null }
-    });
-    await bestEffortWorkspaceAudit({
-      workspaceId,
-      tokenId: req.admin.tokenId,
-      category: 'membership',
-      eventType: 'workspace.member.role_updated.v1',
-      objectType: 'member',
-      objectId: userId,
-      summary: 'Workspace member role updated by admin token',
-      metadata: { beforeRole: result.previousRole || null, afterRole: req.body.role, reason: req.body.reason, ticketRef: req.body.ticketRef || null }
-    });
     res.status(200).json(result.member);
   } catch (err) {
     next(err);
@@ -504,9 +492,24 @@ export async function deleteWorkspaceMember(req: AdminAuthenticatedRequest, res:
       reason: req.body.reason,
       metadata: { previousRole: current.role, replacementOwnerUserId: req.body.replacementOwnerUserId || null, ticketRef: req.body.ticketRef || null }
     });
-    let result = await repo.deleteExistingWorkspaceMember(workspaceId, userId);
+    const removalAudit = membershipAudit(req, {
+      action: 'admin.workspace.member.delete', workspaceId, userId, reason: req.body.reason,
+      eventType: 'workspace.member.removed.v1', summary: 'Workspace access revoked by a platform administrator',
+      metadata: { previousRole: current.role, ticketRef: req.body.ticketRef || null }
+    });
+    let result = await repo.deleteExistingWorkspaceMember(workspaceId, userId, removalAudit);
     if (result.status === 'last_owner' && req.body.replacementOwnerUserId) {
-      const replacementResult = await repo.replaceLastOwnerAndDeleteMember(workspaceId, userId, req.body.replacementOwnerUserId);
+      const replacementAudit = membershipAudit(req, {
+        action: 'admin.workspace.member.delete', workspaceId, userId, reason: req.body.reason,
+        eventType: 'workspace.member.removed.v1', summary: 'Workspace access revoked by a platform administrator',
+        metadata: { previousRole: current.role, replacementOwnerUserId: req.body.replacementOwnerUserId, ticketRef: req.body.ticketRef || null },
+        extraWorkspaceEvents: [{
+          workspaceId, category: 'membership', eventType: 'workspace.member.role_updated.v1', operation: 'write',
+          objectType: 'member', objectId: req.body.replacementOwnerUserId,
+          summary: 'Workspace owner assigned by a platform administrator', metadata: { afterRole: 'owner' }
+        }]
+      });
+      const replacementResult = await repo.replaceLastOwnerAndDeleteMember(workspaceId, userId, req.body.replacementOwnerUserId, replacementAudit);
       if (replacementResult.status === 'replacement_not_found') {
         validationError(res, 'replacementOwnerUserId must be an existing workspace member');
         return;
@@ -522,24 +525,6 @@ export async function deleteWorkspaceMember(req: AdminAuthenticatedRequest, res:
       return;
     }
     await cleanupRemovedMemberMcpConnections(workspaceId, userId);
-    await auditAdmin(req, {
-      action: 'admin.workspace.member.delete',
-      workspaceId,
-      subjectType: 'user',
-      subjectId: userId,
-      reason: req.body.reason,
-      metadata: { previousRole: current.role, replacementOwnerUserId: req.body.replacementOwnerUserId || null, ticketRef: req.body.ticketRef || null }
-    });
-    await bestEffortWorkspaceAudit({
-      workspaceId,
-      tokenId: req.admin.tokenId,
-      category: 'membership',
-      eventType: 'workspace.member.removed.v1',
-      objectType: 'member',
-      objectId: userId,
-      summary: 'Workspace member removed by admin token',
-      metadata: { previousRole: current.role, reason: req.body.reason, ticketRef: req.body.ticketRef || null }
-    });
     res.status(204).send();
   } catch (err) {
     next(err);

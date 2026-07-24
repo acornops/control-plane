@@ -9,7 +9,9 @@ import {
   adminToolingSyncSchema,
   adminUpdateWorkspaceMemberRoleSchema,
   adminWorkspacePlanPatchSchema,
-  adminWorkspaceQuotaPatchSchema
+  adminWorkspaceQuotaPatchSchema,
+  adminWorkspaceRestoreSchema,
+  adminWorkspaceSuspendSchema
 } from '../types/contracts.js';
 import { validateBody } from '../utils/http.js';
 import { incrementAdminRequests } from '../metrics.js';
@@ -31,11 +33,24 @@ adminRouter.get('/system/config', requireAdminScope('admin:system:read'), adminH
 
 adminRouter.get('/workspaces', requireAdminScope('admin:workspace:read'), adminHandler(adminController.listWorkspaces));
 adminRouter.get('/workspaces/:workspaceId', requireAdminScope('admin:workspace:read'), adminHandler(adminController.getWorkspace));
+adminRouter.get('/workspaces/:workspaceId/members', requireAdminScope('admin:user:read'), adminHandler(adminController.listWorkspaceMembers));
 adminRouter.patch(
   '/workspaces/:workspaceId/plan',
   requireAdminScope('admin:workspace:write'),
   validateBody(adminWorkspacePlanPatchSchema),
   adminHandler(adminController.patchWorkspacePlan)
+);
+adminRouter.post(
+  '/workspaces/:workspaceId/suspend',
+  requireAdminScope('admin:workspace:write'),
+  validateBody(adminWorkspaceSuspendSchema),
+  adminHandler(adminController.suspendWorkspace)
+);
+adminRouter.post(
+  '/workspaces/:workspaceId/restore',
+  requireAdminScope('admin:workspace:write'),
+  validateBody(adminWorkspaceRestoreSchema),
+  adminHandler(adminController.restoreWorkspace)
 );
 adminRouter.patch(
   '/workspaces/:workspaceId/quotas',

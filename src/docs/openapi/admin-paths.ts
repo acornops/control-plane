@@ -11,6 +11,18 @@ export function buildAdminPaths(): Record<string, unknown> {
     { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100 } },
     { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } }
   ];
+  const adminAuditSearchParameters = [
+    { in: 'query', name: 'adminTokenId', required: false, schema: { type: 'string' } },
+    { in: 'query', name: 'adminActorSubject', required: false, schema: { type: 'string' } },
+    { in: 'query', name: 'action', required: false, schema: { type: 'string' } },
+    { in: 'query', name: 'actionGroup', required: false, schema: { type: 'string', enum: ['workspace_access_modified', 'workspace_status_modified'] }, description: 'Fixed related-action group. Cannot be combined with action.' },
+    { in: 'query', name: 'outcome', required: false, schema: { type: 'string', enum: ['success', 'failure'] } },
+    { in: 'query', name: 'workspaceId', required: false, schema: { type: 'string' } },
+    { in: 'query', name: 'from', required: false, schema: { type: 'string', format: 'date-time' } },
+    { in: 'query', name: 'to', required: false, schema: { type: 'string', format: 'date-time' } },
+    { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100 } },
+    { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } }
+  ];
   const mutationBody = {
     required: true,
     content: {
@@ -30,7 +42,7 @@ export function buildAdminPaths(): Record<string, unknown> {
     '/admin/v1/me': {
       get: {
         tags: ['admin'],
-        summary: 'Inspect the current admin token',
+        summary: 'Inspect the current admin service credential and human administrator',
         security: adminSecurity,
         responses: { '200': { description: 'Admin token id, optional name, scopes, and enabled status.' } }
       }
@@ -76,6 +88,64 @@ export function buildAdminPaths(): Record<string, unknown> {
         responses: { '200': { description: 'Plan changed with before/after data.' }, '400': { description: 'Invalid plan or current usage exceeds target plan.' } }
       }
     },
+    '/admin/v1/workspaces/{workspaceId}/suspend': {
+      post: {
+        tags: ['admin'],
+        summary: 'Suspend member access to a workspace without modifying workloads',
+        security: adminSecurity,
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['workspaceName', 'reason'],
+                properties: {
+                  workspaceName: { type: 'string', minLength: 1, maxLength: 200 },
+                  reason: { type: 'string', minLength: 3, maxLength: 500 },
+                  ticketRef: { type: 'string' }
+                },
+                additionalProperties: false
+              }
+            }
+          }
+        },
+        responses: {
+          '200': { description: 'Workspace access suspended; memberships, targets, workloads, and audit history retained.' },
+          '400': { description: 'Workspace-name confirmation did not match.' },
+          '409': { description: 'Workspace is already suspended or lifecycle state changed concurrently.' }
+        }
+      }
+    },
+    '/admin/v1/workspaces/{workspaceId}/restore': {
+      post: {
+        tags: ['admin'],
+        summary: 'Restore member access to a suspended workspace',
+        security: adminSecurity,
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['reason'],
+                properties: {
+                  workspaceName: { type: 'string', minLength: 1, maxLength: 200, description: 'When supplied, must exactly match the current workspace name.' },
+                  reason: { type: 'string', minLength: 3, maxLength: 500 },
+                  ticketRef: { type: 'string' }
+                },
+                additionalProperties: false
+              }
+            }
+          }
+        },
+        responses: {
+          '200': { description: 'Workspace access restored with retained memberships.' },
+          '400': { description: 'Workspace-name confirmation did not match.' },
+          '409': { description: 'Workspace is already active or lifecycle state changed concurrently.' }
+        }
+      }
+    },
     '/admin/v1/workspaces/{workspaceId}/quotas': {
       patch: {
         tags: ['admin'],
@@ -111,6 +181,16 @@ export function buildAdminPaths(): Record<string, unknown> {
       }
     },
     '/admin/v1/workspaces/{workspaceId}/members': {
+      get: {
+        tags: ['admin'],
+        summary: 'List governance-safe workspace members',
+        security: adminSecurity,
+        parameters: [
+          { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100 } },
+          { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } }
+        ],
+        responses: { '200': { description: 'Paged workspace membership records with user display identity and role.' }, '404': { description: 'Workspace not found.' } }
+      },
       post: {
         tags: ['admin'],
         summary: 'Break-glass add workspace member',
@@ -219,6 +299,7 @@ export function buildAdminPaths(): Record<string, unknown> {
         tags: ['admin'],
         summary: 'Search admin audit events',
         security: adminSecurity,
+        parameters: adminAuditSearchParameters,
         responses: { '200': { description: 'Paged admin audit events.' } }
       }
     },

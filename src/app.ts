@@ -18,6 +18,7 @@ import { logger } from './logger.js';
 import { renderControlPlaneMetrics } from './metrics.js';
 import { agentsRouter } from './routes/agents.js';
 import { adminRouter } from './routes/admin.js';
+import { adminAuthRouter } from './routes/admin-auth.js';
 import { authRouter } from './routes/auth.js';
 import { internalExecutionRouter } from './routes/internal-execution.js';
 import { runsRouter } from './routes/runs.js';
@@ -129,6 +130,7 @@ export function createApp() {
   app.use('/api/v1', runsRouter);
   app.use('/api/v1', workflowsRouter);
   if (config.CONTROL_PLANE_ADMIN_API_ENABLED) {
+    if (config.CONTROL_PLANE_ADMIN_HUMAN_AUTH_REQUIRED) app.use('/admin-auth', adminAuthRouter);
     app.use('/admin/v1', adminRouter);
   }
   if (!config.INTERNAL_TRANSPORT_TLS_ENABLED) {

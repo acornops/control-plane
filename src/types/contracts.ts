@@ -230,6 +230,11 @@ export const adminWorkspacePlanPatchSchema = z.object({
   ticketRef: ticketRefSchema
 }).strict();
 
+export const adminWorkspaceSuspendSchema = z.object({
+  workspaceName: z.string().min(1).max(200), reason: adminReasonSchema,
+  ticketRef: ticketRefSchema
+}).strict();
+export const adminWorkspaceRestoreSchema = adminWorkspaceSuspendSchema.partial({ workspaceName: true });
 const adminQuotaValueSchema = z.number().int().positive().optional();
 
 export const adminWorkspaceQuotaPatchSchema = z.object({

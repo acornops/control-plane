@@ -9,9 +9,11 @@
 - External integration account links use bearer tokens for installed integration clients configured in `EXTERNAL_INTEGRATION_CLIENTS_JSON`. AcornOps derives the integration client from the bearer token hash and scopes external identities by `(integration_client_id, provider, external_user_id)`; request bodies never choose the client or provider. Only an authenticated browser session may complete and bind an external identity to an AcornOps user. External integration client bearer tokens are accepted only by the account-link lifecycle, linked-user bot, and external webhook route connect/status endpoints.
 - Linked external integration requests may also read permitted workspace and target operational summaries, create troubleshooting sessions, and post assistant messages by sending a registered external integration client token with `x-acornops-external-user-id`; this creates an `external_integration` auth credential, not a browser session. Runs are read-only by default. Read-write runs require explicit client, workspace-grant, and workspace-role opt-in.
 - A linked integration with effective `create_read_write_runs` may launch active read-write or approval-gated Workflows and decide a write approval only when the individual troubleshooting run or Workflow execution records that exact active external integration link and client as its request origin. Workflow session continuation and report access use the same exact-origin rule; execution metadata and redacted aggregate execution events remain workspace-readable. The exact origin may reject a pending approval with current workspace read access after write permission is removed. External credentials fail closed for browser-created executions, another link/client, delegated specialist children, schedules, and system triggers. Adapters must obtain an explicit confirmation from the linked external user before submitting a decision; the client bearer credential is trusted to preserve that user interaction.
-- Admin control-plane operations use `/admin/v1` with admin bearer tokens only.
-  Browser session cookies, CSRF tokens, service tokens, run-scoped JWTs, and
-  target agent keys are never accepted on admin endpoints.
+- Production platform-admin operations use `/admin/v1` and require two
+  independent credentials: the console BFF's scoped bearer token and the
+  human administrator's opaque OIDC-backed session. The effective permission is
+  the intersection of both. Run-scoped JWTs, unrelated service tokens, normal
+  browser sessions, and target agent keys are never accepted.
 - Builtin MCP bridge calls use the run-scoped gateway JWT issued during execution bootstrap.
 - llm-gateway admin traffic uses the shared admin token value configured locally as `LLM_GATEWAY_ADMIN_TOKEN`.
 - Run-scoped gateway JWTs are minted here, validated downstream, and re-validated by the builtin MCP bridge.
@@ -83,12 +85,27 @@
 ## Admin Audit
 
 - Mutating `/admin/v1` requests require a non-empty `reason` field.
-- Mutating admin requests write `admin_audit_events`; workspace-scoped admin
-  mutations also write workspace audit events with `actor.type=admin_token` and
-  `actor.tokenId`.
+- Production accepts only `platform-admin`, `platform-admin-viewer`, and
+  `platform-admin-auditor`. MFA is verified from configured `acr`/`amr` claims;
+  write operations also require authentication within the recent-auth window.
+- Unsafe platform-admin BFF requests require an exact-origin signed double-submit CSRF token; unrelated operational admin tokens remain bearer-only.
+  Admin sessions are opaque Redis records in secure, host-only, HTTP-only
+  cookies with independent absolute and idle expiration.
+- Mutating admin requests write `admin_audit_events`. Workspace membership
+  mutations atomically write a protected Admin Audit success record and a
+  workspace-visible event in the same transaction as the membership change.
+  The workspace event uses `actor.type=admin_token` with the generic token label
+  `platform-admin`, while an opaque correlation id links it to the protected
+  record without exposing the administrator credential identifier.
 - Admin audit metadata is sanitized before persistence. Request payloads,
   prompts, message bodies, authorization headers, raw tokens, and raw agent keys
   must not be persisted.
+- Protected admin audit records are append-only and include immutable OIDC
+  issuer and subject, readable identity and role snapshots, a non-reversible
+  session reference, the separate BFF token ID, authentication time, request
+  ID, source-IP hash, user agent, target, reason, outcome, and timestamp.
+- Successful audit writes emit a structured security event for centralized log
+  collection. Mutations fail closed when their required audit write fails.
 - All `/admin/v1` responses set `Cache-Control: no-store`.
 - Agent-key rotation is the only admin operation that returns a secret, and the
   replacement key is returned once.

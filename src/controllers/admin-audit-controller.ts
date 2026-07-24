@@ -6,6 +6,11 @@ import { toSingleParam } from '../utils/params.js';
 import { CursorMismatchError, decodeCursor, makeQuerySignature, parseBoundedLimit } from '../utils/pagination.js';
 import { auditAdmin, parseIsoDateQuery, parseStringFilter, validationError } from './admin-controller-common.js';
 
+const ADMIN_AUDIT_ACTION_GROUPS = {
+  workspace_access_modified: ['admin.workspace.member.add', 'admin.workspace.member.delete', 'admin.workspace.member.role.update', 'admin.member.role.update'],
+  workspace_status_modified: ['admin.workspace.suspend', 'admin.workspace.restore']
+} as const;
+
 function parseRange(req: AdminAuthenticatedRequest, res: Response): { from?: string; to?: string } | null {
   const from = parseIsoDateQuery(req.query.from, 'from');
   const to = parseIsoDateQuery(req.query.to, 'to');
@@ -31,7 +36,9 @@ export async function listAdminAuditEvents(req: AdminAuthenticatedRequest, res: 
     }
     const filters = {
       adminTokenId: parseStringFilter(req.query.adminTokenId, 'adminTokenId'),
+      adminActorSubject: parseStringFilter(req.query.adminActorSubject, 'adminActorSubject'),
       action: parseStringFilter(req.query.action, 'action'),
+      actionGroup: parseStringFilter(req.query.actionGroup, 'actionGroup'),
       workspaceId: parseStringFilter(req.query.workspaceId, 'workspaceId'),
       targetType: parseStringFilter(req.query.targetType, 'targetType'),
       targetId: parseStringFilter(req.query.targetId, 'targetId')
@@ -42,9 +49,20 @@ export async function listAdminAuditEvents(req: AdminAuthenticatedRequest, res: 
         return;
       }
     }
+    if (filters.action.value && filters.actionGroup.value) {
+      validationError(res, 'action and actionGroup cannot be combined');
+      return;
+    }
+    const groupedActions = filters.actionGroup.value ? ADMIN_AUDIT_ACTION_GROUPS[filters.actionGroup.value as keyof typeof ADMIN_AUDIT_ACTION_GROUPS] : undefined;
+    if (filters.actionGroup.value && !groupedActions) {
+      validationError(res, 'actionGroup must be workspace_access_modified or workspace_status_modified');
+      return;
+    }
     const normalizedFilters = {
       adminTokenId: filters.adminTokenId.value,
+      adminActorSubject: filters.adminActorSubject.value,
       action: filters.action.value,
+      actionGroup: filters.actionGroup.value,
       outcome: outcome.value as 'success' | 'failure' | undefined,
       workspaceId: filters.workspaceId.value,
       targetType: filters.targetType.value,
@@ -54,7 +72,7 @@ export async function listAdminAuditEvents(req: AdminAuthenticatedRequest, res: 
     const signature = makeQuerySignature(normalizedFilters);
     const cursor = decodeCursor<{ occurredAt: string; eventId: string; signature: string }>(req.query.cursor, signature);
     await auditAdmin(req, { action: 'admin.admin_audit.search', metadata: { highRiskRead: true, filters: normalizedFilters } });
-    res.status(200).json(await repo.listAdminAuditEvents({ limit: parseBoundedLimit(req.query.limit), cursor, signature, ...normalizedFilters }));
+    res.status(200).json(await repo.listAdminAuditEvents({ limit: parseBoundedLimit(req.query.limit), cursor, signature, actions: groupedActions ? [...groupedActions] : undefined, ...normalizedFilters }));
   } catch (err) {
     if (err instanceof CursorMismatchError) {
       res.status(400).json({ error: { code: 'INVALID_CURSOR', message: err.message, retryable: false } });

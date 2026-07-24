@@ -301,6 +301,16 @@ export async function acceptWorkspaceInvitation(req: AuthenticatedRequest, res: 
       res.status(409).json({ error: { code: 'INVITATION_UNAVAILABLE', message: 'Invitation is no longer available', retryable: false } });
       return;
     }
+    if (result.status === 'workspace_suspended') {
+      res.status(409).json({
+        error: {
+          code: 'WORKSPACE_SUSPENDED',
+          message: 'This workspace is suspended and cannot accept invitations',
+          retryable: false
+        }
+      });
+      return;
+    }
     if (result.status === 'email_mismatch') {
       res.status(403).json({
         error: {

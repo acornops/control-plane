@@ -193,10 +193,12 @@ import {
   listAdminRuns as listAdminRunsRecord,
   listAdminTargets as listAdminTargetsRecord,
   listAdminUsers as listAdminUsersRecord,
+  listAdminWorkspaceMembers as listAdminWorkspaceMembersRecord,
   listAdminWorkspaces as listAdminWorkspacesRecord,
   replaceLastOwnerAndDeleteMember as replaceLastOwnerAndDeleteMemberRecord,
   updateExistingWorkspaceMemberRole as updateExistingWorkspaceMemberRoleRecord,
   setWorkspaceQuotaOverrides as setWorkspaceQuotaOverridesRecord,
+  transitionWorkspaceLifecycle as transitionWorkspaceLifecycleRecord,
   updateWorkspacePlan as updateWorkspacePlanRecord
 } from './repository-admin.js';
 import {
@@ -502,16 +504,13 @@ export class Repository {
   purgeOldWorkspaceAuditEvents = purgeOldWorkspaceAuditEventsRecord;
 
   insertAdminAuditEvent = insertAdminAuditEventRecord;
-
   listAdminAuditEvents = listAdminAuditEventsRecord;
-
   listAdminWorkspaces = listAdminWorkspacesRecord;
-
   getAdminWorkspace = getAdminWorkspaceRecord;
-
   updateWorkspacePlan = updateWorkspacePlanRecord;
-
   setWorkspaceQuotaOverrides = setWorkspaceQuotaOverridesRecord;
+
+  transitionWorkspaceLifecycle = transitionWorkspaceLifecycleRecord;
 
   countWorkspaceUsage = countWorkspaceUsageRecord;
 
@@ -522,7 +521,7 @@ export class Repository {
   deleteExistingWorkspaceMember = deleteExistingWorkspaceMemberRecord;
 
   listAdminUsers = listAdminUsersRecord;
-
+  listAdminWorkspaceMembers = listAdminWorkspaceMembersRecord;
   getAdminUser = getAdminUserRecord;
 
   findUserByEmail = findUserByEmailRecord;
