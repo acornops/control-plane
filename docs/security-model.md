@@ -8,7 +8,7 @@
 - Internal execution callbacks use `ORCH_SERVICE_TOKEN`.
 - External integration account links use bearer tokens for installed integration clients configured in `EXTERNAL_INTEGRATION_CLIENTS_JSON`. AcornOps derives the integration client from the bearer token hash and scopes external identities by `(integration_client_id, provider, external_user_id)`; request bodies never choose the client or provider. Only an authenticated browser session may complete and bind an external identity to an AcornOps user. External integration client bearer tokens are accepted only by the account-link lifecycle, linked-user bot, and external webhook route connect/status endpoints.
 - Linked external integration requests may also read permitted workspace and target operational summaries, create troubleshooting sessions, and post assistant messages by sending a registered external integration client token with `x-acornops-external-user-id`; this creates an `external_integration` auth credential, not a browser session. Runs are read-only by default. Read-write runs require explicit client, workspace-grant, and workspace-role opt-in.
-- A linked integration with effective `create_read_write_runs` may launch active read-write or approval-gated Workflows and decide a write approval only when the individual troubleshooting run or Workflow execution records that exact active external integration link and client as its request origin. Workflow session continuation and report access use the same exact-origin rule; execution metadata and redacted aggregate execution events remain workspace-readable. The exact origin may reject a pending approval with current workspace read access after write permission is removed. External credentials fail closed for browser-created executions, another link/client, standalone Agents, schedules, and system triggers. Adapters must obtain an explicit confirmation from the linked external user before submitting a decision; the client bearer credential is trusted to preserve that user interaction.
+- A linked integration with effective `create_read_write_runs` may launch active read-write or approval-gated Workflows and decide a write approval only when the individual troubleshooting run or Workflow execution records that exact active external integration link and client as its request origin. Workflow session continuation and report access use the same exact-origin rule; execution metadata and redacted aggregate execution events remain workspace-readable. The exact origin may reject a pending approval with current workspace read access after write permission is removed. External credentials fail closed for browser-created executions, another link/client, delegated specialist children, schedules, and system triggers. Adapters must obtain an explicit confirmation from the linked external user before submitting a decision; the client bearer credential is trusted to preserve that user interaction.
 - Admin control-plane operations use `/admin/v1` with admin bearer tokens only.
   Browser session cookies, CSRF tokens, service tokens, run-scoped JWTs, and
   target agent keys are never accepted on admin endpoints.
@@ -33,7 +33,7 @@
   administrators. Forward them once to the gateway and never place them in
   logs, response bodies, or audit metadata. Clients cannot select the outbound
   authentication header; the MCP installation owns that configuration.
-- Treat Agent webhook HMAC secrets as one-time-disclosed credentials. Persist only encrypted secret material, validate the signed raw body and timestamp, and deduplicate durable event IDs before dispatch.
+- Agents are invoked only through Workflows. Public standalone Agent runs and Agent-level inbound webhook triggers are not supported.
 - Never log Agent or Workflow prompts, chat bodies, tool arguments, webhook payloads, report source, PDF contents, credentials, or continuation state. Audit stable IDs, actors, capability snapshots, decisions, and terminal outcomes.
 
 ## High-Risk Changes
@@ -45,7 +45,8 @@
   agent-key rotation behavior
 - Internal execution auth or llm-gateway admin auth
 - Cross-workspace, cross-target, or cross-cluster data access logic
-- Agent/Workflow version, step, target, context-grant, tool-operation, approval, or idempotency claims
+- Agent/Workflow version, executor role, parent run, target, context-grant,
+  tool-operation, approval, or idempotency claims
 
 ## Authorization
 

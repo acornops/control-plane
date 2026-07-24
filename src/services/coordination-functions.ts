@@ -1,7 +1,7 @@
 export const DELEGATE_SPECIALIST_FUNCTION = '_acornops_delegate_specialist';
 export const AWAIT_DELEGATIONS_FUNCTION = '_acornops_await_delegations';
 
-export const MANAGER_COORDINATION_FUNCTIONS = [
+export const COORDINATOR_FUNCTIONS = [
   DELEGATE_SPECIALIST_FUNCTION,
   AWAIT_DELEGATIONS_FUNCTION
 ] as const;

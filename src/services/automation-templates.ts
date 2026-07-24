@@ -12,7 +12,7 @@ import {
 } from '../store/repository-automation-templates.js';
 import { withTransaction } from '../store/repository-transaction.js';
 import { getWorkflowDefinition } from '../store/repository-workflows.js';
-import type { AgentDefinitionKind, DefinitionOrigin } from '../types/agents.js';
+import type { DefinitionOrigin } from '../types/agents.js';
 import type { WorkflowCapabilityMode } from '../types/workflows.js';
 import type { WorkflowCapabilityRestrictionMode, WorkflowInputDefinition, WorkflowStatus } from '../types/workflows.js';
 import type { PromptResourceRequirement } from '../types/prompt-resources.js';
@@ -29,10 +29,8 @@ interface AgentTemplate {
   name: string;
   description: string;
   instructions: string;
-  kind: AgentDefinitionKind;
   semanticCapabilityIds: string[];
   nativeToolIds?: string[];
-  specialistKeys?: string[];
   targetConstraints?: { targetTypes: Array<'kubernetes' | 'virtual_machine'>; targetIds: string[] };
 }
 
@@ -79,15 +77,15 @@ async function upsertStarterNativeToolMapping(
   await client.query(
     `INSERT INTO capability_routing_mappings (
        workspace_id,id,capability_id,version,agent_id,agent_version,status,review_state,priority,
-       target_types,target_ids,mcp_tools,native_tool_ids,invocation_scopes,skill_ids,context_grants,created_by,reviewed_by
-     ) VALUES ($1,$2,$3,1,$4,$5,'active','reviewed',100,'[]','[]','[]',$6,$7,'[]',$8,$9,$9)
+       target_types,target_ids,mcp_tools,native_tool_ids,skill_ids,context_grants,created_by,reviewed_by
+     ) VALUES ($1,$2,$3,1,$4,$5,'active','reviewed',100,'[]','[]','[]',$6,'[]',$7,$8,$8)
      ON CONFLICT (workspace_id,id) DO UPDATE SET
        capability_id=EXCLUDED.capability_id,agent_version=EXCLUDED.agent_version,status='active',review_state='reviewed',
-       native_tool_ids=EXCLUDED.native_tool_ids,invocation_scopes=EXCLUDED.invocation_scopes,
+       native_tool_ids=EXCLUDED.native_tool_ids,
        context_grants=EXCLUDED.context_grants,reviewed_by=EXCLUDED.reviewed_by,
        version=capability_routing_mappings.version+1,updated_at=NOW()`,
     [workspaceId, `native:${agentId}:${tool.id}`, tool.semanticCapabilityId, agentId, agentVersion,
-     JSON.stringify([tool.id]), JSON.stringify(tool.invocationScopes),
+     JSON.stringify([tool.id]),
      JSON.stringify(tool.requiredContextGrant ? [tool.requiredContextGrant] : []), installedBy]
   );
 }
@@ -103,7 +101,6 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       name: 'Target Diagnostics',
       description: 'Collects diagnostic evidence from an explicitly selected target.',
       instructions: 'Inspect only the exact target scope compiled for this run. Cite observed evidence and distinguish observations from inferences.',
-      kind: 'specialist',
       semanticCapabilityIds: ['target.diagnostics.read'],
       targetConstraints: { targetTypes: ['kubernetes', 'virtual_machine'], targetIds: [] }
     },
@@ -112,7 +109,6 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       name: 'Target Remediation',
       description: 'Diagnoses and safely changes an explicitly selected target.',
       instructions: 'Inspect the exact compiled target before changing it. Propose the smallest safe change, require approval for every write, verify the result, and provide rollback guidance.',
-      kind: 'specialist',
       semanticCapabilityIds: ['target.diagnostics.read', 'target.remediation.write'],
       targetConstraints: { targetTypes: ['kubernetes'], targetIds: [] }
     },
@@ -121,7 +117,6 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       name: 'Incident Reporter',
       description: 'Produces an incident report from explicitly granted evidence.',
       instructions: 'Use only evidence and context present in the compiled scope. Preserve provenance and disclose missing inputs.',
-      kind: 'specialist',
       semanticCapabilityIds: ['prompt.resources.read', 'reports.pdf.generate'],
       nativeToolIds: ['prompt.resources.read', 'reports.pdf.generate']
     }
@@ -264,7 +259,7 @@ async function deletePendingStarterDefinitions(client: PoolClient, workspaceId: 
 
 export async function insertStarterAgent(
   client: PoolClient,
-  input: { workspaceId: string; installedBy: string; template: AgentTemplate; delegateAgentIds: string[] }
+  input: { workspaceId: string; installedBy: string; template: AgentTemplate }
 ): Promise<string> {
   const targetScope = input.template.targetConstraints
     ? { type: 'selected_target' as const, targetTypes: input.template.targetConstraints.targetTypes }
@@ -277,7 +272,6 @@ export async function insertStarterAgent(
     ownerUserId: input.installedBy,
     createdBy: input.installedBy,
     origin: definitionOrigin(),
-    kind: input.template.kind,
     reviewState: 'reviewed',
     providerType: 'internal',
     targetScope,
@@ -285,8 +279,7 @@ export async function insertStarterAgent(
     trustPolicy: { level: 'restricted', allowExternalData: false },
     permissionMode: 'ask_before_changes',
     semanticCapabilityIds: input.template.semanticCapabilityIds,
-    tools: input.template.nativeToolIds || [],
-    delegateAgentIds: input.delegateAgentIds
+    tools: input.template.nativeToolIds || []
   });
   for (const toolId of input.template.nativeToolIds || []) {
     await upsertStarterNativeToolMapping(client, input.workspaceId, agent.id, agent.version, toolId, input.installedBy);
@@ -340,14 +333,11 @@ export async function provisionStarterAutomationInTransaction(
 
   await deletePendingStarterDefinitions(client, input.workspaceId);
   const agentIds: Record<string, string> = {};
-  for (const template of STARTER_BUNDLE.agents.filter((agent) => (
-    agent.kind === 'specialist' && AUTOMATIC_AGENT_KEYS.has(agent.key)
-  ))) {
+  for (const template of STARTER_BUNDLE.agents.filter((agent) => AUTOMATIC_AGENT_KEYS.has(agent.key))) {
     agentIds[template.key] = await insertStarterAgent(client, {
       workspaceId: input.workspaceId,
       installedBy: input.installedBy,
-      template,
-      delegateAgentIds: []
+      template
     });
   }
   injectSeedFailureForTests('after_agents');

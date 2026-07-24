@@ -2,8 +2,6 @@ import { Router } from 'express';
 import { authenticatedHandler, requireUser } from '../auth/middleware.js';
 import * as agentsController from '../controllers/agents-controller.js';
 import * as agentsLifecycleController from '../controllers/agents-lifecycle-controller.js';
-import { receiveAgentWebhook } from '../controllers/automation-webhook-controller.js';
-import * as agentTriggersController from '../controllers/agent-triggers-controller.js';
 import { getAutomationDiagnostics } from '../controllers/automation-diagnostics-controller.js';
 import * as agentMcpController from '../controllers/agent-mcp-controller.js';
 import * as mcpConnectionsController from '../controllers/mcp-connections-controller.js';
@@ -29,7 +27,6 @@ agentsRouter.post('/workspaces/:workspaceId/automation-templates/:templateId/act
 agentsRouter.get('/workspaces/:workspaceId/service-identities', requireUser, authed(serviceIdentitiesController.list));
 agentsRouter.post('/workspaces/:workspaceId/service-identities', requireUser, authed(serviceIdentitiesController.create));
 agentsRouter.patch('/workspaces/:workspaceId/service-identities/:serviceIdentityId', requireUser, authed(serviceIdentitiesController.patch));
-agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/runs', requireUser, publicAgentVisibility, authed(agentsController.runAgent));
 agentsRouter.get('/workspaces/:workspaceId/agents/:agentId/mcp/servers', requireUser, publicAgentVisibility, authed(agentMcpController.listServers));
 agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/mcp/servers', requireUser, publicAgentVisibility, authed(agentMcpController.createServer));
 agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/mcp/servers/import', requireUser, publicAgentVisibility, authed(importAgentCatalogMcpServer));
@@ -51,7 +48,6 @@ agentsRouter.patch('/workspaces/:workspaceId/agents/:agentId/skills/:skillId', r
 agentsRouter.delete('/workspaces/:workspaceId/agents/:agentId/skills/:skillId', requireUser, publicAgentVisibility, authed(agentSkillsController.removeSkill));
 agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/skills/:skillId/reimport', requireUser, publicAgentVisibility, authed(agentSkillsController.reimportSkill));
 agentsRouter.get('/workspaces/:workspaceId/automation/diagnostics', requireUser, authed(getAutomationDiagnostics));
-agentsRouter.post('/automation/webhooks/:triggerId', receiveAgentWebhook);
 agentsRouter.get('/agents/:agentId', requireUser, publicAgentVisibility, authed(agentsController.getAgent));
 agentsRouter.post('/agents/:agentId/duplicate', requireUser, publicAgentVisibility, authed(agentsLifecycleController.duplicateAgent));
 agentsRouter.patch('/agents/:agentId', requireUser, publicAgentVisibility, authed(agentsController.updateAgent));
@@ -59,8 +55,3 @@ agentsRouter.delete('/agents/:agentId', requireUser, publicAgentVisibility, auth
 agentsRouter.get('/agents/:agentId/versions', requireUser, publicAgentVisibility, authed(agentsController.listAgentVersions));
 agentsRouter.post('/agents/:agentId/versions', requireUser, publicAgentVisibility, authed(agentsController.createAgentVersion));
 agentsRouter.post('/agents/:agentId/versions/:versionId/restore', requireUser, publicAgentVisibility, authed(agentsController.restoreAgentVersion));
-agentsRouter.post('/agents/:agentId/test', requireUser, publicAgentVisibility, authed(agentsController.testAgent));
-agentsRouter.get('/agents/:agentId/activity', requireUser, publicAgentVisibility, authed(agentsController.listAgentActivity));
-agentsRouter.post('/agents/:agentId/triggers', requireUser, publicAgentVisibility, authed(agentTriggersController.createAgentTrigger));
-agentsRouter.patch('/agents/:agentId/triggers/:triggerId', requireUser, publicAgentVisibility, authed(agentTriggersController.updateAgentTrigger));
-agentsRouter.delete('/agents/:agentId/triggers/:triggerId', requireUser, publicAgentVisibility, authed(agentTriggersController.deleteAgentTrigger));

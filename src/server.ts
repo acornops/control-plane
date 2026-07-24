@@ -24,7 +24,6 @@ import { runControlPlaneRetentionSweep } from './services/conversation-retention
 import { runTargetInsightsCheckpointSweep } from './services/target-insights/checkpoint-worker.js';
 import { runWebhookDeliverySweep } from './services/webhook-worker.js';
 import { runAutomationOutboxTick } from './services/automation-outbox-worker.js';
-import { runAutomationTriggerTick } from './services/automation-trigger-worker.js';
 import { runWorkflowScheduleTick } from './services/workflow-scheduler.js';
 import { refreshAutomationMetricsSnapshot } from './services/automation-diagnostics.js';
 import { repo } from './store/repository.js';
@@ -133,7 +132,6 @@ async function main(): Promise<void> {
   const automationWorkerInterval = setInterval(async () => {
     try {
       await runWorkflowScheduleTick();
-      await runAutomationTriggerTick();
       await runAutomationOutboxTick();
       await runMcpSecretCleanupTick();
       await refreshAutomationMetricsSnapshot();

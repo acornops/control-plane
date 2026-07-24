@@ -1,11 +1,7 @@
 import type { AgentDefinition } from '../types/agents.js';
 import type { WorkflowDefinitionForAccess } from '../types/workflows.js';
 import { listCapabilityRoutingMappings } from '../store/repository-capability-routing.js';
-import {
-  getAgentDefinition,
-  listAgentDefinitions,
-  updateAgentReadiness
-} from '../store/repository-agents.js';
+import { getAgentDefinition, updateAgentReadiness } from '../store/repository-agents.js';
 import { updateWorkflowReadiness } from '../store/repository-workflows.js';
 import { capabilitiesOutsideAgentCeiling, resolveEffectiveWorkflowCapabilityIds } from './workflow-capability-policy.js';
 import { repo } from '../store/repository.js';
@@ -21,44 +17,10 @@ function unique(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
-function managerOperationalResourceCount(agent: AgentDefinition): number {
-  return agent.mcpServers.length
-    + agent.mcpTools.length
-    + agent.mcpInstallations.length
-    + agent.tools.length
-    + agent.skills.length
-    + agent.skillInstallations.length
-    + agent.contextGrants.length;
-}
-
 export async function computeAgentReadiness(agent: AgentDefinition): Promise<AgentDefinition['readiness']> {
   if (agent.status !== 'active' || agent.reviewState !== 'reviewed') {
     return { status: 'blocked', reasons: ['Agent must be active and reviewed.'] };
   }
-  if (agent.kind === 'manager') {
-    if (managerOperationalResourceCount(agent) > 0) {
-      return { status: 'blocked', reasons: ['Managers can use coordination functions only. Remove operational tools, MCP servers, skills, and context grants.'] };
-    }
-    const allowed = new Set(agent.delegateAgentIds);
-    const specialists = (await listAgentDefinitions(agent.workspaceId, { includeInactive: true }))
-      .filter((candidate) => allowed.has(candidate.id));
-    const missing = agent.delegateAgentIds.filter((id) => !specialists.some((candidate) => candidate.id === id && candidate.kind === 'specialist'));
-    if (missing.length > 0) {
-      return { status: 'needs_setup', reasons: [`Manager specialist allowlist contains unavailable specialists: ${missing.join(', ')}`] };
-    }
-    const mappings = await listCapabilityRoutingMappings(agent.workspaceId, {
-      activeReviewedOnly: true,
-      capabilityIds: agent.semanticCapabilityIds
-    });
-    const available = new Set(mappings
-      .filter((mapping) => allowed.has(mapping.agentId))
-      .map((mapping) => mapping.capabilityId));
-    const unavailable = agent.semanticCapabilityIds.filter((capabilityId) => !available.has(capabilityId));
-    return unavailable.length > 0
-      ? { status: 'needs_setup', reasons: unavailable.map((capabilityId) => `No allowlisted specialist has an active reviewed mapping for ${capabilityId}.`) }
-      : { status: 'ready', reasons: [] };
-  }
-
   const mappings = await listCapabilityRoutingMappings(agent.workspaceId, {
     activeReviewedOnly: true,
     capabilityIds: agent.semanticCapabilityIds
@@ -127,7 +89,6 @@ export async function computeWorkflowReadiness(workflow: WorkflowDefinitionForAc
   )).filter((agent): agent is AgentDefinition => Boolean(agent));
   const unavailable = workflow.agentIds.filter((agentId) => !selected.some((agent) => (
     agent.id === agentId
-    && agent.kind === 'specialist'
     && agent.status === 'active'
     && agent.reviewState === 'reviewed'
   )));
@@ -151,8 +112,7 @@ export async function computeWorkflowReadiness(workflow: WorkflowDefinitionForAc
   const targetConstraints = workflowTargetPolicy(workflow);
   const eligibleMappings = mappings.filter((mapping) => {
     const agent = selectedById.get(mapping.agentId);
-    return Boolean(agent && mapping.agentVersion === agent.version
-      && (mapping.invocationScopes || ['agent', 'workflow']).includes('workflow'));
+    return Boolean(agent && mapping.agentVersion === agent.version);
   });
   const unmapped: string[] = [];
   for (const capabilityId of requested) {

@@ -39,10 +39,10 @@ import {
 import { mapGatewayError } from './workspaces/common.js';
 import { runRequestProvenance } from './run-actor.js';
 import {
-  publicCompiledWorkflowScope,
   publicWorkflowDefinition,
   respondWorkflowAccessError
 } from './workflow-public.js';
+import { publicWorkflowRun } from './external-run-public.js';
 import {
   externalWorkflowBlocker,
   isExternalIntegrationRequest,
@@ -179,7 +179,6 @@ export async function createSession(req: AuthenticatedRequest, res: Response, ne
       compiledAccessScope: compiled.scope,
       requestProvenance: runRequestProvenance(req)
     });
-    const publicScope = publicCompiledWorkflowScope(compiled.scope);
     await recordWorkspaceAuditEvent({
       workspaceId,
       category: 'run',
@@ -199,11 +198,14 @@ export async function createSession(req: AuthenticatedRequest, res: Response, ne
     });
     res.status(201).json({
       session: {
-        ...session,
-        workflowSnapshot: session.workflowSnapshot ? publicWorkflowDefinition(session.workflowSnapshot) : undefined,
-        compiledAccessScope: publicScope
-      },
-      compiledAccessScope: publicScope
+        id: session.id,
+        workspaceId: session.workspaceId,
+        workflowId: session.workflowId,
+        workflowVersion: session.workflowVersion,
+        createdBy: session.createdBy,
+        createdAt: session.createdAt,
+        workflowSnapshot: session.workflowSnapshot ? publicWorkflowDefinition(session.workflowSnapshot) : undefined
+      }
     });
   } catch (error) {
     if (error instanceof WorkflowAccessDeniedError) return respondWorkflowAccessError(res, error);
@@ -219,22 +221,14 @@ export async function listSessions(req: AuthenticatedRequest, res: Response, nex
     if (!(await requireWorkspaceDataRead(req, res, workspaceId))) return;
     res.status(200).json({
       items: await Promise.all((await listWorkflowSessions(workspaceId, workflowId)).map(async (session) => ({
-        ...session,
+        id: session.id,
+        workspaceId: session.workspaceId,
+        workflowId: session.workflowId,
+        workflowVersion: session.workflowVersion,
+        createdBy: session.createdBy,
+        createdAt: session.createdAt,
         workflowSnapshot: session.workflowSnapshot ? publicWorkflowDefinition(session.workflowSnapshot) : undefined,
-        compiledAccessScope: publicCompiledWorkflowScope(session.compiledAccessScope),
-        runs: (await listWorkflowRunsForSession(session.id)).map((run) => {
-          const {
-            agentId: _agentId,
-            agentVersion: _agentVersion,
-            agentSnapshot: _agentSnapshot,
-            compiledAccessScope,
-            ...publicRun
-          } = run;
-          return {
-            ...publicRun,
-            compiledAccessScope: publicCompiledWorkflowScope(compiledAccessScope)
-          };
-        })
+        runs: (await listWorkflowRunsForSession(session.id)).map((run) => publicWorkflowRun(run, true))
       })))
     });
   } catch (error) {
@@ -395,7 +389,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       bindingDigest: resolution.bindingDigest,
       resourceBindings: resolution.bindings,
       resolvedAt: resolution.resolvedAt,
-      agentSnapshot: compiled.entryAgent as unknown as Record<string, unknown>,
+      specialistSnapshot: compiled.specialistAgent,
       llmProvider: llmSettings.provider,
       llmModel: llmSettings.model,
       llmReasoningSummaryMode: llmSettings.reasoning.summary_mode,
@@ -426,10 +420,8 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
     res.status(202).json({
       message_id: created.message.id,
       run_id: created.run.id,
-      workflow_run_id: created.run.workflowRunId,
       executionId: created.execution.id,
-      status: created.run.status,
-      compiledAccessScope: publicCompiledWorkflowScope(compiled.scope)
+      status: created.run.status
     });
   } catch (error) {
     if (isWorkflowClientRequestIdConflict(error)) {

@@ -21,7 +21,6 @@ const workflowCapabilityPreviewDurations = new Map<string, number>();
 const workflowCapabilityPreviewBlockers = new Map<string, number>();
 const automationDispatches = new Map<string, number>();
 const automationDispatchDurations = new Map<string, number>();
-const automationTriggers = new Map<string, number>();
 const automationApprovals = new Map<string, number>();
 const automationDefinitionMutations = new Map<string, number>();
 const workflowRoutingOutcomes = new Map<string, number>();
@@ -154,10 +153,6 @@ export function observeAutomationDispatchDurationMs(source: string, outcome: str
   for (const bucket of [100, 500, 1000, 5000, 15000, 30000, Number.POSITIVE_INFINITY]) {
     if (durationMs <= bucket) increment(automationDispatchDurations, `${source}:${outcome}:${bucket === Number.POSITIVE_INFINITY ? '+Inf' : bucket}`);
   }
-}
-
-export function incrementAutomationTrigger(triggerType: string, outcome: string): void {
-  increment(automationTriggers, `${triggerType}:${outcome}`);
 }
 
 export function incrementAutomationApproval(kind: string, outcome: string): void {
@@ -412,12 +407,6 @@ export function renderControlPlaneMetrics(): string {
     ...Array.from(automationDispatchDurations.entries()).map(([key, value]) => {
       const [source, outcome, le] = key.split(':');
       return metricLine('control_plane_automation_dispatch_duration_ms_bucket', { ...serviceLabels, source, outcome, le }, value);
-    }),
-    '# HELP control_plane_automation_trigger_total Durable trigger delivery outcomes.',
-    '# TYPE control_plane_automation_trigger_total counter',
-    ...Array.from(automationTriggers.entries()).map(([key, value]) => {
-      const [triggerType, outcome] = key.split(':');
-      return metricLine('control_plane_automation_trigger_total', { ...serviceLabels, trigger_type: triggerType, outcome }, value);
     }),
     '# HELP control_plane_automation_approval_total Durable automation approval outcomes.',
     '# TYPE control_plane_automation_approval_total counter',

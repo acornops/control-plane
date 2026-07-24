@@ -25,7 +25,8 @@ export async function compileWorkflowScope(input: {
   resolutionPhase?: 'session_ceiling' | 'run_exact';
 }): Promise<{
   scope: CompiledWorkflowAccessScope;
-  entryAgent: NonNullable<Awaited<ReturnType<typeof getAgentDefinition>>>;
+  selectedAgents: Array<NonNullable<Awaited<ReturnType<typeof getAgentDefinition>>>>;
+  specialistAgent?: NonNullable<Awaited<ReturnType<typeof getAgentDefinition>>>;
   mappings: CapabilityRoutingMapping[];
 }> {
   const readiness = await computeWorkflowReadiness(input.workflow);
@@ -35,41 +36,44 @@ export async function compileWorkflowScope(input: {
       readiness.reasons.slice(0, 4).join(' ') || 'Selected workflow Agents are not ready.'
     );
   }
-  const entryAgent = await getAgentDefinition(input.workflow.workspaceId, input.workflow.entryAgentId);
-  if (!entryAgent) {
+  const selectedAgents = (await Promise.all(input.workflow.agentIds.map((agentId) => (
+    getAgentDefinition(input.workflow.workspaceId, agentId)
+  )))).filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
+  if (selectedAgents.length !== input.workflow.agentIds.length) {
     throw new WorkflowAccessDeniedError(
       'WORKFLOW_AGENT_SCOPE_DENIED',
       'Workflow routing for the selected Agents is unavailable.'
     );
   }
-  const selectedAgents = (await Promise.all(input.workflow.agentIds.map((agentId) => (
-    getAgentDefinition(input.workflow.workspaceId, agentId)
-  )))).filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
-  if (input.resolutionPhase === 'session_ceiling') {
-    return {
-      entryAgent,
-      mappings: [],
-      scope: compileWorkflowSessionCeiling({
-        workflow: input.workflow,
-        entryAgent,
-        selectedAgents,
-        actor: input.actor,
-        approvedContextGrants: input.approvedContextGrants
-      })
-    };
-  }
+  const specialistAgent = input.workflow.executionMode === 'direct' ? selectedAgents[0] : undefined;
   const effectiveCapabilityIds = resolveEffectiveWorkflowCapabilityIds(input.workflow.capabilityPolicy, selectedAgents);
   const mappings = await listCapabilityRoutingMappings(input.workflow.workspaceId, {
     activeReviewedOnly: true,
     capabilityIds: effectiveCapabilityIds
   });
+  if (input.resolutionPhase === 'session_ceiling') {
+    return {
+      selectedAgents,
+      specialistAgent,
+      mappings,
+      scope: compileWorkflowSessionCeiling({
+        workflow: input.workflow,
+        selectedAgents,
+        specialistAgent,
+        mappings,
+        actor: input.actor,
+        approvedContextGrants: input.approvedContextGrants
+      })
+    };
+  }
   return {
-    entryAgent,
+    selectedAgents,
+    specialistAgent,
     mappings,
     scope: compileWorkflowAccessScope({
       workflow: input.workflow,
-      entryAgent,
       selectedAgents,
+      specialistAgent,
       mappings,
       actor: input.actor,
       approvedContextGrants: input.approvedContextGrants,

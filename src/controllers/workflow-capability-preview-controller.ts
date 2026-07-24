@@ -23,7 +23,7 @@ import { getWorkflowDefinition } from '../store/repository-workflows.js';
 import type { WorkflowAccessActor, WorkflowCapabilitiesPreview, WorkflowCapabilityPreviewReasonCode, WorkflowCapabilityToolPreview, WorkflowTargetCapabilityCandidate } from '../types/workflows.js';
 import type { PromptResourceBinding } from '../types/prompt-resources.js';
 import { toSingleParam } from '../utils/params.js';
-import { publicCompiledWorkflowScope, respondWorkflowAccessError } from './workflow-public.js';
+import { respondWorkflowAccessError } from './workflow-public.js';
 import { getMcpConnection, listAgentMcpServers, listTargetMcpServers, type McpServerConfig } from '../services/mcp-registry-client.js';
 import { builtinTargetMcpServerDisplayName } from '../services/kubernetes-cluster-tools-catalog.js';
 import { workflowTargetPolicy } from '../services/prompt-resources/providers/target-provider.js';
@@ -56,16 +56,16 @@ async function compilePreviewScope(input: {
   }
   const selectedAgents = (await Promise.all(input.workflow.agentIds.map((agentId) => getAgentDefinition(input.workflow.workspaceId, agentId))))
     .filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
-  const entryAgent = selectedAgents.find((agent) => agent.id === input.workflow.entryAgentId);
-  if (!entryAgent) throw new WorkflowAccessDeniedError('WORKFLOW_AGENT_SCOPE_DENIED', 'Workflow routing for the selected Agents is unavailable.');
+  const specialistAgent = input.workflow.executionMode === 'direct' ? selectedAgents[0] : undefined;
+  if (selectedAgents.length !== input.workflow.agentIds.length) throw new WorkflowAccessDeniedError('WORKFLOW_AGENT_SCOPE_DENIED', 'Workflow routing for the selected Agents is unavailable.');
   const capabilityIds = resolveEffectiveWorkflowCapabilityIds(input.workflow.capabilityPolicy, selectedAgents);
   const mappings = await listCapabilityRoutingMappings(input.workflow.workspaceId, { activeReviewedOnly: true, capabilityIds });
   return {
-    entryAgent,
+    specialistAgent,
     selectedAgents,
     mappings,
     scope: compileWorkflowAccessScope({
-      workflow: input.workflow, entryAgent, selectedAgents, mappings, actor: input.actor,
+      workflow: input.workflow, specialistAgent, selectedAgents, mappings, actor: input.actor,
       approvedContextGrants: input.approvedContextGrants, targetRoute: input.targetRoute,
       resourceBindings: input.resourceBindings, promptDigest: input.promptDigest, bindingDigest: input.bindingDigest
     })
@@ -181,7 +181,6 @@ function responseBody(input: {
     reasonCodes: input.reasonCodes || [],
     targetCandidates: input.candidates,
     ...(input.selectedTarget ? { selectedTarget: input.selectedTarget } : {}),
-    ...(input.scope ? { compiledAccessScope: publicCompiledWorkflowScope(input.scope) } : {}),
     tools: { read, write },
     directMcpServers,
     enabledSkills,
@@ -296,7 +295,9 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
       }
     }
     const readiness = await getWorkflowCapabilityReadinessReport(workspaceId, scope, selectedTargetRecord || undefined, { principal: scope.principal });
-    const attachments = directWorkflowAttachments({ agent: compiled.entryAgent, scope, target: selectedTargetRecord || undefined, excludedToolNames: selectedTargetToolNames });
+    const attachments = compiled.specialistAgent
+      ? directWorkflowAttachments({ agent: compiled.specialistAgent, scope, target: selectedTargetRecord || undefined, excludedToolNames: selectedTargetToolNames })
+      : { tools: [], mcpServers: [], skills: [] };
     const genericAuthRequirements = await genericMcpAuthRequirements({ workspaceId, userId: req.auth.userId, agents: compiled.selectedAgents, scope, target: selectedTargetRecord || undefined });
     const mcpRequirements = genericAuthRequirements;
     const tools = [...selectedTargetTools, ...attachments.tools].filter((tool, index, values) => values.findIndex((candidate) => candidate.id === tool.id && candidate.source === tool.source) === index);

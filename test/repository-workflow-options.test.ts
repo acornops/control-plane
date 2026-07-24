@@ -42,7 +42,7 @@ describe('workflow option catalog repository', () => {
           skill_installations: [{ id: 'shared-skill', name: 'Shared skill', description: 'Agent skill', enabled: true }]
         }]);
       }
-      if (sql.includes('FROM agent_definitions') && sql.includes("kind = 'specialist'")) {
+      if (sql.includes('FROM agent_definitions') && !sql.includes('mcp_installations')) {
         return result([{ id: 'agent-1', name: 'Agent one', description: 'Durable agent', status: 'disabled' }]);
       }
       if (sql.includes('FROM sessions session')) {

@@ -178,7 +178,7 @@ Denied to the bot even for owners:
 - workspace/member/audit/settings management
 - logs
 - approval decisions for browser-created executions, other integration
-  links/clients, standalone Agents, schedules, and system triggers
+  links/clients, delegated specialist children, schedules, and system triggers
 - run cancellation
 - session deletion
 - target registration, updates, deletion, and agent-key rotation
@@ -355,10 +355,8 @@ Response:
 {
   "message_id": "workflow-message-id",
   "run_id": "run-id",
-  "workflow_run_id": "workflow-run-id",
   "executionId": "workflow-execution-id",
-  "status": "queued",
-  "compiledAccessScope": {}
+  "status": "queued"
 }
 ```
 
@@ -419,7 +417,7 @@ decide. Approval requires current effective `create_read_write_runs`. If write
 permission was removed, the exact origin may still reject while it retains
 workspace read access. Same-decision retries are idempotent; a conflicting
 decision returns `409`; expired approvals cannot be revived. Browser-created,
-other-link/client, standalone Agent, scheduled, and system-triggered approvals
+other-link/client, delegated specialist, scheduled, and system-triggered approvals
 fail closed.
 
 Report metadata and downloads are also exact-origin:
@@ -1046,7 +1044,7 @@ credentials:
 - `DELETE /api/v1/sessions/{sessionId}`
 - `POST /api/v1/runs/{runId}/cancel`
 - `POST /api/v1/runs/{runId}/approvals/{approvalId}/decision` for any
-  browser-created, other-link/client, standalone Agent, scheduled, or
+  browser-created, other-link/client, delegated specialist, scheduled, or
   system-triggered approval
 - all `/admin/v1/*` endpoints
 - all `/internal/v1/*` endpoints

@@ -28,7 +28,7 @@ export async function duplicateAgent(req: AuthenticatedRequest, res: Response, n
     const authz = await requireWorkspaceCapability(req, res, workspaceId, 'manage_agents', 'No permission to duplicate agents');
     if (!authz) return;
     const source = await getAgentDefinition(workspaceId, agentId);
-    if (!source || source.kind === 'manager') {
+    if (!source) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
       return;
     }
@@ -69,7 +69,7 @@ export async function deleteAgent(req: AuthenticatedRequest, res: Response, next
     if (!authz) return;
     const agentId = toSingleParam(req.params.agentId);
     const current = await getAgentDefinition(workspaceId, agentId);
-    if (!current || current.kind === 'manager') {
+    if (!current) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
       return;
     }

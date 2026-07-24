@@ -6,29 +6,24 @@ import { db } from '../infra/db.js';
 import { incrementWorkflowExecutionStream } from '../metrics.js';
 import { cancelRunInExecutionEngine } from '../services/execution-engine-client.js';
 import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
-import { promptResourceRegistry, PromptResourceProviderError } from '../services/prompt-resources/index.js';
-import { narrowWorkflowScopeToTargetTools } from '../services/workflow-capability-preview.js';
 import { WorkflowAccessDeniedError } from '../services/workflow-access.js';
 import { getWorkflowCapabilityReadinessReport, publicMcpReadinessError } from '../services/workflow-readiness.js';
-import { compileWorkflowScope } from '../services/workflow-scope-compiler.js';
+import { cancelWorkflowExecutionGraph } from '../services/workflow-execution-cancellation.js';
 import { resumeWorkflowExecution } from '../services/workflow-state-machine.js';
-import { resolveTargetRunTools } from '../services/target-run-tool-resolution.js';
-import { getAgentDefinition } from '../store/repository-agents.js';
-import { listWorkflowDelegations } from '../store/repository-workflow-delegations.js';
 import { listWorkflowExecutionEvents, type WorkflowExecutionStreamEvent } from '../store/repository-workflow-execution-events.js';
 import {
   getWorkflowExecution as getWorkflowExecutionRecord,
+  listWorkflowChildRuns,
   listWorkflowExecutionAttempts
 } from '../store/repository-workflows.js';
 import { runtime } from '../store/runtime.js';
-import { withTransaction } from '../store/repository-transaction.js';
 import { repo } from '../store/repository.js';
-import { isTargetType, type TargetSummary } from '../types/domain.js';
+import { isTargetType } from '../types/domain.js';
 import type { WorkflowDefinitionForAccess } from '../types/workflows.js';
 import { toSingleParam } from '../utils/params.js';
 import { mapGatewayError } from './workspaces/common.js';
-import { publicCompiledWorkflowScope, publicWorkflowDefinition, respondWorkflowAccessError } from './workflow-public.js';
-import { publicWorkflowExecutionEvent } from './external-run-public.js';
+import { publicWorkflowDefinition, respondWorkflowAccessError } from './workflow-public.js';
+import { publicWorkflowExecutionEvent, publicWorkflowRun } from './external-run-public.js';
 
 const WORKFLOW_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
 
@@ -54,31 +49,10 @@ function publicExecution(record: NonNullable<Awaited<ReturnType<typeof getWorkfl
   };
 }
 
-function publicAttempt(attempt: Awaited<ReturnType<typeof listWorkflowExecutionAttempts>>[number]) {
-  return {
-    id: attempt.id,
-    executionId: attempt.executionId,
-    attemptNumber: attempt.attemptNumber,
-    status: attempt.status,
-    targetId: attempt.targetId || null,
-    targetType: attempt.targetType || null,
-    requestedAt: attempt.requestedAt,
-    startedAt: attempt.startedAt || null,
-    endedAt: attempt.endedAt || null,
-    errorCode: attempt.errorCode?.slice(0, 128) || null
-  };
-}
-
 function boundedFailureCode(value?: string): string {
   return (value || 'DELEGATION_FAILED')
     .replace(/[^A-Z0-9_]/gi, '_')
     .slice(0, 100);
-}
-
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string')
-    : [];
 }
 
 export async function getWorkflowExecution(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
@@ -90,46 +64,36 @@ export async function getWorkflowExecution(req: AuthenticatedRequest, res: Respo
     const row = await execution(id);
     const snapshot = row?.workflow_snapshot as WorkflowDefinitionForAccess | undefined;
     const coordinated = snapshot?.executionMode === 'coordinated' || (snapshot?.agentIds?.length || 0) > 1;
-    const coordination = coordinated
-      ? await Promise.all((await listWorkflowDelegations(id)).map(async (delegation) => {
-        const agent = await getAgentDefinition(record.workspaceId, delegation.selectedAgentId);
+    const rootAttempts = await listWorkflowExecutionAttempts(id);
+    const latestRoot = rootAttempts.at(-1);
+    const coordination = coordinated && latestRoot
+      ? (await listWorkflowChildRuns(latestRoot.id)).map((child) => {
+        const specialistSnapshot = child.executorSnapshot.role === 'specialist' ? child.executorSnapshot.agent : undefined;
         return {
-          id: delegation.id,
-          childRunId: delegation.childRunId,
-          capabilityId: delegation.capabilityId,
-          target: delegation.targetBinding,
-          agent: { id: delegation.selectedAgentId, name: agent?.name || 'Unavailable Agent' },
-          required: delegation.required,
-          status: delegation.status,
-          ...(delegation.errorCode || delegation.errorMessage ? {
+          childRunId: child.id,
+          capabilityId: child.delegationCapabilityId,
+          target: { id: child.targetId, targetType: child.targetType },
+          agent: { id: child.agentId, name: specialistSnapshot?.name || 'Unavailable Agent' },
+          required: child.delegationRequired,
+          status: child.status,
+          ...(child.errorCode || child.errorMessage ? {
             failure: {
-              code: boundedFailureCode(delegation.errorCode),
-              message: (delegation.errorMessage || 'Delegated work failed.').slice(0, 500)
+              code: boundedFailureCode(child.errorCode),
+              message: (child.errorMessage || 'Delegated work failed.').slice(0, 500)
             }
           } : {})
         };
-      }))
+      })
       : undefined;
     const externalRequest = req.auth.credential.type === 'external_integration';
-    const publicAttempts = externalRequest
-      ? (await listWorkflowExecutionAttempts(id)).map(publicAttempt)
-      : (await db.query('SELECT * FROM workflow_runs WHERE execution_id=$1 ORDER BY attempt_number', [id])).rows.map((attempt) => {
-        const {
-          agent_id: _agentId,
-          agent_version: _agentVersion,
-          agent_snapshot: _agentSnapshot,
-          compiled_access_scope: compiledScope,
-          ...publicAttemptRecord
-        } = attempt;
-        return {
-          ...publicAttemptRecord,
-          ...(compiledScope ? { compiled_access_scope: publicCompiledWorkflowScope(compiledScope) } : {})
-        };
-      });
+    const publicAttempts = rootAttempts.map((attempt) => publicWorkflowRun(attempt, false));
     res.status(200).json({
       execution: externalRequest
         ? publicExecution(record)
-        : { ...row, ...(snapshot ? { workflow_snapshot: publicWorkflowDefinition(snapshot) } : {}) },
+        : {
+            ...publicExecution(record),
+            ...(snapshot ? { workflowSnapshot: publicWorkflowDefinition(snapshot) } : {})
+          },
       attempts: publicAttempts,
       ...(coordination ? {
         coordination: {
@@ -142,8 +106,8 @@ export async function getWorkflowExecution(req: AuthenticatedRequest, res: Respo
   } catch (err) { next(err); }
 }
 
-function writeExecutionEvent(res: Response, event: WorkflowExecutionStreamEvent, publicExternalStream: boolean): void {
-  const output = publicExternalStream ? publicWorkflowExecutionEvent(event) : event;
+function writeExecutionEvent(res: Response, event: WorkflowExecutionStreamEvent): void {
+  const output = publicWorkflowExecutionEvent(event);
   res.write(`event: workflow_execution\nid: ${output.id}\ndata: ${JSON.stringify(output)}\n\n`);
 }
 
@@ -163,8 +127,6 @@ export async function streamWorkflowExecution(req: AuthenticatedRequest, res: Re
       return;
     }
     if (!(await requireWorkspaceDataRead(req, res, record.workspaceId, 'No access to workflow execution'))) return;
-    const publicExternalStream = req.auth.credential.type === 'external_integration';
-
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
@@ -184,7 +146,7 @@ export async function streamWorkflowExecution(req: AuthenticatedRequest, res: Re
       }
       if (Number(event.id) <= lastEventId) return;
       lastEventId = Number(event.id);
-      writeExecutionEvent(res, event, publicExternalStream);
+      writeExecutionEvent(res, event);
     };
     runtime.workflowExecutionStreams.on(`workflow-execution:${id}`, listener);
 
@@ -193,13 +155,13 @@ export async function streamWorkflowExecution(req: AuthenticatedRequest, res: Re
       if (replay.length > 0) incrementWorkflowExecutionStream('replayed', replay.length);
       for (const event of replay) {
         lastEventId = Math.max(lastEventId, Number(event.id));
-        writeExecutionEvent(res, event, publicExternalStream);
+        writeExecutionEvent(res, event);
       }
       replaying = false;
       for (const event of buffered.sort((left, right) => Number(left.id) - Number(right.id))) {
         if (Number(event.id) <= lastEventId) continue;
         lastEventId = Number(event.id);
-        writeExecutionEvent(res, event, publicExternalStream);
+        writeExecutionEvent(res, event);
       }
     } catch (err) {
       runtime.workflowExecutionStreams.off(`workflow-execution:${id}`, listener);
@@ -226,51 +188,8 @@ export async function cancelWorkflowExecution(req: AuthenticatedRequest, res: Re
     const authz = await requireWorkspaceDataRead(req, res, row.workspace_id, 'No access to workflow execution');
     if (!authz) return;
     if (!authz.can('cancel_runs')) { res.status(403).json({ error: { code: 'FORBIDDEN', message: 'No permission to cancel workflow executions', retryable: false } }); return; }
-    const cancellation = await withTransaction(async (client) => {
-      await client.query('SELECT id FROM workflow_executions WHERE id=$1 FOR UPDATE', [id]);
-      const latest = await client.query<{ id: string }>('SELECT id FROM workflow_runs WHERE execution_id=$1 ORDER BY attempt_number DESC LIMIT 1', [id]);
-      const delegatedChildren = await client.query<{ child_run_id: string }>(
-        `SELECT child_run_id FROM workflow_delegations
-         WHERE parent_execution_id=$1
-           AND child_run_id IS NOT NULL
-           AND status IN ('queued','running')
-         FOR UPDATE`,
-        [id]
-      );
-      const childRunIds = delegatedChildren.rows.map((child) => child.child_run_id);
-      await client.query("UPDATE workflow_executions SET status='cancelled',cancellation_requested_at=NOW(),ended_at=NOW(),updated_at=NOW() WHERE id=$1 AND status NOT IN ('completed','failed','cancelled')", [id]);
-      await client.query("UPDATE workflow_runs SET status='cancelled',cancellation_requested_at=NOW(),ended_at=NOW(),updated_at=NOW() WHERE execution_id=$1 AND status NOT IN ('completed','failed','cancelled')", [id]);
-      await client.query("UPDATE automation_dispatch_outbox SET status='cancelled',updated_at=NOW() WHERE source_type='workflow' AND source_id=$1 AND status<>'delivered'", [id]);
-      await client.query(
-        `UPDATE workflow_delegations
-         SET status='cancelled',error_code='PARENT_WORKFLOW_CANCELLED',
-             error_message='Parent workflow execution was cancelled.',updated_at=NOW()
-         WHERE parent_execution_id=$1 AND status IN ('queued','running')`,
-        [id]
-      );
-      if (childRunIds.length > 0) {
-        await client.query(
-        `UPDATE agent_activity
-         SET status='cancelled',ended_at=COALESCE(ended_at,NOW()),
-             error_code=COALESCE(error_code,'PARENT_WORKFLOW_CANCELLED'),
-             error_message=COALESCE(error_message,'Parent workflow execution was cancelled.'),updated_at=NOW()
-         WHERE id=ANY($1::text[])
-           AND status NOT IN ('completed','failed','cancelled')`,
-        [childRunIds]
-      );
-        await client.query(
-        `UPDATE automation_dispatch_outbox
-         SET status='cancelled',updated_at=NOW()
-         WHERE run_id=ANY($1::text[]) AND status<>'delivered'`,
-        [childRunIds]
-      );
-      }
-      return { childRunIds, latestRunId: latest.rows[0]?.id };
-    });
-    await Promise.all([
-      ...(cancellation.latestRunId ? [cancelRunInExecutionEngine(cancellation.latestRunId).catch(() => undefined)] : []),
-      ...cancellation.childRunIds.map((childRunId) => cancelRunInExecutionEngine(childRunId).catch(() => undefined))
-    ]);
+    const runIds = await cancelWorkflowExecutionGraph(id);
+    await Promise.all(runIds.map((runId) => cancelRunInExecutionEngine(runId).catch(() => undefined)));
     res.status(202).json({ status: 'accepted' });
   } catch (err) { next(err); }
 }
@@ -297,76 +216,28 @@ export async function resumeWorkflowExecutionController(req: AuthenticatedReques
       res.status(409).json({ error: { code: 'WORKFLOW_PROMPT_UNAVAILABLE', message: 'The exact Workflow prompt is unavailable.', retryable: false } });
       return;
     }
-    const resolution = await promptResourceRegistry.resolve(prompt, {
-      workspaceId: row.workspace_id,
-      actorUserId: req.auth.userId,
-      workflowId: row.workflow_id,
-      workflowSessionId: row.workflow_session_id,
-      initiatingMessageId: row.message_id,
-      source: row.trigger_type === 'manual' ? 'explicit' : 'trigger',
-      mode: 'launch',
-      requirements: workflow.resourceRequirements || []
-    });
-    if (resolution.blockers.length > 0) {
-      res.status(409).json({ error: {
-        code: 'WORKFLOW_PROMPT_REFERENCES_BLOCKED',
-        message: 'One or more prompt resource references could not be resolved for retry.',
-        retryable: resolution.blockers.some((blocker) => blocker.retryable),
-        details: { blockers: resolution.blockers, tokens: resolution.tokens }
-      } });
+    const attempts = await listWorkflowExecutionAttempts(id);
+    const previous = attempts.at(-1);
+    if (!previous) {
+      res.status(409).json({ error: { code: 'WORKFLOW_RUN_NOT_FOUND', message: 'The pinned root run is unavailable.', retryable: false } });
       return;
     }
-    const runtimeProjection = promptResourceRegistry.projectRuntime(resolution.bindings, row.message_id);
-    const projectedTarget = runtimeProjection.targetRoute && typeof runtimeProjection.targetRoute === 'object'
-      ? runtimeProjection.targetRoute as Record<string, unknown>
+    const targetRoute = previous.targetId && previous.targetType && isTargetType(previous.targetType)
+      ? { id: previous.targetId, targetType: previous.targetType }
       : undefined;
-    const targetRoute = projectedTarget
-      && typeof projectedTarget.id === 'string'
-      && typeof projectedTarget.targetType === 'string'
-      && isTargetType(projectedTarget.targetType)
-      ? { id: projectedTarget.id, targetType: projectedTarget.targetType }
-      : undefined;
-    const target: TargetSummary | undefined = targetRoute
+    const target = targetRoute
       ? await repo.getTarget(row.workspace_id, targetRoute.id) || undefined
       : undefined;
     if (targetRoute && !target) {
       res.status(409).json({ error: { code: 'PROMPT_REFERENCE_NOT_FOUND', message: 'The bound target is no longer available.', retryable: false } });
       return;
     }
-    let compiled = await compileWorkflowScope({
-      workflow,
-      actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
-      approvedContextGrants: stringArray(row.approved_context_grants),
-      targetRoute,
-      resourceBindings: resolution.bindings,
-      promptDigest: resolution.promptDigest,
-      bindingDigest: resolution.bindingDigest
-    });
-    if (target) {
-      const toolResolution = await resolveTargetRunTools({
-        workspaceId: row.workspace_id,
-        targetId: target.id,
-        targetType: target.targetType,
-        toolAccessMode: compiled.scope.mode,
-        includeNativeTools: false,
-        strictMcpResolution: true
-      });
-      const narrowed = narrowWorkflowScopeToTargetTools({
-        scope: compiled.scope,
-        mappings: compiled.mappings,
-        resolution: toolResolution
-      });
-      if (compiled.scope.targetToolRefs.length > 0 && narrowed.targetTools.allowedToolRefs.length === 0) {
-        res.status(409).json({ error: { code: 'WORKFLOW_TARGET_TOOLS_UNAVAILABLE', message: 'The selected target tool catalog is unavailable.', retryable: true } });
-        return;
-      }
-      compiled = { ...compiled, scope: narrowed.scope };
-    }
+    const pinnedScope = previous.compiledAccessScope;
     const mcpReadiness = await getWorkflowCapabilityReadinessReport(
       row.workspace_id,
-      compiled.scope,
+      pinnedScope,
       target,
-      { principal: compiled.scope.principal }
+      { principal: pinnedScope.principal }
     );
     if (mcpReadiness.errors.length > 0) {
       res.status(409).json({ error: publicMcpReadinessError(mcpReadiness) });
@@ -378,17 +249,18 @@ export async function resumeWorkflowExecutionController(req: AuthenticatedReques
         workflowId: row.workflow_id,
         workflowSessionId: row.workflow_session_id,
         messageId: row.message_id,
-        agentId: compiled.entryAgent.id,
-        agentVersion: compiled.entryAgent.version,
-        agentSnapshot: compiled.entryAgent as unknown as Record<string, unknown>,
+        executorRole: pinnedScope.executor.role,
+        specialistSnapshot: previous.executorSnapshot.role === 'specialist'
+          ? previous.executorSnapshot.agent
+          : undefined,
         targetId: targetRoute?.id,
         targetType: targetRoute?.targetType,
-        compiledAccessScope: compiled.scope,
+        compiledAccessScope: pinnedScope,
         prompt,
-        promptDigest: resolution.promptDigest,
-        bindingDigest: resolution.bindingDigest,
-        resourceBindings: resolution.bindings,
-        resolvedAt: resolution.resolvedAt
+        promptDigest: previous.promptDigest,
+        bindingDigest: previous.bindingDigest,
+        resourceBindings: previous.resourceBindings,
+        resolvedAt: previous.resolvedAt
       });
       res.status(202).json({ executionId: id, runId: resumed.runId, status: resumed.status });
     } catch (err) {
@@ -400,10 +272,6 @@ export async function resumeWorkflowExecutionController(req: AuthenticatedReques
     }
   } catch (err) {
     if (err instanceof WorkflowAccessDeniedError) return respondWorkflowAccessError(res, err);
-    if (err instanceof PromptResourceProviderError) {
-      res.status(409).json({ error: { code: err.code, message: err.message, retryable: err.retryable } });
-      return;
-    }
     if (err instanceof LlmGatewayHttpError) {
       const mapped = mapGatewayError(err, { upstreamMessage: WORKFLOW_GATEWAY_UPSTREAM_MESSAGE });
       res.status(mapped.status).json(mapped.body);

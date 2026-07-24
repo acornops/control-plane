@@ -90,7 +90,7 @@ async function loadAgentCapabilities(workspaceId: string, agentId?: string): Pro
   const result = await db.query<AgentCapabilityRow>(
     `SELECT id, name, description, status, tools, skills, mcp_servers, mcp_installations, skill_installations
      FROM agent_definitions
-     WHERE workspace_id = $1 AND kind = 'specialist' AND ($2::text IS NULL OR id = $2)
+     WHERE workspace_id = $1 AND ($2::text IS NULL OR id = $2)
      ORDER BY name ASC, id ASC`,
     [workspaceId, agentId || null]
   );
@@ -147,7 +147,7 @@ async function loadAgents(workspaceId: string): Promise<CatalogSourceResult> {
   const result = await db.query<AgentRow>(
     `SELECT id, name, description, status
      FROM agent_definitions
-     WHERE workspace_id = $1 AND kind = 'specialist'
+     WHERE workspace_id = $1
      ORDER BY name ASC, id ASC`,
     [workspaceId]
   );

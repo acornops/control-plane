@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, it, mock } from 'node:test';
 import { decideRunApproval } from '../src/controllers/runs-controller.js';
 import { config } from '../src/config.js';
-import { db } from '../src/infra/db.js';
 import {
   createWorkflowScheduleForWorkspace,
   deleteWorkflowSchedule,
@@ -17,6 +16,7 @@ import { runWorkflowScheduleTick } from '../src/services/workflow-scheduler.js';
 import { runAutomationOutboxTick } from '../src/services/automation-outbox-worker.js';
 import {
   createWorkflowRun,
+  createWorkflowDefinition,
   createWorkflowSession,
   createWorkflowUserMessage,
   getWorkflowDefinition,
@@ -334,8 +334,10 @@ describe('workflow schedules and approval inbox', () => {
     installWorkspace('admin');
     const workflow = await getWorkflowDefinition('workspace-1', 'cluster-triage');
     assert.ok(workflow);
-    const entryAgent = await getAgentDefinition('workspace-1', workflow.entryAgentId);
-    assert.ok(entryAgent);
+    const selectedAgents = (await Promise.all(
+      workflow.agentIds.map((agentId) => getAgentDefinition('workspace-1', agentId))
+    )).filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
+    assert.equal(selectedAgents.length, workflow.agentIds.length);
     const compiledAccessScope = compileWorkflowAccessScope({
       workflow: {
         ...workflow,
@@ -345,7 +347,8 @@ describe('workflow schedules and approval inbox', () => {
           approvalRequirements: ['Before running write-capable workflow automation']
         }
       },
-      entryAgent,
+      selectedAgents,
+      specialistAgent: selectedAgents[0],
       mappings: await listCapabilityRoutingMappings('workspace-1', { activeReviewedOnly: true }),
       targetRoute: { id: 'cluster-1', targetType: 'kubernetes' },
       actor: {

@@ -48,8 +48,8 @@
           "unsupported"
         ],
         "mcpAuthRequirements": "Every credentialed MCP server in the compiled Agent scope emits mcpRequirements[].{serverId,serverName,authType,owningAgent.{id,name},connectionState,authRequirement.{scope,credentialLabel,requiredInformation[].{name,description}},action}; generic connection metadata and guidance only, never provider profiles, URLs, headers, or credential values",
-        "privacy": "Responses expose bounded reason codes and public compiled scope only; credentials, URLs, headers, tool arguments, input schemas, private connection state, and internal coordinator identity are excluded.",
-        "mutation": "Preview creates no session, execution, run, approval, or audit record. Dispatch recompiles and returns the authoritative compiledAccessScope."
+        "privacy": "Responses expose bounded reason codes and explicit capability-preview metadata only; compiled scopes, credentials, URLs, headers, tool arguments, input schemas, private connection state, and internal coordinator identity are excluded.",
+        "mutation": "Preview creates no session, execution, run, approval, or audit record. Dispatch recompiles an internal authoritative scope that is never returned by the public API."
       },
       "workspaceNativeToolContract": {
         "catalog": [
@@ -62,7 +62,7 @@
         },
         "ownership": "Control-plane code owns workspace-native metadata, schemas, authorization class, audit operation, and execution.",
         "assignment": "manage_agents grants or revokes a tool on a specialist Agent and transactionally rebinds exact reviewed mappings and dependent readiness; manage_mcp is not required.",
-        "invocationScopePolicy": "Workspace-native declarations carry invocationScopes. prompt.resources.read supports workflow; reports.pdf.generate supports workflow and target_chat; direct Agent invocation returns WORKSPACE_NATIVE_TOOL_SCOPE_DENIED.",
+        "invocationScopePolicy": "Workspace-native declarations carry invocationScopes. prompt.resources.read supports workflow; reports.pdf.generate supports workflow and target_chat; delegated specialist Workflow runs receive no workspace-native tools.",
         "artifactSafety": "reports.pdf.generate is a control-plane-owned internal_artifact available to workflows and target chat without crossing the target-adapter boundary. It is allowed in read-only runs without write approval, persisted as a write audit event, bounded, provenance-linked, authenticated, and idempotent by workflow run or target run plus tool_call_id.",
         "promptResources": "prompt.resources.read accepts binding IDs only and dispatches bounded reads through the providers authorized in the run's signed resource bindings.",
         "ui": "Agent Capabilities > Tools lists AcornOps native tools separately from MCP-discovered tools. Grant and revoke require manage_agents only.",
@@ -76,11 +76,11 @@
         "cancellation": "parent cancellation cascades to active coordinated child runs"
       },
       "systemAutomationDefinitions": {
-        "provisioning": "The greenfield baseline creates only the final schema. Current-version workspace provisioning atomically commits the two automatic specialist Agents, their two active workflows, and a completed starter installation. Opt-in definitions are installed explicitly, and coordinated definitions create system-owned coordination infrastructure transactionally when needed.",
+        "provisioning": "The greenfield baseline creates only the final schema. Current-version workspace provisioning atomically commits the two automatic specialist Agents, their two active workflows, and a completed starter installation. Opt-in definitions are installed explicitly; coordinated workflows use a versioned code-owned coordinator profile and create no hidden Agent.",
         "attribution": "Template-origin Agents and workflows are labeled as system provided and retain their template ID and version.",
-        "visibility": "Public Agent APIs contain specialists only. Manager creation or configuration returns MANAGER_SYSTEM_OWNED, direct access returns 404, and public workflow, compiled-scope, audit, search, and trace DTOs omit internal coordinator identity.",
+        "visibility": "Every public Agent is a specialist capability profile. Public workflow, compiled-scope, audit, search, and trace DTOs omit internal coordinator profile instructions and identity.",
         "mutation": "Visible template-origin definitions accept availability-status changes, supported external bindings, duplication, and deletion. Definition edits and version restore remain immutable; Agent deletion returns structured dependent workflows until those dependencies are removed.",
-        "duplication": "manage_agents or manage_workflows may copy the effective definition into a manual draft without capability installations, history, runs, schedules, sessions, activity, or triggers."
+        "duplication": "manage_agents or manage_workflows may copy the effective definition into a manual draft without capability installations, history, executions, schedules, sessions, or activity."
       },
       "catalogAuthorization": {
         "manageSources": "manage_catalog_sources",
@@ -99,7 +99,6 @@
       "publicMcpReadinessContract": {
         "paths": [
           "POST /api/v1/sessions/{sessionId}/messages",
-          "POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/runs",
           "POST /api/v1/workflow-sessions/{sessionId}/messages"
         ],
         "status": 409,
@@ -462,8 +461,8 @@
           "description?",
           "instructions",
           "status",
-          "source",
-          "kind",
+          "origin",
+          "reviewState",
           "providerType",
           "version",
           "ownerUserId",
@@ -474,22 +473,15 @@
           "targetScope",
           "approvalPolicy",
           "trustPolicy",
-          "triggers[]",
-          "activity",
+          "workflowUsage.{workflowRunCount,lastRunAt?,lastStatus?}",
           "readiness.{status,reasons[]}"
-        ],
-        "agentRunAccepted": [
-          "runId",
-          "activityId",
-          "source=agent",
-          "status"
         ],
         "automationDiagnostics": [
           "status",
           "runtime.{mode,workspaceEnabled,workerIntervalMs}",
           "dispatch.{byStatus,oldestPendingAgeSeconds}",
-          "runs.{agentByStatus,workflowByStatus,active}",
-          "triggers.{deliveriesByStatus,schedulerLagSeconds}",
+          "runs.{workflowByStatus,byExecutorRole,byGraphPosition,active}",
+          "schedules.schedulerLagSeconds",
           "approvals.{pending,oldestPendingAgeSeconds}",
           "templates.{byReadiness,items[]}",
           "reports.retainedSources",
@@ -498,7 +490,6 @@
         "workflowExecutionAccepted": [
           "executionId",
           "run_id",
-          "workflow_run_id",
           "status"
         ],
         "promptReferenceDescriptor": [
@@ -539,11 +530,12 @@
           "no source or PDF bytes"
         ],
         "workflowSelectedAgents": [
-          "orchestratorAgentId",
-          "steps[].agentIds[]",
-          "compiledAccessScope.selectedAgents[]",
-          "jwtClaims.agent_id? explicit direct/delegated agent only",
-          "jwtClaims.agent_version? explicit direct/delegated agent only",
+          "agentIds[]",
+          "executionMode=direct|coordinated",
+          "internal session authorization ceiling selectedAgents[]",
+          "jwtClaims.executor_role",
+          "jwtClaims.agent_id? specialist only",
+          "jwtClaims.agent_version? specialist only",
           "jwtClaims.trigger_id?"
         ],
         "workflowSchedule": [
@@ -683,7 +675,7 @@
       "linkedBotDeniedCapabilities": ["read_members", "read_audit_log", "manage_targets", "read_target_logs", "cancel_runs", "delete_sessions"],
       "linkedBotWorkflowPolicy": "Active read-only workflows require create_read_only_runs. Active read-write and approval-gated workflows require create_read_write_runs. External integrations may continue only sessions created by the exact same link and client; every message recompiles current permissions against the pinned Workflow version and requires a new clientRequestId.",
       "linkedBotWorkflowVisibilityPolicy": "Any linked integration with effective read_workspace_data may inspect the sanitized execution DTO and aggregate replayable execution SSE for any execution in the workspace. Approval decisions, session continuation, and report metadata/downloads remain exact-origin.",
-      "linkedBotApprovalDecisionPolicy": "Requires exact integration link/client execution provenance. Approvals require effective create_read_write_runs; the exact origin may reject with current workspace read access after write permission is removed. Supported records are troubleshooting writes plus Workflow pre-step and runtime tool_write approvals. Browser-created, other-link/client, standalone Agent, scheduled, and system-triggered approvals remain denied.",
+      "linkedBotApprovalDecisionPolicy": "Requires exact integration link/client execution provenance. Approvals require effective create_read_write_runs; the exact origin may reject with current workspace read access after write permission is removed. Supported records are troubleshooting writes plus Workflow pre-step and runtime tool_write approvals. Browser-created, other-link/client, delegated specialist, scheduled, and system-triggered approvals remain denied.",
       "secretReturnPolicy": "Never returns browser cookies, OIDC access tokens, ID tokens, refresh tokens, or raw link tokens to external integration clients. Link tokens are stored only as hashes."
     },
     "execution-engine": {
@@ -691,7 +683,7 @@
       "internalTransportSecurity": "HTTP by default; HTTPS/mTLS when Helm internalTransport.tls.enabled=true; bearer/JWT tokens remain required",
       "bootstrapFields": [
         "contract_version",
-        "scope.{type,workspace_id,target_id?,target_type?,workflow_id?,workflow_run_id?,workflow_execution_id?,workflow_session_id?,attempt_number?,idempotency_key?,agent_id?,agent_version?,trigger_id?,session_id,run_id,user_id}",
+        "scope.{type,workspace_id,target_id?,target_type?,workflow_id,execution_id,workflow_session_id,executor_role,parent_run_id?,attempt_number?,idempotency_key?,agent_id?,agent_version?,trigger_id?,session_id,run_id,user_id}",
         "assistant?.{targetType?,instructions}",
         "policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}",
         "context.{endpoint,max_context_tokens}",
@@ -734,7 +726,7 @@
         "targetId?",
         "targetType?",
         "workflowId?",
-        "workflowRunId?",
+        "executionId?",
         "workflowSessionId?"
       ],
       "eventTypes": [
@@ -812,8 +804,9 @@
         "200 terminal_idempotent_replay",
         "409 run_id_scope_mismatch",
         "429 overloaded",
-        "workspace scope may identify either a single-entry workflow or a standalone Agent run",
-        "a selected-target workflow dispatches with target scope plus target_id and target_type",
+        "workspace scope always identifies a Workflow executor run",
+        "coordinator runs forbid Agent identity; specialist runs require Agent identity and version",
+        "a selected-target Workflow remains workspace-scoped and carries an exact target binding",
         "idempotency_key is stable across at-least-once dispatch of one attempt"
       ]
     },
@@ -989,15 +982,16 @@
       ],
       "runJwtWorkspaceScopeFields": [
         "scope.type",
-        "workflow_id? (required for workflow scope)",
-        "workflow_run_id? (required for workflow scope)",
-        "workflow_session_id? (required for workflow scope)",
-        "agent_id?",
-        "agent_version?",
+        "workflow_id (required for Workflow scope)",
+        "execution_id (required for Workflow scope)",
+        "workflow_session_id (required for Workflow scope)",
+        "executor_role=coordinator|specialist (required for Workflow scope)",
+        "agent_id and agent_version required only for specialist Workflow runs",
+        "agent_id and agent_version forbidden for coordinator Workflow runs",
         "trigger_id?",
         "user_id? (required for individual MCP authorization)",
         "permissions.context_grants",
-        "standalone Agent scope requires agent_id and agent_version",
+        "Agent-without-Workflow run claims are rejected",
         "write tool calls receive a gateway-injected idempotencyKey derived from run_id and tool_call_id"
       ],
       "internalTransportSecurity": "HTTP by default; HTTPS/mTLS when Helm internalTransport.tls.enabled=true; admin/run-scoped bearer tokens remain required",

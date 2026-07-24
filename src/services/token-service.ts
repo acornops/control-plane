@@ -65,9 +65,10 @@ export interface TargetRunScopeClaims extends BaseRunScopeClaims {
 
 export interface WorkflowRunScopeClaims extends BaseRunScopeClaims {
   scopeType: 'workspace';
-  workflowId?: string;
-  workflowRunId?: string;
-  workflowSessionId?: string;
+  workflowId: string;
+  executionId: string;
+  workflowSessionId: string;
+  executorRole: 'coordinator' | 'specialist';
   agentId?: string;
   agentVersion?: number;
   triggerId?: string;
@@ -86,8 +87,9 @@ export interface VerifiedRunScopeClaims extends BaseRunScopeClaims {
   targetId?: string;
   targetType?: TargetType;
   workflowId?: string;
-  workflowRunId?: string;
+  executionId?: string;
   workflowSessionId?: string;
+  executorRole?: 'coordinator' | 'specialist';
   agentId?: string;
   agentVersion?: number;
   triggerId?: string;
@@ -334,13 +336,26 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
     if (targetType !== undefined && !isTargetType(targetType)) {
       throw new Error('Gateway token claim target_type is unsupported');
     }
+    const executorRole = stringClaim(payload, 'executor_role');
+    if (executorRole !== 'coordinator' && executorRole !== 'specialist') {
+      throw new Error('Gateway token claim executor_role is unsupported');
+    }
+    const agentId = optionalStringClaim(payload, 'agent_id');
+    const agentVersion = optionalNumberClaim(payload, 'agent_version');
+    if (executorRole === 'coordinator' && (agentId || agentVersion !== undefined)) {
+      throw new Error('Coordinator Workflow tokens must not contain Agent identity claims');
+    }
+    if (executorRole === 'specialist' && (!agentId || agentVersion === undefined)) {
+      throw new Error('Specialist Workflow tokens require Agent identity claims');
+    }
     return {
       ...baseClaims,
-      workflowId: optionalStringClaim(payload, 'workflow_id'),
-      workflowRunId: optionalStringClaim(payload, 'workflow_run_id'),
-      workflowSessionId: optionalStringClaim(payload, 'workflow_session_id'),
-      agentId: optionalStringClaim(payload, 'agent_id'),
-      agentVersion: optionalNumberClaim(payload, 'agent_version'),
+      workflowId: stringClaim(payload, 'workflow_id'),
+      executionId: stringClaim(payload, 'execution_id'),
+      workflowSessionId: stringClaim(payload, 'workflow_session_id'),
+      executorRole,
+      agentId,
+      agentVersion,
       triggerId: optionalStringClaim(payload, 'trigger_id'),
       targetId: optionalStringClaim(payload, 'target_id'),
       targetType
@@ -415,10 +430,17 @@ export class GatewayTokenService {
     };
 
     if (input.scopeType === 'workspace') {
+      if (input.executorRole === 'coordinator' && (input.agentId || input.agentVersion !== undefined)) {
+        throw new Error('Coordinator Workflow tokens must not contain Agent identity claims');
+      }
+      if (input.executorRole === 'specialist' && (!input.agentId || input.agentVersion === undefined)) {
+        throw new Error('Specialist Workflow tokens require Agent identity claims');
+      }
       payload.scope = { type: 'workspace' };
       payload.workflow_id = input.workflowId;
-      payload.workflow_run_id = input.workflowRunId;
+      payload.execution_id = input.executionId;
       payload.workflow_session_id = input.workflowSessionId;
+      payload.executor_role = input.executorRole;
       if (input.agentId) {
         payload.agent_id = input.agentId;
       }

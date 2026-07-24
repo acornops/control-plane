@@ -3,7 +3,6 @@ import type { TargetType, WorkspaceAuditOperation } from './domain.js';
 
 export type CapabilityMappingReviewState = 'draft' | 'reviewed';
 export type CapabilityMappingStatus = 'active' | 'disabled';
-export type CapabilityInvocationScope = 'agent' | 'workflow';
 
 export interface CapabilityMappingToolRef extends McpToolRef {
   alias: string;
@@ -29,7 +28,6 @@ export interface CapabilityRoutingMapping {
   mcpTools: CapabilityMappingToolRef[];
   targetToolRefs: CapabilityMappingToolRef[];
   nativeToolIds: string[];
-  invocationScopes: CapabilityInvocationScope[];
   skillIds: string[];
   contextGrants: string[];
   createdBy: string;

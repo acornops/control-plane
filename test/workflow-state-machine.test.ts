@@ -39,7 +39,34 @@ describe('workflow retry state machine', () => {
           };
         }
         if (sql.includes('INSERT INTO workflow_runs')) runInsert = params;
-        if (sql.includes('INSERT INTO workflow_approvals')) approvalInsert = params;
+        if (sql.includes('INSERT INTO workflow_run_approvals')) {
+          approvalInsert = params;
+          return {
+            rowCount: 1,
+            rows: [{
+              id: params[0],
+              tool_name: 'workflow.approval_gate',
+              summary: params[4],
+              status: 'pending',
+              expires_at: '2026-07-20T10:15:00.000Z'
+            }]
+          };
+        }
+        if (sql.includes('INSERT INTO workflow_execution_events')) {
+          return { rowCount: 1, rows: [{ id: params[2] === 'run_created' ? 1 : 2 }] };
+        }
+        if (sql.includes('SELECT event.*')) {
+          return {
+            rowCount: 1,
+            rows: [{
+              id: params[0],
+              execution_id: 'execution-1',
+              event_type: params[0] === 1 ? 'run_created' : 'approval_requested',
+              occurred_at: '2026-07-20T10:00:00.000Z',
+              payload: {}
+            }]
+          };
+        }
         if (sql.includes('UPDATE workflow_executions SET status=')) executionUpdate = params;
         return { rowCount: 1, rows: [] };
       },
@@ -63,7 +90,8 @@ describe('workflow retry state machine', () => {
       approvalGates: ['Confirm retry'],
       resourceBindings: [binding],
       promptDigest: 'prompt-digest-new',
-      bindingDigest: 'binding-digest-new'
+      bindingDigest: 'binding-digest-new',
+      executor: { role: 'specialist', agentId: 'agent-2', agentVersion: 4 }
     } as unknown as CompiledWorkflowAccessScope;
 
     const result = await resumeWorkflowExecution('execution-1', 'user-2', {
@@ -71,9 +99,8 @@ describe('workflow retry state machine', () => {
       workflowId: 'workflow-1',
       workflowSessionId: 'session-1',
       messageId: 'message-1',
-      agentId: 'agent-2',
-      agentVersion: 4,
-      agentSnapshot: { id: 'agent-2', version: 4 },
+      executorRole: 'specialist',
+      specialistSnapshot: { id: 'agent-2', version: 4 } as never,
       targetId: 'target-2',
       targetType: 'virtual_machine',
       compiledAccessScope,
@@ -87,15 +114,16 @@ describe('workflow retry state machine', () => {
     assert.equal(result.status, 'waiting_for_approval');
     assert(runInsert);
     assert.equal(runInsert[5], 2);
-    assert.equal(runInsert[6], 'agent-2');
-    assert.equal(runInsert[11], 'execution-1:prompt-digest-new:binding-digest-new:entry:2');
-    assert.equal(runInsert[14], 'waiting_for_approval');
-    assert.equal(runInsert[15], compiledAccessScope);
-    assert.equal(runInsert[20], 'Retry with @chat[Incident room].');
-    assert.equal(runInsert[21], 'prompt-digest-new');
-    assert.equal(runInsert[22], 'binding-digest-new');
-    assert.deepEqual(JSON.parse(String(runInsert[23])), [binding]);
-    assert.equal(runInsert[24], '2026-07-20T10:00:00.000Z');
+    assert.equal(runInsert[6], 'specialist');
+    assert.equal(runInsert[7], 'agent-2');
+    assert.equal(runInsert[12], 'execution-1:prompt-digest-new:binding-digest-new:root:2');
+    assert.equal(runInsert[15], 'waiting_for_approval');
+    assert.equal(runInsert[16], compiledAccessScope);
+    assert.equal(runInsert[21], 'Retry with @chat[Incident room].');
+    assert.equal(runInsert[22], 'prompt-digest-new');
+    assert.equal(runInsert[23], 'binding-digest-new');
+    assert.deepEqual(JSON.parse(String(runInsert[24])), [binding]);
+    assert.equal(runInsert[25], '2026-07-20T10:00:00.000Z');
     assert(approvalInsert);
     assert.deepEqual(executionUpdate, ['execution-1', 'waiting_for_approval']);
   });

@@ -8,7 +8,6 @@ import { repo } from '../store/repository.js';
 import { getWorkflowRun, WorkflowRunRecord } from '../store/repository-workflows.js';
 import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE } from '../types/domain.js';
 import { AgentToolCallError, AgentUnavailableError } from '../agent/types.js';
-import { getAgentActivityRecord } from '../store/repository-agents.js';
 import { getWorkspaceNativeTool } from '../services/workspace-native-tools.js';
 import {
   executeWorkspaceNativeTool,
@@ -88,18 +87,21 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
     const targetType = claims.targetType;
     const workflowRun = await getWorkflowRun(claims.runId);
     const run = workflowRun ? null : await repo.getRun(claims.runId);
-    const agentRun = workflowRun || run ? null : await getAgentActivityRecord(claims.runId);
-    if (!workflowRun && !run && !agentRun) {
+    if (!workflowRun && !run) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Run not found', retryable: false } });
       return;
     }
     const scopeMatches = workflowRun
       ? workflowRun.workspaceId === workspaceId && workflowRun.targetId === targetId
         && workflowRun.targetType === targetType && workflowRun.workflowSessionId === claims.sessionId
+        && workflowRun.executionId === claims.executionId
+        && workflowRun.executorRole === claims.executorRole
+        && (workflowRun.executorRole === 'coordinator'
+          ? !claims.agentId && !claims.agentVersion
+          : workflowRun.agentId === claims.agentId && workflowRun.agentVersion === claims.agentVersion)
       : run
         ? run.workspaceId === workspaceId && run.targetId === targetId && run.targetType === targetType && run.sessionId === claims.sessionId
-        : agentRun!.workspaceId === workspaceId && agentRun!.targetId === targetId && agentRun!.targetType === targetType
-          && agentRun!.agentId === claims.agentId && agentRun!.agentVersion === claims.agentVersion;
+        : false;
     if (!scopeMatches) {
       res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Run token scope does not match run', retryable: false } });
       return;
@@ -108,7 +110,7 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
       res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Tool is not permitted for this workflow run', retryable: false } });
       return;
     }
-    if (!ACTIVE_TOOL_RUN_STATUSES.has(workflowRun?.status || run?.status || agentRun!.status)) {
+    if (!ACTIVE_TOOL_RUN_STATUSES.has(workflowRun?.status || run!.status)) {
       res.status(409).json({ error: { code: 'RUN_NOT_ACTIVE', message: 'Run is not active for tool execution', retryable: false } });
       return;
     }
@@ -182,7 +184,8 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
           runId: claims.runId,
           ...(workflowRun ? {
             workflowId: workflowRun.workflowId,
-            workflowRunId: workflowRun.workflowRunId,
+            executionId: workflowRun.executionId,
+            executorRole: workflowRun.executorRole,
             workflowSessionId: workflowRun.workflowSessionId,
           } : {}),
           durationMs: Date.now() - startedAt,
@@ -207,7 +210,8 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
           runId: claims.runId,
           ...(workflowRun ? {
             workflowId: workflowRun.workflowId,
-            workflowRunId: workflowRun.workflowRunId,
+            executionId: workflowRun.executionId,
+            executorRole: workflowRun.executorRole,
             workflowSessionId: workflowRun.workflowSessionId,
           } : {}),
           durationMs: Date.now() - startedAt,

@@ -147,8 +147,9 @@ describe('gateway token service', () => {
       workspaceId: 'ws-workflow',
       scopeType: 'workspace',
       workflowId: 'workflow-1',
-      workflowRunId: 'workflow-run-1',
+      executionId: 'workflow-execution-1',
       workflowSessionId: 'workflow-session-1',
+      executorRole: 'specialist',
       agentId: 'agent-cluster-triage',
       agentVersion: 7,
       triggerId: 'trigger-manual-1',
@@ -182,7 +183,8 @@ describe('gateway token service', () => {
     assert.equal(verification.payload.session_id, 'workflow-session-1');
     assert.deepEqual(verification.payload.scope, { type: 'workspace' });
     assert.equal(verification.payload.workflow_id, 'workflow-1');
-    assert.equal(verification.payload.workflow_run_id, 'workflow-run-1');
+    assert.equal(verification.payload.execution_id, 'workflow-execution-1');
+    assert.equal(verification.payload.executor_role, 'specialist');
     assert.equal(verification.payload.workflow_session_id, 'workflow-session-1');
     assert.equal(verification.payload.agent_id, 'agent-cluster-triage');
     assert.equal(verification.payload.agent_version, 7);
@@ -206,7 +208,8 @@ describe('gateway token service', () => {
 
     assert.equal(claims.scopeType, 'workspace');
     assert.equal(claims.workflowId, 'workflow-1');
-    assert.equal(claims.workflowRunId, 'workflow-run-1');
+    assert.equal(claims.executionId, 'workflow-execution-1');
+    assert.equal(claims.executorRole, 'specialist');
     assert.equal(claims.workflowSessionId, 'workflow-session-1');
     assert.equal(claims.agentId, 'agent-cluster-triage');
     assert.equal(claims.agentVersion, 7);
@@ -233,7 +236,8 @@ describe('gateway token service', () => {
     const bindingDigest = digestBindings(bindings);
     const token = await gatewayTokenService.signRunScopeToken({
       runId: 'run-resource', workspaceId: 'ws-workflow', scopeType: 'workspace',
-      workflowId: 'workflow-1', workflowRunId: 'workflow-run-1', workflowSessionId: 'workflow-session-1',
+      workflowId: 'workflow-1', executionId: 'workflow-execution-1', workflowSessionId: 'workflow-session-1',
+      executorRole: 'coordinator',
       sessionId: 'workflow-session-1', principal: { type: 'user', id: 'user-1' },
       allowedProviders: ['openai'], allowedTools: [], contextGrants: [], resourceBindings: bindings, bindingDigest
     });
@@ -251,7 +255,8 @@ describe('gateway token service', () => {
     const sign = (resourceBindings: PromptResourceBinding[], bindingDigest = digestBindings(resourceBindings)) => (
       gatewayTokenService.signRunScopeToken({
         runId: 'run-resource-invalid', workspaceId: 'ws-workflow', scopeType: 'workspace',
-        workflowId: 'workflow-1', workflowRunId: 'workflow-run-1', workflowSessionId: 'workflow-session-1',
+        workflowId: 'workflow-1', executionId: 'workflow-execution-1', workflowSessionId: 'workflow-session-1',
+        executorRole: 'coordinator',
         sessionId: 'workflow-session-1', principal: { type: 'user', id: 'user-1' },
         allowedProviders: ['openai'], allowedTools: [], resourceBindings, bindingDigest
       })

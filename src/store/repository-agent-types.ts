@@ -1,4 +1,4 @@
-import type { AgentDefinition, AgentTriggerDefinition, AgentTriggerType } from '../types/agents.js';
+import type { AgentDefinition } from '../types/agents.js';
 
 export interface CreateAgentDefinitionInput {
   workspaceId: string;
@@ -8,8 +8,6 @@ export interface CreateAgentDefinitionInput {
   ownerUserId: string;
   createdBy: string;
   origin?: AgentDefinition['origin'];
-  kind?: AgentDefinition['kind'];
-  systemRole?: AgentDefinition['systemRole'];
   reviewState?: AgentDefinition['reviewState'];
   providerType?: AgentDefinition['providerType'];
   mcpServers?: string[];
@@ -24,7 +22,6 @@ export interface CreateAgentDefinitionInput {
   targetScope?: AgentDefinition['targetScope'];
   permissionMode?: AgentDefinition['permissionMode'];
   semanticCapabilityIds?: string[];
-  delegateAgentIds?: string[];
 }
 
 export interface AgentDefinitionUpdate {
@@ -32,7 +29,6 @@ export interface AgentDefinitionUpdate {
   description?: string;
   instructions?: string;
   status?: AgentDefinition['status'];
-  kind?: AgentDefinition['kind'];
   reviewState?: AgentDefinition['reviewState'];
   providerType?: AgentDefinition['providerType'];
   ownerUserId?: string;
@@ -48,15 +44,4 @@ export interface AgentDefinitionUpdate {
   targetScope?: AgentDefinition['targetScope'];
   permissionMode?: AgentDefinition['permissionMode'];
   semanticCapabilityIds?: string[];
-  delegateAgentIds?: string[];
-}
-
-export interface CreateAgentTriggerInput {
-  type: AgentTriggerType;
-  enabled?: boolean;
-  name?: string;
-  schedule?: AgentTriggerDefinition['schedule'];
-  eventFilter?: Record<string, unknown>;
-  principal?: AgentTriggerDefinition['principal'];
-  secretCiphertext?: string;
 }

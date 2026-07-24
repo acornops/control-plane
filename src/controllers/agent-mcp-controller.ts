@@ -183,9 +183,6 @@ export async function createServer(req: AuthenticatedRequest, res: Response, nex
     if (!context.authz.can('manage_mcp')) {
       return void res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Adding MCP capabilities requires manage_agents and manage_mcp.', retryable: false } });
     }
-    if (context.agent.kind === 'manager') {
-      return invalid(res, 'MANAGER_OPERATIONAL_CAPABILITY_FORBIDDEN', 'Managers can use coordination functions only.');
-    }
     const raw = body(req);
     if (raw.credential !== undefined || raw.secretValue !== undefined || raw.secretName !== undefined) {
       return invalid(res, 'AGENT_MCP_SECRET_FORBIDDEN', 'Credentials belong to the connection endpoint, never an Agent installation.');

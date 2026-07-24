@@ -270,7 +270,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         post: {
           tags: ['runs'],
           summary: 'Approve or reject a pending write-tool approval',
-          description: 'A linked external integration may decide only a troubleshooting write approval or Workflow pre-step/runtime tool_write approval whose run execution was requested through that exact integration link and client. Approvals require effective create_read_write_runs. The exact origin may reject while retaining workspace read access if write permission was removed. Browser-created, other-link/client, standalone Agent, scheduled, and system-triggered approvals remain unavailable. Browser responses contain the full approval record; external-integration success and conflict responses contain only the same bounded control metadata returned by the external approval list.',
+          description: 'A linked external integration may decide only a troubleshooting write approval or Workflow pre-step/runtime tool_write approval whose run execution was requested through that exact integration link and client. Approvals require effective create_read_write_runs. The exact origin may reject while retaining workspace read access if write permission was removed. Browser-created, other-link/client, delegated specialist, scheduled, and system-triggered approvals remain unavailable. Browser responses contain the full approval record; external-integration success and conflict responses contain only the same bounded control metadata returned by the external approval list.',
           security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
             externalUserHeader,

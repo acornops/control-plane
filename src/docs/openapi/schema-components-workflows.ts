@@ -93,7 +93,8 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         label: { type: 'string' },
         description: { type: 'string' },
         access: { type: 'string', enum: ['read', 'write'] },
-        source: { type: 'string', enum: ['target', 'mcp', 'builtin'] }
+        source: { type: 'string', enum: ['target', 'mcp', 'builtin'] },
+        serverId: { type: 'string' }
       },
       additionalProperties: false
     },
@@ -123,7 +124,6 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         reasonCodes: { type: 'array', items: { type: 'string', enum: ['TARGET_REQUIRED', 'TARGET_NOT_FOUND', 'TARGET_TYPE_MISMATCH', 'TARGET_OFFLINE', 'TARGET_STATUS_UNKNOWN', 'TARGET_WRITE_UNSUPPORTED', 'CAPABILITY_MAPPING_UNAVAILABLE', 'TARGET_TOOL_MAPPING_UNAVAILABLE', 'TARGET_TOOL_CATALOG_UNAVAILABLE', 'MCP_CONNECTION_UNAVAILABLE'] } },
         targetCandidates: { type: 'array', items: schemaRef('WorkflowTargetCapabilityCandidate') },
         selectedTarget: schemaRef('WorkflowTargetCapabilityCandidate'),
-        compiledAccessScope: jsonObject,
         tools: {
           type: 'object',
           required: ['read', 'write'],
@@ -383,7 +383,6 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         workflowId,
         workflowVersion: { type: 'integer' },
         createdBy: uuid,
-        compiledAccessScope: jsonObject,
         runs: { type: 'array', items: jsonObject },
         createdAt: dateTime,
         updatedAt: dateTime
@@ -393,22 +392,20 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
     WorkflowSessionList: pageOf('WorkflowSession'),
     WorkflowSessionResponse: {
       type: 'object',
-      required: ['session', 'compiledAccessScope'],
+      required: ['session'],
       properties: {
-        session: schemaRef('WorkflowSession'),
-        compiledAccessScope: jsonObject
+        session: schemaRef('WorkflowSession')
       },
       additionalProperties: true
     },
     WorkflowMessageAccepted: {
       type: 'object',
-      required: ['message_id', 'run_id', 'workflow_run_id', 'status'],
+      required: ['message_id', 'run_id', 'executionId', 'status'],
       properties: {
         message_id: uuid,
         run_id: uuid,
-        workflow_run_id: { type: 'string' },
-        status: { type: 'string' },
-        compiledAccessScope: jsonObject
+        executionId: { type: 'string' },
+        status: { type: 'string' }
       },
       additionalProperties: true
     },
@@ -455,17 +452,16 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: false
     },
-    WorkflowSessionContext: {
+    WorkflowRunContext: {
       type: 'object',
-      required: ['session', 'workflow', 'compiledAccessScope'],
+      required: ['messages', 'resources', 'summaries', 'attachments'],
       properties: {
-        session: schemaRef('WorkflowSession'),
-        workflow: schemaRef('WorkflowDefinition'),
-        run: jsonObject,
-        compiledAccessScope: jsonObject,
-        messages: { type: 'array', items: jsonObject }
+        messages: { type: 'array', items: jsonObject },
+        resources: { type: 'array', items: jsonObject },
+        summaries: { type: 'array', items: jsonObject },
+        attachments: { type: 'array', items: jsonObject }
       },
-      additionalProperties: true
+      additionalProperties: false
     },
     ReportArtifact: {
       type: 'object',

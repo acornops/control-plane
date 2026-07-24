@@ -9,13 +9,10 @@ import { gatewayTokenService } from '../services/token-service.js';
 import { workflowRunAgentClaims } from '../services/workflow-run-agent-claims.js';
 import { repo } from '../store/repository.js';
 import { getWorkflowRun, getWorkflowSession, WorkflowRunRecord } from '../store/repository-workflows.js';
-import { getAgentActivityRecord } from '../store/repository-agents.js';
-import type { AgentDefinition } from '../types/agents.js';
 import { isTargetType } from '../types/domain.js';
 import { targetAssistantContract } from '../services/target-adapter-contract.js';
 import { toSingleParam } from '../utils/params.js';
 import { mapGatewayError } from './workspaces/common.js';
-import { bootstrapAgentRun } from './internal-agent-bootstrap.js';
 import { getWorkspaceNativeTool } from '../services/workspace-native-tools.js';
 
 const AI_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
@@ -57,7 +54,9 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
   const maxOutputTokens = config.LLM_MAX_OUTPUT_TOKENS;
   const workflowMcpRefs = run.compiledAccessScope.mcpTools || [];
   const workflowMcpRefKeys = new Set(workflowMcpRefs.map((ref) => `${ref.serverId}\u0000${ref.toolName}`));
-  const workflowAgentSnapshot = run.agentSnapshot as unknown as AgentDefinition | undefined;
+  const workflowAgentSnapshot = run.executorSnapshot.role === 'specialist'
+    ? run.executorSnapshot.agent
+    : undefined;
   const workflowMcpTools = (workflowAgentSnapshot?.mcpInstallations || []).flatMap((installation) => {
     const constraints = installation.targetConstraints;
     const targetAllowed = (!constraints.targetIds.length || Boolean(run.targetId && constraints.targetIds.includes(run.targetId)))
@@ -67,7 +66,7 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
       && workflowMcpRefKeys.has(`${tool.serverId}\u0000${tool.toolName}`));
   });
   const workflowRemoteAliases = new Set(workflowMcpTools.map((tool) => tool.alias));
-  const workspaceNativeToolDefinitions = run.compiledAccessScope.tools
+  const workspaceNativeToolDefinitions = (run.parentRunId ? [] : run.compiledAccessScope.tools)
     .map((toolId) => getWorkspaceNativeTool(toolId))
     .filter((tool): tool is NonNullable<typeof tool> => Boolean(tool));
   const workspaceNativeToolIds = new Set(workspaceNativeToolDefinitions.map((tool) => tool.id));
@@ -127,8 +126,8 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     res.status(409).json({ error: { code: 'WORKFLOW_TARGET_TYPE_INVALID', message: 'Workflow run target type is not supported', retryable: false } });
     return;
   }
-  const targetScoped = Boolean(run.targetId && run.targetType);
-  if (targetScoped) {
+  const hasTargetBinding = Boolean(run.targetId && run.targetType);
+  if (hasTargetBinding) {
     const targetTools = await resolveTargetRunTools({
       workspaceId: run.workspaceId,
       targetId: run.targetId!,
@@ -173,7 +172,7 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
       input_schema: tool.inputSchema || { type: 'object' }
     });
   }
-  const coordinationFunctions = workflowAgentSnapshot?.kind === 'manager'
+  const coordinationFunctions = run.executorRole === 'coordinator'
     ? run.compiledAccessScope.coordinationFunctions
     : [];
   for (const name of coordinationFunctions) {
@@ -202,7 +201,7 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
         }
       : {
           name,
-          description: 'Read the current results and failures of this Manager run’s persisted delegations.',
+          description: 'Read the current results and failures of this coordinator run’s specialist children.',
           capability: 'read' as const,
           input_schema: { type: 'object', additionalProperties: false }
         });
@@ -227,39 +226,40 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     allowedModels,
     resourceBindings: run.compiledAccessScope.resourceBindings,
     bindingDigest: run.compiledAccessScope.bindingDigest,
+    executionId: run.executionId,
+    executorRole: run.executorRole,
     agentId: agentClaims.agentId,
     agentVersion: agentClaims.agentVersion
   };
-  const token = targetScoped
-    ? await gatewayTokenService.signRunScopeToken({
-        ...commonTokenClaims,
-        scopeType: 'target',
-        targetId: run.targetId!,
-        targetType: run.targetType as 'kubernetes' | 'virtual_machine'
-      })
-    : await gatewayTokenService.signRunScopeToken({
-        ...commonTokenClaims,
-        scopeType: 'workspace',
-        workflowId: run.workflowId,
-        workflowRunId: run.workflowRunId,
-        workflowSessionId: run.workflowSessionId,
-        agentId: agentClaims.agentId,
-        agentVersion: agentClaims.agentVersion,
-        triggerId: agentClaims.triggerId
-      });
+  const token = await gatewayTokenService.signRunScopeToken({
+    ...commonTokenClaims,
+    scopeType: 'workspace',
+    workflowId: run.workflowId,
+    executionId: run.executionId,
+    workflowSessionId: run.workflowSessionId,
+    executorRole: run.executorRole,
+    agentId: agentClaims.agentId,
+    agentVersion: agentClaims.agentVersion,
+    triggerId: agentClaims.triggerId,
+    ...(hasTargetBinding ? {
+      targetId: run.targetId,
+      targetType: run.targetType as 'kubernetes' | 'virtual_machine'
+    } : {})
+  });
 
   const snapshot = {
     contract_version: 2,
     scope: {
-      type: targetScoped ? 'target' : 'workspace',
+      type: 'workspace',
       workspace_id: run.workspaceId,
       session_id: run.workflowSessionId,
       run_id: run.id,
-      ...(targetScoped ? { target_id: run.targetId, target_type: run.targetType } : {}),
+      ...(hasTargetBinding ? { target_id: run.targetId, target_type: run.targetType } : {}),
       user_id: session.createdBy,
       workflow_id: run.workflowId,
-      workflow_run_id: run.workflowRunId,
-      workflow_execution_id: run.executionId,
+      execution_id: run.executionId,
+      executor_role: run.executorRole,
+      ...(run.parentRunId ? { parent_run_id: run.parentRunId } : {}),
       workflow_session_id: run.workflowSessionId,
       attempt_number: run.attemptNumber,
       idempotency_key: run.idempotencyKey,
@@ -268,7 +268,9 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
       ...(agentClaims.triggerId ? { trigger_id: agentClaims.triggerId } : {})
     },
     assistant: {
-      instructions: workflowAgentSnapshot?.instructions || ''
+      instructions: run.executorSnapshot.role === 'coordinator'
+        ? run.executorSnapshot.instructions
+        : workflowAgentSnapshot?.instructions || ''
     },
     policy: {
       max_runtime_ms: config.ASSISTANT_MAX_RUNTIME_MS,
@@ -279,7 +281,7 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
       max_duplicate_tool_calls: config.ASSISTANT_MAX_DUPLICATE_TOOL_CALLS
     },
     context: {
-      endpoint: `/internal/v1/workflow-sessions/${run.workflowSessionId}/context`,
+      endpoint: `/internal/v1/runs/${run.id}/context`,
       max_context_tokens: config.ASSISTANT_CONTEXT_MAX_TOKENS
     },
     resources: {
@@ -328,7 +330,7 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
       }
     },
     routing: {
-      target_scoped: targetScoped,
+      target_scoped: hasTargetBinding,
       workflow_scoped: true
     },
     tracing: {
@@ -346,11 +348,6 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
     const workflowRun = await getWorkflowRun(runId);
     if (workflowRun) {
       await bootstrapWorkflowRun(workflowRun, res);
-      return;
-    }
-    const agentRun = await getAgentActivityRecord(runId);
-    if (agentRun) {
-      await bootstrapAgentRun(agentRun, res);
       return;
     }
     const run = await repo.getRun(runId);

@@ -19,7 +19,6 @@ function agent(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
   return {
     id: 'agent-1',
     workspaceId: 'workspace-1',
-    kind: 'specialist',
     targetScope: { type: 'selected_target', targetTypes: ['kubernetes'], targetIds: ['target-1'] },
     ...overrides
   } as AgentDefinition;
@@ -37,17 +36,9 @@ describe('MCP catalog trust-boundary validation', () => {
     }
   });
 
-  it('uses one destination validator for manager and target-scope enforcement', async () => {
+  it('uses one destination validator for Agent target-scope enforcement', async () => {
     const findTarget = async (_workspaceId: string, targetId: string) => (
       targetId === 'target-1' ? { targetType: 'virtual_machine' as const } : null
-    );
-    await assert.rejects(
-      validateAgentCatalogDestination({
-        agent: agent({ kind: 'manager' }),
-        targetConstraints: { targetTypes: [], targetIds: [] },
-        findTarget
-      }),
-      CatalogDestinationValidationError
     );
     await assert.rejects(
       validateAgentCatalogDestination({

@@ -1,31 +1,14 @@
 export function buildInternalPaths(): Record<string, unknown> {
   return {
-    '/internal/v1/agent-runs/{runId}/context': {
+    '/internal/v1/runs/{runId}/context': {
       get: {
         tags: ['internal'],
-        summary: 'Internal: load standalone Agent run context',
+        summary: 'Internal: load Workflow executor run context',
         security: [{ serviceToken: [] }],
         parameters: [
           { in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid' } }
         ],
-        responses: { '200': { description: 'Versioned Agent instructions, prompt, input context, target binding, and compiled grants.' } }
-      }
-    },
-    '/internal/v1/workflow-sessions/{sessionId}/context': {
-      get: {
-        tags: ['internal'],
-        summary: 'Internal: load workflow session execution context',
-        security: [{ serviceToken: [] }],
-        description: 'Returns the compiled workflow session context for execution-engine workflow runs.',
-        parameters: [
-          { in: 'path', name: 'sessionId', required: true, schema: { type: 'string', example: 'workflow-session-01' } },
-          { in: 'query', name: 'run_id', required: false, schema: { type: 'string', format: 'uuid' } }
-        ],
-        responses: {
-          '200': {
-            description: 'Workflow session context.'
-          }
-        }
+        responses: { '200': { description: 'Pinned executor instructions, prompt, input context, target binding, and exact compiled grants.' } }
       }
     },
     '/internal/v1/mcp/tools/call': {
@@ -68,7 +51,7 @@ export function buildInternalPaths(): Record<string, unknown> {
       post: {
         tags: ['internal'],
         summary: 'Internal: execute an authorized platform-native tool',
-        description: 'Executes a code-owned workspace-native tool only when the run scope, compiled tool authority, invocation scope, and active run state permit it. Direct Agent runs are not supported.',
+        description: 'Executes a code-owned workspace-native tool only when the run scope, compiled tool authority, invocation scope, and active run state permit it. Delegated specialist child runs are not supported.',
         security: [{ serviceToken: [] }],
         parameters: [
           { in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid' } },

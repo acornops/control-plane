@@ -36,10 +36,6 @@ async function context(req: AuthenticatedRequest, res: Response, write = false) 
     fail(res, 404, 'NOT_FOUND', 'Agent not found');
     return null;
   }
-  if (write && agent.kind === 'manager') {
-    fail(res, 409, 'MANAGER_OPERATIONAL_CAPABILITY_FORBIDDEN', 'Managers can use coordination functions only.');
-    return null;
-  }
   return { workspaceId, agentId, agent, authz };
 }
 

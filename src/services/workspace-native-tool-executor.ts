@@ -108,7 +108,7 @@ async function generatePdf(
           provenance: {
             ...provenance,
             workflowId: run.workflowId,
-            workflowRunId: run.workflowRunId,
+            executionId: run.executionId,
             runId: run.id,
             toolCallId
           },

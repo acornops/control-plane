@@ -2,17 +2,9 @@ import { Response } from 'express';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { getWorkflowOptionsCatalog, listWorkflowDefinitions } from '../store/repository-workflows.js';
-import type { AgentCapability, AgentDefinition, AgentDefinitionResponse, AgentTriggerType } from '../types/agents.js';
+import type { AgentCapability, AgentDefinition, AgentDefinitionResponse } from '../types/agents.js';
 import { TARGET_TYPES, type TargetType } from '../types/domain.js';
 import { repo } from '../store/repository.js';
-
-const AGENT_TRIGGER_TYPES: AgentTriggerType[] = [
-  'manual',
-  'workflow',
-  'schedule',
-  'webhook',
-  'target_event'
-];
 
 const KNOWN_CONTEXT_GRANTS = new Set([
   'workspace_metadata',
@@ -66,7 +58,6 @@ export function agentPatch(body: Record<string, unknown>): Partial<AgentDefiniti
     description: typeof body.description === 'string' ? body.description : undefined,
     instructions: typeof body.instructions === 'string' ? body.instructions : undefined,
     status: body.status === 'active' || body.status === 'disabled' || body.status === 'draft' ? body.status : undefined,
-    kind: body.kind === 'manager' || body.kind === 'specialist' ? body.kind : undefined,
     reviewState: body.reviewState === 'draft' || body.reviewState === 'reviewed' ? body.reviewState : undefined,
     providerType: body.providerType === 'internal' || body.providerType === 'external' ? body.providerType : undefined,
     ownerUserId: typeof body.ownerUserId === 'string' ? body.ownerUserId : undefined,
@@ -84,8 +75,7 @@ export function agentPatch(body: Record<string, unknown>): Partial<AgentDefiniti
       || body.permissionMode === 'auto_allowed_changes'
       ? body.permissionMode
       : undefined,
-    semanticCapabilityIds: stringList(body.semanticCapabilityIds),
-    delegateAgentIds: stringList(body.delegateAgentIds)
+    semanticCapabilityIds: stringList(body.semanticCapabilityIds)
   };
 }
 
@@ -201,12 +191,6 @@ export async function collectAgentOptionErrors(workspaceId: string, input: Parti
   return errors;
 }
 
-export function triggerType(value: unknown): AgentTriggerType | null {
-  return typeof value === 'string' && AGENT_TRIGGER_TYPES.includes(value as AgentTriggerType)
-    ? value as AgentTriggerType
-    : null;
-}
-
 export function badRequest(res: Response, code: string, message: string, details?: unknown): void {
   res.status(400).json({ error: { code, message, retryable: false, details } });
 }
@@ -253,15 +237,8 @@ function agentCapabilities(agent: AgentDefinition): AgentCapability[] {
 }
 
 export async function agentResponse(agent: AgentDefinition): Promise<AgentDefinitionResponse> {
-  const {
-    delegateAgentIds: _delegateAgentIds,
-    systemRole: _systemRole,
-    kind: _kind,
-    ...publicAgent
-  } = agent;
   return {
-    ...publicAgent,
-    kind: 'specialist',
+    ...agent,
     capabilities: agentCapabilities(agent),
     workflowsUsingAgent: await workflowsUsingAgent(agent.workspaceId, agent.id)
   };

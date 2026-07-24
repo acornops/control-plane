@@ -1,11 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { PoolClient, QueryResultRow } from 'pg';
 import { db } from '../infra/db.js';
-import { clampDelegationLimits } from '../services/coordination-functions.js';
 import type {
   WorkflowCapabilityPolicy,
   WorkflowDefinitionForAccess,
-  WorkflowDelegationPolicy,
   WorkflowInputDefinition
 } from '../types/workflows.js';
 import type { PromptResourceRequirement } from '../types/prompt-resources.js';
@@ -13,32 +11,39 @@ import type { DefinitionOrigin } from '../types/agents.js';
 import { resetWorkflowRunRepositoryForTests } from './repository-workflow-runs.js';
 
 export type {
-  WorkflowApprovalRecord,
   WorkflowExecutionRecord,
   WorkflowMessageRecord,
   WorkflowRunRecord,
   WorkflowSessionRecord
 } from './repository-workflow-runs.js';
+export type { WorkflowApprovalRecord } from './repository-workflow-run-approvals.js';
 export {
   appendWorkflowRunEvents,
   createWorkflowExecution,
   createWorkflowRun,
   createWorkflowSession,
   createWorkflowUserMessage,
-  decideWorkflowRunApproval,
-  decideWorkflowRunApprovalOutcome,
   getWorkflowRun,
-  getWorkflowRunApproval,
   getWorkflowSession,
-  listWorkflowApprovalsForWorkspace,
   listWorkflowMessages,
   listWorkflowExecutionAttempts,
-  listWorkflowRunApprovals,
   listWorkflowRunsForSession,
   listWorkflowSessions,
   updateWorkflowRun,
+  updateWorkflowRunIfStatus,
   upsertWorkflowAssistantFinalMessage
 } from './repository-workflow-runs.js';
+export {
+  decideWorkflowRunApproval,
+  decideWorkflowRunApprovalOutcome,
+  getWorkflowRunApproval,
+  listWorkflowApprovalsForWorkspace,
+  listWorkflowRunApprovals
+} from './repository-workflow-run-approvals.js';
+export {
+  createDelegatedWorkflowRun,
+  listWorkflowChildRuns
+} from './repository-workflow-run-delegations.js';
 export { getWorkflowOptionsCatalog } from './repository-workflow-options.js';
 export {
   getWorkflowExecution,
@@ -51,10 +56,8 @@ export interface WorkflowDefinitionUpdate {
   status?: WorkflowDefinitionForAccess['status'];
   prompt?: string;
   agentIds?: string[];
-  entryAgentId?: string;
   resourceRequirements?: PromptResourceRequirement[];
   capabilityPolicy?: Partial<WorkflowCapabilityPolicy>;
-  delegationPolicy?: Partial<WorkflowDelegationPolicy> | null;
   tags?: string[];
   inputs?: WorkflowInputDefinition[];
   requiredPermissions?: WorkflowDefinitionForAccess['requiredPermissions'];
@@ -66,10 +69,8 @@ export interface CreateWorkflowDefinitionInput {
   description?: string;
   prompt: string;
   agentIds: string[];
-  entryAgentId: string;
   resourceRequirements?: PromptResourceRequirement[];
   capabilityPolicy: WorkflowCapabilityPolicy;
-  delegationPolicy?: WorkflowDelegationPolicy;
   tags?: string[];
   inputs?: WorkflowInputDefinition[];
   requiredPermissions?: WorkflowDefinitionForAccess['requiredPermissions'];
@@ -113,14 +114,6 @@ function normalizeResourceRequirements(values: PromptResourceRequirement[] = [])
   })).sort((left, right) => left.type.localeCompare(right.type));
 }
 
-function normalizeDelegationPolicy(value?: Partial<WorkflowDelegationPolicy> | null): WorkflowDelegationPolicy | undefined {
-  if (!value) return undefined;
-  return {
-    specialistAgentIds: uniqueSorted(value.specialistAgentIds),
-    ...clampDelegationLimits(value)
-  };
-}
-
 function mapWorkflowDefinition(row: WorkflowRow): WorkflowDefinitionForAccess {
   return {
     id: row.id,
@@ -133,10 +126,8 @@ function mapWorkflowDefinition(row: WorkflowRow): WorkflowDefinitionForAccess {
     prompt: row.prompt,
     agentIds: row.agent_ids || [],
     executionMode: (row.agent_ids || []).length > 1 ? 'coordinated' : 'direct',
-    entryAgentId: row.entry_agent_id,
     resourceRequirements: normalizeResourceRequirements(row.resource_requirements || []),
     capabilityPolicy: normalizeCapabilityPolicy(row.capability_policy),
-    delegationPolicy: row.delegation_policy || undefined,
     tags: row.tags || [],
     inputs: row.inputs || [],
     requiredPermissions: row.required_permissions || [],
@@ -178,16 +169,15 @@ export async function createWorkflowDefinition(
   const capabilityPolicy = normalizeCapabilityPolicy(input.capabilityPolicy);
   const agentIds = uniqueSorted(input.agentIds);
   const resourceRequirements = normalizeResourceRequirements(input.resourceRequirements);
-  const delegationPolicy = normalizeDelegationPolicy(input.delegationPolicy);
   const readiness = {
     status: 'needs_setup',
     reasons: ['Readiness has not been evaluated against the live capability catalog.']
   } as const;
   const result = await queryable.query<WorkflowRow>(
     `INSERT INTO workflow_definitions (
-       workspace_id,id,version,origin,name,description,status,prompt,agent_ids,entry_agent_id,resource_requirements,
-       capability_policy,delegation_policy,tags,inputs,required_permissions,created_by,readiness_status,readiness_reasons
-     ) VALUES ($1,$2,1,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
+       workspace_id,id,version,origin,name,description,status,prompt,agent_ids,resource_requirements,
+       capability_policy,tags,inputs,required_permissions,created_by,readiness_status,readiness_reasons
+     ) VALUES ($1,$2,1,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
     [
       input.workspaceId,
       `${slug}-${randomUUID().slice(0, 8)}`,
@@ -197,10 +187,8 @@ export async function createWorkflowDefinition(
       input.status || 'draft',
       input.prompt.trim(),
       JSON.stringify(agentIds),
-      input.entryAgentId,
       JSON.stringify(resourceRequirements),
       capabilityPolicy,
-      delegationPolicy || null,
       JSON.stringify(uniqueSorted(input.tags)),
       JSON.stringify(input.inputs || []),
       JSON.stringify(uniqueSorted(input.requiredPermissions || []) as WorkflowDefinitionForAccess['requiredPermissions']),
@@ -226,10 +214,8 @@ export async function duplicateWorkflowDefinition(
     description: source.description,
     prompt: source.prompt,
     agentIds: source.agentIds,
-    entryAgentId: source.entryAgentId,
     resourceRequirements: source.resourceRequirements,
     capabilityPolicy: source.capabilityPolicy,
-    delegationPolicy: source.delegationPolicy,
     tags: source.tags,
     inputs: source.inputs,
     requiredPermissions: source.requiredPermissions,
@@ -251,14 +237,11 @@ export async function updateWorkflowDefinitionScope(
     ...current.capabilityPolicy,
     ...update.capabilityPolicy
   });
-  const delegationPolicy = update.delegationPolicy === null
-    ? undefined
-    : normalizeDelegationPolicy(update.delegationPolicy || current.delegationPolicy);
   const result = await queryable.query<WorkflowRow>(
     `UPDATE workflow_definitions SET
-       version=version+1,name=$3,description=$4,status=$5,prompt=$6,agent_ids=$7,entry_agent_id=$8,resource_requirements=$9,
-       capability_policy=$10,delegation_policy=$11,tags=$12,inputs=$13,required_permissions=$14,
-       readiness_status='needs_setup',readiness_reasons=$15,updated_at=NOW()
+       version=version+1,name=$3,description=$4,status=$5,prompt=$6,agent_ids=$7,resource_requirements=$8,
+       capability_policy=$9,tags=$10,inputs=$11,required_permissions=$12,
+       readiness_status='needs_setup',readiness_reasons=$13,updated_at=NOW()
      WHERE workspace_id=$1 AND id=$2 RETURNING *`,
     [
       workspaceId,
@@ -268,12 +251,10 @@ export async function updateWorkflowDefinitionScope(
       update.status || current.status,
       update.prompt?.trim() || current.prompt,
       JSON.stringify(update.agentIds ? uniqueSorted(update.agentIds) : current.agentIds),
-      update.entryAgentId || current.entryAgentId,
       JSON.stringify(update.resourceRequirements
         ? normalizeResourceRequirements(update.resourceRequirements)
         : current.resourceRequirements),
       capabilityPolicy,
-      delegationPolicy || null,
       JSON.stringify(update.tags ? uniqueSorted(update.tags) : current.tags || []),
       JSON.stringify(update.inputs || current.inputs || []),
       JSON.stringify(update.requiredPermissions ? uniqueSorted(update.requiredPermissions) : current.requiredPermissions),

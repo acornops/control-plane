@@ -39,10 +39,14 @@ function createRun(overrides: Partial<Run> = {}): Run {
 function createWorkflowRun(overrides: Partial<WorkflowRunRecord> = {}): WorkflowRunRecord {
   return {
     id: 'workflow-run-1',
-    workflowRunId: 'workflow-execution-1',
+    executionId: 'workflow-execution-1',
     workspaceId: 'ws-1',
     workflowId: 'workspace-tool-exposure-audit',
     workflowSessionId: 'workflow-session-1',
+    attemptNumber: 1,
+    executorRole: 'coordinator',
+    executorSnapshot: { role: 'coordinator', profileVersion: 1, instructions: 'Coordinate.' },
+    idempotencyKey: 'workflow-execution-1:root:1',
     messageId: 'workflow-message-1',
     createdBy: 'user-1',
     status: 'queued',
@@ -64,6 +68,7 @@ function createWorkflowRun(overrides: Partial<WorkflowRunRecord> = {}): Workflow
         scope: { type: 'workspace' },
         workflow_id: 'workspace-tool-exposure-audit',
         workflow_version: 1,
+        executor_role: 'coordinator',
         permissions: {
           allowed_tools: ['audit.events.search'],
           allowed_tool_operations: { 'audit.events.search': 'read' },
@@ -71,6 +76,11 @@ function createWorkflowRun(overrides: Partial<WorkflowRunRecord> = {}): Workflow
         }
       }
     },
+    prompt: 'Coordinate the workflow.',
+    promptDigest: 'prompt-digest',
+    bindingDigest: 'binding-digest',
+    resourceBindings: [],
+    resolvedAt: '2026-05-25T00:00:00.000Z',
     requestedAt: '2026-05-25T00:00:00.000Z',
     createdAt: '2026-05-25T00:00:00.000Z',
     ...overrides
@@ -157,8 +167,11 @@ describe('execution engine client', () => {
       session_id: 'workflow-session-1',
       message_id: 'workflow-message-1',
       workflow_id: 'workspace-tool-exposure-audit',
-      workflow_run_id: 'workflow-execution-1',
+      execution_id: 'workflow-execution-1',
       workflow_session_id: 'workflow-session-1',
+      executor_role: 'coordinator',
+      attempt_number: 1,
+      idempotency_key: 'workflow-execution-1:root:1',
       requested_at: '2026-05-25T00:00:00.000Z'
     });
   });
@@ -182,10 +195,22 @@ describe('execution engine client', () => {
     });
 
     await dispatchWorkflowRunToExecutionEngine(createWorkflowRun({
+      executorRole: 'specialist',
+      parentRunId: 'workflow-root-1',
+      agentId: 'agent-cluster-triage',
+      agentVersion: 4,
+      executorSnapshot: {
+        role: 'specialist',
+        agentId: 'agent-cluster-triage',
+        agentVersion: 4,
+        agent: {} as never
+      },
       compiledAccessScope: {
         ...createWorkflowRun().compiledAccessScope,
+        executor: { role: 'specialist', agentId: 'agent-cluster-triage', agentVersion: 4 },
         jwtClaims: {
           ...createWorkflowRun().compiledAccessScope.jwtClaims,
+          executor_role: 'specialist',
           agent_id: 'agent-cluster-triage',
           agent_version: 4
         }
@@ -201,8 +226,12 @@ describe('execution engine client', () => {
       session_id: 'workflow-session-1',
       message_id: 'workflow-message-1',
       workflow_id: 'workspace-tool-exposure-audit',
-      workflow_run_id: 'workflow-execution-1',
+      execution_id: 'workflow-execution-1',
       workflow_session_id: 'workflow-session-1',
+      executor_role: 'specialist',
+      parent_run_id: 'workflow-root-1',
+      attempt_number: 1,
+      idempotency_key: 'workflow-execution-1:root:1',
       agent_id: 'agent-cluster-triage',
       agent_version: 4,
       requested_at: '2026-05-25T00:00:00.000Z'

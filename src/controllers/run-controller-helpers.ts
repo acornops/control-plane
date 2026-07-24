@@ -7,7 +7,7 @@ import { runtime } from '../store/runtime.js';
 import {
   getWorkflowRun,
   listWorkflowRunApprovals,
-  updateWorkflowRun
+  updateWorkflowRunIfStatus
 } from '../store/repository-workflows.js';
 import type { Run, RunEvent } from '../types/domain.js';
 
@@ -44,7 +44,7 @@ export function dispatchWorkflowRunAfterApprovals(runId: string): void {
     const approvals = await listWorkflowRunApprovals(run.id);
     if (approvals.some((approval) => approval.status === 'pending')) return;
     if (approvals.some((approval) => approval.status === 'rejected' || approval.status === 'expired')) {
-      await updateWorkflowRun(run.id, {
+      await updateWorkflowRunIfStatus(run.id, ['waiting_for_approval'], {
         status: 'failed',
         errorCode: 'WORKFLOW_APPROVAL_NOT_GRANTED',
         errorMessage: 'Workflow approval gate was not granted.',
@@ -52,6 +52,6 @@ export function dispatchWorkflowRunAfterApprovals(runId: string): void {
       });
       return;
     }
-    await updateWorkflowRun(run.id, { status: 'queued' });
+    await updateWorkflowRunIfStatus(run.id, ['waiting_for_approval'], { status: 'queued' });
   });
 }

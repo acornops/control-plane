@@ -5,7 +5,6 @@ import {
 } from '../services/workspace-native-tool-executor.js';
 import { getWorkspaceNativeTool } from '../services/workspace-native-tools.js';
 import { repo } from '../store/repository.js';
-import { getAgentActivityRecord } from '../store/repository-agents.js';
 import { getWorkflowRun } from '../store/repository-workflows.js';
 import { toSingleParam } from '../utils/params.js';
 
@@ -23,16 +22,15 @@ export async function callPlatformNativeTool(req: Request, res: Response, next: 
 
     const workflowRun = await getWorkflowRun(runId);
     const targetRun = workflowRun ? null : await repo.getRun(runId);
-    const agentRun = workflowRun || targetRun ? null : await getAgentActivityRecord(runId);
     const run = workflowRun || targetRun;
-    if (!run && !agentRun) {
+    if (!run) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Run not found', retryable: false } });
       return;
     }
-    if (agentRun || !run) {
+    if (workflowRun?.parentRunId) {
       res.status(403).json({ error: {
         code: 'WORKSPACE_NATIVE_TOOL_SCOPE_DENIED',
-        message: 'This native tool is not available to direct Agent runs.',
+        message: 'This native tool is not available to delegated specialist child runs.',
         retryable: false
       } });
       return;

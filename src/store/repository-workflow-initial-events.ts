@@ -16,6 +16,8 @@ interface InitialWorkflowEventInput {
   };
   run: {
     id: string;
+    executorRole: 'coordinator' | 'specialist';
+    parentRunId?: string;
     agentId?: string;
     attemptNumber: number;
     status: string;
@@ -58,6 +60,8 @@ export async function insertInitialWorkflowExecutionEvents(
     runId: run.id,
     dedupeKey: `run-created:${run.id}`,
     payload: {
+      executorRole: run.executorRole,
+      parentRunId: run.parentRunId || null,
       agentId: run.agentId || null,
       attemptNumber: run.attemptNumber,
       status: run.status,

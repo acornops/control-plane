@@ -21,23 +21,17 @@ import {
 import { pruneTemplateInstallationRecordReference } from '../store/repository-automation-templates.js';
 import { withTransaction } from '../store/repository-transaction.js';
 import { refreshAgentReadiness, refreshWorkflowReadiness } from './automation-readiness.js';
-import {
-  recomputeWorkflowCoordinatorPolicy,
-  resolveWorkflowRouting,
-  type WorkflowCoordinatorFactory,
-  WorkflowSelectionError,
-  WORKFLOW_COORDINATOR_SYSTEM_ROLE
-} from './workflow-coordinator.js';
+import { resolveWorkflowRouting, WorkflowSelectionError } from './workflow-coordinator.js';
 import { reconcileTargetDiagnosticsForAgent } from './target-diagnostics-capability.js';
 
 export type CreateWorkflowMutationInput = Omit<
   CreateWorkflowDefinitionInput,
-  'entryAgentId' | 'delegationPolicy'
+  never
 >;
 
 export type WorkflowMutationUpdate = Omit<
   WorkflowDefinitionUpdate,
-  'entryAgentId' | 'delegationPolicy'
+  never
 >;
 
 export class DefinitionValidationError extends Error {
@@ -86,57 +80,11 @@ function assertSystemWorkflowPatchAllowed(current: WorkflowDefinitionForAccess, 
   );
 }
 
-function operationalResourceCount(input: Partial<CreateAgentDefinitionInput & AgentDefinitionUpdate>): number {
-  return (input.mcpServers?.length || 0)
-    + (input.mcpTools?.length || 0)
-    + (input.mcpInstallations?.length || 0)
-    + (input.tools?.length || 0)
-    + (input.skills?.length || 0)
-    + (input.skillInstallations?.length || 0)
-    + (input.contextGrants?.length || 0);
-}
-
 async function validateAgentInput(
-  input: CreateAgentDefinitionInput | (AgentDefinitionUpdate & { workspaceId: string }),
-  current?: AgentDefinition,
-  client?: PoolClient
+  _input: CreateAgentDefinitionInput | (AgentDefinitionUpdate & { workspaceId: string }),
+  _current?: AgentDefinition,
+  _client?: PoolClient
 ): Promise<void> {
-  const kind = input.kind || current?.kind || 'specialist';
-  const effective = current ? { ...current, ...input } : input;
-  const systemRole = 'systemRole' in effective ? effective.systemRole : current?.systemRole;
-  if (kind === 'manager' && systemRole !== WORKFLOW_COORDINATOR_SYSTEM_ROLE) {
-    throw new DefinitionValidationError(
-      'MANAGER_SYSTEM_OWNED',
-      'Managers are system-owned and cannot be created or configured directly.'
-    );
-  }
-  if (kind === 'manager' && operationalResourceCount(effective) > 0) {
-    throw new DefinitionValidationError(
-      'MANAGER_OPERATIONAL_CAPABILITY_FORBIDDEN',
-      'Managers can use coordination functions only.'
-    );
-  }
-  if (kind === 'specialist' && (effective.delegateAgentIds?.length || 0) > 0) {
-    throw new DefinitionValidationError(
-      'SPECIALIST_DELEGATION_FORBIDDEN',
-      'Only Managers may have a specialist allowlist.'
-    );
-  }
-  if (kind === 'manager') {
-    const delegateIds = effective.delegateAgentIds || [];
-    const invalid: string[] = [];
-    for (const agentId of delegateIds) {
-      const candidate = await getAgentDefinition(input.workspaceId, agentId, client);
-      if (!candidate || candidate.kind !== 'specialist') invalid.push(agentId);
-    }
-    if (invalid.length) {
-      throw new DefinitionValidationError(
-        'MANAGER_SPECIALIST_INVALID',
-        'Manager allowlists may contain only existing specialist Agents.',
-        invalid
-      );
-    }
-  }
 }
 
 export async function createAgentThroughDefinitionService(input: CreateAgentDefinitionInput): Promise<AgentDefinition> {
@@ -152,10 +100,6 @@ export async function createAgentThroughDefinitionServiceInTransaction(
 ): Promise<AgentDefinition> {
   await validateAgentInput(input, undefined, client);
   return createAgentDefinition(input, client);
-}
-
-function coordinatorFactory(client: PoolClient): WorkflowCoordinatorFactory {
-  return (input) => createAgentThroughDefinitionServiceInTransaction(client, input);
 }
 
 export async function updateAgentThroughDefinitionService(
@@ -193,12 +137,11 @@ async function createWorkflowInTransaction(
       workspaceId: input.workspaceId,
       agentIds: input.agentIds,
       capabilityPolicy: input.capabilityPolicy
-    }, coordinatorFactory(client));
+    });
     const created = await createWorkflowDefinition({
       ...input,
-      ...routing
+      agentIds: routing.agentIds
     }, client);
-    await recomputeWorkflowCoordinatorPolicy(client, input.workspaceId, coordinatorFactory(client));
     return created;
   } catch (error) {
     return definitionError(error);
@@ -207,7 +150,6 @@ async function createWorkflowInTransaction(
 
 export async function createWorkflowThroughDefinitionService(input: CreateWorkflowMutationInput): Promise<WorkflowDefinitionForAccess> {
   const created = await withTransaction((client) => createWorkflowInTransaction(client, input));
-  await refreshAgentReadiness(created.workspaceId, created.entryAgentId);
   return (await refreshWorkflowReadiness(created)) || created;
 }
 
@@ -240,20 +182,18 @@ export async function updateWorkflowThroughDefinitionService(
         workspaceId,
         agentIds: patch.agentIds || current.agentIds,
         capabilityPolicy
-      }, coordinatorFactory(client));
+      });
       const result = await updateWorkflowDefinitionScope(workspaceId, workflowId, {
         ...patch,
-        ...routing,
+        agentIds: routing.agentIds,
         capabilityPolicy
       }, client);
-      await recomputeWorkflowCoordinatorPolicy(client, workspaceId, coordinatorFactory(client));
       return result;
     } catch (error) {
       return definitionError(error);
     }
   });
   if (!updated) return null;
-  await refreshAgentReadiness(updated.workspaceId, updated.entryAgentId);
   return refreshWorkflowReadiness(updated);
 }
 
@@ -273,14 +213,11 @@ export async function deleteWorkflowThroughDefinitionService(
       [workspaceId, workflowId]
     );
     await pruneTemplateInstallationRecordReference(workspaceId, workflowId, client);
-    await recomputeWorkflowCoordinatorPolicy(client, workspaceId, coordinatorFactory(client));
     return 'deleted' as const;
   });
   return result;
 }
 
 export async function refreshWorkflowCoordinationForWorkspace(workspaceId: string): Promise<void> {
-  await withTransaction(async (client) => {
-    await recomputeWorkflowCoordinatorPolicy(client, workspaceId, coordinatorFactory(client));
-  });
+  await Promise.all((await listWorkflowDefinitions(workspaceId)).map((workflow) => refreshWorkflowReadiness(workflow)));
 }

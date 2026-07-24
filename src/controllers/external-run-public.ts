@@ -1,8 +1,8 @@
-import type { AgentActivityRecord } from '../types/agents.js';
 import type { Run, RunEvent, RunToolApproval } from '../types/domain.js';
 import type { AutomationRunApproval } from '../store/repository-automation-approvals.js';
 import type { WorkflowExecutionStreamEvent } from '../store/repository-workflow-execution-events.js';
-import type { WorkflowApprovalRecord, WorkflowRunRecord } from '../store/repository-workflow-runs.js';
+import type { WorkflowApprovalRecord } from '../store/repository-workflow-run-approvals.js';
+import type { WorkflowRunRecord } from '../store/repository-workflow-runs.js';
 
 const APPROVAL_PAYLOAD_FIELDS = new Set([
   'approval_id', 'approvalId', 'tool', 'toolName', 'summary',
@@ -63,12 +63,14 @@ export function publicWorkflowExecutionEvent(event: WorkflowExecutionStreamEvent
 export function publicWorkflowRun(run: WorkflowRunRecord, includeOutput: boolean): Record<string, unknown> {
   return {
     id: run.id,
-    workflowRunId: run.workflowRunId,
     executionId: run.executionId,
     workspaceId: run.workspaceId,
     workflowId: run.workflowId,
     workflowSessionId: includeOutput ? run.workflowSessionId : undefined,
     attemptNumber: run.attemptNumber,
+    executorRole: run.executorRole,
+    parentRunId: run.parentRunId || null,
+    ...(run.executorRole === 'specialist' ? { agentId: run.agentId, agentVersion: run.agentVersion } : {}),
     targetId: run.targetId || null,
     targetType: run.targetType || null,
     messageId: includeOutput ? run.messageId : undefined,
@@ -79,23 +81,6 @@ export function publicWorkflowRun(run: WorkflowRunRecord, includeOutput: boolean
     errorCode: run.errorCode?.slice(0, 128) || null,
     ...(includeOutput && run.assistantMessage ? { assistantMessage: run.assistantMessage } : {}),
     ...(includeOutput && run.usage ? { usage: run.usage } : {})
-  };
-}
-
-export function publicAgentRun(run: AgentActivityRecord): Record<string, unknown> {
-  return {
-    id: run.id,
-    agentId: run.agentId,
-    workspaceId: run.workspaceId,
-    targetId: run.targetId || null,
-    targetType: run.targetType || null,
-    status: run.status,
-    source: 'agent',
-    createdAt: run.createdAt,
-    updatedAt: run.updatedAt,
-    startedAt: run.startedAt || null,
-    endedAt: run.endedAt || null,
-    errorCode: run.errorCode?.slice(0, 128) || null
   };
 }
 
@@ -123,7 +108,7 @@ type PublicApprovalSource = RunToolApproval | WorkflowApprovalRecord | Automatio
 export function publicRunApproval(approval: PublicApprovalSource): Record<string, unknown> {
   const source = approval as PublicApprovalSource & {
     workflowId?: string;
-    workflowRunId?: string;
+    executionId?: string;
     sourceType?: string;
     approvalKind?: string;
     targetId?: string;
@@ -134,7 +119,7 @@ export function publicRunApproval(approval: PublicApprovalSource): Record<string
     runId: source.runId,
     workspaceId: source.workspaceId,
     ...(source.workflowId ? { workflowId: source.workflowId } : {}),
-    ...(source.workflowRunId ? { workflowRunId: source.workflowRunId } : {}),
+    ...(source.executionId ? { executionId: source.executionId } : {}),
     ...(source.sourceType ? { sourceType: source.sourceType } : {}),
     ...(source.approvalKind ? { approvalKind: source.approvalKind } : {}),
     ...(source.targetId ? { targetId: source.targetId } : {}),

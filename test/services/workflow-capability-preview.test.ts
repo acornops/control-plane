@@ -8,12 +8,12 @@ import { narrowWorkflowScopeToTargetTools, workflowTargetCandidates } from '../.
 import type { TargetRunToolResolution } from '../../src/services/target-run-tool-resolution.js';
 
 const agent = {
-  id: 'agent-target', workspaceId: 'workspace-1', version: 2, status: 'active', reviewState: 'reviewed', kind: 'specialist',
+  id: 'agent-target', workspaceId: 'workspace-1', version: 2, status: 'active', reviewState: 'reviewed',
   targetScope: { type: 'selected_target', targetTypes: ['kubernetes', 'virtual_machine'] }
 } as AgentDefinition;
 
 const workflow = {
-  id: 'workflow-target', workspaceId: 'workspace-1', version: 3, agentIds: [agent.id], entryAgentId: agent.id,
+  id: 'workflow-target', workspaceId: 'workspace-1', version: 3, agentIds: [agent.id],
   executionMode: 'direct',
   resourceRequirements: [{
     type: 'target', minimum: 1, maximum: 1, requiredOperations: ['read'],
@@ -33,7 +33,7 @@ function mapping(capabilityId: string, targetId: string, operation: 'read' | 'wr
   return {
     id: `${capabilityId}:${targetId}`, workspaceId: 'workspace-1', capabilityId, version: 1, agentId: agent.id,
     agentVersion: agent.version, status: 'active', reviewState: 'reviewed', priority: 10,
-    targetTypes: [], targetIds: [targetId], mcpTools: [], nativeToolIds: [], invocationScopes: ['workflow'], skillIds: [], contextGrants: [],
+    targetTypes: [], targetIds: [targetId], mcpTools: [], nativeToolIds: [], skillIds: [], contextGrants: [],
     targetToolRefs: [{ serverId: 'builtin-target', toolName: operation === 'read' ? 'query_logs' : 'restart_service', alias: operation === 'read' ? 'query_logs' : 'restart_service', operation }],
     createdBy: 'system', createdAt: '', updatedAt: ''
   };

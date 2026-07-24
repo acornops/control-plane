@@ -117,12 +117,13 @@ dispatch-outbox entry commit. Postgres row claims are authoritative; Redis
 leases reduce duplicate work but do not own scheduler correctness.
 
 `GET /api/v1/workspaces/{workspaceId}/automation/diagnostics` reports the
-workspace's runtime mode, outbox depth and age, active Agent and Workflow run
-states, trigger delivery state, scheduler lag, pending approval age, template
-readiness reasons, and retained report-source count. It requires workspace read
-access. Keep this dependency view separate from `/ready`: a disconnected
-external MCP server makes affected templates `needs_setup` or `blocked`, but it
-must not remove the control plane from service.
+workspace's runtime mode, outbox depth and age, Workflow run states grouped by
+executor role and root/child graph position, trigger delivery state, scheduler
+lag, pending approval age, template readiness reasons, and retained
+report-source count. It requires workspace read access. Keep this dependency
+view separate from `/ready`: a disconnected external MCP server makes affected
+templates `needs_setup` or `blocked`, but it must not remove the control plane
+from service.
 
 The `/metrics` endpoint exposes low-cardinality `control_plane_automation_*`
 counters and gauges for dispatch, triggers, approvals, terminal outcomes, PDF
@@ -174,8 +175,9 @@ each workspace, and the user's workspace role remains the final ceiling. An
 external integration can decide troubleshooting and Workflow write approvals
 only for executions requested through the same active integration link and
 client. Adapters must require an explicit linked-user confirmation before
-calling the decision endpoint; browser-created, other-link/client, standalone
-Agent, scheduled, and system-triggered approvals remain denied.
+calling the decision endpoint. Delegated specialist approvals inherit the
+execution's origin boundary; browser-created, other-link/client, scheduled, and
+system-triggered approvals remain denied.
 
 ## Admin API
 

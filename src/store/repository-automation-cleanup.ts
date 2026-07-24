@@ -51,45 +51,10 @@ export async function deleteAgentWithInstallationCleanup(
     if (workflows.length > 0) return { status: 'conflict', workflows } as const;
 
     await client.query(
-      `UPDATE agent_definitions manager
-       SET delegate_agent_ids=COALESCE((
-         SELECT jsonb_agg(delegate_id)
-         FROM jsonb_array_elements_text(manager.delegate_agent_ids) delegate_id
-         WHERE delegate_id <> $2
-       ), '[]'::jsonb)
-       WHERE manager.workspace_id=$1
-         AND manager.kind='manager'
-         AND manager.delegate_agent_ids ? $2`,
-      [workspaceId, agentId]
-    );
-    await client.query(
       'DELETE FROM agent_definitions WHERE workspace_id=$1 AND id=$2',
       [workspaceId, agentId]
     );
     await pruneTemplateInstallationRecordReference(workspaceId, agentId, client);
-    return { status: 'deleted' } as const;
-  });
-}
-
-export async function deleteWorkflowWithInternalManagerCleanup(
-  workspaceId: string,
-  workflowId: string
-): Promise<{ status: 'deleted' | 'not_found'; removedInternalManagerId?: string }> {
-  return withTransaction(async (client) => {
-    const workflow = await client.query<{ entry_agent_id: string }>(
-      `SELECT entry_agent_id FROM workflow_definitions
-       WHERE workspace_id=$1 AND id=$2
-       FOR UPDATE`,
-      [workspaceId, workflowId]
-    );
-    if (!workflow.rowCount) return { status: 'not_found' } as const;
-
-    await client.query(
-      'DELETE FROM workflow_definitions WHERE workspace_id=$1 AND id=$2',
-      [workspaceId, workflowId]
-    );
-    await pruneTemplateInstallationRecordReference(workspaceId, workflowId, client);
-
     return { status: 'deleted' } as const;
   });
 }

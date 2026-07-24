@@ -175,7 +175,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       post: {
         tags: ['workflows'],
         summary: 'Create a workspace workflow definition',
-        description: 'Creates a Workflow V2 definition from one or more active reviewed specialist Agent IDs. One Agent runs directly; multiple Agents are coordinated by AcornOps. Selection order has no meaning and executionMode is derived. Requires manage_workflows.',
+        description: 'Creates a Workflow V2 definition from one or more active reviewed specialist Agent IDs. One Agent produces a specialist root run; multiple Agents produce a coordinator root with delegated specialist children. Selection order has no meaning and executionMode is derived. Requires manage_workflows.',
         security: [{ userSession: [] }],
         parameters: [workspaceIdParameter],
         requestBody: workflowCreateBody,
@@ -468,7 +468,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
     },
     '/api/v1/workflow-executions/{executionId}/resume': {
       post: {
-        tags: ['workflows'], summary: 'Resume a failed workflow entry run as a new attempt', security: [{ userSession: [] }],
+        tags: ['workflows'], summary: 'Resume a failed Workflow root as a new attempt', security: [{ userSession: [] }],
         parameters: [{ in: 'path', name: 'executionId', required: true, schema: { type: 'string' } }],
         responses: { '202': { description: 'Resume attempt and dispatch intent committed.', content: { 'application/json': { schema: { type: 'object', properties: { executionId: { type: 'string' }, runId: { type: 'string' }, status: { type: 'string' } } } } } }, '409': { description: 'Execution is not resumable.' } }
       }

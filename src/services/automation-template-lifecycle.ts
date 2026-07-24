@@ -128,8 +128,7 @@ export async function installAutomationTemplate(input: {
       agentIds[agentKey] = await insertStarterAgent(client, {
         workspaceId: input.workspaceId,
         installedBy: input.installedBy,
-        template: agentTemplate,
-        delegateAgentIds: []
+        template: agentTemplate
       });
       recordIds[`agent:${agentKey}`] = agentIds[agentKey];
     }

@@ -146,6 +146,7 @@ const targetNativeToolController = read(targetNativeToolControllerPath);
 const sessionController = read('src/controllers/sessions-controller.ts');
 const runToolAccessMode = read(runToolAccessModePath);
 const runController = read('src/controllers/runs-controller.ts');
+const automationApprovalDecision = read('src/controllers/automation-run-approval-decision.ts');
 const troubleshootingApprovalDecision = read('src/controllers/troubleshooting-run-approval-decision.ts');
 const workflowExecutionAccess = read('src/controllers/workflow-execution-access.ts');
 const workflowController = read('src/controllers/workflows-controller.ts');
@@ -298,7 +299,7 @@ assert(
   'getSession must remain readable for viewer/operator roles'
 );
 assert(runController.includes('cancel_runs'), 'run cancellation must be capability-gated');
-assert(runController.includes('create_read_write_runs'), 'approval decisions must be read-write capability-gated');
+assert(automationApprovalDecision.includes('create_read_write_runs'), 'approval decisions must be read-write capability-gated');
 assert(
   runsRoutes.includes("'/runs/:runId/approvals/:approvalId/decision',\n  requireActor(['user', 'externalIntegration'])"),
   'approval decisions must accept browser users and linked external integrations'

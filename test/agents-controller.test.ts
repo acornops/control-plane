@@ -6,14 +6,11 @@ import {
   deleteAgent,
   duplicateAgent,
   getAgent,
-  listAgentActivity,
   listAgentVersions,
   listAgents,
   restoreAgentVersion,
-  testAgent,
   updateAgent,
 } from '../src/controllers/agents-controller.js';
-import { createAgentTrigger, deleteAgentTrigger, updateAgentTrigger } from '../src/controllers/agent-triggers-controller.js';
 import { repo } from '../src/store/repository.js';
 import { createWorkflowDefinition } from '../src/store/repository-workflows.js';
 import {
@@ -167,7 +164,6 @@ describe('agents controller', () => {
       name: 'Cluster incident workflow',
       prompt: 'Inspect the selected cluster.',
       agentIds: [agentId],
-      entryAgentId: agentId,
       requiredPermissions: ['create_read_only_runs'],
       capabilityPolicy: {
         mode: 'read_only', restrictionMode: 'restrict', semanticCapabilityIds: ['target.diagnostics.read'],
@@ -206,7 +202,7 @@ describe('agents controller', () => {
     assert.equal((response.body as { error: { code: string } }).error.code, 'FORBIDDEN');
   });
 
-  it('creates, updates, versions, tests, and triggers custom agents for managers', async () => {
+  it('creates, updates, and versions custom agents for managers', async () => {
     installWorkspace('admin');
     const auditEvents: string[] = [];
     repo.insertWorkspaceAuditEvent = async (event) => {
@@ -276,60 +272,11 @@ describe('agents controller', () => {
     assert.equal(restored.statusCode, 200);
     assert.equal((restored.body as { agent: { version: number } }).agent.version, 3);
 
-    const trigger = await callController(createAgentTrigger, createRequest(
-      { agentId: agent.id },
-      {
-        workspaceId: 'workspace-1',
-        type: 'schedule',
-        name: 'Weekday release scan',
-        schedule: { cron: '0 9 * * 1-5', timezone: 'UTC' },
-        principal: { type: 'user', id: 'user-1' }
-      }
-    ));
-    assert.equal(trigger.statusCode, 201);
-    const triggerId = (trigger.body as { trigger: { id: string; enabled: boolean } }).trigger.id;
-    assert.equal((trigger.body as { trigger: { enabled: boolean } }).trigger.enabled, true);
-
-    const disabledTrigger = await callController(updateAgentTrigger, createRequest(
-      { agentId: agent.id, triggerId },
-      { workspaceId: 'workspace-1', enabled: false }
-    ));
-    assert.equal(disabledTrigger.statusCode, 200);
-    assert.equal((disabledTrigger.body as { trigger: { enabled: boolean } }).trigger.enabled, false);
-
-    const testRun = await callController(testAgent, createRequest(
-      { agentId: agent.id },
-      {
-        workspaceId: 'workspace-1',
-        approvedContextGrants: ['workspace_metadata'],
-        inputContext: { release: 'v1.2.3' }
-      }
-    ));
-    assert.equal(testRun.statusCode, 200);
-    assert.equal((testRun.body as { compiledScope: { agentId: string } }).compiledScope.agentId, agent.id);
-    assert.equal((testRun.body as { executing: boolean }).executing, false);
-    assert.equal('deprecated' in (testRun.body as Record<string, unknown>), false);
-
-    const activity = await callController(listAgentActivity, createRequest(
-      { agentId: agent.id },
-      { workspaceId: 'workspace-1' }
-    ));
-    assert.equal(activity.statusCode, 200);
-    assert.equal((activity.body as { items: Array<{ triggerId?: string }> }).items.length, 0);
-
-    const deletedTrigger = await callController(deleteAgentTrigger, createRequest(
-      { agentId: agent.id, triggerId },
-      { workspaceId: 'workspace-1' }
-    ));
-    assert.equal(deletedTrigger.statusCode, 204);
     assert.deepEqual(auditEvents, [
       'agent.definition_created.v1',
       'agent.definition_updated.v1',
       'agent.version_snapshot_created.v1',
-      'agent.version_restored.v1',
-      'agent.trigger_created.v1',
-      'agent.trigger_updated.v1',
-      'agent.trigger_deleted.v1'
+      'agent.version_restored.v1'
     ]);
 
     const fetched = await callController(getAgent, createRequest(
@@ -410,7 +357,6 @@ describe('agents controller', () => {
       name: 'Assigned helper workflow',
       prompt: 'Run the assigned helper.',
       agentIds: [agentId],
-      entryAgentId: agentId,
       requiredPermissions: ['create_read_only_runs'],
       capabilityPolicy: {
         mode: 'read_only', restrictionMode: 'restrict', semanticCapabilityIds: [], contextGrants: [],

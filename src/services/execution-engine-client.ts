@@ -4,7 +4,6 @@ import { WorkflowRunRecord } from '../store/repository-workflows.js';
 import { Run } from '../types/domain.js';
 import { internalFetch } from './internal-http-client.js';
 import { workflowRunAgentClaims } from './workflow-run-agent-claims.js';
-import type { AgentActivityRecord } from '../types/agents.js';
 
 export async function dispatchRunToExecutionEngine(run: Run): Promise<void> {
   const payload = {
@@ -48,15 +47,16 @@ export async function dispatchWorkflowRunToExecutionEngine(run: WorkflowRunRecor
   const agentClaims = workflowRunAgentClaims(run);
   const payload = {
     contract_version: 2,
-    scope_type: run.targetId && run.targetType ? 'target' : 'workspace',
+    scope_type: 'workspace',
     run_id: run.id,
     workspace_id: run.workspaceId,
     session_id: run.workflowSessionId,
     message_id: run.messageId,
     workflow_id: run.workflowId,
-    workflow_run_id: run.workflowRunId,
-    workflow_execution_id: run.executionId,
+    execution_id: run.executionId,
     workflow_session_id: run.workflowSessionId,
+    executor_role: run.executorRole,
+    ...(run.parentRunId ? { parent_run_id: run.parentRunId } : {}),
     attempt_number: run.attemptNumber,
     idempotency_key: run.idempotencyKey,
     ...(run.targetId ? { target_id: run.targetId } : {}),
@@ -91,30 +91,6 @@ export async function dispatchWorkflowRunToExecutionEngine(run: WorkflowRunRecor
   } finally {
     clearTimeout(timeout);
   }
-}
-
-export async function dispatchAgentRunToExecutionEngine(run: AgentActivityRecord): Promise<void> {
-  const payload = {
-    contract_version: 2,
-    scope_type: 'workspace',
-    run_id: run.id,
-    workspace_id: run.workspaceId,
-    session_id: run.id,
-    message_id: run.id,
-    agent_id: run.agentId,
-    agent_version: run.agentVersion,
-    ...(run.triggerId ? { trigger_id: run.triggerId } : {}),
-    ...(run.targetId ? { target_id: run.targetId } : {}),
-    ...(run.targetType ? { target_type: run.targetType } : {}),
-    idempotency_key: run.idempotencyKey,
-    requested_at: run.createdAt
-  };
-  const response = await internalFetch(`${config.EXECUTION_ENGINE_BASE_URL}/api/v1/runs`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${config.EXECUTION_ENGINE_DISPATCH_TOKEN}` },
-    body: JSON.stringify(payload)
-  }, config.EXECUTION_ENGINE_TIMEOUT_MS);
-  if (!response.ok) throw new Error(`Execution Engine Agent start failed (${response.status}): ${await response.text()}`);
 }
 
 export async function cancelRunInExecutionEngine(runId: string): Promise<void> {

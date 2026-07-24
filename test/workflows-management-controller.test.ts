@@ -199,8 +199,6 @@ describe('workflows management controller', () => {
     assert.equal(workflow.origin.type, 'manual');
     assert.deepEqual(workflow.agentIds, ['agent-incident-reporter']);
     assert.equal(workflow.executionMode, 'direct');
-    assert.equal(workflow.entryAgentId, undefined);
-    assert.equal(workflow.delegationPolicy, undefined);
     assert.deepEqual(workflow.capabilityPolicy.semanticCapabilityIds, ['incident.report.generate']);
     assert.equal(
       workflow.capabilityPolicy.maxRuntimeSeconds,
@@ -256,7 +254,7 @@ describe('workflows management controller', () => {
 
   it('rejects unknown fields through the strict workflow request schema', async () => {
     installWorkspace('owner');
-    for (const field of ['workspaceId', 'entryAgentId', 'delegationPolicy', 'executionMode']) {
+    for (const field of ['workspaceId', 'executionMode']) {
       const response = await callController(createWorkflow, createRequest(
         { workspaceId: 'workspace-1' },
         {

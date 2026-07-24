@@ -1,14 +1,7 @@
 import type { NextFunction, Response } from 'express';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { getAgentDefinition } from '../store/repository-agents.js';
-import type { AgentDefinition } from '../types/agents.js';
 import { toSingleParam } from '../utils/params.js';
-
-export function isInternalTemplateManager(
-  agent: Pick<AgentDefinition, 'kind'>
-): boolean {
-  return agent.kind === 'manager';
-}
 
 export async function requirePublicAgentRoute(
   req: AuthenticatedRequest,
@@ -24,11 +17,7 @@ export async function requirePublicAgentRoute(
       next();
       return;
     }
-    const agent = await getAgentDefinition(workspaceId, agentId);
-    if (agent?.kind === 'manager') {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
-      return;
-    }
+    await getAgentDefinition(workspaceId, agentId);
     next();
   } catch (error) {
     next(error);

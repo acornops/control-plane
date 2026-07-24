@@ -91,15 +91,16 @@ const expectedTables = [
   'agent_definitions',
   'agent_skills',
   'agent_skill_files',
-  'agent_triggers',
   'workflow_definitions',
   'workflow_executions',
   'workflow_runs',
+  'workflow_run_events',
+  'workflow_run_approvals',
+  'workflow_run_continuations',
   'workflow_schedules',
   'workflow_reports',
   'automation_template_installations',
   'capability_routing_mappings',
-  'workflow_delegations',
   'target_skills',
   'target_skill_files',
   'webhook_outbox_events',
@@ -114,11 +115,15 @@ const expectedColumns = [
   ['workflow_definitions', 'resource_requirements'],
   ['agent_definitions', 'mcp_installations'],
   ['agent_definitions', 'semantic_capability_ids'],
-  ['agent_definitions', 'system_role'],
-  ['workflow_definitions', 'entry_agent_id'],
   ['workflow_definitions', 'agent_ids'],
+  ['workflow_runs', 'execution_id'],
+  ['workflow_runs', 'executor_role'],
+  ['workflow_runs', 'parent_run_id'],
+  ['workflow_runs', 'delegation_call_id'],
+  ['workflow_runs', 'delegation_capability_id'],
+  ['workflow_runs', 'delegation_required'],
+  ['workflow_runs', 'executor_snapshot'],
   ['workflow_sessions', 'workflow_snapshot'],
-  ['capability_routing_mappings', 'invocation_scopes'],
   ['target_issues', 'lifecycle_version'],
   ['webhook_history', 'attempt_number'],
   ['webhook_history', 'will_retry'],
@@ -134,8 +139,11 @@ const expectedConstraints = [
   'fk_runs_workspace_target',
   'fk_run_tool_approvals_workspace_target',
   'fk_chat_activity_events_workspace_target',
-  'capability_routing_mappings_invocation_scopes_check',
   'workflow_definitions_agent_ids_nonempty',
+  'workflow_runs_executor_role_check',
+  'workflow_runs_executor_shape_check',
+  'workflow_runs_executor_snapshot_check',
+  'workflow_run_approvals_run_id_tool_call_id_key',
   'runs_assistant_references_array',
   'webhook_delivery_jobs_status_check',
   'webhook_delivery_jobs_event_id_fkey'
@@ -175,17 +183,20 @@ async function runSqlChecks(databaseUrl) {
     for (const constraint of expectedConstraints) {
       assert(constraintMap.has(constraint), `${constraint} must exist in the final baseline`);
     }
-    assert(
-      constraintMap.get('capability_routing_mappings_invocation_scopes_check').includes('target_chat'),
-      'the invocation-scope constraint must allow target_chat'
-    );
-
     for (const [table, column] of [
       ['agent_definitions', 'source'],
       ['agent_definitions', 'system_template_version'],
+      ['agent_definitions', 'kind'],
+      ['agent_definitions', 'system_role'],
+      ['agent_definitions', 'delegate_agent_ids'],
       ['workflow_definitions', 'orchestrator_agent_id'],
+      ['workflow_definitions', 'entry_agent_id'],
+      ['workflow_definitions', 'delegation_policy'],
       ['workflow_definitions', 'steps'],
       ['workflow_executions', 'current_step_index'],
+      ['workflow_runs', 'workflow_run_id'],
+      ['workflow_runs', 'agent_snapshot'],
+      ['capability_routing_mappings', 'invocation_scopes'],
       ['sessions', 'selected_agent_id'],
       ['runs', 'agent_id']
     ]) {
@@ -195,6 +206,18 @@ async function runSqlChecks(databaseUrl) {
         [table, column]
       );
       assert.equal(result.rowCount, 0, `${table}.${column} must not survive the greenfield baseline`);
+    }
+
+    for (const table of [
+      'agent_triggers',
+      'agent_activity',
+      'agent_run_events',
+      'workflow_delegations',
+      'workflow_approvals',
+      'automation_run_approvals',
+      'automation_run_continuations'
+    ]) {
+      assert.equal(tableNames.has(table), false, `${table} must not survive the greenfield baseline`);
     }
 
     const functions = await client.query(

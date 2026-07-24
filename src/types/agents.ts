@@ -2,16 +2,8 @@ import type { WorkspacePermissions } from '../auth/authorization.js';
 import type { WorkspaceAuditOperation, TargetType } from './domain.js';
 
 export type AgentStatus = 'active' | 'disabled' | 'draft';
-export type AgentDefinitionKind = 'manager' | 'specialist';
 export type AgentReviewState = 'draft' | 'reviewed';
 export type AgentProviderType = 'internal' | 'external';
-export type AgentSystemRole = 'workflow_coordinator';
-export type AgentTriggerType =
-  | 'manual'
-  | 'workflow'
-  | 'schedule'
-  | 'webhook'
-  | 'target_event';
 export type AutomationReadinessStatus = 'ready' | 'needs_setup' | 'blocked';
 export type RunPermissionMode = 'read_only' | 'ask_before_changes' | 'auto_allowed_changes';
 
@@ -72,21 +64,6 @@ export interface AgentSkillInstallationSnapshot {
   files: Array<{ path: string; content: string; contentDigest: string }>;
 }
 
-export interface AgentTriggerDefinition {
-  id: string;
-  type: AgentTriggerType;
-  enabled: boolean;
-  name?: string;
-  schedule?: {
-    cron: string;
-    timezone: string;
-  };
-  eventFilter?: Record<string, unknown>;
-  principal?: RunPrincipalRef;
-  createdAt: string;
-  updatedAt?: string;
-}
-
 export interface AgentApprovalPolicy {
   mode: 'none' | 'before_write' | 'always';
   writeToolsRequireApproval: boolean;
@@ -103,10 +80,10 @@ export interface AgentTargetScope {
   targetIds?: string[];
 }
 
-export interface AgentActivitySummary {
-  runCount: number;
+export interface AgentWorkflowUsage {
+  workflowRunCount: number;
   lastRunAt?: string;
-  lastStatus?: AgentActivityRecord['status'];
+  lastStatus?: 'queued' | 'dispatching' | 'running' | 'waiting_for_approval' | 'needs_review' | 'completed' | 'failed' | 'cancelled';
 }
 
 export interface AgentCapability {
@@ -127,8 +104,6 @@ export interface AgentDefinition {
   instructions: string;
   status: AgentStatus;
   origin: DefinitionOrigin;
-  kind: AgentDefinitionKind;
-  systemRole?: AgentSystemRole;
   reviewState: AgentReviewState;
   providerType: AgentProviderType;
   version: number;
@@ -148,17 +123,14 @@ export interface AgentDefinition {
   trustPolicy: AgentTrustPolicy;
   permissionMode: RunPermissionMode;
   semanticCapabilityIds: string[];
-  delegateAgentIds: string[];
-  triggers: AgentTriggerDefinition[];
-  activity: AgentActivitySummary;
+  workflowUsage: AgentWorkflowUsage;
   readiness: {
     status: AutomationReadinessStatus;
     reasons: string[];
   };
 }
 
-export type AgentDefinitionResponse = Omit<AgentDefinition, 'delegateAgentIds' | 'systemRole' | 'kind'> & {
-  kind: 'specialist';
+export type AgentDefinitionResponse = AgentDefinition & {
   capabilities: AgentCapability[];
   workflowsUsingAgent: string[];
 };
@@ -173,88 +145,8 @@ export interface AgentVersionSnapshot {
   createdAt: string;
 }
 
-export interface AgentActivityRecord {
-  id: string;
-  agentId: string;
-  workspaceId: string;
-  agentVersion: number;
-  triggerId?: string;
-  clientRequestId?: string;
-  targetId?: string;
-  targetType?: TargetType;
-  idempotencyKey?: string;
-  agentSnapshot?: AgentDefinition;
-  status: 'queued' | 'running' | 'waiting_for_approval' | 'needs_review' | 'completed' | 'failed' | 'cancelled';
-  triggeredBy: {
-    type: 'user' | 'workflow' | 'schedule' | 'webhook' | 'system';
-    userId?: string;
-    workflowId?: string;
-  };
-  inputContext: Record<string, unknown>;
-  compiledScope: CompiledAgentRunScope;
-  toolCalls: Array<{
-    name: string;
-    operation: WorkspaceAuditOperation;
-    status: 'pending' | 'approved' | 'rejected' | 'completed' | 'failed';
-    requestedAt: string;
-  }>;
-  outputArtifacts: Array<{
-    id: string;
-    type: string;
-    title: string;
-  }>;
-  createdAt: string;
-  updatedAt: string;
-  startedAt?: string;
-  endedAt?: string;
-  errorCode?: string;
-  errorMessage?: string;
-  assistantMessage?: { content: string; format?: string };
-  usage?: unknown;
-}
-
 export interface AgentAccessActor {
   userId: string;
   role: string;
   permissions: WorkspacePermissions;
-}
-
-export interface AgentJwtClaimPreview {
-  scope: { type: 'workspace' };
-  agent_id: string;
-  agent_version: number;
-  trigger_id?: string;
-  permissions: {
-    allowed_tools: string[];
-    allowed_tool_refs: Array<{ server_id: string; tool_name: string }>;
-    allowed_tool_operations: Record<string, WorkspaceAuditOperation>;
-    context_grants: string[];
-  };
-}
-
-export interface CompiledAgentRunScope {
-  agentId: string;
-  workspaceId: string;
-  agentVersion: number;
-  triggerId?: string;
-  actor: {
-    userId: string;
-    role: string;
-  };
-  mcpServers: string[];
-  mcpTools: McpToolRef[];
-  targetToolRefs: McpToolRef[];
-  tools: string[];
-  toolOperations: Record<string, WorkspaceAuditOperation>;
-  enabledSkills: string[];
-  contextGrants: string[];
-  approvalGates: string[];
-  permissionMode: RunPermissionMode;
-  semanticCapabilityIds: string[];
-  coordinationFunctions: string[];
-  principal: RunPrincipalRef;
-  targetScope: AgentTargetScope;
-  exactTargets: Array<{ id: string; targetType: TargetType }>;
-  resourceResolutionPhase: 'run_exact';
-  jwtClaims: AgentJwtClaimPreview;
 }

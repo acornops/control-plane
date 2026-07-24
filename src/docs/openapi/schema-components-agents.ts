@@ -23,7 +23,7 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
     },
     AgentDefinition: {
       type: 'object',
-      required: ['id', 'workspaceId', 'name', 'instructions', 'status', 'origin', 'kind', 'reviewState', 'providerType', 'version', 'ownerUserId', 'createdBy'],
+      required: ['id', 'workspaceId', 'name', 'instructions', 'status', 'origin', 'reviewState', 'providerType', 'version', 'ownerUserId', 'createdBy', 'workflowUsage'],
       properties: {
         id: { type: 'string' },
         workspaceId: { type: 'string' },
@@ -32,7 +32,6 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         instructions: { type: 'string' },
         status: { type: 'string', enum: ['active', 'disabled', 'draft'] },
         origin: { type: 'object', required: ['type'], properties: { type: { type: 'string', enum: ['template', 'manual'] }, templateId: { type: 'string' }, templateVersion: { type: 'integer', minimum: 1 } }, additionalProperties: false },
-        kind: { type: 'string', enum: ['specialist'] },
         reviewState: { type: 'string', enum: ['draft', 'reviewed'] },
         providerType: { type: 'string', enum: ['internal', 'external'] },
         version: { type: 'integer' },
@@ -56,8 +55,19 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         semanticCapabilityIds: stringArray,
         capabilities: { type: 'array', items: schemaRef('AgentCapability') },
         workflowsUsingAgent: stringArray,
-        triggers: { type: 'array', items: schemaRef('AgentTrigger') },
-        activity: jsonObject,
+        workflowUsage: {
+          type: 'object',
+          required: ['workflowRunCount'],
+          properties: {
+            workflowRunCount: { type: 'integer', minimum: 0 },
+            lastRunAt: dateTime,
+            lastStatus: {
+              type: 'string',
+              enum: ['queued', 'dispatching', 'running', 'waiting_for_approval', 'needs_review', 'completed', 'failed', 'cancelled']
+            }
+          },
+          additionalProperties: false
+        },
         readiness: {
           type: 'object',
           required: ['status', 'reasons'],
@@ -111,43 +121,6 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: false
     },
-    AgentTrigger: {
-      type: 'object',
-      required: ['id', 'type', 'enabled'],
-      properties: {
-        id: { type: 'string' },
-        type: { type: 'string', enum: ['manual', 'workflow', 'schedule', 'webhook', 'target_event'] },
-        enabled: { type: 'boolean' },
-        name: { type: 'string' },
-        schedule: jsonObject,
-        eventFilter: jsonObject,
-        principal: {
-          type: 'object', required: ['type', 'id'],
-          properties: { type: { type: 'string', enum: ['user', 'service_identity'] }, id: { type: 'string' } },
-          additionalProperties: false
-        },
-        createdAt: dateTime,
-        updatedAt: dateTime
-      },
-      additionalProperties: true
-    },
-    AgentActivityRecord: {
-      type: 'object',
-      required: ['id', 'agentId', 'workspaceId', 'agentVersion', 'status', 'createdAt'],
-      properties: {
-        id: { type: 'string' },
-        agentId: { type: 'string' },
-        workspaceId: { type: 'string' },
-        agentVersion: { type: 'integer' },
-        triggerId: { type: 'string' },
-        status: { type: 'string', enum: ['queued', 'running', 'waiting_for_approval', 'needs_review', 'completed', 'failed', 'cancelled'] },
-        inputContext: jsonObject,
-        compiledScope: jsonObject,
-        createdAt: dateTime,
-        updatedAt: dateTime
-      },
-      additionalProperties: true
-    },
     AgentVersionSnapshot: {
       type: 'object',
       required: ['id', 'agentId', 'workspaceId', 'version', 'snapshot', 'createdBy', 'createdAt'],
@@ -190,20 +163,6 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         executing: { type: 'boolean', enum: [false] },
         deprecated: { type: 'boolean', enum: [true] }
       }
-    },
-    AgentRunAccepted: {
-      type: 'object',
-      required: ['runId', 'activityId', 'source', 'status'],
-      properties: {
-        runId: { type: 'string' }, activityId: { type: 'string' },
-        source: { type: 'string', enum: ['agent'] },
-        status: { type: 'string', enum: ['queued', 'waiting_for_approval'] }
-      }
-    },
-    AgentActivityList: {
-      type: 'object',
-      required: ['items'],
-      properties: { items: { type: 'array', items: schemaRef('AgentActivityRecord') } }
     },
     AutomationTemplateSummary: {
       type: 'object',
@@ -256,24 +215,19 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
     },
     AutomationDiagnostics: {
       type: 'object',
-      required: ['status', 'runtime', 'dispatch', 'runs', 'triggers', 'approvals', 'templates', 'reports', 'checkedAt'],
+      required: ['status', 'runtime', 'dispatch', 'runs', 'schedules', 'approvals', 'templates', 'reports', 'checkedAt'],
       properties: {
         status: { type: 'string', enum: ['ok', 'degraded', 'disabled'] },
         runtime: jsonObject,
         dispatch: jsonObject,
         runs: jsonObject,
-        triggers: jsonObject,
+        schedules: jsonObject,
         approvals: jsonObject,
         templates: jsonObject,
         reports: jsonObject,
         checkedAt: dateTime
       },
       additionalProperties: false
-    },
-    AgentTriggerResponse: {
-      type: 'object',
-      required: ['trigger'],
-      properties: { trigger: schemaRef('AgentTrigger') }
     },
     ServiceIdentity: {
       type: 'object', required: ['workspaceId', 'id', 'name', 'status', 'role', 'createdBy', 'createdAt', 'updatedAt'],

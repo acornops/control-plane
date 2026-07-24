@@ -43,40 +43,6 @@ CREATE TABLE admin_audit_events (
     CONSTRAINT admin_audit_events_outcome_check CHECK ((outcome = ANY (ARRAY['success'::text, 'failure'::text])))
 );
 
-CREATE TABLE agent_activity (
-    workspace_id text NOT NULL,
-    agent_id text NOT NULL,
-    id text NOT NULL,
-    agent_version integer NOT NULL,
-    trigger_id text,
-    status text NOT NULL,
-    triggered_by jsonb NOT NULL,
-    input_context jsonb DEFAULT '{}'::jsonb NOT NULL,
-    compiled_scope jsonb NOT NULL,
-    tool_calls jsonb DEFAULT '[]'::jsonb NOT NULL,
-    output_artifacts jsonb DEFAULT '[]'::jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    client_request_id text,
-    target_id text,
-    target_type text,
-    idempotency_key text,
-    agent_snapshot jsonb,
-    started_at timestamp with time zone,
-    ended_at timestamp with time zone,
-    error_code text,
-    error_message text,
-    assistant_message jsonb,
-    usage jsonb,
-    CONSTRAINT agent_activity_agent_version_check CHECK ((agent_version > 0)),
-    CONSTRAINT agent_activity_compiled_scope_check CHECK ((jsonb_typeof(compiled_scope) = 'object'::text)),
-    CONSTRAINT agent_activity_input_context_check CHECK ((jsonb_typeof(input_context) = 'object'::text)),
-    CONSTRAINT agent_activity_output_artifacts_check CHECK ((jsonb_typeof(output_artifacts) = 'array'::text)),
-    CONSTRAINT agent_activity_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'waiting_for_approval'::text, 'needs_review'::text, 'completed'::text, 'failed'::text, 'cancelled'::text]))),
-    CONSTRAINT agent_activity_tool_calls_check CHECK ((jsonb_typeof(tool_calls) = 'array'::text)),
-    CONSTRAINT agent_activity_triggered_by_check CHECK ((jsonb_typeof(triggered_by) = 'object'::text))
-);
-
 CREATE TABLE agent_definitions (
     workspace_id text NOT NULL,
     id text NOT NULL,
@@ -84,7 +50,6 @@ CREATE TABLE agent_definitions (
     description text,
     instructions text NOT NULL,
     status text NOT NULL,
-    kind text NOT NULL,
     provider_type text NOT NULL,
     version integer NOT NULL,
     owner_user_id text NOT NULL,
@@ -96,9 +61,6 @@ CREATE TABLE agent_definitions (
     target_scope jsonb NOT NULL,
     approval_policy jsonb NOT NULL,
     trust_policy jsonb NOT NULL,
-    run_count integer DEFAULT 0 NOT NULL,
-    last_run_at timestamp with time zone,
-    last_status text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     readiness_status text DEFAULT 'needs_setup'::text NOT NULL,
@@ -106,18 +68,12 @@ CREATE TABLE agent_definitions (
     mcp_tools jsonb DEFAULT '[]'::jsonb NOT NULL,
     mcp_installations jsonb DEFAULT '[]'::jsonb NOT NULL,
     permission_mode text DEFAULT 'ask_before_changes'::text NOT NULL,
-    delegate_agent_ids jsonb DEFAULT '[]'::jsonb NOT NULL,
     skill_installations jsonb DEFAULT '[]'::jsonb NOT NULL,
     origin jsonb DEFAULT '{"type": "manual"}'::jsonb NOT NULL,
     review_state text DEFAULT 'reviewed'::text NOT NULL,
     semantic_capability_ids jsonb DEFAULT '[]'::jsonb NOT NULL,
-    system_role text,
     CONSTRAINT agent_definitions_approval_policy_check CHECK ((jsonb_typeof(approval_policy) = 'object'::text)),
     CONSTRAINT agent_definitions_context_grants_check CHECK ((jsonb_typeof(context_grants) = 'array'::text)),
-    CONSTRAINT agent_definitions_delegate_agent_ids_check CHECK ((jsonb_typeof(delegate_agent_ids) = 'array'::text)),
-    CONSTRAINT agent_definitions_kind_check CHECK ((kind = ANY (ARRAY['manager'::text, 'specialist'::text]))),
-    CONSTRAINT agent_definitions_last_status_check CHECK (((last_status IS NULL) OR (last_status = ANY (ARRAY['queued'::text, 'running'::text, 'waiting_for_approval'::text, 'needs_review'::text, 'completed'::text, 'failed'::text, 'cancelled'::text])))),
-    CONSTRAINT agent_definitions_manager_coordination_only CHECK (((kind <> 'manager'::text) OR ((mcp_servers = '[]'::jsonb) AND (mcp_tools = '[]'::jsonb) AND (mcp_installations = '[]'::jsonb) AND (tools = '[]'::jsonb) AND (skills = '[]'::jsonb) AND (skill_installations = '[]'::jsonb) AND (context_grants = '[]'::jsonb)))),
     CONSTRAINT agent_definitions_mcp_installations_check CHECK ((jsonb_typeof(mcp_installations) = 'array'::text)),
     CONSTRAINT agent_definitions_mcp_servers_check CHECK ((jsonb_typeof(mcp_servers) = 'array'::text)),
     CONSTRAINT agent_definitions_mcp_tools_check CHECK ((jsonb_typeof(mcp_tools) = 'array'::text)),
@@ -125,30 +81,14 @@ CREATE TABLE agent_definitions (
     CONSTRAINT agent_definitions_permission_mode_check CHECK ((permission_mode = ANY (ARRAY['read_only'::text, 'ask_before_changes'::text, 'auto_allowed_changes'::text]))),
     CONSTRAINT agent_definitions_provider_type_check CHECK ((provider_type = ANY (ARRAY['internal'::text, 'external'::text]))),
     CONSTRAINT agent_definitions_review_state_check CHECK ((review_state = ANY (ARRAY['draft'::text, 'reviewed'::text, 'rejected'::text]))),
-    CONSTRAINT agent_definitions_run_count_check CHECK ((run_count >= 0)),
     CONSTRAINT agent_definitions_semantic_capability_ids_check CHECK ((jsonb_typeof(semantic_capability_ids) = 'array'::text)),
     CONSTRAINT agent_definitions_skill_installations_check CHECK ((jsonb_typeof(skill_installations) = 'array'::text)),
     CONSTRAINT agent_definitions_skills_check CHECK ((jsonb_typeof(skills) = 'array'::text)),
     CONSTRAINT agent_definitions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'disabled'::text, 'draft'::text]))),
-    CONSTRAINT agent_definitions_system_role_check CHECK (((system_role IS NULL) OR (system_role = 'workflow_coordinator'::text))),
-    CONSTRAINT agent_definitions_system_role_kind CHECK (((system_role IS NULL) OR (kind = 'manager'::text))),
     CONSTRAINT agent_definitions_target_scope_check CHECK ((jsonb_typeof(target_scope) = 'object'::text)),
     CONSTRAINT agent_definitions_tools_check CHECK ((jsonb_typeof(tools) = 'array'::text)),
     CONSTRAINT agent_definitions_trust_policy_check CHECK ((jsonb_typeof(trust_policy) = 'object'::text)),
     CONSTRAINT agent_definitions_version_check CHECK ((version > 0))
-);
-
-CREATE TABLE agent_run_events (
-    run_id text NOT NULL,
-    workspace_id text NOT NULL,
-    seq integer NOT NULL,
-    schema_version integer DEFAULT 1 NOT NULL,
-    event_type text NOT NULL,
-    occurred_at timestamp with time zone NOT NULL,
-    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT agent_run_events_payload_check CHECK ((jsonb_typeof(payload) = 'object'::text)),
-    CONSTRAINT agent_run_events_seq_check CHECK ((seq > 0))
 );
 
 CREATE TABLE agent_skill_files (
@@ -184,25 +124,6 @@ CREATE TABLE agent_skills (
     CONSTRAINT agent_skills_source_type_check CHECK ((source_type = ANY (ARRAY['manual'::text, 'git'::text, 'template'::text])))
 );
 
-CREATE TABLE agent_triggers (
-    workspace_id text NOT NULL,
-    agent_id text NOT NULL,
-    id text NOT NULL,
-    type text NOT NULL,
-    enabled boolean DEFAULT true NOT NULL,
-    name text,
-    schedule jsonb,
-    event_filter jsonb,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    secret_ciphertext text,
-    next_occurrence_at timestamp with time zone,
-    principal jsonb,
-    CONSTRAINT agent_triggers_event_filter_check CHECK (((event_filter IS NULL) OR (jsonb_typeof(event_filter) = 'object'::text))),
-    CONSTRAINT agent_triggers_principal_check CHECK (((principal IS NULL) OR (jsonb_typeof(principal) = 'object'::text))),
-    CONSTRAINT agent_triggers_schedule_check CHECK (((schedule IS NULL) OR (jsonb_typeof(schedule) = 'object'::text)))
-);
-
 CREATE TABLE agent_versions (
     workspace_id text NOT NULL,
     agent_id text NOT NULL,
@@ -234,15 +155,13 @@ CREATE TABLE automation_dispatch_outbox (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT automation_dispatch_outbox_payload_check CHECK ((jsonb_typeof(payload) = 'object'::text)),
-    CONSTRAINT automation_dispatch_outbox_source_type_check CHECK ((source_type = ANY (ARRAY['agent'::text, 'workflow'::text, 'target'::text]))),
+    CONSTRAINT automation_dispatch_outbox_source_type_check CHECK ((source_type = ANY (ARRAY['workflow'::text, 'target'::text]))),
     CONSTRAINT automation_dispatch_outbox_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'claimed'::text, 'delivered'::text, 'failed'::text, 'needs_review'::text, 'cancelled'::text])))
 );
 
-CREATE TABLE automation_run_approvals (
+CREATE TABLE workflow_run_approvals (
     id text NOT NULL,
     workspace_id text NOT NULL,
-    source_type text NOT NULL,
-    source_id text NOT NULL,
     run_id text NOT NULL,
     target_id text,
     target_type text,
@@ -267,25 +186,22 @@ CREATE TABLE automation_run_approvals (
     server_tool_name text,
     requested_tool_alias text,
     arguments_digest text,
-    CONSTRAINT automation_run_approvals_approval_kind_check CHECK ((approval_kind = ANY (ARRAY['pre_step'::text, 'tool_write'::text]))),
-    CONSTRAINT automation_run_approvals_arguments_check CHECK ((jsonb_typeof(arguments) = 'object'::text)),
-    CONSTRAINT automation_run_approvals_decision_check CHECK (((decision IS NULL) OR (decision = ANY (ARRAY['approved'::text, 'rejected'::text])))),
-    CONSTRAINT automation_run_approvals_exact_tool_binding CHECK (((approval_kind <> 'tool_write'::text) OR ((server_id IS NOT NULL) AND (server_tool_name IS NOT NULL) AND (requested_tool_alias IS NOT NULL) AND (arguments_digest ~ '^[0-9a-f]{64}$'::text)))),
-    CONSTRAINT automation_run_approvals_execution_status_check CHECK ((execution_status = ANY (ARRAY['not_started'::text, 'executing'::text, 'succeeded'::text, 'failed'::text, 'unknown'::text]))),
-    CONSTRAINT automation_run_approvals_source_type_check CHECK ((source_type = ANY (ARRAY['agent'::text, 'workflow'::text]))),
-    CONSTRAINT automation_run_approvals_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'expired'::text])))
+    CONSTRAINT workflow_run_approvals_approval_kind_check CHECK ((approval_kind = ANY (ARRAY['pre_step'::text, 'tool_write'::text]))),
+    CONSTRAINT workflow_run_approvals_arguments_check CHECK ((jsonb_typeof(arguments) = 'object'::text)),
+    CONSTRAINT workflow_run_approvals_decision_check CHECK (((decision IS NULL) OR (decision = ANY (ARRAY['approved'::text, 'rejected'::text])))),
+    CONSTRAINT workflow_run_approvals_exact_tool_binding CHECK (((approval_kind <> 'tool_write'::text) OR ((server_id IS NOT NULL) AND (server_tool_name IS NOT NULL) AND (requested_tool_alias IS NOT NULL) AND (arguments_digest ~ '^[0-9a-f]{64}$'::text)))),
+    CONSTRAINT workflow_run_approvals_execution_status_check CHECK ((execution_status = ANY (ARRAY['not_started'::text, 'executing'::text, 'succeeded'::text, 'failed'::text, 'unknown'::text]))),
+    CONSTRAINT workflow_run_approvals_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'expired'::text])))
 );
 
-CREATE TABLE automation_run_continuations (
-    source_type text NOT NULL,
+CREATE TABLE workflow_run_continuations (
     run_id text NOT NULL,
     approval_id text NOT NULL,
     schema_version integer DEFAULT 1 NOT NULL,
     state jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT automation_run_continuations_source_type_check CHECK ((source_type = ANY (ARRAY['agent'::text, 'workflow'::text]))),
-    CONSTRAINT automation_run_continuations_state_check CHECK ((jsonb_typeof(state) = 'object'::text))
+    CONSTRAINT workflow_run_continuations_state_check CHECK ((jsonb_typeof(state) = 'object'::text))
 );
 
 CREATE TABLE automation_template_installations (
@@ -350,11 +266,9 @@ CREATE TABLE capability_routing_mappings (
     reviewed_by text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    invocation_scopes jsonb DEFAULT '["agent", "workflow"]'::jsonb NOT NULL,
     target_tool_refs jsonb DEFAULT '[]'::jsonb NOT NULL,
     CONSTRAINT capability_routing_mappings_agent_version_check CHECK ((agent_version > 0)),
     CONSTRAINT capability_routing_mappings_context_grants_check CHECK ((jsonb_typeof(context_grants) = 'array'::text)),
-    CONSTRAINT capability_routing_mappings_invocation_scopes_check CHECK (((jsonb_typeof(invocation_scopes) = 'array'::text) AND (invocation_scopes <@ '["agent", "workflow", "target_chat"]'::jsonb))),
     CONSTRAINT capability_routing_mappings_mcp_tools_check CHECK ((jsonb_typeof(mcp_tools) = 'array'::text)),
     CONSTRAINT capability_routing_mappings_native_tool_ids_check CHECK ((jsonb_typeof(native_tool_ids) = 'array'::text)),
     CONSTRAINT capability_routing_mappings_review_state_check CHECK ((review_state = ANY (ARRAY['draft'::text, 'reviewed'::text, 'rejected'::text]))),
@@ -1025,28 +939,6 @@ CREATE TABLE external_webhook_route_connections (
     last_synced_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
-CREATE TABLE workflow_approvals (
-    id text NOT NULL,
-    run_id text NOT NULL,
-    workspace_id text NOT NULL,
-    workflow_id text NOT NULL,
-    workflow_run_id text NOT NULL,
-    workflow_session_id text NOT NULL,
-    tool_call_id text NOT NULL,
-    tool_name text NOT NULL,
-    summary text NOT NULL,
-    arguments jsonb DEFAULT '{}'::jsonb NOT NULL,
-    status text NOT NULL,
-    execution_status text NOT NULL,
-    requested_by text,
-    decided_by text,
-    decision text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    decided_at timestamp with time zone,
-    expires_at timestamp with time zone NOT NULL,
-    CONSTRAINT workflow_approvals_arguments_check CHECK ((jsonb_typeof(arguments) = 'object'::text))
-);
-
 CREATE TABLE workflow_definitions (
     workspace_id text NOT NULL,
     id text NOT NULL,
@@ -1068,14 +960,11 @@ CREATE TABLE workflow_definitions (
     readiness_reasons jsonb DEFAULT '[]'::jsonb NOT NULL,
     origin jsonb DEFAULT '{"type": "manual"}'::jsonb NOT NULL,
     prompt text NOT NULL,
-    entry_agent_id text NOT NULL,
     capability_policy jsonb NOT NULL,
-    delegation_policy jsonb,
     agent_ids jsonb NOT NULL,
     resource_requirements jsonb DEFAULT '[]'::jsonb NOT NULL,
     CONSTRAINT workflow_definitions_agent_ids_check CHECK (((agent_ids IS NULL) OR (jsonb_typeof(agent_ids) = 'array'::text))),
-    CONSTRAINT workflow_definitions_agent_ids_nonempty CHECK (((jsonb_array_length(agent_ids) > 0) OR ((status = 'paused'::text) AND (readiness_status = 'blocked'::text) AND (readiness_reasons ? 'WORKFLOW_AGENT_SELECTION_REQUIRED'::text)))),
-    CONSTRAINT workflow_definitions_delegation_policy_check CHECK (((delegation_policy IS NULL) OR (jsonb_typeof(delegation_policy) = 'object'::text))),
+    CONSTRAINT workflow_definitions_agent_ids_nonempty CHECK ((jsonb_array_length(agent_ids) > 0)),
     CONSTRAINT workflow_definitions_enabled_mcp_servers_check CHECK ((jsonb_typeof(enabled_mcp_servers) = 'array'::text)),
     CONSTRAINT workflow_definitions_enabled_skills_check CHECK ((jsonb_typeof(enabled_skills) = 'array'::text)),
     CONSTRAINT workflow_definitions_inputs_check CHECK ((jsonb_typeof(inputs) = 'array'::text)),
@@ -1085,30 +974,6 @@ CREATE TABLE workflow_definitions (
     CONSTRAINT workflow_definitions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'draft'::text, 'paused'::text]))),
     CONSTRAINT workflow_definitions_tags_check CHECK ((jsonb_typeof(tags) = 'array'::text)),
     CONSTRAINT workflow_definitions_version_check CHECK ((version > 0))
-);
-
-CREATE TABLE workflow_delegations (
-    id text NOT NULL,
-    workspace_id text NOT NULL,
-    parent_execution_id text NOT NULL,
-    child_run_id text,
-    capability_id text NOT NULL,
-    target_binding jsonb NOT NULL,
-    task_prompt text NOT NULL,
-    required boolean DEFAULT true NOT NULL,
-    selected_agent_id text NOT NULL,
-    selected_agent_version integer NOT NULL,
-    compiled_scope jsonb NOT NULL,
-    status text NOT NULL,
-    result jsonb,
-    error_code text,
-    error_message text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT workflow_delegations_compiled_scope_check CHECK ((jsonb_typeof(compiled_scope) = 'object'::text)),
-    CONSTRAINT workflow_delegations_selected_agent_version_check CHECK ((selected_agent_version > 0)),
-    CONSTRAINT workflow_delegations_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'completed'::text, 'failed'::text, 'cancelled'::text]))),
-    CONSTRAINT workflow_delegations_target_binding_check CHECK ((jsonb_typeof(target_binding) = 'object'::text))
 );
 
 CREATE TABLE workflow_executions (
@@ -1177,6 +1042,9 @@ CREATE TABLE workflow_messages (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT workflow_messages_role_check CHECK ((role = ANY (ARRAY['user'::text, 'assistant'::text, 'system'::text])))
 );
+CREATE UNIQUE INDEX workflow_messages_one_assistant_per_run_idx
+  ON workflow_messages(run_id)
+  WHERE role='assistant' AND run_id IS NOT NULL;
 
 CREATE TABLE workflow_reports (
     id text NOT NULL,
@@ -1215,7 +1083,6 @@ CREATE TABLE workflow_run_events (
 
 CREATE TABLE workflow_runs (
     id text NOT NULL,
-    workflow_run_id text NOT NULL,
     workspace_id text NOT NULL,
     workflow_id text NOT NULL,
     workflow_session_id text NOT NULL,
@@ -1234,14 +1101,18 @@ CREATE TABLE workflow_runs (
     error_message text,
     assistant_message jsonb,
     usage jsonb,
-    events jsonb DEFAULT '[]'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     execution_id text NOT NULL,
     attempt_number integer DEFAULT 1 NOT NULL,
+    executor_role text NOT NULL,
+    parent_run_id text,
+    delegation_call_id text,
+    delegation_capability_id text,
+    delegation_required boolean,
     agent_id text,
     agent_version integer,
-    agent_snapshot jsonb,
+    executor_snapshot jsonb NOT NULL,
     target_id text,
     target_type text,
     idempotency_key text NOT NULL,
@@ -1258,7 +1129,37 @@ CREATE TABLE workflow_runs (
     resolved_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT workflow_runs_assistant_message_check CHECK (((assistant_message IS NULL) OR (jsonb_typeof(assistant_message) = 'object'::text))),
     CONSTRAINT workflow_runs_compiled_access_scope_check CHECK ((jsonb_typeof(compiled_access_scope) = 'object'::text)),
-    CONSTRAINT workflow_runs_events_check CHECK ((jsonb_typeof(events) = 'array'::text)),
+    CONSTRAINT workflow_runs_executor_role_check CHECK ((executor_role = ANY (ARRAY['coordinator'::text, 'specialist'::text]))),
+    CONSTRAINT workflow_runs_attempt_number_check CHECK ((attempt_number > 0)),
+    CONSTRAINT workflow_runs_executor_shape_check CHECK (
+      ((executor_role = 'coordinator'::text)
+        AND (parent_run_id IS NULL)
+        AND (agent_id IS NULL)
+        AND (agent_version IS NULL)
+        AND (delegation_call_id IS NULL)
+        AND (delegation_capability_id IS NULL)
+        AND (delegation_required IS NULL))
+      OR
+      ((executor_role = 'specialist'::text)
+        AND (agent_id IS NOT NULL)
+        AND (agent_version IS NOT NULL)
+        AND (
+          ((parent_run_id IS NULL)
+            AND (delegation_call_id IS NULL)
+            AND (delegation_capability_id IS NULL)
+            AND (delegation_required IS NULL))
+          OR
+          ((parent_run_id IS NOT NULL)
+            AND (attempt_number = 1)
+            AND (delegation_call_id IS NOT NULL)
+            AND (delegation_capability_id IS NOT NULL)
+            AND (delegation_required IS NOT NULL))
+        ))
+    ),
+    CONSTRAINT workflow_runs_executor_snapshot_check CHECK (
+      (jsonb_typeof(executor_snapshot) = 'object'::text)
+      AND ((executor_snapshot ->> 'role'::text) = executor_role)
+    ),
     CONSTRAINT workflow_runs_resource_bindings_check CHECK ((jsonb_typeof(resource_bindings) = 'array'::text))
 );
 
@@ -1438,17 +1339,8 @@ ALTER TABLE ONLY account_audit_events
 ALTER TABLE ONLY admin_audit_events
     ADD CONSTRAINT admin_audit_events_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY agent_activity
-    ADD CONSTRAINT agent_activity_pkey PRIMARY KEY (workspace_id, agent_id, id);
-
-ALTER TABLE ONLY agent_activity
-    ADD CONSTRAINT agent_activity_workspace_run_unique UNIQUE (workspace_id, id);
-
 ALTER TABLE ONLY agent_definitions
     ADD CONSTRAINT agent_definitions_pkey PRIMARY KEY (workspace_id, id);
-
-ALTER TABLE ONLY agent_run_events
-    ADD CONSTRAINT agent_run_events_pkey PRIMARY KEY (run_id, seq);
 
 ALTER TABLE ONLY agent_skill_files
     ADD CONSTRAINT agent_skill_files_pkey PRIMARY KEY (workspace_id, agent_id, skill_id, path);
@@ -1458,9 +1350,6 @@ ALTER TABLE ONLY agent_skills
 
 ALTER TABLE ONLY agent_skills
     ADD CONSTRAINT agent_skills_workspace_id_agent_id_name_key UNIQUE (workspace_id, agent_id, name);
-
-ALTER TABLE ONLY agent_triggers
-    ADD CONSTRAINT agent_triggers_pkey PRIMARY KEY (workspace_id, agent_id, id);
 
 ALTER TABLE ONLY agent_versions
     ADD CONSTRAINT agent_versions_pkey PRIMARY KEY (workspace_id, agent_id, id);
@@ -1474,14 +1363,14 @@ ALTER TABLE ONLY automation_dispatch_outbox
 ALTER TABLE ONLY automation_dispatch_outbox
     ADD CONSTRAINT automation_dispatch_outbox_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY automation_run_approvals
-    ADD CONSTRAINT automation_run_approvals_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY workflow_run_approvals
+    ADD CONSTRAINT workflow_run_approvals_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY automation_run_approvals
-    ADD CONSTRAINT automation_run_approvals_source_type_run_id_tool_call_id_key UNIQUE (source_type, run_id, tool_call_id);
+ALTER TABLE ONLY workflow_run_approvals
+    ADD CONSTRAINT workflow_run_approvals_run_id_tool_call_id_key UNIQUE (run_id, tool_call_id);
 
-ALTER TABLE ONLY automation_run_continuations
-    ADD CONSTRAINT automation_run_continuations_pkey PRIMARY KEY (source_type, run_id);
+ALTER TABLE ONLY workflow_run_continuations
+    ADD CONSTRAINT workflow_run_continuations_pkey PRIMARY KEY (run_id);
 
 ALTER TABLE ONLY automation_template_installations
     ADD CONSTRAINT automation_template_installations_pkey PRIMARY KEY (workspace_id, template_id);
@@ -1669,14 +1558,8 @@ ALTER TABLE ONLY webhook_delivery_jobs
 ALTER TABLE ONLY webhook_subscriptions
     ADD CONSTRAINT webhook_subscriptions_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY workflow_approvals
-    ADD CONSTRAINT workflow_approvals_pkey PRIMARY KEY (id);
-
 ALTER TABLE ONLY workflow_definitions
     ADD CONSTRAINT workflow_definitions_pkey PRIMARY KEY (workspace_id, id);
-
-ALTER TABLE ONLY workflow_delegations
-    ADD CONSTRAINT workflow_delegations_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY workflow_executions
     ADD CONSTRAINT workflow_executions_pkey PRIMARY KEY (id);
@@ -1701,6 +1584,9 @@ ALTER TABLE ONLY workflow_run_events
 
 ALTER TABLE ONLY workflow_runs
     ADD CONSTRAINT workflow_runs_idempotency_key_unique UNIQUE (idempotency_key);
+
+ALTER TABLE ONLY workflow_runs
+    ADD CONSTRAINT workflow_runs_id_execution_unique UNIQUE (id, execution_id);
 
 ALTER TABLE ONLY workflow_runs
     ADD CONSTRAINT workflow_runs_pkey PRIMARY KEY (id);
@@ -1749,25 +1635,11 @@ CREATE INDEX admin_audit_events_token_idx ON admin_audit_events USING btree (adm
 
 CREATE INDEX admin_audit_events_workspace_idx ON admin_audit_events USING btree (workspace_id, occurred_at DESC, id DESC);
 
-CREATE INDEX agent_activity_agent_created_idx ON agent_activity USING btree (workspace_id, agent_id, created_at DESC, id DESC);
-
-CREATE UNIQUE INDEX agent_activity_idempotency_unique ON agent_activity USING btree (idempotency_key) WHERE (idempotency_key IS NOT NULL);
-
-CREATE UNIQUE INDEX agent_activity_workspace_client_request_unique ON agent_activity USING btree (workspace_id, client_request_id) WHERE (client_request_id IS NOT NULL);
-
 CREATE INDEX agent_definitions_workspace_owner_idx ON agent_definitions USING btree (workspace_id, owner_user_id, updated_at DESC);
 
 CREATE INDEX agent_definitions_workspace_status_idx ON agent_definitions USING btree (workspace_id, status, updated_at DESC, id);
 
-CREATE UNIQUE INDEX agent_definitions_workspace_system_role_unique ON agent_definitions USING btree (workspace_id, system_role) WHERE (system_role IS NOT NULL);
-
-CREATE INDEX agent_run_events_created_idx ON agent_run_events USING btree (run_id, created_at, seq);
-
 CREATE INDEX agent_skills_agent_enabled_idx ON agent_skills USING btree (workspace_id, agent_id, enabled, name);
-
-CREATE UNIQUE INDEX agent_triggers_global_id_unique ON agent_triggers USING btree (id);
-
-CREATE INDEX agent_triggers_schedule_claim_idx ON agent_triggers USING btree (next_occurrence_at, workspace_id, agent_id, id) WHERE ((enabled = true) AND (type = 'schedule'::text));
 
 CREATE INDEX agent_versions_agent_created_idx ON agent_versions USING btree (workspace_id, agent_id, created_at DESC, id DESC);
 
@@ -1775,13 +1647,13 @@ CREATE INDEX automation_dispatch_outbox_claim_idx ON automation_dispatch_outbox 
 
 CREATE INDEX automation_dispatch_outbox_depth_idx ON automation_dispatch_outbox USING btree (workspace_id, status, created_at);
 
-CREATE INDEX automation_run_approvals_expiry_idx ON automation_run_approvals USING btree (expires_at, id) WHERE (status = 'pending'::text);
+CREATE INDEX workflow_run_approvals_expiry_idx ON workflow_run_approvals USING btree (expires_at, id) WHERE (status = 'pending'::text);
 
-CREATE INDEX automation_run_approvals_run_idx ON automation_run_approvals USING btree (source_type, run_id, created_at, id);
+CREATE INDEX workflow_run_approvals_run_idx ON workflow_run_approvals USING btree (run_id, created_at, id);
 
-CREATE INDEX automation_run_approvals_workspace_status_idx ON automation_run_approvals USING btree (workspace_id, status, created_at DESC, id DESC);
+CREATE INDEX workflow_run_approvals_workspace_status_idx ON workflow_run_approvals USING btree (workspace_id, status, created_at DESC, id DESC);
 
-CREATE INDEX automation_run_continuations_approval_idx ON automation_run_continuations USING btree (approval_id);
+CREATE INDEX workflow_run_continuations_approval_idx ON workflow_run_continuations USING btree (approval_id);
 
 CREATE INDEX automation_trigger_deliveries_claim_idx ON automation_trigger_deliveries USING btree (next_attempt_at, created_at, id) WHERE (status = ANY (ARRAY['pending'::text, 'failed'::text]));
 
@@ -1977,13 +1849,7 @@ CREATE INDEX service_identities_workspace_status_idx ON service_identities USING
 
 CREATE UNIQUE INDEX uq_mcp_secret_cleanup_jobs_scope ON mcp_secret_cleanup_jobs USING btree (workspace_id, COALESCE(user_id, ''::text), reason);
 
-CREATE INDEX workflow_approvals_expiry_idx ON workflow_approvals USING btree (expires_at, id) WHERE (status = 'pending'::text);
-
-CREATE INDEX workflow_approvals_workspace_status_idx ON workflow_approvals USING btree (workspace_id, status, created_at DESC, id DESC);
-
 CREATE INDEX workflow_definitions_workspace_status_idx ON workflow_definitions USING btree (workspace_id, status, updated_at DESC, id);
-
-CREATE INDEX workflow_delegations_parent_idx ON workflow_delegations USING btree (parent_execution_id, status, created_at, id);
 
 CREATE INDEX workflow_executions_resumable_idx ON workflow_executions USING btree (updated_at, id) WHERE (status = ANY (ARRAY['queued'::text, 'running'::text, 'needs_review'::text, 'failed'::text]));
 
@@ -2011,6 +1877,14 @@ CREATE INDEX workflow_runs_session_requested_idx ON workflow_runs USING btree (w
 
 CREATE INDEX workflow_runs_workspace_status_idx ON workflow_runs USING btree (workspace_id, status, requested_at DESC, id DESC);
 
+CREATE UNIQUE INDEX workflow_runs_root_attempt_unique ON workflow_runs USING btree (execution_id, attempt_number) WHERE (parent_run_id IS NULL);
+
+CREATE UNIQUE INDEX workflow_runs_delegation_call_unique ON workflow_runs USING btree (parent_run_id, delegation_call_id) WHERE (parent_run_id IS NOT NULL);
+
+CREATE INDEX workflow_runs_parent_status_idx ON workflow_runs USING btree (parent_run_id, status, requested_at, id) WHERE (parent_run_id IS NOT NULL);
+
+CREATE INDEX workflow_runs_agent_usage_idx ON workflow_runs USING btree (workspace_id, agent_id, requested_at DESC, id DESC) WHERE ((executor_role = 'specialist'::text) AND (agent_id IS NOT NULL));
+
 CREATE INDEX workflow_schedules_due_idx ON workflow_schedules USING btree (next_run_at, id) WHERE (status = 'enabled'::text);
 
 CREATE INDEX workflow_schedules_workspace_idx ON workflow_schedules USING btree (workspace_id, next_run_at, id);
@@ -2027,17 +1901,8 @@ ALTER TABLE ONLY account_audit_events
 ALTER TABLE ONLY account_audit_events
     ADD CONSTRAINT account_audit_events_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
 
-ALTER TABLE ONLY agent_activity
-    ADD CONSTRAINT agent_activity_workspace_id_agent_id_fkey FOREIGN KEY (workspace_id, agent_id) REFERENCES agent_definitions(workspace_id, id) ON DELETE CASCADE;
-
 ALTER TABLE ONLY agent_definitions
     ADD CONSTRAINT agent_definitions_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY agent_run_events
-    ADD CONSTRAINT agent_run_events_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY agent_run_events
-    ADD CONSTRAINT agent_run_events_workspace_id_run_id_fkey FOREIGN KEY (workspace_id, run_id) REFERENCES agent_activity(workspace_id, id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY agent_skill_files
     ADD CONSTRAINT agent_skill_files_workspace_id_agent_id_skill_id_fkey FOREIGN KEY (workspace_id, agent_id, skill_id) REFERENCES agent_skills(workspace_id, agent_id, id) ON DELETE CASCADE;
@@ -2045,20 +1910,23 @@ ALTER TABLE ONLY agent_skill_files
 ALTER TABLE ONLY agent_skills
     ADD CONSTRAINT agent_skills_workspace_id_agent_id_fkey FOREIGN KEY (workspace_id, agent_id) REFERENCES agent_definitions(workspace_id, id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY agent_triggers
-    ADD CONSTRAINT agent_triggers_workspace_id_agent_id_fkey FOREIGN KEY (workspace_id, agent_id) REFERENCES agent_definitions(workspace_id, id) ON DELETE CASCADE;
-
 ALTER TABLE ONLY agent_versions
     ADD CONSTRAINT agent_versions_workspace_id_agent_id_fkey FOREIGN KEY (workspace_id, agent_id) REFERENCES agent_definitions(workspace_id, id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY automation_dispatch_outbox
     ADD CONSTRAINT automation_dispatch_outbox_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY automation_run_approvals
-    ADD CONSTRAINT automation_run_approvals_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+ALTER TABLE ONLY workflow_run_approvals
+    ADD CONSTRAINT workflow_run_approvals_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY automation_run_continuations
-    ADD CONSTRAINT automation_run_continuations_approval_id_fkey FOREIGN KEY (approval_id) REFERENCES automation_run_approvals(id) ON DELETE CASCADE;
+ALTER TABLE ONLY workflow_run_approvals
+    ADD CONSTRAINT workflow_run_approvals_run_id_fkey FOREIGN KEY (run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workflow_run_continuations
+    ADD CONSTRAINT workflow_run_continuations_run_id_fkey FOREIGN KEY (run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workflow_run_continuations
+    ADD CONSTRAINT workflow_run_continuations_approval_id_fkey FOREIGN KEY (approval_id) REFERENCES workflow_run_approvals(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY automation_template_installations
     ADD CONSTRAINT automation_template_installations_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
@@ -2281,29 +2149,8 @@ ALTER TABLE ONLY webhook_subscriptions
 ALTER TABLE ONLY webhook_subscriptions
     ADD CONSTRAINT webhook_subscriptions_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY workflow_approvals
-    ADD CONSTRAINT workflow_approvals_run_id_fkey FOREIGN KEY (run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY workflow_approvals
-    ADD CONSTRAINT workflow_approvals_workflow_session_id_fkey FOREIGN KEY (workflow_session_id) REFERENCES workflow_sessions(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY workflow_approvals
-    ADD CONSTRAINT workflow_approvals_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY workflow_definitions
-    ADD CONSTRAINT workflow_definitions_entry_agent_fk FOREIGN KEY (workspace_id, entry_agent_id) REFERENCES agent_definitions(workspace_id, id) ON DELETE RESTRICT;
-
 ALTER TABLE ONLY workflow_definitions
     ADD CONSTRAINT workflow_definitions_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY workflow_delegations
-    ADD CONSTRAINT workflow_delegations_parent_execution_id_fkey FOREIGN KEY (parent_execution_id) REFERENCES workflow_executions(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY workflow_delegations
-    ADD CONSTRAINT workflow_delegations_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY workflow_delegations
-    ADD CONSTRAINT workflow_delegations_workspace_id_selected_agent_id_fkey FOREIGN KEY (workspace_id, selected_agent_id) REFERENCES agent_definitions(workspace_id, id) ON DELETE RESTRICT;
 
 ALTER TABLE ONLY workflow_executions
     ADD CONSTRAINT workflow_executions_message_id_fkey FOREIGN KEY (message_id) REFERENCES workflow_messages(id) ON DELETE RESTRICT;
@@ -2355,6 +2202,9 @@ ALTER TABLE ONLY workflow_run_events
 
 ALTER TABLE ONLY workflow_runs
     ADD CONSTRAINT workflow_runs_execution_fk FOREIGN KEY (execution_id) REFERENCES workflow_executions(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workflow_runs
+    ADD CONSTRAINT workflow_runs_parent_execution_fkey FOREIGN KEY (parent_run_id, execution_id) REFERENCES workflow_runs(id, execution_id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY workflow_runs
     ADD CONSTRAINT workflow_runs_message_id_fkey FOREIGN KEY (message_id) REFERENCES workflow_messages(id) ON DELETE RESTRICT;

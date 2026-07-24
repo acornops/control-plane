@@ -1,7 +1,6 @@
 import type { Response } from 'express';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { getWorkflowExecutionByClientRequestId, type WorkflowSessionRecord } from '../store/repository-workflows.js';
-import { publicCompiledWorkflowScope } from './workflow-public.js';
 
 export function isWorkflowClientRequestIdConflict(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
@@ -31,10 +30,8 @@ export async function respondToWorkflowMessageRetry(
   res.status(202).json({
     message_id: existing.message.id,
     run_id: existing.run.id,
-    workflow_run_id: existing.run.workflowRunId,
     executionId: existing.execution.id,
-    status: existing.run.status,
-    compiledAccessScope: publicCompiledWorkflowScope(existing.compiledAccessScope)
+    status: existing.run.status
   });
   return true;
 }

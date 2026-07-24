@@ -40,8 +40,8 @@ The control plane owns the platform API boundary. Keep this README as a short in
   grants or revokes them on specialists without `manage_mcp`. Their reviewed
   mappings authorize workflows, while invocation scope is declared per tool.
   `reports.pdf.generate` supports workflows and target chat; it executes in the
-  control plane without crossing a target adapter. Direct Agent runs reject
-  workspace-native tools. PDF artifact creation is read-only-run safe but
+  control plane without crossing a target adapter. Delegated specialist child
+  runs reject workspace-native tools. PDF artifact creation is read-only-run safe but
   write-audited. Execution snapshots expose workspace-native functions through
   provider-safe aliases in `platform_functions`; `native_tools` and gateway JWT
   `allowed_native_tools` remain reserved for provider-native capabilities such
@@ -55,9 +55,10 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - MCP registry management requires `manage_catalog_sources`. Source lists expose whether workspace-managed registries are permitted and the currently supported direct route. Deployment-managed registries are configuration-read-only but may be synchronized; workspace-managed registries may be added, probed, edited, enabled or disabled, synchronized, and deleted.
 - Source update authentication is write-only and tri-state: omission preserves the current credential, `none` removes it, and bearer/custom-header replacement requires a new credential. Source lifecycle audit events exclude credentials, headers, and URL query values. Disabling or deleting a registry never removes an installed MCP server or its pinned provenance.
 - Workflow mutations require a unique, non-empty `agentIds` specialist set. One
-  selected Agent runs directly; two or more are AcornOps-coordinated. Responses
-  derive internal routing and `executionMode`; the strict request schema rejects
-  all unknown fields with the standard invalid-request response.
+  selected Agent produces a specialist root run; two or more produce an
+  AcornOps-coordinated root with delegated specialist children. Responses derive
+  `executionMode`; the strict request schema rejects all unknown fields with the
+  standard invalid-request response.
 - Manual workflow policy defaults are server-owned. The console may send the
   selected `restrictionMode` and semantic subset, while omitted mode, context,
   permissions, and approvals default to read-only workspace metadata access.
@@ -84,8 +85,8 @@ The control plane owns the platform API boundary. Keep this README as a short in
   intersection used by execution bootstrap. Preview is read-only and bounded:
   it creates no session, execution, run, approval, or audit record and exposes
   no credentials, URLs, headers, schemas, arguments, private connection state,
-  or internal coordinator identity. Dispatch always recompiles and its public
-  `compiledAccessScope` is authoritative.
+  or internal coordinator identity. Dispatch always recompiles its authoritative
+  scope internally; compiled scopes are never returned by the public API.
 - `credentialMode` is explicit installation metadata with values `none`,
   `workspace`, or `individual`. Workspace mode resolves one installation-owned
   service or bot credential; individual mode resolves only the current user's
@@ -98,7 +99,7 @@ The control plane owns the platform API boundary. Keep this README as a short in
   Service-identity runs may use workspace credentials and fail with
   `MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED` when individual ownership requires a
   human principal.
-- Target-message, direct-Agent-run, and workflow-message `409` responses expose
+- Target-message and workflow-message `409` responses expose
   `details.readinessFailures[].{serverId,toolName,code,action?}`. The structured
   entries are allow-listed and never contain credentials, headers, URLs, user
   IDs, or connection snapshots. Connection missing, connection error, and
@@ -112,10 +113,10 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Workspace creation atomically commits the current starter automation bundle.
   A completed installation remains a tombstone, so deleting starter definitions
   does not recreate them; startup performs no pre-release repair or upgrade.
-- Public Agent APIs contain specialists only. Manager creation or configuration
-  fails with `MANAGER_SYSTEM_OWNED`, and direct access to system-owned
-  coordination records returns 404. Public Workflow, compiled-scope, audit,
-  search, and trace DTOs never expose an internal coordinator ID.
+- Every public Agent is a specialist capability profile. Coordinators are
+  versioned, code-owned Workflow executors with no Agent record or public ID.
+  Public Workflow, compiled-scope, audit, search, and trace DTOs never expose
+  coordinator profile instructions.
 - Coordinated execution detail exposes only a bounded `coordination` summary:
   child capability, target, selected specialist, status, and sanitized failure.
   It excludes prompts, compiled scopes, results, credentials, tool arguments,
@@ -125,7 +126,11 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - The automation-template response exposes install mode, installation status, setup steps, blocker codes, and the installed workflow ID. Workspace provisioning materializes only automatic templates and their required Agents. Opt-in definitions and their exclusive Agents are created only by the idempotent install action, remain paused, and report `needs_setup` until live prerequisites pass.
 - AcornOps does not provision a repository-review Agent or workflow and does not maintain provider-specific source-control profiles. A workspace manager creates a specialist Agent, installs and reviews a compatible MCP server through the generic Agent capability routes, then creates a workflow that selects that Agent. When the Agent has no platform semantic capability IDs, run compilation snapshots those reviewed exact attachments directly; platform semantic capabilities still require reviewed routing mappings. Credentialed installations use the same secret-free `mcpRequirements` and mode-aware connection flow as every other user-created Agent attachment.
 - Workflow capability previews identify credential recovery by generic MCP server ID, ownership mode, auth type, owning Agent, connection state, and action. They never expose provider-profile identities, endpoint URLs, header configuration, credential values, or individual connection inventories. The console writes a replacement credential through the installation connection route and then recomputes preview readiness.
-- Authorized users may duplicate an effective definition into a manual draft without copying runs, sessions, schedules, triggers, activity, or capability installations.
+- Authorized users may duplicate an effective definition into a manual draft without copying execution history, sessions, schedules, activity, or capability installations.
+- Agents contribute capabilities only to direct or delegated specialist
+  Workflow runs.
+  Public standalone Agent runs, Agent activity endpoints, Agent schedules,
+  Agent target-event triggers, and Agent inbound webhooks are not supported.
 - Workflow schedules always run as their authenticated creator. Schedule create
   and update reject service identities with
   `WORKFLOW_SCHEDULE_USER_PRINCIPAL_REQUIRED`; migration pauses schedules whose
@@ -171,7 +176,7 @@ The control plane owns the platform API boundary. Keep this README as a short in
 
 - Password signup creates the user account only; it does not create or attach a workspace.
 - Workspace membership, audit-log access, target mutation, MCP mutation, tool mutation, Target Insights mutation, and AI settings mutation are permission-gated at the control-plane boundary.
-- External integration bot calls use an external integration client token plus `x-acornops-external-user-id`; the resolved `external_integration` credential is default-deny and can receive only the registered client's `allowedCapabilities` intersected with the linked user's workspace role and user-approved workspace grant. The default client ceiling is `read_workspace_data`, `create_sessions`, and `create_read_only_runs`; deployments may explicitly add `create_read_write_runs` for integrations allowed to request write-capable troubleshooting runs and active Workflows, including approval-gated Workflows. Any integration with workspace read access may inspect sanitized execution state and aggregate execution SSE. Only the exact originating integration link/client may continue a Workflow session, decide its pre-step or runtime write approvals, or retrieve its reports. Browser-created, other-link/client, standalone Agent, scheduled, and system-triggered approvals remain denied. Implementor-facing endpoint details live in [external-integration-bot-endpoints.md](external-integration-bot-endpoints.md).
+- External integration bot calls use an external integration client token plus `x-acornops-external-user-id`; the resolved `external_integration` credential is default-deny and can receive only the registered client's `allowedCapabilities` intersected with the linked user's workspace role and user-approved workspace grant. The default client ceiling is `read_workspace_data`, `create_sessions`, and `create_read_only_runs`; deployments may explicitly add `create_read_write_runs` for integrations allowed to request write-capable troubleshooting runs and active Workflows, including approval-gated Workflows. Any integration with workspace read access may inspect sanitized execution state and aggregate execution SSE. Only the exact originating integration link/client may continue a Workflow session, decide its pre-step or runtime write approvals, or retrieve its reports. Browser-created, other-link/client, delegated specialist, scheduled, and system-triggered approvals remain denied. Implementor-facing endpoint details live in [external-integration-bot-endpoints.md](external-integration-bot-endpoints.md).
 - External webhook route connect/status calls are the narrow exception for outgoing webhook setup. `POST /api/v1/external-integrations/webhook-routes/connect` returns only subscriptions created by the linked AcornOps user for the submitted delivery URL where the user still has `permissions.manage_webhooks`; each successful connect rotates the matching signing secrets and returns them once. `GET /api/v1/external-integrations/webhook-routes/status` refreshes live state and must never return signing secrets.
 - Webhook events use a Postgres outbox with one leased job per matching
   subscription. Retries retain the same event ID and payload; delivery history

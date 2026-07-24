@@ -1,9 +1,10 @@
 import type { WorkspaceCapability, WorkspacePermissions } from '../auth/authorization.js';
 import type { WorkspaceAuditOperation } from './domain.js';
-import type { AutomationReadinessStatus, McpToolRef, RunPermissionMode, RunPrincipalRef } from './agents.js';
+import type { AgentDefinition, AutomationReadinessStatus, McpToolRef, RunPermissionMode, RunPrincipalRef } from './agents.js';
 import type { DefinitionOrigin } from './agents.js';
 import type { TargetType } from './domain.js';
 import type { PromptResourceBinding, PromptResourceRequirement } from './prompt-resources.js';
+import type { CapabilityRoutingMapping } from './capability-routing.js';
 
 export type WorkflowStatus = 'active' | 'draft' | 'paused';
 export type WorkflowExecutionMode = 'direct' | 'coordinated';
@@ -44,12 +45,6 @@ export interface WorkflowCapabilityPolicy {
   approvalRequirements: string[];
 }
 
-export interface WorkflowDelegationPolicy {
-  specialistAgentIds?: string[];
-  maxConcurrentChildren: number;
-  maxChildren: number;
-}
-
 export interface WorkflowDefinitionForAccess {
   id: string;
   workspaceId: string;
@@ -61,10 +56,8 @@ export interface WorkflowDefinitionForAccess {
   prompt: string;
   agentIds: string[];
   executionMode: WorkflowExecutionMode;
-  entryAgentId: string;
   resourceRequirements: PromptResourceRequirement[];
   capabilityPolicy: WorkflowCapabilityPolicy;
-  delegationPolicy?: WorkflowDelegationPolicy;
   tags?: string[];
   inputs?: WorkflowInputDefinition[];
   requiredPermissions: WorkspaceCapability[];
@@ -78,10 +71,7 @@ export interface WorkflowDefinitionForAccess {
   };
 }
 
-export type PublicWorkflowDefinition = Omit<
-  WorkflowDefinitionForAccess,
-  'entryAgentId' | 'delegationPolicy'
->;
+export type PublicWorkflowDefinition = WorkflowDefinitionForAccess;
 
 export interface WorkflowOption {
   value: string;
@@ -143,6 +133,7 @@ export interface WorkflowJwtClaimPreview {
   scope: { type: 'workspace' };
   workflow_id: string;
   workflow_version: number;
+  executor_role: WorkflowExecutorRole;
   agent_id?: string;
   agent_version?: number;
   trigger_id?: string;
@@ -161,6 +152,19 @@ export interface WorkflowJwtClaimPreview {
     binding_digest?: string;
   };
 }
+
+export type WorkflowExecutorRole = 'coordinator' | 'specialist';
+
+export type WorkflowExecutor =
+  | {
+      role: 'coordinator';
+      profileVersion: number;
+    }
+  | {
+      role: 'specialist';
+      agentId: string;
+      agentVersion: number;
+    };
 
 export interface CompiledWorkflowAccessScope {
   workflowId: string;
@@ -185,7 +189,10 @@ export interface CompiledWorkflowAccessScope {
   approvalGates: string[];
   permissionMode: RunPermissionMode;
   principal: RunPrincipalRef;
-  entryAgent: { id: string; version: number; kind: 'manager' | 'specialist' };
+  executor: WorkflowExecutor;
+  selectedAgents: Array<{ id: string; version: number }>;
+  selectedAgentSnapshots: AgentDefinition[];
+  routingMappingSnapshots: CapabilityRoutingMapping[];
   resourceBindings: PromptResourceBinding[];
   promptDigest?: string;
   bindingDigest?: string;
@@ -224,6 +231,7 @@ export interface WorkflowCapabilityToolPreview {
   description?: string;
   access: 'read' | 'write';
   source: 'target' | 'mcp' | 'builtin';
+  serverId?: string;
 }
 
 export interface WorkflowCapabilityAttachmentPreview {
@@ -265,9 +273,6 @@ export interface WorkflowCapabilitiesPreview {
   reasonCodes: WorkflowCapabilityPreviewReasonCode[];
   targetCandidates: WorkflowTargetCapabilityCandidate[];
   selectedTarget?: WorkflowTargetCapabilityCandidate;
-  compiledAccessScope?: Omit<CompiledWorkflowAccessScope, 'entryAgent' | 'jwtClaims'> & {
-    executionMode: WorkflowExecutionMode;
-  };
   tools: {
     read: WorkflowCapabilityToolPreview[];
     write: WorkflowCapabilityToolPreview[];
@@ -351,7 +356,7 @@ export interface WorkflowSchedulePatch {
 export interface WorkflowApprovalInboxRow {
   approvalId: string;
   runId: string;
-  source: 'target_tool' | 'workflow_gate' | 'agent_gate' | 'agent_tool' | 'workflow_tool';
+  source: 'target_tool' | 'workflow_gate' | 'workflow_tool';
   workflowId?: string;
   targetId?: string;
   targetType?: string;

@@ -18,9 +18,6 @@ export async function validateAgentCatalogDestination(input: {
   const { agent, targetConstraints } = input;
   const permittedTargetTypes = agent.targetScope.targetTypes ?? [];
   const permittedTargetIds = agent.targetScope.targetIds ?? [];
-  if (agent.kind === 'manager') {
-    throw new CatalogDestinationValidationError('Managers can use coordination functions only.');
-  }
   if (permittedTargetTypes.length
     && targetConstraints.targetTypes.some((type) => !permittedTargetTypes.includes(type))) {
     throw new CatalogDestinationValidationError('MCP target type constraints must stay within the Agent target scope.');

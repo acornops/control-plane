@@ -75,13 +75,11 @@ export async function decideAutomationApprovalRequest(
   await applyAutomationApprovalOutcome(decided);
   incrementAutomationApproval(decided.approvalKind, decided.status);
   const auditActor = runAuditActor(req);
-  const workflowRun = decided.sourceType === 'workflow'
-    ? await getWorkflowRun(decided.runId)
-    : null;
+  const workflowRun = await getWorkflowRun(decided.runId);
   await recordWorkspaceAuditEvent({
     workspaceId: decided.workspaceId,
     category: 'approval',
-    eventType: `${decided.sourceType}.${decided.approvalKind}_approval_decided.v1`,
+    eventType: `workflow.${decided.approvalKind}_approval_decided.v1`,
     operation: 'write',
     ...auditActor,
     objectType: 'automation_approval',
@@ -89,8 +87,6 @@ export async function decideAutomationApprovalRequest(
     objectName: decided.toolName,
     summary: 'Automation approval decided',
     metadata: {
-      source: decided.sourceType,
-      sourceId: decided.sourceId,
       runId: decided.runId,
       approvalKind: decided.approvalKind,
       decision: decided.decision || decided.status,

@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { logger } from '../logger.js';
 import { incrementWorkflowSchedulerEvent } from '../metrics.js';
 import { isModelAllowedForProvider } from './llm-policy.js';
-import { compileWorkflowAccessScope, WorkflowAccessDeniedError } from './workflow-access.js';
+import {
+  compileWorkflowAccessScope,
+  compileWorkflowSessionCeiling,
+  WorkflowAccessDeniedError
+} from './workflow-access.js';
 import { computeWorkflowReadiness } from './automation-readiness.js';
 import { resolveWorkspaceLlmSettings } from './workspace-ai-resolution.js';
 import { recordWorkspaceAuditEvent } from './workspace-audit.js';
@@ -61,7 +65,8 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
   }
 
   let compiledAccessScope;
-  let entryAgent: NonNullable<Awaited<ReturnType<typeof getAgentDefinition>>>;
+  let sessionAccessScope;
+  let specialistAgent: NonNullable<Awaited<ReturnType<typeof getAgentDefinition>>> | undefined;
   const runtimeSubject = await resolveRunPrincipal(schedule.workspaceId, schedule.principal);
   if (!runtimeSubject) {
     await recordWorkflowScheduleDispatch(schedule.id, 'auto_paused', { now, error: 'Delegated principal is no longer authorized.' });
@@ -105,25 +110,28 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
         readiness.reasons.slice(0, 4).join(' ') || 'Selected workflow Agents are not ready.'
       );
     }
-    const resolvedEntryAgent = await getAgentDefinition(schedule.workspaceId, workflow.entryAgentId);
-    if (!resolvedEntryAgent) {
-      throw new WorkflowAccessDeniedError(
-        'WORKFLOW_AGENT_SCOPE_DENIED',
-        'Scheduled workflow coordination infrastructure is unavailable.'
-      );
-    }
-    entryAgent = resolvedEntryAgent;
     const selectedAgents = (await Promise.all(workflow.agentIds.map((agentId) => (
       getAgentDefinition(schedule.workspaceId, agentId)
     )))).filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
+    specialistAgent = workflow.executionMode === 'direct' ? selectedAgents[0] : undefined;
+    const mappings = await listCapabilityRoutingMappings(schedule.workspaceId, {
+      activeReviewedOnly: true,
+      capabilityIds: resolveEffectiveWorkflowCapabilityIds(workflow.capabilityPolicy, selectedAgents)
+    });
+    sessionAccessScope = compileWorkflowSessionCeiling({
+      workflow,
+      selectedAgents,
+      specialistAgent,
+      mappings,
+      actor: runtimeSubject,
+      principal: schedule.principal,
+      approvedContextGrants: schedule.approvedContextGrants
+    });
     compiledAccessScope = compileWorkflowAccessScope({
       workflow,
-      entryAgent,
       selectedAgents,
-      mappings: await listCapabilityRoutingMappings(schedule.workspaceId, {
-        activeReviewedOnly: true,
-        capabilityIds: resolveEffectiveWorkflowCapabilityIds(workflow.capabilityPolicy, selectedAgents)
-      }),
+      specialistAgent,
+      mappings,
       actor: runtimeSubject,
       principal: schedule.principal,
       approvedContextGrants: schedule.approvedContextGrants,
@@ -192,11 +200,17 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
     return 'auto_paused';
   }
 
-  const session = await createWorkflowSession({ workflow, createdBy: runtimeSubject.userId, compiledAccessScope, sessionId });
+  const session = await createWorkflowSession({
+    workflow,
+    createdBy: runtimeSubject.userId,
+    compiledAccessScope: sessionAccessScope,
+    sessionId
+  });
   const occurrenceKey = schedule.nextRunAt || now.toISOString();
   const { execution, run, initialEvents } = await createWorkflowExecution({
     workflow,
     session,
+    compiledAccessScope,
     messageId,
     content: schedule.controlMessage,
     triggerType: 'schedule',
@@ -208,7 +222,7 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
     bindingDigest: resolution.bindingDigest,
     resourceBindings: resolution.bindings,
     resolvedAt: resolution.resolvedAt,
-    agentSnapshot: entryAgent as unknown as Record<string, unknown>,
+    specialistSnapshot: specialistAgent,
     llmProvider: aiSettings.provider,
     llmModel: aiSettings.model,
     llmReasoningSummaryMode: aiSettings.reasoning.summary_mode,
@@ -235,7 +249,7 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
       summary: 'Workflow schedule dispatched',
       metadata: {
         workflowId: schedule.workflowId,
-        workflowRunId: run.workflowRunId,
+        executionId: run.executionId,
         runId: run.id,
         scheduleId: schedule.id,
         createdBy: schedule.createdBy.userId,

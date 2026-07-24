@@ -54,11 +54,14 @@ describe('workflows controller', () => {
     role: 'operator' | 'admin',
     approvedContextGrants: string[]
   ) {
-    const entryAgent = await getAgentDefinition(workflow.workspaceId, workflow.entryAgentId);
-    assert.ok(entryAgent);
+    const selectedAgents = (await Promise.all(
+      workflow.agentIds.map((agentId) => getAgentDefinition(workflow.workspaceId, agentId))
+    )).filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
+    assert.equal(selectedAgents.length, workflow.agentIds.length);
     return compileWorkflowAccessScope({
       workflow,
-      entryAgent,
+      selectedAgents,
+      specialistAgent: selectedAgents[0],
       mappings: await listCapabilityRoutingMappings(workflow.workspaceId, { activeReviewedOnly: true }),
       targetRoute: workflow.capabilityPolicy.semanticCapabilityIds.includes('target.diagnostics.read')
         ? { id: workflow.workspaceId === 'workspace-1' ? 'cluster-1' : 'cluster-2', targetType: 'kubernetes' }
@@ -107,6 +110,7 @@ describe('workflows controller', () => {
       }
     ));
     assert.equal(createdSession.statusCode, 201);
+    assert.equal(JSON.stringify(createdSession.body).includes('compiledAccessScope'), false);
     const sessionId = (createdSession.body as { session: { id: string } }).session.id;
 
     const response = await callController(postMessage, createRequest(
@@ -118,21 +122,13 @@ describe('workflows controller', () => {
     const body = response.body as {
       message_id: string;
       run_id: string;
-      workflow_run_id: string;
       executionId: string;
-      compiledAccessScope: { tools: string[]; contextGrants: string[] };
     };
     assert.ok(body.message_id);
     assert.ok(body.run_id);
-    assert.ok(body.workflow_run_id);
-    assert.deepEqual(body.compiledAccessScope.tools, [
-      'get_resource',
-      'get_resource_logs',
-      'list_resources'
-    ]);
-    assert.deepEqual(body.compiledAccessScope.contextGrants, ['target_inventory', 'workspace_metadata']);
+    assert.ok(body.executionId);
+    assert.equal('compiledAccessScope' in body, false);
 
-    assert.equal(body.executionId, body.workflow_run_id);
     const mutableConfig = config as typeof config & { AUTOMATION_RUNTIME_MODE: 'off' | 'shadow' | 'canary' | 'on' };
     const originalRuntimeMode = config.AUTOMATION_RUNTIME_MODE;
     mutableConfig.AUTOMATION_RUNTIME_MODE = 'on';
@@ -147,19 +143,25 @@ describe('workflows controller', () => {
     assert.equal(run.status, 'running');
     assert.equal(run.workflowSessionId, sessionId);
     assert.equal(run.messageId, body.message_id);
+    assert.deepEqual(run.compiledAccessScope.tools, [
+      'get_resource',
+      'get_resource_logs',
+      'list_resources'
+    ]);
+    assert.deepEqual(run.compiledAccessScope.contextGrants, ['target_inventory', 'workspace_metadata']);
     assert.equal((await listWorkflowMessages(sessionId)).length, 1);
     assert.equal(executionDispatches.length, 1);
     assert.deepEqual(executionDispatches[0], {
       contract_version: 2,
-      scope_type: 'target',
+      scope_type: 'workspace',
       run_id: body.run_id,
       workspace_id: 'workspace-1',
       session_id: sessionId,
       message_id: body.message_id,
       workflow_id: 'cluster-triage',
-      workflow_run_id: body.workflow_run_id,
-      workflow_execution_id: body.executionId,
+      execution_id: body.executionId,
       workflow_session_id: sessionId,
+      executor_role: 'specialist',
       target_id: 'cluster-1',
       target_type: 'kubernetes',
       attempt_number: 1,
@@ -180,7 +182,7 @@ describe('workflows controller', () => {
 
     const runResponse = await callController(getRun, createRequest({ runId: body.run_id }));
     assert.equal(runResponse.statusCode, 200);
-    assert.equal((runResponse.body as { workflowRunId: string }).workflowRunId, body.workflow_run_id);
+    assert.equal((runResponse.body as { executionId: string }).executionId, body.executionId);
 
     const eventsResponse = await callController(listRunEvents, createRequest({ runId: body.run_id }));
     assert.equal(eventsResponse.statusCode, 200);
@@ -217,17 +219,17 @@ describe('workflows controller', () => {
     const body = response.body as {
       run_id: string;
       status: string;
-      compiledAccessScope: { tools: string[]; contextGrants: string[] };
     };
     assert.equal(body.status, 'waiting_for_approval');
-    assert.deepEqual(body.compiledAccessScope.tools, [
-      'prompt.resources.read',
-      'reports.pdf.generate'
-    ]);
-    assert.deepEqual(body.compiledAccessScope.contextGrants, []);
+    assert.equal('compiledAccessScope' in body, false);
     const run = await getWorkflowRun(body.run_id);
     assert.ok(run);
     assert.equal(run.targetId, undefined);
+    assert.deepEqual(run.compiledAccessScope.tools, [
+      'prompt.resources.read',
+      'reports.pdf.generate'
+    ]);
+    assert.deepEqual(run.compiledAccessScope.contextGrants, []);
     assert.deepEqual((await listWorkflowRunApprovals(body.run_id)).map((approval) => approval.status), ['pending']);
   });
 
@@ -238,7 +240,6 @@ describe('workflows controller', () => {
       name: 'Read write workflow',
       prompt: 'Inspect the target and run the explicitly approved operation.',
       agentIds: ['agent-cluster-triage'],
-      entryAgentId: 'agent-cluster-triage',
       requiredPermissions: ['read_workspace_data', 'create_read_write_runs'],
       capabilityPolicy: {
         mode: 'read_write',
@@ -294,6 +295,7 @@ describe('workflows controller', () => {
     assert.equal(response.statusCode, 200);
     const body = response.body as { items: Array<{ id: string }> };
     assert.equal(body.items[0].id, session.id);
+    assert.equal(JSON.stringify(body).includes('compiledAccessScope'), false);
   });
 
   it('does not leak same-id workflow sessions from another workspace', async () => {

@@ -21,7 +21,7 @@ async function mutate(req: AuthenticatedRequest, res: Response, next: NextFuncti
     if (!(await requireWorkspaceCapability(req, res, workspaceId, 'manage_agents', 'No permission to manage Agent tools'))) return;
     const agentId = toSingleParam(req.params.agentId);
     const current = await getAgentDefinition(workspaceId, agentId);
-    if (!current || current.kind === 'manager') {
+    if (!current) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
       return;
     }

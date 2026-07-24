@@ -8,7 +8,6 @@ import {
   type AutomationRunApproval
 } from '../store/repository-automation-approvals.js';
 import { repo } from '../store/repository.js';
-import { listWorkflowApprovalsForWorkspace } from '../store/repository-workflows.js';
 import type { RunToolApproval } from '../types/domain.js';
 import type { WorkflowApprovalInboxResponse, WorkflowApprovalInboxRow } from '../types/workflows.js';
 import { toSingleParam } from '../utils/params.js';
@@ -36,9 +35,7 @@ function automationApprovalInboxRow(approval: AutomationRunApproval): WorkflowAp
   return {
     approvalId: approval.id,
     runId: approval.runId,
-    source: approval.sourceType === 'agent'
-      ? approval.approvalKind === 'pre_step' ? 'agent_gate' : 'agent_tool'
-      : 'workflow_tool',
+    source: approval.approvalKind === 'pre_step' ? 'workflow_gate' : 'workflow_tool',
     targetId: approval.targetId,
     targetType: approval.targetType,
     summary: approval.summary,
@@ -51,32 +48,6 @@ function automationApprovalInboxRow(approval: AutomationRunApproval): WorkflowAp
     decidedAt: approval.decidedAt,
     requestedAt: approval.createdAt
   };
-}
-
-async function workflowApprovalInboxRows(
-  workspaceId: string,
-  status: 'pending' | 'decided' | 'all',
-  filters: { runId?: string; approvalId?: string }
-): Promise<WorkflowApprovalInboxRow[]> {
-  return (await listWorkflowApprovalsForWorkspace(workspaceId, status)).map((approval) => ({
-    approvalId: approval.id,
-    runId: approval.runId,
-    source: 'workflow_gate' as const,
-    workflowId: approval.workflowId,
-    summary: approval.summary,
-    toolName: approval.toolName,
-    requestedBy: approval.requestedBy,
-    expiresAt: approval.expiresAt,
-    status: approval.status,
-    decision: approval.decision,
-    decidedBy: approval.decidedBy,
-    decidedAt: approval.decidedAt,
-    requestedAt: approval.createdAt
-  })).filter((approval) => {
-    if (filters.runId && approval.runId !== filters.runId) return false;
-    if (filters.approvalId && approval.approvalId !== filters.approvalId) return false;
-    return true;
-  });
 }
 
 export async function listWorkspaceApprovalInbox(
@@ -104,9 +75,7 @@ export async function listWorkspaceApprovalInbox(
       listWorkspaceAutomationApprovals({ workspaceId, status, limit, cursor }),
       countPendingWorkspaceAutomationApprovals(workspaceId)
     ]);
-    const workflowApprovals = await workflowApprovalInboxRows(workspaceId, status, { runId, approvalId });
-    const pendingWorkflowCount = (await listWorkflowApprovalsForWorkspace(workspaceId, 'pending')).length;
-    const items = [...targetApprovals.map(targetApprovalInboxRow), ...workflowApprovals, ...automationApprovals.map(automationApprovalInboxRow)]
+    const items = [...targetApprovals.map(targetApprovalInboxRow), ...automationApprovals.map(automationApprovalInboxRow)]
       .filter((approval) => (!runId || approval.runId === runId) && (!approvalId || approval.approvalId === approvalId))
       .sort((left, right) => right.requestedAt.localeCompare(left.requestedAt))
       .slice(0, limit);
@@ -114,7 +83,7 @@ export async function listWorkspaceApprovalInbox(
     observeApprovalInboxQueryDurationMs(status, 'success', Date.now() - startedAt);
     const response: WorkflowApprovalInboxResponse = {
       items,
-      pendingCount: pendingTargetCount + pendingWorkflowCount + pendingAutomationCount,
+      pendingCount: pendingTargetCount + pendingAutomationCount,
       ...(items.length === limit && items[items.length - 1]?.requestedAt ? { nextCursor: items[items.length - 1].requestedAt } : {})
     };
     res.status(200).json(response);

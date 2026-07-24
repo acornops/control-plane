@@ -23,8 +23,8 @@ bounded, structured description of the exact failed installation and tool.
 
 ## Implementation
 
-- Normalize gateway readiness into a typed report and use it for target chat,
-  direct Agent runs, and workflow messages.
+- Normalize gateway readiness into a typed report and use it for target chat
+  and Workflow specialist runs.
 - Document the additive conflict schema in OpenAPI and the contract manifest.
 - Add focused tests for code mapping and secret-free response payloads.
 - Coordinate the consumer update with `management-console`, then regenerate the
@@ -38,10 +38,10 @@ bounded, structured description of the exact failed installation and tool.
 
 ## Outcomes
 
-- Public target-message, direct-Agent-run, and workflow-message conflicts now
+- Public target-message and Workflow-run conflicts now
   preserve bounded structured readiness failures while retaining legacy strings.
-- Direct Agent runs compile their reviewed capability mappings before checking
-  exact MCP readiness.
+- Specialist Workflow runs compile their reviewed capability mappings before
+  checking exact MCP readiness.
 - The public OpenAPI schemas and control-plane contract manifest document the
   additive recovery contract without exposing gateway connection snapshots.
 

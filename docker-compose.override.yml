@@ -75,7 +75,7 @@ services:
     image: acornops/control-plane:local
     command: ["npm", "run", "db:migrate"]
     environment:
-      DATABASE_URL: postgresql://acornops:acornops@cp-postgres:5432/acornops_control_plane
+      DATABASE_URL: postgresql://${CP_DB_USER:-acornops}:${CP_DB_PASSWORD:-change-me}@cp-postgres:5432/${CP_DB_NAME:-acornops_control_plane}
     volumes:
       - ./:/app
       - control-plane-node-modules:/app/node_modules

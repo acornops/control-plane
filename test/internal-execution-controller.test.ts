@@ -300,11 +300,15 @@ describe('internal execution bootstrap audit metadata', () => {
     const workflow = await getWorkflowDefinition('workspace-1', 'cluster-triage');
     assert.ok(workflow);
     const agents = await listAgentDefinitions(workflow.workspaceId);
-    const entryAgent = agents.find((candidate) => candidate.id === workflow.entryAgentId);
-    assert.ok(entryAgent);
+    const selectedAgents = workflow.agentIds
+      .map((agentId) => agents.find((candidate) => candidate.id === agentId))
+      .filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
+    assert.equal(selectedAgents.length, workflow.agentIds.length);
+    const specialist = selectedAgents[0];
     const compiledAccessScope = compileWorkflowAccessScope({
       workflow,
-      entryAgent,
+      selectedAgents,
+      specialistAgent: specialist,
       mappings: await listCapabilityRoutingMappings(workflow.workspaceId, { activeReviewedOnly: true }),
       targetRoute: { id: 'cluster-primary', targetType: 'kubernetes' },
       actor: {
@@ -327,10 +331,9 @@ describe('internal execution bootstrap audit metadata', () => {
       bindingDigest: digestBindings([]),
       resourceBindings: [],
       resolvedAt: new Date().toISOString(),
-      inputs: { targetId: 'cluster-primary', severity: 'high' },
       targetId: 'cluster-primary',
       targetType: 'kubernetes',
-      agentSnapshot: entryAgent as unknown as Record<string, unknown>,
+      specialistSnapshot: specialist,
       llmProvider: 'gemini',
       llmModel: 'gemini-2.0-flash',
       llmReasoningSummaryMode: 'off',
@@ -359,7 +362,8 @@ describe('internal execution bootstrap audit metadata', () => {
       scope: {
         type: string;
         workflow_id: string;
-        workflow_run_id: string;
+        execution_id: string;
+        executor_role: string;
         workflow_session_id: string;
         target_id?: string;
         target_type?: string;
@@ -370,13 +374,14 @@ describe('internal execution bootstrap audit metadata', () => {
     };
 
     assert.equal(response.statusCode, 200);
-    assert.equal(body.scope.type, 'target');
+    assert.equal(body.scope.type, 'workspace');
     assert.equal(body.scope.workflow_id, 'cluster-triage');
-    assert.equal(body.scope.workflow_run_id, run.workflowRunId);
+    assert.equal(body.scope.execution_id, run.executionId);
+    assert.equal(body.scope.executor_role, 'specialist');
     assert.equal(body.scope.workflow_session_id, created.execution.workflowSessionId);
     assert.equal(body.scope.target_id, 'cluster-primary');
     assert.equal(body.scope.target_type, 'kubernetes');
-    assert.equal(body.context.endpoint, `/internal/v1/workflow-sessions/${created.execution.workflowSessionId}/context`);
+    assert.equal(body.context.endpoint, `/internal/v1/runs/${run.id}/context`);
     assert.equal(body.routing.target_scoped, true);
     assert.equal(body.routing.workflow_scoped, true);
     assert.deepEqual(body.tools.allowed_tools, [
@@ -386,10 +391,12 @@ describe('internal execution bootstrap audit metadata', () => {
     ]);
 
     const claims = await gatewayTokenService.verifyRunScopeToken(body.tools.gateway.token);
-    assert.equal(claims.scopeType, 'target');
+    assert.equal(claims.scopeType, 'workspace');
+    assert.equal(claims.executionId, run.executionId);
+    assert.equal(claims.executorRole, 'specialist');
     assert.equal(claims.targetId, 'cluster-primary');
     assert.equal(claims.targetType, 'kubernetes');
-    assert.deepEqual(claims.contextGrants, []);
+    assert.deepEqual(claims.contextGrants, ['target_inventory', 'workspace_metadata']);
   });
 
   it('maps workspace AI credential status failures during bootstrap', async () => {

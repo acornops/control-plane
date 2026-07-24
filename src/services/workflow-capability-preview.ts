@@ -49,7 +49,6 @@ function currentWorkflowMappings(
     && agentVersions.get(mapping.agentId) === mapping.agentVersion
     && mapping.status === 'active'
     && mapping.reviewState === 'reviewed'
-    && (mapping.invocationScopes || ['agent', 'workflow']).includes('workflow')
   ));
 }
 
@@ -201,7 +200,8 @@ export function directWorkflowAttachments(input: {
       label: tool.toolName,
       description: tool.description,
       access: tool.capability,
-      source: 'mcp'
+      source: 'mcp',
+      serverId: tool.serverId
     })));
   const mcpAliases = new Set(mcpTools.map((tool) => tool.name));
   const excludedToolNames = new Set(input.excludedToolNames || []);
@@ -225,12 +225,16 @@ export function directWorkflowAttachments(input: {
 export function targetPreviewTools(
   tools: ReturnType<typeof intersectGrantedTargetRunTools>
 ): WorkflowCapabilityToolPreview[] {
+  const serverIds = new Map(tools.allowedToolSpecs
+    .filter((tool) => tool.server_id)
+    .map((tool) => [tool.name, tool.server_id!]));
   return tools.previewItems.map((tool) => ({
     id: tool.id,
     name: tool.name,
     label: tool.label || tool.name,
     description: tool.description,
     access: tool.capability,
-    source: 'target'
+    source: 'target',
+    ...(serverIds.get(tool.name) ? { serverId: serverIds.get(tool.name) } : {})
   }));
 }

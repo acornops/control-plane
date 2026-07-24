@@ -26,8 +26,7 @@ function mappingId(agentId: string, targetId: string, capabilityId: string): str
 }
 
 function eligibleAgent(agent: AgentDefinition, target: TargetSummary, capabilityId: string): boolean {
-  return agent.kind === 'specialist'
-    && agent.status === 'active'
+  return agent.status === 'active'
     && agent.reviewState === 'reviewed'
     && agent.semanticCapabilityIds.includes(capabilityId)
     && targetAllowedByAgentScope(agent.targetScope, { id: target.id, targetType: target.targetType });
@@ -79,7 +78,6 @@ export async function reconcileTargetDiagnosticsForTarget(
         mcpTools: [],
         targetToolRefs: targetTools,
         nativeToolIds: [],
-        invocationScopes: ['agent', 'workflow'],
         skillIds: [],
         contextGrants: [],
         createdBy: PLATFORM_ACTOR,

@@ -31,6 +31,7 @@ internalExecutionRouter.post(
 internalExecutionRouter.post('/runs/:runId/delegations', requireServiceToken, internalDelegationController.delegateSpecialist);
 internalExecutionRouter.get('/runs/:runId/delegations', requireServiceToken, internalDelegationController.awaitDelegations);
 internalExecutionRouter.get('/runs/:runId/skills/:skillRef', requireServiceToken, internalExecutionController.getRunSkillSnapshot);
+internalExecutionRouter.get('/runs/:runId/context', requireServiceToken, internalExecutionController.getWorkflowRunContext);
 internalExecutionRouter.post(
   '/runs/:runId/approvals',
   requireServiceToken,
@@ -59,9 +60,6 @@ internalExecutionRouter.delete(
   internalApprovalController.consumeRunContinuation
 );
 internalExecutionRouter.get('/sessions/:sessionId/context', requireServiceToken, internalExecutionController.getSessionContext);
-internalExecutionRouter.get('/workflow-sessions/:sessionId/context', requireServiceToken, internalExecutionController.getWorkflowSessionContext);
-internalExecutionRouter.get('/agent-runs/:runId/context', requireServiceToken, internalExecutionController.getAgentRunContext);
-internalExecutionRouter.get('/agent-runs/:runId/skills/:skillRef', requireServiceToken, internalExecutionController.getAgentRunSkillSnapshot);
 internalExecutionRouter.post(
   '/runs/:runId/events',
   requireServiceToken,

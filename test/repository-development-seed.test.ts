@@ -39,7 +39,6 @@ describe('development target seed', () => {
           ? { rowCount: row.length, rows: row }
           : { rowCount: row ? 1 : 0, rows: row ? [row] : [] };
       }
-      if (sql.includes('SELECT * FROM agent_triggers')) return { rowCount: 0, rows: [] };
       if (sql.includes('UPDATE agent_definitions SET readiness_status')) {
         const row = agentRows.get(String(params?.[1]));
         return { rowCount: row ? 1 : 0, rows: row ? [row] : [] };
@@ -60,62 +59,42 @@ describe('development target seed', () => {
         if (sql.includes('SELECT created_by FROM workspaces')) {
           return { rowCount: 1, rows: [{ created_by: 'owner-user' }] };
         }
-        if (sql.includes('WHERE workspace_id=$1 AND system_role=$2')) {
-          const coordinator = [...agentRows.values()].find((row) => row.system_role === params?.[1]);
-          return { rowCount: coordinator ? 1 : 0, rows: coordinator ? [{ id: coordinator.id }] : [] };
-        }
         if (sql.includes('INSERT INTO agent_definitions')) {
           const values = params || [];
           const row = {
             workspace_id: values[0], id: values[1], name: values[2], description: values[3],
-            instructions: values[4], status: 'active', origin: values[5], kind: values[6],
-            review_state: values[7], provider_type: values[8], version: 1,
-            owner_user_id: values[9], created_by: values[10], mcp_servers: JSON.parse(String(values[11])),
-            mcp_tools: JSON.parse(String(values[12])), mcp_installations: JSON.parse(String(values[13])),
-            tools: JSON.parse(String(values[14])), skills: JSON.parse(String(values[15])),
-            skill_installations: JSON.parse(String(values[16])), context_grants: JSON.parse(String(values[17])),
-            target_scope: values[18], approval_policy: values[19], trust_policy: values[20],
-            permission_mode: values[21], semantic_capability_ids: JSON.parse(String(values[22])),
-            delegate_agent_ids: JSON.parse(String(values[23])), readiness_status: 'needs_setup',
-            readiness_reasons: JSON.parse(String(values[24])), system_role: values[25],
+            instructions: values[4], status: 'active', origin: values[5],
+            review_state: values[6], provider_type: values[7], version: 1,
+            owner_user_id: values[8], created_by: values[9], mcp_servers: JSON.parse(String(values[10])),
+            mcp_tools: JSON.parse(String(values[11])), mcp_installations: JSON.parse(String(values[12])),
+            tools: JSON.parse(String(values[13])), skills: JSON.parse(String(values[14])),
+            skill_installations: JSON.parse(String(values[15])), context_grants: JSON.parse(String(values[16])),
+            target_scope: values[17], approval_policy: values[18], trust_policy: values[19],
+            permission_mode: values[20], semantic_capability_ids: JSON.parse(String(values[21])),
+            readiness_status: 'needs_setup', readiness_reasons: JSON.parse(String(values[22])),
             created_at: new Date(), updated_at: new Date()
           };
           agentRows.set(String(values[1]), row);
           return { rowCount: 1, rows: [row] };
         }
-        if (sql.includes('SELECT * FROM agent_definitions')) {
+        if (sql.includes('FROM agent_definitions agent')) {
           const row = agentRows.get(String(params?.[1]));
           return { rowCount: row ? 1 : 0, rows: row ? [row] : [] };
         }
-        if (sql.includes('SELECT * FROM agent_triggers')) return { rowCount: 0, rows: [] };
         if (sql.includes('INSERT INTO workflow_definitions')) {
           const values = params || [];
           const row = {
             workspace_id: values[0], id: values[1], version: 1, origin: values[2], name: values[3],
             description: values[4], status: values[5], prompt: values[6],
-            agent_ids: JSON.parse(String(values[7])), entry_agent_id: values[8],
-            target_constraints: values[9], capability_policy: values[10], delegation_policy: values[11],
-            tags: JSON.parse(String(values[12])), inputs: JSON.parse(String(values[13])),
-            required_permissions: JSON.parse(String(values[14])), created_by: values[15],
-            readiness_status: values[16], readiness_reasons: JSON.parse(String(values[17])),
+            agent_ids: JSON.parse(String(values[7])), resource_requirements: JSON.parse(String(values[8])),
+            capability_policy: values[9], tags: JSON.parse(String(values[10])),
+            inputs: JSON.parse(String(values[11])), required_permissions: JSON.parse(String(values[12])),
+            created_by: values[13], readiness_status: values[14],
+            readiness_reasons: JSON.parse(String(values[15])),
             created_at: new Date(), updated_at: new Date()
           };
           workflowRows.set(String(values[1]), row);
           return { rowCount: 1, rows: [row] };
-        }
-        if (sql.includes('SELECT\n       COALESCE((') && sql.includes('selected_capabilities')) {
-          const coordinated = [...workflowRows.values()]
-            .filter((row) => Array.isArray(row.agent_ids) && row.agent_ids.length > 1);
-          return {
-            rowCount: 1,
-            rows: [{
-              agent_ids: [...new Set(coordinated.flatMap((row) => row.agent_ids as string[]))].sort(),
-              capability_ids: [...new Set(coordinated.flatMap((row) => {
-                const policy = row.capability_policy as { semanticCapabilityIds?: string[] };
-                return policy.semanticCapabilityIds || [];
-              }))].sort()
-            }]
-          };
         }
         if (sql.includes('INSERT INTO workspaces')) {
           return { rowCount: 1, rows: [{
@@ -167,7 +146,7 @@ describe('development target seed', () => {
     assert.equal(queries.filter(({ sql }) => sql.includes('INSERT INTO users')).length, 1);
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workspaces')).length, 1);
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workspace_memberships')).length, 1);
-    assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO agent_definitions')).length, 3);
+    assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO agent_definitions')).length, 2);
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workflow_definitions')).length, 2);
     const targetDiagnosticsWorkflow = [...workflowRows.values()].find((row) => row.name === 'Target diagnostics');
     assert.equal(

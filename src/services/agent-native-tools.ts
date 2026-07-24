@@ -30,17 +30,14 @@ export async function setAgentNativeToolAssignment(input: {
 
   const changed = await withTransaction(async (client) => {
     const locked = await client.query<{
-      kind: string; version: number; tools: string[]; semantic_capability_ids: string[];
+      version: number; tools: string[]; semantic_capability_ids: string[];
     }>(
-      `SELECT kind,version,tools,semantic_capability_ids FROM agent_definitions
+      `SELECT version,tools,semantic_capability_ids FROM agent_definitions
        WHERE workspace_id=$1 AND id=$2 FOR UPDATE`,
       [input.workspaceId, input.agentId]
     );
     if (!locked.rowCount) throw new AgentNativeToolAssignmentError('AGENT_NOT_FOUND', 'Agent not found.');
     const row = locked.rows[0];
-    if (row.kind !== 'specialist') {
-      throw new AgentNativeToolAssignmentError('MANAGER_NATIVE_TOOL_FORBIDDEN', 'Managers cannot receive operational tools.');
-    }
     const assigned = new Set(row.tools || []);
     const capabilities = new Set(row.semantic_capability_ids || []);
     const alreadyAssigned = assigned.has(tool.id);
@@ -72,15 +69,15 @@ export async function setAgentNativeToolAssignment(input: {
       await client.query(
         `INSERT INTO capability_routing_mappings (
            workspace_id,id,capability_id,version,agent_id,agent_version,status,review_state,priority,
-           target_types,target_ids,mcp_tools,native_tool_ids,invocation_scopes,skill_ids,context_grants,created_by,reviewed_by
-         ) VALUES ($1,$2,$3,1,$4,$5,'active','reviewed',100,'[]','[]','[]',$6,$7,'[]',$8,$9,$9)
+           target_types,target_ids,mcp_tools,native_tool_ids,skill_ids,context_grants,created_by,reviewed_by
+         ) VALUES ($1,$2,$3,1,$4,$5,'active','reviewed',100,'[]','[]','[]',$6,'[]',$7,$8,$8)
          ON CONFLICT (workspace_id,id) DO UPDATE SET
            capability_id=EXCLUDED.capability_id,agent_version=EXCLUDED.agent_version,status='active',review_state='reviewed',
-           native_tool_ids=EXCLUDED.native_tool_ids,invocation_scopes=EXCLUDED.invocation_scopes,
+           native_tool_ids=EXCLUDED.native_tool_ids,
            context_grants=EXCLUDED.context_grants,reviewed_by=EXCLUDED.reviewed_by,
            version=capability_routing_mappings.version+1,updated_at=NOW()`,
         [input.workspaceId, mappingId(input.agentId, tool.id), tool.semanticCapabilityId,
-         input.agentId, nextVersion, JSON.stringify([tool.id]), JSON.stringify(tool.invocationScopes),
+         input.agentId, nextVersion, JSON.stringify([tool.id]),
          JSON.stringify(tool.requiredContextGrant ? [tool.requiredContextGrant] : []), input.actorUserId]
       );
     } else {

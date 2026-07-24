@@ -79,7 +79,7 @@ export function buildAgentPaths(): Record<string, unknown> {
       get: {
         tags: ['agents'],
         summary: 'List active workspace agents',
-        description: 'Returns specialist Agents. System-owned workflow coordinators and historical Manager records are omitted from lists, search, and counts.',
+        description: 'Returns reusable specialist capability profiles available in the workspace.',
         security: [{ userSession: [] }],
         parameters: [
           workspaceIdParameter,
@@ -116,7 +116,7 @@ export function buildAgentPaths(): Record<string, unknown> {
       get: {
         tags: ['agents'],
         summary: 'Get an agent definition',
-        description: 'Returns 404 for system-owned workflow coordinators and historical Manager records.',
+        description: 'Returns a reusable specialist capability profile by ID.',
         security: [{ userSession: [] }],
         parameters: [agentIdPathParameter, agentWorkspaceIdQueryParameter,
           { in: 'query', name: 'q', required: false, schema: { type: 'string' } },
@@ -179,31 +179,6 @@ export function buildAgentPaths(): Record<string, unknown> {
         }
       }
     },
-    '/api/v1/workspaces/{workspaceId}/agents/{agentId}/runs': {
-      post: {
-        tags: ['agents'], summary: 'Create a durable standalone Agent run', security: [{ userSession: [] }],
-        parameters: [workspaceIdParameter, agentIdPathParameter],
-        requestBody: { required: true, content: { 'application/json': { schema: {
-          type: 'object', required: ['prompt'], properties: {
-            prompt: { type: 'string', minLength: 1 }, inputContext: { type: 'object' },
-            targetId: { type: 'string' }, approvedContextGrants: { type: 'array', items: { type: 'string' } },
-            triggerId: { type: 'string' }, clientRequestId: { type: 'string', maxLength: 128 }
-          }
-        } } } },
-        responses: {
-          '202': { description: 'Agent run and dispatch intent committed.', content: { 'application/json': { schema: { $ref: '#/components/schemas/AgentRunAccepted' } } } },
-          '409': {
-            description: 'Agent, selected target, or exact MCP readiness is not ready. MCP conflicts include bounded structured installation and tool failures.',
-            content: { 'application/json': { schema: {
-              oneOf: [
-                { $ref: '#/components/schemas/ErrorResponse' },
-                { $ref: '#/components/schemas/McpReadinessErrorResponse' }
-              ]
-            } } }
-          }
-        }
-      }
-    },
     '/api/v1/workspaces/{workspaceId}/automation/diagnostics': {
       get: {
         tags: ['agents'],
@@ -258,91 +233,5 @@ export function buildAgentPaths(): Record<string, unknown> {
         }
       }
     },
-    '/api/v1/agents/{agentId}/test': {
-      post: {
-        tags: ['agents'],
-        summary: 'Preview Agent scope without executing',
-        security: [{ userSession: [] }],
-        parameters: [agentIdPathParameter],
-        requestBody: agentWorkspaceBody,
-        responses: { '200': { description: 'Non-executing compiled scope preview.' } }
-      }
-    },
-    '/api/v1/agents/{agentId}/activity': {
-      get: {
-        tags: ['agents'],
-        summary: 'List agent activity records',
-        security: [{ userSession: [] }],
-        parameters: [agentIdPathParameter, agentWorkspaceIdQueryParameter],
-        responses: { '200': { description: 'Agent activity list.' } }
-      }
-    },
-    '/api/v1/agents/{agentId}/triggers': {
-      post: {
-        tags: ['agents'],
-        summary: 'Create an agent trigger',
-        security: [{ userSession: [] }],
-        parameters: [agentIdPathParameter],
-        requestBody: agentWorkspaceBody,
-        responses: {
-          '201': { description: 'Agent trigger created. Webhook triggers additionally return the encrypted-secret-backed HMAC secret exactly once.' }
-        }
-      }
-    },
-    '/api/v1/automation/webhooks/{triggerId}': {
-      post: {
-        tags: ['agents'],
-        summary: 'Accept a signed standalone Agent webhook event',
-        security: [],
-        parameters: [
-          { in: 'path', name: 'triggerId', required: true, schema: { type: 'string' } },
-          { in: 'header', name: 'x-acornops-timestamp', required: true, schema: { type: 'string' } },
-          { in: 'header', name: 'x-acornops-event-id', required: true, schema: { type: 'string', maxLength: 200 } },
-          { in: 'header', name: 'x-acornops-signature', required: true, schema: { type: 'string', pattern: '^(sha256=)?[a-fA-F0-9]{64}$' } }
-        ],
-        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', maxProperties: 1000 } } } },
-        responses: {
-          '202': {
-            description: 'The signed event and durable trigger delivery were committed.',
-            content: { 'application/json': { schema: {
-              type: 'object', required: ['eventId', 'status'],
-              properties: { eventId: { type: 'string' }, status: { type: 'string', enum: ['accepted'] } }
-            } } }
-          },
-          '401': { description: 'Timestamp or HMAC signature invalid.' },
-          '409': { description: 'Event ID replay rejected.' },
-          '413': { description: 'Payload exceeds 256 KiB.' },
-          '429': { description: 'Per-trigger rate limit exceeded.' }
-        }
-      }
-    },
-    '/api/v1/agents/{agentId}/triggers/{triggerId}': {
-      patch: {
-        tags: ['agents'],
-        summary: 'Update an agent trigger',
-        security: [{ userSession: [] }],
-        parameters: [
-          agentIdPathParameter,
-          { in: 'path', name: 'triggerId', required: true, schema: { type: 'string' } }
-        ],
-        requestBody: agentWorkspaceBody,
-        responses: {
-          '200': { description: 'Agent trigger updated.' }
-        }
-      },
-      delete: {
-        tags: ['agents'],
-        summary: 'Delete an agent trigger',
-        security: [{ userSession: [] }],
-        parameters: [
-          agentIdPathParameter,
-          { in: 'path', name: 'triggerId', required: true, schema: { type: 'string' } }
-        ],
-        requestBody: agentWorkspaceBody,
-        responses: {
-          '204': { description: 'Agent trigger deleted.' }
-        }
-      }
-    }
   };
 }
