@@ -15,21 +15,17 @@ import { internalFetch } from '../internal-http-client.js';
 import { gatewayTokenService } from '../token-service.js';
 import { resolveWorkspaceLlmSettings } from '../workspace-ai-resolution.js';
 import { recordTargetInsightsAudit } from './audit.js';
+import {
+  completeTargetInsightsCheckpoint,
+  rescheduleTargetInsightsCheckpointAfterStateChange
+} from './checkpoint-outcomes.js';
+import {
+  parseTargetInsightsCheckpointResponse,
+  TargetInsightMutationPatch
+} from './checkpoint-response.js';
 import { normalizeTargetInsightsConfig } from './config.js';
 
-interface TargetInsightPatch {
-  action: 'create' | 'update' | 'archive' | 'noop';
-  entryId?: string;
-  title?: string;
-  status?: 'active' | 'pending' | 'archived';
-  bodyMarkdown?: string;
-  tags?: string[];
-  evidenceSummary?: string;
-  observationCount?: number;
-  confidence?: number;
-  signals?: Record<string, unknown>;
-  scope?: Record<string, unknown>;
-}
+type TargetInsightContentPatch = Extract<TargetInsightMutationPatch, { action: 'create' | 'update' }>;
 
 const GENERALIZABLE_SCOPE_KEYS = new Set(['namespace', 'namespaces', 'pod', 'pods', 'node', 'nodes', 'host', 'hosts']);
 
@@ -56,7 +52,7 @@ function overlapCount(left: Set<string>, right: Set<string>): number {
   return count;
 }
 
-function findGeneralizationTarget(patch: TargetInsightPatch, entries: TargetInsightsEntry[]): TargetInsightsEntry | null {
+function findGeneralizationTarget(patch: TargetInsightContentPatch, entries: TargetInsightsEntry[]): TargetInsightsEntry | null {
   const patchTitleTerms = tokenize(patch.title);
   const patchTags = new Set((patch.tags || []).map((tag) => tag.toLowerCase()));
   const patchSignals = flattenSignalTerms(patch.signals);
@@ -101,7 +97,7 @@ function mergeEvidenceSummary(existing: string, incoming: string | undefined): s
 
 function buildGeneralizedUpdate(
   entry: TargetInsightsEntry,
-  patch: TargetInsightPatch,
+  patch: TargetInsightContentPatch,
   minimumObservationsBeforeGeneralization: number,
   lastObservedAt: string
 ): TargetInsightsEntryPatch {
@@ -131,48 +127,6 @@ function parseGatewayStreamLine(line: string): string {
   return '';
 }
 
-function extractJson(text: string): unknown {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const match = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/) || trimmed.match(/(\[[\s\S]*\]|\{[\s\S]*\})/);
-    if (!match) return null;
-    try {
-      return JSON.parse(match[1]);
-    } catch {
-      return null;
-    }
-  }
-}
-
-function normalizePatch(value: unknown): TargetInsightPatch[] {
-  const items = Array.isArray(value)
-    ? value
-    : value && typeof value === 'object' && Array.isArray((value as { patches?: unknown }).patches)
-      ? (value as { patches: unknown[] }).patches
-      : [];
-  return items.slice(0, 8).flatMap((item) => {
-    if (!item || typeof item !== 'object') return [];
-    const patch = item as TargetInsightPatch;
-    if (!['create', 'update', 'archive', 'noop'].includes(patch.action)) return [];
-    return [{
-      action: patch.action,
-      entryId: typeof patch.entryId === 'string' ? patch.entryId : undefined,
-      title: typeof patch.title === 'string' ? patch.title.slice(0, 240) : undefined,
-      status: patch.status === 'active' || patch.status === 'pending' || patch.status === 'archived' ? patch.status : undefined,
-      bodyMarkdown: typeof patch.bodyMarkdown === 'string' ? patch.bodyMarkdown.slice(0, 32768) : undefined,
-      tags: Array.isArray(patch.tags) ? patch.tags.filter((tag): tag is string => typeof tag === 'string') : undefined,
-      evidenceSummary: typeof patch.evidenceSummary === 'string' ? patch.evidenceSummary.slice(0, 4096) : undefined,
-      observationCount: typeof patch.observationCount === 'number' ? Math.max(0, Math.floor(patch.observationCount)) : undefined,
-      confidence: typeof patch.confidence === 'number' ? Math.max(0, Math.min(1, patch.confidence)) : undefined,
-      signals: patch.signals && typeof patch.signals === 'object' && !Array.isArray(patch.signals) ? patch.signals : undefined,
-      scope: patch.scope && typeof patch.scope === 'object' && !Array.isArray(patch.scope) ? patch.scope : undefined
-    }];
-  });
-}
-
 async function streamGatewayJsonPatch(input: {
   workspaceId: string;
   targetId: string;
@@ -184,7 +138,7 @@ async function streamGatewayJsonPatch(input: {
   allowedModels: string[];
   transcript: string;
   existingEntries: Array<{ id: string; title: string; status: string; evidenceSummary: string }>;
-}): Promise<TargetInsightPatch[]> {
+}): Promise<string> {
   const checkpointRunId = randomUUID();
   const token = await gatewayTokenService.signRunScopeToken({
     runId: checkpointRunId,
@@ -226,11 +180,19 @@ async function streamGatewayJsonPatch(input: {
           {
             role: 'system',
             content: [
-              'You update AcornOps Target Insights entries for future troubleshooting.',
-              'Return only JSON: {"patches":[...]} with actions create, update, archive, or noop.',
-              'Generalize repeated namespace/host-specific issues into broader fixes when evidence supports it.',
-              'Do not include run IDs or raw logs. Use concise evidence summaries.'
-            ].join(' ')
+              'You maintain durable, target-specific AcornOps troubleshooting knowledge.',
+              'Return exactly one JSON object and no markdown or commentary: {"patches":[...]}.',
+              'Use create only when the transcript supports reusable learning such as a confirmed cause, remediation, or recurring diagnostic pattern.',
+              'Do not create entries for greetings, unanswered symptoms, transient telemetry, provider failures, speculation, run IDs, or raw logs.',
+              'Use update or archive only with an exact id from existingEntries. Generalize repeated namespace or host-specific issues only when evidence supports it.',
+              'If there is no durable learning, return exactly one noop patch and no other patches.',
+              'Patch schema (1-8 patches):',
+              '- create: {"action":"create","title":string,"bodyMarkdown":string,"status"?:"active"|"pending","tags"?:string[]_max_32,"evidenceSummary"?:string,"observationCount"?:integer_0_to_100000,"confidence"?:number_0_to_1,"signals"?:object,"scope"?:object}',
+              '- update: {"action":"update","entryId":string,<at least one create field except action>}',
+              '- archive: {"action":"archive","entryId":string}',
+              '- noop: {"action":"noop","reasonCode":"no_durable_learning"|"insufficient_evidence"|"already_captured"}',
+              'Unknown fields are invalid. Keep titles and evidence summaries concise.'
+            ].join('\n')
           },
           {
             role: 'user',
@@ -264,7 +226,7 @@ async function streamGatewayJsonPatch(input: {
     if (buffer.trim()) {
       text += parseGatewayStreamLine(buffer);
     }
-    return normalizePatch(extractJson(text));
+    return text;
   } finally {
     clearTimeout(timeout);
   }
@@ -368,23 +330,66 @@ async function processJob(job: Awaited<ReturnType<typeof repo.claimDueTargetInsi
   const messages = await repo.listMessages(job.sessionId, { limit: 80 });
   const transcript = messages.items.map((message) => `${message.role}: ${message.content}`).join('\n\n').slice(-24000);
   const existingEntries = await repo.listTargetInsightsEntries(job.workspaceId, job.targetId, { limit: 80 });
-  const patches = await streamGatewayJsonPatch({
-    workspaceId: job.workspaceId,
-    targetId: job.targetId,
-    targetType: job.targetType,
-    sessionId: job.sessionId,
-    provider: llmSettings.provider,
-    model: llmSettings.model,
-    allowedProviders: llmSettings.allowedProviders,
-    allowedModels: llmSettings.allowedModels,
-    transcript,
-    existingEntries: existingEntries.map((entry) => ({
-      id: entry.id,
-      title: entry.title,
-      status: entry.status,
-      evidenceSummary: entry.evidenceSummary
-    }))
-  });
+  let rawResponse: string;
+  try {
+    rawResponse = await streamGatewayJsonPatch({
+      workspaceId: job.workspaceId,
+      targetId: job.targetId,
+      targetType: job.targetType,
+      sessionId: job.sessionId,
+      provider: llmSettings.provider,
+      model: llmSettings.model,
+      allowedProviders: llmSettings.allowedProviders,
+      allowedModels: llmSettings.allowedModels,
+      transcript,
+      existingEntries: existingEntries.map((entry) => ({
+        id: entry.id,
+        title: entry.title,
+        status: entry.status,
+        evidenceSummary: entry.evidenceSummary
+      }))
+    });
+  } catch {
+    if (!(await completeTargetInsightsCheckpoint(job, llmSettings, {
+      kind: 'provider_failure',
+      reasonCode: 'provider_failure',
+      proposedPatchCount: 0
+    }))) {
+      await rescheduleTargetInsightsCheckpointAfterStateChange(job);
+      return;
+    }
+    return;
+  }
+
+  const response = parseTargetInsightsCheckpointResponse(
+    rawResponse,
+    new Set(existingEntries.map((entry) => entry.id))
+  );
+  if (!response.ok) {
+    if (!(await completeTargetInsightsCheckpoint(job, llmSettings, {
+      kind: 'invalid_response',
+      reasonCode: response.reasonCode,
+      proposedPatchCount: response.proposedPatchCount
+    }))) {
+      await rescheduleTargetInsightsCheckpointAfterStateChange(job);
+      return;
+    }
+    return;
+  }
+
+  if (response.decision.kind === 'noop') {
+    if (!(await completeTargetInsightsCheckpoint(job, llmSettings, {
+      kind: 'noop',
+      reasonCode: response.decision.reasonCode,
+      proposedPatchCount: 1
+    }))) {
+      await rescheduleTargetInsightsCheckpointAfterStateChange(job);
+      return;
+    }
+    return;
+  }
+
+  const patches = response.decision.patches;
   let applied = 0;
   const terminalStatus = await withTransaction(async (client) => {
     if (!(await repo.renewTargetInsightsCheckpointJobLeaseIfCurrent(jobKey(job), client))) {
@@ -392,8 +397,7 @@ async function processJob(job: Awaited<ReturnType<typeof repo.claimDueTargetInsi
     }
 
     for (const patch of patches) {
-      if (patch.action === 'noop') continue;
-      if (patch.action === 'create' && patch.title && patch.bodyMarkdown) {
+      if (patch.action === 'create') {
         const generalizationTarget = findGeneralizationTarget(patch, existingEntries);
         if (generalizationTarget) {
           const updated = await repo.updateTargetInsightsEntry(
@@ -408,11 +412,10 @@ async function processJob(job: Awaited<ReturnType<typeof repo.claimDueTargetInsi
             ),
             client
           );
-          if (updated) {
-            applied += 1;
-            const index = existingEntries.findIndex((entry) => entry.id === updated.id);
-            if (index >= 0) existingEntries[index] = updated;
-          }
+          if (!updated) throw new Error('Target Insights generalization target changed');
+          applied += 1;
+          const index = existingEntries.findIndex((entry) => entry.id === updated.id);
+          if (index >= 0) existingEntries[index] = updated;
         } else {
           const status = (patch.observationCount || 0) >= toolConfig.learning.minimumObservationsBeforeGeneralization
             ? 'active'
@@ -436,7 +439,16 @@ async function processJob(job: Awaited<ReturnType<typeof repo.claimDueTargetInsi
           existingEntries.unshift(created);
           applied += 1;
         }
-      } else if ((patch.action === 'update' || patch.action === 'archive') && patch.entryId) {
+      } else if (patch.action === 'archive') {
+        const updated = await repo.updateTargetInsightsEntry(job.workspaceId, job.targetId, patch.entryId, {
+          status: 'archived',
+          lastObservedAt: job.lastActivityAt
+        }, client);
+        if (!updated) throw new Error('Target Insights patch target changed');
+        applied += 1;
+        const index = existingEntries.findIndex((entry) => entry.id === updated.id);
+        if (index >= 0) existingEntries[index] = updated;
+      } else {
         const existingEntry = existingEntries.find((entry) => entry.id === patch.entryId);
         const observationCount = patch.observationCount !== undefined
           ? Math.max(existingEntry?.observationCount ?? 0, patch.observationCount)
@@ -444,11 +456,9 @@ async function processJob(job: Awaited<ReturnType<typeof repo.claimDueTargetInsi
         const confidence = patch.confidence !== undefined
           ? Math.max(existingEntry?.confidence ?? 0, patch.confidence)
           : undefined;
-        const nextStatus = patch.action === 'archive'
-          ? 'archived'
-          : (observationCount || 0) >= toolConfig.learning.minimumObservationsBeforeGeneralization
-            ? 'active'
-            : patch.status;
+        const nextStatus = (observationCount || 0) >= toolConfig.learning.minimumObservationsBeforeGeneralization
+          ? 'active'
+          : patch.status;
         const updated = await repo.updateTargetInsightsEntry(job.workspaceId, job.targetId, patch.entryId, {
           ...(patch.title ? { title: patch.title } : {}),
           ...(patch.bodyMarkdown ? { bodyMarkdown: patch.bodyMarkdown } : {}),
@@ -461,32 +471,29 @@ async function processJob(job: Awaited<ReturnType<typeof repo.claimDueTargetInsi
           ...(patch.scope ? { scope: patch.scope } : {}),
           lastObservedAt: job.lastActivityAt
         }, client);
-        if (updated) {
-          applied += 1;
-          const index = existingEntries.findIndex((entry) => entry.id === updated.id);
-          if (index >= 0) existingEntries[index] = updated;
-        }
+        if (!updated) throw new Error('Target Insights patch target changed');
+        applied += 1;
+        const index = existingEntries.findIndex((entry) => entry.id === updated.id);
+        if (index >= 0) existingEntries[index] = updated;
       }
     }
 
-    const status = applied > 0 ? 'applied' : 'noop';
     const finished = await repo.finishTargetInsightsCheckpointJob({
       ...jobKey(job),
-      status
+      status: 'applied'
     }, client);
     if (!finished) {
       throw new Error('Target Insights checkpoint lease expired before finish');
     }
-    return status;
+    return 'applied';
   });
 
   if (!terminalStatus) {
-    await rescheduleJob(job, new Date(Date.now() + 60_000).toISOString(), 'state_changed');
-    incrementTargetInsightsCheckpointOutcome('skipped', 'state_changed');
+    await rescheduleTargetInsightsCheckpointAfterStateChange(job);
     return;
   }
-  incrementTargetInsightsCheckpointOutcome(terminalStatus);
-  recordTargetInsightsCheckpointPatchCount(terminalStatus, applied);
+  incrementTargetInsightsCheckpointOutcome('applied');
+  recordTargetInsightsCheckpointPatchCount('applied', applied);
   await recordTargetInsightsAudit({
     workspaceId: job.workspaceId,
     targetId: job.targetId,
@@ -494,8 +501,16 @@ async function processJob(job: Awaited<ReturnType<typeof repo.claimDueTargetInsi
     actorType: 'system',
     eventType: 'target_insights.checkpoint.applied.v1',
     objectId: job.targetId,
-    summary: applied > 0 ? 'Target Insights checkpoint applied' : 'Target Insights checkpoint completed with no changes',
-    metadata: { sessionId: job.sessionId, appliedPatchCount: applied }
+    summary: 'Target Insights checkpoint applied',
+    metadata: {
+      outcome: 'applied',
+      provider: llmSettings.provider,
+      model: llmSettings.model,
+      sessionId: job.sessionId,
+      proposedPatchCount: response.proposedPatchCount,
+      appliedPatchCount: applied,
+      rejectedPatchCount: 0
+    }
   });
 }
 

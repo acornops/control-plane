@@ -86,7 +86,12 @@ Audited events include:
 - `target_insights.reset.v1`
 - `target_insights.checkpoint.skipped.v1`
 - `target_insights.checkpoint.applied.v1`
+- `target_insights.checkpoint.noop.v1`
+- `target_insights.checkpoint.invalid_response.v1`
+- `target_insights.checkpoint.failed.v1`
 - `target_insights.tool.setting_updated.v1`
+
+Checkpoint model output is accepted only as a strict JSON patch envelope. A no-op must be the sole patch and include a bounded reason code. Malformed JSON, invalid patch shapes, mixed no-op decisions, and unknown entry references are recorded as non-retryable invalid responses for the current session activity. Provider request failures remain retryable. Checkpoint audit metadata contains only safe identifiers, provider/model names, bounded reason codes, and patch counts; it never includes transcripts, raw model responses, or insight content.
 
 Checkpoint scheduling internals do not appear as chat runs.
 
