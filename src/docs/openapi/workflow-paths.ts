@@ -1,5 +1,6 @@
 import { EXAMPLE_RUN_ID, EXAMPLE_WORKSPACE_ID } from '../../constants/dev-defaults.js';
 import { streamContent } from './schema-types.js';
+import { buildWorkflowEventTriggerPaths } from './workflow-event-trigger-paths.js';
 
 const workspaceIdParameter = {
   in: 'path',
@@ -155,6 +156,7 @@ const workflowScheduleBody = {
 
 export function buildWorkflowPaths(): Record<string, unknown> {
   return {
+    ...buildWorkflowEventTriggerPaths(),
     '/api/v1/workspaces/{workspaceId}/workflows': {
       get: {
         tags: ['workflows'],

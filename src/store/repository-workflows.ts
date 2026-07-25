@@ -47,7 +47,8 @@ export {
 export { getWorkflowOptionsCatalog } from './repository-workflow-options.js';
 export {
   getWorkflowExecution,
-  getWorkflowExecutionByClientRequestId
+  getWorkflowExecutionByClientRequestId,
+  getWorkflowExecutionByTriggerOccurrence
 } from './repository-workflow-execution-read.js';
 
 export interface WorkflowDefinitionUpdate {

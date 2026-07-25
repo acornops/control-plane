@@ -57,6 +57,25 @@ function createRequest(input: {
 }
 
 describe('csrfProtection', () => {
+  it('allows the HMAC-authenticated workflow webhook ingress even when a browser session cookie is present', () => {
+    const req = {
+      method: 'POST',
+      path: '/api/v1/workflow-event-triggers/trigger-1/events',
+      cookies: { [config.SESSION_COOKIE_NAME]: 'session-1' },
+      header: () => undefined
+    };
+    const res = createResponse();
+    let nextCalled = false;
+
+    csrfProtection(req as never, res as never, () => {
+      nextCalled = true;
+    });
+
+    assert.equal(nextCalled, true);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body, undefined);
+  });
+
   it('sets a signed CSRF cookie on safe requests', () => {
     const req = createRequest({ method: 'GET' });
     const res = createResponse();

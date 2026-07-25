@@ -1,10 +1,12 @@
 import { dateTime, JsonSchema, jsonObject, pageOf, schemaRef, stringArray, uuid } from './schema-types.js';
+import { buildWorkflowEventTriggerSchemas } from './schema-components-workflow-event-triggers.js';
 
 const workflowId = { type: 'string', example: 'workflow-cluster-daily-triage' };
 const workflowSessionId = { type: 'string', example: 'workflow-session-01' };
 
 export function buildWorkflowSchemas(): Record<string, JsonSchema> {
   return {
+    ...buildWorkflowEventTriggerSchemas(),
     WorkflowOrigin: {
       type: 'object',
       required: ['type'],

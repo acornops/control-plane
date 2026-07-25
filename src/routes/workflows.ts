@@ -4,6 +4,7 @@ import * as workflowsController from '../controllers/workflows-controller.js';
 import * as workflowSchedulesController from '../controllers/workflow-schedules-controller.js';
 import * as workflowExecutionsController from '../controllers/workflow-executions-controller.js';
 import * as workflowReportsController from '../controllers/workflow-reports-controller.js';
+import * as workflowEventTriggersController from '../controllers/workflow-event-triggers-controller.js';
 import * as catalogController from '../controllers/catalog-controller.js';
 import * as catalogSourcesController from '../controllers/catalog-sources-controller.js';
 import * as promptReferencesController from '../controllers/prompt-references-controller.js';
@@ -16,6 +17,8 @@ workflowsRouter.post('/workspaces/:workspaceId/workflows', requireUser, authed(w
 workflowsRouter.get('/workspaces/:workspaceId/workflow-schedules', requireUser, authed(workflowSchedulesController.listWorkspaceWorkflowSchedules));
 workflowsRouter.post('/workspaces/:workspaceId/workflow-schedules', requireUser, authed(workflowSchedulesController.createWorkflowScheduleForWorkspace));
 workflowsRouter.post('/workspaces/:workspaceId/workflow-schedules/preview', requireUser, authed(workflowSchedulesController.previewWorkflowSchedule));
+workflowsRouter.get('/workspaces/:workspaceId/workflow-event-triggers', requireUser, authed(workflowEventTriggersController.listWorkspaceWorkflowEventTriggers));
+workflowsRouter.post('/workspaces/:workspaceId/workflow-event-triggers', requireUser, authed(workflowEventTriggersController.createWorkspaceWorkflowEventTrigger));
 workflowsRouter.get('/workspaces/:workspaceId/approvals', requireUser, authed(workflowSchedulesController.listWorkspaceApprovalInbox));
 workflowsRouter.get('/workspaces/:workspaceId/workflow-options', requireUser, authed(workflowsController.listWorkflowOptions));
 workflowsRouter.get('/workspaces/:workspaceId/prompt-reference-types', requireUser, authed(promptReferencesController.listPromptReferenceTypes));
@@ -35,6 +38,10 @@ workflowsRouter.patch('/workflows/:workflowId', requireUser, authed(workflowsCon
 workflowsRouter.delete('/workflows/:workflowId', requireUser, authed(workflowsController.deleteWorkflow));
 workflowsRouter.patch('/workflow-schedules/:scheduleId', requireUser, authed(workflowSchedulesController.updateWorkflowSchedule));
 workflowsRouter.delete('/workflow-schedules/:scheduleId', requireUser, authed(workflowSchedulesController.deleteWorkflowSchedule));
+workflowsRouter.post('/workflow-event-triggers/:triggerId/events', workflowEventTriggersController.receiveWorkflowEventTriggerWebhook);
+workflowsRouter.patch('/workflow-event-triggers/:triggerId', requireUser, authed(workflowEventTriggersController.updateWorkflowEventTrigger));
+workflowsRouter.delete('/workflow-event-triggers/:triggerId', requireUser, authed(workflowEventTriggersController.deleteWorkflowEventTrigger));
+workflowsRouter.post('/workflow-event-triggers/:triggerId/rotate-secret', requireUser, authed(workflowEventTriggersController.rotateWorkflowEventTriggerSigningSecret));
 workflowsRouter.get('/workflows/:workflowId/sessions', requireUser, authed(workflowsController.listSessions));
 workflowsRouter.post('/workflows/:workflowId/sessions', requireActor(['user', 'externalIntegration']), authed(workflowsController.createSession));
 workflowsRouter.post('/workflow-sessions/:sessionId/messages', requireActor(['user', 'externalIntegration']), authed(workflowsController.postMessage));

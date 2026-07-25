@@ -347,6 +347,63 @@ export interface WorkflowSchedulePatch {
   principal?: WorkflowSchedulePrincipal;
 }
 
+export type WorkflowEventTriggerSourceType = 'webhook' | 'acornops_event';
+export type WorkflowEventTriggerStatus = 'enabled' | 'paused';
+export type WorkflowEventTriggerLastStatus = 'dispatched' | 'failed' | 'auto_paused' | 'rejected';
+export type WorkflowEventInputBinding =
+  | 'issue.id'
+  | 'issue.title'
+  | 'issue.summary'
+  | 'issue.severity'
+  | 'issue.scope'
+  | 'issue.object'
+  | 'target.id'
+  | 'target.type';
+
+export interface WorkflowEventTriggerRecord {
+  id: string;
+  workspaceId: string;
+  workflowId: string;
+  workflowVersion: number;
+  parameterSignature: string;
+  name: string;
+  status: WorkflowEventTriggerStatus;
+  sourceType: WorkflowEventTriggerSourceType;
+  eventType?: 'issue.created.v1';
+  inputBindings: Record<string, WorkflowEventInputBinding>;
+  approvedContextGrants: string[];
+  principal: WorkflowSchedulePrincipal;
+  secretCiphertext?: string;
+  secretKeyId?: string;
+  createdBy: WorkflowScheduleActorMetadata;
+  updatedBy: WorkflowScheduleActorMetadata;
+  createdAt: string;
+  updatedAt: string;
+  lastTriggeredAt?: string;
+  lastStatus?: WorkflowEventTriggerLastStatus;
+  lastExecutionId?: string;
+  lastRunId?: string;
+  lastError?: string;
+}
+
+export interface WorkflowEventTriggerInput {
+  workflowId: string;
+  name: string;
+  enabled?: boolean;
+  sourceType: WorkflowEventTriggerSourceType;
+  eventType?: 'issue.created.v1';
+  inputBindings?: Record<string, WorkflowEventInputBinding>;
+  approvedContextGrants?: string[];
+  principal: WorkflowSchedulePrincipal;
+}
+
+export interface WorkflowEventTriggerPatch {
+  name?: string;
+  enabled?: boolean;
+  inputBindings?: Record<string, WorkflowEventInputBinding>;
+  approvedContextGrants?: string[];
+}
+
 export interface WorkflowApprovalInboxRow {
   approvalId: string;
   runId: string;

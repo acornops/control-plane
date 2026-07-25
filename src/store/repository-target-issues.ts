@@ -11,6 +11,7 @@ import {
   resumeIssueWebhookJobs,
   supersedeOlderIssueWebhookJobs
 } from './repository-webhook-outbox.js';
+import { enqueueWorkflowIssueCreatedEvent } from './repository-workflow-event-triggers.js';
 import { toIso } from './repository-mappers.js';
 import {
   mapIssueRow,
@@ -175,6 +176,26 @@ async function upsertObservedIssue(
   const row = result.rows[0];
   const issue = mapIssueRow(row);
   if (!previous) {
+    await enqueueWorkflowIssueCreatedEvent(client, {
+      workspaceId: issue.workspaceId,
+      issueId: issue.id,
+      lifecycleVersion: issue.lifecycleVersion,
+      occurredAt: observation.snapshotTs,
+      payload: {
+        issue: {
+          id: issue.id,
+          title: issue.title,
+          summary: issue.summary,
+          severity: issue.severity,
+          scope: issue.scopeName || issue.scopeKind,
+          object: issue.objectName || issue.objectKind
+        },
+        target: {
+          id: issue.targetId,
+          type: issue.targetType
+        }
+      }
+    });
     await enqueueWebhookOutboxEvent({
       type: 'issue.created.v1',
       workspaceId: issue.workspaceId,

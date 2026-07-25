@@ -248,6 +248,37 @@
         "mcp.server.tested.v1",
         "tool.catalog.changed.v1"
       ],
+      "workflowEventTriggers": {
+        "managementPaths": [
+          "GET /api/v1/workspaces/{workspaceId}/workflow-event-triggers",
+          "POST /api/v1/workspaces/{workspaceId}/workflow-event-triggers",
+          "PATCH /api/v1/workflow-event-triggers/{triggerId}",
+          "DELETE /api/v1/workflow-event-triggers/{triggerId}",
+          "POST /api/v1/workflow-event-triggers/{triggerId}/rotate-secret"
+        ],
+        "ingressPath": "POST /api/v1/workflow-event-triggers/{triggerId}/events",
+        "sourceTypes": [
+          "webhook",
+          "acornops_event"
+        ],
+        "acornopsEventTypes": [
+          "issue.created.v1"
+        ],
+        "authorization": "read_workspace_data lists triggers; manage_workflows creates, updates, deletes, and rotates secrets; ingress is authenticated only by the trigger HMAC",
+        "webhookContract": "JSON body {inputs:{parameterKey:string}} plus X-AcornOps-Event-Id, X-AcornOps-Timestamp, and X-AcornOps-Signature=v1=<HMAC-SHA256(secret, timestamp.rawBody)>; 256 KiB maximum, five-minute timestamp window, replay-protected, bounded request attempts, and 60 accepted events per trigger per minute",
+        "issueBindings": [
+          "issue.id",
+          "issue.title",
+          "issue.summary",
+          "issue.severity",
+          "issue.scope",
+          "issue.object",
+          "target.id",
+          "target.type"
+        ],
+        "dispatchPolicy": "Every delivery recompiles current workflow parameters, user-principal authorization, capability mappings, MCP readiness, AI policy, approvals, and execution idempotency; configuration failures auto-pause the trigger",
+        "secretPolicy": "Webhook secrets are encrypted at rest and returned only on creation or explicit rotation; rotation invalidates an already-verified request before durable acceptance"
+      },
       "eventTypes": [
         "run_progress",
         "run_started",
@@ -362,6 +393,23 @@
         "workflowSchedule": [
           "inputs.{parameterKey:string}",
           "principal.{type=user,id=currentUserId}"
+        ],
+        "workflowEventTrigger": [
+          "workflowId",
+          "name",
+          "enabled?",
+          "sourceType=webhook|acornops_event",
+          "eventType=issue.created.v1 only for acornops_event",
+          "inputBindings.{parameterKey:allowlistedIssueOrTargetField}? only for acornops_event",
+          "approvedContextGrants[]?"
+        ],
+        "workflowEventTriggerUpdate": [
+          "workspaceId",
+          "name?",
+          "enabled?",
+          "inputBindings?",
+          "approvedContextGrants[]?",
+          "no workflowId, sourceType, eventType, status, or principal"
         ],
         "promptReferenceResolve": [
           "prompt",
@@ -650,6 +698,30 @@
         "workflowSchedulePage": [
           "items",
           "summary.{total,active,paused,approvalGated,nextRunAt?}"
+        ],
+        "workflowEventTrigger": [
+          "id",
+          "workspaceId",
+          "workflowId",
+          "name",
+          "status=enabled|paused",
+          "sourceType=webhook|acornops_event",
+          "eventType?",
+          "inputBindings",
+          "approvedContextGrants",
+          "principal.{type=user,id}",
+          "endpointUrl? webhook only",
+          "lastTriggeredAt?",
+          "lastStatus?",
+          "lastError?"
+        ],
+        "workflowEventTriggerPage": [
+          "items"
+        ],
+        "workflowEventTriggerSecret": [
+          "url",
+          "secret",
+          "secretDisclosure=one_time"
         ],
         "workspaceApprovalInbox": [
           "query.{status?,limit?,cursor?,runId?,approvalId?}",

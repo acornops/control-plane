@@ -43,16 +43,18 @@ async function claim(limit: number): Promise<OutboxRow[]> {
          SELECT outbox.id
          FROM automation_dispatch_outbox outbox
          LEFT JOIN workflow_runs run ON outbox.source_type='workflow' AND run.id=outbox.run_id
-         WHERE outbox.status IN ('pending','failed')
+         WHERE (
+             outbox.status IN ('pending','failed')
+             OR (outbox.status='claimed' AND outbox.claim_expires_at < NOW())
+           )
            AND outbox.next_attempt_at <= NOW()
-           AND (outbox.claim_expires_at IS NULL OR outbox.claim_expires_at < NOW())
            AND (outbox.source_type <> 'workflow' OR run.status='queued')
          ORDER BY outbox.created_at,outbox.id
          FOR UPDATE OF outbox SKIP LOCKED
          LIMIT $1
        )
        UPDATE automation_dispatch_outbox outbox
-       SET status='claimed',claim_owner=$2,claim_expires_at=NOW()+INTERVAL '30 seconds',updated_at=NOW()
+       SET status='claimed',claim_owner=$2,claim_expires_at=NOW()+INTERVAL '5 minutes',updated_at=NOW()
        FROM candidates WHERE outbox.id=candidates.id RETURNING outbox.*`,
       [limit, workerId]
     );

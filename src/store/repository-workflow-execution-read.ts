@@ -90,3 +90,37 @@ export async function getWorkflowExecutionByClientRequestId(
     compiledAccessScope: row.run_compiled_access_scope
   };
 }
+
+export async function getWorkflowExecutionByTriggerOccurrence(
+  workspaceId: string,
+  triggerId: string,
+  occurrenceKey: string
+): Promise<{
+  execution: WorkflowExecutionRecord;
+  run: WorkflowRunRecord;
+  compiledAccessScope: CompiledWorkflowAccessScope;
+} | null> {
+  const result = await db.query<QueryResultRow>(
+    `SELECT execution.*,
+            row_to_json(run_record) AS run_record,
+            run_record.compiled_access_scope AS run_compiled_access_scope
+       FROM workflow_executions execution
+       JOIN LATERAL (
+         SELECT * FROM workflow_runs
+          WHERE execution_id=execution.id
+          ORDER BY requested_at,attempt_number,id
+          LIMIT 1
+       ) run_record ON TRUE
+      WHERE execution.workspace_id=$1
+        AND execution.trigger_id=$2
+        AND execution.occurrence_key=$3`,
+    [workspaceId, triggerId, occurrenceKey]
+  );
+  if (!result.rowCount) return null;
+  const row = result.rows[0];
+  return {
+    execution: mapExecution(row),
+    run: mapRun(row.run_record, []),
+    compiledAccessScope: row.run_compiled_access_scope
+  };
+}

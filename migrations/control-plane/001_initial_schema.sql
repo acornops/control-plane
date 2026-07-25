@@ -1231,6 +1231,44 @@ CREATE TABLE workflow_schedules (
     CONSTRAINT workflow_schedules_workflow_version_check CHECK ((workflow_version > 0))
 );
 
+CREATE TABLE workflow_event_triggers (
+    id text NOT NULL,
+    workspace_id text NOT NULL,
+    workflow_id text NOT NULL,
+    workflow_version integer NOT NULL,
+    parameter_signature text NOT NULL,
+    name text NOT NULL,
+    status text DEFAULT 'enabled'::text NOT NULL,
+    source_type text NOT NULL,
+    event_type text,
+    input_bindings jsonb DEFAULT '{}'::jsonb NOT NULL,
+    approved_context_grants jsonb DEFAULT '[]'::jsonb NOT NULL,
+    principal jsonb NOT NULL,
+    secret_ciphertext text,
+    secret_key_id text,
+    created_by jsonb NOT NULL,
+    updated_by jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_triggered_at timestamp with time zone,
+    last_status text,
+    last_execution_id text,
+    last_run_id text,
+    last_error text,
+    CONSTRAINT workflow_event_triggers_approved_context_grants_check CHECK ((jsonb_typeof(approved_context_grants) = 'array'::text)),
+    CONSTRAINT workflow_event_triggers_created_by_check CHECK ((jsonb_typeof(created_by) = 'object'::text)),
+    CONSTRAINT workflow_event_triggers_event_type_check CHECK ((((source_type = 'webhook'::text) AND (event_type IS NULL)) OR ((source_type = 'acornops_event'::text) AND (event_type = 'issue.created.v1'::text)))),
+    CONSTRAINT workflow_event_triggers_input_bindings_check CHECK ((jsonb_typeof(input_bindings) = 'object'::text)),
+    CONSTRAINT workflow_event_triggers_last_status_check CHECK (((last_status IS NULL) OR (last_status = ANY (ARRAY['dispatched'::text, 'failed'::text, 'auto_paused'::text, 'rejected'::text])))),
+    CONSTRAINT workflow_event_triggers_parameter_signature_check CHECK ((parameter_signature ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT workflow_event_triggers_principal_check CHECK (((jsonb_typeof(principal) = 'object'::text) AND ((principal ->> 'type'::text) = 'user'::text) AND (COALESCE((principal ->> 'id'::text), ''::text) <> ''::text))),
+    CONSTRAINT workflow_event_triggers_source_secret_check CHECK ((((source_type = 'webhook'::text) AND (secret_ciphertext IS NOT NULL) AND (secret_key_id IS NOT NULL)) OR ((source_type = 'acornops_event'::text) AND (secret_ciphertext IS NULL) AND (secret_key_id IS NULL)))),
+    CONSTRAINT workflow_event_triggers_source_type_check CHECK ((source_type = ANY (ARRAY['webhook'::text, 'acornops_event'::text]))),
+    CONSTRAINT workflow_event_triggers_status_check CHECK ((status = ANY (ARRAY['enabled'::text, 'paused'::text]))),
+    CONSTRAINT workflow_event_triggers_updated_by_check CHECK ((jsonb_typeof(updated_by) = 'object'::text)),
+    CONSTRAINT workflow_event_triggers_workflow_version_check CHECK ((workflow_version > 0))
+);
+
 CREATE TABLE workflow_sessions (
     id text NOT NULL,
     workspace_id text NOT NULL,
@@ -1625,6 +1663,9 @@ ALTER TABLE ONLY workflow_runs
 ALTER TABLE ONLY workflow_schedules
     ADD CONSTRAINT workflow_schedules_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY workflow_event_triggers
+    ADD CONSTRAINT workflow_event_triggers_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY workflow_sessions
     ADD CONSTRAINT workflow_sessions_pkey PRIMARY KEY (id);
 
@@ -1678,7 +1719,7 @@ CREATE INDEX agent_skills_agent_enabled_idx ON agent_skills USING btree (workspa
 
 CREATE INDEX agent_versions_agent_created_idx ON agent_versions USING btree (workspace_id, agent_id, created_at DESC, id DESC);
 
-CREATE INDEX automation_dispatch_outbox_claim_idx ON automation_dispatch_outbox USING btree (next_attempt_at, created_at, id) WHERE (status = ANY (ARRAY['pending'::text, 'failed'::text]));
+CREATE INDEX automation_dispatch_outbox_claim_idx ON automation_dispatch_outbox USING btree (next_attempt_at, created_at, id) WHERE (status = ANY (ARRAY['pending'::text, 'failed'::text, 'claimed'::text]));
 
 CREATE INDEX automation_dispatch_outbox_depth_idx ON automation_dispatch_outbox USING btree (workspace_id, status, created_at);
 
@@ -1690,7 +1731,7 @@ CREATE INDEX workflow_run_approvals_workspace_status_idx ON workflow_run_approva
 
 CREATE INDEX workflow_run_continuations_approval_idx ON workflow_run_continuations USING btree (approval_id);
 
-CREATE INDEX automation_trigger_deliveries_claim_idx ON automation_trigger_deliveries USING btree (next_attempt_at, created_at, id) WHERE (status = ANY (ARRAY['pending'::text, 'failed'::text]));
+CREATE INDEX automation_trigger_deliveries_claim_idx ON automation_trigger_deliveries USING btree (next_attempt_at, created_at, id) WHERE (status = ANY (ARRAY['pending'::text, 'failed'::text, 'claimed'::text]));
 
 CREATE INDEX capability_routing_lookup_idx ON capability_routing_mappings USING btree (workspace_id, capability_id, status, review_state, priority, id);
 
@@ -1923,6 +1964,10 @@ CREATE INDEX workflow_runs_agent_usage_idx ON workflow_runs USING btree (workspa
 CREATE INDEX workflow_schedules_due_idx ON workflow_schedules USING btree (next_run_at, id) WHERE (status = 'enabled'::text);
 
 CREATE INDEX workflow_schedules_workspace_idx ON workflow_schedules USING btree (workspace_id, next_run_at, id);
+
+CREATE INDEX workflow_event_triggers_workspace_idx ON workflow_event_triggers USING btree (workspace_id, created_at, id);
+
+CREATE INDEX workflow_event_triggers_issue_event_idx ON workflow_event_triggers USING btree (workspace_id, event_type, id) WHERE ((status = 'enabled'::text) AND (source_type = 'acornops_event'::text));
 
 CREATE INDEX workflow_sessions_workflow_created_idx ON workflow_sessions USING btree (workspace_id, workflow_id, created_at DESC, id DESC);
 
@@ -2255,6 +2300,12 @@ ALTER TABLE ONLY workflow_schedules
 
 ALTER TABLE ONLY workflow_schedules
     ADD CONSTRAINT workflow_schedules_workspace_id_workflow_id_fkey FOREIGN KEY (workspace_id, workflow_id) REFERENCES workflow_definitions(workspace_id, id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY workflow_event_triggers
+    ADD CONSTRAINT workflow_event_triggers_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workflow_event_triggers
+    ADD CONSTRAINT workflow_event_triggers_workspace_id_workflow_id_fkey FOREIGN KEY (workspace_id, workflow_id) REFERENCES workflow_definitions(workspace_id, id) ON DELETE RESTRICT;
 
 ALTER TABLE ONLY workflow_sessions
     ADD CONSTRAINT workflow_sessions_workspace_id_workflow_id_fkey FOREIGN KEY (workspace_id, workflow_id) REFERENCES workflow_definitions(workspace_id, id) ON DELETE RESTRICT;
