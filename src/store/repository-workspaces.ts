@@ -1,15 +1,18 @@
-import { randomUUID } from 'node:crypto';
 import { PoolClient } from 'pg';
 import { db } from '../infra/db.js';
-import { Role, WorkspaceMembership, WorkspaceMembershipAuditAction } from '../types/domain.js';
+import {
+  Role,
+  WorkspaceMemberCandidate,
+  WorkspaceMemberDiscoveryMode,
+  WorkspaceMembership,
+  WorkspaceMembershipAuditAction
+} from '../types/domain.js';
 import { PagedResult, encodeCursor, pageWithCursor } from '../utils/pagination.js';
 import {
   AddWorkspaceMemberResult,
   DeleteWorkspaceMemberResult,
   UpdateWorkspaceMemberResult,
-  UserRow,
   WorkspaceMembershipRow,
-  displayNameFromEmail,
   mapWorkspaceMembership,
   normalizeRole
 } from './repository-mappers.js';
@@ -85,6 +88,87 @@ export async function getWorkspaceMember(workspaceId: string, userId: string): P
     if (!result.rowCount) return null;
     return mapWorkspaceMembership(result.rows[0]);
   }
+
+interface WorkspaceMemberCandidateRow {
+  user_id: string;
+  email: string;
+  display_name: string;
+  has_oidc: boolean;
+  has_password: boolean;
+  status: WorkspaceMemberCandidate['status'];
+}
+
+export async function listWorkspaceMemberCandidates(
+  workspaceId: string,
+  query: string,
+  mode: Exclude<WorkspaceMemberDiscoveryMode, 'disabled'>,
+  limit = 8
+): Promise<WorkspaceMemberCandidate[]> {
+  const normalizedQuery = query.trim().toLowerCase();
+  const boundedLimit = Math.max(1, Math.min(20, limit));
+  const matchSql = mode === 'exact_email'
+    ? 'LOWER(u.email) = $2'
+    : '(STRPOS(LOWER(u.email), $2) > 0 OR STRPOS(LOWER(u.display_name), $2) > 0)';
+  const result = await db.query<WorkspaceMemberCandidateRow>(
+    `SELECT
+       u.id AS user_id,
+       u.email,
+       u.display_name,
+       EXISTS (
+         SELECT 1 FROM user_federated_identities fi
+         WHERE fi.user_id = u.id AND fi.last_login_at IS NOT NULL
+       ) AS has_oidc,
+       EXISTS (
+         SELECT 1 FROM user_password_credentials pc
+         WHERE pc.user_id = u.id
+           AND (u.email_verification_required = false OR u.email_verified_at IS NOT NULL)
+       ) AS has_password,
+       CASE
+         WHEN m.user_id IS NOT NULL THEN 'member'
+         WHEN EXISTS (
+           SELECT 1
+           FROM workspace_invitations i
+           WHERE i.workspace_id = $1
+             AND LOWER(i.email) = LOWER(u.email)
+             AND i.status = 'pending'
+             AND i.expires_at > NOW()
+         ) THEN 'invited'
+         ELSE 'available'
+       END AS status
+     FROM users u
+     LEFT JOIN workspace_memberships m
+       ON m.workspace_id = $1 AND m.user_id = u.id
+     WHERE ${matchSql}
+       AND (
+         EXISTS (
+           SELECT 1 FROM user_password_credentials pc
+           WHERE pc.user_id = u.id
+             AND (u.email_verification_required = false OR u.email_verified_at IS NOT NULL)
+         )
+         OR EXISTS (
+           SELECT 1 FROM user_federated_identities fi
+           WHERE fi.user_id = u.id AND fi.last_login_at IS NOT NULL
+         )
+       )
+     ORDER BY
+       CASE WHEN LOWER(u.email) = $3 THEN 0 ELSE 1 END,
+       LOWER(u.display_name),
+       LOWER(u.email),
+       u.id
+     LIMIT $4`,
+    [workspaceId, normalizedQuery, normalizedQuery, boundedLimit]
+  );
+  return result.rows.map((row) => ({
+    userId: row.user_id,
+    email: row.email,
+    displayName: row.display_name,
+    authMethods: [
+      ...(row.has_oidc ? ['oidc' as const] : []),
+      ...(row.has_password ? ['password' as const] : [])
+    ],
+    status: row.status
+  }));
+}
 async function recordWorkspaceMembershipAudit(
     client: PoolClient,
     data: {
@@ -128,32 +212,52 @@ async function recordWorkspaceMembershipAudit(
   }
 export async function addWorkspaceMember(
     workspaceId: string,
-    input: { email: string; displayName?: string; role: Role },
+    input: { userId: string; email: string; role: Role },
     actorUserId: string
   ): Promise<AddWorkspaceMemberResult> {
-    const email = input.email.trim().toLowerCase();
-    const requestedDisplayName = input.displayName?.trim();
-    const displayName = requestedDisplayName || displayNameFromEmail(email);
     return withTransaction(async (client) => {
-      const workspaceResult = await client.query('SELECT 1 FROM workspaces WHERE id = $1 LIMIT 1', [workspaceId]);
+      const workspaceResult = await client.query(
+        `SELECT 1, pg_advisory_xact_lock(hashtext($2), hashtext(LOWER($3)))
+         FROM workspaces
+         WHERE id = $1
+         LIMIT 1`,
+        [workspaceId, workspaceId, input.email]
+      );
       if (!workspaceResult.rowCount) {
         return { status: 'workspace_not_found' };
       }
 
-      const userId = randomUUID();
-      const userResult = await client.query<UserRow>(
-        `INSERT INTO users (id, email, display_name, email_verified_at, email_verification_required, created_at)
-         VALUES ($1, $2, $3, NOW(), false, NOW())
-         ON CONFLICT (email) DO UPDATE
-         SET display_name = CASE
-           WHEN $4::boolean THEN EXCLUDED.display_name
-           ELSE users.display_name
-         END,
-         email_verified_at = COALESCE(users.email_verified_at, NOW()),
-         email_verification_required = false
-         RETURNING *`,
-        [userId, email, displayName, Boolean(requestedDisplayName)]
+      const userResult = await client.query<{ id: string; email: string; display_name: string; source: WorkspaceMembership['source'] }>(
+        `SELECT
+           u.id,
+           u.email,
+           u.display_name,
+           CASE
+             WHEN EXISTS (
+               SELECT 1 FROM user_federated_identities fi
+               WHERE fi.user_id = u.id AND fi.last_login_at IS NOT NULL
+             ) THEN 'oidc'
+             ELSE 'internal'
+           END AS source
+         FROM users u
+         WHERE u.id = $1 AND LOWER(u.email) = LOWER($2)
+           AND (
+             EXISTS (
+               SELECT 1 FROM user_password_credentials pc
+               WHERE pc.user_id = u.id
+                 AND (u.email_verification_required = false OR u.email_verified_at IS NOT NULL)
+             )
+             OR EXISTS (
+               SELECT 1 FROM user_federated_identities fi
+               WHERE fi.user_id = u.id AND fi.last_login_at IS NOT NULL
+             )
+           )
+         LIMIT 1`,
+        [input.userId, input.email]
       );
+      if (!userResult.rowCount) {
+        return { status: 'user_not_found' };
+      }
       const user = userResult.rows[0];
 
       const existingMembership = await client.query(
@@ -161,13 +265,28 @@ export async function addWorkspaceMember(
          FROM workspace_memberships
          WHERE workspace_id = $1 AND user_id = $2
          LIMIT 1`,
-        [workspaceId, user.id]
+        [workspaceId, input.userId]
       );
       if (existingMembership.rowCount) {
         return { status: 'already_exists' };
       }
 
-      await assertWorkspaceMembershipQuota(client, user.id);
+      const pendingInvitation = await client.query(
+        `SELECT 1
+         FROM workspace_invitations
+         WHERE workspace_id = $1
+           AND LOWER(email) = LOWER($2)
+           AND status = 'pending'
+           AND expires_at > NOW()
+         LIMIT 1
+         FOR UPDATE`,
+        [workspaceId, user.email]
+      );
+      if (pendingInvitation.rowCount) {
+        return { status: 'invitation_pending' };
+      }
+
+      await assertWorkspaceMembershipQuota(client, input.userId);
       await assertWorkspaceMemberQuota(client, workspaceId);
 
       const membershipResult = await client.query<WorkspaceMembershipRow>(
@@ -183,7 +302,7 @@ export async function addWorkspaceMember(
            source,
            created_at,
            updated_at`,
-        [workspaceId, user.id, input.role, 'internal', user.email, user.display_name]
+        [workspaceId, input.userId, input.role, user.source, user.email, user.display_name]
       );
       if (!membershipResult.rowCount) {
         return { status: 'already_exists' };
@@ -191,7 +310,7 @@ export async function addWorkspaceMember(
 
       await recordWorkspaceMembershipAudit(client, {
         workspaceId,
-        targetUserId: user.id,
+        targetUserId: input.userId,
         actorUserId,
         action: 'member_added',
         nextRole: input.role

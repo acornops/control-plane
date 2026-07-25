@@ -201,6 +201,16 @@ export interface WorkspaceMembership {
   updatedAt: string;
 }
 
+export type WorkspaceMemberDiscoveryMode = 'disabled' | 'exact_email' | 'directory';
+
+export interface WorkspaceMemberCandidate {
+  userId: string;
+  email: string;
+  displayName: string;
+  authMethods: Array<'oidc' | 'password'>;
+  status: 'available' | 'member' | 'invited';
+}
+
 export interface WorkspaceInvitation {
   id: string;
   workspaceId: string;

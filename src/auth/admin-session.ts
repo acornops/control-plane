@@ -8,7 +8,7 @@ export const PLATFORM_ADMIN_ROLES = ['platform-admin', 'platform-admin-viewer', 
 export type PlatformAdminRole = typeof PLATFORM_ADMIN_ROLES[number];
 
 const ROLE_SCOPES: Record<PlatformAdminRole, AdminScope[]> = {
-  'platform-admin': ['admin:self', 'admin:system:read', 'admin:workspace:read', 'admin:workspace:write', 'admin:user:read', 'admin:member:write', 'admin:audit:read'],
+  'platform-admin': ['admin:self', 'admin:system:read', 'admin:system:write', 'admin:workspace:read', 'admin:workspace:write', 'admin:user:read', 'admin:member:write', 'admin:audit:read'],
   'platform-admin-viewer': ['admin:self', 'admin:system:read', 'admin:workspace:read', 'admin:user:read'],
   'platform-admin-auditor': ['admin:self', 'admin:audit:read']
 };

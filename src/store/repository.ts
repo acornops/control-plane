@@ -36,6 +36,7 @@ import {
   deleteWorkspace as deleteWorkspaceRecord,
   deleteWorkspaceMember as deleteWorkspaceMemberRecord,
   getWorkspaceMember as getWorkspaceMemberRecord,
+  listWorkspaceMemberCandidates as listWorkspaceMemberCandidatesRecord,
   listWorkspaceMembers as listWorkspaceMembersRecord,
   updateWorkspaceMemberRole as updateWorkspaceMemberRoleRecord
 } from './repository-workspaces.js';
@@ -297,7 +298,7 @@ export class Repository {
   upsertWorkspaceAiSettings = upsertWorkspaceAiSettingsRecord;
 
   listWorkspaceMembers = listWorkspaceMembersRecord;
-
+  listWorkspaceMemberCandidates = listWorkspaceMemberCandidatesRecord;
   getWorkspaceMember = getWorkspaceMemberRecord;
 
   addWorkspaceMember = addWorkspaceMemberRecord;

@@ -4,6 +4,7 @@ import { buildAuthorizationUrl, sanitizeOidcReturnTo } from '../src/auth/oidc.js
 import { config } from '../src/config.js';
 import { authConfig, requireOidcConfigured } from '../src/controllers/auth-controller.js';
 import { redis } from '../src/infra/redis.js';
+import { applyPlatformSettingOverrides } from '../src/services/platform-settings.js';
 
 const mutableConfig = config as typeof config & {
   OIDC_ENABLED: boolean;
@@ -14,6 +15,7 @@ const mutableConfig = config as typeof config & {
   PASSWORD_SIGNUP_ENABLED: boolean;
   PASSWORD_EMAIL_VERIFICATION_REQUIRED: boolean;
   PASSWORD_RESET_ENABLED: boolean;
+  PLATFORM_SETTINGS_POLICY: typeof config.PLATFORM_SETTINGS_POLICY;
 };
 const testBrowserBindingHash = 'a'.repeat(64);
 
@@ -37,12 +39,21 @@ afterEach(() => mock.restoreAll());
 describe('auth runtime config', () => {
   it('returns auth capability flags without secrets', async () => {
     const original = { ...config };
+    const originalPlatformSettingsPolicy = config.PLATFORM_SETTINGS_POLICY;
     try {
       mutableConfig.OIDC_ENABLED = false;
       mutableConfig.PASSWORD_AUTH_ENABLED = true;
       mutableConfig.PASSWORD_SIGNUP_ENABLED = false;
       mutableConfig.PASSWORD_EMAIL_VERIFICATION_REQUIRED = true;
       mutableConfig.PASSWORD_RESET_ENABLED = true;
+      mutableConfig.PLATFORM_SETTINGS_POLICY = {
+        ...originalPlatformSettingsPolicy,
+        passwordSignup: {
+          allowedValues: [false, true],
+          defaultValue: false
+        }
+      };
+      applyPlatformSettingOverrides([]);
       const res = createResponse();
 
       await authConfig({} as never, res as never, (err?: unknown) => { if (err) throw err; });
@@ -63,6 +74,8 @@ describe('auth runtime config', () => {
       mutableConfig.PASSWORD_SIGNUP_ENABLED = original.PASSWORD_SIGNUP_ENABLED;
       mutableConfig.PASSWORD_EMAIL_VERIFICATION_REQUIRED = original.PASSWORD_EMAIL_VERIFICATION_REQUIRED;
       mutableConfig.PASSWORD_RESET_ENABLED = original.PASSWORD_RESET_ENABLED;
+      mutableConfig.PLATFORM_SETTINGS_POLICY = originalPlatformSettingsPolicy;
+      applyPlatformSettingOverrides([]);
     }
   });
 

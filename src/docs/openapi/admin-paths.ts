@@ -63,6 +63,74 @@ export function buildAdminPaths(): Record<string, unknown> {
         responses: { '200': { description: 'Secret-redacted effective config.' } }
       }
     },
+    '/admin/v1/system/settings': {
+      get: {
+        tags: ['admin'],
+        summary: 'List effective durable platform settings and deployment boundaries',
+        security: adminSecurity,
+        responses: { '200': { description: 'Typed platform setting states with effective values, source, version, and constraints.' } }
+      }
+    },
+    '/admin/v1/system/settings/{settingKey}': {
+      parameters: [{
+        in: 'path',
+        name: 'settingKey',
+        required: true,
+        schema: { type: 'string', enum: ['member_discovery', 'ai_policy', 'password_signup'] }
+      }],
+      patch: {
+        tags: ['admin'],
+        summary: 'Set a durable platform setting override',
+        security: adminSecurity,
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['value', 'expectedVersion', 'reason'],
+                properties: {
+                  value: { type: 'object' },
+                  expectedVersion: { type: 'integer', minimum: 0 },
+                  reason: { type: 'string', minLength: 3, maxLength: 500 }
+                },
+                additionalProperties: false
+              }
+            }
+          }
+        },
+        responses: {
+          '200': { description: 'Updated effective setting state.' },
+          '400': { description: 'Value is invalid or outside the deployment policy ceiling.' },
+          '409': { description: 'Optimistic setting version conflict.' }
+        }
+      },
+      delete: {
+        tags: ['admin'],
+        summary: 'Reset a durable platform setting to its deployment default',
+        security: adminSecurity,
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['expectedVersion', 'reason'],
+                properties: {
+                  expectedVersion: { type: 'integer', minimum: 0 },
+                  reason: { type: 'string', minLength: 3, maxLength: 500 }
+                },
+                additionalProperties: false
+              }
+            }
+          }
+        },
+        responses: {
+          '200': { description: 'Setting reset to its deployment default.' },
+          '409': { description: 'Optimistic setting version conflict.' }
+        }
+      }
+    },
     '/admin/v1/workspaces': {
       get: {
         tags: ['admin'],

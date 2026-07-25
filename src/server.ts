@@ -30,6 +30,11 @@ import { repo } from './store/repository.js';
 import { runtime } from './store/runtime.js';
 import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE } from './types/domain.js';
 import { runMcpSecretCleanupTick } from './services/mcp-secret-cleanup-worker.js';
+import {
+  initializePlatformSettings,
+  startPlatformSettingsRefresh,
+  stopPlatformSettingsRefresh
+} from './services/platform-settings.js';
 
 async function main(): Promise<void> {
   await initializeDatabase();
@@ -38,7 +43,9 @@ async function main(): Promise<void> {
     config.OIDC_PRELINKED_IDENTITIES_JSON
   );
   await repo.syncRoleTemplates(config.WORKSPACE_ROLE_TEMPLATES);
+  await initializePlatformSettings();
   await initializeRedis();
+  await startPlatformSettingsRefresh();
   registerRunEventHandler(({ runId, events }) => {
     for (const event of events) {
       runtime.runStreams.emit(`run:${runId}`, { event });
@@ -202,6 +209,7 @@ async function main(): Promise<void> {
         logger.warn({ err }, 'Internal transport shutdown failed');
       });
       await stopControlPlaneCoordination().catch(() => undefined);
+      await stopPlatformSettingsRefresh().catch(() => undefined);
       await closeRedis().catch(() => undefined);
       await closeDatabase().catch(() => undefined);
       clearTimeout(forceExit);

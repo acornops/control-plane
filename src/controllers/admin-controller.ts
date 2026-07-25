@@ -27,6 +27,7 @@ export * from './admin-target-run-controller.js';
 export * from './admin-audit-controller.js';
 export * from './admin-workspace-lifecycle-controller.js';
 export * from './admin-workspace-member-search-controller.js';
+export * from './admin-platform-settings-controller.js';
 
 export async function me(req: AdminAuthenticatedRequest, res: Response): Promise<void> {
   res.status(200).json({

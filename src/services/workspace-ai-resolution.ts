@@ -8,9 +8,9 @@ import {
   parseAllowedProviderModels,
   parseAllowedProviders,
   parseAllowedReasoningEfforts,
-  parseAllowedReasoningSummaryModes
+  parseAllowedReasoningSummaryModes,
+  reasoningSummariesEnabled
 } from './llm-policy.js';
-import { config } from '../config.js';
 import { DEFAULT_REASONING_EFFORT, type ProviderModelMap } from '../config-llm-policy.js';
 
 export interface WorkspaceLlmSettingsResolution {
@@ -51,10 +51,12 @@ export async function resolveWorkspaceLlmSettings(
   const selectedSummaryMode = runSnapshot?.reasoningSummaryMode || settings?.reasoningSummaryMode || 'auto';
   const selectedEffort = runSnapshot?.reasoningEffort || settings?.reasoningEffort || DEFAULT_REASONING_EFFORT;
   const summaryMode =
-    config.LLM_REASONING_SUMMARIES_ENABLED && allowedReasoningSummaryModes.includes(selectedSummaryMode)
+    reasoningSummariesEnabled() && allowedReasoningSummaryModes.includes(selectedSummaryMode)
       ? selectedSummaryMode
       : 'off';
-  const effort = allowedReasoningEfforts.includes(selectedEffort) ? selectedEffort : DEFAULT_REASONING_EFFORT;
+  const effort = allowedReasoningEfforts.includes(selectedEffort)
+    ? selectedEffort
+    : allowedReasoningEfforts[0] || DEFAULT_REASONING_EFFORT;
   const credential = credentials.providers.find((entry) => entry.provider === provider);
   const allowedProviders = effectiveAllowedProviders(credentials.providers);
   return {

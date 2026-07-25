@@ -213,7 +213,9 @@ export interface CreateRunFromMessageResult {
 export type AddWorkspaceMemberResult =
   | { status: 'created'; member: WorkspaceMembership }
   | { status: 'already_exists' }
-  | { status: 'workspace_not_found' };
+  | { status: 'invitation_pending' }
+  | { status: 'workspace_not_found' }
+  | { status: 'user_not_found' };
 
 export type UpdateWorkspaceMemberResult =
   | { status: 'updated'; member: WorkspaceMembership }

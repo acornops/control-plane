@@ -99,25 +99,16 @@ describe('password email verification controller', () => {
     }
   });
 
-  it('invalidates the initial signup token when delivery is skipped', async () => {
+  it('rejects signup before creating an account when required email delivery is unavailable', async () => {
     const originalRequired = config.PASSWORD_EMAIL_VERIFICATION_REQUIRED;
     const originalAllowUnverified = config.PASSWORD_SIGNUP_ALLOW_UNVERIFIED_EMAIL;
     const originalDeliveryMode = config.EMAIL_DELIVERY_MODE;
-    let invalidatedTokenHash = '';
     try {
       mutableConfig.PASSWORD_EMAIL_VERIFICATION_REQUIRED = true;
       mutableConfig.PASSWORD_SIGNUP_ALLOW_UNVERIFIED_EMAIL = false;
       mutableConfig.EMAIL_DELIVERY_MODE = 'disabled';
-      mock.method(repo, 'createPasswordUser', async (input) => {
-        assert.equal(input.emailVerificationRequired, true);
-        assert.equal(typeof input.verificationTokenHash, 'string');
-        return { status: 'created', user };
-      });
-      mock.method(repo, 'invalidateEmailVerificationToken', async (tokenHash: string) => {
-        invalidatedTokenHash = tokenHash;
-      });
-      mock.method(repo, 'retireOtherEmailVerificationTokens', async () => {
-        throw new Error('should not retire stale tokens when delivery is skipped');
+      const createPasswordUser = mock.method(repo, 'createPasswordUser', async () => {
+        throw new Error('signup must fail before creating an account');
       });
 
       const res = createResponse();
@@ -132,9 +123,9 @@ describe('password email verification controller', () => {
         if (err) throw err;
       });
 
-      assert.equal(res.statusCode, 503);
-      assert.equal(typeof invalidatedTokenHash, 'string');
-      assert.equal(invalidatedTokenHash.length > 40, true);
+      assert.equal(res.statusCode, 403);
+      assert.equal((res.body as { error: { code: string } }).error.code, 'SIGNUP_DISABLED');
+      assert.equal(createPasswordUser.mock.callCount(), 0);
       assert.equal(res.cookies.size, 0);
     } finally {
       mutableConfig.PASSWORD_EMAIL_VERIFICATION_REQUIRED = originalRequired;

@@ -4,6 +4,7 @@ import { agentTransportConfigFields, validateAgentTransportConfig } from './conf
 import { agentKHelmConfigFields, parseAgentKHelmValues, validateAgentKHelmConfig } from './config-agentk-helm.js';
 import { configureWorkspaceRoleTemplates } from './auth/role-template-config.js';
 import { DEFAULT_LLM_PROVIDERS_JSON, validateLlmPolicyConfig } from './config-llm-policy.js';
+import { platformSettingsConfigFields, resolvePlatformSettingsRuntimeConfig } from './config-platform-settings.js';
 import { webhookConfigShape } from './config-webhooks.js';
 import {
   parseAdminTokenDescriptors,
@@ -166,6 +167,7 @@ const envSchema = z.object({
   TARGET_METRIC_HISTORY_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   WORKSPACE_AUDIT_LOGGING_MODE: workspaceAuditLoggingModeFromEnv,
   WORKSPACE_AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
+  ...platformSettingsConfigFields,
   TARGET_INSIGHTS_ENABLED: envBoolean(true),
   TARGET_CHAT_RECENT_ACTIVITY_WINDOW_SECONDS: z.coerce.number().int().min(60).max(3600).default(300),
   RUN_EVENT_BUFFER_SIZE: z.coerce.number().int().positive().default(200),
@@ -524,16 +526,15 @@ const envSchema = z.object({
   ADMIN_TOKEN_DESCRIPTORS: parseAdminTokenDescriptors(value.CONTROL_PLANE_ADMIN_TOKENS_JSON, value.NODE_ENV),
   EXTERNAL_INTEGRATION_CLIENTS: parseExternalIntegrationClientDescriptors(value.EXTERNAL_INTEGRATION_CLIENTS_JSON, value.NODE_ENV),
   WORKSPACE_PLANS: parseWorkspacePlansConfig(value.WORKSPACE_PLANS_CONFIG_JSON),
+  ...resolvePlatformSettingsRuntimeConfig(
+    value.PLATFORM_SETTINGS_POLICY_JSON, value.PASSWORD_SIGNUP_ENABLED, value.NODE_ENV === 'production'
+  ),
   AGENTK_HELM_VALUES: parseAgentKHelmValues(value.AGENTK_HELM_VALUES_JSON, value.AGENTK_HELM_ADDITIONAL_CA_FILE_PATH),
   SESSION_MAX_AGE_SECONDS: value.SESSION_MAX_AGE_SECONDS ?? 604800,
-  PASSWORD_SIGNUP_ENABLED: value.PASSWORD_SIGNUP_ENABLED ?? value.NODE_ENV !== 'production',
   PERSIST_RUN_EVENTS: value.PERSIST_RUN_EVENTS ?? value.NODE_ENV === 'production',
-  CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED:
-    value.CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED ?? value.NODE_ENV === 'production',
+  CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED: value.CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED ?? value.NODE_ENV === 'production',
   AGENT_WS_REQUIRE_SECURE_TRANSPORT: value.AGENT_WS_REQUIRE_SECURE_TRANSPORT ?? value.NODE_ENV === 'production',
-  WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS: parseWebhookAllowedPrivateHostsJson(
-    value.WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON
-  )
+  WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS: parseWebhookAllowedPrivateHostsJson(value.WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON)
 }));
 export type AppConfig = z.infer<typeof envSchema>;
 export function parseAppConfig(env: NodeJS.ProcessEnv): AppConfig { return envSchema.parse(env); }

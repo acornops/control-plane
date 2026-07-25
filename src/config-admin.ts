@@ -19,6 +19,7 @@ export const ADMIN_SCOPE_VALUES = [
   'admin:*',
   'admin:self',
   'admin:system:read',
+  'admin:system:write',
   'admin:audit:read',
   'admin:workspace:read',
   'admin:workspace:write',

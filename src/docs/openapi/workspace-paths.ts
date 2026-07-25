@@ -126,7 +126,7 @@ export function buildWorkspacePaths(): Record<string, unknown> {
         },
         post: {
           tags: ['workspaces'],
-          summary: 'Add a workspace member by email',
+          summary: 'Add an existing AcornOps user as a workspace member',
           security: [{ userSession: [] }],
           parameters: [
             {
@@ -142,10 +142,10 @@ export function buildWorkspacePaths(): Record<string, unknown> {
               'application/json': {
                 schema: {
                   type: 'object',
-                  required: ['email', 'role'],
+                  required: ['userId', 'email', 'role'],
                   properties: {
-                    email: { type: 'string', format: 'email', example: 'sre@example.com' },
-                    displayName: { type: 'string', example: 'SRE User' },
+                    userId: { type: 'string', format: 'uuid' },
+                    email: { type: 'string', format: 'email', maxLength: 320 },
                     role: workspaceRoleKeySchema
                   }
                 }
@@ -155,8 +155,37 @@ export function buildWorkspacePaths(): Record<string, unknown> {
           responses: {
             '201': { description: 'Workspace member added. Response includes roleTemplate when the role is supported.' },
             '400': { description: 'ROLE_NOT_SUPPORTED when the role key is not in the deployment-supported catalog.' },
-            '403': { description: 'Requires manage_members. PROTECTED_ROLE_REQUIRES_OWNER is returned when a non-owner assigns a protected role.' },
-            '409': { description: 'User is already a member, user workspace-membership quota exceeded, or workspace member quota exceeded. Quota failures return QUOTA_EXCEEDED with quotaKey=workspaceMemberships or workspaceMembers.' }
+            '403': { description: 'Requires manage_members. MEMBER_DISCOVERY_DISABLED is returned when direct existing-user addition is disabled. PROTECTED_ROLE_REQUIRES_OWNER is returned when a non-owner assigns a protected role.' },
+            '404': { description: 'Existing eligible user not found, including when userId and email do not identify the same user.' },
+            '409': { description: 'User is already a member, has a pending invitation, user workspace-membership quota exceeded, or workspace member quota exceeded. Quota failures return QUOTA_EXCEEDED with quotaKey=workspaceMemberships or workspaceMembers.' }
+          }
+        }
+      },
+      '/api/v1/workspaces/{workspaceId}/member-candidates': {
+        get: {
+          tags: ['workspaces'],
+          summary: 'Discover existing users eligible for workspace membership',
+          description: 'Requires manage_members. The deployment-selected mode controls whether discovery is disabled, exact-email only, or directory search.',
+          security: [{ userSession: [] }],
+          parameters: [
+            {
+              in: 'path',
+              name: 'workspaceId',
+              required: true,
+              schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID }
+            },
+            {
+              in: 'query',
+              name: 'q',
+              required: false,
+              description: 'Directory queries are limited to 200 characters; exact-email queries support up to 320.',
+              schema: { type: 'string', maxLength: 320 }
+            }
+          ],
+          responses: {
+            '200': { description: 'Discovery mode and up to eight eligible local user candidates.' },
+            '403': { description: 'Requires manage_members.' },
+            '429': { description: 'Member discovery rate limit exceeded.' }
           }
         }
       },

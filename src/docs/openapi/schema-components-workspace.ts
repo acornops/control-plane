@@ -318,6 +318,31 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
       additionalProperties: true
     },
     WorkspaceMemberPage: pageOf('WorkspaceMember'),
+    WorkspaceMemberCandidate: {
+      type: 'object',
+      required: ['userId', 'email', 'displayName', 'authMethods', 'status'],
+      properties: {
+        userId: uuid,
+        email: { type: 'string', format: 'email' },
+        displayName: { type: 'string' },
+        authMethods: {
+          type: 'array',
+          items: { type: 'string', enum: ['oidc', 'password'] },
+          uniqueItems: true
+        },
+        status: { type: 'string', enum: ['available', 'member', 'invited'] }
+      },
+      additionalProperties: false
+    },
+    WorkspaceMemberCandidateResponse: {
+      type: 'object',
+      required: ['mode', 'items'],
+      properties: {
+        mode: { type: 'string', enum: ['disabled', 'exact_email', 'directory'] },
+        items: { type: 'array', items: schemaRef('WorkspaceMemberCandidate') }
+      },
+      additionalProperties: false
+    },
     WorkspaceInvitation: {
       type: 'object',
       required: ['id', 'workspaceId', 'email', 'role', 'status'],

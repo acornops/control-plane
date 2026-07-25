@@ -25,6 +25,11 @@ export function registerWorkspaceRoutes(router: Router): void {
   router.get('/workspaces/:workspaceId', requireActor(['user', 'externalIntegration']), authed(workspacesController.getWorkspace));
   router.delete('/workspaces/:workspaceId', requireActor(['user']), authed(workspacesController.deleteWorkspace));
   router.get('/workspaces/:workspaceId/roles', requireActor(['user']), authed(workspacesController.listWorkspaceRoleTemplates));
+  router.get(
+    '/workspaces/:workspaceId/member-candidates',
+    requireActor(['user']),
+    authed(workspacesController.listWorkspaceMemberCandidates)
+  );
   router.get('/workspaces/:workspaceId/members', requireActor(['user']), authed(workspacesController.listWorkspaceMembers));
   router.get('/workspaces/:workspaceId/audit-log', requireActor(['user']), authed(workspacesController.listWorkspaceAuditEvents));
   router.get('/workspaces/:workspaceId/ai-settings', requireActor(['user']), authed(workspacesController.getWorkspaceAiSettings));

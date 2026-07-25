@@ -26,8 +26,11 @@ export async function createWorkspaceInvitation(
   const email = input.email.trim().toLowerCase();
   return withTransaction(async (client) => {
     const workspaceResult = await client.query<WorkspaceRow>(
-      'SELECT * FROM workspaces WHERE id = $1 LIMIT 1',
-      [workspaceId]
+      `SELECT w.*, pg_advisory_xact_lock(hashtext($2), hashtext($3))
+       FROM workspaces w
+       WHERE w.id = $1
+       LIMIT 1`,
+      [workspaceId, workspaceId, email]
     );
     if (!workspaceResult.rowCount) return { status: 'workspace_not_found' };
 

@@ -13,7 +13,7 @@ import {
 } from '../src/store/repository-quotas.js';
 import { addVirtualMachine } from '../src/store/repository-virtual-machines.js';
 import { addWorkspaceMember } from '../src/store/repository-workspaces.js';
-import { acceptWorkspaceInvitation } from '../src/store/repository-invitations.js';
+import { acceptWorkspaceInvitation, createWorkspaceInvitation } from '../src/store/repository-invitations.js';
 import { addWorkspace } from '../src/store/repository-users.js';
 
 afterEach(() => {
@@ -172,13 +172,17 @@ describe('quota enforcement', () => {
 
   it('adding an existing member returns the existing-member conflict before quota checks', async () => {
     const { statements } = transactionClient((sql) => {
-      if (sql.includes('SELECT 1 FROM workspaces')) return { rowCount: 1, rows: [{ exists: 1 }] };
-      if (sql.includes('INSERT INTO users')) return { rowCount: 1, rows: [{ id: 'user-2', email: 'new@example.test', display_name: 'New User' }] };
+      if (sql.includes('pg_advisory_xact_lock') && sql.includes('FROM workspaces')) return { rowCount: 1, rows: [{ exists: 1 }] };
+      if (sql.includes('FROM users u')) return { rowCount: 1, rows: [{ id: 'user-2', email: 'new@example.test', display_name: 'New User', source: 'internal' }] };
       if (sql.includes('FROM workspace_memberships') && sql.includes('LIMIT 1')) return { rowCount: 1, rows: [{ exists: 1 }] };
       throw new Error(`Unexpected query: ${sql}`);
     });
 
-    const result = await addWorkspaceMember('workspace-1', { email: 'new@example.test', role: 'viewer' }, 'admin-1');
+    const result = await addWorkspaceMember(
+      'workspace-1',
+      { userId: 'user-2', email: 'new@example.test', role: 'viewer' },
+      'admin-1'
+    );
 
     assert.deepEqual(result, { status: 'already_exists' });
     assert.equal(statements.some((sql) => sql.includes('COUNT(*)::int AS count FROM workspace_memberships')), false);
@@ -186,25 +190,31 @@ describe('quota enforcement', () => {
 
   it('adding a member fails when the target user is at the membership limit', async () => {
     transactionClient((sql) => {
-      if (sql.includes('SELECT 1 FROM workspaces')) return { rowCount: 1, rows: [{ exists: 1 }] };
-      if (sql.includes('INSERT INTO users')) return { rowCount: 1, rows: [{ id: 'user-2', email: 'new@example.test', display_name: 'New User' }] };
+      if (sql.includes('pg_advisory_xact_lock') && sql.includes('FROM workspaces')) return { rowCount: 1, rows: [{ exists: 1 }] };
+      if (sql.includes('FROM users u')) return { rowCount: 1, rows: [{ id: 'user-2', email: 'new@example.test', display_name: 'New User', source: 'internal' }] };
       if (sql.includes('FROM workspace_memberships') && sql.includes('LIMIT 1')) return { rowCount: 0, rows: [] };
+      if (sql.includes('FROM workspace_invitations')) return { rowCount: 0, rows: [] };
       if (sql.includes('SELECT id FROM users') && sql.includes('FOR UPDATE')) return { rowCount: 1, rows: [{ id: 'user-2' }] };
       if (sql.includes('COUNT(*)::int AS count FROM workspace_memberships')) return { rowCount: 1, rows: [{ count: 50 }] };
       throw new Error(`Unexpected query: ${sql}`);
     });
 
     await assert.rejects(
-      () => addWorkspaceMember('workspace-1', { email: 'new@example.test', role: 'viewer' }, 'admin-1'),
+      () => addWorkspaceMember(
+        'workspace-1',
+        { userId: 'user-2', email: 'new@example.test', role: 'viewer' },
+        'admin-1'
+      ),
       (error) => error instanceof QuotaExceededError && error.quotaKey === 'workspaceMemberships'
     );
   });
 
   it('adding a member fails when the workspace is at the member limit', async () => {
     const { statements } = transactionClient((sql) => {
-      if (sql.includes('SELECT 1 FROM workspaces')) return { rowCount: 1, rows: [{ exists: 1 }] };
-      if (sql.includes('INSERT INTO users')) return { rowCount: 1, rows: [{ id: 'user-2', email: 'new@example.test', display_name: 'New User' }] };
+      if (sql.includes('pg_advisory_xact_lock') && sql.includes('FROM workspaces')) return { rowCount: 1, rows: [{ exists: 1 }] };
+      if (sql.includes('FROM users u')) return { rowCount: 1, rows: [{ id: 'user-2', email: 'new@example.test', display_name: 'New User', source: 'internal' }] };
       if (sql.includes('FROM workspace_memberships') && sql.includes('LIMIT 1')) return { rowCount: 0, rows: [] };
+      if (sql.includes('FROM workspace_invitations')) return { rowCount: 0, rows: [] };
       if (sql.includes('SELECT id FROM users') && sql.includes('FOR UPDATE')) return { rowCount: 1, rows: [{ id: 'user-2' }] };
       if (sql.includes('COUNT(*)::int AS count FROM workspace_memberships') && sql.includes('user_id')) return { rowCount: 1, rows: [{ count: 49 }] };
       if (sql.includes('SELECT plan_key FROM workspaces') && sql.includes('FOR UPDATE')) return { rowCount: 1, rows: [{ plan_key: 'default' }] };
@@ -214,10 +224,56 @@ describe('quota enforcement', () => {
     });
 
     await assert.rejects(
-      () => addWorkspaceMember('workspace-1', { email: 'new@example.test', role: 'viewer' }, 'admin-1'),
+      () => addWorkspaceMember(
+        'workspace-1',
+        { userId: 'user-2', email: 'new@example.test', role: 'viewer' },
+        'admin-1'
+      ),
       (error) => error instanceof QuotaExceededError && error.quotaKey === 'workspaceMembers'
     );
     assert.equal(statements.some((sql) => sql.includes('INSERT INTO workspace_memberships')), false);
+  });
+
+  it('does not bypass an existing pending invitation when directly adding a member', async () => {
+    const { statements } = transactionClient((sql) => {
+      if (sql.includes('pg_advisory_xact_lock') && sql.includes('FROM workspaces')) return { rowCount: 1, rows: [{ exists: 1 }] };
+      if (sql.includes('FROM users u')) return { rowCount: 1, rows: [{ id: 'user-2', email: 'new@example.test', display_name: 'New User', source: 'internal' }] };
+      if (sql.includes('FROM workspace_memberships') && sql.includes('LIMIT 1')) return { rowCount: 0, rows: [] };
+      if (sql.includes('FROM workspace_invitations')) return { rowCount: 1, rows: [{ exists: 1 }] };
+      throw new Error(`Unexpected query: ${sql}`);
+    });
+
+    const result = await addWorkspaceMember(
+      'workspace-1',
+      { userId: 'user-2', email: 'new@example.test', role: 'viewer' },
+      'admin-1'
+    );
+
+    assert.deepEqual(result, { status: 'invitation_pending' });
+    assert.match(statements[1], /pg_advisory_xact_lock/);
+    assert.equal(statements.some((sql) => sql.includes('COUNT(*)::int AS count')), false);
+  });
+
+  it('serializes invitation creation with direct member addition for the same identity', async () => {
+    const { statements } = transactionClient((sql) => {
+      if (sql.includes('FROM workspaces w')) return { rowCount: 1, rows: [workspaceRow()] };
+      if (sql.includes('FROM workspace_memberships m')) return { rowCount: 1, rows: [{ exists: 1 }] };
+      throw new Error(`Unexpected query: ${sql}`);
+    });
+
+    const result = await createWorkspaceInvitation(
+      'workspace-1',
+      {
+        email: 'new@example.test',
+        role: 'viewer',
+        tokenHash: 'token-hash',
+        expiresAt: new Date('2026-08-01T00:00:00.000Z')
+      },
+      'admin-1'
+    );
+
+    assert.deepEqual(result, { status: 'already_member' });
+    assert.match(statements[1], /pg_advisory_xact_lock/);
   });
 
   it('accepting an invitation fails at the membership limit and leaves the invitation pending', async () => {

@@ -5,6 +5,8 @@ import {
   adminAddWorkspaceMemberSchema,
   adminDeleteWorkspaceMemberSchema,
   adminMarkRunFailedSchema,
+  adminPlatformSettingPatchSchema,
+  adminPlatformSettingResetSchema,
   adminReasonOnlySchema,
   adminToolingSyncSchema,
   adminUpdateWorkspaceMemberRoleSchema,
@@ -30,6 +32,19 @@ adminRouter.get('/me', requireAdminScope('admin:self'), adminHandler(adminContro
 
 adminRouter.get('/system/readiness', requireAdminScope('admin:system:read'), adminHandler(adminController.systemReadiness));
 adminRouter.get('/system/config', requireAdminScope('admin:system:read'), adminHandler(adminController.systemConfig));
+adminRouter.get('/system/settings', requireAdminScope('admin:system:read'), adminHandler(adminController.listSettings));
+adminRouter.patch(
+  '/system/settings/:settingKey',
+  requireAdminScope('admin:system:write'),
+  validateBody(adminPlatformSettingPatchSchema),
+  adminHandler(adminController.updateSetting)
+);
+adminRouter.delete(
+  '/system/settings/:settingKey',
+  requireAdminScope('admin:system:write'),
+  validateBody(adminPlatformSettingResetSchema),
+  adminHandler(adminController.resetSetting)
+);
 
 adminRouter.get('/workspaces', requireAdminScope('admin:workspace:read'), adminHandler(adminController.listWorkspaces));
 adminRouter.get('/workspaces/:workspaceId', requireAdminScope('admin:workspace:read'), adminHandler(adminController.getWorkspace));

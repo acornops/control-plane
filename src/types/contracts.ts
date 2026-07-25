@@ -129,8 +129,8 @@ export const createWorkspaceSchema = z.object({
 export const workspaceRoleSchema = z.string().regex(/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/, 'must be a lowercase snake_case role key');
 
 export const addWorkspaceMemberSchema = z.object({
-  email: z.string().email(),
-  displayName: z.string().min(1).max(160).optional(),
+  userId: z.string().uuid(),
+  email: z.string().email().max(320),
   role: workspaceRoleSchema
 });
 
@@ -319,6 +319,17 @@ const mcpToolConfigSchema = z.object({
   inputSchema: z.record(z.unknown()).optional(),
   enabled: z.boolean().optional()
 });
+
+export const adminPlatformSettingPatchSchema = z.object({
+  value: z.unknown(),
+  expectedVersion: z.number().int().nonnegative(),
+  reason: z.string().trim().min(3).max(500)
+}).strict();
+
+export const adminPlatformSettingResetSchema = z.object({
+  expectedVersion: z.number().int().nonnegative(),
+  reason: z.string().trim().min(3).max(500)
+}).strict();
 
 const mcpAuthTypeSchema = z.enum(['none', 'bearer_token', 'custom_header']);
 

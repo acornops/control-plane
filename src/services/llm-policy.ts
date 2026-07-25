@@ -1,4 +1,3 @@
-import { config } from '../config.js';
 import {
   configuredProviders,
   flatProviderModels,
@@ -10,6 +9,7 @@ import {
   SUPPORTED_LLM_PROVIDER_VALUES
 } from '../config-llm-policy.js';
 import { LlmProvider, ReasoningEffort, ReasoningSummaryMode } from '../types/domain.js';
+import { effectiveAiPlatformPolicy } from './platform-settings.js';
 
 export const SUPPORTED_LLM_PROVIDERS: LlmProvider[] = [...SUPPORTED_LLM_PROVIDER_VALUES];
 
@@ -21,32 +21,42 @@ export function parseCsv(value: string): string[] {
   return parseConfigCsv(value);
 }
 
-export function parseAllowedProviders(value = config.LLM_PROVIDERS_JSON): LlmProvider[] {
-  return configuredProviders(parseConfiguredProvidersJson(value));
+export function parseAllowedProviders(value?: string): LlmProvider[] {
+  return configuredProviders(value
+    ? parseConfiguredProvidersJson(value)
+    : effectiveAiPlatformPolicy().providerModels);
 }
 
 export function parseAllowedProviderModels(
-  value = config.LLM_PROVIDERS_JSON
+  value?: string
 ): ProviderModelMap {
-  return parseConfiguredProvidersJson(value);
+  return value
+    ? parseConfiguredProvidersJson(value)
+    : effectiveAiPlatformPolicy().providerModels;
 }
 
 export function parseAllowedModels(
-  value = config.LLM_PROVIDERS_JSON
+  value?: string
 ): string[] {
-  return flatProviderModels(parseConfiguredProvidersJson(value));
+  return flatProviderModels(value
+    ? parseConfiguredProvidersJson(value)
+    : effectiveAiPlatformPolicy().providerModels);
 }
 
 export function parseAllowedReasoningSummaryModes(
-  value = config.LLM_ALLOWED_REASONING_SUMMARY_MODES
+  value?: string
 ): ReasoningSummaryMode[] {
-  return parseConfiguredReasoningSummaryModes(value);
+  return value
+    ? parseConfiguredReasoningSummaryModes(value)
+    : effectiveAiPlatformPolicy().reasoningSummaryModes;
 }
 
 export function parseAllowedReasoningEfforts(
-  value = config.LLM_ALLOWED_REASONING_EFFORTS
+  value?: string
 ): ReasoningEffort[] {
-  return parseConfiguredReasoningEfforts(value);
+  return value
+    ? parseConfiguredReasoningEfforts(value)
+    : effectiveAiPlatformPolicy().reasoningEfforts;
 }
 
 export function allowedModelsForProvider(
@@ -65,9 +75,13 @@ export function isModelAllowedForProvider(
 }
 
 export function defaultProvider(): LlmProvider {
-  return config.LLM_DEFAULT_PROVIDER;
+  return effectiveAiPlatformPolicy().defaultProvider;
 }
 
 export function defaultModel(): string {
-  return config.LLM_DEFAULT_MODEL;
+  return effectiveAiPlatformPolicy().defaultModel;
+}
+
+export function reasoningSummariesEnabled(): boolean {
+  return effectiveAiPlatformPolicy().reasoningSummariesEnabled;
 }

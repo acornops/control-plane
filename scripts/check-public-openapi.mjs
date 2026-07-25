@@ -43,7 +43,7 @@ for (const audience of ['public', 'admin']) {
   }
   const lineCount = serialized.split('\n').length - 1;
   combinedLineCount += lineCount;
-  const lineLimit = audience === 'admin' ? 3000 : 27000;
+  const lineLimit = audience === 'admin' ? 3200 : 27000;
   if (lineCount > lineLimit) {
     throw new Error(`${audience} OpenAPI document has ${lineCount} lines; expected at most ${lineLimit}`);
   }

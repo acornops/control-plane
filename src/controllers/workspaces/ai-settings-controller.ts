@@ -1,6 +1,5 @@
 import { NextFunction, Response } from 'express';
 import { AuthenticatedRequest } from '../../auth/middleware.js';
-import { config } from '../../config.js';
 import { DEFAULT_REASONING_EFFORT } from '../../config-llm-policy.js';
 import {
   requireWorkspaceCapability,
@@ -21,6 +20,7 @@ import {
   parseAllowedModels,
   parseAllowedProviderModels,
   parseAllowedProviders,
+  reasoningSummariesEnabled,
   SUPPORTED_LLM_PROVIDERS
 } from '../../services/llm-policy.js';
 import { effectiveAllowedProviders } from '../../services/workspace-ai-resolution.js';
@@ -48,7 +48,7 @@ function effectiveSettings(settings: WorkspaceAiSettings | null): WorkspaceAiSet
 
 function defaultReasoningSummaryMode(existingMode?: ReasoningSummaryMode): ReasoningSummaryMode {
   const allowedModes = parseAllowedReasoningSummaryModes();
-  if (!config.LLM_REASONING_SUMMARIES_ENABLED) {
+  if (!reasoningSummariesEnabled()) {
     return 'off';
   }
   if (existingMode && allowedModes.includes(existingMode)) {
@@ -79,12 +79,13 @@ async function buildAiSettingsResponse(workspaceId: string) {
   const allowedProviders = effectiveAllowedProviders(credentials.providers);
   const allowedProviderModels = parseAllowedProviderModels();
   const configuredReasoningSummaryModes = parseAllowedReasoningSummaryModes();
-  const allowedReasoningSummaryModes = config.LLM_REASONING_SUMMARIES_ENABLED
+  const summariesEnabled = reasoningSummariesEnabled();
+  const allowedReasoningSummaryModes = summariesEnabled
     ? configuredReasoningSummaryModes
     : ['off' as const];
   const allowedReasoningEfforts = parseAllowedReasoningEfforts();
   const effectiveReasoningSummaryMode =
-    config.LLM_REASONING_SUMMARIES_ENABLED && allowedReasoningSummaryModes.includes(resolved.reasoningSummaryMode)
+    summariesEnabled && allowedReasoningSummaryModes.includes(resolved.reasoningSummaryMode)
       ? resolved.reasoningSummaryMode
       : 'off';
   return {
@@ -97,7 +98,7 @@ async function buildAiSettingsResponse(workspaceId: string) {
       : DEFAULT_REASONING_EFFORT,
     allowedReasoningSummaryModes,
     allowedReasoningEfforts,
-    reasoningSummariesEnabled: config.LLM_REASONING_SUMMARIES_ENABLED && effectiveReasoningSummaryMode !== 'off',
+    reasoningSummariesEnabled: summariesEnabled && effectiveReasoningSummaryMode !== 'off',
     allowedProviders,
     allowedProviderModels,
     allowedModels: parseAllowedModels(),
@@ -141,7 +142,7 @@ function validateReasoningSettings(
     res.status(400).json({ error: { code: 'REASONING_EFFORT_NOT_ALLOWED', message: 'Selected reasoning effort is not allowed by this deployment', retryable: false } });
     return false;
   }
-  if (!config.LLM_REASONING_SUMMARIES_ENABLED && mode !== 'off') {
+  if (!reasoningSummariesEnabled() && mode !== 'off') {
     res.status(400).json({ error: { code: 'REASONING_SUMMARIES_DISABLED', message: 'Reasoning summaries are disabled by this deployment', retryable: false } });
     return false;
   }

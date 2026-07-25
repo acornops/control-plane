@@ -261,6 +261,7 @@ export {
   createWorkspaceInvitation,
   deleteWorkspaceMember,
   getWorkspaceInvitation,
+  listWorkspaceMemberCandidates,
   listWorkspaceInvitations,
   listWorkspaceMembers,
   revokeWorkspaceInvitation,

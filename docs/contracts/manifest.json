@@ -30,6 +30,9 @@
         "GET /admin/v1/me",
         "GET /admin/v1/system/readiness",
         "GET /admin/v1/system/config",
+        "GET /admin/v1/system/settings",
+        "PATCH /admin/v1/system/settings/{settingKey}",
+        "DELETE /admin/v1/system/settings/{settingKey}",
         "GET /admin/v1/workspaces",
         "GET /admin/v1/workspaces/{workspaceId}",
         "GET /admin/v1/workspaces/{workspaceId}/members",
@@ -46,6 +49,7 @@
       "requiredScopes": [
         "admin:self",
         "admin:system:read",
+        "admin:system:write",
         "admin:workspace:read",
         "admin:workspace:write",
         "admin:user:read",
@@ -63,6 +67,9 @@
       ],
       "paginationShape": ["items", "nextCursor?"],
       "mutationFields": ["reason", "ticketRef?"],
+      "platformSettingKeys": ["member_discovery", "ai_policy", "password_signup"],
+      "platformSettingPatchFields": ["value", "expectedVersion", "reason"],
+      "platformSettingResetFields": ["expectedVersion", "reason"],
       "workspacePlanPatchFields": ["planKey", "reason", "ticketRef?"],
       "workspaceSuspendFields": ["workspaceName", "reason", "ticketRef?"],
       "workspaceRestoreFields": ["workspaceName?", "reason", "ticketRef?"],
@@ -430,6 +437,13 @@
           "role",
           "roleTemplate?"
         ],
+        "memberDiscovery": [
+          "GET /api/v1/workspaces/{workspaceId}/member-candidates",
+          "mode=disabled|exact_email|directory",
+          "items[].{userId,email,displayName,authMethods[]=oidc|password,status=available|member|invited}",
+          "requires manage_members",
+          "POST /api/v1/workspaces/{workspaceId}/members requires a candidate-bound {userId,email,role} and is unavailable when mode=disabled"
+        ],
         "invitation": [
           "role",
           "roleTemplate?"
@@ -652,6 +666,7 @@
         "admin:*",
         "admin:self",
         "admin:system:read",
+        "admin:system:write",
         "admin:audit:read",
         "admin:workspace:read",
         "admin:workspace:write",
@@ -669,6 +684,9 @@
         "GET /admin/v1/me",
         "GET /admin/v1/system/readiness",
         "GET /admin/v1/system/config",
+        "GET /admin/v1/system/settings",
+        "PATCH /admin/v1/system/settings/{settingKey}",
+        "DELETE /admin/v1/system/settings/{settingKey}",
         "GET /admin/v1/workspaces",
         "GET /admin/v1/workspaces/{workspaceId}",
         "GET /admin/v1/workspaces/{workspaceId}/members",

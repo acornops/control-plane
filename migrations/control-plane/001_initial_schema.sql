@@ -50,6 +50,16 @@ CREATE TABLE admin_audit_events (
     CONSTRAINT admin_audit_events_outcome_check CHECK ((outcome = ANY (ARRAY['success'::text, 'failure'::text])))
 );
 
+CREATE TABLE platform_setting_overrides (
+    key text NOT NULL,
+    override_value jsonb,
+    version integer DEFAULT 1 NOT NULL,
+    updated_by text,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT platform_setting_overrides_key_check CHECK ((key = ANY (ARRAY['member_discovery'::text, 'ai_policy'::text, 'password_signup'::text]))),
+    CONSTRAINT platform_setting_overrides_version_check CHECK ((version > 0))
+);
+
 CREATE TABLE agent_definitions (
     workspace_id text NOT NULL,
     id text NOT NULL,
@@ -1443,6 +1453,9 @@ ALTER TABLE ONLY messages
 
 ALTER TABLE ONLY role_templates
     ADD CONSTRAINT role_templates_pkey PRIMARY KEY (key);
+
+ALTER TABLE ONLY platform_setting_overrides
+    ADD CONSTRAINT platform_setting_overrides_pkey PRIMARY KEY (key);
 
 ALTER TABLE ONLY run_continuations
     ADD CONSTRAINT run_continuations_pkey PRIMARY KEY (run_id);

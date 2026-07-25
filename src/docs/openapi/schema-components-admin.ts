@@ -58,6 +58,32 @@ export function buildAdminSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: true
     },
+    PlatformSetting: {
+      type: 'object',
+      required: ['key', 'value', 'deploymentDefault', 'source', 'version', 'editable', 'constraints'],
+      properties: {
+        key: { type: 'string', enum: ['member_discovery', 'ai_policy', 'password_signup'] },
+        value: jsonObject,
+        deploymentDefault: jsonObject,
+        overrideValue: jsonObject,
+        source: { type: 'string', enum: ['deployment_default', 'runtime_override', 'runtime_override_constrained'] },
+        version: { type: 'integer', minimum: 0 },
+        updatedBy: { type: 'string' },
+        updatedAt: dateTime,
+        editable: { type: 'boolean' },
+        constraints: jsonObject,
+        warning: { type: 'string' }
+      },
+      additionalProperties: false
+    },
+    PlatformSettingList: {
+      type: 'object',
+      required: ['items'],
+      properties: {
+        items: { type: 'array', items: schemaRef('PlatformSetting') }
+      },
+      additionalProperties: false
+    },
     AdminWorkspace: {
       allOf: [
         schemaRef('Workspace'),

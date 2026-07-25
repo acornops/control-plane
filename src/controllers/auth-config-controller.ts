@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { getOrSetCsrfToken } from '../auth/csrf.js';
 import { config } from '../config.js';
+import { passwordSignupEnabled } from '../services/platform-settings.js';
 
 function passwordVerificationRequired(): boolean {
   return config.PASSWORD_EMAIL_VERIFICATION_REQUIRED && !config.PASSWORD_SIGNUP_ALLOW_UNVERIFIED_EMAIL;
@@ -12,7 +13,7 @@ export async function authConfig(_req: Request, res: Response, next: NextFunctio
       oidcEnabled: config.OIDC_ENABLED,
       oidcProviderName: config.OIDC_PROVIDER_NAME,
       passwordAuthEnabled: config.PASSWORD_AUTH_ENABLED,
-      passwordSignupEnabled: config.PASSWORD_SIGNUP_ENABLED,
+      passwordSignupEnabled: passwordSignupEnabled(),
       passwordEmailVerificationRequired: passwordVerificationRequired(),
       passwordResetEnabled: config.PASSWORD_AUTH_ENABLED && config.PASSWORD_RESET_ENABLED
     });

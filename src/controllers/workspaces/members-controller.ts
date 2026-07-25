@@ -1,9 +1,12 @@
 import { NextFunction, Request, Response } from 'express';
+import { z } from 'zod';
 import { AuthenticatedRequest } from '../../auth/middleware.js';
+import { workspaceMemberDiscoveryRateLimited } from '../../auth/workspace-member-discovery-rate-limit.js';
 import {
   requireWorkspaceCapability
 } from '../../auth/workspace-authorization.js';
 import { isSupportedRole } from '../../auth/authorization.js';
+import { workspaceMemberDiscoveryMode } from '../../services/platform-settings.js';
 import { repo } from '../../store/repository.js';
 import { cleanupRemovedMemberMcpConnections } from '../../services/mcp-secret-cleanup-worker.js';
 import { Role, WorkspaceInvitation, WorkspaceMembership } from '../../types/domain.js';
@@ -34,6 +37,62 @@ function sendUnsupportedRole(res: Response, role: string): void {
 
 function roleFilterValue(role: string | undefined): Role | undefined {
   return role && isSupportedRole(role) ? role : undefined;
+}
+
+const emailQuerySchema = z.string().email();
+
+export async function listWorkspaceMemberCandidates(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const workspaceId = toSingleParam(req.params.workspaceId);
+    if (
+      !(await requireWorkspaceCapability(
+        req,
+        res,
+        workspaceId,
+        'manage_members',
+        'Only workspace roles with member-management capability can discover users',
+        'Only workspace roles with member-management capability can discover users'
+      ))
+    ) {
+      return;
+    }
+
+    const mode = workspaceMemberDiscoveryMode();
+    const q = normalizeSearchQuery(req.query.q);
+    const maxQueryLength = mode === 'exact_email' ? 320 : 200;
+    if (q.length > maxQueryLength) {
+      res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: `Member search must not exceed ${maxQueryLength} characters`,
+          retryable: false
+        }
+      });
+      return;
+    }
+    const queryIsEligible =
+      mode === 'directory'
+        ? q.length >= 2
+        : mode === 'exact_email' && emailQuerySchema.safeParse(q).success;
+    if (mode === 'disabled' || !queryIsEligible) {
+      res.status(200).json({ mode, items: [] });
+      return;
+    }
+    if (await workspaceMemberDiscoveryRateLimited(req.auth.userId)) {
+      res.status(429).json({
+        error: {
+          code: 'RATE_LIMITED',
+          message: 'Too many member directory searches. Try again shortly.',
+          retryable: true
+        }
+      });
+      return;
+    }
+    const items = await repo.listWorkspaceMemberCandidates(workspaceId, q, mode, 8);
+    res.status(200).json({ mode, items });
+  } catch (err) {
+    next(err);
+  }
 }
 
 export async function listWorkspaceMembers(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
@@ -101,6 +160,16 @@ export async function addWorkspaceMember(req: AuthenticatedRequest, res: Respons
     if (!actorAuthz) {
       return;
     }
+    if (workspaceMemberDiscoveryMode() === 'disabled') {
+      res.status(403).json({
+        error: {
+          code: 'MEMBER_DISCOVERY_DISABLED',
+          message: 'Direct member addition is disabled; create an invitation instead',
+          retryable: false
+        }
+      });
+      return;
+    }
     const actorRole = actorAuthz.role;
     if (!isSupportedRole(req.body.role)) {
       sendUnsupportedRole(res, req.body.role);
@@ -116,8 +185,8 @@ export async function addWorkspaceMember(req: AuthenticatedRequest, res: Respons
     const result = await repo.addWorkspaceMember(
       workspaceId,
       {
+        userId: req.body.userId,
         email: req.body.email,
-        displayName: req.body.displayName,
         role: req.body.role
       },
       req.auth.userId
@@ -128,6 +197,16 @@ export async function addWorkspaceMember(req: AuthenticatedRequest, res: Respons
     }
     if (result.status === 'already_exists') {
       res.status(409).json({ error: { code: 'CONFLICT', message: 'User is already a workspace member', retryable: false } });
+      return;
+    }
+    if (result.status === 'user_not_found') {
+      res.status(404).json({ error: { code: 'USER_NOT_FOUND', message: 'Existing user not found', retryable: false } });
+      return;
+    }
+    if (result.status === 'invitation_pending') {
+      res.status(409).json({
+        error: { code: 'INVITATION_PENDING', message: 'A pending invitation already exists for this user', retryable: false }
+      });
       return;
     }
 
