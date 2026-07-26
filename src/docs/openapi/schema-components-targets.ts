@@ -89,7 +89,13 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
     },
     InventoryItem: { type: 'object', additionalProperties: true },
     InventoryPage: pageOf('InventoryItem'),
-    Issue: { type: 'object', additionalProperties: true },
+    Issue: {
+      type: 'object',
+      properties: {
+        workflowActivity: schemaRef('WorkflowActivitySummary')
+      },
+      additionalProperties: true
+    },
     IssuePage: pageOf('Issue'),
     TargetIssueSummary: {
       type: 'object',

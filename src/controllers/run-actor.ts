@@ -7,7 +7,8 @@ export function runRequestProvenance(req: AuthenticatedRequest): RunRequestProve
     ? {
         actorType: 'external_integration',
         externalIntegrationLinkId: credential.linkId,
-        externalIntegrationClientId: credential.integrationId
+        externalIntegrationClientId: credential.integrationId,
+        externalIntegrationLabel: req.externalIntegrationClient?.displayName || credential.integrationId
       }
     : { actorType: 'user' };
 }

@@ -168,6 +168,12 @@ describe('workflow event triggers with PostgreSQL', () => {
   it('rejects an accepted event if its trigger is paused before dispatch', async () => {
     const trigger = await createWebhookTrigger();
     mock.method(redis, 'eval', async () => 1);
+    await db.query(
+      `UPDATE workflow_event_triggers
+       SET last_execution_id='prior-successful-execution',last_run_id='prior-successful-run'
+       WHERE id=$1`,
+      [trigger.id]
+    );
     assert.equal((await sendSignedWebhook({
       triggerId: trigger.id,
       secret: trigger.secret,
@@ -191,6 +197,10 @@ describe('workflow event triggers with PostgreSQL', () => {
     );
     assert.equal(delivery.rows[0].status, 'rejected');
     assert.equal(executions.rows[0].count, 0);
+    const durablePointer = await getWorkflowEventTrigger(trigger.id);
+    assert.equal(durablePointer?.lastStatus, 'rejected');
+    assert.equal(durablePointer?.lastExecutionId, 'prior-successful-execution');
+    assert.equal(durablePointer?.lastRunId, 'prior-successful-run');
   });
 
   it('invalidates an in-flight request when its signing secret is rotated', async () => {

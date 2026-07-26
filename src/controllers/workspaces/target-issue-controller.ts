@@ -12,6 +12,7 @@ import {
   normalizeSearchQuery,
   parseBoundedLimit
 } from '../../utils/pagination.js';
+import { getWorkflowActivityByIssueIds } from '../../store/repository-workflow-activity.js';
 
 const issueStatuses = new Set(['active', 'recovering', 'resolved', 'all']);
 const issueSeverities = new Set(['critical', 'warning', 'info']);
@@ -74,7 +75,16 @@ export async function listWorkspaceIssues(req: AuthenticatedRequest, res: Respon
       signature,
       ...filters
     });
-    res.status(200).json(page);
+    const activity = req.auth.credential.type !== 'external_integration'
+      ? await getWorkflowActivityByIssueIds(workspaceId, page.items.map((item) => item.id))
+      : new Map();
+    res.status(200).json({
+      ...page,
+      items: page.items.map((item) => ({
+        ...item,
+        ...(activity.has(item.id) ? { workflowActivity: activity.get(item.id) } : {})
+      }))
+    });
   } catch (err) {
     if (err instanceof CursorMismatchError) {
       res.status(400).json({ error: { code: 'INVALID_CURSOR', message: err.message, retryable: false } });
@@ -120,7 +130,16 @@ export async function listTargetIssues(req: AuthenticatedRequest, res: Response,
       signature,
       ...filters
     });
-    res.status(200).json(page);
+    const activity = req.auth.credential.type !== 'external_integration'
+      ? await getWorkflowActivityByIssueIds(workspaceId, page.items.map((item) => item.id))
+      : new Map();
+    res.status(200).json({
+      ...page,
+      items: page.items.map((item) => ({
+        ...item,
+        ...(activity.has(item.id) ? { workflowActivity: activity.get(item.id) } : {})
+      }))
+    });
   } catch (err) {
     if (err instanceof CursorMismatchError) {
       res.status(400).json({ error: { code: 'INVALID_CURSOR', message: err.message, retryable: false } });
@@ -152,7 +171,13 @@ export async function getTargetIssue(req: AuthenticatedRequest, res: Response, n
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Issue not found', retryable: false } });
       return;
     }
-    res.status(200).json(issue);
+    const activity = req.auth.credential.type !== 'external_integration'
+      ? await getWorkflowActivityByIssueIds(workspaceId, [issue.id])
+      : new Map();
+    res.status(200).json({
+      ...issue,
+      ...(activity.has(issue.id) ? { workflowActivity: activity.get(issue.id) } : {})
+    });
   } catch (err) {
     next(err);
   }

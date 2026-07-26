@@ -24,6 +24,7 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
   const occurrenceKey = schedule.nextRunAt || now.toISOString();
   const dispatch = await dispatchWorkflowTrigger({
     id: schedule.id,
+    name: schedule.name,
     workspaceId: schedule.workspaceId,
     workflowId: schedule.workflowId,
     parameterSignature: schedule.parameterSignature,
@@ -66,7 +67,11 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
   }
 
   try {
-    await recordWorkflowScheduleDispatch(schedule.id, 'dispatched', { now });
+    await recordWorkflowScheduleDispatch(schedule.id, 'dispatched', {
+      now,
+      executionId: dispatch.executionId,
+      runId: dispatch.runId
+    });
     if (dispatch.waitingForApproval) {
       incrementWorkflowSchedulerEvent('approval_wait');
       return 'dispatched';

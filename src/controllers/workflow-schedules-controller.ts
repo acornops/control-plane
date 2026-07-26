@@ -18,6 +18,10 @@ import {
 import {
   getWorkflowDefinition
 } from '../store/repository-workflows.js';
+import {
+  getWorkflowExecutionSummary,
+  listWorkflowExecutionSummariesByIds
+} from '../store/repository-workflow-activity.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import type { WorkflowScheduleRecord } from '../types/workflows.js';
 import { resolveRunPrincipal } from '../services/run-principal.js';
@@ -44,9 +48,15 @@ function inputRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function publicSchedule(schedule: WorkflowScheduleRecord): Omit<WorkflowScheduleRecord, 'parameterSignature'> {
+function publicSchedule(
+  schedule: WorkflowScheduleRecord,
+  latestExecution: Awaited<ReturnType<typeof getWorkflowExecutionSummary>> = null
+) {
   const { parameterSignature: _parameterSignature, ...result } = schedule;
-  return result;
+  return {
+    ...result,
+    latestExecution
+  };
 }
 
 export async function previewWorkflowSchedule(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
@@ -206,8 +216,14 @@ export async function listWorkspaceWorkflowSchedules(req: AuthenticatedRequest, 
     const workspaceId = toSingleParam(req.params.workspaceId);
     if (!(await requireWorkspaceDataRead(req, res, workspaceId, 'No access to workflow schedules'))) return;
     const items = await listWorkflowSchedules(workspaceId);
+    const executions = await listWorkflowExecutionSummariesByIds(
+      items.flatMap((item) => item.lastExecutionId ? [item.lastExecutionId] : [])
+    );
     res.status(200).json({
-      items: items.map(publicSchedule),
+      items: items.map((item) => publicSchedule(
+        item,
+        item.lastExecutionId ? executions.get(item.lastExecutionId) || null : null
+      )),
       summary: await scheduleSummary(items)
     });
   } catch (err) {
@@ -428,7 +444,10 @@ export async function updateWorkflowSchedule(req: AuthenticatedRequest, res: Res
       summary: 'Workflow schedule updated',
       metadata: { workflowId, status: updated?.status }
     });
-    res.status(200).json({ schedule: updated ? publicSchedule(updated) : null });
+    const latestExecution = updated?.lastExecutionId
+      ? await getWorkflowExecutionSummary(updated.lastExecutionId)
+      : null;
+    res.status(200).json({ schedule: updated ? publicSchedule(updated, latestExecution) : null });
   } catch (err) {
     if (err instanceof WorkflowParameterValuesError) {
       res.status(400).json({ error: {

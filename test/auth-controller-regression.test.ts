@@ -91,8 +91,7 @@ describe('controller authorization regressions', () => {
       updatedAt: '2026-05-24T00:00:00.000Z'
     });
     repo.getSession = async () => createSessionRecord();
-    let requestProvenance: { actorType: string; externalIntegrationLinkId?: string;
-      externalIntegrationClientId?: string } | undefined;
+    let requestProvenance: Parameters<typeof repo.createRunFromUserMessage>[0]['requestProvenance'];
     repo.createRunFromUserMessage = async (input) => {
       requestProvenance = input.requestProvenance;
       return {
@@ -121,7 +120,8 @@ describe('controller authorization regressions', () => {
     assert.deepEqual(requestProvenance, {
       actorType: 'external_integration',
       externalIntegrationLinkId: 'link-1',
-      externalIntegrationClientId: 'external-chat'
+      externalIntegrationClientId: 'external-chat',
+      externalIntegrationLabel: 'external-chat'
     });
   });
 

@@ -13,6 +13,10 @@ import {
   updateWorkflowEventTriggerRecord
 } from '../store/repository-workflow-event-triggers.js';
 import { getWorkflowDefinition } from '../store/repository-workflows.js';
+import {
+  getWorkflowExecutionSummary,
+  listWorkflowExecutionSummariesByIds
+} from '../store/repository-workflow-activity.js';
 import type {
   WorkflowEventTriggerRecord
 } from '../types/workflows.js';
@@ -29,35 +33,15 @@ import {
   validateEventTriggerContextGrants,
   validateIssueBindings
 } from './workflow-event-trigger-validation.js';
+import {
+  publicWorkflowEventTrigger,
+  workflowEventTriggerEndpointUrl
+} from './workflow-event-trigger-public.js';
 
 function objectBody(req: Request): Record<string, unknown> {
   return req.body && typeof req.body === 'object' && !Array.isArray(req.body)
     ? req.body as Record<string, unknown>
     : {};
-}
-
-function webhookEndpointUrl(triggerId: string): string {
-  const base = config.CONTROL_PLANE_BASE_URL.replace(/\/+$/, '');
-  return `${base}/api/v1/workflow-event-triggers/${encodeURIComponent(triggerId)}/events`;
-}
-
-function publicTrigger(trigger: WorkflowEventTriggerRecord): Record<string, unknown> {
-  return {
-    id: trigger.id,
-    workspaceId: trigger.workspaceId,
-    workflowId: trigger.workflowId,
-    name: trigger.name,
-    status: trigger.status,
-    sourceType: trigger.sourceType,
-    eventType: trigger.eventType || null,
-    inputBindings: trigger.inputBindings,
-    approvedContextGrants: trigger.approvedContextGrants,
-    principal: trigger.principal,
-    ...(trigger.sourceType === 'webhook' ? { endpointUrl: webhookEndpointUrl(trigger.id) } : {}),
-    lastTriggeredAt: trigger.lastTriggeredAt || null,
-    lastStatus: trigger.lastStatus || null,
-    lastError: trigger.lastError || null
-  };
 }
 
 function mutationWorkspaceId(req: Request, res: Response): string | null {
@@ -107,7 +91,15 @@ export async function listWorkspaceWorkflowEventTriggers(
     const workspaceId = toSingleParam(req.params.workspaceId);
     if (!(await requireWorkspaceDataRead(req, res, workspaceId, 'No access to workflow event triggers'))) return;
     const items = await listWorkflowEventTriggers(workspaceId);
-    res.status(200).json({ items: items.map(publicTrigger) });
+    const executions = await listWorkflowExecutionSummariesByIds(
+      items.flatMap((item) => item.lastExecutionId ? [item.lastExecutionId] : [])
+    );
+    res.status(200).json({
+      items: items.map((item) => publicWorkflowEventTrigger(
+        item,
+        item.lastExecutionId ? executions.get(item.lastExecutionId) || null : null
+      ))
+    });
   } catch (error) {
     next(error);
   }
@@ -264,10 +256,10 @@ export async function createWorkspaceWorkflowEventTrigger(
     });
     await auditTrigger(trigger, req.auth.userId, 'workflow.event_trigger_created.v1', 'Workflow event trigger created');
     res.status(201).json({
-      trigger: publicTrigger(trigger),
+      trigger: publicWorkflowEventTrigger(trigger),
       ...(secret ? {
         webhook: {
-          url: webhookEndpointUrl(trigger.id),
+          url: workflowEventTriggerEndpointUrl(trigger.id),
           secret,
           secretDisclosure: 'one_time'
         }
@@ -408,7 +400,10 @@ export async function updateWorkflowEventTrigger(
       return;
     }
     await auditTrigger(updated, req.auth.userId, 'workflow.event_trigger_updated.v1', 'Workflow event trigger updated');
-    res.status(200).json({ trigger: publicTrigger(updated) });
+    const latestExecution = updated.lastExecutionId
+      ? await getWorkflowExecutionSummary(updated.lastExecutionId)
+      : null;
+    res.status(200).json({ trigger: publicWorkflowEventTrigger(updated, latestExecution) });
   } catch (error) {
     next(error);
   }
@@ -470,9 +465,14 @@ export async function rotateWorkflowEventTriggerSigningSecret(
       'Workflow event trigger signing secret rotated'
     );
     res.status(200).json({
-      trigger: publicTrigger(updated),
+      trigger: publicWorkflowEventTrigger(
+        updated,
+        updated.lastExecutionId
+          ? await getWorkflowExecutionSummary(updated.lastExecutionId)
+          : null
+      ),
       webhook: {
-        url: webhookEndpointUrl(updated.id),
+        url: workflowEventTriggerEndpointUrl(updated.id),
         secret,
         secretDisclosure: 'one_time'
       }

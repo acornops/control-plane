@@ -1004,6 +1004,9 @@ CREATE TABLE workflow_executions (
     trigger_type text DEFAULT 'manual'::text NOT NULL,
     trigger_id text,
     occurrence_key text,
+    origin_snapshot jsonb DEFAULT '{"schemaVersion": 1, "kind": "manual", "label": "Manual"}'::jsonb NOT NULL,
+    source_type text,
+    source_id text,
     client_request_id text,
     client_request_fingerprint text,
     status text NOT NULL,
@@ -1026,6 +1029,7 @@ CREATE TABLE workflow_executions (
     request_external_integration_client_id text,
     CONSTRAINT workflow_executions_approved_context_grants_check CHECK ((jsonb_typeof(approved_context_grants) = 'array'::text)),
     CONSTRAINT workflow_executions_resource_bindings_check CHECK ((jsonb_typeof(resource_bindings) = 'array'::text)),
+    CONSTRAINT workflow_executions_origin_snapshot_check CHECK ((jsonb_typeof(origin_snapshot) = 'object'::text)),
     CONSTRAINT workflow_executions_workflow_snapshot_check CHECK ((jsonb_typeof(workflow_snapshot) = 'object'::text)),
     CONSTRAINT workflow_executions_workflow_version_check CHECK ((workflow_version > 0)),
     CONSTRAINT workflow_executions_client_request_fingerprint_check CHECK ((((client_request_id IS NULL) AND (client_request_fingerprint IS NULL)) OR ((client_request_id IS NOT NULL) AND (client_request_fingerprint ~ '^[0-9a-f]{64}$'::text)))),
@@ -1213,6 +1217,8 @@ CREATE TABLE workflow_schedules (
     next_run_at timestamp with time zone,
     last_run_at timestamp with time zone,
     last_status text,
+    last_execution_id text,
+    last_run_id text,
     last_error text,
     lease_owner text,
     lease_expires_at timestamp with time zone,
@@ -1930,6 +1936,10 @@ CREATE INDEX workflow_definitions_workspace_status_idx ON workflow_definitions U
 CREATE INDEX workflow_executions_resumable_idx ON workflow_executions USING btree (updated_at, id) WHERE (status = ANY (ARRAY['queued'::text, 'running'::text, 'needs_review'::text, 'failed'::text]));
 
 CREATE INDEX workflow_executions_workspace_status_idx ON workflow_executions USING btree (workspace_id, status, updated_at, id);
+
+CREATE INDEX workflow_executions_workspace_created_idx ON workflow_executions USING btree (workspace_id, created_at DESC, id DESC);
+
+CREATE INDEX workflow_executions_source_idx ON workflow_executions USING btree (workspace_id, source_type, source_id, created_at DESC, id DESC) WHERE (source_id IS NOT NULL);
 
 CREATE INDEX workflow_messages_session_created_idx ON workflow_messages USING btree (session_id, created_at, id);
 

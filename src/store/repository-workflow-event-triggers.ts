@@ -399,8 +399,8 @@ export async function finishWorkflowEventTriggerDelivery(input: {
        SET status=CASE WHEN $6 THEN 'paused' ELSE status END,
            last_triggered_at=NOW(),
            last_status=$2,
-           last_execution_id=$3,
-           last_run_id=$4,
+           last_execution_id=COALESCE($3,last_execution_id),
+           last_run_id=COALESCE($4,last_run_id),
            last_error=$5,
            updated_at=NOW()
        WHERE id=$1`,

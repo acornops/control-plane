@@ -461,7 +461,29 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       get: {
         tags: ['workflows'], summary: 'Get workflow execution, attempts, and sanitized coordination', security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
         parameters: [externalUserHeader, { in: 'path', name: 'executionId', required: true, schema: { type: 'string' } }],
-        responses: { '200': { description: 'Workflow execution with retained attempts and, for coordinated runs, a sanitized child summary without prompts, compiled scopes, results, credentials, or coordinator identity.', content: { 'application/json': { schema: { type: 'object', required: ['execution', 'attempts'], properties: { execution: { type: 'object' }, attempts: { type: 'array', items: { type: 'object' } }, coordination: { $ref: '#/components/schemas/WorkflowCoordinationSummary' } } } } } } }
+        responses: { '200': { description: 'Workflow execution with retained attempts and, for normal users, immutable origin provenance. Coordinated runs include a sanitized child summary without prompts, compiled scopes, results, credentials, or coordinator identity.', content: { 'application/json': { schema: { type: 'object', required: ['execution', 'attempts'], properties: { execution: { type: 'object', properties: { origin: { $ref: '#/components/schemas/WorkflowExecutionOrigin' } }, additionalProperties: true }, attempts: { type: 'array', items: { type: 'object' } }, coordination: { $ref: '#/components/schemas/WorkflowCoordinationSummary' } } } } } } }
+      }
+    },
+    '/api/v1/workspaces/{workspaceId}/workflow-executions': {
+      get: {
+        tags: ['workflows'], summary: 'List workspace workflow executions with immutable provenance',
+        security: [{ userSession: [] }],
+        parameters: [
+          workspaceIdParameter,
+          { in: 'query', name: 'state', required: false, schema: { type: 'string', enum: ['all', 'open', 'attention', 'completed', 'failed', 'cancelled'] } },
+          { in: 'query', name: 'origin', required: false, schema: { type: 'string', enum: ['manual', 'external_integration', 'schedule', 'event_trigger'] } },
+          { in: 'query', name: 'workflowId', required: false, schema: { type: 'string' } },
+          { in: 'query', name: 'sourceIssueId', required: false, schema: { type: 'string' } },
+          { in: 'query', name: 'search', required: false, schema: { type: 'string', maxLength: 200 } },
+          { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } },
+          { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100 } }
+        ],
+        responses: {
+          '200': {
+            description: 'Cursor-paginated execution ledger and current workspace counts.',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/WorkflowExecutionPage' } } }
+          }
+        }
       }
     },
     '/api/v1/workflow-executions/{executionId}/stream': {

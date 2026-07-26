@@ -18,6 +18,7 @@ workflowsRouter.get('/workspaces/:workspaceId/workflow-schedules', requireUser, 
 workflowsRouter.post('/workspaces/:workspaceId/workflow-schedules', requireUser, authed(workflowSchedulesController.createWorkflowScheduleForWorkspace));
 workflowsRouter.post('/workspaces/:workspaceId/workflow-schedules/preview', requireUser, authed(workflowSchedulesController.previewWorkflowSchedule));
 workflowsRouter.get('/workspaces/:workspaceId/workflow-event-triggers', requireUser, authed(workflowEventTriggersController.listWorkspaceWorkflowEventTriggers));
+workflowsRouter.get('/workspaces/:workspaceId/workflow-executions', requireUser, authed(workflowExecutionsController.listWorkspaceWorkflowExecutions));
 workflowsRouter.post('/workspaces/:workspaceId/workflow-event-triggers', requireUser, authed(workflowEventTriggersController.createWorkspaceWorkflowEventTrigger));
 workflowsRouter.get('/workspaces/:workspaceId/approvals', requireUser, authed(workflowSchedulesController.listWorkspaceApprovalInbox));
 workflowsRouter.get('/workspaces/:workspaceId/workflow-options', requireUser, authed(workflowsController.listWorkflowOptions));

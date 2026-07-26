@@ -7,6 +7,11 @@ import { db } from '../src/infra/db.js';
 import { runAutomationOutboxTick } from '../src/services/automation-outbox-worker.js';
 import { promptResourceRegistry } from '../src/services/prompt-resources/index.js';
 import { runWorkflowScheduleTick } from '../src/services/workflow-scheduler.js';
+import {
+  createWorkflowSchedule,
+  getWorkflowSchedule,
+  recordWorkflowScheduleDispatch
+} from '../src/store/repository-workflow-schedules.js';
 import { createWorkflowDefinition } from '../src/store/repository-workflows.js';
 import {
   callController,
@@ -144,5 +149,39 @@ describe('coordinated Workflow schedules', () => {
       executor_role: 'specialist',
       agent_id: 'agent-cluster-triage'
     });
+  });
+
+  it('preserves the latest successful execution pointer after a failed dispatch', async () => {
+    const created = await createWorkflowSchedule({
+      workspaceId: 'workspace-1',
+      workflowVersion: 3,
+      parameterSignature: 'a'.repeat(64),
+      actorUserId: 'user-1',
+      input: {
+        workflowId: 'cluster-triage',
+        name: 'Durable execution pointer',
+        cron: '0 * * * *',
+        timezone: 'UTC',
+        status: 'enabled',
+        principal: { type: 'user', id: 'user-1' },
+        inputs: { target: 'cluster-1' },
+        approvedContextGrants: ['workspace_metadata', 'target_inventory']
+      }
+    });
+    const scheduleId = created.id;
+
+    await recordWorkflowScheduleDispatch(scheduleId, 'dispatched', {
+      executionId: 'prior-successful-execution',
+      runId: 'prior-successful-run'
+    });
+    await recordWorkflowScheduleDispatch(scheduleId, 'failed', {
+      error: 'The runtime rejected the dispatch.'
+    });
+
+    const schedule = await getWorkflowSchedule(scheduleId);
+    assert.equal(schedule?.lastStatus, 'failed');
+    assert.equal(schedule?.lastError, 'The runtime rejected the dispatch.');
+    assert.equal(schedule?.lastExecutionId, 'prior-successful-execution');
+    assert.equal(schedule?.lastRunId, 'prior-successful-run');
   });
 });

@@ -10,7 +10,11 @@ import { WorkflowAccessDeniedError } from '../services/workflow-access.js';
 import { getWorkflowCapabilityReadinessReport, publicMcpReadinessError } from '../services/workflow-readiness.js';
 import { cancelWorkflowExecutionGraph } from '../services/workflow-execution-cancellation.js';
 import { resumeWorkflowExecution } from '../services/workflow-state-machine.js';
-import { listWorkflowExecutionEvents, type WorkflowExecutionStreamEvent } from '../store/repository-workflow-execution-events.js';
+import {
+  listWorkflowExecutionEvents,
+  type WorkflowExecutionStreamEvent
+} from '../store/repository-workflow-execution-events.js';
+import { listWorkspaceWorkflowExecutions as listWorkspaceWorkflowExecutionRecords } from '../store/repository-workflow-activity.js';
 import {
   getWorkflowExecution as getWorkflowExecutionRecord,
   listWorkflowChildRuns,
@@ -21,18 +25,29 @@ import { repo } from '../store/repository.js';
 import { isTargetType } from '../types/domain.js';
 import type { WorkflowDefinitionForAccess } from '../types/workflows.js';
 import { toSingleParam } from '../utils/params.js';
+import {
+  CursorMismatchError,
+  decodeCursor,
+  makeQuerySignature,
+  parseBoundedLimit
+} from '../utils/pagination.js';
 import { mapGatewayError } from './workspaces/common.js';
 import { publicWorkflowDefinition, respondWorkflowAccessError } from './workflow-public.js';
 import { publicWorkflowExecutionEvent, publicWorkflowRun } from './external-run-public.js';
 
 const WORKFLOW_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
+const executionStates = new Set(['all', 'open', 'attention', 'completed', 'failed', 'cancelled']);
+const executionOrigins = new Set(['manual', 'external_integration', 'schedule', 'event_trigger']);
 
 async function execution(id: string): Promise<QueryResultRow | null> {
   const result = await db.query<QueryResultRow>('SELECT * FROM workflow_executions WHERE id=$1', [id]);
   return result.rowCount ? result.rows[0] : null;
 }
 
-function publicExecution(record: NonNullable<Awaited<ReturnType<typeof getWorkflowExecutionRecord>>>) {
+function publicExecution(
+  record: NonNullable<Awaited<ReturnType<typeof getWorkflowExecutionRecord>>>,
+  includeOrigin = false
+) {
   return {
     id: record.id,
     workspaceId: record.workspaceId,
@@ -41,12 +56,75 @@ function publicExecution(record: NonNullable<Awaited<ReturnType<typeof getWorkfl
     workflowSessionId: record.workflowSessionId,
     status: record.status,
     triggerType: record.triggerType,
+    ...(includeOrigin ? { origin: record.origin } : {}),
     errorCode: record.errorCode?.slice(0, 128) || null,
     startedAt: record.startedAt || null,
     endedAt: record.endedAt || null,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt
   };
+}
+
+export async function listWorkspaceWorkflowExecutions(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const workspaceId = toSingleParam(req.params.workspaceId);
+    if (!(await requireWorkspaceDataRead(req, res, workspaceId, 'No access to workflow executions'))) return;
+    const stateValue = toSingleParam(req.query.state as string | string[] | undefined);
+    const originValue = toSingleParam(req.query.origin as string | string[] | undefined);
+    if (stateValue && !executionStates.has(stateValue)) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'state is not supported', retryable: false } });
+      return;
+    }
+    if (originValue && !executionOrigins.has(originValue)) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'origin is not supported', retryable: false } });
+      return;
+    }
+    const search = toSingleParam(req.query.search as string | string[] | undefined)?.trim();
+    if (search && search.length > 200) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'search must be 200 characters or fewer', retryable: false } });
+      return;
+    }
+    const filters = {
+      state: stateValue || 'all',
+      origin: originValue || undefined,
+      workflowId: toSingleParam(req.query.workflowId as string | string[] | undefined),
+      sourceIssueId: toSingleParam(req.query.sourceIssueId as string | string[] | undefined),
+      search: search || undefined
+    };
+    const signature = makeQuerySignature(filters);
+    const cursor = decodeCursor<{
+      createdAt: string;
+      executionId: string;
+      signature: string;
+    }>(req.query.cursor, signature);
+    if (cursor && (
+      typeof cursor.createdAt !== 'string'
+      || !Number.isFinite(Date.parse(cursor.createdAt))
+      || typeof cursor.executionId !== 'string'
+      || cursor.executionId.length === 0
+    )) {
+      throw new CursorMismatchError();
+    }
+    const page = await listWorkspaceWorkflowExecutionRecords(workspaceId, {
+      ...filters,
+      state: filters.state as 'all' | 'open' | 'attention' | 'completed' | 'failed' | 'cancelled',
+      origin: filters.origin as 'manual' | 'external_integration' | 'schedule' | 'event_trigger' | undefined,
+      limit: parseBoundedLimit(req.query.limit),
+      cursor,
+      signature
+    });
+    res.status(200).json(page);
+  } catch (err) {
+    if (err instanceof CursorMismatchError) {
+      res.status(400).json({ error: { code: 'INVALID_CURSOR', message: err.message, retryable: false } });
+      return;
+    }
+    next(err);
+  }
 }
 
 function boundedFailureCode(value?: string): string {
@@ -91,7 +169,7 @@ export async function getWorkflowExecution(req: AuthenticatedRequest, res: Respo
       execution: externalRequest
         ? publicExecution(record)
         : {
-            ...publicExecution(record),
+            ...publicExecution(record, true),
             ...(snapshot ? { workflowSnapshot: publicWorkflowDefinition(snapshot) } : {})
           },
       attempts: publicAttempts,

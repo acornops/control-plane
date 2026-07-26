@@ -4,6 +4,7 @@ export interface RunRequestProvenance {
   actorType: 'user' | 'external_integration';
   externalIntegrationLinkId?: string;
   externalIntegrationClientId?: string;
+  externalIntegrationLabel?: string;
 }
 
 export async function getRunRequestProvenance(runId: string): Promise<RunRequestProvenance | null> {

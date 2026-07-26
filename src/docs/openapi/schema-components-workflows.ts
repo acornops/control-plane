@@ -1,5 +1,6 @@
 import { dateTime, JsonSchema, jsonObject, pageOf, schemaRef, stringArray, uuid } from './schema-types.js';
 import { buildWorkflowEventTriggerSchemas } from './schema-components-workflow-event-triggers.js';
+import { buildWorkflowActivitySchemas } from './schema-components-workflow-activity.js';
 
 const workflowId = { type: 'string', example: 'workflow-cluster-daily-triage' };
 const workflowSessionId = { type: 'string', example: 'workflow-session-01' };
@@ -7,6 +8,7 @@ const workflowSessionId = { type: 'string', example: 'workflow-session-01' };
 export function buildWorkflowSchemas(): Record<string, JsonSchema> {
   return {
     ...buildWorkflowEventTriggerSchemas(),
+    ...buildWorkflowActivitySchemas(),
     WorkflowOrigin: {
       type: 'object',
       required: ['type'],
@@ -295,6 +297,9 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         nextRunAt: dateTime,
         lastRunAt: dateTime,
         lastStatus: { type: 'string', enum: ['dispatched', 'failed', 'auto_paused', 'skipped'] },
+        lastExecutionId: { type: 'string' },
+        lastRunId: { type: 'string' },
+        latestExecution: { oneOf: [schemaRef('WorkflowExecutionSummary'), { type: 'null' }] },
         lastError: { type: 'string' }
       },
       additionalProperties: true

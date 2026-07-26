@@ -33,6 +33,7 @@ import { resolveWorkspaceLlmSettings } from './workspace-ai-resolution.js';
 
 export interface WorkflowTriggerDispatchInput {
   id: string;
+  name: string;
   workspaceId: string;
   workflowId: string;
   parameterSignature: string;
@@ -41,6 +42,14 @@ export interface WorkflowTriggerDispatchInput {
   principal: WorkflowSchedulePrincipal;
   triggerType: 'schedule' | 'webhook' | 'acornops_event';
   occurrenceKey: string;
+  source?: {
+    kind: 'issue' | 'webhook';
+    label: string;
+    id?: string;
+    eventType?: string;
+    targetId?: string;
+    targetType?: 'kubernetes' | 'virtual_machine';
+  };
 }
 
 export type WorkflowTriggerDispatchResult =
@@ -248,6 +257,23 @@ export async function dispatchWorkflowTrigger(
     triggerType: trigger.triggerType,
     triggerId: trigger.id,
     occurrenceKey: trigger.occurrenceKey,
+    origin: trigger.triggerType === 'schedule'
+      ? {
+          schemaVersion: 1,
+          kind: 'schedule',
+          label: trigger.name,
+          triggerId: trigger.id
+        }
+      : {
+          schemaVersion: 1,
+          kind: 'event_trigger',
+          label: trigger.name,
+          triggerId: trigger.id,
+          source: trigger.source || {
+            kind: trigger.triggerType === 'webhook' ? 'webhook' : 'issue',
+            label: trigger.triggerType === 'webhook' ? 'Webhook event' : 'AcornOps event'
+          }
+        },
     targetId: target?.id,
     targetType: target?.targetType,
     promptDigest: resolution.promptDigest,

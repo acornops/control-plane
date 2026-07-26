@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import type { QueryResultRow } from 'pg';
 import { db } from '../infra/db.js';
 import type { RunEvent, RunStatus } from '../types/domain.js';
-import type { CompiledWorkflowAccessScope, WorkflowDefinitionForAccess } from '../types/workflows.js';
+import type {
+  CompiledWorkflowAccessScope,
+  WorkflowDefinitionForAccess,
+  WorkflowExecutionOrigin
+} from '../types/workflows.js';
 import type { AgentDefinition } from '../types/agents.js';
 import type { PromptResourceBinding } from '../types/prompt-resources.js';
 import { digestBindings, digestPrompt } from '../services/prompt-resources/index.js';
@@ -98,6 +102,9 @@ export interface WorkflowExecutionRecord {
   triggerType: string;
   triggerId?: string;
   occurrenceKey?: string;
+  origin: WorkflowExecutionOrigin;
+  sourceType?: string;
+  sourceId?: string;
   clientRequestId?: string;
   clientRequestFingerprint?: string;
   requestProvenance: RunRequestProvenance;
@@ -306,6 +313,7 @@ export async function createWorkflowExecution(params: {
   triggerType?: string;
   triggerId?: string;
   occurrenceKey?: string;
+  origin?: WorkflowExecutionOrigin;
   clientRequestId?: string;
   clientRequestFingerprint?: string;
   targetId?: string;
@@ -329,6 +337,16 @@ export async function createWorkflowExecution(params: {
   return withTransaction(async (client) => {
     const compiledAccessScope = params.compiledAccessScope || params.session.compiledAccessScope;
     const provenance = params.requestProvenance || { actorType: 'user' };
+    const origin: WorkflowExecutionOrigin = params.origin || (
+      provenance.actorType === 'external_integration'
+        ? {
+            schemaVersion: 1,
+            kind: 'external_integration',
+            label: provenance.externalIntegrationLabel || provenance.externalIntegrationClientId || 'External integration'
+          }
+        : { schemaVersion: 1, kind: 'manual', label: 'Manual' }
+    );
+    const source = origin.kind === 'event_trigger' ? origin.source : undefined;
     const executionId = randomUUID();
     const messageId = params.messageId || randomUUID();
     const executor = compiledAccessScope.executor;
@@ -367,13 +385,15 @@ export async function createWorkflowExecution(params: {
     await client.query(
       `INSERT INTO workflow_executions (
         id,workspace_id,workflow_id,workflow_version,workflow_session_id,message_id,created_by,trigger_type,
-        trigger_id,occurrence_key,client_request_id,client_request_fingerprint,status,workflow_snapshot,approved_context_grants,
+        trigger_id,occurrence_key,origin_snapshot,source_type,source_id,
+        client_request_id,client_request_fingerprint,status,workflow_snapshot,approved_context_grants,
         prompt_text,prompt_digest,binding_digest,resource_bindings,resolved_at,
         request_actor_type,request_external_integration_link_id,request_external_integration_client_id
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)`,
       [executionId, params.workflow.workspaceId, params.workflow.id, params.workflow.version, params.session.id,
        messageId, params.session.createdBy, params.triggerType || 'manual', params.triggerId || null,
-       params.occurrenceKey || null, params.clientRequestId || null, params.clientRequestFingerprint || null,
+       params.occurrenceKey || null, JSON.stringify(origin), source?.kind || null, source?.id || null,
+       params.clientRequestId || null, params.clientRequestFingerprint || null,
        approvalGates.length ? 'waiting_for_approval' : 'queued', params.workflow,
        JSON.stringify(compiledAccessScope.contextGrants), params.content, params.promptDigest,
        params.bindingDigest, JSON.stringify(params.resourceBindings), params.resolvedAt, provenance.actorType,
@@ -430,6 +450,9 @@ export async function createWorkflowExecution(params: {
         messageId: row.message_id, createdBy: row.created_by, status: row.status,
         triggerType: row.trigger_type,
         triggerId: row.trigger_id || undefined, occurrenceKey: row.occurrence_key || undefined,
+        origin: row.origin_snapshot || origin,
+        sourceType: row.source_type || undefined,
+        sourceId: row.source_id || undefined,
         clientRequestId: row.client_request_id || undefined,
         clientRequestFingerprint: row.client_request_fingerprint || undefined,
         requestProvenance: {

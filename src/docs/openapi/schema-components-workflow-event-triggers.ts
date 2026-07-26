@@ -33,6 +33,9 @@ export function buildWorkflowEventTriggerSchemas(): Record<string, JsonSchema> {
         endpointUrl: { type: 'string', format: 'uri' },
         lastTriggeredAt: { oneOf: [dateTime, { type: 'null' }] },
         lastStatus: { oneOf: [{ type: 'string', enum: ['dispatched', 'failed', 'auto_paused', 'rejected'] }, { type: 'null' }] },
+        lastExecutionId: { oneOf: [{ type: 'string' }, { type: 'null' }] },
+        lastRunId: { oneOf: [{ type: 'string' }, { type: 'null' }] },
+        latestExecution: { oneOf: [schemaRef('WorkflowExecutionSummary'), { type: 'null' }] },
         lastError: { oneOf: [{ type: 'string' }, { type: 'null' }] }
       },
       additionalProperties: false
