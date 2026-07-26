@@ -351,7 +351,7 @@ describe('workflows controller', () => {
     assert.ok(body.items.every((item) => item.workspaceId === 'workspace-1'));
   });
 
-  it('allows availability changes without opening system-provided workflow definitions for editing', async () => {
+  it('allows availability changes on a workflow created from workspace defaults', async () => {
     installWorkspace('owner');
 
     const updateResponse = await callController(updateWorkflow, createRequest(
@@ -367,7 +367,6 @@ describe('workflows controller', () => {
     const workflow = (updateResponse.body as { workflow: { status: string; origin: { type: string } } }).workflow;
     assert.equal(workflow.status, 'paused');
     assert.equal(workflow.origin.type, 'template');
-    });
   });
 
   it('returns bounded structured MCP readiness failures for workflow messages', async () => {
@@ -438,3 +437,4 @@ describe('workflows controller', () => {
     }]);
     assert.equal(JSON.stringify(body).includes('must-not-leak'), false);
   });
+});

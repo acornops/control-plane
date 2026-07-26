@@ -161,7 +161,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       get: {
         tags: ['workflows'],
         summary: 'List workflow definitions for a workspace',
-        description: 'Returns system-provided template-origin and manually created workflow definitions visible to management-console. Requires read_workspace_data.',
+        description: 'Returns workspace-owned workflow definitions visible to management-console. Workflows created from workspace defaults or recommendations are ordinary editable definitions. Requires read_workspace_data.',
         security: [{ userSession: [] }],
         parameters: [workspaceIdParameter,
           { in: 'query', name: 'q', required: false, schema: { type: 'string' } },
@@ -295,14 +295,13 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       patch: {
         tags: ['workflows'],
         summary: 'Update a workflow definition',
-        description: 'Manual workflows accept definition edits. System-provided workflows accept availability-status changes only; duplicate one to edit its definition.',
+        description: 'Workspace workflows accept definition edits from users with manage_workflows, including workflows created from workspace defaults or recommendations.',
         security: [{ userSession: [] }],
         parameters: [workflowIdParameter],
         requestBody: workflowMutationBody,
         responses: {
           '200': { description: 'Workflow definition updated.' },
-          '403': { description: 'Requires manage_workflows.' },
-          '409': { description: 'System-provided workflow definition is immutable; duplicate it to edit.' }
+          '403': { description: 'Requires manage_workflows.' }
         }
       },
       delete: {

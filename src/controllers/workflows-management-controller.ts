@@ -166,10 +166,7 @@ function strictWorkflowBody(
 }
 
 function validationError(res: Response, error: DefinitionValidationError): void {
-  if (error.code === 'SYSTEM_WORKFLOW_DEFINITION_IMMUTABLE') {
-    incrementAutomationDefinitionMutation('workflow', 'definition', 'rejected');
-  }
-  res.status(error.code === 'SYSTEM_WORKFLOW_DEFINITION_IMMUTABLE' ? 409 : 400).json({
+  res.status(400).json({
     error: { code: error.code, message: error.message, retryable: false, details: error.details }
   });
 }

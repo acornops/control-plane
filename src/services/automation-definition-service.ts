@@ -64,22 +64,6 @@ function assertSystemAgentPatchAllowed(current: AgentDefinition, patch: AgentDef
   );
 }
 
-function assertSystemWorkflowPatchAllowed(current: WorkflowDefinitionForAccess, patch: WorkflowDefinitionUpdate): void {
-  if (current.origin.type !== 'template') return;
-  const definitionKeys = definedPatchKeys(patch as Record<string, unknown>)
-    .filter((key) => key !== 'status')
-    .filter((key) => {
-      if (key !== 'agentIds' || !patch.agentIds) return true;
-      return [...patch.agentIds].sort().join('\0') !== [...current.agentIds].sort().join('\0');
-    });
-  if (definitionKeys.length === 0) return;
-  throw new DefinitionValidationError(
-    'SYSTEM_WORKFLOW_DEFINITION_IMMUTABLE',
-    'System-provided workflow definitions cannot be edited. Duplicate this workflow to create an editable custom draft.',
-    definitionKeys
-  );
-}
-
 async function validateAgentInput(
   _input: CreateAgentDefinitionInput | (AgentDefinitionUpdate & { workspaceId: string }),
   _current?: AgentDefinition,
@@ -172,7 +156,6 @@ export async function updateWorkflowThroughDefinitionService(
     );
     const current = await getWorkflowDefinition(workspaceId, workflowId, client);
     if (!current) return null;
-    assertSystemWorkflowPatchAllowed(current, patch);
     const capabilityPolicy = {
       ...current.capabilityPolicy,
       ...patch.capabilityPolicy

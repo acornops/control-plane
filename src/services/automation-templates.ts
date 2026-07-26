@@ -92,7 +92,7 @@ async function upsertStarterNativeToolMapping(
 export const STARTER_BUNDLE: AutomationTemplateBundle = {
   id: STARTER_AUTOMATION_TEMPLATE_ID,
   version: STARTER_AUTOMATION_TEMPLATE_VERSION,
-  name: 'AcornOps starter automation',
+  name: 'AcornOps workspace defaults',
   description: 'Target diagnostics, approval-gated target remediation, incident reporting, and coordinated investigation starters.',
   agents: [
     {
@@ -147,7 +147,7 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       resourceRequirements: [{ type: 'target', minimum: 1, maximum: 1, requiredOperations: ['read', 'write'], constraints: { targetTypes: ['kubernetes'], targetIds: [] } }],
       status: 'paused',
       installMode: 'opt_in',
-      setupSteps: ['Install paused workflow', 'Select an exact Kubernetes target', 'Preview approval-gated tools', 'Activate']
+      setupSteps: ['Add paused workflow', 'Select an exact Kubernetes target', 'Preview approval-gated tools', 'Activate']
     },
     {
       key: 'incidentReporter',
@@ -178,7 +178,7 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       ],
       status: 'paused',
       installMode: 'opt_in',
-      setupSteps: ['Install paused workflow', 'Select an exact target and incident chats', 'Preview coordinated access', 'Activate']
+      setupSteps: ['Add paused workflow', 'Select an exact target and incident chats', 'Preview coordinated access', 'Activate']
     }
   ]
 };
@@ -211,7 +211,7 @@ function injectSeedFailureForTests(stage: 'after_agents' | 'after_workflows'): v
   }
 }
 
-function definitionOrigin(): DefinitionOrigin {
+function agentDefinitionOrigin(): DefinitionOrigin {
   return {
     type: 'template',
     templateId: STARTER_BUNDLE.id,
@@ -267,7 +267,7 @@ export async function insertStarterAgent(
     instructions: input.template.instructions,
     ownerUserId: input.installedBy,
     createdBy: input.installedBy,
-    origin: definitionOrigin(),
+    origin: agentDefinitionOrigin(),
     reviewState: 'reviewed',
     providerType: 'internal',
     targetScope,
@@ -306,7 +306,7 @@ export async function insertStarterWorkflow(
     tags: [],
     requiredPermissions: [],
     createdBy: input.installedBy,
-    origin: definitionOrigin(),
+    origin: { type: 'manual' },
     status: initialWorkflowTemplateStatus(input.template)
   });
   return workflow.id;
@@ -361,16 +361,16 @@ export async function provisionStarterAutomationInTransaction(
   await insertWorkspaceAuditEvent({
     workspaceId: input.workspaceId,
     category: 'run',
-    eventType: 'automation.template_seeded.v1',
+    eventType: 'automation.defaults_created.v1',
     operation: 'write',
     actorUserId: input.installedBy,
-    objectType: 'automation_template',
+    objectType: 'workflow_defaults',
     objectId: STARTER_BUNDLE.id,
     objectName: STARTER_BUNDLE.name,
-    summary: 'Starter automation provisioned',
+    summary: 'Default workflows created',
     metadata: {
-      templateId: STARTER_BUNDLE.id,
-      templateVersion: STARTER_BUNDLE.version,
+      defaultSetId: STARTER_BUNDLE.id,
+      defaultSetVersion: STARTER_BUNDLE.version,
       visibleAgentCount: Object.keys(agentIds).length,
       workflowCount: Object.keys(workflowIds).length
     }

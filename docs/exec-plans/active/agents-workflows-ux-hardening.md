@@ -9,7 +9,9 @@ versioning, approval, and scheduler safety behavior.
 ## Constraints
 
 - Keep existing create, update, and delete payloads backward compatible.
-- Seed canonical system definitions idempotently per workspace.
+- Create canonical default workflows once per workspace as ordinary editable,
+  workspace-owned definitions. AcornOps-provided Agents remain managed
+  definitions, but the platform never overwrites or restores default workflows.
 - Keep variable definitions and compiled scopes in validated JSONB while storing
   queryable identity, status, ownership, and timestamps in columns.
 - Never log prompts, input defaults, credentials, or context contents.
@@ -21,6 +23,20 @@ versioning, approval, and scheduler safety behavior.
 - `npm run validate`
 - Workspace platform-contract check.
 - Postgres/Redis integration profile when the local runtime is available.
+
+## Production Validation Evidence
+
+- `npm run validate` passed against the isolated local PostgreSQL test database:
+  964 tests, type checking, style, migration static checks, authorization,
+  membership, run-event durability, contracts, public and admin OpenAPI
+  coverage, harness checks, and the production build.
+- Greenfield migration SQL introspection also passed in a temporary schema on
+  the isolated PostgreSQL database.
+- The focused workflow-foundations PostgreSQL suite passed all five tests,
+  including one-time default creation, no automatic overwrite or restoration,
+  explicit re-add after deletion, stale-ID removal, and Agent replacement.
+- Public OpenAPI coverage passed with 158 paths and 174 schemas; admin OpenAPI
+  coverage passed with 28 paths and 27 schemas.
 
 ## Completion Criteria
 

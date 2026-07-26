@@ -89,15 +89,18 @@ describe('workflows management controller', () => {
     assert.equal((response.body as { workflow: { status: string } }).workflow.status, 'paused');
   });
 
-  it('requires duplication before editing a system-provided workflow but permits deletion', async () => {
+  it('lets workspace owners edit, duplicate, and delete a workflow created from defaults', async () => {
     installWorkspace('admin');
 
     const edited = await callController(updateWorkflow, createRequest(
       { workflowId: 'cluster-triage' },
-      { workspaceId: 'workspace-1', agentIds: ['agent-cluster-triage'], name: 'Modified built-in' }
+      { workspaceId: 'workspace-1', agentIds: ['agent-cluster-triage'], name: 'Modified diagnostics' }
     ));
-    assert.equal(edited.statusCode, 409);
-    assert.equal((edited.body as { error: { code: string } }).error.code, 'SYSTEM_WORKFLOW_DEFINITION_IMMUTABLE');
+    assert.equal(edited.statusCode, 200);
+    assert.equal(
+      (edited.body as { workflow: PublicWorkflowDefinition }).workflow.name,
+      'Modified diagnostics'
+    );
 
     const duplicated = await callController(duplicateWorkflow, createRequest(
       { workflowId: 'cluster-triage' },

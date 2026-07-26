@@ -452,7 +452,7 @@ export function renderControlPlaneMetrics(): string {
         value
       );
     }),
-    '# HELP control_plane_automation_template_setup_total Automation template setup outcomes.',
+    '# HELP control_plane_automation_template_setup_total Recommended workflow setup outcomes.',
     '# TYPE control_plane_automation_template_setup_total counter',
     ...Array.from(automationTemplateSetupOutcomes.entries()).map(([key, value]) => {
       const [operation, outcome] = key.split(':');

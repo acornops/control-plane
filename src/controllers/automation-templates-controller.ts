@@ -24,14 +24,14 @@ export async function list(req: AuthenticatedRequest, res: Response, next: NextF
 
 async function requireTemplateManagement(req: AuthenticatedRequest, res: Response, requireMcp = false) {
   const workspaceId = toSingleParam(req.params.workspaceId);
-  const authz = await requireWorkspaceCapability(req, res, workspaceId, 'manage_workflows', 'Template setup requires manage_workflows.');
+  const authz = await requireWorkspaceCapability(req, res, workspaceId, 'manage_workflows', 'Adding a recommended workflow requires manage_workflows.');
   if (!authz) return null;
   if (!authz.can('manage_agents') || (requireMcp && !authz.can('manage_mcp'))) {
     res.status(403).json({ error: {
       code: 'FORBIDDEN',
       message: requireMcp
         ? 'Source-control setup requires manage_workflows, manage_agents, and manage_mcp.'
-        : 'Template installation requires manage_workflows and manage_agents.',
+        : 'Adding a recommended workflow requires manage_workflows and manage_agents.',
       retryable: false
     } });
     return null;
@@ -42,7 +42,7 @@ async function requireTemplateManagement(req: AuthenticatedRequest, res: Respons
 function templateError(res: Response, error: unknown): boolean {
   const code = error instanceof Error ? error.message : '';
   if (code === 'AUTOMATION_TEMPLATE_NOT_FOUND' || code === 'AUTOMATION_TEMPLATE_NOT_INSTALLED') {
-    res.status(404).json({ error: { code, message: 'Automation template not found or not installed.', retryable: false } });
+    res.status(404).json({ error: { code, message: 'Recommended workflow not found or not added.', retryable: false } });
     return true;
   }
   if (code === 'AUTOMATION_TEMPLATE_PREREQUISITES_UNAVAILABLE') {

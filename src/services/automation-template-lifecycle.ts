@@ -6,6 +6,7 @@ import {
   updateTemplateInstallationRecordIds,
   type TemplateInstallationRecord
 } from '../store/repository-automation-templates.js';
+import { getAgentDefinition } from '../store/repository-agents.js';
 import { withTransaction } from '../store/repository-transaction.js';
 import { getWorkflowDefinition } from '../store/repository-workflows.js';
 import {
@@ -66,7 +67,7 @@ export async function listAutomationTemplateBundles(workspaceId?: string): Promi
       installationStatus,
       setupSteps: template.setupSteps,
       blockerCodes,
-      ...(workflowId ? { workflowId } : {})
+      ...(workflow ? { workflowId: workflow.id } : {})
     };
   }));
 }
@@ -119,7 +120,7 @@ export async function installAutomationTemplate(input: {
     const agentIds: Record<string, string> = {};
     for (const agentKey of template.agentKeys) {
       const existingAgentId = recordIds[`agent:${agentKey}`];
-      if (existingAgentId) {
+      if (existingAgentId && await getAgentDefinition(input.workspaceId, existingAgentId, client)) {
         agentIds[agentKey] = existingAgentId;
         continue;
       }
@@ -142,10 +143,10 @@ export async function installAutomationTemplate(input: {
     await updateTemplateInstallationRecordIds(input.workspaceId, STARTER_BUNDLE.id, recordIds, client);
     await insertWorkspaceAuditEvent({
       workspaceId: input.workspaceId,
-      category: 'run', eventType: 'automation.template_installed.v1', operation: 'write',
-      actorUserId: input.installedBy, objectType: 'automation_template', objectId: input.templateId,
-      objectName: template.name, summary: 'Automation template installed',
-      metadata: { templateId: input.templateId, templateVersion: STARTER_BUNDLE.version, installMode: template.installMode }
+      category: 'run', eventType: 'automation.recommended_workflow_added.v1', operation: 'write',
+      actorUserId: input.installedBy, objectType: 'workflow_recommendation', objectId: input.templateId,
+      objectName: template.name, summary: 'Recommended workflow added',
+      metadata: { recommendationId: input.templateId, recommendationVersion: STARTER_BUNDLE.version, installMode: template.installMode }
     }, client);
     return { workflowId, alreadyInstalled: false };
   });
@@ -176,10 +177,10 @@ export async function activateAutomationTemplate(input: {
   );
   await insertWorkspaceAuditEvent({
     workspaceId: input.workspaceId,
-    category: 'run', eventType: 'automation.template_activated.v1', operation: 'write',
-    actorUserId: input.activatedBy, objectType: 'automation_template', objectId: input.templateId,
-    objectName: workflow.name, summary: 'Automation template activated',
-    metadata: { templateId: input.templateId, workflowId: workflow.id, workflowVersion: workflow.version + 1 }
+    category: 'run', eventType: 'automation.recommended_workflow_activated.v1', operation: 'write',
+    actorUserId: input.activatedBy, objectType: 'workflow_recommendation', objectId: input.templateId,
+    objectName: workflow.name, summary: 'Recommended workflow activated',
+    metadata: { recommendationId: input.templateId, workflowId: workflow.id, workflowVersion: workflow.version + 1 }
   });
   return { workflowId: workflow.id, status: 'active' };
 }

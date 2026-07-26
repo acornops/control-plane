@@ -2,8 +2,11 @@
 
 ## System-provided automation correction
 
-- Present template-origin Agents and workflows as system provided rather than as user-owned templates.
-- Preserve workspace availability, supported external bindings, and deletion while requiring duplication before definition edits or version restore.
+- Present template-origin Agents as system provided. Workflows created from
+  workspace defaults or recommendations are ordinary workspace-owned
+  definitions that can be edited, renamed, paused, duplicated, or deleted.
+- Provision default workflows once and never overwrite or automatically restore
+  them. Keep recommendation metadata only for the explicit add-workflow flow.
 - Keep the template-origin Manager internal to compilation and execution; omit it from public Agent APIs and direct user operations.
 - Enforce the boundary in the control plane and mirror it in management-console actions and contract manifests.
 
@@ -70,17 +73,13 @@ ownership for workspace Agents and target-local generic agents.
 
 ## Development seed validation evidence
 
-- Focused configuration and repository seeder tests pass, including default-off,
-  explicit development opt-in, production rejection, narrow seed content, and
-  idempotent inserts. Type checking passes.
-- The canonical suite ran against an isolated PostgreSQL database with all 15
-  migrations applied and completed 605 of 606 tests. The remaining pre-existing
-  workspace-deletion regression returns 502 because the dirty worktree now calls
-  `cleanupMcpConnections` without extending that test's HTTP mock; it is outside
-  the development-seed path changed here.
-- Contract checks pass. The repository harness is independently blocked by the
-  pre-existing dirty `target-tool-controller.ts` reaching 576 lines against its
-  550-line budget; the fixture/seed changes do not touch that controller.
+- The current canonical validation passes against an isolated PostgreSQL
+  database: 964 of 964 tests, type checking, style, migration static and SQL
+  introspection checks, authorization, membership, run-event durability,
+  contracts, OpenAPI, harness, and build.
+- Focused workflow-foundations coverage verifies atomic workspace provisioning,
+  one-time editable defaults, explicit recommendation re-add, and installation
+  reference cleanup. No repository validation blocker remains.
 
 ## MCP credential and schedule readiness closure
 
