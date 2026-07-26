@@ -319,6 +319,8 @@ export interface WorkflowScheduleRecord {
   nextRunAt?: string;
   lastRunAt?: string;
   lastStatus?: WorkflowScheduleLastStatus;
+  lastExecutionId?: string;
+  lastRunId?: string;
   lastError?: string;
 }
 
@@ -402,6 +404,78 @@ export interface WorkflowEventTriggerPatch {
   enabled?: boolean;
   inputBindings?: Record<string, WorkflowEventInputBinding>;
   approvedContextGrants?: string[];
+}
+
+export type WorkflowExecutionStatus =
+  | 'queued'
+  | 'dispatching'
+  | 'running'
+  | 'waiting_for_approval'
+  | 'needs_review'
+  | 'cancelling'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export type WorkflowExecutionOrigin =
+  | {
+      schemaVersion: 1;
+      kind: 'manual' | 'external_integration';
+      label: string;
+    }
+  | {
+      schemaVersion: 1;
+      kind: 'schedule';
+      label: string;
+      triggerId: string;
+    }
+  | {
+      schemaVersion: 1;
+      kind: 'event_trigger';
+      label: string;
+      triggerId: string;
+      source: {
+        kind: 'issue' | 'webhook';
+        label: string;
+        id?: string;
+        eventType?: string;
+        targetId?: string;
+        targetType?: 'kubernetes' | 'virtual_machine';
+      };
+    };
+
+export interface WorkflowExecutionSummary {
+  id: string;
+  workspaceId: string;
+  workflow: {
+    id: string;
+    name: string;
+    version: number;
+  };
+  status: WorkflowExecutionStatus;
+  origin: WorkflowExecutionOrigin;
+  rootRun?: {
+    id: string;
+    targetId?: string;
+    targetName?: string;
+    targetType?: 'kubernetes' | 'virtual_machine';
+    requestedAt: string;
+    startedAt?: string;
+    endedAt?: string;
+  };
+  createdBy?: string;
+  createdAt: string;
+  startedAt?: string;
+  endedAt?: string;
+  updatedAt: string;
+}
+
+export interface WorkflowActivitySummary {
+  openCount: number;
+  attentionCount: number;
+  totalCount: number;
+  openExecution?: WorkflowExecutionSummary;
+  latestExecution?: WorkflowExecutionSummary;
 }
 
 export interface WorkflowApprovalInboxRow {

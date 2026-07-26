@@ -10,6 +10,7 @@ import {
   type ClaimedWorkflowEventTriggerDelivery
 } from '../store/repository-workflow-event-triggers.js';
 import { getWorkflowExecutionByTriggerOccurrence } from '../store/repository-workflows.js';
+import { isTargetType } from '../types/domain.js';
 import type { WorkflowEventInputBinding } from '../types/workflows.js';
 import { withRedisLease } from './control-plane-coordination/leases.js';
 import {
@@ -55,6 +56,29 @@ function deliveryInputs(delivery: ClaimedWorkflowEventTriggerDelivery): Record<s
       issueBindingValue(delivery.payload, binding)
     ])
   );
+}
+
+function deliverySource(delivery: ClaimedWorkflowEventTriggerDelivery) {
+  if (delivery.sourceType === 'webhook') {
+    return {
+      kind: 'webhook' as const,
+      label: 'Webhook event',
+      eventType: delivery.eventType
+    };
+  }
+  const issue = nestedRecord(delivery.payload, 'issue');
+  const target = nestedRecord(delivery.payload, 'target');
+  const targetType = typeof target.type === 'string' && isTargetType(target.type)
+    ? target.type
+    : undefined;
+  return {
+    kind: 'issue' as const,
+    id: delivery.sourceId,
+    label: typeof issue.title === 'string' && issue.title.trim() ? issue.title.trim() : 'Issue event',
+    eventType: delivery.eventType,
+    ...(typeof target.id === 'string' ? { targetId: target.id } : {}),
+    ...(targetType ? { targetType } : {})
+  };
 }
 
 async function auditDispatch(
@@ -127,6 +151,7 @@ async function processDelivery(delivery: ClaimedWorkflowEventTriggerDelivery): P
     effectiveDelivery = { ...delivery, trigger: currentTrigger };
     const dispatch = await dispatchWorkflowTrigger({
       id: currentTrigger.id,
+      name: currentTrigger.name,
       workspaceId: delivery.workspaceId,
       workflowId: currentTrigger.workflowId,
       parameterSignature: currentTrigger.parameterSignature,
@@ -134,7 +159,8 @@ async function processDelivery(delivery: ClaimedWorkflowEventTriggerDelivery): P
       approvedContextGrants: currentTrigger.approvedContextGrants,
       principal: currentTrigger.principal,
       triggerType: currentTrigger.sourceType,
-      occurrenceKey: delivery.occurrenceKey
+      occurrenceKey: delivery.occurrenceKey,
+      source: deliverySource(effectiveDelivery)
     });
     if (dispatch.outcome === 'auto_paused') {
       const inputRejected = dispatch.reason === 'input_invalid';

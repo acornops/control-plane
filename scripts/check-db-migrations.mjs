@@ -150,10 +150,17 @@ const expectedColumns = [
   ['workflow_sessions', 'launched_at'],
   ['workflow_sessions', 'launch_resource_inputs'],
   ['workflow_executions', 'client_request_fingerprint'],
+  ['workflow_executions', 'origin_snapshot'],
+  ['workflow_executions', 'source_type'],
+  ['workflow_executions', 'source_id'],
   ['workflow_schedules', 'inputs'],
   ['workflow_schedules', 'parameter_signature'],
+  ['workflow_schedules', 'last_execution_id'],
+  ['workflow_schedules', 'last_run_id'],
   ['workflow_event_triggers', 'input_bindings'],
   ['workflow_event_triggers', 'parameter_signature'],
+  ['workflow_event_triggers', 'last_execution_id'],
+  ['workflow_event_triggers', 'last_run_id'],
   ['target_issues', 'lifecycle_version'],
   ['webhook_history', 'attempt_number'],
   ['webhook_history', 'will_retry'],
@@ -219,6 +226,16 @@ async function runSqlChecks(databaseUrl) {
     const constraintMap = new Map(constraints.rows.map((row) => [row.conname, row.definition]));
     for (const constraint of expectedConstraints) {
       assert(constraintMap.has(constraint), `${constraint} must exist in the final baseline`);
+    }
+    const indexes = await client.query(
+      `SELECT indexname FROM pg_indexes WHERE schemaname = current_schema()`
+    );
+    const indexNames = new Set(indexes.rows.map((row) => row.indexname));
+    for (const indexName of [
+      'workflow_executions_workspace_created_idx',
+      'workflow_executions_source_idx'
+    ]) {
+      assert(indexNames.has(indexName), `${indexName} must exist in the final baseline`);
     }
     for (const [table, column] of [
       ['agent_definitions', 'source'],

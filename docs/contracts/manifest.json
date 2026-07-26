@@ -279,6 +279,18 @@
         "dispatchPolicy": "Every delivery recompiles current workflow parameters, user-principal authorization, capability mappings, MCP readiness, AI policy, approvals, and execution idempotency; configuration failures auto-pause the trigger",
         "secretPolicy": "Webhook secrets are encrypted at rest and returned only on creation or explicit rotation; rotation invalidates an already-verified request before durable acceptance"
       },
+      "workflowActivityVisibility": {
+        "paths": [
+          "GET /api/v1/workspaces/{workspaceId}/workflow-executions",
+          "GET /api/v1/workflow-executions/{executionId}"
+        ],
+        "authorization": "Browser users require read_workspace_data in the exact workspace; workspace activity routes are not exposed to external-integration credentials.",
+        "pagination": "The ledger uses an opaque stable cursor and returns {items,nextCursor?,summary.{openCount,attentionCount}} with bounded status, origin, workflow, and issue filters.",
+        "provenance": "Every execution returns an immutable safe origin snapshot for manual, external_integration, schedule, or event_trigger dispatch. Trigger labels survive deletion; webhook payloads and occurrence keys are never projected.",
+        "refresh": "The console uses two-second visible-window polling and immediate focus refresh so background activity remains current without a second workspace event transport.",
+        "context": "Issue rows expose a compact workflowActivity summary without per-issue queries. Schedule and event-trigger rows keep configuration, last dispatch outcome, and latest successful execution pointer separate.",
+        "statusAuthority": "The aggregate execution status is authoritative; dispatch failure does not imply a running execution and terminal execution status never renders as in progress."
+      },
       "eventTypes": [
         "run_progress",
         "run_started",
@@ -676,6 +688,31 @@
           "jwtClaims.agent_version? specialist only",
           "jwtClaims.trigger_id?"
         ],
+        "workflowExecutionSummary": [
+          "id",
+          "workspaceId",
+          "workflow.{id,name,version}",
+          "status",
+          "origin",
+          "rootRun?",
+          "createdBy?",
+          "createdAt",
+          "startedAt?",
+          "endedAt?",
+          "updatedAt"
+        ],
+        "workflowExecutionPage": [
+          "items",
+          "nextCursor?",
+          "summary.{openCount,attentionCount,latestUpdatedAt?}"
+        ],
+        "workflowActivitySummary": [
+          "totalCount",
+          "openCount",
+          "attentionCount",
+          "openExecution?",
+          "latestExecution?"
+        ],
         "workflowSchedule": [
           "id",
           "workspaceId",
@@ -691,6 +728,9 @@
           "nextRunAt?",
           "lastRunAt?",
           "lastStatus?",
+          "lastExecutionId?",
+          "lastRunId?",
+          "latestExecution?",
           "lastError?",
           "createdBy",
           "updatedBy"
@@ -713,6 +753,9 @@
           "endpointUrl? webhook only",
           "lastTriggeredAt?",
           "lastStatus?",
+          "lastExecutionId?",
+          "lastRunId?",
+          "latestExecution?",
           "lastError?"
         ],
         "workflowEventTriggerPage": [

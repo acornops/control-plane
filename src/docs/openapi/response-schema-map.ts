@@ -75,6 +75,7 @@ export function schemaForOperation(method: string, path: string, statusCode: str
     'POST /api/v1/workspaces/{workspaceId}/workflow-schedules/preview': 'WorkflowSchedulePreview',
     'PATCH /api/v1/workflow-schedules/{scheduleId}': 'WorkflowScheduleResponse',
     'GET /api/v1/workspaces/{workspaceId}/workflow-event-triggers': 'WorkflowEventTriggerList',
+    'GET /api/v1/workspaces/{workspaceId}/workflow-executions': 'WorkflowExecutionPage',
     'POST /api/v1/workspaces/{workspaceId}/workflow-event-triggers': 'WorkflowEventTriggerCreated',
     'PATCH /api/v1/workflow-event-triggers/{triggerId}': 'WorkflowEventTriggerResponse',
     'POST /api/v1/workflow-event-triggers/{triggerId}/rotate-secret': 'WorkflowEventTriggerCreated',

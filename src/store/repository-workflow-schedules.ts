@@ -174,7 +174,10 @@ function mapSchedule(row: ScheduleRow): WorkflowScheduleRecord {
     updatedAt: new Date(row.updated_at).toISOString(),
     nextRunAt: row.next_run_at ? new Date(row.next_run_at).toISOString() : undefined,
     lastRunAt: row.last_run_at ? new Date(row.last_run_at).toISOString() : undefined,
-    lastStatus: row.last_status || undefined, lastError: row.last_error || undefined
+    lastStatus: row.last_status || undefined,
+    lastExecutionId: row.last_execution_id || undefined,
+    lastRunId: row.last_run_id || undefined,
+    lastError: row.last_error || undefined
   };
 }
 
@@ -312,7 +315,7 @@ export async function listDueWorkflowSchedules(now = new Date(), limit = 50): Pr
 export async function recordWorkflowScheduleDispatch(
   scheduleId: string,
   status: WorkflowScheduleLastStatus,
-  params: { now?: Date; error?: string } = {}
+  params: { now?: Date; error?: string; executionId?: string; runId?: string } = {}
 ): Promise<WorkflowScheduleRecord | null> {
   const current = await getWorkflowSchedule(scheduleId);
   if (!current) return null;
@@ -323,14 +326,26 @@ export async function recordWorkflowScheduleDispatch(
     status: paused ? 'paused' : current.status,
     lastRunAt: nowIso(now),
     lastStatus: status,
+    lastExecutionId: params.executionId || current.lastExecutionId,
+    lastRunId: params.runId || current.lastRunId,
     lastError: params.error,
     nextRunAt: paused ? undefined : computeNextWorkflowScheduleRunAt(current.cron, now, current.timezone),
     updatedAt: nowIso(now)
   };
   const result = await db.query<ScheduleRow>(
     `UPDATE workflow_schedules SET status=$2,last_run_at=$3,last_status=$4,last_error=$5,next_run_at=$6,
+      last_execution_id=COALESCE($7,last_execution_id),last_run_id=COALESCE($8,last_run_id),
       lease_owner=NULL,lease_expires_at=NULL,updated_at=$3 WHERE id=$1 RETURNING *`,
-    [scheduleId, updated.status, updated.lastRunAt, updated.lastStatus, updated.lastError || null, updated.nextRunAt || null]
+    [
+      scheduleId,
+      updated.status,
+      updated.lastRunAt,
+      updated.lastStatus,
+      updated.lastError || null,
+      updated.nextRunAt || null,
+      params.executionId || null,
+      params.runId || null
+    ]
   );
   return result.rowCount ? mapSchedule(result.rows[0]) : null;
 }

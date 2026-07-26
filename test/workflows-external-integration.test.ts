@@ -329,6 +329,7 @@ describe('workflow external integration access', () => {
     const visibleExecution = await callController(getWorkflowExecution, workspaceVisible);
     assert.equal(visibleExecution.statusCode, 200);
     const serializedExecution = JSON.stringify(visibleExecution.body);
+    assert.equal(serializedExecution.includes('"origin"'), false);
     for (const privateField of [
       'inputContext',
       'workflowSnapshot',
@@ -342,10 +343,15 @@ describe('workflow external integration access', () => {
     }
     const browserExecution = await callController(getWorkflowExecution, createRequest({ executionId: firstBody.executionId }));
     const browserBody = browserExecution.body as {
-      execution: { workflowSnapshot: unknown };
+      execution: { workflowSnapshot: unknown; origin: { kind: string; label: string } };
       attempts: Array<{ executorRole: string; parentRunId: string | null }>;
     };
     assert.ok(browserBody.execution.workflowSnapshot);
+    assert.deepEqual(browserBody.execution.origin, {
+      schemaVersion: 1,
+      kind: 'external_integration',
+      label: 'external-chat'
+    });
     assert.equal(browserBody.attempts[0].executorRole, 'specialist');
     assert.equal(browserBody.attempts[0].parentRunId, null);
     const serializedBrowserExecution = JSON.stringify(browserBody);

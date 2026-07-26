@@ -143,6 +143,14 @@ The control plane owns the platform API boundary. Keep this README as a short in
   and update reject service identities with
   `WORKFLOW_SCHEDULE_USER_PRINCIPAL_REQUIRED`; migration pauses schedules whose
   creators are no longer authorized workspace members.
+- Workflow executions persist a safe immutable origin snapshot. The
+  workspace execution ledger is user-session-only, workspace-authorized, cursor
+  paginated, and filterable by status, origin, workflow, issue, and bounded
+  search. Browser issue responses receive grouped compact activity summaries.
+  Schedule and event-trigger responses keep configuration, last dispatch, and
+  latest successful execution pointers separate; unsuccessful dispatches never
+  erase those pointers. Exact execution responses add origin only for normal
+  users and preserve the restricted external-integration representation.
 - Roles with `permissions.manage_target_insights` may mutate Target Insights entries and Target Insights tool settings.
 - Roles without the relevant management capability are read-only for that configuration surface.
 - Chat and run creation must preserve `sessionPolicy.allowedTools` and `sessionPolicy.writeEnabled`.

@@ -26,6 +26,13 @@ function mapExecution(row: QueryResultRow): WorkflowExecutionRecord {
     triggerType: row.trigger_type,
     triggerId: row.trigger_id || undefined,
     occurrenceKey: row.occurrence_key || undefined,
+    origin: row.origin_snapshot || {
+      schemaVersion: 1,
+      kind: row.request_actor_type === 'external_integration' ? 'external_integration' : 'manual',
+      label: row.request_actor_type === 'external_integration' ? 'External integration' : 'Manual'
+    },
+    sourceType: row.source_type || undefined,
+    sourceId: row.source_id || undefined,
     clientRequestId: row.client_request_id || undefined,
     clientRequestFingerprint: row.client_request_fingerprint || undefined,
     requestProvenance: {
