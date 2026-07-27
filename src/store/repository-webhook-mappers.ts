@@ -6,6 +6,8 @@ import {
 } from '../types/domain.js';
 import { toIso } from './repository-mappers.js';
 
+const retiredWebhookEventTypes = new Set(['workspace.created.v1']);
+
 export interface WebhookSubscriptionRow {
   id: string;
   workspace_id: string;
@@ -59,7 +61,9 @@ export function mapWebhookSubscription(row: WebhookSubscriptionRow): WebhookSubs
     targetId: row.target_id || undefined,
     name: row.name,
     url: row.url,
-    eventTypes: Array.isArray(row.event_types) ? row.event_types : [],
+    eventTypes: Array.isArray(row.event_types)
+      ? row.event_types.filter((eventType) => !retiredWebhookEventTypes.has(eventType))
+      : [],
     enabled: Boolean(row.enabled),
     secretCiphertext: row.secret_ciphertext,
     secretKeyId: row.secret_key_id,

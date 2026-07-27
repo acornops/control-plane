@@ -131,16 +131,6 @@ export async function createWorkspace(req: AuthenticatedRequest, res: Response, 
       membershipSource: 'oidc',
       enforceQuotas: true
     });
-    webhooks.emit({
-      type: 'workspace.created.v1',
-      workspaceId: ws.id,
-      subject: { type: 'workspace', id: ws.id },
-      data: {
-        name: ws.name,
-        createdBy: ws.createdBy,
-        createdAt: ws.createdAt
-      }
-    });
     const permissions = getWorkspacePermissions('owner');
     const createdSummary: WorkspaceSummary = {
       ...ws,
