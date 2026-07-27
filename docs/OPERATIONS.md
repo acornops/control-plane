@@ -32,6 +32,8 @@ OIDC logout always deletes the current AcornOps browser session before redirecti
 - `TARGET_METRIC_HISTORY_RETENTION_DAYS` (default `30`)
 - `EXECUTION_ENGINE_DISPATCH_TOKEN`
 - `LLM_GATEWAY_ADMIN_TOKEN`
+- `LLM_PROVIDER_OPENAI_API_SURFACE=responses|chat_completions` must match the
+  llm-gateway deployment setting.
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`
 - `WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON` (default `[]`)
 - `WEBHOOK_WORKER_ENABLED` (default `true`)
@@ -42,6 +44,12 @@ OIDC logout always deletes the current AcornOps browser session before redirecti
 - `WEBHOOK_MAX_RETRY_AGE_SECONDS` (default `86400`)
 - `WEBHOOK_MAX_PAYLOAD_BYTES` (default `65536`)
 - `WEBHOOK_MAX_SUBSCRIPTIONS_PER_WORKSPACE` (default `100`)
+
+When the selected provider is OpenAI and the configured API surface is
+`chat_completions`, control-plane preserves the target Web Search preference but
+marks it unavailable and omits it from target assistant run grants. Restoring
+`responses` makes the configured preference effective again. llm-gateway keeps
+its native-tool validation as defense in depth.
 
 ## Private Webhook Destinations
 

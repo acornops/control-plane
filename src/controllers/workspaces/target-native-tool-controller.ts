@@ -11,6 +11,10 @@ import {
   parseAllowedProviderModels,
   parseAllowedProviders
 } from '../../services/llm-policy.js';
+import {
+  webSearchAvailability
+} from '../../services/web-search-availability.js';
+import type { WebSearchAvailability } from '../../services/web-search-availability.js';
 import { TARGET_INSIGHTS_TOOL_ID, normalizeTargetInsightsConfig } from '../../services/target-insights/config.js';
 import { recordTargetInsightsAudit } from '../../services/target-insights/audit.js';
 import { requeuePausedTargetInsightsCheckpoints } from '../../services/target-insights/requeue.js';
@@ -59,6 +63,7 @@ interface TargetNativeToolItem {
     learningAvailable: boolean;
     learningPausedReason: 'ai_settings_missing' | 'provider_not_allowed' | 'model_not_allowed' | null;
   };
+  availability?: WebSearchAvailability;
   permissions?: {
     canEdit: boolean;
   };
@@ -187,7 +192,8 @@ function normalizeWebSearchConfig(input: unknown): DomainFiltersConfig {
 
 function buildWebSearchItem(
   setting: { enabled: boolean; config: Record<string, unknown> } | null | undefined,
-  canEdit: boolean
+  canEdit: boolean,
+  availability: WebSearchAvailability
 ): TargetNativeToolItem {
   return {
     id: WEB_SEARCH_TOOL_ID,
@@ -198,6 +204,7 @@ function buildWebSearchItem(
     origin: 'target_setting',
     capability: 'read',
     runtimeKind: 'provider_native',
+    availability,
     visibility: {
       appearsInAssistantToolList: true,
       appearsInRunEnabledTools: true,
@@ -331,15 +338,21 @@ export async function listTargetTools(
       return;
     }
     const targetChatNativeTools = listWorkspaceNativeToolsForInvocationScope('target_chat');
-    const [webSearchSetting, targetInsightsSetting, platformNativeSettings] = await Promise.all([
+    const [webSearchSetting, targetInsightsSetting, platformNativeSettings, workspaceAiSettings] = await Promise.all([
       repo.getTargetToolSetting(targetId, WEB_SEARCH_TOOL_ID),
       config.TARGET_INSIGHTS_ENABLED ? repo.getTargetToolSetting(targetId, TARGET_INSIGHTS_TOOL_ID) : Promise.resolve(null),
       Promise.all(targetChatNativeTools
         .filter((tool) => tool.targetToggleable)
-        .map(async (tool) => [tool.id, await repo.getTargetToolSetting(targetId, tool.id)] as const))
+        .map(async (tool) => [tool.id, await repo.getTargetToolSetting(targetId, tool.id)] as const)),
+      repo.getWorkspaceAiSettings(workspaceId)
     ]);
     const insightsConfig = normalizeTargetInsightsConfig(targetInsightsSetting?.config);
-    const items: TargetNativeToolItem[] = [buildWebSearchItem(webSearchSetting, access.authz.can('manage_tools'))];
+    const availability = webSearchAvailability(
+      workspaceAiSettings?.defaultProvider || defaultProvider()
+    );
+    const items: TargetNativeToolItem[] = [
+      buildWebSearchItem(webSearchSetting, access.authz.can('manage_tools'), availability)
+    ];
     if (config.TARGET_INSIGHTS_ENABLED) {
       const insightsReadiness = await resolveTargetInsightsReadiness(workspaceId, insightsConfig);
       items.push(buildTargetInsightsItem(targetInsightsSetting, insightsReadiness, access.authz.can('manage_target_insights')));
@@ -493,7 +506,11 @@ export async function updateTargetToolSettings(
         req.body.enabled,
         toolConfig as DomainFiltersConfig
       );
-      res.status(200).json(buildWebSearchItem(setting, access.authz.can('manage_tools')));
+      const workspaceAiSettings = await repo.getWorkspaceAiSettings(workspaceId);
+      const availability = webSearchAvailability(
+        workspaceAiSettings?.defaultProvider || defaultProvider()
+      );
+      res.status(200).json(buildWebSearchItem(setting, access.authz.can('manage_tools'), availability));
       return;
     }
 

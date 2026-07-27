@@ -399,7 +399,8 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
       targetId,
       targetType: target.targetType,
       toolAccessMode: run.toolAccessMode,
-      runId: run.id
+      runId: run.id,
+      provider: llmSettings.provider
     });
     const allowedToolSpecs = toolResolution.allowedToolSpecs;
     const allowedToolNames = toolResolution.allowedToolNames;

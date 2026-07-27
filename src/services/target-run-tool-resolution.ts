@@ -3,9 +3,11 @@ import { logger } from '../logger.js';
 import { listTargetMcpTools, McpToolConfig } from './mcp-registry-client.js';
 import { syncTargetBuiltInTools } from './target-built-in-tool-sync.js';
 import { isReservedInternalToolName } from './internal-tool-names.js';
+import { defaultProvider } from './llm-policy.js';
+import { webSearchAvailability } from './web-search-availability.js';
 import { sanitizeToolInputSchema, sanitizeToolText } from './tool-metadata.js';
 import { repo } from '../store/repository.js';
-import { KUBERNETES_TARGET_TYPE, TargetType, ToolAccessMode } from '../types/domain.js';
+import { KUBERNETES_TARGET_TYPE, LlmProvider, TargetType, ToolAccessMode } from '../types/domain.js';
 import { listWorkspaceNativeToolsForInvocationScope } from './workspace-native-tools.js';
 
 export const WEB_SEARCH_TOOL_ID = 'web_search';
@@ -173,6 +175,7 @@ export async function resolveTargetRunTools(params: {
   targetType: TargetType;
   toolAccessMode: ToolAccessMode;
   runId?: string;
+  provider?: LlmProvider;
   includeNativeTools?: boolean;
   strictMcpResolution?: boolean;
   resyncIfEmpty?: boolean;
@@ -280,8 +283,10 @@ export async function resolveTargetRunTools(params: {
   const disabledPlatformNativeToolIds = new Set<string>();
   if (params.includeNativeTools !== false) {
     try {
+      const provider = params.provider || defaultProvider();
+      const availability = webSearchAvailability(provider);
       const webSearchSetting = await repo.getTargetToolSetting(targetId, WEB_SEARCH_TOOL_ID);
-      if (webSearchSetting?.enabled !== false) {
+      if (webSearchSetting?.enabled !== false && availability.available) {
         allowedNativeTools = [{
           id: WEB_SEARCH_TOOL_ID,
           config: webSearchConfig(webSearchSetting?.config)

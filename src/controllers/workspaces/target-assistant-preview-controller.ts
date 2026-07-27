@@ -6,6 +6,7 @@ import {
   missingToolAccessModeCapabilityMessage,
   parseToolAccessMode
 } from '../../services/run-tool-access-mode.js';
+import { defaultProvider } from '../../services/llm-policy.js';
 import { resolveTargetRunTools } from '../../services/target-run-tool-resolution.js';
 import { repo } from '../../store/repository.js';
 import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE } from '../../types/domain.js';
@@ -62,11 +63,13 @@ export async function getTargetAssistantCapabilitiesPreview(
       return;
     }
 
+    const workspaceAiSettings = await repo.getWorkspaceAiSettings(workspaceId);
     const resolution = await resolveTargetRunTools({
       workspaceId,
       targetId: access.target.id,
       targetType: access.target.targetType,
-      toolAccessMode
+      toolAccessMode,
+      provider: workspaceAiSettings?.defaultProvider || defaultProvider()
     });
     const skills = await repo.listEnabledValidTargetSkillSummaries(access.target.id);
     res.status(200).json({

@@ -253,6 +253,7 @@ const envSchema = z.object({
   LLM_GATEWAY_URL: z.string().url().default('http://localhost:8001'),
   LLM_GATEWAY_ADMIN_TOKEN: z.string().default('dev_orchestrator_token'),
   LLM_GATEWAY_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
+  LLM_PROVIDER_OPENAI_API_SURFACE: z.enum(['responses', 'chat_completions']).default('responses'),
   LLM_DEFAULT_PROVIDER: z.enum(['openai', 'anthropic', 'gemini']).default('openai'),
   LLM_DEFAULT_MODEL: z.string().default('gpt-5.5'),
   LLM_PROVIDERS_JSON: z.preprocess(emptyStringToUndefined, z.string().default(DEFAULT_LLM_PROVIDERS_JSON)),

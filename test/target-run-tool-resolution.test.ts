@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import { agentGateway } from '../src/agent/ws-server.js';
+import { config } from '../src/config.js';
 import { normalizeToolCapability, resolveTargetRunTools } from '../src/services/target-run-tool-resolution.js';
 import { repo } from '../src/store/repository.js';
 import { McpToolConfig } from '../src/services/mcp-registry-client.js';
@@ -178,6 +179,32 @@ describe('target run tool resolution', () => {
     assert.deepEqual(result.allowedToolNames, ['acornops_generate_pdf_report']);
     assert.equal(result.summary.nativeAllowed, 1);
     assert.equal(result.summary.totalAllowed, 3);
+  });
+
+  it('omits OpenAI Web Search effectively when the deployment uses Chat Completions', async () => {
+    installResolverRepoStubs(['read', 'write']);
+    mockToolList([]);
+    const previousSurface = config.LLM_PROVIDER_OPENAI_API_SURFACE;
+    config.LLM_PROVIDER_OPENAI_API_SURFACE = 'chat_completions';
+    try {
+      const result = await resolveTargetRunTools({
+        workspaceId: 'workspace-1',
+        targetId: 'target-1',
+        targetType: 'virtual_machine',
+        toolAccessMode: 'read_only',
+        runId: 'run-1',
+        provider: 'openai'
+      });
+
+      assert.deepEqual(result.allowedNativeTools, []);
+      assert.equal(result.previewItems.some((item) => item.name === 'web_search'), false);
+      assert.equal(result.summary.nativeAllowed, 0);
+      assert.deepEqual(result.platformFunctions, [
+        { id: 'reports.pdf.generate', modelAlias: 'acornops_generate_pdf_report' }
+      ]);
+    } finally {
+      config.LLM_PROVIDER_OPENAI_API_SURFACE = previousSurface;
+    }
   });
 
   it('excludes web search when the target explicitly disables it', async () => {
