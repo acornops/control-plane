@@ -204,6 +204,10 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Webhook events use a Postgres outbox with one leased job per matching
   subscription. Retries retain the same event ID and payload; delivery history
   exposes `attemptNumber`, `willRetry`, `nextAttemptAt`, and `terminalReason`.
+  The outbound catalog contains only events that can occur after a subscription
+  exists. `workspace.created.v1` remains an audit event but is not an outbound
+  event; `workspace.deleted.v1` snapshots eligible recipients before deletion
+  so the final workspace notification remains deliverable.
   Issue created, reopened, and resolved events commit atomically with issue
   lifecycle changes. The worker pauses recovering-lifecycle alerts and
   supersedes stale lifecycle versions before delivery where possible.

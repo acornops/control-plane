@@ -4,7 +4,6 @@ const uuidV4Pattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 const uuidV4Schema = z.string().regex(uuidV4Pattern, 'must be a UUIDv4');
 
 export const webhookEventTypes = [
-  'workspace.created.v1',
   'workspace.deleted.v1',
   'target.registered.v1',
   'target.updated.v1',
