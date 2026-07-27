@@ -145,6 +145,31 @@ function classifyPodFinding(finding: SnapshotFindingListItem): 'pod-unhealthy' |
   return null;
 }
 
+const POD_PENDING_ISSUE_MIN_AGE_MS = 2 * 60 * 1000;
+
+function pendingPodAgeMs(
+  snapshot: ClusterSnapshot,
+  pod: Record<string, unknown>
+): number | null {
+  const snapshotTime = Date.parse(snapshot.timestamp);
+  const creationTime = Date.parse(text(pod.creationTimestamp));
+  if (!Number.isFinite(snapshotTime) || !Number.isFinite(creationTime)) return null;
+  const ageMs = snapshotTime - creationTime;
+  return ageMs >= 0 ? ageMs : null;
+}
+
+function shouldPromotePodPendingFinding(
+  snapshot: ClusterSnapshot,
+  finding: SnapshotFindingListItem,
+  pod: Record<string, unknown> | undefined
+): boolean {
+  if (!pod || text(pod.phase).trim().toLowerCase() !== 'pending') return false;
+  const reason = (finding.reason || '').trim().toLowerCase();
+  if (reason === 'failedscheduling' || reason === 'unschedulable') return true;
+  const ageMs = pendingPodAgeMs(snapshot, pod);
+  return ageMs !== null && ageMs >= POD_PENDING_ISSUE_MIN_AGE_MS;
+}
+
 function buildPodObservation(
   cluster: KubernetesCluster,
   snapshot: ClusterSnapshot,
@@ -166,6 +191,9 @@ function buildPodObservation(
       ? `${finding.message} Restart count: ${restartCount}.`
       : finding.message;
   const severity = strongestSeverity(finding.severity, restartCount >= 50 ? 'critical' : restartCount >= 10 ? 'warning' : finding.severity);
+  const pendingAgeMs = issueClass === 'pod-pending' && pod
+    ? pendingPodAgeMs(snapshot, pod)
+    : null;
   return {
     targetId: cluster.id,
     workspaceId: cluster.workspaceId,
@@ -191,7 +219,11 @@ function buildPodObservation(
       containerName,
       restartCount,
       reason,
-      findingId: finding.id
+      findingId: finding.id,
+      ...(pendingAgeMs === null ? {} : {
+        pendingAgeMs,
+        pendingIssueMinAgeMs: POD_PENDING_ISSUE_MIN_AGE_MS
+      })
     },
     searchText: buildSearchText([title, summary, cluster.name, namespace, owner.kind, owner.name, podName, reason, containerName])
   };
@@ -336,7 +368,9 @@ export function deriveKubernetesIssueObservations(
       const podName = finding.objectName || 'unknown';
       const issueClass = classifyPodFinding(finding);
       if (issueClass) {
-        observations.push(buildPodObservation(cluster, snapshot, finding, pods.get(`${namespace}/${podName}`), issueClass));
+        const pod = pods.get(`${namespace}/${podName}`);
+        if (issueClass === 'pod-pending' && !shouldPromotePodPendingFinding(snapshot, finding, pod)) continue;
+        observations.push(buildPodObservation(cluster, snapshot, finding, pod, issueClass));
         continue;
       }
     }

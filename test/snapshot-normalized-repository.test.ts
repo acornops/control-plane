@@ -187,7 +187,13 @@ describe('normalized snapshot repository ingest', () => {
       timestamp: '2026-05-10T00:00:00.000Z',
       data: {
         resources: {
-          pods: [{ uid: 'pod-1', name: 'pod-1', namespace: 'default', phase: 'Pending' }]
+          pods: [{
+            uid: 'pod-1',
+            name: 'pod-1',
+            namespace: 'default',
+            phase: 'Pending',
+            creationTimestamp: '2026-05-09T23:57:00.000Z'
+          }]
         },
         metrics: {
           nodes: [
