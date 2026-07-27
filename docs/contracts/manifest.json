@@ -73,12 +73,13 @@
       "workspacePlanPatchFields": ["planKey", "reason", "ticketRef?"],
       "workspaceSuspendFields": ["workspaceName", "reason", "ticketRef?"],
       "workspaceRestoreFields": ["workspaceName?", "reason", "ticketRef?"],
-      "adminWorkspaceResponseFields": ["clusterCount", "virtualMachineCount", "memberCount", "lifecycleStatus=active|suspended", "suspendedAt?"],
+      "adminWorkspaceResponseFields": ["createdByDisplayName?", "createdByEmail?", "clusterCount", "virtualMachineCount", "memberCount", "lifecycleStatus=active|suspended", "suspendedAt?"],
       "memberCreateFields": ["userId", "role", "createUserIfMissing=false", "reason", "ticketRef?"],
       "memberRolePatchFields": ["role", "reason", "ticketRef?"],
       "memberDeleteFields": ["reason", "replacementOwnerUserId?", "ticketRef?"],
       "responseCachePolicy": "All /admin/v1 responses set Cache-Control: no-store",
       "adminAuditActorFields": ["adminActorIssuer", "adminActorSubject", "adminActorEmail?", "adminActorDisplayName?", "adminActorRole", "authenticationTime"],
+      "adminAuditObjectFields": ["workspaceId?", "workspaceName?", "subjectType?", "subjectId?"],
       "privacyProjection": "BFF removes operational workspace fields, filters admin audit to governance action families, and removes target/run identifiers before browser delivery"
     },
     "management-console": {
@@ -829,7 +830,8 @@
       ],
       "adminMutationFields": ["reason"],
       "adminWorkspaceLifecycleFields": ["lifecycleStatus=active|suspended", "suspendedAt?", "suspend.workspaceName", "restore.workspaceName?", "reason", "ticketRef?"],
-      "adminAuditFields": ["id", "adminTokenId?", "action", "outcome", "workspaceId?", "targetType?", "targetId?", "subjectType?", "subjectId?", "reason?", "requestId", "sourceIpHash?", "userAgent?", "metadata", "occurredAt"],
+      "adminWorkspaceReadableFields": ["createdByDisplayName?", "createdByEmail?"],
+      "adminAuditFields": ["id", "adminTokenId?", "action", "outcome", "workspaceId?", "workspaceName?", "targetType?", "targetId?", "subjectType?", "subjectId?", "reason?", "requestId", "sourceIpHash?", "userAgent?", "metadata", "occurredAt"],
       "workspacePlanConfig": ["WORKSPACE_PLANS_CONFIG_JSON.defaultPlanKey", "WORKSPACE_PLANS_CONFIG_JSON.plans[].{key,name,quotas}"],
       "responseCachePolicy": "All /admin/v1 responses set Cache-Control: no-store",
       "secretReturnPolicy": "No admin response returns secrets except one-time agent-key rotation, returned once"

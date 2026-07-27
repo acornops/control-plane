@@ -91,6 +91,8 @@ export function buildAdminSchemas(): Record<string, JsonSchema> {
           type: 'object',
           required: ['virtualMachineCount', 'lifecycleStatus'],
           properties: {
+            createdByDisplayName: { type: 'string' },
+            createdByEmail: { type: 'string' },
             virtualMachineCount: { type: 'integer', minimum: 0 },
             lifecycleStatus: { type: 'string', enum: ['active', 'suspended'] },
             suspendedAt: dateTime
@@ -163,6 +165,7 @@ export function buildAdminSchemas(): Record<string, JsonSchema> {
         action: { type: 'string' },
         outcome: { type: 'string', enum: ['success', 'failure'] },
         workspaceId: { type: 'string' },
+        workspaceName: { type: 'string' },
         targetType: { type: 'string' },
         targetId: { type: 'string' },
         subjectType: { type: 'string' },

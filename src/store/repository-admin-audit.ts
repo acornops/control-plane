@@ -22,6 +22,7 @@ export interface AdminAuditEvent {
   action: string;
   outcome: 'success' | 'failure';
   workspaceId?: string;
+  workspaceName?: string;
   targetType?: string;
   targetId?: string;
   subjectType?: string;
@@ -70,6 +71,7 @@ interface AdminAuditEventRow {
   action: string;
   outcome: 'success' | 'failure';
   workspace_id: string | null;
+  workspace_name: string | null;
   target_type: string | null;
   target_id: string | null;
   subject_type: string | null;
@@ -104,6 +106,7 @@ function mapAdminAuditEvent(row: AdminAuditEventRow): AdminAuditEvent {
     action: row.action,
     outcome: row.outcome,
     ...(row.workspace_id ? { workspaceId: row.workspace_id } : {}),
+    ...(row.workspace_name ? { workspaceName: row.workspace_name } : {}),
     ...(row.target_type ? { targetType: row.target_type } : {}),
     ...(row.target_id ? { targetId: row.target_id } : {}),
     ...(row.subject_type ? { subjectType: row.subject_type } : {}),
@@ -178,28 +181,29 @@ export async function listAdminAuditEvents(options: {
     params.push(value);
     clauses.push(sql.replace('?', `$${params.length}`));
   };
-  if (options.adminTokenId) addFilter('admin_token_id = ?', options.adminTokenId);
-  if (options.adminActorSubject) addFilter('admin_actor_subject = ?', options.adminActorSubject);
-  if (options.action) addFilter('action = ?', options.action);
+  if (options.adminTokenId) addFilter('a.admin_token_id = ?', options.adminTokenId);
+  if (options.adminActorSubject) addFilter('a.admin_actor_subject = ?', options.adminActorSubject);
+  if (options.action) addFilter('a.action = ?', options.action);
   if (options.actions?.length) {
     params.push(options.actions);
-    clauses.push(`action = ANY($${params.length}::text[])`);
+    clauses.push(`a.action = ANY($${params.length}::text[])`);
   }
-  if (options.outcome) addFilter('outcome = ?', options.outcome);
-  if (options.workspaceId) addFilter('workspace_id = ?', options.workspaceId);
-  if (options.targetType) addFilter('target_type = ?', options.targetType);
-  if (options.targetId) addFilter('target_id = ?', options.targetId);
-  if (options.from) addFilter('occurred_at >= ?::timestamptz', options.from);
-  if (options.to) addFilter('occurred_at <= ?::timestamptz', options.to);
+  if (options.outcome) addFilter('a.outcome = ?', options.outcome);
+  if (options.workspaceId) addFilter('a.workspace_id = ?', options.workspaceId);
+  if (options.targetType) addFilter('a.target_type = ?', options.targetType);
+  if (options.targetId) addFilter('a.target_id = ?', options.targetId);
+  if (options.from) addFilter('a.occurred_at >= ?::timestamptz', options.from);
+  if (options.to) addFilter('a.occurred_at <= ?::timestamptz', options.to);
   if (options.cursor) {
     params.push(options.cursor.occurredAt, options.cursor.eventId);
-    clauses.push(`(occurred_at, id) < ($${params.length - 1}::timestamptz, $${params.length}::text)`);
+    clauses.push(`(a.occurred_at, a.id) < ($${params.length - 1}::timestamptz, $${params.length}::text)`);
   }
   const result = await db.query(
-    `SELECT *
-     FROM admin_audit_events
+    `SELECT a.*, w.name AS workspace_name
+     FROM admin_audit_events a
+     LEFT JOIN workspaces w ON w.id = a.workspace_id
      ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
-     ORDER BY occurred_at DESC, id DESC
+     ORDER BY a.occurred_at DESC, a.id DESC
      LIMIT $1`,
     params
   );
