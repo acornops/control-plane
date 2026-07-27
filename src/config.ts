@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { agentTransportConfigFields, validateAgentTransportConfig } from './config-agent-transport.js';
 import { agentKHelmConfigFields, parseAgentKHelmValues, validateAgentKHelmConfig } from './config-agentk-helm.js';
 import { configureWorkspaceRoleTemplates } from './auth/role-template-config.js';
-import { DEFAULT_LLM_PROVIDERS_JSON, validateLlmPolicyConfig } from './config-llm-policy.js';
+import { DEFAULT_LLM_PROVIDERS_JSON, llmPolicyConfigFields, validateLlmPolicyConfig } from './config-llm-policy.js';
 import { platformSettingsConfigFields, resolvePlatformSettingsRuntimeConfig } from './config-platform-settings.js';
 import { webhookConfigShape } from './config-webhooks.js';
 import {
@@ -253,16 +253,12 @@ const envSchema = z.object({
   LLM_GATEWAY_URL: z.string().url().default('http://localhost:8001'),
   LLM_GATEWAY_ADMIN_TOKEN: z.string().default('dev_orchestrator_token'),
   LLM_GATEWAY_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
-  LLM_PROVIDER_OPENAI_API_SURFACE: z.enum(['responses', 'chat_completions']).default('responses'),
-  LLM_DEFAULT_PROVIDER: z.enum(['openai', 'anthropic', 'gemini']).default('openai'),
-  LLM_DEFAULT_MODEL: z.string().default('gpt-5.5'),
+  ...llmPolicyConfigFields,
   LLM_PROVIDERS_JSON: z.preprocess(emptyStringToUndefined, z.string().default(DEFAULT_LLM_PROVIDERS_JSON)),
   LLM_ALLOWED_PROVIDERS: z.never().optional(),
   LLM_ALLOWED_PROVIDER_MODELS: z.never().optional(),
   LLM_MAX_OUTPUT_TOKENS: optionalPositiveIntFromEnv,
   LLM_REASONING_SUMMARIES_ENABLED: envBoolean(true),
-  LLM_ALLOWED_REASONING_SUMMARY_MODES: z.string().default('off,auto,concise,detailed'),
-  LLM_ALLOWED_REASONING_EFFORTS: z.string().default('off,low,medium,high'),
   ASSISTANT_CONTEXT_MAX_TOKENS: z.coerce.number().int().positive().default(120000),
   ASSISTANT_BUDGET_CENTS: z.coerce.number().int().nonnegative().default(25),
   ASSISTANT_LLM_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.2),

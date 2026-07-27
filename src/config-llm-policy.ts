@@ -25,6 +25,14 @@ export const DEFAULT_LLM_PROVIDERS: ProviderModelMap = {
 };
 export const DEFAULT_LLM_PROVIDERS_JSON = JSON.stringify(DEFAULT_LLM_PROVIDERS);
 
+export const llmPolicyConfigFields = {
+  LLM_PROVIDER_OPENAI_API_SURFACE: z.enum(['responses', 'chat_completions']).default('responses'),
+  LLM_DEFAULT_PROVIDER: z.enum(SUPPORTED_LLM_PROVIDER_VALUES).default('openai'),
+  LLM_DEFAULT_MODEL: z.string().default('gpt-5.5'),
+  LLM_ALLOWED_REASONING_SUMMARY_MODES: z.string().default('off,auto,concise,detailed'),
+  LLM_ALLOWED_REASONING_EFFORTS: z.string().default('off,low,medium,high')
+};
+
 interface LlmPolicyConfig {
   LLM_DEFAULT_PROVIDER: typeof SUPPORTED_LLM_PROVIDER_VALUES[number];
   LLM_DEFAULT_MODEL: string;

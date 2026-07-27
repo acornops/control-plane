@@ -4,73 +4,14 @@ import { agentGateway } from '../src/agent/ws-server.js';
 import { config } from '../src/config.js';
 import { normalizeToolCapability, resolveTargetRunTools } from '../src/services/target-run-tool-resolution.js';
 import { repo } from '../src/store/repository.js';
-import { McpToolConfig } from '../src/services/mcp-registry-client.js';
+import { restoreControllerRegressionState } from './helpers/controller-regression-fixtures.js';
 import {
-  callController,
-  createRequest,
-  createTarget,
-  installWorkspace,
-  restoreControllerRegressionState
-} from './helpers/controller-regression-fixtures.js';
-import { getTargetAssistantCapabilitiesPreview } from '../src/controllers/workspaces/target-assistant-preview-controller.js';
-
-const BASE_TOOLS: McpToolConfig[] = [
-  {
-    name: 'restart_service',
-    server_id: '00000000-0000-4000-8000-000000000001',
-    model_alias: 'mcp__00000000000040008000000000000001__restart_service',
-    mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
-    timeout_ms: 10000,
-    description: 'Restart a service',
-    capability: 'write',
-    version: 'v1',
-    source: 'builtin',
-    input_schema: { type: 'object', description: 'Restart input' },
-    enabled: true
-  },
-  {
-    name: 'query_logs',
-    server_id: '00000000-0000-4000-8000-000000000001',
-    model_alias: 'mcp__00000000000040008000000000000001__query_logs',
-    mcp_server_url: 'http://control-plane:8081/internal/v1/mcp',
-    timeout_ms: 10000,
-    description: 'Read logs',
-    capability: 'read',
-    version: 'v1',
-    source: 'builtin',
-    input_schema: { type: 'object' },
-    enabled: true
-  }
-];
+  BASE_TOOLS,
+  installResolverRepoStubs,
+  mockToolList
+} from './helpers/target-run-tool-resolution-fixtures.js';
 
 afterEach(restoreControllerRegressionState);
-
-function mockToolList(tools: McpToolConfig[]): void {
-  mock.method(globalThis, 'fetch', async (input) => {
-    const url = String(input);
-    if (url.includes('/api/v1/internal/mcp/tools?')) {
-      return new Response(JSON.stringify(tools), { status: 200 });
-    }
-    return new Response('unexpected request', { status: 500 });
-  });
-}
-
-function installResolverRepoStubs(capabilities: string[] = ['read', 'write']): void {
-  repo.getTargetAgentRegistration = async () => ({
-    workspaceId: 'workspace-1',
-    targetId: 'target-1',
-    targetType: 'virtual_machine',
-    agentKeyHash: 'hash',
-    keyVersion: 1,
-    capabilities
-  });
-  repo.listTargetToolOverrides = async () => ({});
-  repo.getTargetToolSetting = async () => null;
-  repo.listEnabledTargetToolSettings = async () => [];
-  repo.listEnabledValidTargetSkills = async () => [];
-  repo.listEnabledValidTargetSkillSummaries = async () => [];
-  repo.listMatchingWebhookSubscriptions = async () => [];
-}
 
 describe('target run tool resolution', () => {
   it('normalizes unknown capabilities to write', () => {
@@ -413,62 +354,5 @@ describe('target run tool resolution', () => {
 
     assert.deepEqual(result.allowedToolNames, ['synced_logs', 'acornops_generate_pdf_report']);
     assert.equal(toolListCalls, 3);
-  });
-});
-
-describe('target assistant capabilities preview controller', () => {
-  it('returns the shared resolver preview for an allowed target run mode', async () => {
-    installWorkspace('operator');
-    repo.getTarget = async () => createTarget({ id: 'target-1', name: 'vm', targetType: 'virtual_machine' });
-    installResolverRepoStubs(['read', 'write']);
-    repo.listEnabledValidTargetSkills = async () => {
-      throw new Error('capabilities preview must not load full skill files');
-    };
-    repo.listEnabledValidTargetSkillSummaries = async () => [
-      {
-        id: 'skill-1',
-        workspaceId: 'workspace-1',
-        targetId: 'target-1',
-        targetType: 'virtual_machine',
-        name: 'CNPG triage',
-        description: 'Use when investigating CloudNativePG failover.',
-        enabled: true,
-        source: { type: 'manual', syncStatus: 'not_applicable' },
-        bundleStats: { fileCount: 1, totalBytes: 15 },
-        validationStatus: 'valid',
-        validationErrors: [],
-        createdAt: new Date(0).toISOString(),
-        updatedAt: new Date(0).toISOString()
-      }
-    ];
-    mockToolList(BASE_TOOLS);
-    const req = Object.assign(createRequest({ workspaceId: 'workspace-1', targetId: 'target-1' }), {
-      query: { toolAccessMode: 'read_only' }
-    });
-
-    const response = await callController(getTargetAssistantCapabilitiesPreview, req);
-    const body = response.body as {
-      toolAccessMode: string;
-      toolSummary: { totalAllowed: number; writeAllowed: number };
-      skillSummary: { totalAvailable: number };
-      tools: Array<{ id: string; runtimeKind: string; input_schema?: unknown }>;
-      skills: Array<{ id: string; name: string; description: string; source: string }>;
-    };
-
-    assert.equal(response.statusCode, 200);
-    assert.equal(body.toolAccessMode, 'read_only');
-    assert.equal(body.toolSummary.totalAllowed, 4);
-    assert.equal(body.toolSummary.writeAllowed, 0);
-    assert.equal(body.skillSummary.totalAvailable, 1);
-    assert.deepEqual(body.tools.map((item) => item.id), ['reports.pdf.generate', 'query_logs', 'target_insights', 'web_search']);
-    assert.equal(body.tools.some((item) => Object.prototype.hasOwnProperty.call(item, 'input_schema')), false);
-    assert.deepEqual(body.skills, [
-      {
-        id: 'skill-1',
-        name: 'CNPG triage',
-        description: 'Use when investigating CloudNativePG failover.',
-        source: 'manual'
-      }
-    ]);
   });
 });

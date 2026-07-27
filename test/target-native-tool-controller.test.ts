@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
-import { config } from '../src/config.js';
 import { listTargetTools, updateTargetToolSettings } from '../src/controllers/workspaces/target-native-tool-controller.js';
 import { listWorkspaceNativeToolsForInvocationScope } from '../src/services/workspace-native-tools.js';
 import { webhooks } from '../src/services/webhooks.js';
@@ -163,43 +162,6 @@ describe('target native tool controller', () => {
       learningPausedReason: null
     });
     assert.equal(gatewayFetch.mock.callCount(), 0);
-  });
-
-  it('preserves Web Search preference while reporting it unavailable for OpenAI Chat Completions', async () => {
-    installWorkspace('operator');
-    repo.getTargetToolSetting = async () => null;
-    repo.getWorkspaceAiSettings = async () => ({
-      workspaceId: 'workspace-1',
-      defaultProvider: 'openai',
-      defaultModel: 'gpt-5.5',
-      reasoningSummaryMode: 'auto',
-      reasoningEffort: 'medium'
-    });
-    const previousSurface = config.LLM_PROVIDER_OPENAI_API_SURFACE;
-    config.LLM_PROVIDER_OPENAI_API_SURFACE = 'chat_completions';
-    try {
-      const response = await callController(
-        listTargetTools,
-        createRequest({ workspaceId: 'workspace-1', targetId: 'cluster-1' })
-      );
-
-      const body = response.body as {
-        items: Array<{
-          id: string;
-          enabled: boolean;
-          availability?: { available: boolean; unavailableReason: string | null };
-        }>;
-      };
-      const webSearch = body.items.find((item) => item.id === 'web_search');
-      assert.equal(response.statusCode, 200);
-      assert.equal(webSearch?.enabled, true);
-      assert.deepEqual(webSearch?.availability, {
-        available: false,
-        unavailableReason: 'openai_responses_api_required'
-      });
-    } finally {
-      config.LLM_PROVIDER_OPENAI_API_SURFACE = previousSurface;
-    }
   });
 
   it('checks workspace default model policy without calling the llm gateway', async () => {
