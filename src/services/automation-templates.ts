@@ -212,11 +212,7 @@ function injectSeedFailureForTests(stage: 'after_agents' | 'after_workflows'): v
 }
 
 function agentDefinitionOrigin(): DefinitionOrigin {
-  return {
-    type: 'template',
-    templateId: STARTER_BUNDLE.id,
-    templateVersion: STARTER_BUNDLE.version
-  };
+  return { type: 'manual' };
 }
 
 async function deletePendingStarterDefinitions(client: PoolClient, workspaceId: string): Promise<void> {

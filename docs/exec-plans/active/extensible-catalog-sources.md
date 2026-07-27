@@ -1,14 +1,14 @@
 # Extensible catalog sources
 
-## System-provided automation correction
+## Workspace-owned automation correction
 
-- Present template-origin Agents as system provided. Workflows created from
-  workspace defaults or recommendations are ordinary workspace-owned
-  definitions that can be edited, renamed, paused, duplicated, or deleted.
+- Present Agents and workflows created from workspace defaults or
+  recommendations as ordinary workspace-owned definitions that can be edited,
+  renamed, paused, duplicated, or deleted.
 - Provision default workflows once and never overwrite or automatically restore
   them. Keep recommendation metadata only for the explicit add-workflow flow.
 - Keep the template-origin Manager internal to compilation and execution; omit it from public Agent APIs and direct user operations.
-- Enforce the boundary in the control plane and mirror it in management-console actions and contract manifests.
+- Enforce normal workspace permissions in the control plane and mirror them in management-console actions and contract manifests.
 
 ## Goal
 

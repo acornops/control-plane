@@ -46,24 +46,6 @@ export class DefinitionValidationError extends Error {
   }
 }
 
-function definedPatchKeys(patch: Record<string, unknown>): string[] {
-  return Object.entries(patch)
-    .filter(([, value]) => value !== undefined)
-    .map(([key]) => key);
-}
-
-function assertSystemAgentPatchAllowed(current: AgentDefinition, patch: AgentDefinitionUpdate): void {
-  if (current.origin.type !== 'template') return;
-  const definitionKeys = definedPatchKeys(patch as Record<string, unknown>)
-    .filter((key) => key !== 'status');
-  if (definitionKeys.length === 0) return;
-  throw new DefinitionValidationError(
-    'SYSTEM_AGENT_DEFINITION_IMMUTABLE',
-    'System-provided Agent definitions cannot be edited. Duplicate this Agent to create an editable custom draft.',
-    definitionKeys
-  );
-}
-
 async function validateAgentInput(
   _input: CreateAgentDefinitionInput | (AgentDefinitionUpdate & { workspaceId: string }),
   _current?: AgentDefinition,
@@ -93,7 +75,6 @@ export async function updateAgentThroughDefinitionService(
 ): Promise<AgentDefinition | null> {
   const current = await getAgentDefinition(workspaceId, agentId);
   if (!current) return null;
-  assertSystemAgentPatchAllowed(current, patch);
   await validateAgentInput({ ...patch, workspaceId }, current);
   const updated = await updateAgentDefinition(workspaceId, agentId, patch);
   if (!updated) return null;

@@ -101,7 +101,7 @@ describe('agents controller', () => {
     assert.equal(response.statusCode, 403);
   });
 
-  it('requires duplication before editing or versioning a system-provided Agent and uses normal deletion dependencies', async () => {
+  it('treats legacy template-origin Agents as workspace-owned definitions', async () => {
     installWorkspace('admin');
     await installAutomationTemplateFixtures(['workspace-1']);
 
@@ -109,8 +109,8 @@ describe('agents controller', () => {
       { agentId: 'agent-cluster-triage' },
       { workspaceId: 'workspace-1', instructions: 'Replace system instructions.' }
     ));
-    assert.equal(edited.statusCode, 409);
-    assert.equal((edited.body as { error: { code: string } }).error.code, 'SYSTEM_AGENT_DEFINITION_IMMUTABLE');
+    assert.equal(edited.statusCode, 200);
+    assert.equal((edited.body as { agent: { instructions: string } }).agent.instructions, 'Replace system instructions.');
 
     const availability = await callController(updateAgent, createRequest(
       { agentId: 'agent-cluster-triage' },
@@ -123,8 +123,21 @@ describe('agents controller', () => {
       { agentId: 'agent-cluster-triage' },
       { workspaceId: 'workspace-1' }
     ));
-    assert.equal(versioned.statusCode, 409);
-    assert.equal((versioned.body as { error: { code: string } }).error.code, 'SYSTEM_AGENT_DEFINITION_IMMUTABLE');
+    assert.equal(versioned.statusCode, 201);
+    const versionId = (versioned.body as { version: { id: string } }).version.id;
+
+    const changedAgain = await callController(updateAgent, createRequest(
+      { agentId: 'agent-cluster-triage' },
+      { workspaceId: 'workspace-1', instructions: 'A later workspace-owned revision.' }
+    ));
+    assert.equal(changedAgain.statusCode, 200);
+
+    const restored = await callController(restoreAgentVersion, createRequest(
+      { agentId: 'agent-cluster-triage', versionId },
+      { workspaceId: 'workspace-1' }
+    ));
+    assert.equal(restored.statusCode, 200);
+    assert.equal((restored.body as { agent: { instructions: string } }).agent.instructions, 'Replace system instructions.');
 
     const deleted = await callController(deleteAgent, createRequest(
       { agentId: 'agent-cluster-triage' },

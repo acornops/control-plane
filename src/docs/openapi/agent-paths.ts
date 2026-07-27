@@ -139,7 +139,7 @@ export function buildAgentPaths(): Record<string, unknown> {
       patch: {
         tags: ['agents'],
         summary: 'Update an agent definition',
-        description: 'Manual Agents accept definition edits. System-provided Agents accept availability-status changes only; duplicate one to edit its definition. MCP servers and skills are managed through the nested Agent capability APIs.',
+        description: 'Workspace Agents accept definition edits, including defaults created with a workspace. MCP servers and skills are managed through the nested Agent capability APIs.',
         security: [{ userSession: [] }],
         parameters: [agentIdPathParameter],
         requestBody: {
@@ -153,7 +153,7 @@ export function buildAgentPaths(): Record<string, unknown> {
         responses: {
           '200': { description: 'Agent updated.' },
           '403': { description: 'Requires manage_agents.' },
-          '409': { description: 'System-provided Agent definitions are immutable, or the requested change conflicts with an active assignment or policy.' }
+          '409': { description: 'The requested change conflicts with an active assignment or policy.' }
         }
       },
       delete: {

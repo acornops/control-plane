@@ -153,9 +153,9 @@
       },
       "systemAutomationDefinitions": {
         "provisioning": "The greenfield baseline creates only the final schema. Current-version workspace provisioning atomically commits the two automatic specialist Agents, two active workspace-owned default workflows, and a completed starter installation. Optional recommended workflows are added explicitly; coordinated workflows use a versioned code-owned coordinator profile and create no hidden Agent.",
-        "attribution": "Template-origin Agents are labeled as system provided and retain their template ID and version. Default and recommended workflows are workspace-owned, use manual origin, and display their workspace creator.",
+        "attribution": "Default Agents and workflows are workspace-owned, use manual origin, and display their workspace creator. Legacy template-origin definitions are treated as workspace-owned.",
         "visibility": "Every public Agent is a specialist capability profile. Public workflow, compiled-scope, audit, search, and trace DTOs omit internal coordinator profile instructions and identity.",
-        "mutation": "Visible template-origin Agents accept availability-status changes, supported external bindings, duplication, and deletion, while definition edits and version restore remain immutable. Every workspace workflow, including legacy template-origin rows, is directly editable with manage_workflows and is never overwritten, upgraded, or automatically restored by AcornOps. Agent deletion returns structured dependent workflows until those dependencies are removed.",
+        "mutation": "Every workspace Agent and workflow, including legacy template-origin rows, is directly editable with the corresponding manage permission and is never overwritten, upgraded, or automatically restored by AcornOps. Agent deletion returns structured dependent workflows until those dependencies are removed.",
         "duplication": "manage_agents or manage_workflows may copy the effective definition into a manual draft without capability installations, history, executions, schedules, sessions, or activity."
       },
       "catalogAuthorization": {

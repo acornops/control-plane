@@ -2,7 +2,6 @@ import { NextFunction, Response } from 'express';
 import { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
-import { incrementAutomationDefinitionMutation } from '../metrics.js';
 import {
   createAgentDefinition,
   createAgentVersionSnapshot,
@@ -36,10 +35,7 @@ import {
 export { deleteAgent, duplicateAgent } from './agents-lifecycle-controller.js';
 
 function definitionValidationError(res: Response, error: DefinitionValidationError): void {
-  if (error.code === 'SYSTEM_AGENT_DEFINITION_IMMUTABLE') {
-    incrementAutomationDefinitionMutation('agent', 'definition', 'rejected');
-  }
-  res.status(error.code === 'SYSTEM_AGENT_DEFINITION_IMMUTABLE' ? 409 : 400).json({
+  res.status(400).json({
     error: { code: error.code, message: error.message, retryable: false, details: error.details }
   });
 }
@@ -208,15 +204,6 @@ export async function createAgentVersion(req: AuthenticatedRequest, res: Respons
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
       return;
     }
-    if (agent.origin.type === 'template') {
-      incrementAutomationDefinitionMutation('agent', 'version', 'rejected');
-      res.status(409).json({ error: {
-        code: 'SYSTEM_AGENT_DEFINITION_IMMUTABLE',
-        message: 'System-provided Agent versions are maintained by AcornOps. Duplicate this Agent to manage custom versions.',
-        retryable: false
-      } });
-      return;
-    }
     const version = await createAgentVersionSnapshot(workspaceId, agentId, req.auth.userId);
     if (!version) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
@@ -262,15 +249,6 @@ export async function restoreAgentVersion(req: AuthenticatedRequest, res: Respon
     const agent = await getAgentDefinition(workspaceId, agentId);
     if (!agent) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
-      return;
-    }
-    if (agent.origin.type === 'template') {
-      incrementAutomationDefinitionMutation('agent', 'version', 'rejected');
-      res.status(409).json({ error: {
-        code: 'SYSTEM_AGENT_DEFINITION_IMMUTABLE',
-        message: 'System-provided Agent versions are maintained by AcornOps. Duplicate this Agent to restore a custom version.',
-        retryable: false
-      } });
       return;
     }
     const restored = await restoreAgentVersionSnapshot(

@@ -3,6 +3,7 @@ import { after, beforeEach, describe, it } from 'node:test';
 import { db } from '../src/infra/db.js';
 import {
   deleteWorkflowThroughDefinitionService,
+  updateAgentThroughDefinitionService,
   updateWorkflowThroughDefinitionService
 } from '../src/services/automation-definition-service.js';
 import {
@@ -37,8 +38,8 @@ describe('Workflow and Agent template foundations', () => {
       createdBy: 'user-1'
     });
     assert.equal(provisioned.created, true);
-    const agents = await db.query<{ status: string; review_state: string }>(
-      'SELECT status,review_state FROM agent_definitions WHERE workspace_id=$1',
+    const agents = await db.query<{ status: string; review_state: string; origin: { type: string } }>(
+      'SELECT status,review_state,origin FROM agent_definitions WHERE workspace_id=$1',
       ['workspace-provisioned']
     );
     assert.equal(agents.rowCount, 2);
@@ -46,6 +47,7 @@ describe('Workflow and Agent template foundations', () => {
       agents.rows.every((agent) => agent.status === 'active' && agent.review_state === 'reviewed'),
       true
     );
+    assert.equal(agents.rows.every((agent) => agent.origin.type === 'manual'), true);
     const workflows = await db.query<{ status: string; readiness_status: string; agent_ids: string[]; origin: { type: string } }>(
       'SELECT status,readiness_status,agent_ids,origin FROM workflow_definitions WHERE workspace_id=$1',
       ['workspace-provisioned']
@@ -103,14 +105,19 @@ describe('Workflow and Agent template foundations', () => {
     }
   });
 
-  it('never overwrites or automatically restores workspace default workflows', async () => {
+  it('never overwrites or automatically restores workspace default Agents or workflows', async () => {
     const seeded = await provisionStarterAutomation({
       workspaceId: 'workspace-1',
       installedBy: 'user-1'
     });
+    const editedAgentId = seeded.installation.recordIds['agent:targetDiagnostics'];
     const editedWorkflowId = seeded.installation.recordIds['workflow:targetDiagnostics'];
     const deletedWorkflowId = seeded.installation.recordIds['workflow:incidentReporter'];
 
+    const editedAgent = await updateAgentThroughDefinitionService('workspace-1', editedAgentId, {
+      name: 'My diagnostics Agent'
+    });
+    assert.equal(editedAgent?.name, 'My diagnostics Agent');
     const edited = await updateWorkflowThroughDefinitionService('workspace-1', editedWorkflowId, {
       name: 'My diagnostics workflow'
     });
@@ -125,6 +132,10 @@ describe('Workflow and Agent template foundations', () => {
       installedBy: 'user-1'
     });
     assert.equal(repeated.alreadySeeded, true);
+    assert.equal(
+      (await getAgentDefinition('workspace-1', editedAgentId))?.name,
+      'My diagnostics Agent'
+    );
     assert.equal(
       (await getWorkflowDefinition('workspace-1', editedWorkflowId))?.name,
       'My diagnostics workflow'
