@@ -8,11 +8,15 @@ import { WorkspaceQuotaOverrides, resolveWorkspacePlan } from './repository-quot
 interface CountRow { count: number | string; }
 export type WorkspaceLifecycleStatus = 'active' | 'suspended';
 type AdminWorkspaceRow = WorkspaceRow & {
+  created_by_display_name?: string | null;
+  created_by_email?: string | null;
   lifecycle_status?: WorkspaceLifecycleStatus;
   suspended_at?: Date | string | null;
 };
 
 export interface AdminWorkspaceSummary extends WorkspaceSummary {
+  createdByDisplayName?: string;
+  createdByEmail?: string;
   virtualMachineCount: number;
   lifecycleStatus: WorkspaceLifecycleStatus;
   suspendedAt?: string;
@@ -27,6 +31,8 @@ export interface AdminWorkspaceDetail extends AdminWorkspaceSummary {
 function mapAdminWorkspaceSummary(row: AdminWorkspaceRow): AdminWorkspaceSummary {
   return {
     ...mapWorkspaceSummary(row),
+    ...(row.created_by_display_name ? { createdByDisplayName: row.created_by_display_name } : {}),
+    ...(row.created_by_email ? { createdByEmail: row.created_by_email } : {}),
     virtualMachineCount: Number(row.virtual_machine_count ?? 0),
     lifecycleStatus: row.lifecycle_status === 'suspended' ? 'suspended' : 'active',
     ...(row.suspended_at ? { suspendedAt: toIso(row.suspended_at) } : {})
@@ -35,6 +41,8 @@ function mapAdminWorkspaceSummary(row: AdminWorkspaceRow): AdminWorkspaceSummary
 
 const adminWorkspaceColumns = `w.*,
   'owner'::text AS current_user_role,
+  creator.display_name AS created_by_display_name,
+  creator.email AS created_by_email,
   COALESCE(kubernetes_cluster_counts.cluster_count, 0)::int AS cluster_count,
   COALESCE(virtual_machine_counts.virtual_machine_count, 0)::int AS virtual_machine_count,
   COALESCE(member_counts.member_count, 0)::int AS member_count,
@@ -43,6 +51,7 @@ const adminWorkspaceColumns = `w.*,
   qo.virtual_machines AS quota_override_virtual_machines`;
 
 const adminWorkspaceJoins = `
+  LEFT JOIN users creator ON creator.id = w.created_by
   LEFT JOIN workspace_quota_overrides qo ON qo.workspace_id = w.id
   LEFT JOIN (
     SELECT workspace_id, COUNT(*) AS cluster_count
