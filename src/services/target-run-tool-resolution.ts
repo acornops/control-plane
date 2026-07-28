@@ -85,6 +85,65 @@ export interface TargetRunToolResolution {
   approvalTimeoutSeconds: number;
 }
 
+function toolRefKey(ref: { serverId: string; toolName: string }): string {
+  return `${ref.serverId}\u0000${ref.toolName}`;
+}
+
+export function remoteMcpToolRefs(
+  resolution: TargetRunToolResolution
+): Array<{ serverId: string; toolName: string }> {
+  const remoteToolNames = new Set(
+    resolution.previewItems
+      .filter((item) => item.source === 'mcp')
+      .map((item) => item.name)
+  );
+  return resolution.allowedToolSpecs
+    .filter((spec) => remoteToolNames.has(spec.name) && spec.server_id && spec.tool_name)
+    .map((spec) => ({ serverId: spec.server_id!, toolName: spec.tool_name! }));
+}
+
+export function omitTargetRunMcpTools(
+  resolution: TargetRunToolResolution,
+  omittedRefs: Iterable<{ serverId: string; toolName: string }>
+): TargetRunToolResolution {
+  const omittedRefKeys = new Set(Array.from(omittedRefs, toolRefKey));
+  if (omittedRefKeys.size === 0) return resolution;
+
+  const omittedToolNames = new Set(
+    resolution.allowedToolSpecs
+      .filter((spec) => spec.server_id && spec.tool_name
+        && omittedRefKeys.has(toolRefKey({ serverId: spec.server_id, toolName: spec.tool_name })))
+      .map((spec) => spec.name)
+  );
+  const allowedToolSpecs = resolution.allowedToolSpecs
+    .filter((spec) => !omittedToolNames.has(spec.name));
+  const allowedToolNames = resolution.allowedToolNames
+    .filter((name) => !omittedToolNames.has(name));
+  const allowedToolRefs = resolution.allowedToolRefs
+    .filter((ref) => !omittedRefKeys.has(toolRefKey(ref)));
+  const previewItems = resolution.previewItems
+    .filter((item) => !omittedToolNames.has(item.name));
+
+  return {
+    ...resolution,
+    allowedToolSpecs,
+    allowedToolNames,
+    allowedToolRefs,
+    allowedToolOperations: Object.fromEntries(
+      allowedToolSpecs.map((spec) => [spec.name, spec.capability])
+    ),
+    previewItems,
+    summary: {
+      ...resolution.summary,
+      totalAllowed: previewItems.length,
+      functionAllowed: previewItems.filter((item) => item.runtimeKind === 'function').length,
+      nativeAllowed: previewItems.filter((item) => item.runtimeKind === 'provider_native').length,
+      readAllowed: previewItems.filter((item) => item.capability === 'read').length,
+      writeAllowed: previewItems.filter((item) => item.capability === 'write').length
+    }
+  };
+}
+
 export function normalizeToolCapability(tool: Pick<McpToolConfig, 'capability'>): ToolCapability {
   return tool.capability === 'read' ? 'read' : 'write';
 }

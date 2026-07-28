@@ -19,7 +19,7 @@ afterEach(restoreControllerRegressionState);
 after(closeAutomationDatabaseFixtures);
 
 describe('public MCP readiness controller responses', () => {
-  it('returns bounded structured MCP readiness failures for target messages', async () => {
+  it('returns bounded structured MCP readiness failures for explicitly referenced target tools', async () => {
     installWorkspace('operator');
     repo.getSession = async () =>
       createSessionRecord({ targetId: 'target-1', targetType: 'virtual_machine', clusterId: undefined });
@@ -46,7 +46,14 @@ describe('public MCP readiness controller responses', () => {
 
     const response = await callController(
       postMessage,
-      createRequest({ sessionId: 'session-1' }, { content: 'diagnose', toolAccessMode: 'read_only' })
+      createRequest(
+        { sessionId: 'session-1' },
+        {
+          content: 'diagnose',
+          toolAccessMode: 'read_only',
+          references: [{ kind: 'tool', id: 'records_list' }]
+        }
+      )
     );
 
     assert.equal(response.statusCode, 409);

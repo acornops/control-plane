@@ -328,6 +328,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         toolAccessMode: { type: 'string', enum: ['read_only', 'read_write'] },
         confirmationRequiredForWrite: { type: 'boolean' },
         writeUnavailableReason: { type: 'string', enum: ['run_read_only', 'agent_write_disabled'], nullable: true },
+        unavailableMcpToolCount: { type: 'integer', minimum: 0 },
         toolSummary: {
           type: 'object',
           properties: {

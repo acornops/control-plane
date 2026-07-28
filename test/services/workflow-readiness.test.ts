@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import {
+  boundedPublicMcpReadinessReportForFailures,
   getExactMcpReadinessReport,
   getTargetMcpConnectionReadinessErrors,
   getWorkflowCapabilityReadinessErrors,
@@ -165,5 +166,19 @@ describe('target MCP credential connection readiness', () => {
     assert.equal(report.failures[0]?.toolName.length, 256);
     assert.equal(report.failures[0]?.code, 'MCP_INSTALLATION_UNAVAILABLE');
     assert.equal(report.failures[0]?.action, undefined);
+  });
+
+  it('bounds filtered blocking failures before they reach public responses', () => {
+    const report = boundedPublicMcpReadinessReportForFailures(
+      Array.from({ length: 25 }, (_, index) => ({
+        serverId: `server-${index}`,
+        toolName: `tool-${index}`,
+        code: 'MCP_INSTALLATION_UNAVAILABLE' as const
+      }))
+    );
+
+    assert.equal(report.failures.length, 20);
+    assert.equal(report.errors.length, 20);
+    assert.equal(report.failures[19]?.serverId, 'server-19');
   });
 });

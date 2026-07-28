@@ -7,10 +7,10 @@ import {
   parseToolAccessMode
 } from '../../services/run-tool-access-mode.js';
 import { defaultProvider } from '../../services/llm-policy.js';
-import { resolveTargetRunTools } from '../../services/target-run-tool-resolution.js';
 import { repo } from '../../store/repository.js';
 import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE } from '../../types/domain.js';
 import { toSingleParam } from '../../utils/params.js';
+import { resolveReadyInteractiveRunTools } from '../interactive-mcp-availability.js';
 
 export async function getTargetAssistantCapabilitiesPreview(
   req: AuthenticatedRequest,
@@ -64,13 +64,16 @@ export async function getTargetAssistantCapabilitiesPreview(
     }
 
     const workspaceAiSettings = await repo.getWorkspaceAiSettings(workspaceId);
-    const resolution = await resolveTargetRunTools({
+    const availability = await resolveReadyInteractiveRunTools(res, {
       workspaceId,
       targetId: access.target.id,
       targetType: access.target.targetType,
       toolAccessMode,
-      provider: workspaceAiSettings?.defaultProvider || defaultProvider()
+      provider: workspaceAiSettings?.defaultProvider || defaultProvider(),
+      principal: { type: 'user', id: req.auth.userId }
     });
+    if (!availability) return;
+    const resolution = availability.resolution;
     const skills = await repo.listEnabledValidTargetSkillSummaries(access.target.id);
     res.status(200).json({
       workspaceId,
@@ -79,6 +82,7 @@ export async function getTargetAssistantCapabilitiesPreview(
       toolAccessMode,
       confirmationRequiredForWrite: resolution.confirmationRequiredForWrite,
       writeUnavailableReason: resolution.writeUnavailableReason,
+      unavailableMcpToolCount: availability.unavailableMcpToolCount,
       toolSummary: {
         totalAllowed: resolution.summary.totalAllowed,
         readAllowed: resolution.summary.readAllowed,

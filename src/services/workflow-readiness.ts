@@ -88,6 +88,31 @@ function publicReadinessFailure(
   };
 }
 
+export function isDegradableInteractiveMcpFailure(
+  failure: PublicMcpReadinessFailure
+): boolean {
+  return failure.code === 'MCP_CONNECTION_MISSING'
+    || failure.code === 'MCP_CONNECTION_ERROR'
+    || failure.code === 'MCP_CREDENTIAL_TOOL_UNAVAILABLE';
+}
+
+export function mcpReadinessReportForFailures(
+  failures: PublicMcpReadinessFailure[]
+): McpReadinessReport {
+  return {
+    failures,
+    errors: failures.map(readinessFailureMessage)
+  };
+}
+
+export function boundedPublicMcpReadinessReportForFailures(
+  failures: PublicMcpReadinessFailure[]
+): McpReadinessReport {
+  return mcpReadinessReportForFailures(
+    failures.slice(0, MAX_PUBLIC_READINESS_FAILURES)
+  );
+}
+
 export function publicMcpReadinessCode(report: McpReadinessReport): string {
   switch (report.failures[0]?.code) {
     case 'MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED':
@@ -125,19 +150,22 @@ export async function getExactMcpReadinessReport(
   principal: RunPrincipalRef,
   refs: Array<{ serverId: string; toolName: string }>
 ): Promise<McpReadinessReport> {
+  const report = await getExactMcpReadinessReportForToolFiltering(workspaceId, principal, refs);
+  return boundedPublicMcpReadinessReportForFailures(report.failures);
+}
+
+export async function getExactMcpReadinessReportForToolFiltering(
+  workspaceId: string,
+  principal: RunPrincipalRef,
+  refs: Array<{ serverId: string; toolName: string }>
+): Promise<McpReadinessReport> {
   if (refs.length === 0) return { errors: [], failures: [] };
   const result = await checkMcpReadiness({
     workspaceId,
     principal,
     toolRefs: refs
   });
-  const failures = result.failures
-    .slice(0, MAX_PUBLIC_READINESS_FAILURES)
-    .map(publicReadinessFailure);
-  return {
-    errors: failures.map(readinessFailureMessage),
-    failures
-  };
+  return mcpReadinessReportForFailures(result.failures.map(publicReadinessFailure));
 }
 
 export async function getExactMcpReadinessErrors(

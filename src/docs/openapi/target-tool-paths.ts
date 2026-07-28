@@ -67,7 +67,7 @@ export function buildTargetToolPaths(): Record<string, unknown> {
       get: {
         tags: ['workspaces'],
         summary: 'Preview assistant capabilities available for a target run',
-        description: 'Returns display-safe tools and assistant-visible skills for the requested run tool access mode. Execution bootstrap remains authoritative.',
+        description: 'Returns display-safe tools and assistant-visible skills available to the current user for the requested run tool access mode. Credential-dependent MCP tools unavailable to that user are counted and omitted. Execution bootstrap remains authoritative.',
         security: [{ userSession: [] }],
         parameters: [
           { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
@@ -82,7 +82,8 @@ export function buildTargetToolPaths(): Record<string, unknown> {
         responses: {
           '200': { description: 'Assistant capabilities preview for a target run.' },
           '400': { description: 'Invalid toolAccessMode or unsupported target type.' },
-          '403': { description: 'Missing target access or run creation capability.' }
+          '403': { description: 'Missing target access or run creation capability.' },
+          '409': { description: 'A non-degradable MCP installation prerequisite is unavailable.' }
         }
       }
     },

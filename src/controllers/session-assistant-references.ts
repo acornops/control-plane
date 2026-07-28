@@ -42,6 +42,18 @@ export async function resolveReadySessionAssistantReferences(
   toolAccessMode: ToolAccessMode,
   references: AssistantReferenceRequest[]
 ): Promise<AssistantReference[] | null> {
-  if (!(await requireTargetMcpConnectionsReady(res, workspaceId, target, userId, toolAccessMode))) return null;
-  return resolveSessionAssistantReferences(res, { workspaceId, ...target, toolAccessMode, references });
+  const assistantReferences = await resolveSessionAssistantReferences(
+    res,
+    { workspaceId, ...target, toolAccessMode, references }
+  );
+  if (!assistantReferences) return null;
+  if (!(await requireTargetMcpConnectionsReady(
+    res,
+    workspaceId,
+    target,
+    userId,
+    toolAccessMode,
+    assistantReferences
+  ))) return null;
+  return assistantReferences;
 }

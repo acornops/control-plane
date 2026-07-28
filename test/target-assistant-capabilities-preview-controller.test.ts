@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it } from 'node:test';
+import { afterEach, describe, it, mock } from 'node:test';
 import { getTargetAssistantCapabilitiesPreview } from '../src/controllers/workspaces/target-assistant-preview-controller.js';
 import { repo } from '../src/store/repository.js';
 import {
@@ -71,5 +71,52 @@ describe('target assistant capabilities preview controller', () => {
         source: 'manual'
       }
     ]);
+  });
+
+  it('omits credential-dependent MCP tools unavailable to the current user', async () => {
+    installWorkspace('operator');
+    repo.getTarget = async () => createTarget({ id: 'target-1', name: 'vm', targetType: 'virtual_machine' });
+    installResolverRepoStubs(['read', 'write']);
+    mock.method(globalThis, 'fetch', async (input, init) => {
+      const url = String(input);
+      if (url.includes('/api/v1/internal/mcp/tools?')) {
+        return new Response(JSON.stringify([
+          BASE_TOOLS[1],
+          {
+            ...BASE_TOOLS[1],
+            name: 'repository_status',
+            server_id: '00000000-0000-4000-8000-000000000002',
+            model_alias: 'mcp__00000000000040008000000000000002__repository_status',
+            mcp_server_url: 'https://mock.example.test/mcp',
+            source: 'mcp'
+          }
+        ]), { status: 200 });
+      }
+      if (url.endsWith('/api/v1/internal/mcp/connections/readiness') && init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          ready: false,
+          failures: [{
+            server_id: '00000000-0000-4000-8000-000000000002',
+            tool_name: 'repository_status',
+            code: 'MCP_CONNECTION_MISSING',
+            action: 'connect_mcp_server'
+          }]
+        }), { status: 200 });
+      }
+      return new Response(`unexpected request: ${url}`, { status: 500 });
+    });
+    const req = Object.assign(createRequest({ workspaceId: 'workspace-1', targetId: 'target-1' }), {
+      query: { toolAccessMode: 'read_only' }
+    });
+
+    const response = await callController(getTargetAssistantCapabilitiesPreview, req);
+    const body = response.body as {
+      unavailableMcpToolCount: number;
+      tools: Array<{ name: string }>;
+    };
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(body.unavailableMcpToolCount, 1);
+    assert.equal(body.tools.some((tool) => tool.name.includes('repository_status')), false);
   });
 });

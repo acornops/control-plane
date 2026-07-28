@@ -12,6 +12,7 @@ import { getWorkflowRun, getWorkflowSession, WorkflowRunRecord } from '../store/
 import { isTargetType } from '../types/domain.js';
 import { targetAssistantContract } from '../services/target-adapter-contract.js';
 import { toSingleParam } from '../utils/params.js';
+import { resolveReadyInteractiveRunTools } from './interactive-mcp-availability.js';
 import { mapGatewayError } from './workspaces/common.js';
 import { getWorkspaceNativeTool } from '../services/workspace-native-tools.js';
 
@@ -394,18 +395,19 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
       return;
     }
     const permissionMode = run.toolAccessMode === 'read_only' ? 'read_only' as const : 'ask_before_changes' as const;
-    const toolResolution = await resolveTargetRunTools({
+    const availability = await resolveReadyInteractiveRunTools(res, {
       workspaceId: run.workspaceId,
       targetId,
       targetType: target.targetType,
       toolAccessMode: run.toolAccessMode,
       runId: run.id,
-      provider: llmSettings.provider
+      provider: llmSettings.provider,
+      principal: run.principal,
+      assistantReferences: run.assistantReferences
     });
-    const allowedToolSpecs = toolResolution.allowedToolSpecs;
-    const allowedToolNames = toolResolution.allowedToolNames;
-    const allowedToolRefs = toolResolution.allowedToolRefs;
-    const allowedNativeTools = toolResolution.allowedNativeTools;
+    if (!availability) return;
+    const toolResolution = availability.resolution;
+    const { allowedToolSpecs, allowedToolNames, allowedToolRefs, allowedNativeTools } = toolResolution;
     const platformFunctions = toolResolution.platformFunctions.map((tool) => ({
       id: tool.id,
       model_alias: tool.modelAlias

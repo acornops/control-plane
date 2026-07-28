@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import { agentGateway } from '../src/agent/ws-server.js';
 import { config } from '../src/config.js';
-import { normalizeToolCapability, resolveTargetRunTools } from '../src/services/target-run-tool-resolution.js';
+import {
+  normalizeToolCapability,
+  omitTargetRunMcpTools,
+  remoteMcpToolRefs,
+  resolveTargetRunTools
+} from '../src/services/target-run-tool-resolution.js';
 import { repo } from '../src/store/repository.js';
 import { restoreControllerRegressionState } from './helpers/controller-regression-fixtures.js';
 import {
@@ -95,6 +100,45 @@ describe('target run tool resolution', () => {
       'mcp__00000000000040008000000000000002__repository_status',
       'query_logs'
     ]);
+  });
+
+  it('omits an unavailable remote MCP tool from every model and token authority surface', async () => {
+    installResolverRepoStubs(['read', 'write']);
+    mockToolList([
+      BASE_TOOLS[1],
+      {
+        ...BASE_TOOLS[1],
+        name: 'repository_status',
+        server_id: '00000000-0000-4000-8000-000000000002',
+        model_alias: 'mcp__00000000000040008000000000000002__repository_status',
+        mcp_server_url: 'https://mock.example.test/mcp',
+        source: 'mcp'
+      }
+    ]);
+
+    const resolved = await resolveTargetRunTools({
+      workspaceId: 'workspace-1',
+      targetId: 'target-1',
+      targetType: 'virtual_machine',
+      toolAccessMode: 'read_only',
+      runId: 'run-1'
+    });
+    assert.deepEqual(remoteMcpToolRefs(resolved), [{
+      serverId: '00000000-0000-4000-8000-000000000002',
+      toolName: 'repository_status'
+    }]);
+
+    const filtered = omitTargetRunMcpTools(resolved, remoteMcpToolRefs(resolved));
+
+    assert.equal(filtered.allowedToolNames.some((name) => name.includes('repository_status')), false);
+    assert.equal(filtered.allowedToolSpecs.some((spec) => spec.tool_name === 'repository_status'), false);
+    assert.equal(filtered.allowedToolRefs.some((ref) => ref.toolName === 'repository_status'), false);
+    assert.equal(filtered.previewItems.some((item) => item.name.includes('repository_status')), false);
+    assert.deepEqual(filtered.allowedToolOperations, {
+      query_logs: 'read',
+      acornops_generate_pdf_report: 'read'
+    });
+    assert.equal(filtered.summary.totalAllowed, resolved.summary.totalAllowed - 1);
   });
 
   it('uses the documented default-enabled state when target-native setting rows do not exist', async () => {
