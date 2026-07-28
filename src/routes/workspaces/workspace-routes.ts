@@ -81,6 +81,11 @@ export function registerWorkspaceRoutes(router: Router): void {
   );
   router.get('/workspaces/:workspaceId/issues', requireActor(['user', 'externalIntegration']), authed(workspacesController.listWorkspaceIssues));
   router.get('/workspaces/:workspaceId/issues/:issueId', requireActor(['user', 'externalIntegration']), authed(workspacesController.getTargetIssue));
+  router.post(
+    '/workspaces/:workspaceId/issues/:issueId/automatic-investigation',
+    requireActor(['user']),
+    authed(workspacesController.startOrRetryIssueAutomaticInvestigation)
+  );
   router.get(
     '/workspaces/:workspaceId/issues/:issueId/observations',
     requireActor(['user', 'externalIntegration']),

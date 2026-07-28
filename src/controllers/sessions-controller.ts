@@ -9,12 +9,6 @@ import {
 import { dispatchRunToExecutionEngine } from '../services/execution-engine-client.js';
 import { isModelAllowedForProvider } from '../services/llm-policy.js';
 import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
-import {
-  capabilityForToolAccessMode,
-  missingToolAccessModeCapabilityMessage,
-  parseToolAccessMode,
-  resolveRunToolAccessMode
-} from '../services/run-tool-access-mode.js';
 import { recordTargetChatActivityEvent } from '../services/target-chat-activity-events.js';
 import { emitRunStatusTransition, webhooks } from '../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
@@ -40,6 +34,7 @@ import { mapGatewayError } from './workspaces/common.js';
 import { runAuditActor, runRequestProvenance } from './run-actor.js';
 import { acceptedMessageResponse, parseRequestedLlmSelection } from './session-llm-selection.js';
 import { resolveReadySessionAssistantReferences } from './session-assistant-references.js';
+import { resolveSessionMessageAccess } from './session-message-access.js';
 function enqueueRunDispatch(run: Run): void {
   queueMicrotask(async () => {
     try {
@@ -355,30 +350,18 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       return;
     }
 
-    if (session.createdBy !== req.auth.userId) {
-      res.status(403).json({
-        error: {
-          code: 'CONVERSATION_OWNER_REQUIRED',
-          message: 'Only the user who started this conversation can send follow-up messages.',
-          retryable: false
-        }
-      });
+    const access = resolveSessionMessageAccess({
+      authz,
+      credentialType: req.auth.credential.type,
+      requestedToolAccessMode: req.body.toolAccessMode,
+      session,
+      userId: req.auth.userId
+    });
+    if (!access.allowed) {
+      res.status(403).json({ error: { code: access.code, message: access.message, retryable: false } });
       return;
     }
-
-    const requestedToolAccessMode = parseToolAccessMode(req.body.toolAccessMode);
-    const toolAccessMode = resolveRunToolAccessMode(authz, requestedToolAccessMode);
-    const runCapability = capabilityForToolAccessMode(toolAccessMode);
-    if (!authz.can(runCapability)) {
-      res.status(403).json({
-        error: {
-          code: 'FORBIDDEN',
-          message: missingToolAccessModeCapabilityMessage(toolAccessMode),
-          retryable: false
-        }
-      });
-      return;
-    }
+    const { sharedAutomaticSession, toolAccessMode } = access;
     // A retry for an already accepted client message must remain idempotent even
     // if provider or MCP credential connection state changed after dispatch.
     if (req.body.clientMessageId) {
@@ -455,7 +438,11 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       clientMessageId: req.body.clientMessageId,
       assistantReferences,
       principal: { type: 'user', id: req.auth.userId },
-      requestProvenance: runRequestProvenance(req)
+      requestProvenance: runRequestProvenance(req),
+      messageCreatedBy: req.auth.userId,
+      confirmationRequiredForWriteOverride: sharedAutomaticSession && toolAccessMode === 'read_write'
+        ? session.automaticInvestigation?.confirmationRequiredForWrite
+        : undefined
     });
     if (!created.idempotent) {
       webhooks.emit({

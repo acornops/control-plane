@@ -13,6 +13,8 @@ import {
 } from './repository-webhook-outbox.js';
 import { enqueueWorkflowIssueCreatedEvent } from './repository-workflow-event-triggers.js';
 import { toIso } from './repository-mappers.js';
+import { stopTargetAutoTriageJobsForResolvedIssue } from './repository-auto-triage.js';
+import { enqueueAutoTriageForObservedIssue } from './repository-target-issue-auto-triage.js';
 import {
   mapIssueRow,
   mapObservationRow,
@@ -109,8 +111,8 @@ async function upsertObservedIssue(
   client: QueryClient,
   observation: TargetIssueObservationInput
 ): Promise<string> {
-  const previousResult = await client.query<Pick<TargetIssueDbRow, 'status' | 'lifecycle_version'>>(
-    `SELECT status, lifecycle_version
+  const previousResult = await client.query<Pick<TargetIssueDbRow, 'status' | 'lifecycle_version' | 'severity_rank'>>(
+    `SELECT status, lifecycle_version, severity_rank
      FROM target_issues
      WHERE target_id = $1 AND fingerprint = $2
      FOR UPDATE`,
@@ -175,6 +177,7 @@ async function upsertObservedIssue(
   );
   const row = result.rows[0];
   const issue = mapIssueRow(row);
+  await enqueueAutoTriageForObservedIssue(client as PoolClient, issue, previous);
   if (!previous) {
     await enqueueWorkflowIssueCreatedEvent(client, {
       workspaceId: issue.workspaceId,
@@ -290,6 +293,7 @@ async function markUnobservedIssues(
       await pauseIssueWebhookJobs(client, issue.id, issue.lifecycleVersion);
       continue;
     }
+    await stopTargetAutoTriageJobsForResolvedIssue(client, issue.id);
     await supersedeOlderIssueWebhookJobs(client, issue.id, issue.lifecycleVersion);
     await enqueueWebhookOutboxEvent({
       type: 'issue.resolved.v1',

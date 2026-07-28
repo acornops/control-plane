@@ -36,6 +36,14 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Roles with `permissions.manage_mcp` may mutate MCP server configuration.
 - Roles with `permissions.manage_tools` may mutate MCP per-tool enablement and non-Target-Insights built-in tool settings.
 - Kubernetes clusters and VMs own their target-scoped MCP servers, skills, and tools through the target's generic agent. Target capability routes remain distinct from workspace Agent capability routes.
+- Experimental target auto-triage is a revisioned target setting, not a workflow feature.
+  Qualifying issue lifecycles enqueue one durable automatic investigation,
+  existing issues require an explicit bulk-start request, and the system actor
+  reuses target-chat runs, approvals, cancellation, retention, and audit paths.
+  Its worker has a dedicated timer and error boundary and ignores Automation
+  runtime mode, so Workflow failures cannot pause automatic investigations.
+  Requested write behavior can only become stricter after intersecting target
+  and agent policy.
 - Workspace specialist Agents own Agent-scoped MCP and skill installations;
   Cluster and VM default Agents retain distinct target-scoped capabilities.
   Catalog imports are MCP-only, return secret-free DTOs, and never accept a
@@ -164,8 +172,8 @@ The control plane owns the platform API boundary. Keep this README as a short in
   `ASSISTANT_REFERENCE_INVALID` instead of silently dropping stale references.
 - Agent handshake responses always include a complete `sessionPolicy`; AgentK rejects tool calls until it is installed.
 - The Kubernetes built-in catalog contains `list_resources`, `get_resource`,
-  `get_resource_logs`, `restart_workload`, `scale_workload`, `patch_workload`,
-  `patch_resource`, and `patch_configmap`.
+  `get_resource_logs`, `restart_workload`, `scale_workload`, and
+  `patch_resource`.
 - Agent snapshots preserve `config.snapshotInterval`, `config.maxSnapshotBytes`, and `config.namespaceScope.{include,exclude}`.
 - Agent namespace updates use `config/update_namespace_scope`. A connected
   AgentK must acknowledge the update before the cluster settings response

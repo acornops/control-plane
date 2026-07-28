@@ -32,6 +32,10 @@ import { runtime } from './store/runtime.js';
 import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE } from './types/domain.js';
 import { runMcpSecretCleanupTick } from './services/mcp-secret-cleanup-worker.js';
 import {
+  runTargetAutoTriageTick,
+  TARGET_AUTO_TRIAGE_WORKER_INTERVAL_MS
+} from './services/auto-triage-worker.js';
+import {
   initializePlatformSettings,
   startPlatformSettingsRefresh,
   stopPlatformSettingsRefresh
@@ -149,6 +153,19 @@ async function main(): Promise<void> {
     }
   }, config.AUTOMATION_WORKER_INTERVAL_MS);
   automationWorkerInterval.unref();
+  let targetAutoTriageTickInFlight = false;
+  const targetAutoTriageWorkerInterval = setInterval(async () => {
+    if (targetAutoTriageTickInFlight) return;
+    targetAutoTriageTickInFlight = true;
+    try {
+      await runTargetAutoTriageTick();
+    } catch (err) {
+      logger.warn({ err }, 'Target auto-triage worker tick failed');
+    } finally {
+      targetAutoTriageTickInFlight = false;
+    }
+  }, TARGET_AUTO_TRIAGE_WORKER_INTERVAL_MS);
+  targetAutoTriageWorkerInterval.unref();
   let webhookSweepInFlight = false;
   const webhookDeliveryInterval = setInterval(async () => {
     if (webhookSweepInFlight) return;
@@ -193,6 +210,7 @@ async function main(): Promise<void> {
     clearInterval(approvalTimeoutInterval);
     clearInterval(targetInsightsCheckpointInterval);
     clearInterval(automationWorkerInterval);
+    clearInterval(targetAutoTriageWorkerInterval);
     clearInterval(webhookDeliveryInterval);
     const forceExit = setTimeout(() => {
       logger.error('Forced control plane shutdown after timeout');

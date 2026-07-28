@@ -2,6 +2,7 @@ import { config } from './config.js';
 import { increment, metricLine } from './metrics-helpers.js';
 import { renderWebhookMetrics } from './metrics-external-webhooks.js';
 import { renderWorkflowExecutionMetrics } from './metrics-workflow-execution.js';
+import { renderAutoTriageMetrics } from './metrics-auto-triage.js';
 export { incrementWorkflowExecutionStream } from './metrics-workflow-execution.js';
 const adminAuthFailures = new Map<string, number>();
 const adminRequests = new Map<string, number>();
@@ -381,6 +382,7 @@ export function renderControlPlaneMetrics(): string {
       return metricLine('control_plane_workflow_schedule_preview_duration_ms_bucket', { ...serviceLabels, status, le }, value);
     }),
     ...renderWorkflowExecutionMetrics(serviceLabels),
+    ...renderAutoTriageMetrics(serviceLabels),
     '# HELP control_plane_workflow_capability_preview_total Workflow capability preview outcomes.',
     '# TYPE control_plane_workflow_capability_preview_total counter',
     ...Array.from(workflowCapabilityPreviewOutcomes.entries()).map(([status, value]) =>

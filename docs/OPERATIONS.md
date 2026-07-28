@@ -142,6 +142,52 @@ minimum when acknowledged dispatch is older than 30 seconds, scheduler lag is
 over 60 seconds, an approval remains pending past 15 minutes, or any run enters
 `needs_review`.
 
+## Target Auto-Triage Worker
+
+Target auto-triage is experimental, disabled by default, and activated only by
+revisioned per-target Settings. Its leased worker runs inside every control-plane
+process; it needs no chart value, environment variable, or separate deployment.
+Postgres uniqueness on the issue lifecycle and stable session/run linkage make
+claims and dispatch safe across retries and replica failover.
+The explicit current-issue start action locks the settings revision and eligible
+issues in one transaction. Linked run changes use both a valid job lease and an
+expected run-status guard; terminal reconciliation repairs a job when the
+execution engine wins a concurrent state transition.
+Session creation holds a shared lock on the enabled settings revision, so
+disablement or a policy edit that commits first prevents a stale worker from
+starting a new chat.
+
+The worker has its own one-second timer and error boundary. It does not use
+`AUTOMATION_RUNTIME_MODE`, `AUTOMATION_WORKER_INTERVAL_MS`, Workflow schedulers,
+or the automation dispatch outbox, so disabling or failing the Automation
+runtime cannot pause target auto-triage. A process skips a tick while its prior
+tick is still running; multiple replicas remain safe through durable job leases.
+
+The worker admits at most two nonterminal automatic investigations per target.
+Readiness blockers such as missing AI credentials, a disconnected target agent,
+no usable diagnostic tools, or a configured MCP tool that cannot bootstrap
+leave jobs blocked for exponential retries that begin at 30 seconds and cap at
+15 minutes rather than discarding them. Repeated
+checks for an unchanged readiness reason do not write another audit event.
+Resolving an issue skips its unstarted job or stops the linked run through the
+ordinary cancellation and approval-expiry paths.
+
+Monitor the low-cardinality `control_plane_auto_triage_*` metrics for queued
+trigger reasons, terminal outcomes, readiness/dispatch blockers,
+queue-to-start latency, runtime dispatch events, and active runs. These metrics
+never label workspace, target, issue, session, or run IDs. Use the linked audit
+events and bounded public error code for per-job investigation; prompt content,
+raw issue evidence, credentials, and internal errors are intentionally absent.
+
+For an initial production rollout, enable a small target cohort in Diagnose only
+or Ask before changes mode first. Confirm that queue-to-start latency remains
+within the expected collection interval, blocked counts correspond to known
+readiness conditions, and no target accumulates more than two active automatic
+runs. Review the target's effective write-confirmation setting before enabling
+Apply allowed changes automatically. Expand the cohort only after automatic
+sessions, approval links, issue-resolution cancellation, and audit actors have
+been verified for both Kubernetes and virtual-machine targets.
+
 Generated AgentK install commands use the latest chart release by default,
 including experimental releases. Set `AGENTK_HELM_CHART_VERSION` when an
 environment needs to pin an exact, tested chart version.

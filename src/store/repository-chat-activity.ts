@@ -8,6 +8,9 @@ interface RecentTargetChatActivityRow {
   created_by: string;
   created_by_user_id?: string | null;
   created_by_display_name?: string | null;
+  origin: RecentTargetChatActivity['origin'];
+  linked_issue_id: string | null;
+  linked_issue_lifecycle_version: number | string | null;
   last_activity_at: Date | string;
   last_run_id: string | null;
   last_run_status: RecentTargetChatActivity['lastRunStatus'] | null;
@@ -69,6 +72,11 @@ function mapRecentTargetChatActivity(row: RecentTargetChatActivityRow): RecentTa
           displayName: row.created_by_display_name
         }
       : undefined,
+    origin: row.origin || 'manual',
+    linkedIssueId: row.linked_issue_id || undefined,
+    linkedIssueLifecycleVersion: row.linked_issue_lifecycle_version == null
+      ? undefined
+      : Number(row.linked_issue_lifecycle_version),
     lastActivityAt: toIso(row.last_activity_at)!,
     lastRunId: row.last_run_id || undefined,
     lastRunStatus: row.last_run_status || undefined,
@@ -115,6 +123,9 @@ export async function listRecentTargetChatActivity(
        s.id AS session_id,
        s.title,
        s.created_by,
+       s.origin,
+       s.linked_issue_id,
+       s.linked_issue_lifecycle_version,
        u.id AS created_by_user_id,
        u.display_name AS created_by_display_name,
        ps.last_activity_at,

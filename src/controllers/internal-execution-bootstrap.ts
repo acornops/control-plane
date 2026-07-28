@@ -5,6 +5,7 @@ import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
 import { isModelAllowedForProvider } from '../services/llm-policy.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
 import { intersectGrantedTargetRunTools, resolveTargetRunTools, WEB_SEARCH_TOOL_ID } from '../services/target-run-tool-resolution.js';
+import { resolveTargetRunConfirmationPolicy } from '../services/target-run-confirmation-policy.js';
 import { gatewayTokenService } from '../services/token-service.js';
 import { workflowRunAgentClaims } from '../services/workflow-run-agent-claims.js';
 import { repo } from '../store/repository.js';
@@ -394,7 +395,6 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
       res.status(409).json({ error: { code: 'RUN_PRINCIPAL_MISSING', message: 'This run does not have a pinned principal.', retryable: false } });
       return;
     }
-    const permissionMode = run.toolAccessMode === 'read_only' ? 'read_only' as const : 'ask_before_changes' as const;
     const availability = await resolveReadyInteractiveRunTools(res, {
       workspaceId: run.workspaceId,
       targetId,
@@ -407,6 +407,7 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
     });
     if (!availability) return;
     const toolResolution = availability.resolution;
+    const { confirmationRequiredForWrite, permissionMode } = resolveTargetRunConfirmationPolicy(run, toolResolution.confirmationRequiredForWrite);
     const { allowedToolSpecs, allowedToolNames, allowedToolRefs, allowedNativeTools } = toolResolution;
     const platformFunctions = toolResolution.platformFunctions.map((tool) => ({
       id: tool.id,
@@ -504,7 +505,7 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
           ...(reference.toolName ? { tool_name: reference.toolName } : {})
         })),
         write_unavailable_reason: toolResolution.writeUnavailableReason,
-        confirmation_required_for_write: Object.values(allowedToolOperations).includes('write'),
+        confirmation_required_for_write: Object.values(allowedToolOperations).includes('write') && confirmationRequiredForWrite,
         approval_timeout_seconds: toolResolution.approvalTimeoutSeconds,
         gateway: {
           url: config.LLM_GATEWAY_URL,

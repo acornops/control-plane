@@ -13,7 +13,9 @@ import {
   updateMcpServerSchema,
   updateTargetMcpServerToolSchema,
   updateTargetSkillSchema,
-  updateTargetToolSchema
+  updateTargetToolSchema,
+  updateTargetAutoTriageSchema,
+  startExistingAutoTriageInvestigationsSchema
 } from '../../types/contracts.js';
 import { validateBody } from '../../utils/http.js';
 
@@ -23,6 +25,23 @@ export function registerTargetRoutes(router: Router): void {
   router.get('/workspaces/:workspaceId/targets', requireActor(['user', 'externalIntegration']), authed(workspacesController.listTargets));
   router.get('/workspaces/:workspaceId/targets/:targetId/issues/summary', requireActor(['user', 'externalIntegration']), authed(workspacesController.getTargetIssueSummary));
   router.get('/workspaces/:workspaceId/targets/:targetId/issues', requireActor(['user', 'externalIntegration']), authed(workspacesController.listTargetIssues));
+  router.get(
+    '/workspaces/:workspaceId/targets/:targetId/auto-triage',
+    requireActor(['user', 'externalIntegration']),
+    authed(workspacesController.getTargetAutoTriage)
+  );
+  router.patch(
+    '/workspaces/:workspaceId/targets/:targetId/auto-triage',
+    requireActor(['user']),
+    validateBody(updateTargetAutoTriageSchema),
+    authed(workspacesController.updateTargetAutoTriage)
+  );
+  router.post(
+    '/workspaces/:workspaceId/targets/:targetId/auto-triage/investigations',
+    requireActor(['user']),
+    validateBody(startExistingAutoTriageInvestigationsSchema),
+    authed(workspacesController.startExistingTargetAutoTriageInvestigations)
+  );
   router.get(
     '/workspaces/:workspaceId/targets/:targetId/mcp/catalog',
     requireActor(['user']),

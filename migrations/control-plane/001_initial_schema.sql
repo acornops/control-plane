@@ -396,6 +396,7 @@ CREATE TABLE messages (
     kind text DEFAULT 'user'::text NOT NULL,
     content text NOT NULL,
     metadata jsonb,
+    created_by text,
     client_message_id text,
     created_at timestamp with time zone NOT NULL
 );
@@ -532,13 +533,14 @@ CREATE TABLE runs (
     request_actor_type text DEFAULT 'user'::text NOT NULL,
     request_external_integration_link_id text,
     request_external_integration_client_id text,
+    confirmation_required_for_write_override boolean,
     CONSTRAINT runs_assistant_references_array CHECK ((jsonb_typeof(assistant_references) = 'array'::text)),
     CONSTRAINT runs_llm_provider_check CHECK ((llm_provider = ANY (ARRAY['openai'::text, 'anthropic'::text, 'gemini'::text]))),
     CONSTRAINT runs_llm_reasoning_effort_check CHECK ((llm_reasoning_effort = ANY (ARRAY['off'::text, 'low'::text, 'medium'::text, 'high'::text]))),
     CONSTRAINT runs_llm_reasoning_summary_mode_check CHECK ((llm_reasoning_summary_mode = ANY (ARRAY['off'::text, 'auto'::text, 'concise'::text, 'detailed'::text]))),
     CONSTRAINT runs_principal_check CHECK (((principal IS NULL) OR ((jsonb_typeof(principal) = 'object'::text) AND ((principal ->> 'type'::text) = ANY (ARRAY['user'::text, 'service_identity'::text])) AND (COALESCE((principal ->> 'id'::text), ''::text) <> ''::text)))),
-    CONSTRAINT runs_request_actor_type_check CHECK ((request_actor_type = ANY (ARRAY['user'::text, 'external_integration'::text]))),
-    CONSTRAINT runs_request_actor_provenance_check CHECK ((((request_actor_type = 'user'::text) AND (request_external_integration_link_id IS NULL) AND (request_external_integration_client_id IS NULL)) OR ((request_actor_type = 'external_integration'::text) AND (request_external_integration_link_id IS NOT NULL) AND (request_external_integration_client_id IS NOT NULL))))
+    CONSTRAINT runs_request_actor_type_check CHECK ((request_actor_type = ANY (ARRAY['user'::text, 'system'::text, 'external_integration'::text]))),
+    CONSTRAINT runs_request_actor_provenance_check CHECK (((request_actor_type IN ('user'::text, 'system'::text) AND (request_external_integration_link_id IS NULL) AND (request_external_integration_client_id IS NULL)) OR ((request_actor_type = 'external_integration'::text) AND (request_external_integration_link_id IS NOT NULL) AND (request_external_integration_client_id IS NOT NULL))))
 );
 
 CREATE TABLE service_identities (
@@ -558,13 +560,22 @@ CREATE TABLE sessions (
     workspace_id text NOT NULL,
     target_id text NOT NULL,
     created_by text NOT NULL,
+    origin text DEFAULT 'manual'::text NOT NULL,
+    linked_issue_id text,
+    linked_issue_lifecycle_version integer,
+    auto_triage_write_mode text,
+    auto_triage_effective_tool_mode text,
+    auto_triage_confirmation_required boolean,
     title text NOT NULL,
     status text NOT NULL,
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
     last_message_at timestamp with time zone DEFAULT now() NOT NULL,
     expires_at timestamp with time zone DEFAULT (now() + '30 days'::interval) NOT NULL,
-    deleted_at timestamp with time zone
+    deleted_at timestamp with time zone,
+    CONSTRAINT sessions_origin_check CHECK ((origin = ANY (ARRAY['manual'::text, 'auto_triage'::text]))),
+    CONSTRAINT sessions_auto_triage_write_mode_check CHECK (((auto_triage_write_mode IS NULL) OR (auto_triage_write_mode = ANY (ARRAY['follow_target'::text, 'read_only'::text, 'approval_required'::text, 'full_write'::text])))),
+    CONSTRAINT sessions_auto_triage_tool_mode_check CHECK (((auto_triage_effective_tool_mode IS NULL) OR (auto_triage_effective_tool_mode = ANY (ARRAY['read_only'::text, 'read_write'::text]))))
 );
 
 CREATE TABLE skill_snapshot_blobs (
@@ -727,6 +738,55 @@ CREATE TABLE target_issues (
     CONSTRAINT target_issues_severity_check CHECK ((severity = ANY (ARRAY['critical'::text, 'warning'::text, 'info'::text]))),
     CONSTRAINT target_issues_status_check CHECK ((status = ANY (ARRAY['active'::text, 'recovering'::text, 'resolved'::text]))),
     CONSTRAINT target_issues_target_type_check CHECK ((target_type = ANY (ARRAY['kubernetes'::text, 'virtual_machine'::text])))
+);
+
+CREATE TABLE target_auto_triage_settings (
+    workspace_id text NOT NULL,
+    target_id text NOT NULL,
+    enabled boolean DEFAULT false NOT NULL,
+    minimum_severity text DEFAULT 'warning'::text NOT NULL,
+    write_mode text DEFAULT 'follow_target'::text NOT NULL,
+    additional_instructions text DEFAULT ''::text NOT NULL,
+    revision integer DEFAULT 1 NOT NULL,
+    updated_by text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT target_auto_triage_settings_minimum_severity_check CHECK ((minimum_severity = ANY (ARRAY['critical'::text, 'warning'::text, 'info'::text]))),
+    CONSTRAINT target_auto_triage_settings_write_mode_check CHECK ((write_mode = ANY (ARRAY['follow_target'::text, 'read_only'::text, 'approval_required'::text, 'full_write'::text]))),
+    CONSTRAINT target_auto_triage_settings_revision_check CHECK ((revision >= 1)),
+    CONSTRAINT target_auto_triage_settings_instructions_check CHECK ((char_length(additional_instructions) <= 4000))
+);
+
+CREATE TABLE target_auto_triage_jobs (
+    id text NOT NULL,
+    workspace_id text NOT NULL,
+    target_id text NOT NULL,
+    target_type text NOT NULL,
+    issue_id text NOT NULL,
+    issue_lifecycle_version integer NOT NULL,
+    trigger_reason text NOT NULL,
+    status text DEFAULT 'queued'::text NOT NULL,
+    settings_revision integer DEFAULT 0 NOT NULL,
+    session_id text,
+    session_created_at timestamp with time zone,
+    run_id text,
+    retry_generation integer DEFAULT 0 NOT NULL,
+    attempt_count integer DEFAULT 0 NOT NULL,
+    next_attempt_at timestamp with time zone DEFAULT now() NOT NULL,
+    lease_owner text,
+    lease_expires_at timestamp with time zone,
+    error_code text,
+    internal_error_message text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT target_auto_triage_jobs_target_type_check CHECK ((target_type = ANY (ARRAY['kubernetes'::text, 'virtual_machine'::text]))),
+    CONSTRAINT target_auto_triage_jobs_trigger_reason_check CHECK ((trigger_reason = ANY (ARRAY['created'::text, 'reopened'::text, 'severity_escalated'::text, 'existing_issue_start'::text, 'retry'::text]))),
+    CONSTRAINT target_auto_triage_jobs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'processing'::text, 'blocked'::text, 'started'::text, 'stopping'::text, 'completed'::text, 'failed'::text, 'skipped'::text]))),
+    CONSTRAINT target_auto_triage_jobs_retry_generation_check CHECK ((retry_generation >= 0)),
+    CONSTRAINT target_auto_triage_jobs_attempt_count_check CHECK ((attempt_count >= 0)),
+    CONSTRAINT target_auto_triage_jobs_lifecycle_check CHECK ((issue_lifecycle_version >= 1)),
+    CONSTRAINT target_auto_triage_jobs_error_code_check CHECK (((error_code IS NULL) OR (char_length(error_code) <= 64))),
+    CONSTRAINT target_auto_triage_jobs_internal_error_check CHECK (((internal_error_message IS NULL) OR (char_length(internal_error_message) <= 1000)))
 );
 
 CREATE TABLE target_metric_history (
@@ -1528,6 +1588,15 @@ ALTER TABLE ONLY service_identities
 ALTER TABLE ONLY sessions
     ADD CONSTRAINT sessions_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY target_auto_triage_settings
+    ADD CONSTRAINT target_auto_triage_settings_pkey PRIMARY KEY (target_id);
+
+ALTER TABLE ONLY target_auto_triage_jobs
+    ADD CONSTRAINT target_auto_triage_jobs_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY target_auto_triage_jobs
+    ADD CONSTRAINT target_auto_triage_jobs_issue_lifecycle_key UNIQUE (issue_id, issue_lifecycle_version);
+
 ALTER TABLE ONLY skill_snapshot_blobs
     ADD CONSTRAINT skill_snapshot_blobs_pkey PRIMARY KEY (content_hash);
 
@@ -1554,6 +1623,9 @@ ALTER TABLE ONLY target_issues
 
 ALTER TABLE ONLY target_issues
     ADD CONSTRAINT target_issues_target_id_fingerprint_key UNIQUE (target_id, fingerprint);
+
+ALTER TABLE ONLY target_issues
+    ADD CONSTRAINT target_issues_workspace_target_id_key UNIQUE (workspace_id, target_id, id);
 
 ALTER TABLE ONLY target_metric_history
     ADD CONSTRAINT target_metric_history_pkey PRIMARY KEY (target_id, sample_ts);
@@ -1815,6 +1887,14 @@ CREATE INDEX idx_sessions_workspace_target ON sessions USING btree (workspace_id
 
 CREATE INDEX idx_sessions_workspace_target_last_message_id ON sessions USING btree (workspace_id, target_id, last_message_at DESC, id DESC) WHERE (deleted_at IS NULL);
 
+CREATE UNIQUE INDEX idx_sessions_auto_triage_issue_lifecycle ON sessions USING btree (linked_issue_id, linked_issue_lifecycle_version) WHERE (origin = 'auto_triage'::text);
+
+CREATE INDEX idx_target_auto_triage_jobs_due ON target_auto_triage_jobs USING btree (status, next_attempt_at, lease_expires_at, created_at);
+
+CREATE INDEX idx_target_auto_triage_jobs_target_status ON target_auto_triage_jobs USING btree (target_id, status, created_at);
+
+CREATE INDEX idx_target_auto_triage_jobs_workspace_issue ON target_auto_triage_jobs USING btree (workspace_id, issue_id, issue_lifecycle_version);
+
 CREATE INDEX idx_skill_snapshot_blobs_last_referenced_at ON skill_snapshot_blobs USING btree (last_referenced_at);
 
 CREATE INDEX idx_snapshot_summaries_workspace_target ON target_snapshot_summaries USING btree (workspace_id, target_id);
@@ -2075,6 +2155,12 @@ ALTER TABLE ONLY runs
 ALTER TABLE ONLY sessions
     ADD CONSTRAINT fk_sessions_workspace_target FOREIGN KEY (workspace_id, target_id) REFERENCES targets(workspace_id, id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY target_auto_triage_settings
+    ADD CONSTRAINT fk_target_auto_triage_settings_workspace_target FOREIGN KEY (workspace_id, target_id) REFERENCES targets(workspace_id, id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY target_auto_triage_jobs
+    ADD CONSTRAINT fk_target_auto_triage_jobs_workspace_target FOREIGN KEY (workspace_id, target_id) REFERENCES targets(workspace_id, id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY target_agent_registrations
     ADD CONSTRAINT fk_target_agent_registrations_workspace_target FOREIGN KEY (workspace_id, target_id) REFERENCES targets(workspace_id, id) ON DELETE CASCADE;
 
@@ -2134,6 +2220,21 @@ ALTER TABLE ONLY service_identities
 
 ALTER TABLE ONLY sessions
     ADD CONSTRAINT sessions_target_id_fkey FOREIGN KEY (target_id) REFERENCES targets(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY sessions
+    ADD CONSTRAINT sessions_linked_issue_id_fkey FOREIGN KEY (linked_issue_id) REFERENCES target_issues(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY sessions
+    ADD CONSTRAINT fk_sessions_linked_issue_target FOREIGN KEY (workspace_id, target_id, linked_issue_id) REFERENCES target_issues(workspace_id, target_id, id);
+
+ALTER TABLE ONLY target_auto_triage_jobs
+    ADD CONSTRAINT target_auto_triage_jobs_issue_fkey FOREIGN KEY (workspace_id, target_id, issue_id) REFERENCES target_issues(workspace_id, target_id, id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY target_auto_triage_jobs
+    ADD CONSTRAINT target_auto_triage_jobs_session_id_fkey FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY target_auto_triage_jobs
+    ADD CONSTRAINT target_auto_triage_jobs_run_id_fkey FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY target_agent_registrations
     ADD CONSTRAINT target_agent_registrations_target_id_fkey FOREIGN KEY (target_id) REFERENCES targets(id) ON DELETE CASCADE;

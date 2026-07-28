@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { PoolClient } from 'pg';
 import { config } from '../config.js';
 import { db } from '../infra/db.js';
 import { ChatSession, Message, Run } from '../types/domain.js';
@@ -37,12 +38,14 @@ const runSelect = `
 
 const sessionSelect = `
   SELECT s.*, t.target_type, u.id AS created_by_user_id, u.display_name AS created_by_display_name,
+         linked_issue.severity AS linked_issue_severity,
          latest_run.llm_provider AS last_llm_provider,
          latest_run.llm_model AS last_llm_model,
          latest_run.llm_reasoning_effort AS last_llm_reasoning_effort
   FROM sessions s
   JOIN targets t ON t.id = s.target_id
   LEFT JOIN users u ON u.id = s.created_by
+  LEFT JOIN target_issues linked_issue ON linked_issue.id = s.linked_issue_id
   LEFT JOIN LATERAL (
     SELECT r.llm_provider, r.llm_model, r.llm_reasoning_effort
     FROM runs r
@@ -58,25 +61,69 @@ function calculateSessionExpiry(baseDate: Date = new Date()): string {
   return expiresAt.toISOString();
 }
 
-export async function addSession(workspaceId: string, targetId: string, createdBy: string, title: string): Promise<ChatSession> {
+export async function addSession(
+    workspaceId: string,
+    targetId: string,
+    createdBy: string,
+    title: string,
+    options?: {
+      origin?: ChatSession['origin'];
+      linkedIssueId?: string;
+      linkedIssueLifecycleVersion?: number;
+      autoTriageWriteMode?: import('../types/auto-triage.js').AutoTriageWriteMode;
+      autoTriageEffectiveToolMode?: Run['toolAccessMode'];
+      autoTriageConfirmationRequired?: boolean;
+      transactionClient?: PoolClient;
+    }
+  ): Promise<ChatSession> {
     const id = randomUUID();
     const nowDate = new Date();
     const now = nowDate.toISOString();
     const expiresAt = calculateSessionExpiry(nowDate);
-    const result = await db.query(
+    const result = await (options?.transactionClient || db).query(
       `WITH inserted AS (
-         INSERT INTO sessions (id, workspace_id, target_id, created_by, title, status, created_at, updated_at, last_message_at, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         INSERT INTO sessions (
+           id, workspace_id, target_id, created_by, title, status, created_at, updated_at,
+           last_message_at, expires_at, origin, linked_issue_id, linked_issue_lifecycle_version,
+           auto_triage_write_mode, auto_triage_effective_tool_mode, auto_triage_confirmation_required
+         )
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
          RETURNING *
        )
-       SELECT inserted.*, t.target_type, u.id AS created_by_user_id, u.display_name AS created_by_display_name
+       SELECT inserted.*, t.target_type, u.id AS created_by_user_id, u.display_name AS created_by_display_name,
+              linked_issue.severity AS linked_issue_severity
        FROM inserted
        JOIN targets t ON t.id = inserted.target_id
-       LEFT JOIN users u ON u.id = inserted.created_by`,
-      [id, workspaceId, targetId, createdBy, title, 'open', now, now, now, expiresAt]
+       LEFT JOIN users u ON u.id = inserted.created_by
+       LEFT JOIN target_issues linked_issue ON linked_issue.id = inserted.linked_issue_id`,
+      [
+        id, workspaceId, targetId, createdBy, title, 'open', now, now, now, expiresAt,
+        options?.origin || 'manual',
+        options?.linkedIssueId || null,
+        options?.linkedIssueLifecycleVersion || null,
+        options?.autoTriageWriteMode || null,
+        options?.autoTriageEffectiveToolMode || null,
+        options?.autoTriageConfirmationRequired ?? null
+      ]
     );
     return mapSession(result.rows[0]);
   }
+
+export async function getAutomaticSessionForIssueLifecycle(
+  issueId: string,
+  lifecycleVersion: number,
+  queryable: Pick<typeof db, 'query'> = db
+): Promise<ChatSession | null> {
+  const result = await queryable.query(
+    `${sessionSelect}
+     WHERE s.origin = 'auto_triage'
+       AND s.linked_issue_id = $1
+       AND s.linked_issue_lifecycle_version = $2
+     LIMIT 1`,
+    [issueId, lifecycleVersion]
+  );
+  return result.rowCount ? mapSession(result.rows[0] as SessionRow) : null;
+}
 export async function listSessionsByTarget(
     workspaceId: string,
     targetId: string,
@@ -137,16 +184,28 @@ export async function getSession(sessionId: string, includeDeleted = false): Pro
     return mapSession(result.rows[0]);
   }
 export async function deleteSession(sessionId: string): Promise<boolean> {
-    const result = await db.query(
-      `UPDATE sessions
-       SET status = 'deleted',
-           deleted_at = NOW(),
-           updated_at = NOW()
-       WHERE id = $1
-         AND deleted_at IS NULL`,
+    const result = await db.query<{ deleted: boolean }>(
+      `WITH deleted_session AS (
+         UPDATE sessions
+            SET status = 'deleted',
+                deleted_at = NOW(),
+                updated_at = NOW()
+          WHERE id = $1
+            AND deleted_at IS NULL
+        RETURNING id
+       ),
+       cleared_job_link AS (
+         UPDATE target_auto_triage_jobs job
+            SET session_id = NULL,
+                updated_at = NOW()
+           FROM deleted_session deleted
+          WHERE job.session_id = deleted.id
+        RETURNING job.id
+       )
+       SELECT EXISTS (SELECT 1 FROM deleted_session) AS deleted`,
       [sessionId]
     );
-    return (result.rowCount ?? 0) > 0;
+    return result.rows[0]?.deleted === true;
   }
 export async function purgeExpiredOrDeletedSessions(limit = 500): Promise<number> {
     const result = await db.query(
@@ -170,7 +229,9 @@ export async function addMessage(
     content: string,
     runId?: string,
     kind: Message['kind'] = role === 'assistant' ? 'assistant_final' : 'user',
-    clientMessageId?: string
+    clientMessageId?: string,
+    createdBy?: string,
+    metadata?: Record<string, unknown>
   ): Promise<Message> {
     const id = randomUUID();
     const nowDate = new Date();
@@ -178,18 +239,21 @@ export async function addMessage(
     const expiresAt = calculateSessionExpiry(nowDate);
     const result = await db.query(
       `WITH inserted AS (
-         INSERT INTO messages (id, session_id, run_id, role, kind, content, metadata, client_message_id, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
+         INSERT INTO messages (id, session_id, run_id, role, kind, content, metadata, created_by, client_message_id, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10)
          RETURNING *
        ), updated_session AS (
          UPDATE sessions
-         SET updated_at = $9,
-             last_message_at = $9,
-             expires_at = $10
+         SET updated_at = $10,
+             last_message_at = $10,
+             expires_at = $11
          WHERE id = $2
        )
        SELECT * FROM inserted`,
-      [id, sessionId, runId || null, role, kind, content, JSON.stringify(null), clientMessageId || null, now, expiresAt]
+      [
+        id, sessionId, runId || null, role, kind, content,
+        JSON.stringify(metadata || null), createdBy || null, clientMessageId || null, now, expiresAt
+      ]
     );
     await scheduleTargetInsightsCheckpointJobForSessionActivity(sessionId, now);
     return mapMessage(result.rows[0]);
@@ -202,13 +266,14 @@ export async function listMessages(
     const before = options?.before || null;
     const cursor = options?.cursor || null;
     const result = await db.query(
-      `SELECT *
-       FROM messages
-       WHERE session_id = $1
-         AND kind IN ('user', 'assistant_final')
-         AND ($2::timestamptz IS NULL OR created_at < $2::timestamptz)
-         AND ($3::timestamptz IS NULL OR (created_at, id) < ($3::timestamptz, $4::text))
-       ORDER BY created_at DESC, id DESC
+      `SELECT m.*, u.id AS created_by_user_id, u.display_name AS created_by_display_name
+       FROM messages m
+       LEFT JOIN users u ON u.id = m.created_by
+       WHERE m.session_id = $1
+         AND m.kind IN ('user', 'assistant_final')
+         AND ($2::timestamptz IS NULL OR m.created_at < $2::timestamptz)
+         AND ($3::timestamptz IS NULL OR (m.created_at, m.id) < ($3::timestamptz, $4::text))
+       ORDER BY m.created_at DESC, m.id DESC
        LIMIT $5`,
       [sessionId, before, cursor?.createdAt || null, cursor?.messageId || null, limit + 1]
     );
@@ -270,8 +335,12 @@ export async function createRunFromUserMessage(params: {
     assistantReferences: AssistantReference[];
     principal: RunPrincipalRef;
     requestProvenance?: RunRequestProvenance;
+    messageCreatedBy?: string;
+    messageMetadata?: Record<string, unknown>;
+    confirmationRequiredForWriteOverride?: boolean;
+    transactionClient?: PoolClient;
   }): Promise<CreateRunFromMessageResult> {
-    return withTransaction(async (client) => {
+    const create = async (client: PoolClient): Promise<CreateRunFromMessageResult> => {
       const findExistingByClientMessageId = async (): Promise<CreateRunFromMessageResult | null> => {
         if (!params.clientMessageId) return null;
         const existingMessageResult = await client.query(
@@ -316,19 +385,33 @@ export async function createRunFromUserMessage(params: {
       let insertedMessageResult;
       try {
         insertedMessageResult = await client.query(
-          `INSERT INTO messages (id, session_id, run_id, role, kind, content, metadata, client_message_id, created_at)
-           VALUES ($1, $2, $3, 'user', 'user', $4, $5::jsonb, $6, $7)
+          `INSERT INTO messages (id, session_id, run_id, role, kind, content, metadata, created_by, client_message_id, created_at)
+           VALUES ($1,$2,$3,'user','user',$4,$5::jsonb,$6,$7,$8)
            RETURNING *`,
-          [messageId, params.sessionId, runId, params.content, JSON.stringify(params.assistantReferences.length > 0 ? {
-            assistantReferences: params.assistantReferences.map((reference) => ({
-              kind: reference.kind,
-              id: reference.id,
-              label: reference.label,
-              ...(reference.description ? { description: reference.description } : {}),
-              source: reference.source,
-              ...(reference.kind === 'tool' ? { capability: reference.capability } : {})
-            }))
-          } : null), params.clientMessageId || null, now]
+          [
+            messageId,
+            params.sessionId,
+            runId,
+            params.content,
+            JSON.stringify({
+              ...(params.messageMetadata || {}),
+              ...(params.assistantReferences.length > 0
+                ? {
+                    assistantReferences: params.assistantReferences.map((reference) => ({
+                      kind: reference.kind,
+                      id: reference.id,
+                      label: reference.label,
+                      ...(reference.description ? { description: reference.description } : {}),
+                      source: reference.source,
+                      ...(reference.kind === 'tool' ? { capability: reference.capability } : {})
+                    }))
+                  }
+                : {})
+            }),
+            params.messageCreatedBy || null,
+            params.clientMessageId || null,
+            now
+          ]
         );
       } catch (error) {
         const pgError = error as { code?: string };
@@ -348,8 +431,9 @@ export async function createRunFromUserMessage(params: {
              llm_provider, llm_model, llm_reasoning_summary_mode, llm_reasoning_effort,
              tool_access_mode, status, requested_at, started_at, ended_at,
              error_code, error_message, usage, assistant_message, principal, assistant_references,
-             request_actor_type,request_external_integration_link_id,request_external_integration_client_id
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19::jsonb,$20::jsonb,$21,$22,$23)
+             request_actor_type,request_external_integration_link_id,request_external_integration_client_id,
+             confirmation_required_for_write_override
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19::jsonb,$20::jsonb,$21,$22,$23,$24)
            RETURNING *
          )
          SELECT inserted.*, t.target_type
@@ -378,7 +462,8 @@ export async function createRunFromUserMessage(params: {
           JSON.stringify(params.assistantReferences),
           params.requestProvenance?.actorType || 'user',
           params.requestProvenance?.externalIntegrationLinkId || null,
-          params.requestProvenance?.externalIntegrationClientId || null
+          params.requestProvenance?.externalIntegrationClientId || null,
+          params.confirmationRequiredForWriteOverride ?? null
         ]
       );
 
@@ -404,7 +489,10 @@ export async function createRunFromUserMessage(params: {
         run: mapRun(insertedRunResult.rows[0] as RunRow),
         idempotent: false
       };
-    });
+    };
+    return params.transactionClient
+      ? create(params.transactionClient)
+      : withTransaction(create);
   }
 
 export async function upsertAssistantFinalMessage(sessionId: string, runId: string, content: string): Promise<Message> {
@@ -421,7 +509,6 @@ export async function upsertAssistantFinalMessage(sessionId: string, runId: stri
          FOR UPDATE`,
         [runId]
       );
-
       let messageRow: MessageRow;
       if (existingResult.rowCount && existingResult.rowCount > 0) {
         const existingRows = existingResult.rows as MessageRow[];

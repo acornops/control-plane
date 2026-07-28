@@ -1,7 +1,10 @@
 import { config } from '../config.js';
 import { db } from '../infra/db.js';
-import type { Run, RunEvent } from '../types/domain.js';
+import type { PoolClient } from 'pg';
+import type { Run, RunEvent, RunStatus } from '../types/domain.js';
 import { mapRun, mapRunEvent } from './repository-mappers.js';
+
+type Queryable = Pick<typeof db, 'query'> | PoolClient;
 
 const runSelect = `
   SELECT r.*, t.target_type
@@ -40,11 +43,16 @@ export async function getRun(runId: string): Promise<Run | null> {
   return result.rowCount ? mapRun(result.rows[0]) : null;
 }
 
-export async function updateRun(runId: string, patch: Partial<Run>): Promise<Run | null> {
-  const current = await getRun(runId);
-  if (!current) return null;
+export async function updateRun(
+  runId: string,
+  patch: Partial<Run>,
+  queryable: Queryable = db
+): Promise<Run | null> {
+  const currentResult = await queryable.query(`${runSelect} WHERE r.id = $1`, [runId]);
+  if (!currentResult.rowCount) return null;
+  const current = mapRun(currentResult.rows[0]);
   const next: Run = { ...current, ...patch };
-  const result = await db.query(
+  const result = await queryable.query(
     `WITH updated AS (
        UPDATE runs
        SET status = $2, started_at = $3, ended_at = $4, error_code = $5,
@@ -58,7 +66,39 @@ export async function updateRun(runId: string, patch: Partial<Run>): Promise<Run
     [runId, next.status, next.startedAt || null, next.endedAt || null, next.errorCode || null,
       next.errorMessage || null, JSON.stringify(next.usage || null), JSON.stringify(next.assistantMessage || null)]
   );
-  return mapRun(result.rows[0]);
+  return result.rowCount ? mapRun(result.rows[0]) : null;
+}
+
+export async function updateRunWhileStatus(
+  runId: string,
+  expectedStatus: RunStatus,
+  patch: Partial<Run>,
+  client: PoolClient
+): Promise<Run | null> {
+  const currentResult = await client.query(
+    `${runSelect} WHERE r.id = $1 FOR UPDATE OF r`,
+    [runId]
+  );
+  if (!currentResult.rowCount) return null;
+  const current = mapRun(currentResult.rows[0]);
+  if (current.status !== expectedStatus) return null;
+
+  const next: Run = { ...current, ...patch };
+  const result = await client.query(
+    `WITH updated AS (
+       UPDATE runs
+       SET status = $2, started_at = $3, ended_at = $4, error_code = $5,
+           error_message = $6, usage = $7::jsonb, assistant_message = $8::jsonb
+       WHERE id = $1
+       RETURNING *
+     )
+     SELECT updated.*, t.target_type
+     FROM updated
+     JOIN targets t ON t.id = updated.target_id`,
+    [runId, next.status, next.startedAt || null, next.endedAt || null, next.errorCode || null,
+      next.errorMessage || null, JSON.stringify(next.usage || null), JSON.stringify(next.assistantMessage || null)]
+  );
+  return result.rowCount ? mapRun(result.rows[0]) : null;
 }
 
 export async function appendRunEvents(runId: string, events: RunEvent[]): Promise<RunEvent[]> {

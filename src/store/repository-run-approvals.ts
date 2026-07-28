@@ -13,9 +13,11 @@ import { insertWorkspaceAuditEvent } from './repository-audit-events.js';
 import { withTransaction } from './repository-transaction.js';
 
 const RUN_TOOL_APPROVAL_SELECT = `
-  SELECT a.*, t.target_type
+  SELECT a.*, t.target_type, r.session_id, s.origin AS session_origin, s.title AS session_title
   FROM run_tool_approvals a
-  JOIN targets t ON t.id = a.target_id`;
+  JOIN targets t ON t.id = a.target_id
+  JOIN runs r ON r.id = a.run_id
+  JOIN sessions s ON s.id = r.session_id`;
 
 export async function createRunToolApproval(params: {
   runId: string;
@@ -289,6 +291,26 @@ export async function expirePendingRunToolApprovals(limit = 100): Promise<RunToo
      FROM updated a
      JOIN targets t ON t.id = a.target_id`,
     [Math.max(1, Math.min(1000, limit))]
+  );
+  return result.rows.map(mapRunToolApproval);
+}
+
+export async function expirePendingRunToolApprovalsForRun(runId: string): Promise<RunToolApproval[]> {
+  const result = await db.query<RunToolApprovalRow>(
+    `WITH expired AS (
+       UPDATE run_tool_approvals
+          SET status = 'expired',
+              decided_at = NOW()
+        WHERE run_id = $1
+          AND status = 'pending'
+        RETURNING *
+     )
+     SELECT a.*, t.target_type, r.session_id, s.origin AS session_origin, s.title AS session_title
+       FROM expired a
+       JOIN targets t ON t.id = a.target_id
+       JOIN runs r ON r.id = a.run_id
+       JOIN sessions s ON s.id = r.session_id`,
+    [runId]
   );
   return result.rows.map(mapRunToolApproval);
 }

@@ -305,6 +305,13 @@ export {
 } from './workspaces/target-controller.js';
 
 export {
+  getTargetAutoTriage,
+  startExistingTargetAutoTriageInvestigations,
+  startOrRetryIssueAutomaticInvestigation,
+  updateTargetAutoTriage
+} from './workspaces/auto-triage-controller.js';
+
+export {
   getTargetIssue,
   getTargetIssueSummary,
   listTargetIssueObservations,

@@ -364,6 +364,15 @@ export interface ChatSession {
   clusterId?: string;
   createdBy: string;
   createdByUser?: UserDisplay;
+  origin: 'manual' | 'auto_triage';
+  automaticInvestigation?: {
+    issueId: string;
+    lifecycleVersion: number;
+    severity: import('./target-issues.js').TargetIssueSeverity;
+    writeMode: import('./auto-triage.js').AutoTriageWriteMode;
+    effectiveToolMode: ToolAccessMode;
+    confirmationRequiredForWrite: boolean;
+  };
   title: string;
   status: 'open' | 'archived' | 'deleted';
   createdAt: string;
@@ -385,6 +394,9 @@ export interface RecentTargetChatActivity {
   title: string;
   createdBy: string;
   createdByUser?: UserDisplay;
+  origin: 'manual' | 'auto_triage';
+  linkedIssueId?: string;
+  linkedIssueLifecycleVersion?: number;
   lastActivityAt: string;
   lastRunId?: string;
   lastRunStatus?: RunStatus;
@@ -440,6 +452,8 @@ export interface Message {
   kind: 'user' | 'assistant_final';
   content: string;
   metadata?: Record<string, unknown>;
+  createdBy?: string;
+  createdByUser?: UserDisplay;
   clientMessageId?: string;
   createdAt: string;
 }
@@ -475,6 +489,7 @@ export interface Run {
     format: 'markdown';
   };
   assistantReferences?: import('./assistant-references.js').AssistantReference[];
+  confirmationRequiredForWriteOverride?: boolean;
 }
 
 export interface RunEvent {
@@ -507,6 +522,9 @@ export interface RunToolApproval {
   toolResult?: unknown;
   toolResultIsError?: boolean;
   requestedBy?: string;
+  sessionId?: string;
+  sessionOrigin?: ChatSession['origin'];
+  sessionTitle?: string;
   decidedBy?: string;
   decision?: 'approved' | 'rejected';
   createdAt: string;

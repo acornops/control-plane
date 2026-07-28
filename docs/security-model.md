@@ -75,7 +75,7 @@
 - Direct public agent tool calls are not exposed by the control plane; troubleshooting tool execution must use run-scoped gateway authorization.
 - Agent session policy is a mandatory defense-in-depth allowlist. It may not
   elevate the local AgentK write or namespace policy.
-- AgentK `patch_workload`, `patch_resource`, and `patch_configmap` remain
+- AgentK `restart_workload`, `scale_workload`, and `patch_resource` remain
   run-authorized writes. The control plane forwards their semantic arguments
   but cannot expand AgentK's local patch-kind and non-secret configuration
   opt-ins or Kubernetes RBAC. Literal environment and ConfigMap writes require
@@ -87,6 +87,40 @@
 - Every automation callback and tool call must bind the workspace, Agent
   version, Workflow execution, step attempt, target, exact tool operation,
   approved context grants, and approval state from signed server claims.
+
+## Automatic Investigations
+
+- Target auto-triage is experimental and disabled by default. Only
+  `manage_targets` may change its configuration or queue an eligible issue
+  manually; modes that can request writes also require
+  `create_read_write_runs`.
+- Auto-triage does not use `manage_workflows`, Workflow definitions, Automation
+  runtime mode, Workflow service identities, or the automation dispatch outbox.
+- The target agent and saved target confirmation policy are ceilings.
+  Automatic investigations may remove write tools or require more approvals,
+  but they cannot add unsupported writes or bypass target-level confirmation.
+  The effective policy is pinned when the run starts.
+- System-started work uses the stable `system-auto-triage` service identity.
+  It never borrows an individual user's MCP credentials. Tools that require
+  those credentials are omitted and readiness reports a bounded degraded
+  reason.
+- Kickoff prompts contain bounded issue evidence plus delimited target
+  instructions. Full instructions, raw evidence, credentials, and internal
+  errors must not enter audit records, metrics, or public job errors. Secret
+  patterns are redacted before prompt construction and terminal run error text
+  is not duplicated into the auto-triage job record.
+- One durable job is allowed per issue lifecycle. Leased claims, stable run
+  IDs, dispatch idempotency, expected-status run locks, and lease-fenced atomic
+  run/job transitions prevent retries or replica failover from creating a
+  second automatic session or allowing an expired worker to overwrite recovered
+  or terminal run state.
+- Automatic session creation locks and verifies the enabled settings revision.
+  Disablement or a policy edit cannot race a stale readiness check into starting
+  a new chat with an outdated action policy.
+- Browser members may participate in automatic sessions only with
+  `create_sessions` and the capability required by their reply. The pinned
+  automatic policy and target ceiling still apply. Manual sessions and
+  external integrations retain creator-only participation.
 
 ## Admin Audit
 

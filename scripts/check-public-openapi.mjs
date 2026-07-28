@@ -50,6 +50,6 @@ for (const audience of ['public', 'admin']) {
   console.log(`${audience} OpenAPI document passed coverage checks (${pathCount} paths, ${schemaCount} schemas).`);
 }
 
-if (combinedLineCount > 29600) {
-  throw new Error(`Combined generated OpenAPI has ${combinedLineCount} lines; expected at most 29600`);
+if (combinedLineCount > 30500) {
+  throw new Error(`Combined generated OpenAPI has ${combinedLineCount} lines; expected at most 30500`);
 }

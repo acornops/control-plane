@@ -14,6 +14,25 @@ import {
 } from '../../utils/pagination.js';
 import { getWorkflowActivityByIssueIds } from '../../store/repository-workflow-activity.js';
 
+async function issueActivities(
+  workspaceId: string,
+  issueIds: string[],
+  retryPermissions: { readOnly: boolean; writeCapable: boolean },
+  includeWorkflowActivity = true
+) {
+  const [workflow, automatic] = await Promise.all([
+    includeWorkflowActivity
+      ? getWorkflowActivityByIssueIds(workspaceId, issueIds)
+      : Promise.resolve(new Map()),
+    repo.autoTriage.getAutomaticInvestigationActivityByIssueIds(
+      workspaceId,
+      issueIds,
+      retryPermissions
+    )
+  ]);
+  return { workflow, automatic };
+}
+
 const issueStatuses = new Set(['active', 'recovering', 'resolved', 'all']);
 const issueSeverities = new Set(['critical', 'warning', 'info']);
 
@@ -36,7 +55,8 @@ function invalidFilter(res: Response, message: string): void {
 export async function listWorkspaceIssues(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
-    if (!(await requireWorkspaceDataRead(req, res, workspaceId))) return;
+    const authz = await requireWorkspaceDataRead(req, res, workspaceId);
+    if (!authz) return;
 
     const rawStatus = toSingleParam(req.query.status as string | string[] | undefined);
     const status = parseIssueStatus(rawStatus);
@@ -75,14 +95,23 @@ export async function listWorkspaceIssues(req: AuthenticatedRequest, res: Respon
       signature,
       ...filters
     });
-    const activity = req.auth.credential.type !== 'external_integration'
-      ? await getWorkflowActivityByIssueIds(workspaceId, page.items.map((item) => item.id))
-      : new Map();
+    const activity = await issueActivities(
+      workspaceId,
+      page.items.map((item) => item.id),
+      {
+        readOnly: req.auth.credential.type !== 'external_integration' && authz.can('manage_targets'),
+        writeCapable: req.auth.credential.type !== 'external_integration'
+          && authz.can('manage_targets')
+          && authz.can('create_read_write_runs')
+      },
+      req.auth.credential.type !== 'external_integration'
+    );
     res.status(200).json({
       ...page,
       items: page.items.map((item) => ({
         ...item,
-        ...(activity.has(item.id) ? { workflowActivity: activity.get(item.id) } : {})
+        ...(activity.workflow.has(item.id) ? { workflowActivity: activity.workflow.get(item.id) } : {}),
+        ...(activity.automatic.has(item.id) ? { automaticInvestigation: activity.automatic.get(item.id) } : {})
       }))
     });
   } catch (err) {
@@ -98,7 +127,8 @@ export async function listTargetIssues(req: AuthenticatedRequest, res: Response,
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
     const targetId = toSingleParam(req.params.targetId);
-    if (!(await requireWorkspaceDataRead(req, res, workspaceId))) return;
+    const authz = await requireWorkspaceDataRead(req, res, workspaceId);
+    if (!authz) return;
 
     const rawStatus = toSingleParam(req.query.status as string | string[] | undefined);
     const status = parseIssueStatus(rawStatus);
@@ -130,14 +160,23 @@ export async function listTargetIssues(req: AuthenticatedRequest, res: Response,
       signature,
       ...filters
     });
-    const activity = req.auth.credential.type !== 'external_integration'
-      ? await getWorkflowActivityByIssueIds(workspaceId, page.items.map((item) => item.id))
-      : new Map();
+    const activity = await issueActivities(
+      workspaceId,
+      page.items.map((item) => item.id),
+      {
+        readOnly: req.auth.credential.type !== 'external_integration' && authz.can('manage_targets'),
+        writeCapable: req.auth.credential.type !== 'external_integration'
+          && authz.can('manage_targets')
+          && authz.can('create_read_write_runs')
+      },
+      req.auth.credential.type !== 'external_integration'
+    );
     res.status(200).json({
       ...page,
       items: page.items.map((item) => ({
         ...item,
-        ...(activity.has(item.id) ? { workflowActivity: activity.get(item.id) } : {})
+        ...(activity.workflow.has(item.id) ? { workflowActivity: activity.workflow.get(item.id) } : {}),
+        ...(activity.automatic.has(item.id) ? { automaticInvestigation: activity.automatic.get(item.id) } : {})
       }))
     });
   } catch (err) {
@@ -153,7 +192,8 @@ export async function getTargetIssueSummary(req: AuthenticatedRequest, res: Resp
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
     const targetId = toSingleParam(req.params.targetId);
-    if (!(await requireWorkspaceDataRead(req, res, workspaceId))) return;
+    const authz = await requireWorkspaceDataRead(req, res, workspaceId);
+    if (!authz) return;
     const summary = await repo.summarizeTargetIssues(workspaceId, targetId);
     res.status(200).json(summary);
   } catch (err) {
@@ -165,18 +205,28 @@ export async function getTargetIssue(req: AuthenticatedRequest, res: Response, n
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
     const issueId = toSingleParam(req.params.issueId);
-    if (!(await requireWorkspaceDataRead(req, res, workspaceId))) return;
+    const authz = await requireWorkspaceDataRead(req, res, workspaceId);
+    if (!authz) return;
     const issue = await repo.getTargetIssue(workspaceId, issueId);
     if (!issue) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Issue not found', retryable: false } });
       return;
     }
-    const activity = req.auth.credential.type !== 'external_integration'
-      ? await getWorkflowActivityByIssueIds(workspaceId, [issue.id])
-      : new Map();
+    const activity = await issueActivities(
+      workspaceId,
+      [issue.id],
+      {
+        readOnly: req.auth.credential.type !== 'external_integration' && authz.can('manage_targets'),
+        writeCapable: req.auth.credential.type !== 'external_integration'
+          && authz.can('manage_targets')
+          && authz.can('create_read_write_runs')
+      },
+      req.auth.credential.type !== 'external_integration'
+    );
     res.status(200).json({
       ...issue,
-      ...(activity.has(issue.id) ? { workflowActivity: activity.get(issue.id) } : {})
+      ...(activity.workflow.has(issue.id) ? { workflowActivity: activity.workflow.get(issue.id) } : {}),
+      ...(activity.automatic.has(issue.id) ? { automaticInvestigation: activity.automatic.get(issue.id) } : {})
     });
   } catch (err) {
     next(err);

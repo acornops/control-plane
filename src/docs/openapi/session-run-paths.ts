@@ -134,7 +134,7 @@ export function buildSessionRunPaths(): Record<string, unknown> {
         post: {
           tags: ['sessions'],
           summary: 'Append user message and trigger run dispatch',
-          description: 'External integration callers may append messages only to sessions owned by the linked AcornOps user. They may trigger read-only runs by default, or read-write runs only when the registered client allowedCapabilities, user-approved workspace grant, and linked user workspace role all include create_read_write_runs. The exact originating integration link and client may decide approvals created by its own troubleshooting or Workflow execution after explicit linked-user confirmation.',
+          description: 'Manual sessions remain creator-only. Browser-authenticated workspace members with create_sessions and the required run capability may reply to shared auto_triage sessions; each human message records the actual user and remains within the session pinned tool and confirmation ceiling. External integrations remain owner-only and never receive the shared-session exception.',
           security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
             externalUserHeader,

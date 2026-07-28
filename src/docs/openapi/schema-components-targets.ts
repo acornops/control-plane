@@ -2,6 +2,7 @@ import { dateTime, JsonSchema, jsonObject, pageOf, schemaRef, stringArray, uuid 
 import { targetSummarySchema, runSchema, userSchema } from './schema-components-common.js';
 import { buildTargetMcpWireSchemas } from './schema-components-target-mcp.js';
 import { buildWebhookSchemas } from './schema-components-webhooks.js';
+import { buildAutoTriageSchemas } from './schema-components-auto-triage.js';
 
 export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
   return {
@@ -92,7 +93,8 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
     Issue: {
       type: 'object',
       properties: {
-        workflowActivity: schemaRef('WorkflowActivitySummary')
+        workflowActivity: schemaRef('WorkflowActivitySummary'),
+        automaticInvestigation: schemaRef('AutomaticInvestigationSummary')
       },
       additionalProperties: true
     },
@@ -110,6 +112,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: false
     },
+    ...buildAutoTriageSchemas(),
     IssueObservation: { type: 'object', additionalProperties: true },
     IssueObservationPage: pageOf('IssueObservation'),
     PodLogs: {
@@ -205,8 +208,21 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] },
         clusterId: uuid,
         title: { type: 'string' },
-        createdBy: uuid,
+        createdBy: { type: 'string' },
         createdByUser: userSchema,
+        origin: { type: 'string', enum: ['manual', 'auto_triage'] },
+        automaticInvestigation: {
+          type: 'object',
+          properties: {
+            issueId: uuid,
+            lifecycleVersion: { type: 'integer', minimum: 1 },
+            severity: { type: 'string', enum: ['critical', 'warning', 'info'] },
+            writeMode: { type: 'string', enum: ['follow_target', 'read_only', 'approval_required', 'full_write'] },
+            effectiveToolMode: { type: 'string', enum: ['read_only', 'read_write'] },
+            confirmationRequiredForWrite: { type: 'boolean' }
+          },
+          additionalProperties: false
+        },
         lastRuntimeSelection: schemaRef('ChatRuntimeSelection'),
         createdAt: dateTime,
         updatedAt: dateTime
@@ -222,6 +238,8 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         sessionId: uuid,
         role: { type: 'string', enum: ['user', 'assistant', 'system', 'tool'] },
         content: { type: 'string' },
+        createdBy: { type: 'string' },
+        createdByUser: userSchema,
         format: { type: 'string' },
         createdAt: dateTime
       },

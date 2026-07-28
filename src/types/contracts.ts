@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { validateMcpPublicHeaders as enforceMcpPublicHeaderPolicy } from '../services/mcp-public-header-policy.js';
+import { autoTriageInstructionsFitLimit } from '../utils/auto-triage-instructions.js';
 import { TARGET_TYPES } from './domain.js';
 import { runEventSchema, runEventsBatchSchema } from './run-events-contract.js';
 import { webhookUrlSchema } from './webhook-contracts.js';
@@ -198,6 +199,20 @@ export const updateVirtualMachineSchema = z.object({
 export const createSessionSchema = z.object({
   title: z.string().min(1)
 });
+
+export const updateTargetAutoTriageSchema = z.object({
+  expectedRevision: z.number().int().min(0),
+  enabled: z.boolean(),
+  minimumSeverity: z.enum(['critical', 'warning', 'info']),
+  writeMode: z.enum(['follow_target', 'read_only', 'approval_required', 'full_write']),
+  additionalInstructions: z.string().refine(autoTriageInstructionsFitLimit, {
+    message: 'Additional instructions must be 4,000 normalized characters or fewer'
+  })
+}).strict();
+
+export const startExistingAutoTriageInvestigationsSchema = z.object({
+  expectedSettingsRevision: z.number().int().min(1)
+}).strict();
 
 export const internalMcpToolCallSchema = z.object({
   name: z.string().min(1),

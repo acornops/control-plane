@@ -1,7 +1,7 @@
 import { db } from '../infra/db.js';
 
 export interface RunRequestProvenance {
-  actorType: 'user' | 'external_integration';
+  actorType: 'user' | 'system' | 'external_integration';
   externalIntegrationLinkId?: string;
   externalIntegrationClientId?: string;
   externalIntegrationLabel?: string;

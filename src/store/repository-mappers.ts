@@ -4,6 +4,7 @@ import { ChatSession, KubernetesCluster, KUBERNETES_TARGET_TYPE, Message, Role, 
 import type { PasswordCredentialRow, PasswordCredentialWithUser, UserRow } from './repository-auth-row-types.js';
 import { buildWorkspaceQuota, resolveWorkspacePlan } from './repository-quotas.js';
 import { mapLastRuntimeSelection, SessionRuntimeSelectionRow } from './repository-session-runtime.js';
+import { type AutomaticSessionRowFields, mapAutomaticSessionFields, type MessageAuthorRowFields, mapMessageAuthorFields } from './repository-auto-triage-mappers.js';
 
 export type { PasswordCredentialRow, PasswordCredentialWithUser, UserRow } from './repository-auth-row-types.js';
 export const toIso = (value: Date | string | null | undefined): string | undefined =>
@@ -75,7 +76,7 @@ export interface TargetRow {
   updated_at: Date | string;
 }
 
-export interface SessionRow extends SessionRuntimeSelectionRow {
+export interface SessionRow extends SessionRuntimeSelectionRow, AutomaticSessionRowFields {
   id: string;
   workspace_id: string;
   target_id: string;
@@ -92,7 +93,7 @@ export interface SessionRow extends SessionRuntimeSelectionRow {
   deleted_at: Date | string | null;
 }
 
-export interface MessageRow {
+export interface MessageRow extends MessageAuthorRowFields {
   id: string;
   session_id: string;
   run_id: string | null;
@@ -126,6 +127,7 @@ export interface RunRow {
   assistant_message: Run['assistantMessage'] | null;
   assistant_references: NonNullable<Run['assistantReferences']> | null;
   principal?: Run['principal'] | null;
+  confirmation_required_for_write_override: boolean | null;
 }
 
 export interface RunEventRow {
@@ -157,6 +159,9 @@ export interface RunToolApprovalRow {
   tool_result: unknown | null;
   tool_result_is_error: boolean | null;
   requested_by: string | null;
+  session_id?: string | null;
+  session_origin?: ChatSession['origin'] | null;
+  session_title?: string | null;
   decided_by: string | null;
   decision: 'approved' | 'rejected' | null;
   created_at: Date | string;
@@ -411,6 +416,7 @@ export function mapSession(row: SessionRow): ChatSession {
           displayName: row.created_by_display_name
         }
       : undefined,
+    ...mapAutomaticSessionFields(row),
     title: row.title,
     status: row.status,
     createdAt: toIso(row.created_at)!,
@@ -431,6 +437,7 @@ export function mapMessage(row: MessageRow): Message {
     kind: row.kind,
     content: row.content,
     metadata: row.metadata || undefined,
+    ...mapMessageAuthorFields(row),
     clientMessageId: row.client_message_id || undefined,
     createdAt: toIso(row.created_at)!
   };
@@ -461,7 +468,8 @@ export function mapRun(row: RunRow): Run {
     errorMessage: row.error_message || undefined,
     usage: row.usage || undefined,
     assistantMessage: row.assistant_message || undefined,
-    assistantReferences: Array.isArray(row.assistant_references) ? row.assistant_references : []
+    assistantReferences: Array.isArray(row.assistant_references) ? row.assistant_references : [],
+    confirmationRequiredForWriteOverride: row.confirmation_required_for_write_override ?? undefined
   };
 }
 
@@ -500,6 +508,9 @@ export function mapRunToolApproval(row: RunToolApprovalRow): RunToolApproval {
     toolResult: row.tool_result ?? undefined,
     toolResultIsError: row.tool_result_is_error ?? undefined,
     requestedBy: row.requested_by || undefined,
+    sessionId: row.session_id || undefined,
+    sessionOrigin: row.session_origin || undefined,
+    sessionTitle: row.session_title || undefined,
     decidedBy: row.decided_by || undefined,
     decision: row.decision || undefined,
     createdAt: toIso(row.created_at)!,

@@ -90,6 +90,7 @@ import {
 } from './repository-target-tools.js';
 import * as repositoryTargetInsights from './repository-target-insights.js';
 import * as repositoryTargetInsightsCheckpoints from './repository-target-insights-checkpoints.js';
+import * as repositoryAutoTriage from './repository-auto-triage.js';
 import * as toolResultArtifacts from './repository-tool-result-artifacts.js';
 import {
   countEnabledTargetSkills as countEnabledTargetSkillsRecord,
@@ -122,6 +123,7 @@ import {
   createRunFromUserMessage as createRunFromUserMessageRecord,
   deleteSession as deleteSessionRecord,
   findRunByClientMessageId as findRunByClientMessageIdRecord,
+  getAutomaticSessionForIssueLifecycle as getAutomaticSessionForIssueLifecycleRecord,
   getRun as getRunRecord,
   getSession as getSessionRecord,
   listMessages as listMessagesRecord,
@@ -145,6 +147,7 @@ import {
   decideRunToolApprovalOutcome as decideRunToolApprovalOutcomeRecord,
   deleteRunContinuation as deleteRunContinuationRecord,
   expirePendingRunToolApprovals as expirePendingRunToolApprovalsRecord,
+  expirePendingRunToolApprovalsForRun as expirePendingRunToolApprovalsForRunRecord,
   expireRunToolApproval as expireRunToolApprovalRecord,
   getRunContinuation as getRunContinuationRecord,
   getRunToolApproval as getRunToolApprovalRecord,
@@ -362,6 +365,7 @@ export class Repository {
   listTargetChatActivityEvents = listTargetChatActivityEventsRecord;
 
   getSession = getSessionRecord;
+  getAutomaticSessionForIssueLifecycle = getAutomaticSessionForIssueLifecycleRecord;
 
   deleteSession = deleteSessionRecord;
 
@@ -408,6 +412,7 @@ export class Repository {
   expireRunToolApproval = expireRunToolApprovalRecord;
 
   expirePendingRunToolApprovals = expirePendingRunToolApprovalsRecord;
+  expirePendingRunToolApprovalsForRun = expirePendingRunToolApprovalsForRunRecord;
 
   startRunToolApprovalExecution = startRunToolApprovalExecutionRecord;
 
@@ -428,19 +433,14 @@ export class Repository {
   summarizeTargetIssues = summarizeTargetIssuesRecord;
   getTargetIssue = getTargetIssueRecord;
   listTargetIssueObservations = listTargetIssueObservationsRecord;
+  autoTriage = repositoryAutoTriage;
   listTargetMetricHistory = listTargetMetricHistoryRecord;
   purgeOldTargetMetricHistory = purgeOldTargetMetricHistoryRecord;
-
   upsertVirtualMachineSnapshot = upsertVirtualMachineSnapshotRecord;
-
   getVirtualMachineSnapshot = getVirtualMachineSnapshotRecord;
-
   getVirtualMachineSnapshotSummary = getVirtualMachineSnapshotSummaryRecord;
-
   listVirtualMachineSnapshotSummaries = listVirtualMachineSnapshotSummariesRecord;
-
   listVirtualMachineInventory = listVirtualMachineInventoryRecord;
-
   listTargetToolOverrides = listTargetToolOverridesRecord;
   setTargetToolOverride = setTargetToolOverrideRecord;
   listTargetToolSettings = listTargetToolSettingsRecord;
