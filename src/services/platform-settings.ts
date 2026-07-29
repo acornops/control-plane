@@ -2,8 +2,11 @@ import Redis from 'ioredis';
 import { z } from 'zod';
 import { config } from '../config.js';
 import {
+  LEGACY_PLATFORM_SETTING_KEY,
   PLATFORM_SETTING_KEYS,
-  type PlatformSettingKey
+  USER_SIGN_IN_METHODS,
+  type PlatformSettingKey,
+  type UserSignInMethod
 } from '../config-platform-settings.js';
 import {
   configuredProviders,
@@ -52,7 +55,14 @@ const aiPolicyValueSchema = z.object({
   reasoningEfforts: z.array(z.enum(REASONING_EFFORT_VALUES)).min(1)
 }).strict();
 
-const passwordSignupValueSchema = z.object({
+const userSignInMethodsValueSchema = z.object({
+  methods: z.array(z.enum(USER_SIGN_IN_METHODS)).min(1).refine(
+    (methods) => new Set(methods).size === methods.length,
+    'methods must not contain duplicates'
+  )
+}).strict();
+
+const legacyPasswordSignupValueSchema = z.object({
   enabled: z.boolean()
 }).strict();
 
@@ -68,7 +78,7 @@ export interface AiPlatformPolicy {
 export interface PlatformSettingValueMap {
   member_discovery: { mode: WorkspaceMemberDiscoveryMode };
   ai_policy: AiPlatformPolicy;
-  password_signup: { enabled: boolean };
+  user_sign_in_methods: { methods: UserSignInMethod[] };
 }
 
 type PlatformSettingSource = 'deployment_default' | 'runtime_override' | 'runtime_override_constrained';
@@ -114,6 +124,8 @@ function deploymentSettingsFingerprint(): string {
     },
     password: {
       authEnabled: config.PASSWORD_AUTH_ENABLED,
+      resetEnabled: config.PASSWORD_RESET_ENABLED,
+      oidcEnabled: config.OIDC_ENABLED,
       verificationRequired: config.PASSWORD_EMAIL_VERIFICATION_REQUIRED,
       allowUnverified: config.PASSWORD_SIGNUP_ALLOW_UNVERIFIED_EMAIL,
       deliveryMode: config.EMAIL_DELIVERY_MODE,
@@ -182,8 +194,10 @@ export function passwordSignupOperationalBlockers(): string[] {
   return blockers;
 }
 
-function settingOverrideMap(overrides: PlatformSettingOverride[]): Map<PlatformSettingKey, PlatformSettingOverride> {
-  return new Map(overrides.filter((entry) => PLATFORM_SETTING_KEYS.includes(entry.key)).map((entry) => [entry.key, entry]));
+function settingOverrideMap(overrides: PlatformSettingOverride[]): Map<PlatformSettingKey | typeof LEGACY_PLATFORM_SETTING_KEY, PlatformSettingOverride> {
+  return new Map(overrides
+    .filter((entry) => PLATFORM_SETTING_KEYS.includes(entry.key as PlatformSettingKey) || entry.key === LEGACY_PLATFORM_SETTING_KEY)
+    .map((entry) => [entry.key, entry]));
 }
 
 function memberDiscoveryState(entry?: PlatformSettingOverride): PlatformSettingState<'member_discovery'> {
@@ -282,37 +296,67 @@ function aiPolicyState(entry?: PlatformSettingOverride): PlatformSettingState<'a
   };
 }
 
-function passwordSignupState(entry?: PlatformSettingOverride): PlatformSettingState<'password_signup'> {
-  const policy = config.PLATFORM_SETTINGS_POLICY.passwordSignup;
-  const deploymentDefault = { enabled: policy.defaultValue };
+function signInMethodBlockers(allowedMethods: UserSignInMethod[]): Partial<Record<UserSignInMethod, string[]>> {
+  const blockers: Partial<Record<UserSignInMethod, string[]>> = {};
+  for (const method of USER_SIGN_IN_METHODS) {
+    if (!allowedMethods.includes(method)) {
+      blockers[method] = [
+        method === 'password'
+          ? 'Password sign-in is disabled by the deployment policy.'
+          : 'OIDC sign-in is disabled by the deployment policy.'
+      ];
+    }
+  }
+  return blockers;
+}
+
+function userSignInMethodsState(
+  entry?: PlatformSettingOverride,
+  legacyEntry?: PlatformSettingOverride
+): PlatformSettingState<'user_sign_in_methods'> {
+  const policy = config.PLATFORM_SETTINGS_POLICY.userSignInMethods;
+  const deploymentDefault = { methods: policy.defaultMethods };
   const parsed = entry?.overrideValue === null || entry?.overrideValue === undefined
     ? undefined
-    : passwordSignupValueSchema.safeParse(entry.overrideValue);
-  const overrideValue = parsed?.success ? parsed.data : undefined;
-  const blockers = passwordSignupOperationalBlockers();
-  const permitted = overrideValue && policy.allowedValues.includes(overrideValue.enabled);
-  const requested = permitted ? overrideValue : deploymentDefault;
-  const value = requested.enabled && blockers.length ? { enabled: false } : requested;
-  const constrained = Boolean(overrideValue && (!permitted || value.enabled !== overrideValue.enabled));
+    : userSignInMethodsValueSchema.safeParse(entry.overrideValue);
+  const legacyParsed = !entry && legacyEntry?.overrideValue !== null && legacyEntry?.overrideValue !== undefined
+    ? legacyPasswordSignupValueSchema.safeParse(legacyEntry.overrideValue)
+    : undefined;
+  // A legacy signup-only override did not control password login or OIDC.
+  // Mapping it to the deployment default preserves existing authentication
+  // access until an administrator writes the new explicit policy.
+  const overrideValue = parsed?.success
+    ? parsed.data
+    : legacyParsed?.success
+      ? deploymentDefault
+      : undefined;
+  const constrainedMethods = overrideValue?.methods.filter((method) => policy.allowedMethods.includes(method)) || [];
+  const value = constrainedMethods.length ? { methods: constrainedMethods } : deploymentDefault;
+  const constrained = Boolean(overrideValue && JSON.stringify(value) !== JSON.stringify(overrideValue));
+  const usingLegacyValue = Boolean(legacyParsed?.success);
   return {
-    key: 'password_signup',
+    key: 'user_sign_in_methods',
     value,
     deploymentDefault,
     ...(overrideValue ? { overrideValue } : {}),
     source: overrideValue
-      ? constrained
+      ? constrained || usingLegacyValue
         ? 'runtime_override_constrained'
         : 'runtime_override'
       : 'deployment_default',
-    version: entry?.version || 0,
-    ...(entry?.updatedBy ? { updatedBy: entry.updatedBy } : {}),
-    ...(entry?.updatedAt ? { updatedAt: entry.updatedAt } : {}),
-    editable: policy.allowedValues.length > 1,
+    version: entry?.version || legacyEntry?.version || 0,
+    ...(entry?.updatedBy || legacyEntry?.updatedBy ? { updatedBy: entry?.updatedBy || legacyEntry?.updatedBy } : {}),
+    ...(entry?.updatedAt || legacyEntry?.updatedAt ? { updatedAt: entry?.updatedAt || legacyEntry?.updatedAt } : {}),
+    editable: policy.allowedMethods.length > 1,
     constraints: {
-      allowedValues: policy.allowedValues,
-      enablementBlockers: blockers
+      allowedMethods: policy.allowedMethods,
+      methodBlockers: signInMethodBlockers(policy.allowedMethods)
     },
-    ...(constrained ? { warning: blockers[0] || 'The stored value is blocked by the current deployment policy.' } : {})
+    ...(usingLegacyValue
+      ? { warning: 'A legacy password signup setting is in use. Save this setting to apply an explicit sign-in method policy.' }
+      : constrained
+        ? { warning: 'The stored sign-in methods were narrowed to the current deployment policy.' }
+        : {})
   };
 }
 
@@ -321,7 +365,10 @@ function buildStates(overrides: PlatformSettingOverride[]): PlatformSettingState
   return {
     member_discovery: memberDiscoveryState(map.get('member_discovery')),
     ai_policy: aiPolicyState(map.get('ai_policy')),
-    password_signup: passwordSignupState(map.get('password_signup'))
+    user_sign_in_methods: userSignInMethodsState(
+      map.get('user_sign_in_methods'),
+      map.get(LEGACY_PLATFORM_SETTING_KEY)
+    )
   };
 }
 
@@ -333,7 +380,7 @@ export function parsePlatformSettingValue<K extends PlatformSettingKey>(
     ? memberDiscoveryValueSchema.parse(value)
     : key === 'ai_policy'
       ? aiPolicyValueSchema.parse(value)
-      : passwordSignupValueSchema.parse(value);
+      : userSignInMethodsValueSchema.parse(value);
   return parsed as PlatformSettingValueMap[K];
 }
 
@@ -349,13 +396,14 @@ export function validatePlatformSettingOverride<K extends PlatformSettingKey>(
       ? null
       : 'This discovery mode is not allowed by the deployment policy.';
   }
-  if (key === 'password_signup') {
-    const enabled = (value as PlatformSettingValueMap['password_signup']).enabled;
-    if (!(current.constraints.allowedValues as boolean[]).includes(enabled)) {
-      return 'This password-signup value is not allowed by the deployment policy.';
+  if (key === 'user_sign_in_methods') {
+    const methods = (value as PlatformSettingValueMap['user_sign_in_methods']).methods;
+    const allowedMethods = current.constraints.allowedMethods as UserSignInMethod[];
+    if (methods.length === 0) return 'At least one user sign-in method must be enabled.';
+    if (methods.some((method) => !allowedMethods.includes(method))) {
+      return 'One or more sign-in methods are not allowed by the deployment policy.';
     }
-    const blockers = current.constraints.enablementBlockers as string[];
-    return enabled && blockers.length ? blockers[0] : null;
+    return null;
   }
   const candidate = value as PlatformSettingValueMap['ai_policy'];
   const constrained = constrainedAiPolicy(candidate, deploymentAiPolicy());
@@ -414,7 +462,7 @@ export function getPlatformSettingWithoutOverride<K extends PlatformSettingKey>(
     ? memberDiscoveryState()
     : key === 'ai_policy'
       ? aiPolicyState()
-      : passwordSignupState();
+      : userSignInMethodsState();
   return structuredClone(state) as PlatformSettingState<K>;
 }
 
@@ -426,8 +474,20 @@ export function effectiveAiPlatformPolicy(): AiPlatformPolicy {
   return structuredClone(resolvedStates().ai_policy.value);
 }
 
+export function effectiveUserSignInMethods(): UserSignInMethod[] {
+  return [...resolvedStates().user_sign_in_methods.value.methods];
+}
+
+export function passwordSignInEnabled(): boolean {
+  return effectiveUserSignInMethods().includes('password');
+}
+
+export function oidcSignInEnabled(): boolean {
+  return effectiveUserSignInMethods().includes('oidc');
+}
+
 export function passwordSignupEnabled(): boolean {
-  return resolvedStates().password_signup.value.enabled;
+  return passwordSignInEnabled() && passwordSignupOperationalBlockers().length === 0;
 }
 
 export async function publishPlatformSettingsChanged(): Promise<void> {

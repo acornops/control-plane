@@ -11,6 +11,7 @@ describe('platform administrator role mapping', () => {
     assert.deepEqual(adminScopesForRoles(['platform-admin-auditor']), ['admin:self', 'admin:audit:read']);
     assert.ok(adminScopesForRoles(['platform-admin']).includes('admin:member:write'));
     assert.ok(!adminScopesForRoles(['platform-admin-viewer']).includes('admin:audit:read'));
+    assert.ok(!adminScopesForRoles(['platform-admin-viewer']).includes('admin:system:write'));
     assert.ok(!adminScopesForRoles(['platform-admin-auditor']).includes('admin:user:read'));
   });
 

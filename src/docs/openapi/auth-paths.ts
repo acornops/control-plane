@@ -25,7 +25,8 @@ export function buildAuthPaths(exampleReturnTo: string, exampleRedirectUri: stri
           ],
           responses: {
             '302': { description: 'Redirects to OIDC provider authorization endpoint.' },
-            '404': { description: 'OIDC authentication is disabled.' }
+            '403': { description: 'OIDC user login is disabled by platform policy.' },
+            '404': { description: 'OIDC authentication is not configured.' }
           }
         }
       },
@@ -44,7 +45,8 @@ export function buildAuthPaths(exampleReturnTo: string, exampleRedirectUri: stri
             '400': { description: 'Missing callback parameters, invalid state, or missing OIDC email.' },
             '401': { description: 'The browser session that initiated explicit OIDC linking is no longer active.' },
             '409': { description: 'An account with the asserted email already exists, or the OIDC identity is already linked.' },
-            '404': { description: 'OIDC authentication is disabled.' }
+            '403': { description: 'OIDC user login is disabled by platform policy.' },
+            '404': { description: 'OIDC authentication is not configured.' }
           }
         }
       },

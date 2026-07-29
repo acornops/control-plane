@@ -115,6 +115,41 @@ describe('composeKubernetesClusterToolsCatalog', () => {
     assert.equal(catalog.servers[0]?.name, 'AcornOps Kubernetes Tools');
   });
 
+  it('keeps untouched initialization defaults labeled and source-locked without changing native tools', () => {
+    const platformServer = {
+      id: 'platform-default:default-1',
+      workspace_id: 'ws-1',
+      target_id: 'cluster-1',
+      target_type: 'kubernetes' as const,
+      server_name: 'Platform MCP',
+      server_url: 'https://mcp.example.com/service',
+      enabled: false,
+      auth_type: 'bearer_token' as const,
+      credential_mode: 'individual' as const,
+      tools: [],
+      inherited: true
+    };
+    const catalog = composeKubernetesClusterToolsCatalog({
+      workspaceId: 'ws-1',
+      clusterId: 'cluster-1',
+      canEdit: true,
+      tools: [],
+      servers: [builtInServer('cluster-1'), platformServer],
+      overrides: {},
+      targetSupportsWrite: true,
+      targetAgentConnected: true
+    });
+
+    const native = catalog.servers.find((server) => server.type === 'builtin');
+    const inherited = catalog.servers.find((server) => server.id === 'platform-default:default-1');
+    assert.equal(native?.isSystem, true);
+    assert.equal(native?.canToggle, true);
+    assert.equal(inherited?.inherited, true);
+    assert.equal(inherited?.canDelete, false);
+    assert.equal(inherited?.canEditConnection, false);
+    assert.equal(inherited?.canToggle, true);
+  });
+
   it('normalizes tool metadata, ignores name-only overrides for remote tools, and preserves declared enablement', () => {
     const servers: McpServerConfig[] = [
       {

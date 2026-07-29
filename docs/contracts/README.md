@@ -22,7 +22,21 @@ The control plane owns the platform API boundary. Keep this README as a short in
 
 ## Shared Invariants
 
+- Platform-default OpenAI, Anthropic, and Gemini keys are write-only gateway
+  secrets exposed to platform administrators only through the fixed
+  `/admin/v1/system/llm-provider-defaults` status and mutation routes.
+- Workspace provider status identifies `workspace`, `platform_default`, or
+  `none`; workspace overrides take precedence and deleting one restores the
+  platform fallback.
+
 - Browser clients use cookie-backed auth and CSRF protection where required.
+- The `user_sign_in_methods` platform setting selects one or both
+  deployment-configured ordinary workspace-user methods (`password`, `oidc`).
+  It is non-empty, server-enforced for password login/signup/reset/change and
+  ordinary OIDC login/callback, and cannot enable deployment-disabled OIDC.
+  Platform-admin OIDC and authenticated OIDC account-link transactions remain
+  separate. Legacy `password_signup` rows resolve to the deployment default
+  until an administrator saves the replacement setting.
 - The platform admin console uses only its mirrored `/admin/v1` subset. Its BFF rejects `admin:*` and all target, run, agent-key, and tooling scopes, and removes operational fields before browser delivery.
 - Platform-admin workspace responses retain immutable creator and workspace IDs while optionally including user display name/email and workspace-name labels for readable governance displays. Consumers fall back to the immutable IDs when labels are unavailable.
 - The platform-admin consumer requires exact workspace-name confirmation for suspension and restoration. The producer requires it for suspension and validates it when supplied for restoration, retaining compatibility with existing restore clients. Both actions retain memberships, targets, workload state, references, and audit history and never issue workload commands.

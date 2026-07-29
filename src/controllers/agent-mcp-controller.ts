@@ -13,13 +13,20 @@ import {
   updateAgentMcpTool
 } from '../services/mcp-registry-client.js';
 import { syncAgentMcpCapabilitySnapshot, toAgentMcpServer } from '../services/agent-mcp-capabilities.js';
+import {
+  getInheritedWorkspaceDefault,
+  workspaceDefaultIdFromInheritedId,
+  resolveMcpServerDefaults
+} from '../services/workspace-default-resolution.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import {
   InvalidMcpPublicHeadersError,
   validateMcpPublicHeaders
 } from '../services/mcp-public-header-policy.js';
 import { getAgentDefinition } from '../store/repository-agents.js';
-import { repo } from '../store/repository.js';
+import {
+  repo
+} from '../store/repository.js';
 import type { TargetType } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
 import { mapGatewayError } from './workspaces/common.js';
@@ -179,7 +186,11 @@ export async function listServers(req: AuthenticatedRequest, res: Response, next
   try {
     const context = await agentContext(req, res);
     if (!context) return;
-    const servers = await listAgentMcpServers(context.workspaceId, context.agentId);
+    const servers = await resolveMcpServerDefaults(
+      await listAgentMcpServers(context.workspaceId, context.agentId),
+      'agents',
+      { workspaceId: context.workspaceId, destinationId: context.agentId }
+    );
     res.status(200).json({ items: servers.map(toAgentMcpServer) });
   } catch (error) { forward(error, res, next); }
 }
@@ -255,6 +266,40 @@ export async function patchServer(req: AuthenticatedRequest, res: Response, next
         ? 'individual'
         : value.credentialMode === 'none' ? 'none' : undefined;
     const serverId = toSingleParam(req.params.serverId);
+    if (workspaceDefaultIdFromInheritedId(serverId)) {
+      if (!context.authz.can('manage_mcp')) {
+        return void res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Enabling MCP capabilities requires manage_mcp.', retryable: false } });
+      }
+      if (value.enabled !== true || Object.keys(value).some((key) => !['enabled', 'expectedRevision'].includes(key))) {
+        return invalid(res, 'PLATFORM_DEFAULT_SOURCE_IMMUTABLE', 'A platform default can only be enabled; its source is managed by a platform administrator.');
+      }
+      const inherited = await getInheritedWorkspaceDefault(context.workspaceId, serverId, 'mcp_server', 'agents');
+      if (!inherited || inherited.source.type !== 'https') {
+        return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'MCP server not found', retryable: false } });
+      }
+      const materialized = await createAgentMcpServer({
+        workspaceId: context.workspaceId,
+        agentId: context.agentId,
+        name: inherited.name,
+        url: inherited.source.endpoint,
+        enabled: true,
+        targetConstraints: { targetTypes: [], targetIds: [] },
+        auth: { type: 'none' },
+        credentialMode: 'none'
+      });
+      await syncAgentMcpCapabilitySnapshot(context.workspaceId, context.agentId, req.auth.userId);
+      await audit(req, {
+        workspaceId: context.workspaceId,
+        agentId: context.agentId,
+        serverId: materialized.id,
+        serverName: materialized.server_name,
+        eventType: 'agent.mcp_server_created.v1',
+        summary: 'Platform default MCP server enabled on Agent',
+        metadata: { workspaceDefaultId: inherited.id, materialized: true }
+      });
+      res.status(200).json({ server: toAgentMcpServer(materialized) });
+      return;
+    }
     const previousServer = credentialMode === 'individual'
       ? (await listAgentMcpServers(context.workspaceId, context.agentId)).find((item) => item.id === serverId)
       : undefined;

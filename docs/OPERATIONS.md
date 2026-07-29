@@ -346,13 +346,12 @@ usage over the resulting effective limits are rejected before mutation.
 
 ## Password Email Verification And Reset
 
-Production password self-service signup remains disabled by default. If an
-operator enables it, email verification is required by default and needs usable
-email delivery. Password reset is enabled by default for password-backed
-accounts and uses the same delivery channel:
+Select Password in the User Sign-In Methods platform setting to enable password
+login and first-time self-service signup. Email verification is required by
+default and needs usable email delivery. Password reset is enabled by default
+for password-backed accounts and uses the same delivery channel:
 
 ```bash
-PASSWORD_SIGNUP_ENABLED=true
 PASSWORD_EMAIL_VERIFICATION_REQUIRED=true
 PASSWORD_RESET_ENABLED=true
 PASSWORD_RESET_TOKEN_TTL_SECONDS=3600

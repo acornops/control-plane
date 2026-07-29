@@ -25,6 +25,7 @@ import { verifyPassword } from '../auth/password.js';
 import { clearPasswordLoginAttempts, registerPasswordLoginAttempt } from '../auth/password-rate-limit.js';
 import { clearSessionCookie, createUserSession, getSessionUser, replaceUserSession, setSessionCookie } from '../auth/session.js';
 import { config } from '../config.js';
+import { oidcSignInEnabled } from '../services/platform-settings.js';
 import { repo } from '../store/repository.js';
 
 const oidcLinkStartSchema = z.object({
@@ -49,7 +50,7 @@ function handleOidcError(err: unknown, res: Response, next: NextFunction): void 
   next(err);
 }
 
-function rejectDisabledOidc(res: Response): boolean {
+function rejectUnconfiguredOidc(res: Response): boolean {
   if (config.OIDC_ENABLED) return false;
   res.status(404).json({
     error: { code: 'OIDC_NOT_CONFIGURED', message: 'OIDC authentication is not configured', retryable: false }
@@ -57,8 +58,16 @@ function rejectDisabledOidc(res: Response): boolean {
   return true;
 }
 
+function rejectOidcLoginDisabled(res: Response): boolean {
+  if (oidcSignInEnabled()) return false;
+  res.status(403).json({
+    error: { code: 'OIDC_LOGIN_DISABLED', message: 'OIDC login is disabled by the platform sign-in policy', retryable: false }
+  });
+  return true;
+}
+
 export function requireOidcConfigured(_req: Request, res: Response, next: NextFunction): void {
-  if (rejectDisabledOidc(res)) return;
+  if (rejectUnconfiguredOidc(res)) return;
   next();
 }
 
@@ -70,7 +79,7 @@ function oidcAdmissionDeniedUrl(): string {
 
 export async function oidcLogin(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    if (rejectDisabledOidc(res)) return;
+    if (rejectUnconfiguredOidc(res)) return;
     const redirectUri = String(req.query.redirect_uri || config.OIDC_REDIRECT_URI);
     const returnTo = typeof req.query.return_to === 'string' ? req.query.return_to : undefined;
     const externalIntegrationLinkToken = typeof req.query.external_integration_link_token === 'string'
@@ -84,6 +93,8 @@ export async function oidcLogin(req: Request, res: Response, next: NextFunction)
         return;
       }
       effectiveReturnTo = returnTo || createConsoleExternalIntegrationLinkUrl(externalIntegrationLinkToken);
+    } else if (rejectOidcLoginDisabled(res)) {
+      return;
     }
     const transaction = createOidcBrowserTransaction();
     const url = externalIntegrationLinkToken
@@ -99,7 +110,7 @@ export async function oidcLogin(req: Request, res: Response, next: NextFunction)
 export async function oidcCallback(req: Request, res: Response, next: NextFunction,
   exchange: typeof exchangeCodeForUser = exchangeCodeForUser): Promise<void> {
   try {
-    if (rejectDisabledOidc(res)) return;
+    if (rejectUnconfiguredOidc(res)) return;
     const browserBindingHash = oidcBrowserBindingHash(req);
     clearOidcBrowserTransactionCookie(res);
     const code = String(req.query.code || '');
@@ -112,6 +123,7 @@ export async function oidcCallback(req: Request, res: Response, next: NextFuncti
     }
 
     const authResult = await exchange(state, code, browserBindingHash);
+    if (authResult.purpose === 'login' && rejectOidcLoginDisabled(res)) return;
     const userInfo = authResult.userInfo;
     const admission = evaluateOidcAdmission({
       policy: config.OIDC_ADMISSION_POLICY,
@@ -236,7 +248,7 @@ export async function oidcCallback(req: Request, res: Response, next: NextFuncti
 
 export async function oidcLinkStart(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    if (rejectDisabledOidc(res)) return;
+    if (rejectUnconfiguredOidc(res)) return;
     const parsed = oidcLinkStartSchema.safeParse(req.body || {});
     if (!parsed.success) {
       res.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'currentPassword is required', retryable: false } });

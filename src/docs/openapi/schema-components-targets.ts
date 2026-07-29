@@ -487,7 +487,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       type: 'object',
       required: ['id', 'name', 'url', 'enabled'],
       properties: {
-        id: uuid,
+        id: { type: 'string' },
         name: { type: 'string' },
         url: { type: 'string', format: 'uri' },
         type: { type: 'string' },
@@ -496,6 +496,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         canDelete: { type: 'boolean' },
         canEditConnection: { type: 'boolean' },
         canToggle: { type: 'boolean' },
+        inherited: { type: 'boolean' },
         authType: { type: 'string', enum: ['none', 'bearer_token', 'custom_header', 'oauth'] },
         credentialMode: { type: 'string', enum: ['none', 'workspace', 'individual'] },
         revision: { type: 'integer', minimum: 1 },

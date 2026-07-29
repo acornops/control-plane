@@ -19,11 +19,12 @@ const migrationFiles = readdirSync(migrationsDir)
   .sort();
 assert.deepEqual(
   migrationFiles,
-  ['001_initial_schema.sql'],
-  'the greenfield control-plane must have exactly one numbered SQL baseline'
+  ['001_initial_schema.sql', '002_user_sign_in_methods.sql', '003_workspace_defaults.sql'],
+  'the control-plane schema must include the immutable baseline and required forward migrations'
 );
 
 const baseline = read('migrations/control-plane/001_initial_schema.sql');
+const migrations = migrationFiles.map((filename) => read(`migrations/control-plane/${filename}`));
 for (const forbidden of [
   /\bADD COLUMN IF NOT EXISTS\b/i,
   /\bDROP (?:COLUMN|CONSTRAINT|TABLE)\b/i,
@@ -119,6 +120,10 @@ const expectedTables = [
   'capability_routing_mappings',
   'target_skills',
   'target_skill_files',
+  'workspace_defaults',
+  'workspace_default_skill_files',
+  'workspace_initial_defaults',
+  'workspace_initial_default_skill_files',
   'webhook_outbox_events',
   'webhook_delivery_jobs'
 ];
@@ -182,7 +187,9 @@ const expectedColumns = [
   ['webhook_history', 'attempt_number'],
   ['webhook_history', 'will_retry'],
   ['webhook_history', 'next_attempt_at'],
-  ['webhook_history', 'terminal_reason']
+  ['webhook_history', 'terminal_reason'],
+  ['workspace_defaults', 'available_in'],
+  ['workspace_initial_defaults', 'available_in']
 ];
 
 const expectedConstraints = [
@@ -219,7 +226,9 @@ const expectedConstraints = [
   'workflow_event_triggers_source_secret_check',
   'runs_assistant_references_array',
   'webhook_delivery_jobs_status_check',
-  'webhook_delivery_jobs_event_id_fkey'
+  'webhook_delivery_jobs_event_id_fkey',
+  'workspace_defaults_available_in_check',
+  'workspace_initial_defaults_available_in_check'
 ];
 
 async function runSqlChecks(databaseUrl) {
@@ -230,7 +239,7 @@ async function runSqlChecks(databaseUrl) {
   try {
     await client.query(`CREATE SCHEMA ${schema}`);
     await client.query(`SET search_path TO ${schema}, public`);
-    await client.query(baseline);
+    for (const migration of migrations) await client.query(migration);
 
     const tables = await client.query(
       `SELECT table_name FROM information_schema.tables
@@ -266,7 +275,9 @@ async function runSqlChecks(databaseUrl) {
       'idx_target_auto_triage_jobs_target_status',
       'idx_target_auto_triage_jobs_workspace_issue',
       'workflow_executions_workspace_created_idx',
-      'workflow_executions_source_idx'
+      'workflow_executions_source_idx',
+      'workspace_defaults_available_in_idx',
+      'workspace_initial_defaults_workspace_kind_idx'
     ]) {
       assert(indexNames.has(indexName), `${indexName} must exist in the final baseline`);
     }

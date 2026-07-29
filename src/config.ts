@@ -424,7 +424,7 @@ const envSchema = z.object({
     addProductionIssue(ctx, 'LLM_GATEWAY_ADMIN_TOKEN', 'LLM_GATEWAY_ADMIN_TOKEN must be a generated production token');
   }
   const passwordSignupVerificationEmailFlowEnabled =
-    value.PASSWORD_AUTH_ENABLED && Boolean(value.PASSWORD_SIGNUP_ENABLED) && value.PASSWORD_EMAIL_VERIFICATION_REQUIRED;
+    value.PASSWORD_AUTH_ENABLED && value.PASSWORD_EMAIL_VERIFICATION_REQUIRED;
   const passwordResetEmailFlowEnabled = value.PASSWORD_AUTH_ENABLED && value.PASSWORD_RESET_ENABLED;
   const passwordEmailFlowEnabled = passwordSignupVerificationEmailFlowEnabled || passwordResetEmailFlowEnabled;
   if (passwordSignupVerificationEmailFlowEnabled && value.EMAIL_DELIVERY_MODE === 'disabled') {
@@ -448,7 +448,6 @@ const envSchema = z.object({
   }
   if (
     value.PASSWORD_AUTH_ENABLED &&
-    value.PASSWORD_SIGNUP_ENABLED &&
     !value.PASSWORD_EMAIL_VERIFICATION_REQUIRED &&
     !value.PASSWORD_SIGNUP_ALLOW_UNVERIFIED_EMAIL
   ) {
@@ -527,7 +526,11 @@ const envSchema = z.object({
   EXTERNAL_INTEGRATION_CLIENTS: parseExternalIntegrationClientDescriptors(value.EXTERNAL_INTEGRATION_CLIENTS_JSON, value.NODE_ENV),
   WORKSPACE_PLANS: parseWorkspacePlansConfig(value.WORKSPACE_PLANS_CONFIG_JSON),
   ...resolvePlatformSettingsRuntimeConfig(
-    value.PLATFORM_SETTINGS_POLICY_JSON, value.PASSWORD_SIGNUP_ENABLED, value.NODE_ENV === 'production'
+    value.PLATFORM_SETTINGS_POLICY_JSON,
+    value.PASSWORD_SIGNUP_ENABLED,
+    value.PASSWORD_AUTH_ENABLED,
+    value.OIDC_ENABLED,
+    value.NODE_ENV === 'production'
   ),
   AGENTK_HELM_VALUES: parseAgentKHelmValues(value.AGENTK_HELM_VALUES_JSON, value.AGENTK_HELM_ADDITIONAL_CA_FILE_PATH),
   SESSION_MAX_AGE_SECONDS: value.SESSION_MAX_AGE_SECONDS ?? 604800,

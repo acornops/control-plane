@@ -13,6 +13,7 @@ import { clearSessionCookie, revokeUserSessions } from '../auth/session.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { sendPasswordResetEmail } from '../services/email-delivery.js';
+import { passwordSignInEnabled } from '../services/platform-settings.js';
 import { repo } from '../store/repository.js';
 
 const forgotPasswordSchema = z.object({
@@ -58,7 +59,7 @@ function expiredResetToken(res: Response): void {
 
 export async function requestPasswordReset(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    if (!config.PASSWORD_AUTH_ENABLED || !config.PASSWORD_RESET_ENABLED) {
+    if (!passwordSignInEnabled() || !config.PASSWORD_RESET_ENABLED) {
       passwordResetDisabled(res);
       return;
     }
@@ -115,7 +116,7 @@ export async function requestPasswordReset(req: Request, res: Response, next: Ne
 
 export async function resetPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    if (!config.PASSWORD_AUTH_ENABLED || !config.PASSWORD_RESET_ENABLED) {
+    if (!passwordSignInEnabled() || !config.PASSWORD_RESET_ENABLED) {
       passwordResetDisabled(res);
       return;
     }

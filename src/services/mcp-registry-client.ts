@@ -1,5 +1,6 @@
 import { logger } from '../logger.js';
 import { TargetType } from '../types/domain.js';
+import type { CapabilityProvenance } from '../types/workspace-defaults.js';
 import {
   createGatewayRequestOptions as createRequestOptions,
   fetchGateway,
@@ -58,10 +59,14 @@ export interface McpServerConfig {
   revision?: number;
 }
 
-export type PublicMcpServerConfig = McpServerConfig;
+export type PublicMcpServerConfig = McpServerConfig & CapabilityProvenance;
 
 export function toPublicMcpServerConfig(server: McpServerConfig): PublicMcpServerConfig {
-  return { ...server };
+  const provenance = server as McpServerConfig & Partial<CapabilityProvenance>;
+  return {
+    ...server,
+    inherited: provenance.inherited === true
+  };
 }
 
 export interface McpServerConnectionTestResult {

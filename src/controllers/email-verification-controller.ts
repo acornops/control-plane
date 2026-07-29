@@ -7,6 +7,7 @@ import { createUserSession, setSessionCookie } from '../auth/session.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { sendVerificationEmail } from '../services/email-delivery.js';
+import { passwordSignupEnabled } from '../services/platform-settings.js';
 import { repo } from '../store/repository.js';
 
 const verifyEmailSchema = z.object({
@@ -33,6 +34,10 @@ function invalidVerificationToken(res: Response): void {
 
 export async function verifyPasswordEmail(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    if (!passwordSignupEnabled()) {
+      res.status(403).json({ error: { code: 'SIGNUP_DISABLED', message: 'Password signup is disabled', retryable: false } });
+      return;
+    }
     const parsed = verifyEmailSchema.safeParse(req.body || {});
     if (!parsed.success) {
       res.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'Verification token is required', retryable: false } });
