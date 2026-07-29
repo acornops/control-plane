@@ -73,6 +73,12 @@
   exact-link/client troubleshooting runs and Workflow executions and retain
   external-integration audit attribution.
 - Direct public agent tool calls are not exposed by the control plane; troubleshooting tool execution must use run-scoped gateway authorization.
+- Agent conversation access defaults to the least-privileged intersection of
+  the pinned Agent permission mode and the creator's effective workspace
+  capabilities. Write-capable Agents receive `read_write` conversation access
+  only when the creator has `create_read_write_runs`; read-only Agent policy is
+  a hard ceiling. Per-tool approval policy and run-scoped authorization remain
+  authoritative after conversation creation.
 - Agent session policy is a mandatory defense-in-depth allowlist. It may not
   elevate the local AgentK write or namespace policy.
 - AgentK `patch_workload`, `patch_resource`, and `patch_configmap` remain

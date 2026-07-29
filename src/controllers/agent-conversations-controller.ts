@@ -4,7 +4,12 @@ import {
   requireWorkspaceCapability,
   requireWorkspaceDataRead
 } from '../auth/workspace-authorization.js';
-import { pinnedAgentCapabilityRevocation, prepareAgentConversation } from '../services/agent-chat.js';
+import {
+  agentConversationPolicyAllowsAccess,
+  defaultAgentConversationAccessMode,
+  pinnedAgentCapabilityRevocation,
+  prepareAgentConversation
+} from '../services/agent-chat.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { getAgentDefinition } from '../store/repository-agents.js';
 import {
@@ -28,6 +33,7 @@ function publicConversation(session: Awaited<ReturnType<typeof getWorkflowSessio
     workspaceId: session.workspaceId,
     agentId: session.agentId,
     agentVersion: pinnedAgent?.version,
+    permissionMode: pinnedAgent?.permissionMode,
     title: pinnedAgent?.name || 'Agent conversation',
     createdBy: session.createdBy,
     accessMode: session.accessMode,
@@ -84,9 +90,6 @@ export async function createAgentConversation(req: AuthenticatedRequest, res: Re
       req, res, workspaceId, 'create_sessions', 'No permission to create Agent conversations'
     );
     if (!authz) return;
-    if (!(await requireWorkspaceCapability(
-      req, res, workspaceId, 'create_read_only_runs', 'No permission to create read-only Agent runs'
-    ))) return;
     const agent = await getAgentDefinition(workspaceId, agentId);
     if (!agent) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
     if (agent.status !== 'active' || agent.readiness.status !== 'ready') {
@@ -96,17 +99,32 @@ export async function createAgentConversation(req: AuthenticatedRequest, res: Re
         retryable: false
       } });
     }
+    const accessMode = defaultAgentConversationAccessMode(
+      agent.permissionMode,
+      authz.can('create_read_only_runs'),
+      authz.can('create_read_write_runs')
+    );
+    if (!accessMode) {
+      return void res.status(403).json({ error: {
+        code: 'FORBIDDEN',
+        message: 'No permission to create Agent runs under this Agent policy.',
+        retryable: false
+      } });
+    }
     const prepared = await prepareAgentConversation({
       agent,
       actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions }
     });
+    const compiledAccessScope = accessMode === 'read_write'
+      ? prepared.capabilityCeiling
+      : prepared.readScope;
     const session = await createWorkflowSession({
       workflow: prepared.workflow,
       createdBy: req.auth.userId,
-      compiledAccessScope: prepared.readScope,
+      compiledAccessScope,
       conversationOrigin: 'agent_chat',
       agentId,
-      accessMode: 'read_only',
+      accessMode,
       agentChatReadScope: prepared.readScope,
       agentChatCapabilityCeiling: prepared.capabilityCeiling
     });
@@ -119,8 +137,8 @@ export async function createAgentConversation(req: AuthenticatedRequest, res: Re
       objectType: 'agent_conversation',
       objectId: session.id,
       objectName: agent.name,
-      summary: 'Read-only Agent conversation created',
-      metadata: { agentId, agentVersion: agent.version, accessMode: 'read_only' }
+      summary: `Agent conversation created with ${accessMode} access`,
+      metadata: { agentId, agentVersion: agent.version, accessMode, permissionMode: agent.permissionMode }
     });
     res.status(201).json(await loadConversationResponse(session));
   } catch (error) {
@@ -187,6 +205,18 @@ export async function changeAgentConversationAccess(req: AuthenticatedRequest, r
       return void res.status(400).json({ error: {
         code: 'AGENT_CONVERSATION_ACCESS_MODE_INVALID',
         message: 'accessMode must be read_only or read_write.',
+        retryable: false
+      } });
+    }
+    const pinnedAgent = session.agentChatCapabilityCeiling?.selectedAgentSnapshots[0]
+      || session.compiledAccessScope.selectedAgentSnapshots[0];
+    if (
+      pinnedAgent
+      && !agentConversationPolicyAllowsAccess(pinnedAgent.permissionMode, accessMode)
+    ) {
+      return void res.status(409).json({ error: {
+        code: 'AGENT_CONVERSATION_POLICY_READ_ONLY',
+        message: 'This Agent conversation is read-only by its pinned Agent policy.',
         retryable: false
       } });
     }

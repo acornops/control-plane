@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { pinnedAgentCapabilityRevocation } from '../src/services/agent-chat.js';
+import {
+  agentConversationPolicyAllowsAccess,
+  defaultAgentConversationAccessMode,
+  pinnedAgentCapabilityRevocation
+} from '../src/services/agent-chat.js';
 import { isAgentChatCarrier } from '../src/store/repository-workflows.js';
 import type { AgentDefinition } from '../src/types/agents.js';
 import type { CompiledWorkflowAccessScope, WorkflowDefinitionForAccess } from '../src/types/workflows.js';
@@ -46,6 +50,24 @@ function pinnedScope(snapshot: AgentDefinition): CompiledWorkflowAccessScope {
 }
 
 describe('Agent chat contract', () => {
+  it('derives conversation access from Agent policy and creator capability', () => {
+    assert.equal(defaultAgentConversationAccessMode('read_only', true, false), 'read_only');
+    assert.equal(defaultAgentConversationAccessMode('read_only', false, true), null);
+    assert.equal(defaultAgentConversationAccessMode('ask_before_changes', true, false), 'read_only');
+    assert.equal(defaultAgentConversationAccessMode('ask_before_changes', true, true), 'read_write');
+    assert.equal(defaultAgentConversationAccessMode('ask_before_changes', false, true), 'read_write');
+    assert.equal(defaultAgentConversationAccessMode('auto_allowed_changes', true, false), 'read_only');
+    assert.equal(defaultAgentConversationAccessMode('auto_allowed_changes', true, true), 'read_write');
+    assert.equal(defaultAgentConversationAccessMode('auto_allowed_changes', false, false), null);
+  });
+
+  it('treats read-only Agent policy as a hard access ceiling', () => {
+    assert.equal(agentConversationPolicyAllowsAccess('read_only', 'read_only'), true);
+    assert.equal(agentConversationPolicyAllowsAccess('read_only', 'read_write'), false);
+    assert.equal(agentConversationPolicyAllowsAccess('ask_before_changes', 'read_write'), true);
+    assert.equal(agentConversationPolicyAllowsAccess('auto_allowed_changes', 'read_write'), true);
+  });
+
   it('recognizes only protected system-managed Agent chat carriers', () => {
     const workflow = {
       origin: {

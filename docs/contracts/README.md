@@ -174,11 +174,15 @@ The control plane owns the platform API boundary. Keep this README as a short in
   Workflow catalogs and cannot be edited, duplicated, scheduled, triggered, or
   launched through Workflow session endpoints.
 - Agent conversations are workspace-readable, but only their creator may
-  continue, elevate, downgrade, or delete them. Creation is always read-only;
-  read-write access requires an explicit elevation authorized by
-  `create_read_write_runs` and remains subject to normal approval and audit
-  paths.
+  continue, change access, or delete them. Creation defaults to the intersection
+  of the pinned Agent permission mode and creator capabilities: a write-capable
+  Agent starts read-write only when the creator has `create_read_write_runs`;
+  otherwise it starts read-only. Creators may pause a write-capable conversation,
+  but a pinned read-only Agent cannot be elevated. Normal approval and audit
+  paths remain authoritative.
 - Conversation creation pins the Agent revision and maximum capability scope.
+  Conversation summaries expose the pinned permission mode rather than asking
+  clients to infer it from the latest Agent revision.
   Capabilities added later are unavailable to that conversation, and removing a
   pinned capability fails closed until the user starts a new conversation.
 - Chat session responses derive `lastRuntimeSelection` from the newest accepted

@@ -146,13 +146,13 @@ export function buildAgentPaths(): Record<string, unknown> {
       },
       post: {
         tags: ['agents'],
-        summary: 'Create a read-only Agent conversation',
-        description: 'Creates a console-only single-Agent conversation with a pinned Agent revision and capability ceiling.',
+        summary: 'Create an Agent conversation',
+        description: 'Creates a console-only single-Agent conversation with a pinned Agent revision, permissionMode, and capability ceiling. Access defaults to the intersection of the pinned Agent policy and the creator run permissions.',
         security: [{ userSession: [] }],
         parameters: [workspaceIdParameter, agentIdPathParameter],
         responses: {
-          '201': { description: 'Read-only Agent conversation created.' },
-          '403': { description: 'Requires create_sessions and create_read_only_runs.' },
+          '201': { description: 'Agent conversation created with policy-derived access.' },
+          '403': { description: 'Requires create_sessions and a run capability compatible with the pinned Agent policy.' },
           '409': { description: 'Agent is not ready for chat.' }
         }
       }
@@ -186,7 +186,7 @@ export function buildAgentPaths(): Record<string, unknown> {
       patch: {
         tags: ['agents'],
         summary: 'Change Agent conversation access mode',
-        description: 'Only the creator may explicitly elevate to read_write. The pinned capability ceiling remains unchanged.',
+        description: 'Only the creator may change access. read_write requires creator permission and a pinned Agent policy that allows writes; the pinned capability ceiling remains unchanged.',
         security: [{ userSession: [] }],
         parameters: [agentConversationIdPathParameter],
         requestBody: {
@@ -204,7 +204,8 @@ export function buildAgentPaths(): Record<string, unknown> {
         },
         responses: {
           '200': { description: 'Conversation access changed.' },
-          '403': { description: 'Creator ownership and the matching run capability are required.' }
+          '403': { description: 'Creator ownership and the matching run capability are required.' },
+          '409': { description: 'The pinned Agent policy is read-only.' }
         }
       }
     },

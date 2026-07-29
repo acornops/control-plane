@@ -33,7 +33,7 @@ afterEach(() => {
 after(closeAutomationDatabaseFixtures);
 
 describe('Agent conversations controller', () => {
-  it('creates read-only conversations, allows workspace reads, and restricts continuation to the creator', async () => {
+  it('follows the Agent write policy at creation, allows workspace reads, and restricts continuation to the creator', async () => {
     const createdAgent = await callController(createAgent, createRequest(
       { workspaceId: 'workspace-1' },
       {
@@ -60,11 +60,13 @@ describe('Agent conversations controller', () => {
         createdBy: string;
         accessMode: string;
         agentVersion: number;
+        permissionMode: string;
       };
     }).conversation;
     assert.equal(conversation.createdBy, 'user-1');
-    assert.equal(conversation.accessMode, 'read_only');
+    assert.equal(conversation.accessMode, 'read_write');
     assert.equal(conversation.agentVersion, agent.version);
+    assert.equal(conversation.permissionMode, 'ask_before_changes');
 
     const listed = await callController(listAgentConversations, createRequest({
       workspaceId: 'workspace-1',
@@ -101,14 +103,14 @@ describe('Agent conversations controller', () => {
     const deniedAccess = await callController(changeAgentConversationAccess, readerAccessRequest);
     assert.equal(deniedAccess.statusCode, 403);
 
-    const elevated = await callController(changeAgentConversationAccess, createRequest(
+    const downgraded = await callController(changeAgentConversationAccess, createRequest(
       { conversationId: conversation.id },
-      { accessMode: 'read_write' }
+      { accessMode: 'read_only' }
     ));
-    assert.equal(elevated.statusCode, 200);
+    assert.equal(downgraded.statusCode, 200);
     assert.equal(
-      (elevated.body as { conversation: { accessMode: string } }).conversation.accessMode,
-      'read_write'
+      (downgraded.body as { conversation: { accessMode: string } }).conversation.accessMode,
+      'read_only'
     );
 
     const carrierId = `agent-chat-${agent.id}`;
@@ -135,5 +137,66 @@ describe('Agent conversations controller', () => {
       conversationId: conversation.id
     }));
     assert.equal(missing.statusCode, 404);
+  });
+
+  it('keeps read-only Agent policy as a hard ceiling', async () => {
+    const createdAgent = await callController(createAgent, createRequest(
+      { workspaceId: 'workspace-1' },
+      {
+        name: 'Read-only incident analyst',
+        instructions: 'Inspect evidence without making changes.',
+        status: 'active',
+        reviewState: 'reviewed',
+        permissionMode: 'read_only'
+      }
+    ));
+    assert.equal(createdAgent.statusCode, 201);
+    const agent = (createdAgent.body as { agent: { id: string } }).agent;
+
+    const created = await callController(createAgentConversation, createRequest({
+      workspaceId: 'workspace-1',
+      agentId: agent.id
+    }));
+    assert.equal(created.statusCode, 201);
+    const conversation = (created.body as {
+      conversation: { id: string; accessMode: string };
+    }).conversation;
+    assert.equal(conversation.accessMode, 'read_only');
+
+    const elevated = await callController(changeAgentConversationAccess, createRequest(
+      { conversationId: conversation.id },
+      { accessMode: 'read_write' }
+    ));
+    assert.equal(elevated.statusCode, 409);
+    assert.equal(
+      (elevated.body as { error: { code: string } }).error.code,
+      'AGENT_CONVERSATION_POLICY_READ_ONLY'
+    );
+  });
+
+  it('falls back to read-only when the creator lacks write-run permission', async () => {
+    const createdAgent = await callController(createAgent, createRequest(
+      { workspaceId: 'workspace-1' },
+      {
+        name: 'Approval-gated incident analyst',
+        instructions: 'Ask before making changes.',
+        status: 'active',
+        reviewState: 'reviewed',
+        permissionMode: 'ask_before_changes'
+      }
+    ));
+    assert.equal(createdAgent.statusCode, 201);
+    const agent = (createdAgent.body as { agent: { id: string } }).agent;
+
+    installWorkspace('operator');
+    const created = await callController(createAgentConversation, createRequest({
+      workspaceId: 'workspace-1',
+      agentId: agent.id
+    }));
+    assert.equal(created.statusCode, 201);
+    assert.equal(
+      (created.body as { conversation: { accessMode: string } }).conversation.accessMode,
+      'read_only'
+    );
   });
 });

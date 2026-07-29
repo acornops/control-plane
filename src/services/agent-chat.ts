@@ -10,6 +10,23 @@ import type {
 } from '../types/workflows.js';
 import { compileWorkflowScope } from './workflow-scope-compiler.js';
 
+export function defaultAgentConversationAccessMode(
+  permissionMode: AgentDefinition['permissionMode'],
+  canCreateReadOnlyRuns: boolean,
+  canCreateWriteRuns: boolean
+): 'read_only' | 'read_write' | null {
+  if (permissionMode !== 'read_only' && canCreateWriteRuns) return 'read_write';
+  if (canCreateReadOnlyRuns) return 'read_only';
+  return null;
+}
+
+export function agentConversationPolicyAllowsAccess(
+  permissionMode: AgentDefinition['permissionMode'],
+  accessMode: 'read_only' | 'read_write'
+): boolean {
+  return accessMode === 'read_only' || permissionMode !== 'read_only';
+}
+
 function carrierForMode(
   carrier: WorkflowDefinitionForAccess,
   mode: 'read_only' | 'read_write',
