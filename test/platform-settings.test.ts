@@ -81,13 +81,13 @@ describe('durable platform setting resolution', () => {
   it('replaces one cached override without discarding the others', () => {
     applyPlatformSettingOverrides([
       override('member_discovery', { mode: 'disabled' }),
-      override('password_signup', { enabled: false })
+      override('user_sign_in_methods', { methods: ['oidc'] })
     ]);
 
     applyPlatformSettingOverride(override('member_discovery', { mode: 'exact_email' }, 2));
 
     assert.equal(getPlatformSetting('member_discovery').value.mode, 'exact_email');
-    assert.equal(getPlatformSetting('password_signup').version, 1);
+    assert.equal(getPlatformSetting('user_sign_in_methods').version, 1);
   });
 
   it('does not let a delayed invalidation overwrite a newer cached version', () => {
@@ -104,17 +104,17 @@ describe('durable platform setting resolution', () => {
   it('does not let a delayed full refresh overwrite a newer cached version', () => {
     applyPlatformSettingOverrides([
       override('member_discovery', { mode: 'exact_email' }, 3),
-      override('password_signup', { enabled: false }, 2)
+      override('user_sign_in_methods', { methods: ['oidc'] }, 2)
     ]);
 
     applyRefreshedPlatformSettingOverrides([
       override('member_discovery', { mode: 'disabled' }, 2),
-      override('password_signup', { enabled: true }, 3)
+      override('user_sign_in_methods', { methods: ['password'] }, 3)
     ]);
 
     assert.equal(getPlatformSetting('member_discovery').value.mode, 'exact_email');
     assert.equal(getPlatformSetting('member_discovery').version, 3);
-    assert.equal(getPlatformSetting('password_signup').version, 3);
+    assert.equal(getPlatformSetting('user_sign_in_methods').version, 3);
   });
 
   it('allows AI policy to narrow but not expand the deployment model ceiling', () => {
@@ -149,44 +149,43 @@ describe('durable platform setting resolution', () => {
     );
   });
 
-  it('keeps password signup disabled when deployment prerequisites are unavailable', () => {
+  it('constrains disabled methods and preserves legacy signup overrides without changing access', () => {
     mutableConfig.PASSWORD_AUTH_ENABLED = false;
     mutableConfig.PLATFORM_SETTINGS_POLICY = {
       ...originalPolicy,
-      passwordSignup: {
-        allowedValues: [false, true],
-        defaultValue: false
+      userSignInMethods: {
+        allowedMethods: ['oidc'],
+        defaultMethods: ['oidc']
       }
     };
     applyPlatformSettingOverrides([
       override('password_signup', { enabled: true }, 4)
     ]);
 
-    const state = getPlatformSetting('password_signup');
-    assert.deepEqual(state.value, { enabled: false });
-    assert.deepEqual(state.overrideValue, { enabled: true });
+    const state = getPlatformSetting('user_sign_in_methods');
+    assert.deepEqual(state.value, { methods: ['oidc'] });
+    assert.deepEqual(state.overrideValue, { methods: ['oidc'] });
     assert.equal(state.source, 'runtime_override_constrained');
-    assert.match(state.warning || '', /Password authentication is disabled/);
+    assert.match(state.warning || '', /legacy password signup/);
     assert.match(
-      validatePlatformSettingOverride('password_signup', { enabled: true }) || '',
-      /Password authentication is disabled/
+      validatePlatformSettingOverride('user_sign_in_methods', { methods: ['password'] }) || '',
+      /fixed by the deployment policy/
     );
   });
 
-  it('resolves the effective reset value through operational constraints', () => {
-    mutableConfig.PASSWORD_AUTH_ENABLED = false;
+  it('requires at least one permitted sign-in method', () => {
     mutableConfig.PLATFORM_SETTINGS_POLICY = {
       ...originalPolicy,
-      passwordSignup: {
-        allowedValues: [false, true],
-        defaultValue: true
+      userSignInMethods: {
+        allowedMethods: ['password', 'oidc'],
+        defaultMethods: ['password', 'oidc']
       }
     };
 
-    const resetState = getPlatformSettingWithoutOverride('password_signup');
-
-    assert.deepEqual(resetState.deploymentDefault, { enabled: true });
-    assert.deepEqual(resetState.value, { enabled: false });
+    assert.match(
+      validatePlatformSettingOverride('user_sign_in_methods', { methods: [] }) || '',
+      /At least one/
+    );
   });
 
   it('blocks runtime signup enablement when production verification links are not HTTPS', () => {

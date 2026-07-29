@@ -76,7 +76,7 @@ export function buildAdminPaths(): Record<string, unknown> {
         in: 'path',
         name: 'settingKey',
         required: true,
-        schema: { type: 'string', enum: ['member_discovery', 'ai_policy', 'password_signup'] }
+        schema: { type: 'string', enum: ['member_discovery', 'ai_policy', 'user_sign_in_methods'] }
       }],
       patch: {
         tags: ['admin'],

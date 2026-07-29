@@ -1,5 +1,5 @@
 import type { PoolClient } from 'pg';
-import type { PlatformSettingKey } from '../config-platform-settings.js';
+import type { PlatformSettingKey, PlatformSettingStorageKey } from '../config-platform-settings.js';
 import { db } from '../infra/db.js';
 import type { AdminAuditEventInput } from './repository-admin-audit.js';
 import { insertAdminAuditEvent } from './repository-admin-audit.js';
@@ -7,7 +7,7 @@ import { toIso } from './repository-mappers.js';
 import { withTransaction } from './repository-transaction.js';
 
 interface PlatformSettingOverrideRow {
-  key: PlatformSettingKey;
+  key: PlatformSettingStorageKey;
   override_value: unknown | null;
   version: number;
   updated_by: string | null;
@@ -15,7 +15,7 @@ interface PlatformSettingOverrideRow {
 }
 
 export interface PlatformSettingOverride {
-  key: PlatformSettingKey;
+  key: PlatformSettingStorageKey;
   overrideValue: unknown | null;
   version: number;
   updatedBy?: string;

@@ -70,7 +70,7 @@
       ],
       "paginationShape": ["items", "nextCursor?"],
       "mutationFields": ["reason", "ticketRef?"],
-      "platformSettingKeys": ["member_discovery", "ai_policy", "password_signup"],
+      "platformSettingKeys": ["member_discovery", "ai_policy", "user_sign_in_methods"],
       "platformSettingPatchFields": ["value", "expectedVersion", "reason"],
       "platformSettingResetFields": ["expectedVersion", "reason"],
       "llmProviderDefaultStatusFields": ["provider", "configured", "enabled", "source=platform_default|none"],

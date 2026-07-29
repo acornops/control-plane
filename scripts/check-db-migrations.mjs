@@ -19,11 +19,12 @@ const migrationFiles = readdirSync(migrationsDir)
   .sort();
 assert.deepEqual(
   migrationFiles,
-  ['001_initial_schema.sql'],
-  'the greenfield control-plane must have exactly one numbered SQL baseline'
+  ['001_initial_schema.sql', '002_user_sign_in_methods.sql'],
+  'the control-plane schema must include the immutable baseline and required forward migrations'
 );
 
 const baseline = read('migrations/control-plane/001_initial_schema.sql');
+const migrations = migrationFiles.map((filename) => read(`migrations/control-plane/${filename}`));
 for (const forbidden of [
   /\bADD COLUMN IF NOT EXISTS\b/i,
   /\bDROP (?:COLUMN|CONSTRAINT|TABLE)\b/i,
@@ -201,7 +202,7 @@ async function runSqlChecks(databaseUrl) {
   try {
     await client.query(`CREATE SCHEMA ${schema}`);
     await client.query(`SET search_path TO ${schema}, public`);
-    await client.query(baseline);
+    for (const migration of migrations) await client.query(migration);
 
     const tables = await client.query(
       `SELECT table_name FROM information_schema.tables

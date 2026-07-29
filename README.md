@@ -265,7 +265,7 @@ OIDC identities are stored separately in `user_federated_identities`, keyed by p
 
 Account auth endpoints:
 
-- `GET /api/v1/auth/config` returns `{ oidcEnabled, oidcProviderName, passwordAuthEnabled, passwordSignupEnabled }` for runtime UI capability rendering.
+- `GET /api/v1/auth/config` returns effective `{ oidcEnabled, oidcProviderName, passwordAuthEnabled, passwordSignupEnabled }` values for runtime UI capability rendering. Platform policy can disable either ordinary user sign-in method without changing the platform-admin OIDC flow.
 - `GET /api/v1/auth/csrf` returns a signed CSRF token; browser clients send it back as `x-csrf-token` on mutating requests.
 - `GET /api/v1/auth/methods` returns the current user's password/SSO methods and account-security capabilities without exposing OIDC subjects.
 - `POST /api/v1/auth/password/login` with `{ "identifier": "username-or-email", "password": "..." }`
@@ -278,7 +278,7 @@ Account auth configuration:
 - `SESSION_MAX_AGE_SECONDS=604800` controls the absolute browser session lifetime.
 - `SESSION_IDLE_TIMEOUT_SECONDS=86400` controls the sliding idle timeout; active sessions refresh this window until the absolute max age is reached.
 - `PASSWORD_AUTH_ENABLED=true` enables password login endpoints.
-- `PASSWORD_SIGNUP_ENABLED=true` enables self-service signup. Keep this `false` in production unless a reviewed private deployment intentionally allows open signup.
+- `PASSWORD_SIGNUP_ENABLED` is retained for environment compatibility but no longer controls runtime signup. Select Password in the durable User Sign-In Methods platform setting to enable password login and first-time self-service signup.
 - `PASSWORD_AUTH_MAX_ATTEMPTS=10` controls failed login attempts per identifier/IP window.
 - `PASSWORD_AUTH_IDENTIFIER_MAX_ATTEMPTS=50` caps failed attempts per identifier across IPs.
 - `PASSWORD_AUTH_RATE_LIMIT_WINDOW_SECONDS=900` controls the Redis-backed failed login window.
