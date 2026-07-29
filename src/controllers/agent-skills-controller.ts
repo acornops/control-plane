@@ -3,6 +3,11 @@ import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { getTargetSkillBundleStorageLimitErrors, normalizeTargetSkillBundle } from '../services/target-skills.js';
 import { syncAgentSkillCapabilitySnapshot } from '../services/agent-skill-capabilities.js';
+import {
+  getInheritedWorkspaceDefault,
+  workspaceDefaultIdFromInheritedId,
+  resolveAgentSkillDefaults
+} from '../services/workspace-default-resolution.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import {
   createAgentSkill,
@@ -22,6 +27,10 @@ function value(req: AuthenticatedRequest): Record<string, unknown> {
 
 function fail(res: Response, status: number, code: string, message: string, details?: unknown): void {
   res.status(status).json({ error: { code, message, retryable: false, ...(details ? { details } : {}) } });
+}
+
+function withSkillProvenance(skill: AgentSkillInstallationSnapshot) {
+  return { ...skill, inherited: false };
 }
 
 async function context(req: AuthenticatedRequest, res: Response, write = false) {
@@ -80,7 +89,13 @@ export async function listSkills(req: AuthenticatedRequest, res: Response, next:
   try {
     const ctx = await context(req, res);
     if (!ctx) return;
-    res.status(200).json({ items: await listAgentSkills(ctx.workspaceId, ctx.agentId), canEdit: ctx.authz.can('manage_agents') && ctx.authz.can('manage_skills') });
+    res.status(200).json({
+      items: await resolveAgentSkillDefaults(
+        await listAgentSkills(ctx.workspaceId, ctx.agentId),
+        { workspaceId: ctx.workspaceId, agentId: ctx.agentId }
+      ),
+      canEdit: ctx.authz.can('manage_agents') && ctx.authz.can('manage_skills')
+    });
   } catch (error) { next(error); }
 }
 
@@ -99,7 +114,7 @@ export async function createSkill(req: AuthenticatedRequest, res: Response, next
     });
     await syncAgentSkillCapabilitySnapshot(ctx.workspaceId, ctx.agentId);
     await audit(req, ctx.workspaceId, ctx.agentId, skill, 'agent.skill_created.v1', 'Manual skill installed on Agent');
-    res.status(201).json({ skill });
+    res.status(201).json({ skill: withSkillProvenance(skill) });
   } catch (error) { next(error); }
 }
 
@@ -122,7 +137,7 @@ export async function importSkill(req: AuthenticatedRequest, res: Response, next
     });
     await syncAgentSkillCapabilitySnapshot(ctx.workspaceId, ctx.agentId);
     await audit(req, ctx.workspaceId, ctx.agentId, skill, 'agent.skill_imported.v1', 'Git skill installed on Agent');
-    res.status(201).json({ skill });
+    res.status(201).json({ skill: withSkillProvenance(skill) });
   } catch (error) { next(error); }
 }
 
@@ -130,9 +145,34 @@ export async function getSkill(req: AuthenticatedRequest, res: Response, next: N
   try {
     const ctx = await context(req, res);
     if (!ctx) return;
-    const skill = await getAgentSkill(ctx.workspaceId, ctx.agentId, toSingleParam(req.params.skillId));
+    const skillId = toSingleParam(req.params.skillId);
+    const inherited = await getInheritedWorkspaceDefault(ctx.workspaceId, skillId, 'skill', 'agents');
+    if (inherited?.source.type === 'git') {
+      res.status(200).json({
+        skill: {
+          id: skillId,
+          name: inherited.name,
+          description: inherited.description,
+          enabled: false,
+          revision: 1,
+          contentDigest: inherited.contentDigest || '',
+          source: {
+            type: 'git',
+            provider: inherited.source.provider,
+            url: inherited.source.repoUrl,
+            ref: inherited.source.ref,
+            path: inherited.source.subpath,
+            pinnedCommit: inherited.source.commitSha
+          },
+          files: inherited.files || [],
+          inherited: true
+        }
+      });
+      return;
+    }
+    const skill = await getAgentSkill(ctx.workspaceId, ctx.agentId, skillId);
     if (!skill) return fail(res, 404, 'NOT_FOUND', 'Agent skill not found');
-    res.status(200).json({ skill });
+    res.status(200).json({ skill: withSkillProvenance(skill) });
   } catch (error) { next(error); }
 }
 
@@ -142,6 +182,35 @@ export async function patchSkill(req: AuthenticatedRequest, res: Response, next:
     if (!ctx) return;
     const body = value(req);
     const skillId = toSingleParam(req.params.skillId);
+    if (workspaceDefaultIdFromInheritedId(skillId)) {
+      if (!ctx.authz.can('manage_skills')) return fail(res, 403, 'FORBIDDEN', 'Enabling skills requires manage_skills.');
+      if (body.enabled !== true || Object.keys(body).some((key) => !['enabled', 'expectedRevision'].includes(key))) {
+        return fail(res, 400, 'PLATFORM_DEFAULT_SOURCE_IMMUTABLE', 'A platform default can only be enabled; its source is managed by a platform administrator.');
+      }
+      const inherited = await getInheritedWorkspaceDefault(ctx.workspaceId, skillId, 'skill', 'agents');
+      if (!inherited || inherited.source.type !== 'git') return fail(res, 404, 'NOT_FOUND', 'Agent skill not found');
+      const materialized = await createAgentSkill({
+        workspaceId: ctx.workspaceId,
+        agentId: ctx.agentId,
+        name: inherited.name,
+        description: inherited.description,
+        enabled: true,
+        source: {
+          type: 'git',
+          provider: inherited.source.provider,
+          url: inherited.source.repoUrl,
+          ref: inherited.source.ref,
+          path: inherited.source.subpath,
+          pinnedCommit: inherited.source.commitSha
+        },
+        files: (inherited.files || []).map((file) => ({ path: file.path, content: file.content })),
+        actorUserId: req.auth.userId
+      });
+      await syncAgentSkillCapabilitySnapshot(ctx.workspaceId, ctx.agentId);
+      await audit(req, ctx.workspaceId, ctx.agentId, materialized, 'agent.skill_imported.v1', 'Platform default skill enabled on Agent');
+      res.status(200).json({ skill: withSkillProvenance(materialized) });
+      return;
+    }
     const existing = await getAgentSkill(ctx.workspaceId, ctx.agentId, skillId);
     if (!existing) return fail(res, 404, 'NOT_FOUND', 'Agent skill not found');
     const removalOnly = body.enabled === false && Object.keys(body).every((key) => key === 'enabled' || key === 'expectedRevision');
@@ -166,7 +235,7 @@ export async function patchSkill(req: AuthenticatedRequest, res: Response, next:
     if (!updated) return fail(res, 409, 'AGENT_SKILL_REVISION_CONFLICT', 'The skill changed; reload before updating it.');
     await syncAgentSkillCapabilitySnapshot(ctx.workspaceId, ctx.agentId);
     await audit(req, ctx.workspaceId, ctx.agentId, updated, 'agent.skill_updated.v1', 'Agent skill updated');
-    res.status(200).json({ skill: updated });
+    res.status(200).json({ skill: withSkillProvenance(updated) });
   } catch (error) { next(error); }
 }
 
@@ -198,7 +267,7 @@ export async function reimportSkill(req: AuthenticatedRequest, res: Response, ne
     if (!updated) return fail(res, 409, 'AGENT_SKILL_REVISION_CONFLICT', 'The skill changed; reload before reimporting it.');
     await syncAgentSkillCapabilitySnapshot(ctx.workspaceId, ctx.agentId);
     await audit(req, ctx.workspaceId, ctx.agentId, updated, 'agent.skill_reimported.v1', 'Agent skill explicitly reimported');
-    res.status(200).json({ skill: updated });
+    res.status(200).json({ skill: withSkillProvenance(updated) });
   } catch (error) { next(error); }
 }
 

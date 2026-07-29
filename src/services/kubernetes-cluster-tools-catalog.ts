@@ -87,6 +87,7 @@ export interface KubernetesClusterToolCatalogServer {
   lastDiscoveryError: string | null;
   toolCounts: ToolCounts;
   tools: KubernetesClusterToolCatalogItem[];
+  inherited?: boolean;
 }
 
 export interface KubernetesClusterToolCatalogResponse {
@@ -185,6 +186,7 @@ export function composeTargetToolsCatalog(params: {
   const servers: KubernetesClusterToolCatalogServer[] = [];
   for (const server of serverByUrl.values()) {
     const isBuiltin = isBuiltinServer(server);
+    const inherited = !isBuiltin && 'inherited' in server && server.inherited === true;
     const toolRows = tools
       .filter((tool) => tool.server_id === server.id || (!tool.server_id && tool.mcp_server_url === server.server_url))
       .map((tool) => {
@@ -223,8 +225,8 @@ export function composeTargetToolsCatalog(params: {
       type: isBuiltin ? 'builtin' : 'mcp',
       enabled: Boolean(server.enabled),
       isSystem: isBuiltin,
-      canDelete: !isBuiltin,
-      canEditConnection: !isBuiltin,
+      canDelete: !isBuiltin && !inherited,
+      canEditConnection: !isBuiltin && !inherited,
       canToggle: true,
       authType: server.auth_type,
       credentialMode: server.credential_mode,
@@ -264,7 +266,8 @@ export function composeTargetToolsCatalog(params: {
         enabledConfigured: tool.enabledConfigured,
         enabledEffective: tool.enabledEffective,
         effectiveDisabledReason: tool.effectiveDisabledReason
-      }))
+      })),
+      ...(!isBuiltin ? { inherited } : {})
     });
   }
 

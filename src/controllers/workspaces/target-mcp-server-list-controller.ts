@@ -7,6 +7,7 @@ import {
   toPublicMcpServerConfig
 } from '../../services/mcp-registry-client.js';
 import { toSingleParam } from '../../utils/params.js';
+import { resolveMcpServerDefaults } from '../../services/workspace-default-resolution.js';
 import { mapGatewayError } from './common.js';
 
 export async function listTargetMcpServers(
@@ -19,7 +20,11 @@ export async function listTargetMcpServers(
     const targetId = toSingleParam(req.params.targetId);
     const access = await requireTargetAccess(req, res, workspaceId, targetId);
     if (!access) return;
-    const servers = await listGatewayTargetMcpServers(workspaceId, targetId, access.target.targetType);
+    const servers = await resolveMcpServerDefaults(
+      await listGatewayTargetMcpServers(workspaceId, targetId, access.target.targetType),
+      access.target.targetType,
+      { workspaceId, destinationId: targetId }
+    );
     res.status(200).json(servers.map(toPublicMcpServerConfig));
   } catch (err) {
     if (err instanceof LlmGatewayHttpError) {

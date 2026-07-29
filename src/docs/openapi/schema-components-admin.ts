@@ -106,6 +106,38 @@ export function buildAdminSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: false
     },
+    WorkspaceDefault: {
+      type: 'object',
+      required: ['id', 'kind', 'name', 'description', 'availableIn', 'source', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'],
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        kind: { type: 'string', enum: ['mcp_server', 'skill'] },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        availableIn: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 3,
+          uniqueItems: true,
+          items: { type: 'string', enum: ['agents', 'kubernetes', 'virtual_machines'] }
+        },
+        source: jsonObject,
+        contentDigest: { type: 'string' },
+        createdBy: { type: 'string' },
+        updatedBy: { type: 'string' },
+        createdAt: dateTime,
+        updatedAt: dateTime
+      },
+      additionalProperties: false
+    },
+    WorkspaceDefaultList: {
+      type: 'object',
+      required: ['items'],
+      properties: {
+        items: { type: 'array', items: schemaRef('WorkspaceDefault') }
+      },
+      additionalProperties: false
+    },
     AdminWorkspace: {
       allOf: [
         schemaRef('Workspace'),

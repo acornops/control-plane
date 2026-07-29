@@ -36,11 +36,12 @@ export function buildTargetSkillSchemas(): TargetSkillOpenApiSchemas {
       'validationErrors',
       'bundleStats',
       'source',
+      'inherited',
       'createdAt',
       'updatedAt'
     ],
     properties: {
-      id: { type: 'string', format: 'uuid' },
+      id: { type: 'string' },
       workspaceId: { type: 'string', format: 'uuid' },
       targetId: { type: 'string', format: 'uuid' },
       targetType: { type: 'string', enum: [...TARGET_TYPES] },
@@ -59,6 +60,7 @@ export function buildTargetSkillSchemas(): TargetSkillOpenApiSchemas {
         }
       },
       source: targetSkillSourceSchema,
+      inherited: { type: 'boolean' },
       createdAt: { type: 'string', format: 'date-time' },
       updatedAt: { type: 'string', format: 'date-time' }
     }

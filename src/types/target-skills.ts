@@ -42,6 +42,7 @@ export interface TargetSkillSummary {
   source: TargetSkillSource;
   createdAt: string;
   updatedAt: string;
+  inherited?: boolean;
 }
 
 export interface TargetSkillDetail extends TargetSkillSummary {

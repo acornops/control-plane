@@ -15,6 +15,7 @@ import {
 } from './repository-mappers.js';
 import { withTransaction } from './repository-transaction.js';
 import { assertWorkspaceMemberQuota, assertWorkspaceMembershipQuota } from './repository-quotas.js';
+import { initializeWorkspaceDefaults } from './repository-workspace-defaults.js';
 const WORKSPACE_SUMMARY_COLUMNS = `w.*,
               m.role AS current_user_role,
               COALESCE(kubernetes_cluster_counts.cluster_count, 0)::int AS cluster_count,
@@ -430,6 +431,7 @@ export async function addWorkspace(name: string, createdBy: string): Promise<Wor
         'INSERT INTO workspace_memberships (workspace_id, user_id, role, source) VALUES ($1, $2, $3, $4)',
         [id, createdBy, 'owner', 'oidc']
       );
+      await initializeWorkspaceDefaults(client, id);
       await client.query('COMMIT');
       return mapWorkspace(wsResult.rows[0]);
     } catch (err) {

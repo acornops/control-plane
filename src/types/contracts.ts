@@ -3,6 +3,11 @@ import { validateMcpPublicHeaders as enforceMcpPublicHeaderPolicy } from '../ser
 import { TARGET_TYPES } from './domain.js';
 import { runEventSchema, runEventsBatchSchema } from './run-events-contract.js';
 import { webhookUrlSchema } from './webhook-contracts.js';
+export {
+  adminWorkspaceDefaultCreateSchema,
+  adminWorkspaceDefaultDeleteSchema,
+  adminWorkspaceDefaultPatchSchema
+} from './workspace-default-contracts.js';
 
 export { runEventSchema, runEventsBatchSchema };
 

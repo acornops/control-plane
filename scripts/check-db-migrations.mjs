@@ -19,7 +19,7 @@ const migrationFiles = readdirSync(migrationsDir)
   .sort();
 assert.deepEqual(
   migrationFiles,
-  ['001_initial_schema.sql', '002_user_sign_in_methods.sql'],
+  ['001_initial_schema.sql', '002_user_sign_in_methods.sql', '003_workspace_defaults.sql'],
   'the control-plane schema must include the immutable baseline and required forward migrations'
 );
 
@@ -118,6 +118,10 @@ const expectedTables = [
   'capability_routing_mappings',
   'target_skills',
   'target_skill_files',
+  'workspace_defaults',
+  'workspace_default_skill_files',
+  'workspace_initial_defaults',
+  'workspace_initial_default_skill_files',
   'webhook_outbox_events',
   'webhook_delivery_jobs'
 ];
@@ -166,7 +170,9 @@ const expectedColumns = [
   ['webhook_history', 'attempt_number'],
   ['webhook_history', 'will_retry'],
   ['webhook_history', 'next_attempt_at'],
-  ['webhook_history', 'terminal_reason']
+  ['webhook_history', 'terminal_reason'],
+  ['workspace_defaults', 'available_in'],
+  ['workspace_initial_defaults', 'available_in']
 ];
 
 const expectedConstraints = [
@@ -191,7 +197,9 @@ const expectedConstraints = [
   'workflow_event_triggers_source_secret_check',
   'runs_assistant_references_array',
   'webhook_delivery_jobs_status_check',
-  'webhook_delivery_jobs_event_id_fkey'
+  'webhook_delivery_jobs_event_id_fkey',
+  'workspace_defaults_available_in_check',
+  'workspace_initial_defaults_available_in_check'
 ];
 
 async function runSqlChecks(databaseUrl) {
@@ -234,7 +242,9 @@ async function runSqlChecks(databaseUrl) {
     const indexNames = new Set(indexes.rows.map((row) => row.indexname));
     for (const indexName of [
       'workflow_executions_workspace_created_idx',
-      'workflow_executions_source_idx'
+      'workflow_executions_source_idx',
+      'workspace_defaults_available_in_idx',
+      'workspace_initial_defaults_workspace_kind_idx'
     ]) {
       assert(indexNames.has(indexName), `${indexName} must exist in the final baseline`);
     }

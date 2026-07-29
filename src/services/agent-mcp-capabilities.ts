@@ -4,6 +4,7 @@ import { updateAgentMcpCapabilitySnapshot } from '../store/repository-agents.js'
 import type { AgentMcpInstallationSnapshot } from '../types/agents.js';
 
 export function toAgentMcpServer(server: McpServerConfig) {
+  const inherited = 'inherited' in server && server.inherited === true;
   return {
     id: server.id,
     name: server.server_name,
@@ -11,9 +12,10 @@ export function toAgentMcpServer(server: McpServerConfig) {
     type: 'mcp' as const,
     enabled: server.enabled,
     isSystem: false,
-    canDelete: true,
-    canEditConnection: true,
+    canDelete: !inherited,
+    canEditConnection: !inherited,
     canToggle: true,
+    inherited,
     authType: server.auth_type,
     credentialMode: server.credential_mode,
     authHeaderName: server.auth_header_name || undefined,

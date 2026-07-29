@@ -1,3 +1,5 @@
+import { buildAdminWorkspaceDefaultPaths } from './admin-workspace-default-paths.js';
+
 export function buildAdminPaths(): Record<string, unknown> {
   const adminSecurity = [{ adminBearer: [] }];
   const workspaceAuditSearchParameters = [
@@ -203,6 +205,7 @@ export function buildAdminPaths(): Record<string, unknown> {
         }
       }
     },
+    ...buildAdminWorkspaceDefaultPaths(adminSecurity),
     '/admin/v1/workspaces': {
       get: {
         tags: ['admin'],
