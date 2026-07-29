@@ -173,7 +173,12 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Agent handshake responses always include a complete `sessionPolicy`; AgentK rejects tool calls until it is installed.
 - The Kubernetes built-in catalog contains `list_resources`, `get_resource`,
   `get_resource_logs`, `restart_workload`, `scale_workload`, and
-  `patch_resource`.
+  `patch_workload`, `patch_resource`, and `patch_configmap`.
+- AgentK advertises every registered tool. Discovery is intentionally broader
+  than execution authorization: session, run, local write, patch-kind,
+  environment, ConfigMap, namespace, and Kubernetes RBAC policy remain
+  fail-closed ceilings, and the control plane must not infer or add local
+  opt-ins.
 - Agent snapshots preserve `config.snapshotInterval`, `config.maxSnapshotBytes`, and `config.namespaceScope.{include,exclude}`.
 - Agent namespace updates use `config/update_namespace_scope`. A connected
   AgentK must acknowledge the update before the cluster settings response

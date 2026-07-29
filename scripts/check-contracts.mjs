@@ -79,6 +79,16 @@ const managementConsoleContract = manifest.counterparts?.['management-console'];
 const executionEngineContract = manifest.counterparts?.['execution-engine'];
 const llmGatewayContract = manifest.counterparts?.['llm-gateway'];
 const agentContract = manifest.counterparts?.['agentk'];
+const expectedAgentkBuiltinToolNames = [
+  'list_resources',
+  'get_resource',
+  'get_resource_logs',
+  'restart_workload',
+  'scale_workload',
+  'patch_workload',
+  'patch_resource',
+  'patch_configmap'
+];
 
 const gatewayCanonicalVectorsPath = path.resolve(
   root,
@@ -378,8 +388,22 @@ expectIncludes(
   'Execution-engine dispatch client auth'
 );
 
-for (const toolName of agentContract.builtinToolNames) {
+expect(
+  JSON.stringify(agentContract.builtinToolNames) === JSON.stringify(expectedAgentkBuiltinToolNames),
+  'AgentK builtin tool manifest must contain the complete registered tool catalog'
+);
+expect(
+  agentContract.toolAdvertisementPolicy?.startsWith('Every registered AgentK tool is advertised'),
+  'AgentK manifest must define full-catalog advertisement with execution-time policy ceilings'
+);
+expectIncludes(
+  doc,
+  'AgentK advertises every registered tool',
+  'AgentK full-catalog advertisement contract'
+);
+for (const toolName of expectedAgentkBuiltinToolNames) {
   expectIncludes(manifestText, toolName, 'AgentK builtin tool manifest');
+  expectIncludes(doc, toolName, 'AgentK builtin tool contract doc');
 }
 for (const dynamicCatalogNeedle of [
   'advertisedTools',

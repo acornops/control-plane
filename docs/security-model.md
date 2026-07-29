@@ -75,12 +75,15 @@
 - Direct public agent tool calls are not exposed by the control plane; troubleshooting tool execution must use run-scoped gateway authorization.
 - Agent session policy is a mandatory defense-in-depth allowlist. It may not
   elevate the local AgentK write or namespace policy.
-- AgentK `restart_workload`, `scale_workload`, and `patch_resource` remain
-  run-authorized writes. The control plane forwards their semantic arguments
-  but cannot expand AgentK's local patch-kind and non-secret configuration
-  opt-ins or Kubernetes RBAC. Literal environment and ConfigMap writes require
-  the caller's explicit non-secret-data assertion; the control plane does not
-  infer or add that assertion.
+- AgentK `restart_workload`, `scale_workload`, `patch_workload`,
+  `patch_resource`, and `patch_configmap` remain run-authorized writes. AgentK
+  advertises the full registered catalog, but discovery does not grant
+  execution authority. The control plane forwards semantic arguments and
+  narrows run access, but cannot expand AgentK's local write, patch-kind,
+  non-secret configuration, namespace, or Kubernetes RBAC ceilings. Literal
+  environment and ConfigMap writes require the caller's explicit
+  non-secret-data assertion; the control plane does not infer or add that
+  assertion.
 - AgentK redacts ConfigMap `data` and `binaryData` values before complete-result
   artifact handling; guarded patch evidence exposes only bounded key metadata
   and `data` value fingerprints.
