@@ -5,6 +5,8 @@ import {
   adminAddWorkspaceMemberSchema,
   adminDeleteWorkspaceMemberSchema,
   adminMarkRunFailedSchema,
+  adminLlmProviderDefaultDeleteSchema,
+  adminLlmProviderDefaultUpsertSchema,
   adminPlatformSettingPatchSchema,
   adminPlatformSettingResetSchema,
   adminReasonOnlySchema,
@@ -44,6 +46,23 @@ adminRouter.delete(
   requireAdminScope('admin:system:write'),
   validateBody(adminPlatformSettingResetSchema),
   adminHandler(adminController.resetSetting)
+);
+adminRouter.get(
+  '/system/llm-provider-defaults',
+  requireAdminScope('admin:system:read'),
+  adminHandler(adminController.listDefaultLlmProviderCredentials)
+);
+adminRouter.put(
+  '/system/llm-provider-defaults/:provider',
+  requireAdminScope('admin:system:write'),
+  validateBody(adminLlmProviderDefaultUpsertSchema),
+  adminHandler(adminController.upsertDefaultLlmProviderCredential)
+);
+adminRouter.delete(
+  '/system/llm-provider-defaults/:provider',
+  requireAdminScope('admin:system:write'),
+  validateBody(adminLlmProviderDefaultDeleteSchema),
+  adminHandler(adminController.deleteDefaultLlmProviderCredential)
 );
 
 adminRouter.get('/workspaces', requireAdminScope('admin:workspace:read'), adminHandler(adminController.listWorkspaces));

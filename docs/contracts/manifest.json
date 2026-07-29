@@ -33,6 +33,9 @@
         "GET /admin/v1/system/settings",
         "PATCH /admin/v1/system/settings/{settingKey}",
         "DELETE /admin/v1/system/settings/{settingKey}",
+        "GET /admin/v1/system/llm-provider-defaults",
+        "PUT /admin/v1/system/llm-provider-defaults/{provider}",
+        "DELETE /admin/v1/system/llm-provider-defaults/{provider}",
         "GET /admin/v1/workspaces",
         "GET /admin/v1/workspaces/{workspaceId}",
         "GET /admin/v1/workspaces/{workspaceId}/members",
@@ -70,6 +73,9 @@
       "platformSettingKeys": ["member_discovery", "ai_policy", "password_signup"],
       "platformSettingPatchFields": ["value", "expectedVersion", "reason"],
       "platformSettingResetFields": ["expectedVersion", "reason"],
+      "llmProviderDefaultStatusFields": ["provider", "configured", "enabled", "source=platform_default|none"],
+      "llmProviderDefaultPutFields": ["apiKey(writeOnly)", "reason"],
+      "llmProviderDefaultDeleteFields": ["reason"],
       "workspacePlanPatchFields": ["planKey", "reason", "ticketRef?"],
       "workspaceSuspendFields": ["workspaceName", "reason", "ticketRef?"],
       "workspaceRestoreFields": ["workspaceName?", "reason", "ticketRef?"],
@@ -87,6 +93,12 @@
         "config": "GET /api/v1/auth/config returns the real OIDC capability flag and never exposes admission policy.",
         "logout": "POST /api/v1/auth/logout returns {status=ok,mode=oidc|local,redirectPath}; redirectPath is an AcornOps path and never a provider URL.",
         "browserResults": ["auth_result=oidc_access_denied", "logout_result=success", "logout_result=local_only", "logout_result=incomplete"]
+      },
+      "workspaceAiCredentialContract": {
+        "statusFields": ["provider", "configured", "enabled", "source=workspace|platform_default|none"],
+        "precedence": "A workspace override takes precedence over the inherited platform default.",
+        "privacy": "Provider keys are write-only and never appear in responses.",
+        "workspaceCreation": "The console omits AI setup step 3 only after the new workspace reports at least one configured source=platform_default provider; status lookup failure retains the step."
       },
       "workflowCapabilityCeiling": {
         "rule": "A workflow selects one or more active reviewed specialist Agents. restrictionMode=inherit resolves their current combined ceiling at session creation; restrictionMode=restrict requires semanticCapabilityIds to be an explicit subset.",
@@ -803,6 +815,9 @@
         "GET /admin/v1/system/settings",
         "PATCH /admin/v1/system/settings/{settingKey}",
         "DELETE /admin/v1/system/settings/{settingKey}",
+        "GET /admin/v1/system/llm-provider-defaults",
+        "PUT /admin/v1/system/llm-provider-defaults/{provider}",
+        "DELETE /admin/v1/system/llm-provider-defaults/{provider}",
         "GET /admin/v1/workspaces",
         "GET /admin/v1/workspaces/{workspaceId}",
         "GET /admin/v1/workspaces/{workspaceId}/members",
@@ -1040,14 +1055,16 @@
       ]
     },
     "llm-gateway": {
-      "providerCredentialScope": "workspace-only AI provider secret_name={provider}_api_key and tenant_scope={workspace_id}; runtime MCP credentials use exact workspace or individual installation connections, while the built-in bridge uses run tokens",
+      "providerCredentialScope": "AI provider secret_name={provider}_api_key resolves an exact tenant_scope={workspace_id} override before tenant_scope={} platform default; runtime MCP credentials never use this fallback and continue to use exact workspace or individual installation connections, while the built-in bridge uses run tokens",
       "providerCredentialScopeFields": [
         "workspace_id"
       ],
+      "providerDefaultCredentialScopeFields": [],
       "providerCredentialStatusFields": [
         "provider",
         "configured",
-        "enabled"
+        "enabled",
+        "source=workspace|platform_default|none"
       ],
       "mcpRegistryScopeFields": [
         "workspace_id",

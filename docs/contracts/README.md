@@ -22,6 +22,13 @@ The control plane owns the platform API boundary. Keep this README as a short in
 
 ## Shared Invariants
 
+- Platform-default OpenAI, Anthropic, and Gemini keys are write-only gateway
+  secrets exposed to platform administrators only through the fixed
+  `/admin/v1/system/llm-provider-defaults` status and mutation routes.
+- Workspace provider status identifies `workspace`, `platform_default`, or
+  `none`; workspace overrides take precedence and deleting one restores the
+  platform fallback.
+
 - Browser clients use cookie-backed auth and CSRF protection where required.
 - The platform admin console uses only its mirrored `/admin/v1` subset. Its BFF rejects `admin:*` and all target, run, agent-key, and tooling scopes, and removes operational fields before browser delivery.
 - Platform-admin workspace responses retain immutable creator and workspace IDs while optionally including user display name/email and workspace-name labels for readable governance displays. Consumers fall back to the immutable IDs when labels are unavailable.

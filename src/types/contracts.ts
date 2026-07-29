@@ -331,6 +331,15 @@ export const adminPlatformSettingResetSchema = z.object({
   reason: z.string().trim().min(3).max(500)
 }).strict();
 
+export const adminLlmProviderDefaultUpsertSchema = z.object({
+  apiKey: z.string().trim().min(1).max(4096),
+  reason: z.string().trim().min(3).max(500)
+}).strict();
+
+export const adminLlmProviderDefaultDeleteSchema = z.object({
+  reason: z.string().trim().min(3).max(500)
+}).strict();
+
 const mcpAuthTypeSchema = z.enum(['none', 'bearer_token', 'custom_header']);
 
 const headerNamePattern = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;

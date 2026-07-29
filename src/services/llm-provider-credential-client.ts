@@ -7,10 +7,15 @@ export interface ProviderCredentialStatus {
   provider: LlmProvider;
   configured: boolean;
   enabled: boolean;
+  source: 'workspace' | 'platform_default' | 'none';
 }
 
 export interface ProviderCredentialStatusResponse {
   workspace_id: string;
+  providers: ProviderCredentialStatus[];
+}
+
+export interface ProviderDefaultCredentialStatusResponse {
   providers: ProviderCredentialStatus[];
 }
 
@@ -86,6 +91,35 @@ export async function deleteWorkspaceProviderCredential(
   const query = new URLSearchParams({ workspace_id: workspaceId });
   const response = await fetchGateway(
     `/api/v1/internal/llm/provider-credentials/${encodeURIComponent(provider)}?${query.toString()}`,
+    createRequestOptions('DELETE')
+  );
+  return parseOrThrow<ProviderCredentialStatus>(response);
+}
+
+export async function listDefaultProviderCredentials(): Promise<ProviderDefaultCredentialStatusResponse> {
+  const response = await fetchGateway(
+    '/api/v1/internal/llm/default-provider-credentials',
+    createRequestOptions('GET')
+  );
+  return parseOrThrow<ProviderDefaultCredentialStatusResponse>(response);
+}
+
+export async function putDefaultProviderCredential(
+  provider: LlmProvider,
+  apiKey: string
+): Promise<ProviderCredentialStatus> {
+  const response = await fetchGateway(
+    `/api/v1/internal/llm/default-provider-credentials/${encodeURIComponent(provider)}`,
+    createRequestOptions('PUT', { api_key: apiKey })
+  );
+  return parseOrThrow<ProviderCredentialStatus>(response);
+}
+
+export async function deleteDefaultProviderCredential(
+  provider: LlmProvider
+): Promise<ProviderCredentialStatus> {
+  const response = await fetchGateway(
+    `/api/v1/internal/llm/default-provider-credentials/${encodeURIComponent(provider)}`,
     createRequestOptions('DELETE')
   );
   return parseOrThrow<ProviderCredentialStatus>(response);

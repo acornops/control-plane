@@ -131,6 +131,78 @@ export function buildAdminPaths(): Record<string, unknown> {
         }
       }
     },
+    '/admin/v1/system/llm-provider-defaults': {
+      get: {
+        tags: ['admin'],
+        summary: 'List write-only platform LLM credential status',
+        security: adminSecurity,
+        responses: {
+          '200': {
+            description: 'Configured status for supported platform-default providers. Key values are never returned.'
+          }
+        }
+      }
+    },
+    '/admin/v1/system/llm-provider-defaults/{provider}': {
+      parameters: [{
+        in: 'path',
+        name: 'provider',
+        required: true,
+        schema: { type: 'string', enum: ['openai', 'anthropic', 'gemini'] }
+      }],
+      put: {
+        tags: ['admin'],
+        summary: 'Replace a write-only platform-default LLM credential',
+        security: adminSecurity,
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['apiKey', 'reason'],
+                properties: {
+                  apiKey: {
+                    type: 'string',
+                    minLength: 1,
+                    maxLength: 4096,
+                    writeOnly: true
+                  },
+                  reason: { type: 'string', minLength: 3, maxLength: 500 }
+                },
+                additionalProperties: false
+              }
+            }
+          }
+        },
+        responses: {
+          '200': { description: 'Updated status for all platform-default providers.' }
+        }
+      },
+      delete: {
+        tags: ['admin'],
+        summary: 'Delete a platform-default LLM credential',
+        security: adminSecurity,
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['reason'],
+                properties: {
+                  reason: { type: 'string', minLength: 3, maxLength: 500 }
+                },
+                additionalProperties: false
+              }
+            }
+          }
+        },
+        responses: {
+          '200': { description: 'Updated status for all platform-default providers.' }
+        }
+      }
+    },
     '/admin/v1/workspaces': {
       get: {
         tags: ['admin'],

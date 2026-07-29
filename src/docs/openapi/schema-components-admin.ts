@@ -84,6 +84,28 @@ export function buildAdminSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: false
     },
+    LlmProviderDefaultStatus: {
+      type: 'object',
+      required: ['provider', 'configured', 'enabled', 'source'],
+      properties: {
+        provider: { type: 'string', enum: ['openai', 'anthropic', 'gemini'] },
+        configured: { type: 'boolean' },
+        enabled: { type: 'boolean' },
+        source: { type: 'string', enum: ['platform_default', 'none'] }
+      },
+      additionalProperties: false
+    },
+    LlmProviderDefaultStatusList: {
+      type: 'object',
+      required: ['providers'],
+      properties: {
+        providers: {
+          type: 'array',
+          items: schemaRef('LlmProviderDefaultStatus')
+        }
+      },
+      additionalProperties: false
+    },
     AdminWorkspace: {
       allOf: [
         schemaRef('Workspace'),
