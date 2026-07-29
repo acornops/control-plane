@@ -18,7 +18,7 @@ import {
   databasePassword,
   httpsInternalUrlConfigIssues,
   httpsUrlProductionIssues,
-  isCanonicalPublicOrigin,
+  mcpOauthConsoleOriginIssues,
   oidcIssuerProductionIssues
 } from './config-url-policy.js';
 import {
@@ -317,12 +317,8 @@ const envSchema = z.object({
   validateLlmPolicyConfig(ctx, value);
   validateAgentKHelmConfig(ctx, value);
   validateOptionalReadableFile(ctx, 'ADDITIONAL_CA_BUNDLE_FILE', value.ADDITIONAL_CA_BUNDLE_FILE);
-  if (value.MCP_OAUTH_ENABLED && !isCanonicalPublicOrigin(value.MANAGEMENT_CONSOLE_BASE_URL)) {
-    addConfigIssue(
-      ctx,
-      'MANAGEMENT_CONSOLE_BASE_URL',
-      'MCP OAuth requires a canonical HTTP(S) console origin without credentials, a path, query, or fragment'
-    );
+  for (const issue of mcpOauthConsoleOriginIssues(value.MCP_OAUTH_ENABLED, value.MANAGEMENT_CONSOLE_BASE_URL)) {
+    addConfigIssue(ctx, issue.field, issue.message);
   }
   const webhookEgressError = webhookAllowedPrivateHostsJsonError(value.WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON);
   if (webhookEgressError) {
