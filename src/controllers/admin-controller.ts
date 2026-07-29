@@ -28,6 +28,8 @@ export * from './admin-audit-controller.js';
 export * from './admin-workspace-lifecycle-controller.js';
 export * from './admin-workspace-member-search-controller.js';
 export * from './admin-platform-settings-controller.js';
+export * from './admin-llm-provider-defaults-controller.js';
+export * from './admin-workspace-defaults-controller.js';
 
 export async function me(req: AdminAuthenticatedRequest, res: Response): Promise<void> {
   res.status(200).json({

@@ -12,7 +12,6 @@ const mutableConfig = config as typeof config & {
   OIDC_ISSUER_URL: string;
   OIDC_REDIRECT_URI: string;
   PASSWORD_AUTH_ENABLED: boolean;
-  PASSWORD_SIGNUP_ENABLED: boolean;
   PASSWORD_EMAIL_VERIFICATION_REQUIRED: boolean;
   PASSWORD_RESET_ENABLED: boolean;
   PLATFORM_SETTINGS_POLICY: typeof config.PLATFORM_SETTINGS_POLICY;
@@ -43,14 +42,13 @@ describe('auth runtime config', () => {
     try {
       mutableConfig.OIDC_ENABLED = false;
       mutableConfig.PASSWORD_AUTH_ENABLED = true;
-      mutableConfig.PASSWORD_SIGNUP_ENABLED = false;
       mutableConfig.PASSWORD_EMAIL_VERIFICATION_REQUIRED = true;
       mutableConfig.PASSWORD_RESET_ENABLED = true;
       mutableConfig.PLATFORM_SETTINGS_POLICY = {
         ...originalPlatformSettingsPolicy,
-        passwordSignup: {
-          allowedValues: [false, true],
-          defaultValue: false
+        userSignInMethods: {
+          allowedMethods: ['password'],
+          defaultMethods: ['password']
         }
       };
       applyPlatformSettingOverrides([]);
@@ -63,7 +61,7 @@ describe('auth runtime config', () => {
         oidcEnabled: false,
         oidcProviderName: config.OIDC_PROVIDER_NAME,
         passwordAuthEnabled: true,
-        passwordSignupEnabled: false,
+        passwordSignupEnabled: true,
         passwordEmailVerificationRequired: true,
         passwordResetEnabled: true
       });
@@ -71,7 +69,6 @@ describe('auth runtime config', () => {
     } finally {
       mutableConfig.OIDC_ENABLED = original.OIDC_ENABLED;
       mutableConfig.PASSWORD_AUTH_ENABLED = original.PASSWORD_AUTH_ENABLED;
-      mutableConfig.PASSWORD_SIGNUP_ENABLED = original.PASSWORD_SIGNUP_ENABLED;
       mutableConfig.PASSWORD_EMAIL_VERIFICATION_REQUIRED = original.PASSWORD_EMAIL_VERIFICATION_REQUIRED;
       mutableConfig.PASSWORD_RESET_ENABLED = original.PASSWORD_RESET_ENABLED;
       mutableConfig.PLATFORM_SETTINGS_POLICY = originalPlatformSettingsPolicy;

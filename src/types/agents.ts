@@ -65,6 +65,7 @@ export interface AgentSkillInstallationSnapshot {
     pinnedCommit?: string;
   };
   files: Array<{ path: string; content: string; contentDigest: string }>;
+  inherited?: boolean;
 }
 
 export interface AgentApprovalPolicy {

@@ -3,6 +3,11 @@ import { validateMcpPublicHeaders as enforceMcpPublicHeaderPolicy } from '../ser
 import { TARGET_TYPES } from './domain.js';
 import { runEventSchema, runEventsBatchSchema } from './run-events-contract.js';
 import { webhookUrlSchema } from './webhook-contracts.js';
+export {
+  adminWorkspaceDefaultCreateSchema,
+  adminWorkspaceDefaultDeleteSchema,
+  adminWorkspaceDefaultPatchSchema
+} from './workspace-default-contracts.js';
 
 export { runEventSchema, runEventsBatchSchema };
 
@@ -328,6 +333,15 @@ export const adminPlatformSettingPatchSchema = z.object({
 
 export const adminPlatformSettingResetSchema = z.object({
   expectedVersion: z.number().int().nonnegative(),
+  reason: z.string().trim().min(3).max(500)
+}).strict();
+
+export const adminLlmProviderDefaultUpsertSchema = z.object({
+  apiKey: z.string().trim().min(1).max(4096),
+  reason: z.string().trim().min(3).max(500)
+}).strict();
+
+export const adminLlmProviderDefaultDeleteSchema = z.object({
   reason: z.string().trim().min(3).max(500)
 }).strict();
 

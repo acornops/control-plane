@@ -320,9 +320,9 @@ export function createWorkspaceAiCredentialStatusResponse(workspaceId = 'workspa
   return {
     workspace_id: workspaceId,
     providers: [
-      { provider: 'openai', configured: true, enabled: true },
-      { provider: 'anthropic', configured: true, enabled: true },
-      { provider: 'gemini', configured: true, enabled: true }
+      { provider: 'openai', configured: true, enabled: true, source: 'workspace' },
+      { provider: 'anthropic', configured: true, enabled: true, source: 'workspace' },
+      { provider: 'gemini', configured: true, enabled: true, source: 'workspace' }
     ]
   };
 }

@@ -33,6 +33,13 @@
         "GET /admin/v1/system/settings",
         "PATCH /admin/v1/system/settings/{settingKey}",
         "DELETE /admin/v1/system/settings/{settingKey}",
+        "GET /admin/v1/system/llm-provider-defaults",
+        "PUT /admin/v1/system/llm-provider-defaults/{provider}",
+        "DELETE /admin/v1/system/llm-provider-defaults/{provider}",
+        "GET /admin/v1/system/workspace-defaults",
+        "POST /admin/v1/system/workspace-defaults",
+        "PATCH /admin/v1/system/workspace-defaults/{id}",
+        "DELETE /admin/v1/system/workspace-defaults/{id}",
         "GET /admin/v1/workspaces",
         "GET /admin/v1/workspaces/{workspaceId}",
         "GET /admin/v1/workspaces/{workspaceId}/members",
@@ -67,9 +74,17 @@
       ],
       "paginationShape": ["items", "nextCursor?"],
       "mutationFields": ["reason", "ticketRef?"],
-      "platformSettingKeys": ["member_discovery", "ai_policy", "password_signup"],
+      "platformSettingKeys": ["member_discovery", "ai_policy", "user_sign_in_methods"],
       "platformSettingPatchFields": ["value", "expectedVersion", "reason"],
       "platformSettingResetFields": ["expectedVersion", "reason"],
+      "llmProviderDefaultStatusFields": ["provider", "configured", "enabled", "source=platform_default|none"],
+      "llmProviderDefaultPutFields": ["apiKey(writeOnly)", "reason"],
+      "llmProviderDefaultDeleteFields": ["reason"],
+      "workspaceDefaultKinds": ["mcp_server", "skill"],
+      "workspaceDefaultAvailability": ["agents", "kubernetes", "virtual_machines"],
+      "workspaceDefaultResponseFields": ["id", "kind", "name", "description", "availableIn(non-empty unique destination array)", "source", "contentDigest?", "createdAt", "updatedAt"],
+      "workspaceDefaultMutationFields": ["kind", "availableIn(non-empty unique destination array)", "immutable source", "skill files(write-only on import)", "reason"],
+      "workspaceDefaultResolution": "A new workspace copies the current platform definitions and destination arrays once during workspace creation. Inventory resolution reads only that detached workspace snapshot; later platform changes do not affect existing workspaces. Snapshot entries appear disabled, and explicit enablement creates a normal workspace-owned installation. Built-in tool catalogs are unchanged.",
       "workspacePlanPatchFields": ["planKey", "reason", "ticketRef?"],
       "workspaceSuspendFields": ["workspaceName", "reason", "ticketRef?"],
       "workspaceRestoreFields": ["workspaceName?", "reason", "ticketRef?"],
@@ -84,9 +99,15 @@
     },
     "management-console": {
       "authContract": {
-        "config": "GET /api/v1/auth/config returns the real OIDC capability flag and never exposes admission policy.",
+      "config": "GET /api/v1/auth/config returns effective workspace-user OIDC and password capability flags without exposing admission policy.",
         "logout": "POST /api/v1/auth/logout returns {status=ok,mode=oidc|local,redirectPath}; redirectPath is an AcornOps path and never a provider URL.",
         "browserResults": ["auth_result=oidc_access_denied", "logout_result=success", "logout_result=local_only", "logout_result=incomplete"]
+      },
+      "workspaceAiCredentialContract": {
+        "statusFields": ["provider", "configured", "enabled", "source=workspace|platform_default|none"],
+        "precedence": "A workspace override takes precedence over the inherited platform default.",
+        "privacy": "Provider keys are write-only and never appear in responses.",
+        "workspaceCreation": "The console omits AI setup step 3 only after the new workspace reports at least one configured source=platform_default provider; status lookup failure retains the step."
       },
       "workflowCapabilityCeiling": {
         "rule": "A workflow selects one or more active reviewed specialist Agents. restrictionMode=inherit resolves their current combined ceiling at session creation; restrictionMode=restrict requires semanticCapabilityIds to be an explicit subset.",
@@ -383,7 +404,7 @@
         "permissions.canEdit",
         "permissions.editableRoles",
         "mcpCatalog.{workspaceId,targetId?,targetType?,clusterId?}",
-        "servers[].{id,name,url,type,enabled,isSystem,canDelete,canEditConnection,canToggle,authType,credentialMode,provenance,publicHeaders,connectionStatus,lastDiscoveryAt,lastDiscoveryError}",
+        "servers[].{id,name,url,type,enabled,isSystem,canDelete,canEditConnection,canToggle,authType,credentialMode,provenance,inherited?,publicHeaders,connectionStatus,lastDiscoveryAt,lastDiscoveryError}",
         "servers[].toolCounts.{total,enabledConfigured,enabledEffective,writeConfigured,writeEffective}",
         "serverTools.items[].{name,description,capability,version,source,enabledConfigured,enabledEffective,effectiveDisabledReason}",
         "targetTools.{workspaceId,targetId,targetType,permissions.{canEdit,editableRoles?}}",
@@ -393,7 +414,7 @@
         "targetTools.target_insights.config.learning.{idleCheckpointDelayMinutes,minimumObservationsBeforeGeneralization,checkpointModel}",
         "targetTools.target_insights.config.retrieval.{maxSnippetsPerRetrieval,maxSnippetSizeBytes}",
         "targetTools.target_insights.readiness.{learningAvailable,learningPausedReason}",
-        "targetSkills.items[].{id,name,description,enabled,validationStatus,validationErrors,bundleStats.{fileCount,totalBytes},source.{type,provider?,repoUrl?,apiBaseUrl?,ref?,subpath?,commitSha?,syncStatus},createdAt,updatedAt}",
+        "targetSkills.items[].{id,name,description,enabled,validationStatus,validationErrors,bundleStats.{fileCount,totalBytes},source.{type,provider?,repoUrl?,apiBaseUrl?,ref?,subpath?,commitSha?,syncStatus},inherited,createdAt,updatedAt}",
         "targetSkillDetail.files[].{path,content,sizeBytes}"
       ],
       "requestFields": {
@@ -815,6 +836,13 @@
         "GET /admin/v1/system/settings",
         "PATCH /admin/v1/system/settings/{settingKey}",
         "DELETE /admin/v1/system/settings/{settingKey}",
+        "GET /admin/v1/system/llm-provider-defaults",
+        "PUT /admin/v1/system/llm-provider-defaults/{provider}",
+        "DELETE /admin/v1/system/llm-provider-defaults/{provider}",
+        "GET /admin/v1/system/workspace-defaults",
+        "POST /admin/v1/system/workspace-defaults",
+        "PATCH /admin/v1/system/workspace-defaults/{id}",
+        "DELETE /admin/v1/system/workspace-defaults/{id}",
         "GET /admin/v1/workspaces",
         "GET /admin/v1/workspaces/{workspaceId}",
         "GET /admin/v1/workspaces/{workspaceId}/members",
@@ -1052,14 +1080,16 @@
       ]
     },
     "llm-gateway": {
-      "providerCredentialScope": "workspace-only AI provider secret_name={provider}_api_key and tenant_scope={workspace_id}; runtime MCP credentials use exact workspace or individual installation connections, while the built-in bridge uses run tokens",
+      "providerCredentialScope": "AI provider secret_name={provider}_api_key resolves an exact tenant_scope={workspace_id} override before tenant_scope={} platform default; runtime MCP credentials never use this fallback and continue to use exact workspace or individual installation connections, while the built-in bridge uses run tokens",
       "providerCredentialScopeFields": [
         "workspace_id"
       ],
+      "providerDefaultCredentialScopeFields": [],
       "providerCredentialStatusFields": [
         "provider",
         "configured",
-        "enabled"
+        "enabled",
+        "source=workspace|platform_default|none"
       ],
       "mcpRegistryScopeFields": [
         "workspace_id",

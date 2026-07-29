@@ -3,6 +3,7 @@ import { insertWorkspaceAuditEvent } from '../store/repository-audit-events.js';
 import { mapWorkspace } from '../store/repository-mappers.js';
 import { assertWorkspaceMemberQuota, assertWorkspaceMembershipQuota } from '../store/repository-quotas.js';
 import { withTransaction } from '../store/repository-transaction.js';
+import { initializeWorkspaceDefaults } from '../store/repository-workspace-defaults.js';
 import type { Workspace } from '../types/domain.js';
 import {
   recordStarterAutomationSeedFailure,
@@ -64,6 +65,8 @@ export async function provisionWorkspaceWithStarterAutomation(
           [workspaceId, input.createdBy, input.membershipSource || 'oidc']
         );
       }
+
+      if (created) await initializeWorkspaceDefaults(client, workspaceId);
 
       seedAttempted = true;
       const seed = await provisionStarterAutomationInTransaction(client, {

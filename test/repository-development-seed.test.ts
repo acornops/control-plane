@@ -147,6 +147,8 @@ describe('development target seed', () => {
     assert.equal(queries.filter(({ sql }) => sql.includes('INSERT INTO users')).length, 1);
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workspaces')).length, 1);
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workspace_memberships')).length, 1);
+    assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workspace_initial_defaults')).length, 1);
+    assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workspace_initial_default_skill_files')).length, 1);
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO agent_definitions')).length, 2);
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workflow_definitions')).length, 2);
     const targetDiagnosticsWorkflow = [...workflowRows.values()].find((row) => row.name === 'Target diagnostics');

@@ -19,12 +19,12 @@ npm run db:check
 All commands read `DATABASE_URL`. `CONTROL_PLANE_MIGRATIONS_DIR` can point at a
 non-default migration directory for tests or packaging checks.
 
-## Greenfield schema epoch
+## Schema epoch and upgrades
 
-This schema epoch deliberately does not support in-place upgrades from any
-pre-release database. Tear down and recreate the database before deploying this
-version matrix. Future released migrations must be additive and immutable, but
-there is no historical checksum manifest for the greenfield baseline.
+`001_initial_schema.sql` remains the immutable greenfield baseline. Subsequent
+numbered migrations are forward-only and must never be edited after release.
+Run `npm run db:migrate` before deploying application code that depends on a
+new migration; this preserves existing durable settings and other data.
 
 The Docker deployment tracks run the `control-plane-init` one-shot service
 before bringing up the control-plane application container. Use `task

@@ -15,7 +15,7 @@ import {
 import { clearPasswordLoginAttempts, registerPasswordLoginAttempt } from '../auth/password-rate-limit.js';
 import { createUserSession, rotateUserSessions, setSessionCookie } from '../auth/session.js';
 import { config } from '../config.js';
-import { passwordSignupEnabled } from '../services/platform-settings.js';
+import { passwordSignInEnabled, passwordSignupEnabled } from '../services/platform-settings.js';
 import { logger } from '../logger.js';
 import { sendVerificationEmail } from '../services/email-delivery.js';
 import { gatewayTokenService } from '../services/token-service.js';
@@ -51,7 +51,7 @@ function verificationExpiry(): Date {
 
 export async function passwordLogin(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    if (!config.PASSWORD_AUTH_ENABLED) {
+    if (!passwordSignInEnabled()) {
       res.status(403).json({ error: { code: 'PASSWORD_AUTH_DISABLED', message: 'Password login is disabled', retryable: false } });
       return;
     }
@@ -101,7 +101,7 @@ export async function passwordLogin(req: Request, res: Response, next: NextFunct
 
 export async function passwordSignup(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    if (!config.PASSWORD_AUTH_ENABLED || !passwordSignupEnabled()) {
+    if (!passwordSignupEnabled()) {
       res.status(403).json({ error: { code: 'SIGNUP_DISABLED', message: 'Password signup is disabled', retryable: false } });
       return;
     }
@@ -200,7 +200,7 @@ export async function passwordSignup(req: Request, res: Response, next: NextFunc
 
 export async function passwordChange(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    if (!config.PASSWORD_AUTH_ENABLED) {
+    if (!passwordSignInEnabled()) {
       res.status(403).json({ error: { code: 'PASSWORD_AUTH_DISABLED', message: 'Password login is disabled', retryable: false } });
       return;
     }

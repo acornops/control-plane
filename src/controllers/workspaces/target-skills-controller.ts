@@ -11,7 +11,7 @@ import {
   withUpdatedSkillSyncStatus
 } from '../../services/target-skills.js';
 import { repo } from '../../store/repository.js';
-import { TargetSkillDetail, TargetSkillSource } from '../../types/domain.js';
+import { TargetSkillDetail } from '../../types/domain.js';
 import { toSingleParam } from '../../utils/params.js';
 import {
   containsSearchText,
@@ -22,90 +22,23 @@ import {
   parseBoundedLimit
 } from '../../utils/pagination.js';
 import { recordTargetSkillAudit } from './target-skill-audit.js';
+import { resolveTargetSkillDefaults } from '../../services/workspace-default-resolution.js';
+import {
+  inheritedTargetSkillDetail,
+  materializeInheritedTargetSkill,
+  withSkillProvenance
+} from './target-skill-defaults.js';
+import {
+  ensureTargetSkillCanBeEnabled,
+  gitImportSourceMatches,
+  normalizeGitImportSource,
+  normalizeManualSkillSource,
+  respondMissingSkillCapability,
+  respondSkillBundleLimitFailure,
+  targetSkillImportEnabled
+} from './target-skill-helpers.js';
 
-function respondMissingCapability(res: Response): void {
-  res.status(403).json({
-    error: {
-      code: 'FORBIDDEN',
-      message: 'Only workspace roles with skill-management capability can modify target skills',
-      retryable: false
-    }
-  });
-}
-
-function respondSkillBundleLimitFailure(res: Response, validationErrors: string[]): void {
-  res.status(400).json({
-    error: {
-      code: 'INVALID_SKILL_BUNDLE_LIMIT',
-      message: 'Skill bundle exceeds storage limits.',
-      retryable: false,
-      details: { validationErrors }
-    }
-  });
-}
-
-async function ensureSkillCanBeEnabled(
-  targetId: string,
-  skill: Pick<TargetSkillDetail, 'id' | 'validationStatus'>,
-  desiredEnabled: boolean
-): Promise<{ ok: true } | { ok: false; status: number; code: string; message: string }> {
-  if (!desiredEnabled) {
-    return { ok: true };
-  }
-  if (skill.validationStatus !== 'valid') {
-    return {
-      ok: false,
-      status: 400,
-      code: 'INVALID_SKILL',
-      message: 'Only valid skills can be enabled.'
-    };
-  }
-  const enabledCount = await repo.countEnabledTargetSkills(targetId, skill.id);
-  if (enabledCount >= TARGET_SKILL_MAX_ENABLED_PER_TARGET) {
-    return {
-      ok: false,
-      status: 409,
-      code: 'SKILL_LIMIT_REACHED',
-      message: `Only ${TARGET_SKILL_MAX_ENABLED_PER_TARGET} enabled skills are allowed per target.`
-    };
-  }
-  return { ok: true };
-}
-
-function normalizeManualSkillSource(): TargetSkillSource {
-  return {
-    type: 'manual',
-    syncStatus: 'not_applicable'
-  };
-}
-
-function normalizeGitImportSource(input: { provider: 'github' | 'gitlab'; repoUrl: string; apiBaseUrl?: string; ref: string; subpath?: string; commitSha?: string }): TargetSkillSource {
-  return {
-    type: 'git_import',
-    provider: input.provider,
-    repoUrl: input.repoUrl,
-    ...(input.apiBaseUrl ? { apiBaseUrl: input.apiBaseUrl } : {}),
-    ref: input.ref,
-    ...(input.subpath ? { subpath: input.subpath } : {}),
-    ...(input.commitSha ? { commitSha: input.commitSha } : {}),
-    syncStatus: 'current'
-  };
-}
-
-export function gitImportSourceMatches(left: TargetSkillSource, right: TargetSkillSource): boolean {
-  return left.type === 'git_import' &&
-    right.type === 'git_import' &&
-    left.provider === right.provider &&
-    left.repoUrl === right.repoUrl &&
-    (left.apiBaseUrl || '') === (right.apiBaseUrl || '') &&
-    left.ref === right.ref &&
-    (left.subpath || '') === (right.subpath || '');
-}
-
-export function targetSkillImportEnabled(validationStatus: string): boolean {
-  return validationStatus === 'valid';
-}
-
+export { gitImportSourceMatches, targetSkillImportEnabled } from './target-skill-helpers.js';
 export async function listTargetSkills(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
@@ -115,7 +48,11 @@ export async function listTargetSkills(req: AuthenticatedRequest, res: Response,
       return;
     }
 
-    const allSkills = await repo.listTargetSkills(targetId);
+    const allSkills = await resolveTargetSkillDefaults(
+      await repo.listTargetSkills(targetId),
+      access.target.targetType,
+      { workspaceId, targetId }
+    );
     const q = normalizeSearchQuery(req.query.q);
     const signature = makeQuerySignature({ q });
     const cursor = decodeCursor<{ offset?: number; signature: string }>(req.query.cursor, signature);
@@ -163,7 +100,7 @@ export async function createTargetSkillForTarget(req: AuthenticatedRequest, res:
       return;
     }
     if (!access.authz.can('manage_skills')) {
-      respondMissingCapability(res);
+      respondMissingSkillCapability(res);
       return;
     }
 
@@ -213,7 +150,7 @@ export async function createTargetSkillForTarget(req: AuthenticatedRequest, res:
       skill,
       summary: 'Target skill created'
     });
-    res.status(201).json(skill);
+    res.status(201).json(withSkillProvenance(skill));
   } catch (err) {
     next(err);
   }
@@ -228,7 +165,7 @@ export async function importTargetSkillForTarget(req: AuthenticatedRequest, res:
       return;
     }
     if (!access.authz.can('manage_skills')) {
-      respondMissingCapability(res);
+      respondMissingSkillCapability(res);
       return;
     }
 
@@ -277,7 +214,7 @@ export async function importTargetSkillForTarget(req: AuthenticatedRequest, res:
       skill,
       summary: 'Target skill imported from Git'
     });
-    res.status(201).json(skill);
+    res.status(201).json(withSkillProvenance(skill));
   } catch (err) {
     next(err);
   }
@@ -293,12 +230,22 @@ export async function getTargetSkillForTarget(req: AuthenticatedRequest, res: Re
       return;
     }
 
+    const inherited = await inheritedTargetSkillDetail(
+      skillId,
+      access.target.targetType,
+      workspaceId,
+      targetId
+    );
+    if (inherited) {
+      res.status(200).json(inherited);
+      return;
+    }
     const skill = await repo.getTargetSkill(targetId, skillId);
     if (!skill) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Target skill not found', retryable: false } });
       return;
     }
-    res.status(200).json(skill);
+    res.status(200).json(withSkillProvenance(skill));
   } catch (err) {
     next(err);
   }
@@ -314,7 +261,21 @@ export async function updateTargetSkillForTarget(req: AuthenticatedRequest, res:
       return;
     }
     if (!access.authz.can('manage_skills')) {
-      respondMissingCapability(res);
+      respondMissingSkillCapability(res);
+      return;
+    }
+
+    const materialization = await materializeInheritedTargetSkill({
+      skillId,
+      workspaceId,
+      targetId,
+      targetType: access.target.targetType,
+      actorUserId: req.auth.userId,
+      body: req.body || {},
+      ensureCanEnable: ensureTargetSkillCanBeEnabled
+    });
+    if (materialization) {
+      res.status(materialization.status).json(materialization.body);
       return;
     }
 
@@ -353,7 +314,7 @@ export async function updateTargetSkillForTarget(req: AuthenticatedRequest, res:
       source,
       files: bundle.files
     };
-    const enableCheck = await ensureSkillCanBeEnabled(targetId, candidate, desiredEnabled);
+    const enableCheck = await ensureTargetSkillCanBeEnabled(targetId, candidate, desiredEnabled);
     if (!enableCheck.ok) {
       res.status(enableCheck.status).json({
         error: {
@@ -403,7 +364,7 @@ export async function updateTargetSkillForTarget(req: AuthenticatedRequest, res:
         bundleChanged
       }
     });
-    res.status(200).json(updated);
+    res.status(200).json(withSkillProvenance(updated));
   } catch (err) {
     next(err);
   }
@@ -419,7 +380,7 @@ export async function deleteTargetSkillForTarget(req: AuthenticatedRequest, res:
       return;
     }
     if (!access.authz.can('manage_skills')) {
-      respondMissingCapability(res);
+      respondMissingSkillCapability(res);
       return;
     }
 
@@ -455,7 +416,7 @@ export async function reimportTargetSkillForTarget(req: AuthenticatedRequest, re
       return;
     }
     if (!access.authz.can('manage_skills')) {
-      respondMissingCapability(res);
+      respondMissingSkillCapability(res);
       return;
     }
 
@@ -536,7 +497,7 @@ export async function reimportTargetSkillForTarget(req: AuthenticatedRequest, re
         autoDisabled: existing.enabled && !updated.enabled && updated.validationStatus !== 'valid'
       }
     });
-    res.status(200).json(updated);
+    res.status(200).json(withSkillProvenance(updated));
   } catch (err) {
     next(err);
   }

@@ -62,7 +62,7 @@ export function buildAdminSchemas(): Record<string, JsonSchema> {
       type: 'object',
       required: ['key', 'value', 'deploymentDefault', 'source', 'version', 'editable', 'constraints'],
       properties: {
-        key: { type: 'string', enum: ['member_discovery', 'ai_policy', 'password_signup'] },
+        key: { type: 'string', enum: ['member_discovery', 'ai_policy', 'user_sign_in_methods'] },
         value: jsonObject,
         deploymentDefault: jsonObject,
         overrideValue: jsonObject,
@@ -81,6 +81,60 @@ export function buildAdminSchemas(): Record<string, JsonSchema> {
       required: ['items'],
       properties: {
         items: { type: 'array', items: schemaRef('PlatformSetting') }
+      },
+      additionalProperties: false
+    },
+    LlmProviderDefaultStatus: {
+      type: 'object',
+      required: ['provider', 'configured', 'enabled', 'source'],
+      properties: {
+        provider: { type: 'string', enum: ['openai', 'anthropic', 'gemini'] },
+        configured: { type: 'boolean' },
+        enabled: { type: 'boolean' },
+        source: { type: 'string', enum: ['platform_default', 'none'] }
+      },
+      additionalProperties: false
+    },
+    LlmProviderDefaultStatusList: {
+      type: 'object',
+      required: ['providers'],
+      properties: {
+        providers: {
+          type: 'array',
+          items: schemaRef('LlmProviderDefaultStatus')
+        }
+      },
+      additionalProperties: false
+    },
+    WorkspaceDefault: {
+      type: 'object',
+      required: ['id', 'kind', 'name', 'description', 'availableIn', 'source', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'],
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        kind: { type: 'string', enum: ['mcp_server', 'skill'] },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        availableIn: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 3,
+          uniqueItems: true,
+          items: { type: 'string', enum: ['agents', 'kubernetes', 'virtual_machines'] }
+        },
+        source: jsonObject,
+        contentDigest: { type: 'string' },
+        createdBy: { type: 'string' },
+        updatedBy: { type: 'string' },
+        createdAt: dateTime,
+        updatedAt: dateTime
+      },
+      additionalProperties: false
+    },
+    WorkspaceDefaultList: {
+      type: 'object',
+      required: ['items'],
+      properties: {
+        items: { type: 'array', items: schemaRef('WorkspaceDefault') }
       },
       additionalProperties: false
     },

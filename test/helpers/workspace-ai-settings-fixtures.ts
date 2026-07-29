@@ -10,15 +10,15 @@ export function installAiCredentialGateway(status: 'configured' | 'missing' | 'd
     const url = String(input);
     if (url.includes('/api/v1/internal/llm/provider-credentials/') && init?.method === 'PUT') {
       assert.equal(JSON.parse(String(init.body)).api_key, 'test-key');
-      return new Response(JSON.stringify({ provider: 'gemini', configured: true, enabled: true }), { status: 200 });
+      return new Response(JSON.stringify({ provider: 'gemini', configured: true, enabled: true, source: 'workspace' }), { status: 200 });
     }
     if (url.includes('/api/v1/internal/llm/provider-credentials/') && init?.method === 'DELETE') {
-      return new Response(JSON.stringify({ provider: 'gemini', configured: false, enabled: true }), { status: 200 });
+      return new Response(JSON.stringify({ provider: 'gemini', configured: false, enabled: true, source: 'none' }), { status: 200 });
     }
     if (isWorkspaceAiCredentialStatusRequest(input)) {
       const response = createWorkspaceAiCredentialStatusResponse();
       if (status === 'missing') {
-        response.providers = response.providers.map((provider) => ({ ...provider, configured: false }));
+        response.providers = response.providers.map((provider) => ({ ...provider, configured: false, source: 'none' }));
       }
       if (status === 'disabled') {
         response.providers = response.providers.map((provider) => (

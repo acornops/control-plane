@@ -97,6 +97,32 @@ describe('workspace AI settings controller', () => {
     assert.equal((response.body as { defaultProvider: string }).defaultProvider, 'openai');
   });
 
+  it('reports inherited platform defaults without exposing credential values', async () => {
+    installWorkspace('viewer');
+    mock.method(globalThis, 'fetch', async (input) => {
+      if (isWorkspaceAiCredentialStatusRequest(input)) {
+        return new Response(JSON.stringify({
+          workspace_id: 'workspace-1',
+          providers: [
+            { provider: 'openai', configured: true, enabled: true, source: 'platform_default' },
+            { provider: 'anthropic', configured: false, enabled: true, source: 'none' },
+            { provider: 'gemini', configured: false, enabled: true, source: 'none' }
+          ]
+        }), { status: 200 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
+
+    const response = await callController(
+      getWorkspaceAiSettings,
+      createRequest({ workspaceId: 'workspace-1' })
+    );
+
+    const body = response.body as { providers: Array<{ provider: string; source: string }> };
+    assert.equal(body.providers.find((provider) => provider.provider === 'openai')?.source, 'platform_default');
+    assert(!JSON.stringify(body).includes('apiKey'));
+  });
+
   it('reports providers as disabled when the gateway adapter is disabled', async () => {
     installWorkspace('viewer');
     installAiCredentialGateway('disabled');

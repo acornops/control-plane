@@ -144,6 +144,7 @@ describe('quota enforcement', () => {
       if (sql.includes('FROM workspace_quota_overrides')) return { rowCount: 0, rows: [] };
       if (sql.includes('COUNT(*)::int AS count FROM workspace_memberships') && sql.includes('workspace_id')) return { rowCount: 1, rows: [{ count: 0 }] };
       if (sql.includes('INSERT INTO workspace_memberships')) return { rowCount: 1, rows: [] };
+      if (sql.includes('INSERT INTO workspace_initial_defaults')) return { rowCount: 0, rows: [] };
       throw new Error(`Unexpected query: ${sql}`);
     });
 
