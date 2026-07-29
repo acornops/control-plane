@@ -17,6 +17,13 @@ export function capabilityRequiresExactTarget(capabilityId: string): boolean {
 }
 
 export function targetAllowedByAgentScope(scope: AgentTargetScope, target: ExactTargetBinding): boolean {
+  if (
+    scope.type === 'selected_target'
+    && !scope.targetTypes?.length
+    && !scope.targetIds?.length
+  ) {
+    return false;
+  }
   return (!scope.targetTypes?.length || scope.targetTypes.includes(target.targetType))
     && (!scope.targetIds?.length || scope.targetIds.includes(target.id));
 }

@@ -31,6 +31,7 @@ import {
   DefinitionValidationError,
   updateAgentThroughDefinitionService
 } from '../services/automation-definition-service.js';
+import { syncAgentTargetsBuiltInTools } from '../services/agent-targets-mcp-sync.js';
 
 export { deleteAgent, duplicateAgent } from './agents-lifecycle-controller.js';
 
@@ -168,7 +169,12 @@ export async function updateAgent(req: AuthenticatedRequest, res: Response, next
       return;
     }
     const patch = agentPatch(body);
-    const optionErrors = await collectAgentOptionErrors(workspaceId, { ...current, ...patch });
+    const optionErrors = await collectAgentOptionErrors(workspaceId, {
+      ...patch,
+      targetScope: patch.targetScope || current.targetScope,
+      approvalPolicy: patch.approvalPolicy || current.approvalPolicy,
+      trustPolicy: patch.trustPolicy || current.trustPolicy
+    });
     if (optionErrors.length > 0) {
       badRequest(res, 'AGENT_OPTION_INVALID', 'Agent references unknown or disabled server-owned options.', optionErrors);
       return;
@@ -260,10 +266,12 @@ export async function restoreAgentVersion(req: AuthenticatedRequest, res: Respon
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent version not found', retryable: false } });
       return;
     }
-    await auditAgentDefinitionMutation(req, restored, 'agent.version_restored.v1', 'Agent version restored', {
+    const targetsMcp = await syncAgentTargetsBuiltInTools(workspaceId, agentId);
+    const effectiveAgent = targetsMcp.agent || restored;
+    await auditAgentDefinitionMutation(req, effectiveAgent, 'agent.version_restored.v1', 'Agent version restored', {
       restoredVersionId: toSingleParam(req.params.versionId)
     });
-    res.status(200).json({ agent: await agentResponse(restored) });
+    res.status(200).json({ agent: await agentResponse(effectiveAgent) });
   } catch (err) {
     next(err);
   }

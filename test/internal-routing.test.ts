@@ -122,32 +122,39 @@ describe('internal service routing', () => {
       sessionId: 'session-1',
       principal: { type: 'user', id: 'user-1' },
       allowedProviders: ['openai'],
-      allowedTools: ['get_pods']
+      allowedTools: ['get_pods'],
+      allowedToolRefs: [{ serverId: 'server-1', toolName: 'get_pods' }]
     });
     const runTokenHeaders = {
       Authorization: `Bearer ${runToken}`,
       'content-type': 'application/json'
     };
+    const toolCallBody = JSON.stringify({
+      name: 'get_pods',
+      toolAlias: 'get_pods',
+      serverId: 'server-1',
+      arguments: {}
+    });
 
     await withTestServer(async (baseUrl) => {
       const publicResponse = await fetch(`${baseUrl}/api/v1/internal/mcp/tools/call`, {
         method: 'POST',
         headers: runTokenHeaders,
-        body: JSON.stringify({ name: 'get_pods', arguments: {} })
+        body: toolCallBody
       });
       assert.equal(publicResponse.status, 404);
 
       const orchTokenResponse = await fetch(`${baseUrl}/internal/v1/mcp/tools/call`, {
         method: 'POST',
         headers: orchHeaders,
-        body: JSON.stringify({ name: 'get_pods', arguments: {} })
+        body: toolCallBody
       });
       assert.equal(orchTokenResponse.status, 401);
 
       const internalResponse = await fetch(`${baseUrl}/internal/v1/mcp/tools/call`, {
         method: 'POST',
         headers: runTokenHeaders,
-        body: JSON.stringify({ name: 'get_pods', arguments: {} })
+        body: toolCallBody
       });
       assert.equal(internalResponse.status, 404);
       assert.equal(getRunCalled, true);

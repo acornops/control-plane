@@ -75,6 +75,11 @@ const toolSync = [
   read('src/services/kubernetes-cluster-tool-sync.ts'),
   read('src/services/virtual-machine-tool-sync.ts')
 ].join('\n');
+const agentTargetsMcp = [
+  read('src/services/agent-targets-mcp-catalog.ts'),
+  read('src/services/agent-targets-mcp-executor.ts'),
+  read('src/services/agent-targets-mcp-sync.ts')
+].join('\n');
 const internalExecutionBootstrap = read('src/controllers/internal-execution-bootstrap.ts');
 const targetRunToolResolution = read('src/services/target-run-tool-resolution.ts');
 const internalMcpBridgeController = read('src/controllers/internal-mcp-bridge-controller.ts');
@@ -369,10 +374,16 @@ for (const builtinConfigNeedle of [
 }
 
 expectIncludes(internalMcpBridgeController, 'res.locals.gatewayRunClaims', 'Builtin MCP run token claims');
-expectIncludes(internalMcpBridgeController, 'isToolAllowedByRunToken(toolName, claims.allowedTools)', 'Builtin MCP allowed-tool check');
-expectIncludes(internalMcpBridgeController, 'operationForToolCall(claims, toolName)', 'Builtin MCP audit operation classification');
+expectIncludes(internalMcpBridgeController, 'isToolAllowedByRunToken(toolAlias, claims.allowedTools)', 'Builtin MCP alias authorization');
+expectIncludes(internalMcpBridgeController, 'isToolRefAllowedByRunToken(serverId, toolName, claims.allowedToolRefs)', 'Builtin MCP exact tool-reference authorization');
+expectIncludes(internalMcpBridgeController, 'operationForToolCall(claims, toolAlias)', 'Builtin MCP audit operation classification');
 expectIncludes(internalMcpBridgeController, 'stableAgentRequestId(claims.runId, req.body.toolCallId)', 'Stable AgentK operation id forwarding');
+expectIncludes(contracts, 'toolAlias: z.string().min(1)', 'Builtin MCP tool alias contract');
+expectIncludes(contracts, 'serverId: z.string().min(1)', 'Builtin MCP server identity contract');
 expectIncludes(contracts, 'toolCallId: z.string().min(1).max(256).optional()', 'Builtin MCP tool call id contract');
+for (const toolName of llmGatewayContract.builtinBridge.agentTargetsTools) {
+  expectIncludes(agentTargetsMcp, `'${toolName}'`, 'Agent Targets MCP catalog');
+}
 expectIncludes(doc, '`operation` is `read` or `write`', 'Workspace audit operation doc');
 expectIncludes(openApi, 'operation=read|write', 'Workspace audit operation OpenAPI doc');
 expectIncludes(configSource, 'WORKSPACE_AUDIT_LOGGING_MODE', 'Workspace audit logging mode config');

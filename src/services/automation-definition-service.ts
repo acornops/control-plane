@@ -23,6 +23,7 @@ import { withTransaction } from '../store/repository-transaction.js';
 import { refreshAgentReadiness, refreshWorkflowReadiness } from './automation-readiness.js';
 import { resolveWorkflowRouting, WorkflowSelectionError } from './workflow-coordinator.js';
 import { reconcileTargetDiagnosticsForAgent } from './target-diagnostics-capability.js';
+import { syncAgentTargetsBuiltInTools } from './agent-targets-mcp-sync.js';
 
 export type CreateWorkflowMutationInput = Omit<
   CreateWorkflowDefinitionInput,
@@ -56,8 +57,12 @@ async function validateAgentInput(
 export async function createAgentThroughDefinitionService(input: CreateAgentDefinitionInput): Promise<AgentDefinition> {
   await validateAgentInput(input);
   const created = await createAgentDefinition(input);
-  await reconcileTargetDiagnosticsForAgent(created);
-  return (await refreshAgentReadiness(created.workspaceId, created.id)) || created;
+  const targetsMcp = await syncAgentTargetsBuiltInTools(created.workspaceId, created.id, {
+    initializeVersion: created.version
+  });
+  const effectiveAgent = targetsMcp.agent || created;
+  await reconcileTargetDiagnosticsForAgent(effectiveAgent);
+  return (await refreshAgentReadiness(created.workspaceId, created.id)) || effectiveAgent;
 }
 
 export async function createAgentThroughDefinitionServiceInTransaction(
@@ -78,8 +83,10 @@ export async function updateAgentThroughDefinitionService(
   await validateAgentInput({ ...patch, workspaceId }, current);
   const updated = await updateAgentDefinition(workspaceId, agentId, patch);
   if (!updated) return null;
-  await reconcileTargetDiagnosticsForAgent(updated);
-  const refreshed = (await refreshAgentReadiness(workspaceId, agentId)) || updated;
+  const targetsMcp = await syncAgentTargetsBuiltInTools(workspaceId, agentId);
+  const effectiveAgent = targetsMcp.agent || updated;
+  await reconcileTargetDiagnosticsForAgent(effectiveAgent);
+  const refreshed = (await refreshAgentReadiness(workspaceId, agentId)) || effectiveAgent;
   await Promise.all((await listWorkflowDefinitions(workspaceId))
     .filter((workflow) => workflow.agentIds.includes(agentId))
     .map((workflow) => refreshWorkflowReadiness(workflow)));

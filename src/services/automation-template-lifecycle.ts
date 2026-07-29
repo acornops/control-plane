@@ -21,6 +21,7 @@ import {
   STARTER_BUNDLE,
   type WorkflowTemplate
 } from './automation-templates.js';
+import { syncAgentTargetsBuiltInTools } from './agent-targets-mcp-sync.js';
 
 const PUBLIC_TEMPLATE_IDS: Record<string, string> = {
   targetDiagnostics: 'target-diagnostics',
@@ -152,7 +153,10 @@ export async function installAutomationTemplate(input: {
   });
   const installed = await getInstalledAutomationTemplate(input.workspaceId, input.templateId);
   for (const agentId of Object.values(installed?.agentIds || {})) {
-    await refreshAgentReadiness(input.workspaceId, agentId);
+    const targetsMcp = await syncAgentTargetsBuiltInTools(input.workspaceId, agentId, {
+      initializeVersion: 1
+    });
+    if (!targetsMcp.ok) await refreshAgentReadiness(input.workspaceId, agentId);
   }
   const workflow = await getWorkflowDefinition(input.workspaceId, result.workflowId);
   if (workflow) await refreshWorkflowReadiness(workflow);

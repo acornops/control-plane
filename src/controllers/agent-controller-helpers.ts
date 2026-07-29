@@ -124,8 +124,8 @@ export function normalizeTargetScope(value: unknown): AgentDefinition['targetSco
     if (workspaceScoped && targetTypes.length === 0 && targetIds.length === 0) return { type: 'workspace' };
     return {
       type: explicitScope === 'workspace' ? 'workspace' : 'selected_target',
-      ...(targetTypes.length > 0 ? { targetTypes: [...new Set(targetTypes)] } : {}),
-      ...(targetIds.length > 0 ? { targetIds: [...new Set(targetIds)] } : {})
+      ...(targetTypes.length > 0 ? { targetTypes: [...new Set(targetTypes)].sort() } : {}),
+      ...(targetIds.length > 0 ? { targetIds: [...new Set(targetIds)].sort() } : {})
     };
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
@@ -133,8 +133,23 @@ export function normalizeTargetScope(value: unknown): AgentDefinition['targetSco
   if (scope.type !== 'workspace' && scope.type !== 'selected_target') return undefined;
   return {
     type: scope.type,
-    ...(Array.isArray(scope.targetTypes) ? { targetTypes: scope.targetTypes } : {}),
-    ...(Array.isArray(scope.targetIds) ? { targetIds: scope.targetIds } : {})
+    ...(Array.isArray(scope.targetTypes)
+      ? {
+          targetTypes: [...new Set(
+            scope.targetTypes.filter((entry): entry is TargetType => typeof entry === 'string')
+          )].sort()
+        }
+      : {}),
+    ...(Array.isArray(scope.targetIds)
+      ? {
+          targetIds: [...new Set(
+            scope.targetIds
+              .filter((entry): entry is string => typeof entry === 'string')
+              .map((id) => id.trim())
+              .filter(Boolean)
+          )].sort()
+        }
+      : {})
   };
 }
 
@@ -146,6 +161,13 @@ export async function collectAgentOptionErrors(workspaceId: string, input: Parti
   const targetTypes = new Set(TARGET_TYPES);
   const errors: string[] = [];
 
+  if (
+    input.targetScope?.type === 'selected_target'
+    && !input.targetScope.targetTypes?.length
+    && !input.targetScope.targetIds?.length
+  ) {
+    errors.push('Selected target scope requires at least one target type or target ID.');
+  }
   for (const server of input.mcpServers || []) {
     const option = servers.get(server);
     if (!option) errors.push(`Unknown MCP server: ${server}`);

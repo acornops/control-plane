@@ -5,15 +5,16 @@ import type { AgentMcpInstallationSnapshot } from '../types/agents.js';
 
 export function toAgentMcpServer(server: McpServerConfig) {
   const inherited = 'inherited' in server && server.inherited === true;
+  const isSystem = server.provenance_type === 'builtin';
   return {
     id: server.id,
     name: server.server_name,
     url: server.server_url,
     type: 'mcp' as const,
     enabled: server.enabled,
-    isSystem: false,
-    canDelete: !inherited,
-    canEditConnection: !inherited,
+    isSystem,
+    canDelete: !inherited && !isSystem,
+    canEditConnection: !inherited && !isSystem,
     canToggle: true,
     inherited,
     authType: server.auth_type,
@@ -65,7 +66,12 @@ export function toAgentMcpServer(server: McpServerConfig) {
 export async function syncAgentMcpCapabilitySnapshot(
   workspaceId: string,
   agentId: string,
-  updatedBy: string
+  updatedBy: string,
+  options: {
+    expectedVersion?: number;
+    rebindActiveMappings?: boolean;
+    incrementVersion?: boolean;
+  } = {}
 ) {
   const servers = await listAgentMcpServers(workspaceId, agentId);
   const installations: AgentMcpInstallationSnapshot[] = servers.map((server) => {
@@ -101,6 +107,6 @@ export async function syncAgentMcpCapabilitySnapshot(
     mcpServers: installations.map((installation) => installation.id),
     mcpTools,
     mcpInstallations: installations
-  }, updatedBy);
+  }, updatedBy, options);
   return { agent, servers: servers.map(toAgentMcpServer) };
 }

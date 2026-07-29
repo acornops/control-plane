@@ -89,13 +89,14 @@ export async function rebindCapabilityMappingsForAgent(
   workspaceId: string,
   agentId: string,
   agentVersion: number,
+  previousAgentVersion: number,
   queryable: Pick<import('pg').PoolClient, 'query'> = db
 ): Promise<number> {
   const result = await queryable.query(
     `UPDATE capability_routing_mappings
      SET agent_version=$3,version=version+1,updated_at=NOW()
-     WHERE workspace_id=$1 AND agent_id=$2 AND status='active'`,
-    [workspaceId, agentId, agentVersion]
+     WHERE workspace_id=$1 AND agent_id=$2 AND agent_version=$4 AND status='active'`,
+    [workspaceId, agentId, agentVersion, previousAgentVersion]
   );
   return result.rowCount || 0;
 }

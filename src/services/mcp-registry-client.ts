@@ -386,7 +386,6 @@ export interface UpsertAgentMcpServerInput extends Omit<UpsertTargetMcpServerInp
   targetConstraints?: { targetTypes?: TargetType[]; targetIds?: string[] };
   integrationProfileId?: string;
   integrationProfileVersion?: number;
-  configurationAttested?: boolean;
 }
 
 export interface UpdateAgentMcpServerInput extends Omit<UpdateTargetMcpServerInput, 'targetId' | 'targetType'> {
@@ -428,8 +427,7 @@ export async function createAgentMcpServer(input: UpsertAgentMcpServerInput): Pr
     auth_header_prefix: input.auth?.headerPrefix,
     integration_profile_id: input.integrationProfileId,
     integration_profile_version: input.integrationProfileVersion,
-    configuration_attested: input.configurationAttested ?? false,
-    tools: []
+    tools: (input.tools || []).map(toGatewayToolPayload)
   }));
   return parseOrThrow<McpServerConfig>(response);
 }
@@ -439,6 +437,7 @@ export async function updateAgentMcpServer(input: UpdateAgentMcpServerInput): Pr
     `/api/v1/internal/mcp/servers/${encodeURIComponent(input.serverId)}?${buildGatewayMcpDestinationQuery(input.workspaceId, { kind: 'agent', id: input.agentId }).toString()}`,
     createRequestOptions('PATCH', {
       server_name: input.name,
+      server_url: input.url,
       enabled: input.enabled,
       public_headers: input.publicHeaders,
       auth_type: input.auth?.type,
@@ -450,6 +449,7 @@ export async function updateAgentMcpServer(input: UpdateAgentMcpServerInput): Pr
         target_types: input.targetConstraints.targetTypes ?? [],
         target_ids: input.targetConstraints.targetIds ?? []
       } : undefined,
+      tools: input.tools?.map(toGatewayToolPayload),
       remove_tools: input.removeTools || []
     })
   );

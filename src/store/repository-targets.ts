@@ -10,19 +10,29 @@ export async function listTargets(
     cursor?: { createdAt: string; targetId: string } | null;
     q?: string;
     targetType?: TargetType;
+    allowedTargetTypes?: TargetType[];
+    allowedTargetIds?: string[];
     signature?: string;
   } = {}
 ): Promise<PagedResult<TargetSummary>> {
   const limit = Math.max(1, Math.min(100, options.limit ?? 50));
-  const params: Array<string | number> = [workspaceId, limit + 1];
+  const params: Array<string | number | string[]> = [workspaceId, limit + 1];
   const clauses = ['workspace_id = $1'];
+  if (options.allowedTargetTypes?.length) {
+    params.push(options.allowedTargetTypes);
+    clauses.push(`target_type = ANY($${params.length}::text[])`);
+  }
+  if (options.allowedTargetIds?.length) {
+    params.push(options.allowedTargetIds);
+    clauses.push(`id = ANY($${params.length}::text[])`);
+  }
   if (options.targetType) {
     params.push(options.targetType);
     clauses.push(`target_type = $${params.length}`);
   }
   if (options.q) {
-    params.push(`%${options.q.toLowerCase()}%`);
-    clauses.push(`LOWER(name) LIKE $${params.length}`);
+    params.push(`%${options.q.toLowerCase().replace(/[\\%_]/g, '\\$&')}%`);
+    clauses.push(`LOWER(name) LIKE $${params.length} ESCAPE '\\'`);
   }
   if (options.cursor) {
     params.push(options.cursor.createdAt, options.cursor.targetId);

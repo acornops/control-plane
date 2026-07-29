@@ -254,7 +254,9 @@ The control plane owns the platform API boundary. Keep this README as a short in
   configured batch's worst-case same-origin drain time.
 - Execution-engine dispatch uses `Authorization: Bearer <EXECUTION_ENGINE_DISPATCH_TOKEN>`.
 - Target adapters register their live built-in tools against the configured internal bridge URL (the local deployment default is `http://control-plane:8081/internal/v1/mcp`). The server identity comes from the registered target, not a seeded workspace integration.
-- Built-in MCP tool calls use `Authorization: Bearer <run-scoped-jwt>` and derive scope from `run-scoped-jwt-claims`.
+- Every Agent has one platform-managed, toggleable Targets MCP server. Its fixed read-only catalog is `list_targets`, `get_target`, and `list_target_issues`; server connection fields and individual tools cannot be edited or removed. Registration constraints mirror the Agent target scope, and the control plane rechecks that pinned scope when each tool executes. The server remains available to an unbound Agent so `list_targets` can discover scoped targets; its constraints filter results rather than requiring a pre-bound run target.
+- Built-in MCP tool calls use `Authorization: Bearer <run-scoped-jwt>` and derive scope from `run-scoped-jwt-claims`. The bridge authorizes the model-facing tool alias and the exact registry server/tool reference independently.
+- For rolling deployments of this bridge contract, deploy `llm-gateway` before `control-plane`; the gateway begins sending the alias and registry server identity before the control plane requires them.
 - The built-in MCP bridge must classify calls as read or write before writing audit events.
 
 ## Change Checklist

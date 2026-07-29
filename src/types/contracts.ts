@@ -220,10 +220,12 @@ export const startExistingAutoTriageInvestigationsSchema = z.object({
 }).strict();
 
 export const internalMcpToolCallSchema = z.object({
-  name: z.string().min(1),
+  name: z.string().min(1).max(256),
+  toolAlias: z.string().min(1).max(256),
+  serverId: z.string().min(1).max(256),
   arguments: z.record(z.unknown()).optional().default({}),
   toolCallId: z.string().min(1).max(256).optional()
-});
+}).strict();
 
 export const internalToolingSyncSchema = z
   .object({

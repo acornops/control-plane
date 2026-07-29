@@ -147,11 +147,27 @@ describe('internal MCP and native-tool regressions', () => {
       actor,
       approvedContextGrants: ['workspace_metadata', 'target_inventory']
     });
-    const session = await createWorkflowSession({ workflow, createdBy: actor.userId, compiledAccessScope });
+    const scopeWithCollidingTargetTool = {
+      ...compiledAccessScope,
+      tools: [...compiledAccessScope.tools, 'target_list_targets'],
+      toolOperations: {
+        ...compiledAccessScope.toolOperations,
+        target_list_targets: 'read' as const
+      },
+      targetToolRefs: [
+        ...compiledAccessScope.targetToolRefs,
+        { serverId: 'acornops-target-agent', toolName: 'list_targets' }
+      ]
+    };
+    const session = await createWorkflowSession({
+      workflow,
+      createdBy: actor.userId,
+      compiledAccessScope: scopeWithCollidingTargetTool
+    });
     const created = await createWorkflowExecution({
       workflow,
       session,
-      compiledAccessScope,
+      compiledAccessScope: scopeWithCollidingTargetTool,
       content: 'Inspect the cluster.',
       promptDigest: digestPrompt('Inspect the cluster.'),
       bindingDigest: digestBindings([]),
@@ -168,7 +184,7 @@ describe('internal MCP and native-tool regressions', () => {
       audits.push(event.metadata || {});
       return null;
     });
-    mock.method(agentGateway, 'callAgentMcpTool', async () => ({
+    const targetAgentCall = mock.method(agentGateway, 'callAgentMcpTool', async () => ({
       content: [{ type: 'text', text: JSON.stringify({ items: [{ name: 'api-1' }] }) }],
       structuredContent: {
         schemaVersion: 'acornops.full-tool-result.v1',
@@ -189,10 +205,13 @@ describe('internal MCP and native-tool regressions', () => {
       agentId: specialist.id,
       agentVersion: specialist.version,
       allowedTools: ['list_resources'],
+      allowedToolRefs: [{ serverId: 'acornops-target-agent', toolName: 'list_resources' }],
       allowedToolOperations: { list_resources: 'read' },
       contextGrants: []
     }, {
       name: 'list_resources',
+      toolAlias: 'list_resources',
+      serverId: 'acornops-target-agent',
       arguments: { kind: 'Pod' },
       toolCallId: 'call-1'
     });
@@ -201,6 +220,33 @@ describe('internal MCP and native-tool regressions', () => {
     assert.equal((response.body as { isError: boolean }).isError, false);
     assert.equal(audits[0].executionId, run.executionId);
     assert.equal(audits[0].executorRole, 'specialist');
+    assert.equal(targetAgentCall.mock.callCount(), 1);
+
+    const collidingNameResponse = await callBridge({
+      runId: run.id,
+      workspaceId: run.workspaceId,
+      sessionId: run.workflowSessionId,
+      scopeType: 'workspace',
+      targetId: run.targetId,
+      targetType: run.targetType,
+      executionId: run.executionId,
+      executorRole: 'specialist',
+      agentId: specialist.id,
+      agentVersion: specialist.version,
+      allowedTools: ['target_list_targets'],
+      allowedToolRefs: [{ serverId: 'acornops-target-agent', toolName: 'list_targets' }],
+      allowedToolOperations: { target_list_targets: 'read' },
+      contextGrants: []
+    }, {
+      name: 'list_targets',
+      toolAlias: 'target_list_targets',
+      serverId: 'acornops-target-agent',
+      arguments: {},
+      toolCallId: 'call-colliding-name'
+    });
+
+    assert.equal(collidingNameResponse.statusCode, 200);
+    assert.equal(targetAgentCall.mock.callCount(), 2);
   });
 
   it('creates one idempotent Workflow PDF artifact for repeated tool-call delivery', async () => {
@@ -245,6 +291,8 @@ describe('internal MCP and native-tool regressions', () => {
     };
     const body = {
       name: 'reports.pdf.generate',
+      toolAlias: 'reports.pdf.generate',
+      serverId: 'acornops-workspace-native',
       arguments: { title: 'Incident', markdown: '# Incident\n\nRecovered.' },
       toolCallId: 'report-call-1'
     };

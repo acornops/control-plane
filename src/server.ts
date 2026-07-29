@@ -20,6 +20,7 @@ import {
 import { emitTargetChatActivityEvent } from './services/target-chat-activity-events.js';
 import { expireAndResumeTimedOutApprovals } from './services/approval-timeouts.js';
 import { syncTargetBuiltInTools } from './services/target-built-in-tool-sync.js';
+import { syncAgentTargetsBuiltInTools } from './services/agent-targets-mcp-sync.js';
 import { runControlPlaneRetentionSweep } from './services/conversation-retention.js';
 import { runTargetInsightsCheckpointSweep } from './services/target-insights/checkpoint-worker.js';
 import { runWebhookDeliverySweep } from './services/webhook-worker.js';
@@ -28,6 +29,7 @@ import { runWorkflowScheduleTick } from './services/workflow-scheduler.js';
 import { runWorkflowEventTriggerTick } from './services/workflow-event-trigger-worker.js';
 import { refreshAutomationMetricsSnapshot } from './services/automation-diagnostics.js';
 import { repo } from './store/repository.js';
+import { listAgentDefinitionRefs } from './store/repository-agents.js';
 import { runtime } from './store/runtime.js';
 import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE } from './types/domain.js';
 import { runMcpSecretCleanupTick } from './services/mcp-secret-cleanup-worker.js';
@@ -108,8 +110,22 @@ async function main(): Promise<void> {
           }
           synced += 1;
         }
-        if (failed > 0) {
-          logger.warn({ synced, failed, total: regs.length }, 'Periodic built-in tool sync completed with failures');
+        const agents = await listAgentDefinitionRefs();
+        let agentsSynced = 0;
+        let agentsFailed = 0;
+        for (const agent of agents) {
+          const result = await syncAgentTargetsBuiltInTools(agent.workspaceId, agent.agentId);
+          if (!result.ok || result.registeredToolCount === 0) {
+            agentsFailed += 1;
+            continue;
+          }
+          agentsSynced += 1;
+        }
+        if (failed > 0 || agentsFailed > 0) {
+          logger.warn({
+            targets: { synced, failed, total: regs.length },
+            agents: { synced: agentsSynced, failed: agentsFailed, total: agents.length }
+          }, 'Periodic built-in tool sync completed with failures');
         }
       });
     } catch (err) {

@@ -13,6 +13,15 @@ import {
   executeWorkspaceNativeTool,
   WorkspaceNativeToolExecutionError
 } from '../services/workspace-native-tool-executor.js';
+import {
+  executeAgentTargetsMcpTool,
+  AgentTargetsMcpExecutionError
+} from '../services/agent-targets-mcp-executor.js';
+import {
+  isAgentTargetsMcpInstallation,
+  isAgentTargetsMcpToolName
+} from '../services/agent-targets-mcp-catalog.js';
+import { config } from '../config.js';
 
 const ACTIVE_TOOL_RUN_STATUSES = new Set(['dispatching', 'running', 'waiting_for_approval']);
 
@@ -56,6 +65,14 @@ function isToolAllowedByRunToken(toolName: string, allowedTools: string[]): bool
   return allowedTools.includes('*') || allowedTools.includes(toolName);
 }
 
+function isToolRefAllowedByRunToken(
+  serverId: string,
+  toolName: string,
+  allowedToolRefs: Array<{ serverId: string; toolName: string }> | undefined
+): boolean {
+  return Boolean(allowedToolRefs?.some((ref) => ref.serverId === serverId && ref.toolName === toolName));
+}
+
 export function operationForToolCall(claims: Pick<VerifiedRunScopeClaims, 'allowedToolOperations'>, toolName: string): 'read' | 'write' {
   return claims.allowedToolOperations?.[toolName] === 'read' ? 'read' : 'write';
 }
@@ -72,13 +89,17 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
       return;
     }
     const toolName = String(req.body?.name || '');
+    const toolAlias = String(req.body?.toolAlias || '');
+    const serverId = String(req.body?.serverId || '');
     const args = (req.body?.arguments || {}) as Record<string, unknown>;
-    if (!toolName) {
-      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'name is required', retryable: false } });
+    if (!toolName || !toolAlias || !serverId) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'name, toolAlias, and serverId are required', retryable: false } });
       return;
     }
 
-    if (!isToolAllowedByRunToken(toolName, claims.allowedTools)) {
+    const workspaceNativeTool = getWorkspaceNativeTool(toolName);
+    if (!isToolAllowedByRunToken(toolAlias, claims.allowedTools)
+      || (!workspaceNativeTool && !isToolRefAllowedByRunToken(serverId, toolName, claims.allowedToolRefs))) {
       res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Tool is not permitted for this run', retryable: false } });
       return;
     }
@@ -106,7 +127,11 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
       res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Run token scope does not match run', retryable: false } });
       return;
     }
-    if (workflowRun && !workflowRun.compiledAccessScope.tools.includes(toolName)) {
+    const workflowToolRefAllowed = workflowRun && !workspaceNativeTool
+      ? [...workflowRun.compiledAccessScope.mcpTools, ...(workflowRun.compiledAccessScope.targetToolRefs || [])]
+        .some((ref) => ref.serverId === serverId && ref.toolName === toolName)
+      : true;
+    if (workflowRun && (!workflowRun.compiledAccessScope.tools.includes(toolAlias) || !workflowToolRefAllowed)) {
       res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Tool is not permitted for this workflow run', retryable: false } });
       return;
     }
@@ -114,7 +139,99 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
       res.status(409).json({ error: { code: 'RUN_NOT_ACTIVE', message: 'Run is not active for tool execution', retryable: false } });
       return;
     }
-    const workspaceNativeTool = getWorkspaceNativeTool(toolName);
+    const workflowAgent = workflowRun && claims.agentId
+      && workflowRun.executorSnapshot.role === 'specialist'
+      && workflowRun.executorSnapshot.agentId === claims.agentId
+      && workflowRun.executorSnapshot.agentVersion === claims.agentVersion
+      ? workflowRun.executorSnapshot.agent
+      : null;
+    const agentTargetsInstallation = workflowAgent?.mcpInstallations.find((item) => (
+      item.id === serverId
+      && isAgentTargetsMcpInstallation(item, config.BUILTIN_TARGET_MCP_SERVER_URL)
+    ));
+    if (workflowRun && claims.agentId && workflowAgent && agentTargetsInstallation) {
+      if (!isAgentTargetsMcpToolName(toolName)
+        || !agentTargetsInstallation.enabled
+        || !agentTargetsInstallation.tools.some((tool) => (
+          tool.serverId === serverId
+          && tool.toolName === toolName
+          && tool.alias === toolAlias
+          && tool.enabled
+          && tool.reviewState === 'approved'
+          && tool.capability === 'read'
+        ))) {
+        res.status(403).json({ error: {
+          code: 'AGENT_TARGETS_MCP_SCOPE_DENIED',
+          message: 'The Agent Targets MCP tool is outside the pinned Agent capability snapshot.',
+          retryable: false
+        } });
+        return;
+      }
+      const startedAt = Date.now();
+      try {
+        const result = await executeAgentTargetsMcpTool({
+          workspaceId,
+          agent: workflowAgent,
+          toolName,
+          arguments: args
+        });
+        await recordWorkspaceAuditEvent({
+          workspaceId,
+          category: 'tool',
+          eventType: 'tool.called.v1',
+          operation: 'read',
+          actorType: 'system',
+          objectType: 'tool_call',
+          objectId: `${workflowAgent.id}:${toolName}:${startedAt}`,
+          objectName: toolName,
+          summary: 'Built-in Agent Targets MCP tool called',
+          metadata: {
+            agentId: workflowAgent.id,
+            agentVersion: workflowAgent.version,
+            serverId,
+            toolName,
+            source: 'builtin_agent_targets_mcp',
+            runId: claims.runId,
+            durationMs: Date.now() - startedAt,
+            isError: false
+          }
+        });
+        res.status(200).json(result);
+      } catch (error) {
+        await recordWorkspaceAuditEvent({
+          workspaceId,
+          category: 'tool',
+          eventType: 'tool.called.v1',
+          operation: 'read',
+          actorType: 'system',
+          objectType: 'tool_call',
+          objectId: `${workflowAgent.id}:${toolName}:${startedAt}`,
+          objectName: toolName,
+          summary: 'Built-in Agent Targets MCP tool call failed',
+          metadata: {
+            agentId: workflowAgent.id,
+            agentVersion: workflowAgent.version,
+            serverId,
+            toolName,
+            source: 'builtin_agent_targets_mcp',
+            runId: claims.runId,
+            durationMs: Date.now() - startedAt,
+            isError: true
+          }
+        });
+        if (error instanceof AgentTargetsMcpExecutionError) {
+          res.status(error.status).json({ error: {
+            code: error.code,
+            message: error.message,
+            retryable: false,
+            outcome: 'not_started'
+          } });
+          return;
+        }
+        throw error;
+      }
+      return;
+    }
     if (workspaceNativeTool) {
       if (!workflowRun) {
         res.status(403).json({ error: {
@@ -160,8 +277,8 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
 
     const startedAt = Date.now();
     const operation = workflowRun
-      ? operationForWorkflowToolCall(workflowRun, toolName)
-      : operationForToolCall(claims, toolName);
+      ? operationForWorkflowToolCall(workflowRun, toolAlias)
+      : operationForToolCall(claims, toolAlias);
     try {
       const agentResult = await agentGateway.callAgentMcpTool(
         boundTargetId,

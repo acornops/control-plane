@@ -6,6 +6,7 @@ import type {
   AgentDefinitionUpdate,
   CreateAgentDefinitionInput
 } from './repository-agent-types.js';
+import { rebindCapabilityMappingsForAgent } from './repository-capability-routing.js';
 
 export type {
   AgentDefinitionUpdate,
@@ -125,6 +126,13 @@ export async function listAgentDefinitions(workspaceId: string, options: { inclu
     [workspaceId]
   );
   return Promise.all(result.rows.map((row) => mapAgent(row)));
+}
+
+export async function listAgentDefinitionRefs(): Promise<Array<{ workspaceId: string; agentId: string }>> {
+  const result = await db.query<{ workspace_id: string; id: string }>(
+    'SELECT workspace_id,id FROM agent_definitions ORDER BY workspace_id,id'
+  );
+  return result.rows.map((row) => ({ workspaceId: row.workspace_id, agentId: row.id }));
 }
 
 export async function getAgentDefinition(
@@ -325,19 +333,47 @@ export async function updateAgentMcpCapabilitySnapshot(
   workspaceId: string,
   agentId: string,
   snapshot: Pick<AgentDefinition, 'mcpServers' | 'mcpTools' | 'mcpInstallations'>,
-  updatedBy: string
+  updatedBy: string,
+  options: {
+    expectedVersion?: number;
+    rebindActiveMappings?: boolean;
+    incrementVersion?: boolean;
+  } = {}
 ): Promise<AgentDefinition | null> {
   const client = await db.connect();
   try {
     await client.query('BEGIN');
     await client.query(`SELECT set_config('acornops.actor_user_id', $1, true)`, [updatedBy]);
-    const result = await client.query(
+    const result = await client.query<{ version: number }>(
       `UPDATE agent_definitions
-       SET mcp_servers=$3,mcp_tools=$4,mcp_installations=$5,version=version+1,updated_at=NOW()
+       SET mcp_servers=$3,mcp_tools=$4,mcp_installations=$5,version=version+$7,updated_at=NOW()
        WHERE workspace_id=$1 AND id=$2
-       RETURNING id`,
-      [workspaceId, agentId, JSON.stringify(snapshot.mcpServers), JSON.stringify(snapshot.mcpTools), JSON.stringify(snapshot.mcpInstallations)]
+         AND ($6::int IS NULL OR version=$6)
+       RETURNING version`,
+      [
+        workspaceId,
+        agentId,
+        JSON.stringify(snapshot.mcpServers),
+        JSON.stringify(snapshot.mcpTools),
+        JSON.stringify(snapshot.mcpInstallations),
+        options.expectedVersion ?? null,
+        options.incrementVersion === false ? 0 : 1
+      ]
     );
+    if (
+      result.rowCount
+      && options.incrementVersion !== false
+      && options.rebindActiveMappings
+      && options.expectedVersion !== undefined
+    ) {
+      await rebindCapabilityMappingsForAgent(
+        workspaceId,
+        agentId,
+        result.rows[0].version,
+        options.expectedVersion,
+        client
+      );
+    }
     await client.query('COMMIT');
     if (!result.rowCount) return null;
   } catch (error) {

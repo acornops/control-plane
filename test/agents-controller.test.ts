@@ -215,6 +215,22 @@ describe('agents controller', () => {
     assert.equal((response.body as { error: { code: string } }).error.code, 'FORBIDDEN');
   });
 
+  it('rejects an empty selected-target scope instead of broadening it to the workspace', async () => {
+    installWorkspace('admin');
+
+    const response = await callController(createAgent, createRequest(
+      { workspaceId: 'workspace-1' },
+      {
+        name: 'Unscoped specialist',
+        instructions: 'Inspect only explicitly selected targets.',
+        targetScope: { type: 'selected_target', targetTypes: [], targetIds: [] }
+      }
+    ));
+
+    assert.equal(response.statusCode, 400);
+    assert.equal((response.body as { error: { code: string } }).error.code, 'AGENT_OPTION_INVALID');
+  });
+
   it('creates, updates, and versions custom agents for managers', async () => {
     installWorkspace('admin');
     const auditEvents: string[] = [];

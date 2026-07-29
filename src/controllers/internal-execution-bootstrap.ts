@@ -16,6 +16,7 @@ import { toSingleParam } from '../utils/params.js';
 import { resolveReadyInteractiveRunTools } from './interactive-mcp-availability.js';
 import { mapGatewayError } from './workspaces/common.js';
 import { getWorkspaceNativeTool } from '../services/workspace-native-tools.js';
+import { agentMcpInstallationMatchesRunTarget as matchesRunTarget } from '../services/agent-targets-mcp-catalog.js';
 
 const AI_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
 
@@ -57,13 +58,12 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
   const workflowMcpRefs = run.compiledAccessScope.mcpTools || [];
   const workflowMcpRefKeys = new Set(workflowMcpRefs.map((ref) => `${ref.serverId}\u0000${ref.toolName}`));
   const workflowAgentSnapshot = run.executorSnapshot.role === 'specialist'
-    ? run.executorSnapshot.agent
-    : undefined;
+    ? run.executorSnapshot.agent : undefined;
   const workflowMcpTools = (workflowAgentSnapshot?.mcpInstallations || []).flatMap((installation) => {
-    const constraints = installation.targetConstraints;
-    const targetAllowed = (!constraints.targetIds.length || Boolean(run.targetId && constraints.targetIds.includes(run.targetId)))
-      && (!constraints.targetTypes.length || Boolean(run.targetType && constraints.targetTypes.some((type) => type === run.targetType)));
-    if (!installation.enabled || !targetAllowed) return [];
+    const runTarget = run.targetId && run.targetType && isTargetType(run.targetType)
+      ? { id: run.targetId, targetType: run.targetType } : undefined;
+    if (!installation.enabled
+      || !matchesRunTarget(installation, runTarget, config.BUILTIN_TARGET_MCP_SERVER_URL)) return [];
     return installation.tools.filter((tool) => tool.enabled && tool.reviewState === 'approved'
       && workflowMcpRefKeys.has(`${tool.serverId}\u0000${tool.toolName}`));
   });
