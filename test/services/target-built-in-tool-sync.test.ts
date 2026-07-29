@@ -79,9 +79,15 @@ describe('syncTargetBuiltInTools', () => {
     const tools = createdBody?.tools as Array<Record<string, unknown>>;
     assert.equal(tools.some((tool) => tool.name === '_acornops_load_skill'), false);
     assert.equal(tools.find((tool) => tool.name === 'restart_service')?.capability, 'write');
+    assert.equal(tools.find((tool) => tool.name === 'restart_service')?.review_state, 'approved');
+    assert.equal(tools.find((tool) => tool.name === 'restart_service')?.risk_level, 'non_destructive_write');
+    assert.equal(tools.find((tool) => tool.name === 'restart_service')?.auto_allowed, true);
     assert.deepEqual(tools.find((tool) => tool.name === 'restart_service')?.output_schema, { type: 'object' });
     assert.equal(tools.find((tool) => tool.name === 'restart_service')?.artifact_policy, 'always');
     assert.equal(tools.find((tool) => tool.name === 'query_logs')?.capability, 'read');
+    assert.equal(tools.find((tool) => tool.name === 'query_logs')?.review_state, 'approved');
+    assert.equal(tools.find((tool) => tool.name === 'query_logs')?.risk_level, 'read_only');
+    assert.equal(tools.find((tool) => tool.name === 'query_logs')?.auto_allowed, false);
   });
 
   it('reports failure when built-in tools cannot be registered in llm-gateway', async () => {
@@ -158,6 +164,10 @@ describe('syncTargetBuiltInTools', () => {
     assert.equal(patchBody?.server_name, config.BUILTIN_TARGET_MCP_SERVER_NAME);
     assert.equal(patchBody?.server_url, config.BUILTIN_TARGET_MCP_SERVER_URL);
     assert.deepEqual(patchBody?.remove_tools, ['apply_remediation', 'simulate_patch']);
+    const tools = patchBody?.tools as Array<Record<string, unknown>>;
+    assert.equal(tools.find((tool) => tool.name === 'patch_resource')?.review_state, 'approved');
+    assert.equal(tools.find((tool) => tool.name === 'patch_resource')?.risk_level, 'non_destructive_write');
+    assert.equal(tools.find((tool) => tool.name === 'patch_resource')?.auto_allowed, true);
   });
 
   it('fails AgentK synchronization when the result contract is incomplete', async () => {

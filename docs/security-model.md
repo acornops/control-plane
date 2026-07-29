@@ -100,6 +100,14 @@
   Automatic investigations may remove write tools or require more approvals,
   but they cannot add unsupported writes or bypass target-level confirmation.
   The effective policy is pinned when the run starts.
+- Built-in target tools are registered as code-reviewed capabilities. Their
+  bounded write tools are classified as auto-allowable, non-destructive writes,
+  but that catalog metadata is not sufficient to bypass approval: the
+  run-scoped gateway token must also carry `auto_allowed_changes`. Read-only and
+  approval-required runs therefore retain their existing enforcement, while a
+  full-write automatic investigation can execute only when the saved target
+  confirmation policy permits it. External MCP tools retain their independently
+  administered review, risk, and auto-allow metadata.
 - System-started work uses the stable `system-auto-triage` service identity.
   It never borrows an individual user's MCP credentials. Tools that require
   those credentials are omitted and readiness reports a bounded degraded

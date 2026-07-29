@@ -11,6 +11,10 @@ export const db = new Pool({
   allowExitOnIdle: config.NODE_ENV === 'test'
 });
 
+db.on('error', (error) => {
+  logger.error({ err: error }, 'Unexpected idle PostgreSQL client error');
+});
+
 export async function initializeDatabase(): Promise<void> {
   await assertDatabaseMigrationsCurrent(db);
   logger.info('PostgreSQL schema migrations current');

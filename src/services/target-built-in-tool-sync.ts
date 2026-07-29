@@ -92,17 +92,21 @@ export async function syncTargetBuiltInTools(
           throw new Error(`Target agent tool '${tool.name}' is missing a valid input schema`);
         }
         const resultContract = targetAgentResultContract(tool);
+        const capability = normalizeCapability(tool.capability);
         return {
           name: tool.name,
           timeoutMs: tool.timeout_ms || config.ASSISTANT_TOOL_DEFAULT_TIMEOUT_MS,
           description: tool.description,
-          capability: normalizeCapability(tool.capability),
+          capability,
           version: typeof tool.version === 'string' && tool.version.length > 0 ? tool.version : 'v1',
           source: 'builtin' as const,
           inputSchema: sanitizeToolInputSchema(tool.inputSchema),
           outputSchema: resultContract.outputSchema,
           artifactPolicy: resultContract.artifactPolicy,
-          enabled: true
+          enabled: true,
+          reviewState: 'approved' as const,
+          riskLevel: capability === 'read' ? 'read_only' as const : 'non_destructive_write' as const,
+          autoAllowed: capability === 'write'
         };
       });
 

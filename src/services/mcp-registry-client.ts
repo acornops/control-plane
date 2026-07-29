@@ -99,6 +99,9 @@ export interface UpsertTargetMcpServerInput {
     outputSchema?: Record<string, unknown>;
     artifactPolicy?: 'never' | 'if_detailed' | 'always';
     enabled?: boolean;
+    reviewState?: 'pending' | 'approved' | 'rejected';
+    riskLevel?: 'read_only' | 'non_destructive_write' | 'high_risk' | 'destructive';
+    autoAllowed?: boolean;
   }>;
 }
 export interface UpdateTargetMcpServerInput {
@@ -128,6 +131,9 @@ export interface UpdateTargetMcpServerInput {
     outputSchema?: Record<string, unknown>;
     artifactPolicy?: 'never' | 'if_detailed' | 'always';
     enabled?: boolean;
+    reviewState?: 'pending' | 'approved' | 'rejected';
+    riskLevel?: 'read_only' | 'non_destructive_write' | 'high_risk' | 'destructive';
+    autoAllowed?: boolean;
   }>;
   removeTools?: string[];
 }
@@ -236,6 +242,9 @@ function toGatewayToolPayload(tool: {
   outputSchema?: Record<string, unknown>;
   artifactPolicy?: 'never' | 'if_detailed' | 'always';
   enabled?: boolean;
+  reviewState?: 'pending' | 'approved' | 'rejected';
+  riskLevel?: 'read_only' | 'non_destructive_write' | 'high_risk' | 'destructive';
+  autoAllowed?: boolean;
 }) {
   return {
     name: tool.name,
@@ -247,7 +256,10 @@ function toGatewayToolPayload(tool: {
     input_schema: tool.inputSchema,
     output_schema: tool.outputSchema,
     artifact_policy: tool.artifactPolicy,
-    enabled: tool.enabled ?? true
+    enabled: tool.enabled ?? true,
+    review_state: tool.reviewState,
+    risk_level: tool.riskLevel,
+    auto_allowed: tool.autoAllowed
   };
 }
 
