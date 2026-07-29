@@ -29,6 +29,11 @@ retention, workflow, and execution-engine behavior remain authoritative.
 - Resolve and pin write behavior when the investigation starts.
 - Keep automatic investigation activity separate from workflow activity.
 - Use the existing target execution dispatch and cancellation paths.
+- Keep one session API and target chat route, while allowing the console to
+  separate manual Chats from automatic Investigations by session origin.
+- Keep the supplementary unseen badge as per-user, per-target browser UI state
+  derived from existing session timestamps; do not add notification, API, or
+  queue-management objects.
 
 ## Runtime Decisions
 
@@ -50,6 +55,12 @@ retention, workflow, and execution-engine behavior remain authoritative.
 
 ## Validation Log
 
+- 2026-07-29: the queue-visibility polish added a compact per-target
+  active/waiting summary, oldest-waiting age, and low-cardinality global backlog
+  gauges. Snapshot queries are restricted to nonterminal jobs so retained
+  history does not increase the worker's one-second metrics cost. The complete
+  validation suite passed with 1,025 tests plus every static, migration,
+  authorization, contract, OpenAPI, harness, and build gate.
 - 2026-07-29: `npm run validate` passed against the isolated PostgreSQL
   database, including 1,022 tests, migration SQL checks, authorization checks,
   contracts, OpenAPI coverage, harness checks, and the production build.

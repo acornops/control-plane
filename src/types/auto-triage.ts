@@ -62,12 +62,29 @@ export interface AutoTriageEffectiveBehavior {
 export interface TargetAutoTriageSettingsView extends TargetAutoTriageSettings {
   canEdit: boolean;
   eligibleCurrentIssueCount: number;
+  queueSummary: TargetAutoTriageQueueSummary;
   effectiveBehavior: AutoTriageEffectiveBehavior;
   readiness: {
     status: AutoTriageReadinessStatus;
     reasons: AutoTriageReadinessReason[];
     unavailableOptionalMcpToolCount: number;
   };
+}
+
+export interface TargetAutoTriageQueueSummary {
+  activeCount: number;
+  waitingCount: number;
+  oldestWaitingAt?: string;
+}
+
+export interface AutoTriageRuntimeMetricsSnapshot {
+  activeRuns: number;
+  queued: number;
+  blocked: number;
+  processing: number;
+  started: number;
+  stopping: number;
+  oldestWaitingAgeSeconds: number;
 }
 
 export interface TargetAutoTriageJob {
@@ -109,4 +126,17 @@ export interface AutomaticInvestigationSummary {
   updatedAt: string;
   errorCode?: string;
   canRetry: boolean;
+}
+
+export interface AutomaticInvestigationSessionContext {
+  issueId: string;
+  lifecycleVersion: number;
+  severity: TargetIssueSeverity;
+  scopeKind?: string;
+  scopeName?: string;
+  objectKind?: string;
+  objectName?: string;
+  writeMode: AutoTriageWriteMode;
+  effectiveToolMode: ToolAccessMode;
+  confirmationRequiredForWrite: boolean;
 }

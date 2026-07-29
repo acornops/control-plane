@@ -19,7 +19,7 @@ import {
   incrementAutoTriageOutcome,
   incrementAutoTriageRuntimeEvent,
   observeAutoTriageStartLatencyMs,
-  setAutoTriageActiveRuns
+  setAutoTriageRuntimeMetrics
 } from '../metrics-auto-triage.js';
 import {
   AutoTriageSettingsChangedError,
@@ -540,9 +540,9 @@ export async function runTargetAutoTriageTick(limit = 25): Promise<number> {
     }
   }
   try {
-    setAutoTriageActiveRuns(await repo.autoTriage.countActiveTargetAutoTriageRuns());
+    setAutoTriageRuntimeMetrics(await repo.autoTriage.getAutoTriageRuntimeMetricsSnapshot());
   } catch (error) {
-    logger.warn({ error }, 'Failed refreshing automatic investigation active-run metric');
+    logger.warn({ error }, 'Failed refreshing automatic investigation queue metrics');
   }
   return stopping.length + jobs.length;
 }

@@ -68,6 +68,16 @@ export function buildAutoTriageSchemas(): Record<string, JsonSchema> {
         revision: { type: 'integer', minimum: 0 },
         canEdit: { type: 'boolean' },
         eligibleCurrentIssueCount: { type: 'integer', minimum: 0 },
+        queueSummary: {
+          type: 'object',
+          required: ['activeCount', 'waitingCount'],
+          properties: {
+            activeCount: { type: 'integer', minimum: 0 },
+            waitingCount: { type: 'integer', minimum: 0 },
+            oldestWaitingAt: dateTime
+          },
+          additionalProperties: false
+        },
         effectiveBehavior: schemaRef('AutoTriageEffectiveBehavior'),
         readiness: {
           type: 'object',

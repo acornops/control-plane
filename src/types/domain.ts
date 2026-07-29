@@ -365,14 +365,7 @@ export interface ChatSession {
   createdBy: string;
   createdByUser?: UserDisplay;
   origin: 'manual' | 'auto_triage';
-  automaticInvestigation?: {
-    issueId: string;
-    lifecycleVersion: number;
-    severity: import('./target-issues.js').TargetIssueSeverity;
-    writeMode: import('./auto-triage.js').AutoTriageWriteMode;
-    effectiveToolMode: ToolAccessMode;
-    confirmationRequiredForWrite: boolean;
-  };
+  automaticInvestigation?: import('./auto-triage.js').AutomaticInvestigationSessionContext;
   title: string;
   status: 'open' | 'archived' | 'deleted';
   createdAt: string;

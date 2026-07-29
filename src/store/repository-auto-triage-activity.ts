@@ -1,8 +1,10 @@
 import { db } from '../infra/db.js';
 import type {
+  AutoTriageRuntimeMetricsSnapshot,
   AutomaticInvestigationSummary,
   AutoTriageJobStatus,
-  AutoTriageWriteMode
+  AutoTriageWriteMode,
+  TargetAutoTriageQueueSummary
 } from '../types/auto-triage.js';
 import type { TargetIssueSeverity } from '../types/domain.js';
 import { toIso } from './repository-mappers.js';
@@ -60,6 +62,102 @@ export async function countEligibleCurrentAutoTriageIssues(
     [workspaceId, targetId, severityRank(minimumSeverity)]
   );
   return Number(result.rows[0]?.count || 0);
+}
+
+export async function getTargetAutoTriageQueueSummary(
+  workspaceId: string,
+  targetId: string
+): Promise<TargetAutoTriageQueueSummary> {
+  const result = await db.query<{
+    active_count: number | string;
+    waiting_count: number | string;
+    oldest_waiting_at: Date | string | null;
+  }>(
+    `SELECT
+       COUNT(*) FILTER (
+         WHERE (
+           job.status = 'processing'
+           AND job.lease_expires_at > NOW()
+         ) OR (
+           job.status IN ('started', 'stopping')
+           AND run.status IN ('queued', 'dispatching', 'running', 'waiting_for_approval', 'cancelling')
+         )
+       )::int AS active_count,
+       COUNT(*) FILTER (
+         WHERE job.status IN ('queued', 'blocked')
+            OR (
+              job.status = 'processing'
+              AND (job.lease_expires_at IS NULL OR job.lease_expires_at <= NOW())
+            )
+       )::int AS waiting_count,
+       MIN(job.created_at) FILTER (
+         WHERE job.status IN ('queued', 'blocked')
+            OR (
+              job.status = 'processing'
+              AND (job.lease_expires_at IS NULL OR job.lease_expires_at <= NOW())
+            )
+       ) AS oldest_waiting_at
+       FROM target_auto_triage_jobs job
+       LEFT JOIN runs run ON run.id = job.run_id
+      WHERE job.workspace_id = $1
+        AND job.target_id = $2
+        AND job.status IN ('queued', 'blocked', 'processing', 'started', 'stopping')`,
+    [workspaceId, targetId]
+  );
+  const row = result.rows[0];
+  return {
+    activeCount: Number(row?.active_count || 0),
+    waitingCount: Number(row?.waiting_count || 0),
+    oldestWaitingAt: toIso(row?.oldest_waiting_at) || undefined
+  };
+}
+
+export async function getAutoTriageRuntimeMetricsSnapshot(): Promise<AutoTriageRuntimeMetricsSnapshot> {
+  const result = await db.query<{
+    active_runs: number | string;
+    queued: number | string;
+    blocked: number | string;
+    processing: number | string;
+    started: number | string;
+    stopping: number | string;
+    oldest_waiting_age_seconds: number | string | null;
+  }>(
+    `SELECT
+       COUNT(*) FILTER (
+         WHERE job.status IN ('started', 'stopping')
+           AND run.status IN ('queued', 'dispatching', 'running', 'waiting_for_approval', 'cancelling')
+       )::int AS active_runs,
+       COUNT(*) FILTER (WHERE job.status = 'queued')::int AS queued,
+       COUNT(*) FILTER (WHERE job.status = 'blocked')::int AS blocked,
+       COUNT(*) FILTER (WHERE job.status = 'processing')::int AS processing,
+       COUNT(*) FILTER (WHERE job.status = 'started')::int AS started,
+       COUNT(*) FILTER (WHERE job.status = 'stopping')::int AS stopping,
+       COALESCE(
+         EXTRACT(EPOCH FROM (
+           NOW() - MIN(job.created_at) FILTER (
+             WHERE job.status IN ('queued', 'blocked')
+                OR (
+                  job.status = 'processing'
+                  AND (job.lease_expires_at IS NULL OR job.lease_expires_at <= NOW())
+                )
+           )
+         )),
+         0
+       )::int AS oldest_waiting_age_seconds
+       FROM target_auto_triage_jobs job
+       LEFT JOIN runs run ON run.id = job.run_id
+      WHERE job.status IN ('queued', 'blocked', 'processing', 'started', 'stopping')`
+  );
+  const row = result.rows[0];
+  return {
+    activeRuns: Number(row?.active_runs || 0),
+    queued: Number(row?.queued || 0),
+    blocked: Number(row?.blocked || 0),
+    processing: Number(row?.processing || 0),
+    started: Number(row?.started || 0),
+    stopping: Number(row?.stopping || 0),
+    oldestWaitingAgeSeconds: Math.max(0, Number(row?.oldest_waiting_age_seconds || 0))
+  };
 }
 
 function mapInvestigation(

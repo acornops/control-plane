@@ -22,9 +22,13 @@ or a separate recovery-policy system.
   the same durable job rather than creating a duplicate.
 - A qualifying created, reopened, or severity-escalated issue receives at most
   one automatic investigation session per lifecycle version.
-- Automatic sessions stay in the normal recency-sorted target chat history.
-  They use origin metadata, an issue-derived title, and a neutral kickoff brief
-  instead of a separate chat category.
+- Automatic sessions use the existing target session store, route, retention,
+  deletion, and deep-link behavior. The console presents them in a dedicated
+  Investigations history view beside human Chats, while global chat search
+  continues to span both origins.
+- Investigation history uses linked issue scope, object, severity, and current
+  assistant status instead of a redundant origin label. The console derives a
+  bounded browser-local unseen count from existing session creation timestamps.
 - Workflow issue events and webhook behavior remain independent and unchanged.
 
 ## Write Policy
@@ -118,4 +122,8 @@ The worker runs inside the control-plane process and requires no deployment,
 chart, or environment configuration. Per-target settings remain the only
 activation gate. Low-cardinality `control_plane_auto_triage_*` metrics expose
 queueing, outcomes, blockers, queue-to-start latency, runtime events, and active
-runs without workspace, target, issue, session, or run ID labels.
+runs without workspace, target, issue, session, or run ID labels. Current job
+state and oldest-waiting-age gauges expose backlog growth. The target settings
+response also includes a bounded active/waiting summary for the existing
+Settings surface; it does not expose a mutable queue or create a new product
+area.

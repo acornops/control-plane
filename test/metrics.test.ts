@@ -23,6 +23,10 @@ import {
   recordWebhookDeliveryAttempt,
   setWebhookQueueMetrics
 } from '../src/metrics-webhook-delivery.js';
+import {
+  setAutoTriageActiveRuns,
+  setAutoTriageQueueMetrics
+} from '../src/metrics-auto-triage.js';
 
 describe('control-plane metrics', () => {
   it('renders Prometheus-format runtime metrics', () => {
@@ -146,6 +150,27 @@ describe('control-plane metrics', () => {
     assert.match(payload, /control_plane_webhook_jobs\{[^}]*status="paused"[^}]*\} 1/);
     assert.match(payload, /control_plane_webhook_jobs\{[^}]*status="processing"[^}]*\} 4/);
     assert.doesNotMatch(payload, /control_plane_webhook_[^\n]*\{[^}]*(?:workspace|subscription|event)_id=/);
+  });
+
+  it('renders bounded automatic investigation backlog and age metrics', () => {
+    setAutoTriageActiveRuns(2);
+    setAutoTriageQueueMetrics({
+      queued: 7,
+      blocked: 3,
+      processing: 2,
+      started: 2,
+      stopping: 1,
+      oldestWaitingAgeSeconds: 420
+    });
+
+    const payload = renderControlPlaneMetrics();
+
+    assert.match(payload, /control_plane_auto_triage_active_runs\{[^}]*\} 2/);
+    assert.match(payload, /control_plane_auto_triage_jobs\{[^}]*status="queued"[^}]*\} 7/);
+    assert.match(payload, /control_plane_auto_triage_jobs\{[^}]*status="blocked"[^}]*\} 3/);
+    assert.match(payload, /control_plane_auto_triage_jobs\{[^}]*status="processing"[^}]*\} 2/);
+    assert.match(payload, /control_plane_auto_triage_oldest_waiting_age_seconds\{[^}]*\} 420/);
+    assert.doesNotMatch(payload, /control_plane_auto_triage_[^\n]*\{[^}]*(?:workspace|target|issue|session|run)_id=/);
   });
 
   it('renders workspace-native outcomes with canonical bounded IDs and no correlation labels', () => {

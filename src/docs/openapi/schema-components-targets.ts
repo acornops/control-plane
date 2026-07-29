@@ -217,6 +217,10 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
             issueId: uuid,
             lifecycleVersion: { type: 'integer', minimum: 1 },
             severity: { type: 'string', enum: ['critical', 'warning', 'info'] },
+            scopeKind: { type: 'string' },
+            scopeName: { type: 'string' },
+            objectKind: { type: 'string' },
+            objectName: { type: 'string' },
             writeMode: { type: 'string', enum: ['follow_target', 'read_only', 'approval_required', 'full_write'] },
             effectiveToolMode: { type: 'string', enum: ['read_only', 'read_write'] },
             confirmationRequiredForWrite: { type: 'boolean' }

@@ -305,6 +305,8 @@
         "idempotency": "One durable job and one automatic session are allowed for each issue ID and lifecycle version. Enabling or lowering the threshold never queues existing issues without the explicit bulk-start endpoint.",
         "safety": "The target and agent are hard ceilings. read_only exposes no write tools; approval_required forces write confirmation; full_write skips confirmation only when the target permits it. The pinned run confirmation override is honored by target bootstrap.",
         "runtime": "The control-plane worker uses a dedicated non-overlapping one-second timer and error boundary, leases due jobs, limits nonterminal automatic runs to two per target, reuses linked session and run IDs after recovery, guards linked run changes by expected status, reconciles terminal races, omits unavailable individual-credential MCP tools for system-auto-triage, and stops automatic runs when issues resolve. Explicit current-issue queueing is atomic at the saved settings revision, and session creation locks that enabled revision so stale workers cannot start after disablement or a policy edit.",
+        "queueVisibility": "Target settings responses may include queueSummary.{activeCount,waitingCount,oldestWaitingAt?}. Counts follow worker admission semantics, remain independent of Workflow activity, and support a compact link to the existing target issue surface rather than a separate queue page.",
+        "historyUi": "The console filters the existing target session history into manual Chats and auto_triage Investigations while global search spans both. Investigation rows use linked issue scope, object, severity, and assistant status. A per-user, per-target browser marker derives the supplementary unseen badge from existing session creation timestamps; it is not control-plane state.",
         "sharedChat": "Browser members with create_sessions and the relevant run capability may reply to auto_triage sessions with actual message authorship. Manual sessions and all external-integration access remain creator-owned.",
         "workflowIndependence": "Automatic investigation enqueueing is evaluated independently during issue lifecycle persistence and does not alter generic workflow issue events or webhook behavior. The worker does not consult Automation runtime mode or share a Workflow scheduler tick."
       },
@@ -577,7 +579,7 @@
           "items[].createdBy",
           "items[].createdByUser.{id,displayName}?",
           "items[].origin=manual|auto_triage",
-          "items[].automaticInvestigation.{issueId,lifecycleVersion,severity,writeMode,effectiveToolMode,confirmationRequiredForWrite}?",
+          "items[].automaticInvestigation.{issueId,lifecycleVersion,severity,scopeKind?,scopeName?,objectKind?,objectName?,writeMode,effectiveToolMode,confirmationRequiredForWrite}?",
           "items[].lastRuntimeSelection.{provider,model,reasoningEffort}?",
           "nextCursor?"
         ],

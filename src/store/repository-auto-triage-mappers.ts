@@ -6,6 +6,10 @@ export interface AutomaticSessionRowFields {
   linked_issue_id: string | null;
   linked_issue_lifecycle_version: number | string | null;
   linked_issue_severity?: TargetIssueSeverity | null;
+  linked_issue_scope_kind?: string | null;
+  linked_issue_scope_name?: string | null;
+  linked_issue_object_kind?: string | null;
+  linked_issue_object_name?: string | null;
   auto_triage_write_mode: AutoTriageWriteMode | null;
   auto_triage_effective_tool_mode: ToolAccessMode | null;
   auto_triage_confirmation_required: boolean | null;
@@ -34,6 +38,10 @@ export function mapAutomaticSessionFields(
           issueId: row.linked_issue_id!,
           lifecycleVersion: Number(row.linked_issue_lifecycle_version),
           severity: row.linked_issue_severity!,
+          scopeKind: row.linked_issue_scope_kind || undefined,
+          scopeName: row.linked_issue_scope_name || undefined,
+          objectKind: row.linked_issue_object_kind || undefined,
+          objectName: row.linked_issue_object_name || undefined,
           writeMode: row.auto_triage_write_mode!,
           effectiveToolMode: row.auto_triage_effective_tool_mode!,
           confirmationRequiredForWrite: row.auto_triage_confirmation_required!

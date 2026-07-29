@@ -4,7 +4,8 @@ import {
   type AutoTriageEffectiveBehavior,
   type AutoTriageReadinessReason,
   type AutoTriageReadinessStatus,
-  type AutoTriageWriteMode
+  type AutoTriageWriteMode,
+  type TargetAutoTriageSettingsView
 } from '../types/auto-triage.js';
 import type { TargetSummary, ToolAccessMode } from '../types/domain.js';
 import { resolveInteractiveMcpToolAvailability } from './interactive-mcp-tool-availability.js';
@@ -133,18 +134,20 @@ export async function getTargetAutoTriageSettingsPreview(
   workspaceId: string,
   targetId: string,
   canEdit: boolean
-) {
+): Promise<TargetAutoTriageSettingsView | null> {
   const target = await repo.getTarget(workspaceId, targetId);
   if (!target) return null;
   const settings = await repo.autoTriage.getTargetAutoTriageSettings(workspaceId, targetId);
-  const [preview, eligibleCurrentIssueCount] = await Promise.all([
+  const [preview, eligibleCurrentIssueCount, queueSummary] = await Promise.all([
     resolveTargetAutoTriagePreview(target, settings.writeMode),
-    repo.autoTriage.countEligibleCurrentAutoTriageIssues(workspaceId, targetId, settings.minimumSeverity)
+    repo.autoTriage.countEligibleCurrentAutoTriageIssues(workspaceId, targetId, settings.minimumSeverity),
+    repo.autoTriage.getTargetAutoTriageQueueSummary(workspaceId, targetId)
   ]);
   return {
     ...settings,
     canEdit,
     eligibleCurrentIssueCount,
+    queueSummary,
     effectiveBehavior: preview.effectiveBehavior,
     readiness: preview.readiness
   };

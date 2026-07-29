@@ -146,6 +146,37 @@ describe('repository mappers', () => {
     });
   });
 
+  it('maps linked issue scope and object labels for automatic sessions', () => {
+    const session = mapSession({
+      id: 'session-1',
+      workspace_id: 'workspace-1',
+      target_id: 'cluster-1',
+      target_type: 'kubernetes',
+      created_by: 'system-auto-triage',
+      title: 'CrashLoopBackOff in payments',
+      status: 'open',
+      origin: 'auto_triage',
+      linked_issue_id: 'issue-1',
+      linked_issue_lifecycle_version: 1,
+      linked_issue_severity: 'warning',
+      linked_issue_scope_kind: 'namespace',
+      linked_issue_scope_name: 'payments',
+      linked_issue_object_kind: 'Deployment',
+      linked_issue_object_name: 'api',
+      auto_triage_write_mode: 'approval_required',
+      auto_triage_effective_tool_mode: 'read_write',
+      auto_triage_confirmation_required: true,
+      created_at: '2026-05-24T00:00:00.000Z',
+      updated_at: '2026-05-24T00:00:00.000Z',
+      last_message_at: '2026-05-24T00:00:00.000Z',
+      expires_at: '2026-05-25T00:00:00.000Z',
+      deleted_at: null
+    });
+
+    assert.equal(session.automaticInvestigation?.scopeName, 'payments');
+    assert.equal(session.automaticInvestigation?.objectName, 'api');
+  });
+
   it('maps the latest accepted runtime when the repository query joins a run', () => {
     const session = mapSession({
       id: 'session-1',

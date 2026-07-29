@@ -174,10 +174,12 @@ ordinary cancellation and approval-expiry paths.
 
 Monitor the low-cardinality `control_plane_auto_triage_*` metrics for queued
 trigger reasons, terminal outcomes, readiness/dispatch blockers,
-queue-to-start latency, runtime dispatch events, and active runs. These metrics
-never label workspace, target, issue, session, or run IDs. Use the linked audit
-events and bounded public error code for per-job investigation; prompt content,
-raw issue evidence, credentials, and internal errors are intentionally absent.
+queue-to-start latency, runtime dispatch events, active runs, current
+nonterminal job states, and the oldest waiting-job age. The current-state gauges
+make a growing or approval-stalled backlog visible without labeling workspace,
+target, issue, session, or run IDs. Use the linked audit events and bounded
+public error code for per-job investigation; prompt content, raw issue evidence,
+credentials, and internal errors are intentionally absent.
 
 For an initial production rollout, enable a small target cohort in Diagnose only
 or Ask before changes mode first. Confirm that queue-to-start latency remains

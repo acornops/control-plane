@@ -411,17 +411,6 @@ export async function claimStoppingTargetAutoTriageJobs(
   return result.rows.map(mapAutoTriageJob);
 }
 
-export async function countActiveTargetAutoTriageRuns(): Promise<number> {
-  const result = await db.query<{ count: number | string }>(
-    `SELECT COUNT(*)::int AS count
-       FROM target_auto_triage_jobs job
-       JOIN runs run ON run.id = job.run_id
-      WHERE job.status IN ('started', 'stopping')
-        AND run.status IN ('queued', 'dispatching', 'running', 'waiting_for_approval', 'cancelling')`
-  );
-  return Number(result.rows[0]?.count || 0);
-}
-
 export async function synchronizeTargetAutoTriageTerminalRuns(): Promise<TargetAutoTriageJob[]> {
   const result = await db.query<AutoTriageJobRow>(
     `UPDATE target_auto_triage_jobs job
@@ -495,6 +484,8 @@ export async function stopTargetAutoTriageJobsForResolvedIssue(
 
 export {
   countEligibleCurrentAutoTriageIssues,
+  getAutoTriageRuntimeMetricsSnapshot,
+  getTargetAutoTriageQueueSummary,
   getAutomaticInvestigationActivityByIssueIds
 } from './repository-auto-triage-activity.js';
 export {
