@@ -8,9 +8,12 @@ export type AutomationReadinessStatus = 'ready' | 'needs_setup' | 'blocked';
 export type RunPermissionMode = 'read_only' | 'ask_before_changes' | 'auto_allowed_changes';
 
 export interface DefinitionOrigin {
-  type: 'template' | 'manual';
+  type: 'template' | 'manual' | 'agent_chat';
   templateId?: string;
   templateVersion?: number;
+  agentId?: string;
+  agentVersion?: number;
+  systemManaged?: boolean;
 }
 
 export interface RunPrincipalRef {

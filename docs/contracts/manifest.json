@@ -158,6 +158,18 @@
         "mutation": "Every workspace Agent and workflow, including legacy template-origin rows, is directly editable with the corresponding manage permission and is never overwritten, upgraded, or automatically restored by AcornOps. Agent deletion returns structured dependent workflows until those dependencies are removed.",
         "duplication": "manage_agents or manage_workflows may copy the effective definition into a manual draft without capability installations, history, executions, schedules, sessions, or activity."
       },
+      "agentConversationContract": {
+        "paths": [
+          "GET|POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/conversations",
+          "GET|DELETE /api/v1/agent-conversations/{conversationId}",
+          "PATCH /api/v1/agent-conversations/{conversationId}/access",
+          "POST /api/v1/agent-conversations/{conversationId}/messages"
+        ],
+        "runtime": "Console-only single-Agent manual conversations dispatch through a protected system-managed Workflow carrier with origin.type=agent_chat. Carriers are draft-only, hidden from workflow catalogs, and unavailable to direct workflow reads, edits, duplication, schedules, triggers, and capability preview.",
+        "access": "Conversations are workspace-readable. Only the creator may continue, change access, or delete them. New conversations are read_only; read_write requires explicit elevation plus create_read_write_runs and uses existing approval and audit paths.",
+        "pinning": "Creation pins the Agent revision, specialist snapshot, read scope, and maximum capability ceiling. Newly added capabilities are excluded. Removed pinned capabilities fail closed and require a new conversation.",
+        "automationBoundary": "Agent chat cannot schedule, accept triggers, coordinate or delegate to other Agents. Workflows remain the only repeatable, multi-Agent, scheduled, or externally triggered automation model."
+      },
       "catalogAuthorization": {
         "manageSources": "manage_catalog_sources",
         "installAgentMcp": [

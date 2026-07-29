@@ -150,6 +150,60 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
       required: ['agent'],
       properties: { agent: schemaRef('AgentDefinition') }
     },
+    AgentConversationSummary: {
+      type: 'object',
+      required: ['id', 'workspaceId', 'agentId', 'agentVersion', 'title', 'createdBy', 'accessMode', 'createdAt'],
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        workspaceId: { type: 'string', format: 'uuid' },
+        agentId: { type: 'string' },
+        agentVersion: { type: 'integer', minimum: 1 },
+        title: { type: 'string' },
+        createdBy: { type: 'string', format: 'uuid' },
+        accessMode: { type: 'string', enum: ['read_only', 'read_write'] },
+        launchedAt: dateTime,
+        createdAt: dateTime
+      },
+      additionalProperties: false
+    },
+    AgentConversationMessage: {
+      type: 'object',
+      required: ['id', 'role', 'content', 'createdAt'],
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        role: { type: 'string', enum: ['user', 'assistant', 'system'] },
+        content: { type: 'string' },
+        runId: { type: 'string', format: 'uuid' },
+        createdAt: dateTime
+      },
+      additionalProperties: true
+    },
+    AgentConversationList: {
+      type: 'object',
+      required: ['items'],
+      properties: {
+        items: { type: 'array', items: schemaRef('AgentConversationSummary') }
+      },
+      additionalProperties: false
+    },
+    AgentConversationDetail: {
+      type: 'object',
+      required: ['conversation', 'messages', 'runs'],
+      properties: {
+        conversation: schemaRef('AgentConversationSummary'),
+        messages: { type: 'array', items: schemaRef('AgentConversationMessage') },
+        runs: { type: 'array', items: jsonObject }
+      },
+      additionalProperties: false
+    },
+    AgentConversationAccessResponse: {
+      type: 'object',
+      required: ['conversation'],
+      properties: {
+        conversation: schemaRef('AgentConversationSummary')
+      },
+      additionalProperties: false
+    },
     AgentVersionResponse: {
       type: 'object',
       required: ['version'],

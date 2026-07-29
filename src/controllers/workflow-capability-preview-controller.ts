@@ -19,7 +19,7 @@ import { getWorkflowCapabilityReadinessReport } from '../services/workflow-readi
 import { getAgentDefinition } from '../store/repository-agents.js';
 import { listCapabilityRoutingMappings } from '../store/repository-capability-routing.js';
 import { repo } from '../store/repository.js';
-import { getWorkflowDefinition } from '../store/repository-workflows.js';
+import { getWorkflowDefinition, isAgentChatCarrier } from '../store/repository-workflows.js';
 import type { WorkflowAccessActor, WorkflowCapabilitiesPreview, WorkflowCapabilityPreviewReasonCode, WorkflowCapabilityToolPreview, WorkflowTargetCapabilityCandidate } from '../types/workflows.js';
 import type { PromptResourceBinding } from '../types/prompt-resources.js';
 import { toSingleParam } from '../utils/params.js';
@@ -216,7 +216,7 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
     const workspaceId = requestWorkspaceId(req);
     if (!workspaceId) return void res.status(400).json({ error: { code: 'WORKFLOW_WORKSPACE_REQUIRED', message: 'workspaceId is required.', retryable: false } });
     const workflow = await getWorkflowDefinition(workspaceId, toSingleParam(req.params.workflowId));
-    if (!workflow) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
+    if (!workflow || isAgentChatCarrier(workflow)) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
     const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
     const requiredCapability = workflow.capabilityPolicy.mode === 'read_write' ? 'create_read_write_runs' : 'create_read_only_runs';
