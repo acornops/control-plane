@@ -1,8 +1,10 @@
 import { EXAMPLE_TRACE_ID } from '../../constants/dev-defaults.js';
 import { buildAuthChatPaths } from './auth-chat-paths.js';
+import { buildMcpOAuthPaths } from './mcp-oauth-paths.js';
 
 export function buildAuthPaths(exampleReturnTo: string, exampleRedirectUri: string): Record<string, unknown> {
   return {
+    ...buildMcpOAuthPaths(),
     '/api/v1/auth/oidc/login': {
         get: {
           tags: ['auth'],

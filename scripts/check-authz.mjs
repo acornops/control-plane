@@ -122,12 +122,14 @@ function routeCalls(source) {
 function isRouteActorMiddleware(candidate) {
   return /\brequireUser\b/.test(candidate) ||
     /\brequireLinkedExternalIntegration\b/.test(candidate) ||
+    /\bmcpOAuthController\.requireMcpOAuthCallbackSession\b/.test(candidate) ||
     /\brequireActor\s*\(\s*\[\s*'user'\s*(?:,\s*'externalIntegration'\s*)?\]\s*\)/.test(candidate);
 }
 
 const authorization = read('src/auth/authorization.ts');
 const workspaceAuthorization = read('src/auth/workspace-authorization.ts');
 const authMiddleware = read('src/auth/middleware.ts');
+const mcpOAuthController = read('src/controllers/mcp-oauth-controller.ts');
 const workspaceRoutes = read('src/routes/workspaces.ts');
 const workspaceControllerPath = 'src/controllers/workspaces-controller.ts';
 const clusterControllerPath = 'src/controllers/workspaces/kubernetes-cluster-controller.ts';
@@ -196,6 +198,11 @@ assert(authMiddleware.includes("export const requireUser = requireActor(['user']
 assert(
   authMiddleware.includes("export const requireExternalIntegrationClient = requireActor(['externalIntegrationClient'])"),
   'auth middleware must preserve explicit external client middleware'
+);
+assert(
+  mcpOAuthController.includes('const session = await getSessionUser(req);')
+    && mcpOAuthController.includes("credential: { type: 'session', sessionId: session.sessionId }"),
+  'MCP OAuth callback middleware must authenticate the initiating browser session'
 );
 assert(!listFiles('src').filter((file) => file.endsWith('.ts')).some((file) => read(file).includes('authUserId')), 'authUserId must not remain in src');
 

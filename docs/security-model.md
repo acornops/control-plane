@@ -35,6 +35,19 @@
   administrators. Forward them once to the gateway and never place them in
   logs, response bodies, or audit metadata. Clients cannot select the outbound
   authentication header; the MCP installation owns that configuration.
+- Individual MCP OAuth uses authorization code with PKCE in the gateway and a
+  control-plane browser binding cookie. In production the cookie is
+  `__Host-acornops-mcp-oauth-binding` with Secure, HttpOnly, SameSite=Lax, and
+  Path=/ attributes. Preparation and start require the same authenticated user,
+  destination authorization, installation owner, and browser binding.
+- The public CIMD document and callback URLs are derived only from
+  `CONTROL_PLANE_BASE_URL` and `MANAGEMENT_CONSOLE_BASE_URL`; request Host
+  headers are never trusted. Callback redirects are constrained to the
+  canonical console origin and an encrypted-flow local path.
+- Provider tokens, codes, state, PKCE material, authorization URLs, and raw
+  provider errors are excluded from browser storage, audit metadata, logs, and
+  connection status. The callback forwards only bounded protocol parameters to
+  the gateway and returns a stable result code to the browser.
 - Agents are invoked only through Workflows. Public standalone Agent runs and Agent-level inbound webhook triggers are not supported.
 - Never log Agent or Workflow prompts, chat bodies, tool arguments, webhook payloads, report source, PDF contents, credentials, or continuation state. Audit stable IDs, actors, capability snapshots, decisions, and terminal outcomes.
 

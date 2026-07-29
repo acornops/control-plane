@@ -17,6 +17,7 @@
 - `REDIS_URL`
 - `CONTROL_PLANE_BASE_URL`
 - `MANAGEMENT_CONSOLE_BASE_URL`
+- `MCP_OAUTH_ENABLED` defaults to `true`; set it to `false` to disable automatic individual MCP OAuth.
 - `CORS_ORIGIN`
 - `OIDC_HTTP_TIMEOUT_MS` (default `10000`)
 - `OIDC_CLIENT_SECRET`
@@ -50,6 +51,24 @@ When the selected provider is OpenAI and the configured API surface is
 marks it unavailable and omits it from target assistant run grants. Restoring
 `responses` makes the configured preference effective again. llm-gateway keeps
 its native-tool validation as defense in depth.
+
+## Automatic MCP OAuth
+
+Automatic MCP OAuth is enabled by default. Before deploying, configure the
+canonical public control-plane and console HTTPS URLs, Redis, and gateway
+encrypted secret backend. The public console URL is the source of both
+`/api/v1/mcp/oauth/client-metadata` and `/api/v1/mcp/oauth/callback`; its
+same-origin `/api` route must forward both to the control plane without
+rewriting the advertised origin. This keeps the callback on the host that owns
+the browser's host-only AcornOps session cookie. Set `MCP_OAUTH_ENABLED=false`
+on both backend components to disable it.
+
+The callback requires the same AcornOps user session and the reusable
+production `__Host-acornops-mcp-oauth-binding` cookie created during
+preparation. The cookie is HttpOnly, Secure, SameSite=Lax, Path=/, and expires
+after ten minutes. Authorization-server outages are not control-plane
+readiness dependencies. Rollback is to disable the OAuth flag; existing none,
+bearer-token, and custom-header connections remain available.
 
 ## Private Webhook Destinations
 

@@ -4,6 +4,7 @@ export function schemaForOperation(method: string, path: string, statusCode: str
 
   const exact: Record<string, string> = {
     'GET /api/v1/auth/config': 'AuthConfig',
+    'GET /api/v1/mcp/oauth/client-metadata': 'McpOAuthClientMetadata',
     'GET /api/v1/auth/oidc/callback': 'AuthSessionResponse',
     'GET /api/v1/auth/csrf': 'CsrfToken',
     'POST /api/v1/auth/password/login': 'AuthSessionResponse',
@@ -64,6 +65,8 @@ export function schemaForOperation(method: string, path: string, statusCode: str
     'GET /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/connection': 'McpConnectionResponse',
     'PUT /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/connection': 'McpConnectionResponse',
     'POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/connection/verify': 'McpConnectionResponse',
+    'POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/connection/oauth/prepare': 'McpOAuthPreparation',
+    'POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/connection/oauth/start': 'McpOAuthStart',
     'GET /api/v1/workspaces/{workspaceId}/agents/{agentId}/skills': 'AgentSkillList',
     'POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/skills': 'AgentSkillResponse',
     'POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/skills/import': 'AgentSkillResponse',
@@ -133,6 +136,8 @@ export function schemaForOperation(method: string, path: string, statusCode: str
     'GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/connection': 'McpConnectionResponse',
     'PUT /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/connection': 'McpConnectionResponse',
     'POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/connection/verify': 'McpConnectionResponse',
+    'POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/connection/oauth/prepare': 'McpOAuthPreparation',
+    'POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/connection/oauth/start': 'McpOAuthStart',
     'POST /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/test-connection': 'TargetMcpTestConnection',
     'GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools': 'McpToolPage',
     'PATCH /api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/tools/{toolName}': 'TargetMcpToolConfig',

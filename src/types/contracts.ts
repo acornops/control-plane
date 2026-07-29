@@ -346,7 +346,7 @@ export const adminPlatformSettingResetSchema = z.object({
   reason: z.string().trim().min(3).max(500)
 }).strict();
 
-const mcpAuthTypeSchema = z.enum(['none', 'bearer_token', 'custom_header']);
+const mcpAuthTypeSchema = z.enum(['none', 'bearer_token', 'custom_header', 'oauth']);
 
 const headerNamePattern = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const reservedHeaderNames = new Set([
@@ -443,6 +443,16 @@ function validateMcpAuthConfig(auth: z.infer<typeof mcpAuthConfigSchema>, ctx: z
       message: 'auth.headerName is required when auth.type is custom_header'
     });
   }
+  if (
+    authType === 'oauth'
+    && (auth?.headerName !== undefined || auth?.headerPrefix !== undefined)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['auth'],
+      message: 'OAuth does not accept auth header fields'
+    });
+  }
 }
 
 export const createMcpServerSchema = z.object({
@@ -462,6 +472,9 @@ export const createMcpServerSchema = z.object({
   if (authType !== 'none' && input.credentialMode === 'none') {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['credentialMode'], message: 'authenticated MCP servers require workspace or individual credentials' });
   }
+  if (authType === 'oauth' && input.credentialMode !== 'individual') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['credentialMode'], message: 'OAuth requires individual credentials' });
+  }
 });
 
 export const updateMcpServerSchema = z.object({
@@ -477,6 +490,9 @@ export const updateMcpServerSchema = z.object({
 }).strict().superRefine((input, ctx) => {
   validateMcpPublicHeaders(input.publicHeaders, ctx);
   validateMcpAuthConfig(input.auth, ctx);
+  if (input.auth?.type === 'oauth' && input.credentialMode && input.credentialMode !== 'individual') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['credentialMode'], message: 'OAuth requires individual credentials' });
+  }
 });
 
 export const updateTargetMcpServerToolSchema = z.object({

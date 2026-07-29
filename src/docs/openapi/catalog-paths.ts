@@ -71,7 +71,7 @@ const manualAgentMcpBody = {
       name: { type: 'string' },
       url: { type: 'string', format: 'uri', pattern: '^https://', description: 'Actual remote Streamable HTTP MCP endpoint. Registry, server.json, package, container, and stdio locations are rejected.' },
       enabled: { type: 'boolean' },
-      authType: { type: 'string', enum: ['none', 'bearer_token', 'custom_header'] },
+      authType: { type: 'string', enum: ['none', 'bearer_token', 'custom_header', 'oauth'] },
       credentialMode: { type: 'string', enum: ['none', 'workspace', 'individual'], description: 'Required for authenticated installations. Defaults to individual.' },
       authHeaderName: { type: 'string' },
       authHeaderPrefix: { type: 'string' },
@@ -98,7 +98,7 @@ const manualAgentMcpUpdateBody = {
       name: { type: 'string', minLength: 1 },
       enabled: { type: 'boolean' },
       expectedRevision: { type: 'integer', minimum: 1 },
-      authType: { type: 'string', enum: ['none', 'bearer_token', 'custom_header'] },
+      authType: { type: 'string', enum: ['none', 'bearer_token', 'custom_header', 'oauth'] },
       credentialMode: { type: 'string', enum: ['none', 'workspace', 'individual'] },
       authHeaderName: { type: 'string', minLength: 1 },
       authHeaderPrefix: { type: 'string' },
@@ -145,6 +145,68 @@ function verifyConnectionPath(parameters: unknown[]) {
     summary: 'Retry verification of the stored MCP credential',
     security: [{ userSession: [] }], parameters,
     responses: { '200': connectionResponse, ...connectionErrors }
+  } };
+}
+
+function prepareOAuthPath(parameters: unknown[]) {
+  return { post: {
+    tags: ['catalog'],
+    summary: 'Discover automatic MCP OAuth authorization',
+    description: 'For an individual OAuth installation, validates protected-resource and authorization-server metadata and selects CIMD or unauthenticated DCR for a client without token authentication. No provider configuration or client secret is accepted.',
+    security: [{ userSession: [] }],
+    parameters,
+    requestBody: {
+      required: true,
+      content: { 'application/json': { schema: {
+        type: 'object',
+        required: ['returnPath'],
+        properties: {
+          returnPath: {
+            type: 'string',
+            pattern: '^/(?!/)',
+            description: 'Safe management-console path restored after the callback.'
+          }
+        },
+        additionalProperties: false
+      } } }
+    },
+    responses: {
+      '200': {
+        description: 'Validated authorization-server choices and requested scopes.',
+        content: { 'application/json': { schema: { $ref: '#/components/schemas/McpOAuthPreparation' } } }
+      },
+      ...connectionErrors
+    }
+  } };
+}
+
+function startOAuthPath(parameters: unknown[]) {
+  return { post: {
+    tags: ['catalog'],
+    summary: 'Start MCP OAuth browser authorization',
+    description: 'Consumes the preparation, requires explicit consent plus a required issuer selection, and returns a short-lived authorization URL. Provider credentials remain outside the browser.',
+    security: [{ userSession: [] }],
+    parameters,
+    requestBody: {
+      required: true,
+      content: { 'application/json': { schema: {
+        type: 'object',
+        required: ['preparationHandle', 'consentGranted'],
+        properties: {
+          preparationHandle: { type: 'string', minLength: 43, maxLength: 256 },
+          issuer: { type: 'string', format: 'uri' },
+          consentGranted: { type: 'boolean', enum: [true] }
+        },
+        additionalProperties: false
+      } } }
+    },
+    responses: {
+      '200': {
+        description: 'Authorization URL for immediate top-level browser navigation.',
+        content: { 'application/json': { schema: { $ref: '#/components/schemas/McpOAuthStart' } } }
+      },
+      ...connectionErrors
+    }
   } };
 }
 
@@ -223,6 +285,10 @@ export function buildCatalogPaths(): Record<string, unknown> {
     '/api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/connection': connectionPaths(agentConnection),
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/connection': connectionPaths(targetConnection),
     '/api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/connection/verify': verifyConnectionPath(agentConnection),
-    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/connection/verify': verifyConnectionPath(targetConnection)
+    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/connection/verify': verifyConnectionPath(targetConnection),
+    '/api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/connection/oauth/prepare': prepareOAuthPath(agentConnection),
+    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/connection/oauth/prepare': prepareOAuthPath(targetConnection),
+    '/api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/connection/oauth/start': startOAuthPath(agentConnection),
+    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/connection/oauth/start': startOAuthPath(targetConnection)
   };
 }

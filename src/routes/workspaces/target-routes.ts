@@ -3,6 +3,7 @@ import { authenticatedHandler, requireActor, requireUser } from '../../auth/midd
 import * as workspacesController from '../../controllers/workspaces-controller.js';
 import { importTargetCatalogMcpServer, reimportTargetCatalogMcpServer } from '../../controllers/catalog-controller.js';
 import * as mcpConnectionsController from '../../controllers/mcp-connections-controller.js';
+import * as mcpOAuthController from '../../controllers/mcp-oauth-controller.js';
 import {
   createMcpServerSchema,
   createTargetInsightsEntrySchema,
@@ -168,6 +169,8 @@ export function registerTargetRoutes(router: Router): void {
   router.put('/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/connection', requireUser, authed(mcpConnectionsController.putMcpConnection));
   router.delete('/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/connection', requireUser, authed(mcpConnectionsController.deleteMcpConnectionStatus));
   router.post('/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/connection/verify', requireUser, authed(mcpConnectionsController.verifyMcpConnectionStatus));
+  router.post('/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/connection/oauth/prepare', requireUser, authed(mcpOAuthController.prepareMcpOAuthConnection));
+  router.post('/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/connection/oauth/start', requireUser, authed(mcpOAuthController.startMcpOAuthConnection));
   router.patch(
     '/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId',
     requireActor(['user']),

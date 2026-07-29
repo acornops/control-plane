@@ -496,7 +496,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         canDelete: { type: 'boolean' },
         canEditConnection: { type: 'boolean' },
         canToggle: { type: 'boolean' },
-        authType: { type: 'string', enum: ['none', 'bearer_token', 'custom_header'] },
+        authType: { type: 'string', enum: ['none', 'bearer_token', 'custom_header', 'oauth'] },
         credentialMode: { type: 'string', enum: ['none', 'workspace', 'individual'] },
         revision: { type: 'integer', minimum: 1 },
         provenance: { type: 'object', required: ['sourceId', 'artifactName', 'version', 'digest', 'importedAt'], properties: { sourceId: uuid, artifactName: { type: 'string' }, version: { type: 'string' }, digest: { type: 'string' }, importedAt: dateTime }, additionalProperties: false },

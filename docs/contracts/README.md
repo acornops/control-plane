@@ -143,6 +143,17 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Workspace provisioning creates default workflows once as ordinary workspace-owned definitions. Recommended workflows use the existing automation-template API as a catalog and idempotent add action, but the resulting workflows are directly editable and are never overwritten, upgraded, or automatically restored by AcornOps. Optional recommendations remain paused and report `needs_setup` until live prerequisites pass.
 - AcornOps does not provision a repository-review Agent or workflow and does not maintain provider-specific source-control profiles. A workspace manager creates a specialist Agent, installs and reviews a compatible MCP server through the generic Agent capability routes, then creates a workflow that selects that Agent. When the Agent has no platform semantic capability IDs, run compilation snapshots those reviewed exact attachments directly; platform semantic capabilities still require reviewed routing mappings. Credentialed installations use the same secret-free `mcpRequirements` and mode-aware connection flow as every other user-created Agent attachment.
 - Workflow capability previews identify credential recovery by generic MCP server ID, ownership mode, auth type, owning Agent, connection state, and action. They never expose provider-profile identities, endpoint URLs, header configuration, credential values, or individual connection inventories. The console writes a replacement credential through the installation connection route and then recomputes preview readiness.
+- Individual OAuth installations use a two-step prepare/start browser flow for
+  both Agent and target destinations. The control plane binds the encrypted
+  gateway flow to the current user and a reusable HttpOnly browser cookie,
+  publishes the deployment-derived CIMD document, and accepts the provider
+  callback only with the initiating AcornOps session. The callback forwards only
+  `code`, `state`, RFC 9207 `iss`, and the provider error identifier.
+- MCP OAuth accepts no issuer, endpoint, provider, client ID, client secret, or
+  token configuration from installation APIs. Status may expose only issuer
+  origin, CIMD/DCR method, scopes, expiry, refresh capability, stable error code,
+  and next action; authorization URLs appear only in the immediate start
+  response and are never retained in status.
 - Authorized users may duplicate an effective definition into a manual draft without copying execution history, sessions, schedules, activity, or capability installations.
 - Agents contribute capabilities only to direct or delegated specialist
   Workflow runs.

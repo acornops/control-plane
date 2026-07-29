@@ -42,13 +42,12 @@ async function withTestServer<T>(run: (baseUrl: string) => Promise<T>): Promise<
 }
 
 describe('internal service routing', () => {
-  it('returns 404 for removed MCP OAuth and service-connection routes', async () => {
+  it('mounts automatic MCP OAuth while keeping retired credential routes absent', async () => {
     const connectionBases = [
       '/api/v1/workspaces/ws-1/targets/target-1/mcp/servers/server-1/connection',
       '/api/v1/workspaces/ws-1/agents/agent-1/mcp/servers/server-1/connection'
     ];
     const removedSuffixes = [
-      '/oauth/start',
       '/oauth/complete',
       '/oauth/client-credentials',
       '/service-connection'
@@ -56,11 +55,27 @@ describe('internal service routing', () => {
 
     await withTestServer(async (baseUrl) => {
       for (const connectionBase of connectionBases) {
+        for (const suffix of ['/oauth/prepare', '/oauth/start']) {
+          const response = await fetch(`${baseUrl}${connectionBase}${suffix}`, { method: 'POST' });
+          assert.equal(response.status, 401, `${connectionBase}${suffix}`);
+        }
         for (const suffix of removedSuffixes) {
           const response = await fetch(`${baseUrl}${connectionBase}${suffix}`, { method: 'POST' });
           assert.equal(response.status, 404, `${connectionBase}${suffix}`);
         }
       }
+
+      const callback = await fetch(
+        `${baseUrl}/api/v1/mcp/oauth/callback?state=${'a'.repeat(43)}&code=code`,
+        { redirect: 'manual' }
+      );
+      assert.equal(callback.status, 303);
+      const callbackLocation = new URL(callback.headers.get('location') || '');
+      assert.equal(callbackLocation.origin, new URL(config.MANAGEMENT_CONSOLE_BASE_URL).origin);
+      assert.equal(
+        callbackLocation.searchParams.get('mcpOAuthResult'),
+        'MCP_OAUTH_SESSION_REQUIRED'
+      );
     });
   });
 

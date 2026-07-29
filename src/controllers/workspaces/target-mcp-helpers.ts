@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { McpServerConfig } from '../../services/mcp-registry-client.js';
 
 const targetMcpAuthSchema = z.object({
-  type: z.enum(['none', 'bearer_token', 'custom_header']),
+  type: z.enum(['none', 'bearer_token', 'custom_header', 'oauth']),
   headerName: z.string().min(1).optional(),
   headerPrefix: z.string().optional()
 }).strict();
@@ -29,7 +29,17 @@ const targetMcpCreateSchema = z.object({
   publicHeaders: z.record(z.string(), z.string()).optional(),
   auth: targetMcpAuthSchema.optional(),
   credentialMode: z.enum(['none', 'workspace', 'individual']).optional()
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (value.auth?.type === 'oauth' && value.credentialMode !== 'individual') {
+    context.addIssue({ code: 'custom', message: 'OAuth requires individual credentials.' });
+  }
+  if (
+    value.auth?.type === 'oauth'
+    && (value.auth.headerName !== undefined || value.auth.headerPrefix !== undefined)
+  ) {
+    context.addIssue({ code: 'custom', message: 'OAuth does not accept auth header fields.' });
+  }
+});
 
 const targetMcpUpdateSchema = z.object({
   name: z.string().trim().min(1).optional(),
@@ -41,7 +51,21 @@ const targetMcpUpdateSchema = z.object({
   tools: z.array(targetMcpToolSchema).optional(),
   removeTools: z.array(z.string().trim().min(1)).optional(),
   expectedRevision: z.number().int().min(1).optional()
-}).strict().refine((value) => Object.keys(value).length > 0, 'At least one update field is required.');
+}).strict().superRefine((value, context) => {
+  if (
+    value.auth?.type === 'oauth'
+    && value.credentialMode
+    && value.credentialMode !== 'individual'
+  ) {
+    context.addIssue({ code: 'custom', message: 'OAuth requires individual credentials.' });
+  }
+  if (
+    value.auth?.type === 'oauth'
+    && (value.auth.headerName !== undefined || value.auth.headerPrefix !== undefined)
+  ) {
+    context.addIssue({ code: 'custom', message: 'OAuth does not accept auth header fields.' });
+  }
+}).refine((value) => Object.keys(value).length > 0, 'At least one update field is required.');
 
 export const targetMcpToolSettingsSchema = z.object({
   enabled: z.boolean(),

@@ -14,7 +14,13 @@ import {
   type AdminTokenDescriptor,
   type WorkspacePlanDefinition
 } from './config-admin.js';
-import { httpsInternalUrlConfigIssues, httpsUrlProductionIssues, oidcIssuerProductionIssues } from './config-url-policy.js';
+import {
+  databasePassword,
+  httpsInternalUrlConfigIssues,
+  httpsUrlProductionIssues,
+  isCanonicalPublicOrigin,
+  oidcIssuerProductionIssues
+} from './config-url-policy.js';
 import {
   parseExternalIntegrationClientDescriptors,
   type ExternalIntegrationClientDescriptor
@@ -90,7 +96,6 @@ function addProductionIssue(ctx: z.RefinementCtx, path: string, message: string)
     message
   });
 }
-
 function addConfigIssue(ctx: z.RefinementCtx, field: string, message: string): void {
   ctx.addIssue({
     code: z.ZodIssueCode.custom,
@@ -98,16 +103,6 @@ function addConfigIssue(ctx: z.RefinementCtx, field: string, message: string): v
     message
   });
 }
-
-function databasePassword(value: string): string | undefined {
-  try {
-    const url = new URL(value);
-    return decodeURIComponent(url.password);
-  } catch {
-    return undefined;
-  }
-}
-
 const optionalUrlFromEnv = z.preprocess(emptyStringToUndefined, z.string().url().optional());
 const optionalStringFromEnv = z.preprocess(emptyStringToUndefined, z.string().optional());
 const optionalPositiveIntFromEnv = z.preprocess(
@@ -140,6 +135,7 @@ const envSchema = z.object({
   CONTROL_PLANE_BASE_URL: z.string().url().default('http://localhost:8081'),
   CONTROL_PLANE_INSTANCE_ID: z.preprocess(emptyStringToUndefined, z.string().min(1).default(process.env.HOSTNAME || randomUUID())),
   MANAGEMENT_CONSOLE_BASE_URL: z.string().url().default('http://localhost:3000'),
+  MCP_OAUTH_ENABLED: envBoolean(true),
   CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS: z.coerce.number().int().positive().default(90),
   CONTROL_PLANE_AGENT_SNAPSHOT_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(60),
   CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED: optionalEnvBoolean(),
@@ -321,6 +317,13 @@ const envSchema = z.object({
   validateLlmPolicyConfig(ctx, value);
   validateAgentKHelmConfig(ctx, value);
   validateOptionalReadableFile(ctx, 'ADDITIONAL_CA_BUNDLE_FILE', value.ADDITIONAL_CA_BUNDLE_FILE);
+  if (value.MCP_OAUTH_ENABLED && !isCanonicalPublicOrigin(value.MANAGEMENT_CONSOLE_BASE_URL)) {
+    addConfigIssue(
+      ctx,
+      'MANAGEMENT_CONSOLE_BASE_URL',
+      'MCP OAuth requires a canonical HTTP(S) console origin without credentials, a path, query, or fragment'
+    );
+  }
   const webhookEgressError = webhookAllowedPrivateHostsJsonError(value.WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON);
   if (webhookEgressError) {
     addConfigIssue(ctx, 'WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON', webhookEgressError);

@@ -116,8 +116,12 @@ export async function genericMcpAuthRequirements(input: {
       workspaceManaged ? 'installation' : 'user',
       workspaceManaged ? 'installation' : input.userId
     );
-    const authType = server.auth_type === 'custom_header' ? 'custom_header' as const : 'bearer_token' as const;
-    const credentialLabel = authType === 'bearer_token' ? 'API key or bearer token' : 'Custom header credential';
+    const authType = server.auth_type === 'oauth'
+      ? 'oauth' as const
+      : server.auth_type === 'custom_header' ? 'custom_header' as const : 'bearer_token' as const;
+    const credentialLabel = authType === 'oauth'
+      ? 'OAuth browser authorization'
+      : authType === 'bearer_token' ? 'API key or bearer token' : 'Custom header credential';
     return {
       serverId: server.id,
       serverName,
@@ -131,14 +135,17 @@ export async function genericMcpAuthRequirements(input: {
         credentialLabel,
         requiredInformation: [{
           name: credentialLabel,
-          description: workspaceManaged
+          description: authType === 'oauth'
+            ? `Authorize your account for ${serverName} in a browser. AcornOps stores the resulting user connection privately.`
+            : workspaceManaged
             ? `Provide a service or bot credential for ${serverName}. Authorized users and automations, including service identities, will use it.`
             : `Provide your credential for ${serverName}. AcornOps stores it privately and never returns it. User-owned schedules that run as you will use this connection.`
         }]
       },
       action: connection.status === 'connected' ? 'none' as const
-        : connection.status === 'error' ? 'verify_mcp_server' as const
+        : connection.action || (connection.status === 'error' ? 'verify_mcp_server' as const
           : 'connect_mcp_server' as const
+        )
     };
   };
 

@@ -23,7 +23,7 @@ import { mapGatewayError } from './workspaces/common.js';
 
 const INSTALLATION_OWNER_ID = 'installation';
 
-type ConnectionContext = {
+export type ConnectionContext = {
   workspaceId: string;
   server: McpServerConfig;
   authz: WorkspaceAuthorization;
@@ -32,7 +32,7 @@ type ConnectionContext = {
   canManage: boolean;
 };
 
-function mapConnection(connection: McpConnectionConfig, canManage: boolean) {
+export function mapConnection(connection: McpConnectionConfig, canManage: boolean) {
   return {
     serverId: connection.server_id,
     credentialMode: connection.credential_mode,
@@ -42,12 +42,21 @@ function mapConnection(connection: McpConnectionConfig, canManage: boolean) {
     authType: connection.auth_type,
     action: connection.action || undefined,
     ...(connection.error_code ? { errorCode: connection.error_code } : {}),
+    ...(connection.issuer_origin ? { issuerOrigin: connection.issuer_origin } : {}),
+    ...(connection.registration_method
+      ? { registrationMethod: connection.registration_method }
+      : {}),
+    ...(connection.scopes ? { scopes: connection.scopes } : {}),
+    ...(connection.token_expires_at ? { tokenExpiresAt: connection.token_expires_at } : {}),
+    ...(connection.refresh_capable !== undefined
+      ? { refreshCapable: connection.refresh_capable }
+      : {}),
     ...(connection.verified_at ? { verifiedAt: connection.verified_at } : {}),
     ...(connection.updated_at ? { updatedAt: connection.updated_at } : {})
   };
 }
 
-function forwardGatewayError(err: unknown, res: Response, next: NextFunction): void {
+export function forwardGatewayError(err: unknown, res: Response, next: NextFunction): void {
   if (err instanceof LlmGatewayHttpError) {
     const mapped = mapGatewayError(err, {
       upstreamMessage: 'MCP connection service is unavailable'
@@ -67,7 +76,7 @@ function canRunWithMcp(authz: { can(capability: WorkspaceCapability): boolean })
     || authz.can('create_read_write_runs');
 }
 
-async function requireConnectionServer(
+export async function requireConnectionServer(
   req: AuthenticatedRequest,
   res: Response,
   mutation = false
@@ -229,6 +238,16 @@ export async function putMcpConnection(
   try {
     const context = await requireConnectionServer(req, res, true);
     if (!context) return;
+    if (context.server.auth_type === 'oauth') {
+      res.status(409).json({
+        error: {
+          code: 'MCP_OAUTH_BROWSER_AUTHORIZATION_REQUIRED',
+          message: 'Use browser authorization for this MCP server.',
+          retryable: false
+        }
+      });
+      return;
+    }
     const credential = parseCredentialBody(req, res);
     if (credential === null) return;
     const connection = await upsertMcpConnection({

@@ -36,7 +36,7 @@ export function buildTargetMcpWireSchemas(): Record<string, JsonSchema> {
         server_name: { type: 'string' },
         server_url: { type: 'string', format: 'uri' },
         enabled: { type: 'boolean' },
-        auth_type: { type: 'string', enum: ['none', 'bearer_token', 'custom_header'] },
+        auth_type: { type: 'string', enum: ['none', 'bearer_token', 'custom_header', 'oauth'] },
         credential_mode: { type: 'string', enum: ['none', 'workspace', 'individual'] },
         auth_header_name: { type: 'string' },
         auth_header_prefix: { type: 'string' },

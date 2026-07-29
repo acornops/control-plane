@@ -162,6 +162,8 @@ export function createResponse() {
     body: undefined as unknown,
     sent: false,
     headers: new Map<string, string>(),
+    cookies: new Map<string, { value: string; options: Record<string, unknown> }>(),
+    redirectLocation: undefined as string | undefined,
     status(code: number) {
       this.statusCode = code;
       return this;
@@ -178,6 +180,15 @@ export function createResponse() {
     setHeader(name: string, value: string) {
       this.headers.set(name.toLowerCase(), value);
       return this;
+    },
+    cookie(name: string, value: string, options: Record<string, unknown>) {
+      this.cookies.set(name, { value, options });
+      return this;
+    },
+    redirect(code: number, location: string) {
+      this.statusCode = code;
+      this.redirectLocation = location;
+      return this;
     }
   };
 }
@@ -186,6 +197,7 @@ export function createRequest(params: Record<string, string>, body: Record<strin
     params,
     body,
     query: {},
+    cookies: {} as Record<string, string>,
     auth: {
       userId: 'user-1',
       credential: { type: 'session' as const, sessionId: 'session-1' }

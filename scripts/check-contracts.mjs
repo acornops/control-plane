@@ -57,7 +57,17 @@ const contracts = [
 ].join('\n');
 const runEventsContract = read('src/types/run-events-contract.ts');
 const configSource = read('src/config.ts');
-const mcpRegistryClient = read('src/services/mcp-registry-client.ts');
+const mcpRegistryClient = [
+  read('src/services/mcp-registry-client.ts'),
+  read('src/services/mcp-catalog-client.ts')
+].join('\n');
+const mcpOAuthSource = [
+  read('src/controllers/mcp-oauth-controller.ts'),
+  read('src/auth/mcp-oauth-browser-binding.ts'),
+  read('src/routes/agents.ts'),
+  read('src/routes/auth.ts'),
+  read('src/routes/workspaces/target-routes.ts')
+].join('\n');
 const wsServer = read('src/agent/ws-server.ts');
 const agentSource = [wsServer, read('src/agent/handshake.ts')].join('\n');
 const toolSync = [
@@ -292,6 +302,24 @@ for (const adminPath of [
   '/api/v1/internal/mcp/servers/${encodeURIComponent(serverId)}/test'
 ]) {
   expectIncludes(mcpRegistryClient, adminPath, 'LLM-gateway admin client path');
+}
+
+for (const oauthNeedle of [
+  'MCP_OAUTH_ENABLED',
+  '/api/v1/internal/mcp/oauth/complete',
+  '/connection/oauth/prepare',
+  '/connection/oauth/start',
+  '/mcp/oauth/client-metadata',
+  '/mcp/oauth/callback',
+  '__Host-acornops-mcp-oauth-binding',
+  "sameSite: 'lax'",
+  "token_endpoint_auth_method: 'none'"
+]) {
+  expectIncludes(
+    mcpRegistryClient + mcpOAuthSource + configSource + manifestText,
+    oauthNeedle,
+    'Automatic MCP OAuth contract'
+  );
 }
 
 for (const schemaNeedle of [

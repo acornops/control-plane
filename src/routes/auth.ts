@@ -5,11 +5,18 @@ import * as authController from '../controllers/auth-controller.js';
 import * as emailVerificationController from '../controllers/email-verification-controller.js';
 import * as externalIntegrationLinkController from '../controllers/external-integration-link-controller.js';
 import * as passwordResetController from '../controllers/password-reset-controller.js';
+import * as mcpOAuthController from '../controllers/mcp-oauth-controller.js';
 
 export const authRouter = Router();
 const authed = authenticatedHandler;
 
 authRouter.get('/auth/config', authController.authConfig);
+authRouter.get('/mcp/oauth/client-metadata', mcpOAuthController.getMcpOAuthClientMetadata);
+authRouter.get(
+  '/mcp/oauth/callback',
+  mcpOAuthController.requireMcpOAuthCallbackSession,
+  authed(mcpOAuthController.completeMcpOAuthCallback)
+);
 authRouter.get('/auth/csrf', authController.csrfToken);
 authRouter.get('/auth/oidc/login', authController.oidcLogin);
 authRouter.get('/auth/oidc/callback', authController.oidcCallback);

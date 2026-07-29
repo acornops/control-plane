@@ -5,6 +5,7 @@ import * as agentsLifecycleController from '../controllers/agents-lifecycle-cont
 import { getAutomationDiagnostics } from '../controllers/automation-diagnostics-controller.js';
 import * as agentMcpController from '../controllers/agent-mcp-controller.js';
 import * as mcpConnectionsController from '../controllers/mcp-connections-controller.js';
+import * as mcpOAuthController from '../controllers/mcp-oauth-controller.js';
 import { importAgentCatalogMcpServer, reimportAgentCatalogMcpServer } from '../controllers/catalog-controller.js';
 import * as agentSkillsController from '../controllers/agent-skills-controller.js';
 import * as serviceIdentitiesController from '../controllers/service-identities-controller.js';
@@ -40,6 +41,8 @@ agentsRouter.get('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId
 agentsRouter.put('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/connection', requireUser, publicAgentVisibility, authed(mcpConnectionsController.putMcpConnection));
 agentsRouter.delete('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/connection', requireUser, publicAgentVisibility, authed(mcpConnectionsController.deleteMcpConnectionStatus));
 agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/connection/verify', requireUser, publicAgentVisibility, authed(mcpConnectionsController.verifyMcpConnectionStatus));
+agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/connection/oauth/prepare', requireUser, publicAgentVisibility, authed(mcpOAuthController.prepareMcpOAuthConnection));
+agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/connection/oauth/start', requireUser, publicAgentVisibility, authed(mcpOAuthController.startMcpOAuthConnection));
 agentsRouter.get('/workspaces/:workspaceId/agents/:agentId/skills', requireUser, publicAgentVisibility, authed(agentSkillsController.listSkills));
 agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/skills', requireUser, publicAgentVisibility, authed(agentSkillsController.createSkill));
 agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/skills/import', requireUser, publicAgentVisibility, authed(agentSkillsController.importSkill));

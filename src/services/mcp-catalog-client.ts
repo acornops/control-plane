@@ -133,12 +133,45 @@ export type ImportCatalogMcpServerInput = ImportCatalogMcpServerBaseInput & (
 export interface McpConnectionConfig {
   server_id: string;
   credential_mode: 'workspace' | 'individual';
-  status: 'missing' | 'connected' | 'error';
-  auth_type: 'bearer_token' | 'custom_header';
-  action?: 'connect_mcp_server' | 'verify_mcp_server' | null;
+  status: 'missing' | 'pending_authorization' | 'connected' | 'reauthorization_required' | 'error';
+  auth_type: 'bearer_token' | 'custom_header' | 'oauth';
+  action?:
+    | 'connect_mcp_server'
+    | 'authorize_mcp_server'
+    | 'select_authorization_server'
+    | 'reauthorize_mcp_server'
+    | 'verify_mcp_server'
+    | null;
   error_code?: string | null;
+  issuer_origin?: string | null;
+  registration_method?: 'cimd' | 'dcr' | null;
+  scopes?: string[];
+  token_expires_at?: string | null;
+  refresh_capable?: boolean;
   verified_at?: string | null;
   updated_at?: string | null;
+}
+
+export interface McpOAuthIssuerCandidate {
+  issuer: string;
+  issuer_origin: string;
+  registration_method: 'cimd' | 'dcr';
+  scopes: string[];
+  offline_access_requested: boolean;
+}
+
+export interface McpOAuthPrepareResult {
+  preparation_handle: string;
+  resource_origin: string;
+  candidates: McpOAuthIssuerCandidate[];
+  issuer_selection_required: boolean;
+}
+
+export interface McpOAuthCompleteResult {
+  connection: McpConnectionConfig;
+  return_path: string;
+  workspace_id: string;
+  server_id: string;
 }
 
 export interface UpsertMcpConnectionInput {
@@ -164,7 +197,12 @@ export interface McpReadinessResult {
     server_id: string;
     tool_name: string;
     code: McpReadinessFailureCode;
-    action?: 'connect_mcp_server' | 'verify_mcp_server' | null;
+    action?:
+      | 'connect_mcp_server'
+      | 'authorize_mcp_server'
+      | 'reauthorize_mcp_server'
+      | 'verify_mcp_server'
+      | null;
   }>;
 }
 
@@ -399,6 +437,73 @@ export async function verifyMcpConnection(
     })
   );
   return parseGatewayResponse<McpConnectionConfig>(response);
+}
+
+export async function prepareMcpOAuth(input: {
+  workspaceId: string;
+  serverId: string;
+  ownerId: string;
+  browserBindingHash: string;
+  returnPath: string;
+}): Promise<McpOAuthPrepareResult> {
+  const response = await fetchGateway(
+    `/api/v1/internal/mcp/servers/${encodeURIComponent(input.serverId)}/connections/${encodeURIComponent(input.ownerId)}/oauth/prepare`,
+    createGatewayRequestOptions('POST', {
+      workspace_id: input.workspaceId,
+      owner_id: input.ownerId,
+      browser_binding_hash: input.browserBindingHash,
+      return_path: input.returnPath
+    })
+  );
+  return parseGatewayResponse<McpOAuthPrepareResult>(response);
+}
+
+export async function startMcpOAuth(input: {
+  workspaceId: string;
+  serverId: string;
+  ownerId: string;
+  browserBindingHash: string;
+  preparationHandle: string;
+  issuer?: string;
+  consentGranted: true;
+}): Promise<{ authorization_url: string; metadata_changed: boolean }> {
+  const response = await fetchGateway(
+    `/api/v1/internal/mcp/servers/${encodeURIComponent(input.serverId)}/connections/${encodeURIComponent(input.ownerId)}/oauth/start`,
+    createGatewayRequestOptions('POST', {
+      workspace_id: input.workspaceId,
+      owner_id: input.ownerId,
+      browser_binding_hash: input.browserBindingHash,
+      preparation_handle: input.preparationHandle,
+      issuer: input.issuer,
+      consent_granted: input.consentGranted
+    })
+  );
+  return parseGatewayResponse<{
+    authorization_url: string;
+    metadata_changed: boolean;
+  }>(response);
+}
+
+export async function completeMcpOAuth(input: {
+  ownerId: string;
+  browserBindingHash: string;
+  state: string;
+  code?: string;
+  issuer?: string;
+  providerError?: string;
+}): Promise<McpOAuthCompleteResult> {
+  const response = await fetchGateway(
+    '/api/v1/internal/mcp/oauth/complete',
+    createGatewayRequestOptions('POST', {
+      owner_id: input.ownerId,
+      browser_binding_hash: input.browserBindingHash,
+      state: input.state,
+      code: input.code,
+      issuer: input.issuer,
+      provider_error: input.providerError
+    })
+  );
+  return parseGatewayResponse<McpOAuthCompleteResult>(response);
 }
 
 export async function checkMcpReadiness(input: {

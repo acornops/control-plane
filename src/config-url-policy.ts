@@ -3,6 +3,31 @@ export interface ConfigIssue {
   message: string;
 }
 
+export function databasePassword(value: string): string | undefined {
+  try {
+    return decodeURIComponent(new URL(value).password);
+  } catch {
+    return undefined;
+  }
+}
+
+export function isCanonicalPublicOrigin(value: string): boolean {
+  if (value.length > 2048 || /[^\u0000-\u007F]/u.test(value)) return false;
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === 'http:' || url.protocol === 'https:')
+      && url.username === ''
+      && url.password === ''
+      && (url.pathname === '' || url.pathname === '/')
+      && url.search === ''
+      && url.hash === ''
+    );
+  } catch {
+    return false;
+  }
+}
+
 function isClusterInternalHttpUrl(value: string): boolean {
   try {
     const url = new URL(value);

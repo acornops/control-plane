@@ -134,7 +134,7 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
                   auth: {
                     type: 'object',
                     properties: {
-                      type: { type: 'string', enum: ['none', 'bearer_token', 'custom_header'], example: 'bearer_token' },
+                      type: { type: 'string', enum: ['none', 'bearer_token', 'custom_header', 'oauth'], example: 'bearer_token' },
                       headerName: { type: 'string', example: 'Authorization' },
                       headerPrefix: { type: 'string', example: 'Bearer ' }
                     },
@@ -185,7 +185,7 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
                   auth: {
                     type: 'object',
                     properties: {
-                      type: { type: 'string', enum: ['none', 'bearer_token', 'custom_header'], example: 'bearer_token' },
+                      type: { type: 'string', enum: ['none', 'bearer_token', 'custom_header', 'oauth'], example: 'bearer_token' },
                       headerName: { type: 'string', example: 'Authorization' },
                       headerPrefix: { type: 'string', example: 'Bearer ' }
                     },

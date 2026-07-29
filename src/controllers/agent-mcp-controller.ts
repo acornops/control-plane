@@ -56,7 +56,7 @@ const agentMcpCreateSchema = z.object({
   name: z.string().trim().min(1),
   url: z.string().trim().min(1),
   enabled: z.boolean().optional(),
-  authType: z.enum(['none', 'bearer_token', 'custom_header']).optional(),
+  authType: z.enum(['none', 'bearer_token', 'custom_header', 'oauth']).optional(),
   credentialMode: z.enum(['none', 'workspace', 'individual']).optional(),
   authHeaderName: z.string().min(1).optional(),
   authHeaderPrefix: z.string().optional(),
@@ -76,13 +76,22 @@ const agentMcpCreateSchema = z.object({
   if (authType === 'custom_header' && !value.authHeaderName) {
     context.addIssue({ code: 'custom', message: 'Custom-header auth requires authHeaderName.' });
   }
+  if (authType === 'oauth' && value.credentialMode !== 'individual') {
+    context.addIssue({ code: 'custom', message: 'OAuth requires individual credentials.' });
+  }
+  if (
+    authType === 'oauth'
+    && (value.authHeaderName !== undefined || value.authHeaderPrefix !== undefined)
+  ) {
+    context.addIssue({ code: 'custom', message: 'OAuth does not accept auth header fields.' });
+  }
 });
 
 const agentMcpUpdateSchema = z.object({
   name: z.string().trim().min(1).optional(),
   enabled: z.boolean().optional(),
   expectedRevision: z.number().int().min(1).optional(),
-  authType: z.enum(['none', 'bearer_token', 'custom_header']).optional(),
+  authType: z.enum(['none', 'bearer_token', 'custom_header', 'oauth']).optional(),
   credentialMode: z.enum(['none', 'workspace', 'individual']).optional(),
   authHeaderName: z.string().min(1).optional(),
   authHeaderPrefix: z.string().optional(),

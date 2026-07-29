@@ -37,7 +37,7 @@ export interface McpServerConfig {
   server_name: string;
   server_url: string;
   enabled: boolean;
-  auth_type: 'none' | 'bearer_token' | 'custom_header';
+  auth_type: 'none' | 'bearer_token' | 'custom_header' | 'oauth';
   credential_mode: 'none' | 'workspace' | 'individual';
   auth_header_name?: string;
   auth_header_prefix?: string;
@@ -83,7 +83,7 @@ export interface UpsertTargetMcpServerInput {
   enabled?: boolean;
   publicHeaders?: Record<string, string>;
   auth?: {
-    type?: 'none' | 'bearer_token' | 'custom_header';
+    type?: 'none' | 'bearer_token' | 'custom_header' | 'oauth';
     headerName?: string;
     headerPrefix?: string;
   };
@@ -114,7 +114,7 @@ export interface UpdateTargetMcpServerInput {
   enabled?: boolean;
   publicHeaders?: Record<string, string>;
   auth?: {
-    type?: 'none' | 'bearer_token' | 'custom_header';
+    type?: 'none' | 'bearer_token' | 'custom_header' | 'oauth';
     headerName?: string;
     headerPrefix?: string;
   };

@@ -160,7 +160,7 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
           properties: {
             serverId: { type: 'string', minLength: 1 },
             serverName: { type: 'string', minLength: 1, maxLength: 160 },
-            authType: { type: 'string', enum: ['bearer_token', 'custom_header'] },
+            authType: { type: 'string', enum: ['bearer_token', 'custom_header', 'oauth'] },
             owningAgent: {
               type: 'object',
               required: ['id', 'name'],
