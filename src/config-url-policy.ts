@@ -28,6 +28,14 @@ export function isCanonicalPublicOrigin(value: string): boolean {
   }
 }
 
+export function mcpOAuthConfigIssues(enabled: boolean, managementConsoleBaseUrl: string): ConfigIssue[] {
+  if (!enabled || isCanonicalPublicOrigin(managementConsoleBaseUrl)) return [];
+  return [{
+    field: 'MANAGEMENT_CONSOLE_BASE_URL',
+    message: 'MCP OAuth requires a canonical HTTP(S) console origin without credentials, a path, query, or fragment'
+  }];
+}
+
 function isClusterInternalHttpUrl(value: string): boolean {
   try {
     const url = new URL(value);
