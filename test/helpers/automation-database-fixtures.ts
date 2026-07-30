@@ -59,17 +59,17 @@ export async function installAutomationTemplateFixtures(
     for (const workspaceId of workspaceIds) {
       await client.query(
         `INSERT INTO agent_definitions (
-           workspace_id,id,name,description,instructions,status,provider_type,version,owner_user_id,created_by,
+           workspace_id,id,name,avatar_emoji,description,instructions,status,provider_type,version,owner_user_id,created_by,
            mcp_servers,tools,skills,context_grants,target_scope,approval_policy,trust_policy,mcp_tools,mcp_installations,
            permission_mode,skill_installations,origin,review_state,semantic_capability_ids,
            readiness_status,readiness_reasons
          ) VALUES
-         ($1,'agent-cluster-triage','Target Diagnostics','Collects target diagnostic evidence.','Stay inside the exact target scope.','active','internal',2,'user-1','user-1',
+         ($1,'agent-cluster-triage','Target Diagnostics','🔎','Collects target diagnostic evidence.','Stay inside the exact target scope.','active','internal',2,'user-1','user-1',
           '["acornops-target-agent"]','["get_resource","get_resource_logs","list_resources"]','["acornops-observability"]','["target_inventory","workspace_metadata"]',
           '{"type":"selected_target","targetTypes":["kubernetes","virtual_machine"]}',
           '{"mode":"before_write","writeToolsRequireApproval":true}','{"level":"restricted","allowExternalData":false}',
           '[]','[]','read_only','[]','{"type":"template","templateId":"acornops-starter","templateVersion":1}','reviewed','["target.diagnostics.read"]','ready','[]'),
-         ($1,'agent-incident-reporter','Incident Reporter','Creates evidence-backed incident reports.','Use only explicitly granted evidence.','active','internal',2,'user-1','user-1',
+         ($1,'agent-incident-reporter','Incident Reporter','📝','Creates evidence-backed incident reports.','Use only explicitly granted evidence.','active','internal',2,'user-1','user-1',
           '[]','["prompt.resources.read","reports.pdf.generate"]','[]','[]',
           '{"type":"workspace"}','{"mode":"before_write","writeToolsRequireApproval":true}','{"level":"restricted","allowExternalData":false}',
           '[]','[]','read_only','[]','{"type":"template","templateId":"acornops-starter","templateVersion":1}','reviewed','["incident.report.generate"]','ready','[]')`,

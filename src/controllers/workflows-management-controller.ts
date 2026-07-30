@@ -17,7 +17,8 @@ import {
   withEffectiveWorkflowRuntimePolicy
 } from '../services/workflow-runtime-policy.js';
 import {
-  getWorkflowDefinition
+  getWorkflowDefinition,
+  isAgentChatCarrier
 } from '../store/repository-workflows.js';
 import type {
   WorkflowCapabilityPolicy,
@@ -287,7 +288,7 @@ export async function duplicateWorkflow(req: AuthenticatedRequest, res: Response
     if (!(await requireWorkspaceCapability(req, res, workspaceId, 'manage_workflows', 'No permission to duplicate workflows'))) return;
     const requestBody = strictWorkflowBody(req.body, workflowDuplicateBodySchema);
     const source = await getWorkflowDefinition(workspaceId, toSingleParam(req.params.workflowId));
-    if (!source) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
+    if (!source || isAgentChatCarrier(source)) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
     const workflow = await createWorkflowThroughDefinitionService({
       workspaceId,
       name: typeof requestBody.name === 'string' ? requestBody.name : `${source.name} copy`,
@@ -315,7 +316,7 @@ export async function updateWorkflow(req: AuthenticatedRequest, res: Response, n
     if (!(await requireWorkspaceCapability(req, res, workspaceId, 'manage_workflows', 'No permission to edit workflows'))) return;
     const workflowId = toSingleParam(req.params.workflowId);
     const current = await getWorkflowDefinition(workspaceId, workflowId);
-    if (!current) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
+    if (!current || isAgentChatCarrier(current)) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
     const body = strictWorkflowBody(req.body, workflowUpdateBodySchema);
     const agentIds = workflowAgentIds(body.agentIds);
     if (!agentIds) {
@@ -358,7 +359,7 @@ export async function deleteWorkflow(req: AuthenticatedRequest, res: Response, n
     strictWorkflowBody(req.body, workflowWorkspaceBodySchema);
     const workflowId = toSingleParam(req.params.workflowId);
     const current = await getWorkflowDefinition(workspaceId, workflowId);
-    if (!current) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
+    if (!current || isAgentChatCarrier(current)) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
     const result = await deleteWorkflowThroughDefinitionService(workspaceId, workflowId);
     if (result === 'not_found') return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
     await audit(req, current, 'workflow.definition_deleted.v2', 'Workflow V2 definition deleted');

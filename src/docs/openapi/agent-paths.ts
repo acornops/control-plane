@@ -14,6 +14,13 @@ const agentIdPathParameter = {
   schema: { type: 'string', example: 'agt_01JEXAMPLE' }
 };
 
+const agentConversationIdPathParameter = {
+  in: 'path',
+  name: 'conversationId',
+  required: true,
+  schema: { type: 'string', format: 'uuid' }
+};
+
 const nativeToolIdPathParameter = {
   in: 'path', name: 'toolId', required: true,
   schema: { type: 'string', example: 'reports.pdf.generate' }
@@ -121,6 +128,114 @@ export function buildAgentPaths(): Record<string, unknown> {
         responses: {
           '201': { description: 'Agent created.' },
           '403': { description: 'Requires manage_agents.' }
+        }
+      }
+    },
+    '/api/v1/workspaces/{workspaceId}/agents/{agentId}/conversations': {
+      get: {
+        tags: ['agents'],
+        summary: 'List Agent conversations',
+        description: 'Workspace-readable manual conversations for one Agent. System workflow carriers are never returned.',
+        security: [{ userSession: [] }],
+        parameters: [workspaceIdParameter, agentIdPathParameter],
+        responses: {
+          '200': { description: 'Agent conversation summaries.' },
+          '403': { description: 'Requires workspace read access.' },
+          '404': { description: 'Agent not found.' }
+        }
+      },
+      post: {
+        tags: ['agents'],
+        summary: 'Create an Agent conversation',
+        description: 'Creates a console-only single-Agent conversation with a pinned Agent revision, permissionMode, and capability ceiling. Access defaults to the intersection of the pinned Agent policy and the creator run permissions.',
+        security: [{ userSession: [] }],
+        parameters: [workspaceIdParameter, agentIdPathParameter],
+        responses: {
+          '201': { description: 'Agent conversation created with policy-derived access.' },
+          '403': { description: 'Requires create_sessions and a run capability compatible with the pinned Agent policy.' },
+          '409': { description: 'Agent is not ready for chat.' }
+        }
+      }
+    },
+    '/api/v1/agent-conversations/{conversationId}': {
+      get: {
+        tags: ['agents'],
+        summary: 'Read an Agent conversation',
+        description: 'Workspace members with data read access may inspect the conversation, messages, and runs.',
+        security: [{ userSession: [] }],
+        parameters: [agentConversationIdPathParameter],
+        responses: {
+          '200': { description: 'Agent conversation detail.' },
+          '403': { description: 'Requires workspace read access.' },
+          '404': { description: 'Conversation not found.' }
+        }
+      },
+      delete: {
+        tags: ['agents'],
+        summary: 'Delete an Agent conversation',
+        description: 'Only the creator may delete the conversation and delete_sessions is required.',
+        security: [{ userSession: [] }],
+        parameters: [agentConversationIdPathParameter],
+        responses: {
+          '204': { description: 'Conversation deleted.' },
+          '403': { description: 'Creator ownership or delete_sessions is required.' }
+        }
+      }
+    },
+    '/api/v1/agent-conversations/{conversationId}/access': {
+      patch: {
+        tags: ['agents'],
+        summary: 'Change Agent conversation access mode',
+        description: 'Only the creator may change access. read_write requires creator permission and a pinned Agent policy that allows writes; the pinned capability ceiling remains unchanged.',
+        security: [{ userSession: [] }],
+        parameters: [agentConversationIdPathParameter],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['accessMode'],
+                properties: { accessMode: { type: 'string', enum: ['read_only', 'read_write'] } },
+                additionalProperties: false
+              }
+            }
+          }
+        },
+        responses: {
+          '200': { description: 'Conversation access changed.' },
+          '403': { description: 'Creator ownership and the matching run capability are required.' },
+          '409': { description: 'The pinned Agent policy is read-only.' }
+        }
+      }
+    },
+    '/api/v1/agent-conversations/{conversationId}/messages': {
+      post: {
+        tags: ['agents'],
+        summary: 'Continue an Agent conversation',
+        description: 'Only the creator may dispatch a message. Revoked pinned capabilities fail closed and newly added capabilities are excluded.',
+        security: [{ userSession: [] }],
+        parameters: [agentConversationIdPathParameter],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['content'],
+                properties: {
+                  content: { type: 'string', minLength: 1 },
+                  clientRequestId: { type: 'string', format: 'uuid' }
+                },
+                additionalProperties: false
+              }
+            }
+          }
+        },
+        responses: {
+          '202': { description: 'Agent conversation message accepted through workflow execution.' },
+          '403': { description: 'Only the creator may continue the conversation.' },
+          '409': { description: 'A pinned capability was revoked or runtime readiness failed.' }
         }
       }
     },

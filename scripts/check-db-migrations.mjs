@@ -19,7 +19,7 @@ const migrationFiles = readdirSync(migrationsDir)
   .sort();
 assert.deepEqual(
   migrationFiles,
-  ['001_initial_schema.sql', '002_user_sign_in_methods.sql', '003_workspace_defaults.sql'],
+  ['001_initial_schema.sql', '002_user_sign_in_methods.sql', '003_workspace_defaults.sql', '004_agent_avatar_emoji.sql'],
   'the control-plane schema must include the immutable baseline and required forward migrations'
 );
 
@@ -160,6 +160,7 @@ const expectedColumns = [
   ['workflow_definitions', 'resource_requirements'],
   ['agent_definitions', 'mcp_installations'],
   ['agent_definitions', 'semantic_capability_ids'],
+  ['agent_definitions', 'avatar_emoji'],
   ['workflow_definitions', 'agent_ids'],
   ['workflow_runs', 'execution_id'],
   ['workflow_runs', 'executor_role'],

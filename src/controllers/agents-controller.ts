@@ -20,6 +20,7 @@ import {
   badRequest,
   bodyRecord,
   collectAgentOptionErrors,
+  normalizeAgentAvatarEmoji,
   normalizeApprovalPolicy,
   normalizeTargetScope,
   normalizeTrustPolicy,
@@ -99,6 +100,11 @@ export async function createAgent(req: AuthenticatedRequest, res: Response, next
       badRequest(res, 'AGENT_INSTRUCTIONS_REQUIRED', 'Agent instructions are required.');
       return;
     }
+    const avatarEmoji = normalizeAgentAvatarEmoji(body.avatarEmoji);
+    if (body.avatarEmoji !== undefined && !avatarEmoji) {
+      badRequest(res, 'AGENT_AVATAR_EMOJI_INVALID', 'Agent avatarEmoji must contain exactly one emoji.');
+      return;
+    }
     const providerType: AgentDefinition['providerType'] = body.providerType === 'external' ? 'external' : 'internal';
     const approvalPolicy = normalizeApprovalPolicy(body.approvalPolicy);
     const trustPolicy = normalizeTrustPolicy(body.trustPolicy, providerType);
@@ -119,6 +125,7 @@ export async function createAgent(req: AuthenticatedRequest, res: Response, next
     const agent = await createAgentThroughDefinitionService({
       workspaceId,
       name,
+      avatarEmoji,
       description: typeof body.description === 'string' ? body.description : undefined,
       instructions,
       ownerUserId: typeof body.ownerUserId === 'string' ? body.ownerUserId : req.auth.userId,
@@ -168,6 +175,10 @@ export async function updateAgent(req: AuthenticatedRequest, res: Response, next
       return;
     }
     const patch = agentPatch(body);
+    if (body.avatarEmoji !== undefined && !patch.avatarEmoji) {
+      badRequest(res, 'AGENT_AVATAR_EMOJI_INVALID', 'Agent avatarEmoji must contain exactly one emoji.');
+      return;
+    }
     const optionErrors = await collectAgentOptionErrors(workspaceId, { ...current, ...patch });
     if (optionErrors.length > 0) {
       badRequest(res, 'AGENT_OPTION_INVALID', 'Agent references unknown or disabled server-owned options.', optionErrors);

@@ -12,7 +12,7 @@ import {
   rotateWorkflowEventTriggerSecret,
   updateWorkflowEventTriggerRecord
 } from '../store/repository-workflow-event-triggers.js';
-import { getWorkflowDefinition } from '../store/repository-workflows.js';
+import { getWorkflowDefinition, isAgentChatCarrier } from '../store/repository-workflows.js';
 import {
   getWorkflowExecutionSummary,
   listWorkflowExecutionSummariesByIds
@@ -164,7 +164,7 @@ export async function createWorkspaceWorkflowEventTrigger(
     }
     const principal = { type: 'user' as const, id: req.auth.userId };
     const workflow = await getWorkflowDefinition(workspaceId, workflowId);
-    if (!workflow) {
+    if (!workflow || isAgentChatCarrier(workflow)) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
       return;
     }
@@ -308,7 +308,7 @@ export async function updateWorkflowEventTrigger(
       return;
     }
     const workflow = await getWorkflowDefinition(current.workspaceId, current.workflowId);
-    if (!workflow) {
+    if (!workflow || isAgentChatCarrier(workflow)) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
       return;
     }

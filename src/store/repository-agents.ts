@@ -79,7 +79,7 @@ const iso = (value: unknown): string | undefined => value ? new Date(value as st
 
 async function mapAgent(row: AgentRow): Promise<AgentDefinition> {
   const agent: AgentDefinition = {
-    id: row.id, workspaceId: row.workspace_id, name: row.name, description: row.description || undefined,
+    id: row.id, workspaceId: row.workspace_id, name: row.name, avatarEmoji: row.avatar_emoji || '🤖', description: row.description || undefined,
     instructions: row.instructions, status: row.status,
     origin: row.origin || { type: 'manual' }, reviewState: row.review_state || 'reviewed',
     providerType: row.provider_type, version: row.version, ownerUserId: row.owner_user_id,
@@ -170,6 +170,7 @@ export async function createAgentDefinition(
     id,
     workspaceId: input.workspaceId,
     name: input.name.trim(),
+    avatarEmoji: input.avatarEmoji || '🤖',
     description: input.description?.trim(),
     instructions: input.instructions.trim(),
     status: 'active',
@@ -201,12 +202,12 @@ export async function createAgentDefinition(
     `INSERT INTO agent_definitions (
       workspace_id,id,name,description,instructions,status,origin,review_state,provider_type,version,owner_user_id,created_by,
       mcp_servers,mcp_tools,mcp_installations,tools,native_tool_configs,skills,skill_installations,context_grants,target_scope,approval_policy,trust_policy,
-      permission_mode,semantic_capability_ids,readiness_status,readiness_reasons
-     ) VALUES ($1,$2,$3,$4,$5,'active',$6,$7,$8,1,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,'needs_setup',$24) RETURNING *`,
+      permission_mode,semantic_capability_ids,avatar_emoji,readiness_status,readiness_reasons
+     ) VALUES ($1,$2,$3,$4,$5,'active',$6,$7,$8,1,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,'needs_setup',$25) RETURNING *`,
     [input.workspaceId, id, agent.name, agent.description || null, agent.instructions, agent.origin, agent.reviewState, agent.providerType,
      agent.ownerUserId, agent.createdBy, JSON.stringify(agent.mcpServers), JSON.stringify(agent.mcpTools), JSON.stringify(agent.mcpInstallations),
      JSON.stringify(agent.tools), JSON.stringify(agent.nativeToolConfigs), JSON.stringify(agent.skills), JSON.stringify(agent.skillInstallations), JSON.stringify(agent.contextGrants),
-     agent.targetScope, agent.approvalPolicy, agent.trustPolicy, agent.permissionMode, JSON.stringify(agent.semanticCapabilityIds),
+     agent.targetScope, agent.approvalPolicy, agent.trustPolicy, agent.permissionMode, JSON.stringify(agent.semanticCapabilityIds), agent.avatarEmoji,
      JSON.stringify(agent.readiness.reasons)]
   );
   return mapAgent(result.rows[0]);
@@ -228,10 +229,10 @@ export async function duplicateAgentDefinition(
     `INSERT INTO agent_definitions (
        workspace_id,id,name,description,instructions,status,origin,review_state,provider_type,version,
        owner_user_id,created_by,mcp_servers,mcp_tools,mcp_installations,tools,native_tool_configs,skills,skill_installations,context_grants,target_scope,
-       approval_policy,trust_policy,permission_mode,semantic_capability_ids,readiness_status,readiness_reasons
+       approval_policy,trust_policy,permission_mode,semantic_capability_ids,avatar_emoji,readiness_status,readiness_reasons
      ) VALUES (
-       $1,$2,$3,$4,$5,'draft',$6,'draft',$7,1,$8,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
-       'needs_setup',$22
+       $1,$2,$3,$4,$5,'draft',$6,'draft',$7,1,$8,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
+       'needs_setup',$23
      ) RETURNING *`,
     [
       workspaceId,
@@ -255,6 +256,7 @@ export async function duplicateAgentDefinition(
       source.trustPolicy,
       source.permissionMode,
       JSON.stringify(source.semanticCapabilityIds),
+      source.avatarEmoji,
       JSON.stringify(['Readiness has not been evaluated against the live capability catalog.'])
     ]
   );
@@ -267,6 +269,7 @@ export async function updateAgentDefinition(workspaceId: string, agentId: string
   const updated: AgentDefinition = {
     ...current,
     name: patch.name?.trim() || current.name,
+    avatarEmoji: patch.avatarEmoji || current.avatarEmoji,
     description: typeof patch.description === 'string' ? patch.description.trim() : current.description,
     instructions: patch.instructions?.trim() || current.instructions,
     status: patch.status || current.status,
@@ -294,13 +297,13 @@ export async function updateAgentDefinition(workspaceId: string, agentId: string
   const result = await db.query<AgentRow>(
     `UPDATE agent_definitions SET name=$3,description=$4,instructions=$5,status=$6,review_state=$7,provider_type=$8,
       owner_user_id=$9,mcp_servers=$10,mcp_tools=$11,mcp_installations=$12,tools=$13,native_tool_configs=$14,skills=$15,skill_installations=$16,context_grants=$17,target_scope=$18,
-      approval_policy=$19,trust_policy=$20,permission_mode=$21,semantic_capability_ids=$22,version=version+1,updated_at=NOW()
+      approval_policy=$19,trust_policy=$20,permission_mode=$21,semantic_capability_ids=$22,avatar_emoji=$23,version=version+1,updated_at=NOW()
      WHERE workspace_id=$1 AND id=$2 RETURNING *`,
     [workspaceId, agentId, updated.name, updated.description || null, updated.instructions, updated.status,
      updated.reviewState, updated.providerType, updated.ownerUserId, JSON.stringify(updated.mcpServers), JSON.stringify(updated.mcpTools),
      JSON.stringify(updated.mcpInstallations), JSON.stringify(updated.tools), JSON.stringify(updated.nativeToolConfigs), JSON.stringify(updated.skills), JSON.stringify(updated.skillInstallations),
      JSON.stringify(updated.contextGrants), updated.targetScope, updated.approvalPolicy, updated.trustPolicy,
-     updated.permissionMode, JSON.stringify(updated.semanticCapabilityIds)]
+     updated.permissionMode, JSON.stringify(updated.semanticCapabilityIds), updated.avatarEmoji]
   );
   return result.rowCount ? mapAgent(result.rows[0]) : null;
 }

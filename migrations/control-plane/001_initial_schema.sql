@@ -1045,7 +1045,7 @@ CREATE TABLE workflow_definitions (
     CONSTRAINT workflow_definitions_agent_ids_nonempty CHECK ((jsonb_array_length(agent_ids) > 0)),
     CONSTRAINT workflow_definitions_enabled_mcp_servers_check CHECK ((jsonb_typeof(enabled_mcp_servers) = 'array'::text)),
     CONSTRAINT workflow_definitions_enabled_skills_check CHECK ((jsonb_typeof(enabled_skills) = 'array'::text)),
-    CONSTRAINT workflow_definitions_origin_check CHECK (((jsonb_typeof(origin) = 'object'::text) AND ((origin ->> 'type'::text) = ANY (ARRAY['template'::text, 'manual'::text])))),
+    CONSTRAINT workflow_definitions_origin_check CHECK (((jsonb_typeof(origin) = 'object'::text) AND ((origin ->> 'type'::text) = ANY (ARRAY['template'::text, 'manual'::text, 'agent_chat'::text])))),
     CONSTRAINT workflow_definitions_required_permissions_check CHECK ((jsonb_typeof(required_permissions) = 'array'::text)),
     CONSTRAINT workflow_definitions_resource_requirements_check CHECK ((jsonb_typeof(resource_requirements) = 'array'::text)),
     CONSTRAINT workflow_definitions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'draft'::text, 'paused'::text]))),
@@ -1349,6 +1349,14 @@ CREATE TABLE workflow_sessions (
     request_external_integration_client_id text,
     launched_at timestamp with time zone,
     launch_resource_inputs jsonb DEFAULT '{}'::jsonb NOT NULL,
+    conversation_origin text DEFAULT 'workflow'::text NOT NULL,
+    agent_id text,
+    access_mode text DEFAULT 'read_only'::text NOT NULL,
+    agent_chat_read_scope jsonb,
+    agent_chat_capability_ceiling jsonb,
+    CONSTRAINT workflow_sessions_access_mode_check CHECK ((access_mode = ANY (ARRAY['read_only'::text, 'read_write'::text]))),
+    CONSTRAINT workflow_sessions_agent_chat_shape_check CHECK ((((conversation_origin = 'workflow'::text) AND (agent_id IS NULL) AND (agent_chat_read_scope IS NULL) AND (agent_chat_capability_ceiling IS NULL)) OR ((conversation_origin = 'agent_chat'::text) AND (agent_id IS NOT NULL) AND (jsonb_typeof(agent_chat_read_scope) = 'object'::text) AND (jsonb_typeof(agent_chat_capability_ceiling) = 'object'::text)))),
+    CONSTRAINT workflow_sessions_conversation_origin_check CHECK ((conversation_origin = ANY (ARRAY['workflow'::text, 'agent_chat'::text]))),
     CONSTRAINT workflow_sessions_compiled_access_scope_check CHECK ((jsonb_typeof(compiled_access_scope) = 'object'::text)),
     CONSTRAINT workflow_sessions_launch_resource_inputs_check CHECK ((jsonb_typeof(launch_resource_inputs) = 'object'::text)),
     CONSTRAINT workflow_sessions_workflow_snapshot_check CHECK ((jsonb_typeof(workflow_snapshot) = 'object'::text)),
@@ -2061,6 +2069,8 @@ CREATE INDEX workflow_event_triggers_issue_event_idx ON workflow_event_triggers 
 
 CREATE INDEX workflow_sessions_workflow_created_idx ON workflow_sessions USING btree (workspace_id, workflow_id, created_at DESC, id DESC);
 
+CREATE INDEX workflow_sessions_agent_chat_created_idx ON workflow_sessions USING btree (workspace_id, agent_id, created_at DESC, id DESC) WHERE (conversation_origin = 'agent_chat'::text);
+
 CREATE INDEX idx_workflow_sessions_external_integration_origin ON workflow_sessions USING btree (request_external_integration_link_id, created_at DESC) WHERE (request_actor_type = 'external_integration'::text);
 
 CREATE INDEX workspace_skills_workspace_enabled_valid_name_idx ON workspace_skills USING btree (workspace_id, enabled, validation_status, name, id);
@@ -2417,6 +2427,9 @@ ALTER TABLE ONLY workflow_event_triggers
 
 ALTER TABLE ONLY workflow_event_triggers
     ADD CONSTRAINT workflow_event_triggers_workspace_id_workflow_id_fkey FOREIGN KEY (workspace_id, workflow_id) REFERENCES workflow_definitions(workspace_id, id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY workflow_sessions
+    ADD CONSTRAINT workflow_sessions_workspace_id_agent_id_fkey FOREIGN KEY (workspace_id, agent_id) REFERENCES agent_definitions(workspace_id, id) ON DELETE RESTRICT;
 
 ALTER TABLE ONLY workflow_sessions
     ADD CONSTRAINT workflow_sessions_workspace_id_workflow_id_fkey FOREIGN KEY (workspace_id, workflow_id) REFERENCES workflow_definitions(workspace_id, id) ON DELETE RESTRICT;

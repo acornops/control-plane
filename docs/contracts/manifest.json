@@ -179,6 +179,18 @@
         "mutation": "Every workspace Agent and workflow, including legacy template-origin rows, is directly editable with the corresponding manage permission and is never overwritten, upgraded, or automatically restored by AcornOps. Agent deletion returns structured dependent workflows until those dependencies are removed.",
         "duplication": "manage_agents or manage_workflows may copy the effective definition into a manual draft without capability installations, history, executions, schedules, sessions, or activity."
       },
+      "agentConversationContract": {
+        "paths": [
+          "GET|POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/conversations",
+          "GET|DELETE /api/v1/agent-conversations/{conversationId}",
+          "PATCH /api/v1/agent-conversations/{conversationId}/access",
+          "POST /api/v1/agent-conversations/{conversationId}/messages"
+        ],
+        "runtime": "Console-only single-Agent manual conversations dispatch through a protected system-managed Workflow carrier with origin.type=agent_chat. Carriers are draft-only, hidden from workflow catalogs, and unavailable to direct workflow reads, edits, duplication, schedules, triggers, and capability preview.",
+        "access": "Conversations are workspace-readable. Only the creator may continue, change access, or delete them. New conversation access is the intersection of the pinned Agent permission mode and creator capabilities: read_write requires a write-capable Agent plus create_read_write_runs; otherwise access is read_only. A creator may pause a write-capable conversation by changing it to read_only, while a pinned read_only Agent cannot be elevated. Existing approval and audit paths remain authoritative.",
+        "pinning": "Creation pins the Agent revision, permissionMode, specialist snapshot, read scope, and maximum capability ceiling. Conversation summaries project the pinned permissionMode so clients do not infer policy from a newer Agent revision. Newly added capabilities are excluded. Removed pinned capabilities fail closed and require a new conversation.",
+        "automationBoundary": "Agent chat cannot schedule, accept triggers, coordinate or delegate to other Agents. Workflows remain the only repeatable, multi-Agent, scheduled, or externally triggered automation model."
+      },
       "catalogAuthorization": {
         "manageSources": "manage_catalog_sources",
         "installAgentMcp": [
@@ -660,6 +672,7 @@
           "id",
           "workspaceId",
           "name",
+          "avatarEmoji",
           "description?",
           "instructions",
           "status",

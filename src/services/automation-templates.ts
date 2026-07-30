@@ -27,6 +27,7 @@ import {
 interface AgentTemplate {
   key: string;
   name: string;
+  avatarEmoji: string;
   description: string;
   instructions: string;
   semanticCapabilityIds: string[];
@@ -98,6 +99,7 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
     {
       key: 'targetDiagnostics',
       name: 'Target Diagnostics',
+      avatarEmoji: '🔎',
       description: 'Collects diagnostic evidence from an explicitly selected target.',
       instructions: 'Inspect only the exact target scope compiled for this run. Cite observed evidence and distinguish observations from inferences.',
       semanticCapabilityIds: ['target.diagnostics.read'],
@@ -106,6 +108,7 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
     {
       key: 'targetRemediation',
       name: 'Target Remediation',
+      avatarEmoji: '🛠️',
       description: 'Diagnoses and safely changes an explicitly selected target.',
       instructions: 'Inspect the exact compiled target before changing it. Propose the smallest safe change, require approval for every write, verify the result, and provide rollback guidance.',
       semanticCapabilityIds: ['target.diagnostics.read', 'target.remediation.write'],
@@ -114,6 +117,7 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
     {
       key: 'incidentReporter',
       name: 'Incident Reporter',
+      avatarEmoji: '📝',
       description: 'Produces an incident report from explicitly granted evidence.',
       instructions: 'Use only evidence and context present in the compiled scope. Preserve provenance and disclose missing inputs.',
       semanticCapabilityIds: ['prompt.resources.read', 'reports.pdf.generate'],
@@ -259,6 +263,7 @@ export async function insertStarterAgent(
   const agent = await createAgentThroughDefinitionServiceInTransaction(client, {
     workspaceId: input.workspaceId,
     name: input.template.name,
+    avatarEmoji: input.template.avatarEmoji,
     description: input.template.description,
     instructions: input.template.instructions,
     ownerUserId: input.installedBy,

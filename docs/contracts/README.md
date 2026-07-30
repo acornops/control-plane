@@ -188,6 +188,22 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Roles with `permissions.manage_target_insights` may mutate Target Insights entries and Target Insights tool settings.
 - Roles without the relevant management capability are read-only for that configuration surface.
 - Chat and run creation must preserve `sessionPolicy.allowedTools` and `sessionPolicy.writeEnabled`.
+- Agent conversations are console-only, single-Agent manual sessions backed by
+  a hidden system-managed Workflow carrier. The carrier is excluded from
+  Workflow catalogs and cannot be edited, duplicated, scheduled, triggered, or
+  launched through Workflow session endpoints.
+- Agent conversations are workspace-readable, but only their creator may
+  continue, change access, or delete them. Creation defaults to the intersection
+  of the pinned Agent permission mode and creator capabilities: a write-capable
+  Agent starts read-write only when the creator has `create_read_write_runs`;
+  otherwise it starts read-only. Creators may pause a write-capable conversation,
+  but a pinned read-only Agent cannot be elevated. Normal approval and audit
+  paths remain authoritative.
+- Conversation creation pins the Agent revision and maximum capability scope.
+  Conversation summaries expose the pinned permission mode rather than asking
+  clients to infer it from the latest Agent revision.
+  Capabilities added later are unavailable to that conversation, and removing a
+  pinned capability fails closed until the user starts a new conversation.
 - Chat session responses derive `lastRuntimeSelection` from the newest accepted
   run snapshot regardless of its eventual terminal status; empty sessions omit
   it, and message acceptance echoes the runtime frozen on that run.

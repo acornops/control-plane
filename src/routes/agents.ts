@@ -12,6 +12,7 @@ import * as serviceIdentitiesController from '../controllers/service-identities-
 import * as automationTemplatesController from '../controllers/automation-templates-controller.js';
 import { requirePublicAgentRoute } from '../controllers/public-agent-visibility.js';
 import * as agentNativeToolsController from '../controllers/agent-native-tools-controller.js';
+import * as agentConversationsController from '../controllers/agent-conversations-controller.js';
 
 export const agentsRouter = Router();
 const authed = authenticatedHandler;
@@ -19,6 +20,8 @@ const publicAgentVisibility = authed(requirePublicAgentRoute);
 
 agentsRouter.get('/workspaces/:workspaceId/agents', requireUser, authed(agentsController.listAgents));
 agentsRouter.post('/workspaces/:workspaceId/agents', requireUser, authed(agentsController.createAgent));
+agentsRouter.get('/workspaces/:workspaceId/agents/:agentId/conversations', requireUser, publicAgentVisibility, authed(agentConversationsController.listAgentConversations));
+agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/conversations', requireUser, publicAgentVisibility, authed(agentConversationsController.createAgentConversation));
 agentsRouter.get('/workspaces/:workspaceId/catalog/native-tools', requireUser, authed(agentNativeToolsController.listNativeTools));
 agentsRouter.put('/workspaces/:workspaceId/agents/:agentId/native-tools/:toolId', requireUser, publicAgentVisibility, authed(agentNativeToolsController.grantNativeTool));
 agentsRouter.delete('/workspaces/:workspaceId/agents/:agentId/native-tools/:toolId', requireUser, publicAgentVisibility, authed(agentNativeToolsController.revokeNativeTool));
@@ -58,3 +61,7 @@ agentsRouter.delete('/agents/:agentId', requireUser, publicAgentVisibility, auth
 agentsRouter.get('/agents/:agentId/versions', requireUser, publicAgentVisibility, authed(agentsController.listAgentVersions));
 agentsRouter.post('/agents/:agentId/versions', requireUser, publicAgentVisibility, authed(agentsController.createAgentVersion));
 agentsRouter.post('/agents/:agentId/versions/:versionId/restore', requireUser, publicAgentVisibility, authed(agentsController.restoreAgentVersion));
+agentsRouter.get('/agent-conversations/:conversationId', requireUser, authed(agentConversationsController.getAgentConversation));
+agentsRouter.delete('/agent-conversations/:conversationId', requireUser, authed(agentConversationsController.deleteAgentConversation));
+agentsRouter.patch('/agent-conversations/:conversationId/access', requireUser, authed(agentConversationsController.changeAgentConversationAccess));
+agentsRouter.post('/agent-conversations/:conversationId/messages', requireUser, authed(agentConversationsController.postAgentConversationMessage));

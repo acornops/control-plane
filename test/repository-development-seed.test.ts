@@ -62,7 +62,7 @@ describe('development target seed', () => {
         if (sql.includes('INSERT INTO agent_definitions')) {
           const values = params || [];
           const row = {
-            workspace_id: values[0], id: values[1], name: values[2], description: values[3],
+            workspace_id: values[0], id: values[1], name: values[2], avatar_emoji: values[23], description: values[3],
             instructions: values[4], status: 'active', origin: values[5],
             review_state: values[6], provider_type: values[7], version: 1,
             owner_user_id: values[8], created_by: values[9], mcp_servers: JSON.parse(String(values[10])),
@@ -72,7 +72,7 @@ describe('development target seed', () => {
             context_grants: JSON.parse(String(values[17])), target_scope: values[18],
             approval_policy: values[19], trust_policy: values[20], permission_mode: values[21],
             semantic_capability_ids: JSON.parse(String(values[22])),
-            readiness_status: 'needs_setup', readiness_reasons: JSON.parse(String(values[23])),
+            readiness_status: 'needs_setup', readiness_reasons: JSON.parse(String(values[24])),
             created_at: new Date(), updated_at: new Date()
           };
           agentRows.set(String(values[1]), row);
