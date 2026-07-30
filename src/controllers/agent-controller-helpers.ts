@@ -2,6 +2,7 @@ import { Response } from 'express';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { getWorkflowOptionsCatalog, listWorkflowDefinitions } from '../store/repository-workflows.js';
+import type { AgentDefinitionUpdate } from '../store/repository-agent-types.js';
 import type { AgentCapability, AgentDefinition, AgentDefinitionResponse } from '../types/agents.js';
 import { TARGET_TYPES, type TargetType } from '../types/domain.js';
 import { repo } from '../store/repository.js';
@@ -52,9 +53,22 @@ export function bodyRecord(body: unknown): Record<string, unknown> {
   return body && typeof body === 'object' ? body as Record<string, unknown> : {};
 }
 
-export function agentPatch(body: Record<string, unknown>): Partial<AgentDefinition> {
+export function normalizeAgentAvatarEmoji(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.normalize('NFC').trim();
+  if (!normalized || normalized.length > 64) return undefined;
+  const segments = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(normalized)];
+  if (segments.length !== 1) return undefined;
+  const isPictograph = /\p{Extended_Pictographic}/u.test(normalized);
+  const isFlag = /^\p{Regional_Indicator}{2}$/u.test(normalized);
+  const isKeycap = /^[#*0-9]\uFE0F?\u20E3$/u.test(normalized);
+  return isPictograph || isFlag || isKeycap ? normalized : undefined;
+}
+
+export function agentPatch(body: Record<string, unknown>): AgentDefinitionUpdate {
   return {
     name: typeof body.name === 'string' ? body.name : undefined,
+    avatarEmoji: normalizeAgentAvatarEmoji(body.avatarEmoji),
     description: typeof body.description === 'string' ? body.description : undefined,
     instructions: typeof body.instructions === 'string' ? body.instructions : undefined,
     status: body.status === 'active' || body.status === 'disabled' || body.status === 'draft' ? body.status : undefined,

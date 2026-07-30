@@ -3,6 +3,7 @@ import type { AgentDefinition } from '../types/agents.js';
 export interface CreateAgentDefinitionInput {
   workspaceId: string;
   name: string;
+  avatarEmoji?: string;
   description?: string;
   instructions: string;
   ownerUserId: string;
@@ -27,6 +28,7 @@ export interface CreateAgentDefinitionInput {
 
 export interface AgentDefinitionUpdate {
   name?: string;
+  avatarEmoji?: string;
   description?: string;
   instructions?: string;
   status?: AgentDefinition['status'];

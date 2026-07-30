@@ -16,6 +16,7 @@ import {
 import { narrowWorkflowScopeToTargetTools } from '../services/workflow-capability-preview.js';
 import { compileWorkflowScope } from '../services/workflow-scope-compiler.js';
 import { resolveTargetRunTools } from '../services/target-run-tool-resolution.js';
+import { projectAgentConversationRunScope } from '../services/agent-chat.js';
 import { repo } from '../store/repository.js';
 import {
   createWorkflowExecution,
@@ -24,8 +25,7 @@ import {
   getWorkflowOptionsCatalog,
   getWorkflowSession,
   listWorkflowDefinitions,
-  listWorkflowRunsForSession,
-  listWorkflowSessions
+  isAgentChatCarrier
 } from '../store/repository-workflows.js';
 import { isTargetType, type TargetSummary } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
@@ -42,7 +42,6 @@ import {
   publicWorkflowDefinition,
   respondWorkflowAccessError
 } from './workflow-public.js';
-import { publicWorkflowRun } from './external-run-public.js';
 import {
   externalWorkflowBlocker,
   isExternalIntegrationRequest,
@@ -85,6 +84,7 @@ function approvedContextGrants(req: AuthenticatedRequest): string[] {
 }
 
 export { previewWorkflowCapabilities } from './workflow-capability-preview-controller.js';
+export { listSessions } from './workflow-sessions-controller.js';
 
 export async function listWorkflows(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -118,7 +118,7 @@ export async function getWorkflow(req: AuthenticatedRequest, res: Response, next
     const workspaceId = requireWorkflowWorkspaceId(req, res);
     if (!workspaceId) return;
     const workflow = await getWorkflowDefinition(workspaceId, toSingleParam(req.params.workflowId));
-    if (!workflow) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
+    if (!workflow || isAgentChatCarrier(workflow)) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
     const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
     if (isExternalIntegrationRequest(req)) {
@@ -152,7 +152,7 @@ export async function createSession(req: AuthenticatedRequest, res: Response, ne
     const workspaceId = requireWorkflowWorkspaceId(req, res);
     if (!workspaceId) return;
     const workflow = await getWorkflowDefinition(workspaceId, toSingleParam(req.params.workflowId));
-    if (!workflow) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
+    if (!workflow || isAgentChatCarrier(workflow)) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
     const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
     if (isExternalIntegrationRequest(req)) {
@@ -221,34 +221,14 @@ export async function createSession(req: AuthenticatedRequest, res: Response, ne
   }
 }
 
-export async function listSessions(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const workspaceId = requireWorkflowWorkspaceId(req, res);
-    if (!workspaceId) return;
-    const workflowId = toSingleParam(req.params.workflowId);
-    if (!(await requireWorkspaceDataRead(req, res, workspaceId))) return;
-    res.status(200).json({
-      items: await Promise.all((await listWorkflowSessions(workspaceId, workflowId)).map(async (session) => ({
-        id: session.id,
-        workspaceId: session.workspaceId,
-        workflowId: session.workflowId,
-        workflowVersion: session.workflowVersion,
-        createdBy: session.createdBy,
-        launchedAt: session.launchedAt,
-        createdAt: session.createdAt,
-        workflowSnapshot: session.workflowSnapshot ? publicWorkflowDefinition(session.workflowSnapshot) : undefined,
-        runs: (await listWorkflowRunsForSession(session.id)).map((run) => publicWorkflowRun(run, true))
-      })))
-    });
-  } catch (error) {
-    next(error);
-  }
-}
-
 export async function postMessage(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const session = await getWorkflowSession(toSingleParam(req.params.sessionId));
     if (!session) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow session not found', retryable: false } });
+    const isAgentConversation = session.conversationOrigin === 'agent_chat';
+    if (isAgentConversation && res.locals.agentConversationAuthorized !== session.id) {
+      return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow session not found', retryable: false } });
+    }
     if (isExternalIntegrationRequest(req) && !externalIntegrationOwnsWorkflowSession(req, session)) {
       return void res.status(403).json({ error: {
         code: 'EXTERNAL_INTEGRATION_WORKFLOW_SESSION_NOT_OWNED',
@@ -271,7 +251,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
         } });
       }
     }
-    const requiredCapability = workflow.capabilityPolicy.mode === 'read_write'
+    const requiredCapability = (isAgentConversation ? session.accessMode === 'read_write' : workflow.capabilityPolicy.mode === 'read_write')
       || (isExternalIntegrationRequest(req) && workflow.capabilityPolicy.approvalRequirements.length > 0)
       ? 'create_read_write_runs'
       : 'create_read_only_runs';
@@ -374,15 +354,21 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
     if (targetRoute && !target) {
       return void res.status(409).json({ error: { code: 'PROMPT_REFERENCE_NOT_FOUND', message: 'The bound target is no longer available.', retryable: false } });
     }
-    let compiled = await compileWorkflowScope({
-      workflow,
-      actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
-      approvedContextGrants: session.compiledAccessScope.contextGrants,
-      targetRoute,
-      resourceBindings: resolution.bindings,
-      promptDigest: resolution.promptDigest,
-      bindingDigest: resolution.bindingDigest
-    });
+    let compiled = isAgentConversation
+      ? projectAgentConversationRunScope(session.compiledAccessScope, {
+          promptDigest: resolution.promptDigest,
+          bindingDigest: resolution.bindingDigest,
+          resourceBindings: resolution.bindings
+        })
+      : await compileWorkflowScope({
+          workflow,
+          actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
+          approvedContextGrants: session.compiledAccessScope.contextGrants,
+          targetRoute,
+          resourceBindings: resolution.bindings,
+          promptDigest: resolution.promptDigest,
+          bindingDigest: resolution.bindingDigest
+        });
     if (target) {
       const resolution = await resolveTargetRunTools({
         workspaceId: session.workspaceId,
@@ -454,6 +440,9 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       llmModel: llmSettings.model,
       llmReasoningSummaryMode: llmSettings.reasoning.summary_mode,
       llmReasoningEffort: llmSettings.reasoning.effort,
+      ...(isAgentConversation ? {
+        origin: { schemaVersion: 1 as const, kind: 'agent_chat' as const, label: 'Agent chat' }
+      } : {}),
       ...(kind === 'launch' ? { launchResourceInputs: resolution.resourceInputValues } : {})
     });
     emitWorkflowExecutionEvents(created.execution.id, created.initialEvents);

@@ -13,26 +13,31 @@ import { workflowParameters } from '../services/workflow-template.js';
 export type {
   WorkflowExecutionRecord,
   WorkflowMessageRecord,
-  WorkflowRunRecord,
-  WorkflowSessionRecord
+  WorkflowRunRecord
 } from './repository-workflow-runs.js';
+export type { WorkflowSessionRecord } from './repository-workflow-sessions.js';
 export type { WorkflowApprovalRecord } from './repository-workflow-run-approvals.js';
 export {
   appendWorkflowRunEvents,
   createWorkflowExecution,
   createWorkflowRun,
-  createWorkflowSession,
   createWorkflowUserMessage,
   getWorkflowRun,
-  getWorkflowSession,
   listWorkflowMessages,
   listWorkflowExecutionAttempts,
   listWorkflowRunsForSession,
-  listWorkflowSessions,
   updateWorkflowRun,
   updateWorkflowRunIfStatus,
   upsertWorkflowAssistantFinalMessage
 } from './repository-workflow-runs.js';
+export {
+  createWorkflowSession,
+  deleteAgentConversationSession,
+  getWorkflowSession,
+  listAgentConversationSessions,
+  listWorkflowSessions,
+  setAgentConversationAccessMode
+} from './repository-workflow-sessions.js';
 export {
   decideWorkflowRunApproval,
   decideWorkflowRunApprovalOutcome,
@@ -140,12 +145,72 @@ function mapWorkflowDefinition(row: WorkflowRow): WorkflowDefinitionForAccess {
   };
 }
 
+export function isAgentChatCarrier(workflow: WorkflowDefinitionForAccess | null | undefined): boolean {
+  return workflow?.origin.type === 'agent_chat' && workflow.origin.systemManaged === true;
+}
+
 export async function listWorkflowDefinitions(workspaceId: string): Promise<WorkflowDefinitionForAccess[]> {
   const result = await db.query<WorkflowRow>(
-    'SELECT * FROM workflow_definitions WHERE workspace_id=$1 ORDER BY updated_at DESC,id',
+    `SELECT * FROM workflow_definitions
+     WHERE workspace_id=$1
+       AND COALESCE(origin->>'type','manual') <> 'agent_chat'
+     ORDER BY updated_at DESC,id`,
     [workspaceId]
   );
   return result.rows.map(mapWorkflowDefinition);
+}
+
+export async function ensureAgentChatCarrier(
+  agent: import('../types/agents.js').AgentDefinition,
+  createdBy: string
+): Promise<WorkflowDefinitionForAccess> {
+  const id = `agent-chat-${agent.id}`;
+  const origin = {
+    type: 'agent_chat',
+    agentId: agent.id,
+    agentVersion: agent.version,
+    systemManaged: true
+  } as const;
+  const capabilityPolicy: WorkflowCapabilityPolicy = {
+    mode: 'read_write',
+    restrictionMode: 'inherit',
+    semanticCapabilityIds: [],
+    contextGrants: agent.contextGrants,
+    maxRuntimeSeconds: 900,
+    retentionDays: 30,
+    approvalRequirements: ['tool_write']
+  };
+  const result = await db.query<WorkflowRow>(
+    `INSERT INTO workflow_definitions (
+       workspace_id,id,version,origin,name,description,status,prompt,agent_ids,resource_requirements,
+       capability_policy,tags,required_permissions,created_by,readiness_status,readiness_reasons
+     ) VALUES ($1,$2,1,$3,$4,$5,'draft','{{text:message}}',$6,'[]'::jsonb,$7,'[]'::jsonb,'[]'::jsonb,$8,$9,$10)
+     ON CONFLICT (workspace_id,id) DO UPDATE SET
+       origin=EXCLUDED.origin,
+       name=EXCLUDED.name,
+       description=EXCLUDED.description,
+       status='draft',
+       prompt=EXCLUDED.prompt,
+       agent_ids=EXCLUDED.agent_ids,
+       capability_policy=EXCLUDED.capability_policy,
+       readiness_status=EXCLUDED.readiness_status,
+       readiness_reasons=EXCLUDED.readiness_reasons,
+       updated_at=NOW()
+     RETURNING *`,
+    [
+      agent.workspaceId,
+      id,
+      origin,
+      `Agent chat carrier: ${agent.name}`,
+      'System-managed single-Agent manual conversation carrier.',
+      JSON.stringify([agent.id]),
+      capabilityPolicy,
+      createdBy,
+      agent.readiness.status,
+      JSON.stringify(agent.readiness.reasons)
+    ]
+  );
+  return mapWorkflowDefinition(result.rows[0]);
 }
 
 export async function getWorkflowDefinition(

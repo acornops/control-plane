@@ -27,11 +27,12 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
     },
     AgentDefinition: {
       type: 'object',
-      required: ['id', 'workspaceId', 'name', 'instructions', 'status', 'origin', 'reviewState', 'providerType', 'version', 'ownerUserId', 'createdBy', 'nativeToolConfigs', 'workflowUsage'],
+      required: ['id', 'workspaceId', 'name', 'avatarEmoji', 'instructions', 'status', 'origin', 'reviewState', 'providerType', 'version', 'ownerUserId', 'createdBy', 'nativeToolConfigs', 'workflowUsage'],
       properties: {
         id: { type: 'string' },
         workspaceId: { type: 'string' },
         name: { type: 'string' },
+        avatarEmoji: { type: 'string', minLength: 1, maxLength: 64, description: 'Exactly one Unicode emoji grapheme used as the Agent visual identity.' },
         description: { type: 'string' },
         instructions: { type: 'string' },
         status: { type: 'string', enum: ['active', 'disabled', 'draft'] },
@@ -102,6 +103,7 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
       properties: {
         workspaceId: { type: 'string' },
         name: { type: 'string' },
+        avatarEmoji: { type: 'string', minLength: 1, maxLength: 64, description: 'Exactly one Unicode emoji grapheme.' },
         description: { type: 'string' },
         instructions: { type: 'string' },
         status: { type: 'string', enum: ['active', 'disabled', 'draft'] },
@@ -149,6 +151,61 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
       type: 'object',
       required: ['agent'],
       properties: { agent: schemaRef('AgentDefinition') }
+    },
+    AgentConversationSummary: {
+      type: 'object',
+      required: ['id', 'workspaceId', 'agentId', 'agentVersion', 'permissionMode', 'title', 'createdBy', 'accessMode', 'createdAt'],
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        workspaceId: { type: 'string', format: 'uuid' },
+        agentId: { type: 'string' },
+        agentVersion: { type: 'integer', minimum: 1 },
+        permissionMode: { type: 'string', enum: ['read_only', 'ask_before_changes', 'auto_allowed_changes'] },
+        title: { type: 'string' },
+        createdBy: { type: 'string', format: 'uuid' },
+        accessMode: { type: 'string', enum: ['read_only', 'read_write'] },
+        launchedAt: dateTime,
+        createdAt: dateTime
+      },
+      additionalProperties: false
+    },
+    AgentConversationMessage: {
+      type: 'object',
+      required: ['id', 'role', 'content', 'createdAt'],
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        role: { type: 'string', enum: ['user', 'assistant', 'system'] },
+        content: { type: 'string' },
+        runId: { type: 'string', format: 'uuid' },
+        createdAt: dateTime
+      },
+      additionalProperties: true
+    },
+    AgentConversationList: {
+      type: 'object',
+      required: ['items'],
+      properties: {
+        items: { type: 'array', items: schemaRef('AgentConversationSummary') }
+      },
+      additionalProperties: false
+    },
+    AgentConversationDetail: {
+      type: 'object',
+      required: ['conversation', 'messages', 'runs'],
+      properties: {
+        conversation: schemaRef('AgentConversationSummary'),
+        messages: { type: 'array', items: schemaRef('AgentConversationMessage') },
+        runs: { type: 'array', items: jsonObject }
+      },
+      additionalProperties: false
+    },
+    AgentConversationAccessResponse: {
+      type: 'object',
+      required: ['conversation'],
+      properties: {
+        conversation: schemaRef('AgentConversationSummary')
+      },
+      additionalProperties: false
     },
     AgentVersionResponse: {
       type: 'object',

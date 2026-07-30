@@ -27,6 +27,7 @@ export async function listAgentWorkflowDependencies(
      FROM workflow_definitions
      WHERE workspace_id=$1
        AND agent_ids ? $2
+       AND COALESCE(origin->>'type','manual') <> 'agent_chat'
      ORDER BY name,id`,
     [workspaceId, agentId]
   );
@@ -50,6 +51,18 @@ export async function deleteAgentWithInstallationCleanup(
     const workflows = await listAgentWorkflowDependencies(workspaceId, agentId, client);
     if (workflows.length > 0) return { status: 'conflict', workflows } as const;
 
+    await client.query(
+      `DELETE FROM workflow_sessions
+       WHERE workspace_id=$1 AND agent_id=$2 AND conversation_origin='agent_chat'`,
+      [workspaceId, agentId]
+    );
+    await client.query(
+      `DELETE FROM workflow_definitions
+       WHERE workspace_id=$1
+         AND origin->>'type'='agent_chat'
+         AND origin->>'agentId'=$2`,
+      [workspaceId, agentId]
+    );
     await client.query(
       'DELETE FROM agent_definitions WHERE workspace_id=$1 AND id=$2',
       [workspaceId, agentId]

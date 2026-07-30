@@ -420,7 +420,7 @@ export type WorkflowExecutionStatus =
 export type WorkflowExecutionOrigin =
   | {
       schemaVersion: 1;
-      kind: 'manual' | 'external_integration';
+      kind: 'manual' | 'external_integration' | 'agent_chat';
       label: string;
     }
   | {

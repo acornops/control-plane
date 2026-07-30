@@ -16,7 +16,8 @@ import {
   validateWorkflowScheduleTimezone
 } from '../store/repository-workflow-schedules.js';
 import {
-  getWorkflowDefinition
+  getWorkflowDefinition,
+  isAgentChatCarrier
 } from '../store/repository-workflows.js';
 import {
   getWorkflowExecutionSummary,
@@ -90,7 +91,7 @@ export async function previewWorkflowSchedule(req: AuthenticatedRequest, res: Re
     }
     const workflow = workflowId ? await getWorkflowDefinition(workspaceId, workflowId) : null;
     if (!workflowId) errors.push({ field: 'workflowId', message: 'Choose a workflow.' });
-    else if (!workflow) errors.push({ field: 'workflowId', message: 'Workflow was not found in this workspace.' });
+    else if (!workflow || isAgentChatCarrier(workflow)) errors.push({ field: 'workflowId', message: 'Workflow was not found in this workspace.' });
     if (!cron) errors.push({ field: 'cron', message: 'Choose a frequency or enter a cron expression.' });
     else if (!validateWorkflowScheduleCron(cron)) errors.push({ field: 'cron', message: 'Use a valid five-field cron expression.' });
     if (!timezone) errors.push({ field: 'timezone', message: 'Choose a timezone.' });
@@ -259,7 +260,7 @@ export async function createWorkflowScheduleForWorkspace(req: AuthenticatedReque
       return;
     }
     const workflow = await getWorkflowDefinition(workspaceId, String(body.workflowId));
-    if (!workflow) {
+    if (!workflow || isAgentChatCarrier(workflow)) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
       return;
     }
@@ -372,7 +373,7 @@ export async function updateWorkflowSchedule(req: AuthenticatedRequest, res: Res
     }
     const workflowId = typeof body.workflowId === 'string' ? body.workflowId.trim() : current.workflowId;
     const workflow = await getWorkflowDefinition(current.workspaceId, workflowId);
-    if (!workflow) {
+    if (!workflow || isAgentChatCarrier(workflow)) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
       return;
     }

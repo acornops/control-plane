@@ -155,8 +155,10 @@ describe('agents controller', () => {
       { workspaceId: 'workspace-1', name: 'Custom diagnostics' }
     ));
     assert.equal(duplicated.statusCode, 201);
-    assert.equal((duplicated.body as { agent: { origin: { type: string }; status: string } }).agent.origin.type, 'manual');
-    assert.equal((duplicated.body as { agent: { origin: { type: string }; status: string } }).agent.status, 'draft');
+    const duplicatedAgent = (duplicated.body as { agent: { avatarEmoji: string; origin: { type: string }; status: string } }).agent;
+    assert.equal(duplicatedAgent.origin.type, 'manual');
+    assert.equal(duplicatedAgent.status, 'draft');
+    assert.equal(duplicatedAgent.avatarEmoji, '🔎');
   });
 
   it('enriches agent responses with workflow usage and derived capability rows', async () => {
@@ -237,6 +239,7 @@ describe('agents controller', () => {
       { workspaceId: 'workspace-1' },
       {
         name: 'Release helper',
+        avatarEmoji: '🚀',
         description: 'Coordinates release checks.',
         instructions: 'Prepare release notes and ask before write tools.',
         providerType: 'internal',
@@ -246,8 +249,9 @@ describe('agents controller', () => {
     ));
 
     assert.equal(created.statusCode, 201);
-    const agent = (created.body as { agent: { id: string; version: number; status: string; providerType: string; trustPolicy: { level: string; allowExternalData: boolean } } }).agent;
+    const agent = (created.body as { agent: { id: string; avatarEmoji: string; version: number; status: string; providerType: string; trustPolicy: { level: string; allowExternalData: boolean } } }).agent;
     assert.equal(agent.version, 1);
+    assert.equal(agent.avatarEmoji, '🚀');
     assert.equal(agent.status, 'active');
     assert.equal(agent.providerType, 'internal');
     assert.deepEqual(agent.trustPolicy, { level: 'restricted', allowExternalData: false });
@@ -256,11 +260,13 @@ describe('agents controller', () => {
       { agentId: agent.id },
       {
         workspaceId: 'workspace-1',
-        instructions: 'Prepare release notes and draft a PR plan.'
+        instructions: 'Prepare release notes and draft a PR plan.',
+        avatarEmoji: '🧭'
       }
     ));
     assert.equal(patched.statusCode, 200);
-    assert.equal((patched.body as { agent: { version: number } }).agent.version, 2);
+    assert.equal((patched.body as { agent: { avatarEmoji: string; version: number } }).agent.version, 2);
+    assert.equal((patched.body as { agent: { avatarEmoji: string } }).agent.avatarEmoji, '🧭');
 
     const version = await callController(createAgentVersion, createRequest(
       { agentId: agent.id },
@@ -268,6 +274,13 @@ describe('agents controller', () => {
     ));
     assert.equal(version.statusCode, 201);
     assert.equal((version.body as { version: { version: number } }).version.version, 2);
+
+    const changedAfterSnapshot = await callController(updateAgent, createRequest(
+      { agentId: agent.id },
+      { workspaceId: 'workspace-1', avatarEmoji: '📦' }
+    ));
+    assert.equal(changedAfterSnapshot.statusCode, 200);
+    assert.equal((changedAfterSnapshot.body as { agent: { avatarEmoji: string } }).agent.avatarEmoji, '📦');
 
     const versions = await callController(listAgentVersions, createRequest(
       { agentId: agent.id },
@@ -283,12 +296,14 @@ describe('agents controller', () => {
       { workspaceId: 'workspace-1' }
     ));
     assert.equal(restored.statusCode, 200);
-    assert.equal((restored.body as { agent: { version: number } }).agent.version, 3);
+    assert.equal((restored.body as { agent: { avatarEmoji: string; version: number } }).agent.version, 4);
+    assert.equal((restored.body as { agent: { avatarEmoji: string } }).agent.avatarEmoji, '🧭');
 
     assert.deepEqual(auditEvents, [
       'agent.definition_created.v1',
       'agent.definition_updated.v1',
       'agent.version_snapshot_created.v1',
+      'agent.definition_updated.v1',
       'agent.version_restored.v1'
     ]);
 
@@ -299,6 +314,19 @@ describe('agents controller', () => {
     assert.equal(fetched.statusCode, 200);
     assert.equal((fetched.body as { agent: { id: string; providerType: string } }).agent.id, agent.id);
     assert.equal((fetched.body as { agent: { providerType: string } }).agent.providerType, 'internal');
+    assert.equal((fetched.body as { agent: { avatarEmoji: string } }).agent.avatarEmoji, '🧭');
+  });
+
+  it('rejects Agent avatar values that are not exactly one emoji grapheme', async () => {
+    installWorkspace('admin');
+
+    const response = await callController(createAgent, createRequest(
+      { workspaceId: 'workspace-1' },
+      { name: 'Invalid avatar', avatarEmoji: 'AB', instructions: 'Inspect assigned work.' }
+    ));
+
+    assert.equal(response.statusCode, 400);
+    assert.equal((response.body as { error: { code: string } }).error.code, 'AGENT_AVATAR_EMOJI_INVALID');
   });
 
   it('lists agent version snapshots newest first', async () => {
