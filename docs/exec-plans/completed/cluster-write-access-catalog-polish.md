@@ -31,3 +31,5 @@ value as unavailable during mixed-version rollout.
   `agentAccessMode` projection.
 - Focused controller tests, typecheck, build, OpenAPI checks, and the
   cross-repository contract mirror check pass.
+- Full database-backed validation requires
+  `CONTROL_PLANE_TEST_DATABASE_URL` and was not run in this local pass.
