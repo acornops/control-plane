@@ -101,7 +101,7 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction):
     return;
   }
 
-  if (/^\/api\/v1\/workflow-event-triggers\/[^/]+\/events$/.test(req.path)) {
+  if (/^\/api\/v1\/workflow-webhooks\/[^/]+\/events$/.test(req.path)) {
     next();
     return;
   }

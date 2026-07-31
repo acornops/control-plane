@@ -29,6 +29,39 @@ export function buildCatalogSchemas(): Record<string, JsonSchema> {
     AgentSkill: { type: 'object', required: ['id', 'name', 'description', 'enabled', 'revision', 'contentDigest', 'source', 'inherited', 'files'], properties: { id: { type: 'string' }, name: { type: 'string' }, description: { type: 'string' }, enabled: { type: 'boolean' }, revision: { type: 'integer' }, contentDigest: { type: 'string', pattern: '^sha256:' }, source: jsonObject, inherited: { type: 'boolean' }, files: { type: 'array', items: jsonObject } }, additionalProperties: false },
     AgentSkillList: { type: 'object', required: ['items'], properties: { items: { type: 'array', items: schemaRef('AgentSkill') }, canEdit: { type: 'boolean' } }, additionalProperties: false },
     AgentSkillResponse: { type: 'object', required: ['skill'], properties: { skill: schemaRef('AgentSkill') }, additionalProperties: false },
+    ResolvedGitSkill: {
+      type: 'object',
+      required: ['files', 'source'],
+      properties: {
+        files: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 16,
+          items: {
+            type: 'object',
+            required: ['path', 'content'],
+            properties: {
+              path: { type: 'string', minLength: 1, maxLength: 512 },
+              content: { type: 'string', maxLength: 32768 }
+            },
+            additionalProperties: false
+          }
+        },
+        source: {
+          type: 'object',
+          required: ['provider', 'repoUrl', 'ref', 'commitSha'],
+          properties: {
+            provider: { type: 'string', enum: ['github', 'gitlab'] },
+            repoUrl: { type: 'string', format: 'uri', pattern: '^https://', maxLength: 2048 },
+            ref: { type: 'string', minLength: 1, maxLength: 255 },
+            subpath: { type: 'string', minLength: 1, maxLength: 512 },
+            commitSha: { type: 'string', pattern: '^[0-9a-fA-F]{40}$' }
+          },
+          additionalProperties: false
+        }
+      },
+      additionalProperties: false
+    },
     McpConnection: { type: 'object', required: ['serverId', 'credentialMode', 'status', 'managementScope', 'canManage', 'authType'], properties: { serverId: uuid, credentialMode: { type: 'string', enum: ['workspace', 'individual'] }, status: { type: 'string', enum: ['missing', 'pending_authorization', 'connected', 'reauthorization_required', 'error'] }, managementScope: { type: 'string', enum: ['workspace', 'individual'] }, canManage: { type: 'boolean' }, authType: { type: 'string', enum: ['bearer_token', 'custom_header', 'oauth'] }, action: { type: 'string', enum: ['connect_mcp_server', 'authorize_mcp_server', 'select_authorization_server', 'reauthorize_mcp_server', 'verify_mcp_server'] }, errorCode: { type: 'string' }, issuerOrigin: { type: 'string', format: 'uri' }, registrationMethod: { type: 'string', enum: ['cimd', 'dcr'] }, scopes: stringArray, tokenExpiresAt: dateTime, refreshCapable: { type: 'boolean' }, verifiedAt: dateTime, updatedAt: dateTime }, additionalProperties: false },
     McpConnectionResponse: { type: 'object', required: ['connection'], properties: { connection: schemaRef('McpConnection') }, additionalProperties: false },
     McpOAuthIssuerCandidate: { type: 'object', required: ['issuer', 'issuerOrigin', 'registrationMethod', 'scopes', 'offlineAccessRequested'], properties: { issuer: { type: 'string', format: 'uri' }, issuerOrigin: { type: 'string', format: 'uri' }, registrationMethod: { type: 'string', enum: ['cimd', 'dcr'] }, scopes: stringArray, offlineAccessRequested: { type: 'boolean' } }, additionalProperties: false },

@@ -4,8 +4,8 @@ import type { NextFunction, Request, Response } from 'express';
 import { redis } from '../infra/redis.js';
 import {
   acceptWorkflowWebhookEvent,
-  getWorkflowEventTrigger
-} from '../store/repository-workflow-event-triggers.js';
+  getWorkflowWebhook
+} from '../store/repository-workflow-webhooks.js';
 import { getWorkflowDefinition } from '../store/repository-workflows.js';
 import type { WorkflowParameterDefinition } from '../types/workflows.js';
 import {
@@ -59,19 +59,19 @@ export function validateWebhookInputs(
   return unknown ? `${unknown.slice(0, 64)} is not declared by this workflow.` : null;
 }
 
-async function webhookAttemptRateLimited(triggerId: string): Promise<boolean> {
+async function webhookAttemptRateLimited(webhookId: string): Promise<boolean> {
   const count = Number(await redis.eval(
     `local current = redis.call('INCR', KEYS[1])
      if current == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
      return current`,
     1,
-    `cp:workflow_event_trigger_attempts:${triggerId}`,
+    `cp:workflow_webhook_attempts:${webhookId}`,
     60
   ));
   return count > MAX_WEBHOOK_ATTEMPTS_PER_MINUTE;
 }
 
-export async function receiveWorkflowEventTriggerWebhook(
+export async function receiveWorkflowWebhook(
   req: Request,
   res: Response,
   next: NextFunction
@@ -115,30 +115,28 @@ export async function receiveWorkflowEventTriggerWebhook(
       } });
       return;
     }
-    const trigger = await getWorkflowEventTrigger(toSingleParam(req.params.triggerId));
+    const webhook = await getWorkflowWebhook(toSingleParam(req.params.webhookId));
     if (
-      !trigger
-      || trigger.sourceType !== 'webhook'
-      || trigger.status !== 'enabled'
-      || !trigger.secretCiphertext
+      !webhook
+      || webhook.status !== 'enabled'
     ) {
       res.status(404).json({ error: {
         code: 'WEBHOOK_NOT_FOUND',
-        message: 'Webhook event trigger not found.',
+        message: 'Workflow webhook not found.',
         retryable: false
       } });
       return;
     }
-    if (await webhookAttemptRateLimited(trigger.id)) {
+    if (await webhookAttemptRateLimited(webhook.id)) {
       res.setHeader('Retry-After', '60');
       res.status(429).json({ error: {
         code: 'WEBHOOK_ATTEMPT_RATE_LIMITED',
-        message: 'Webhook event trigger attempt rate limit exceeded.',
+        message: 'Workflow webhook attempt rate limit exceeded.',
         retryable: true
       } });
       return;
     }
-    const expected = signWebhookPayload(decryptWebhookSecret(trigger.secretCiphertext), timestamp, rawBody);
+    const expected = signWebhookPayload(decryptWebhookSecret(webhook.secretCiphertext), timestamp, rawBody);
     if (!constantTimeSignatureEqual(signature, expected)) {
       res.status(401).json({ error: {
         code: 'WEBHOOK_SIGNATURE_INVALID',
@@ -147,14 +145,14 @@ export async function receiveWorkflowEventTriggerWebhook(
       } });
       return;
     }
-    const workflow = await getWorkflowDefinition(trigger.workspaceId, trigger.workflowId);
+    const workflow = await getWorkflowDefinition(webhook.workspaceId, webhook.workflowId);
     if (
       !workflow
-      || trigger.parameterSignature !== workflowParameterSignature(workflow.parameters)
+      || webhook.parameterSignature !== workflowParameterSignature(workflow.parameters)
     ) {
       res.status(409).json({ error: {
         code: 'WEBHOOK_WORKFLOW_CHANGED',
-        message: 'The target workflow changed. Review and save this event trigger before retrying.',
+        message: 'The target workflow changed. Review and save this workflow webhook before retrying.',
         retryable: false
       } });
       return;
@@ -169,7 +167,7 @@ export async function receiveWorkflowEventTriggerWebhook(
       return;
     }
     const accepted = await acceptWorkflowWebhookEvent({
-      trigger,
+      webhook,
       eventId,
       occurredAt: new Date(timestampMs).toISOString(),
       payload: body,
@@ -178,7 +176,7 @@ export async function receiveWorkflowEventTriggerWebhook(
     if (accepted === 'inactive') {
       res.status(404).json({ error: {
         code: 'WEBHOOK_NOT_FOUND',
-        message: 'Webhook event trigger not found.',
+        message: 'Workflow webhook not found.',
         retryable: false
       } });
       return;
@@ -187,7 +185,7 @@ export async function receiveWorkflowEventTriggerWebhook(
       res.setHeader('Retry-After', '60');
       res.status(429).json({ error: {
         code: 'WEBHOOK_RATE_LIMITED',
-        message: 'Webhook event trigger rate limit exceeded.',
+        message: 'Workflow webhook rate limit exceeded.',
         retryable: true
       } });
       return;

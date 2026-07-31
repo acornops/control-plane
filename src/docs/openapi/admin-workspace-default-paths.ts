@@ -11,6 +11,32 @@ export function buildAdminWorkspaceDefaultPaths(
   };
   const reason = { type: 'string', minLength: 3, maxLength: 500 };
   return {
+    '/admin/v1/system/workspace-defaults/resolve-skill': {
+      post: {
+        tags: ['admin'],
+        summary: 'Resolve an allowed Git URL to a pinned workspace-default skill snapshot',
+        description: 'Uses the deployment Git-host allowlist and anonymous provider API access.',
+        security: adminSecurity,
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['repoUrl'],
+                properties: {
+                  repoUrl: { type: 'string', format: 'uri', pattern: '^https://', maxLength: 2048 },
+                  ref: { type: 'string', minLength: 1, maxLength: 255 },
+                  subpath: { type: 'string', minLength: 1, maxLength: 512 }
+                },
+                additionalProperties: false
+              }
+            }
+          }
+        },
+        responses: { '200': { description: 'Pinned Markdown snapshot.' } }
+      }
+    },
     '/admin/v1/system/workspace-defaults': {
       get: {
         tags: ['admin'],

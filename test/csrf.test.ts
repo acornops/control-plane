@@ -60,7 +60,7 @@ describe('csrfProtection', () => {
   it('allows the HMAC-authenticated workflow webhook ingress even when a browser session cookie is present', () => {
     const req = {
       method: 'POST',
-      path: '/api/v1/workflow-event-triggers/trigger-1/events',
+      path: '/api/v1/workflow-webhooks/trigger-1/events',
       cookies: { [config.SESSION_COOKIE_NAME]: 'session-1' },
       header: () => undefined
     };

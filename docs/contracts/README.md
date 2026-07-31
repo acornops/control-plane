@@ -42,6 +42,14 @@ The control plane owns the platform API boundary. Keep this README as a short in
   separate. Legacy `password_signup` rows resolve to the deployment default
   until an administrator saves the replacement setting.
 - The platform admin console uses only its mirrored `/admin/v1` subset. Its BFF rejects `admin:*` and all target, run, agent-key, and tooling scopes, and removes operational fields before browser delivery.
+- Target, Agent, and platform-default Git skill imports resolve one full URL
+  server-side against `GIT_IMPORT_HOSTS_JSON`. The provider, ref, and subpath
+  are inferred; browser callers cannot supply a provider API base or bypass the
+  deployment host allowlist.
+- Roll out the control plane before URL-only console consumers. Public-host
+  legacy clients remain compatible when they omit `apiBaseUrl`; pause legacy
+  custom-host imports during a mixed-version rollout because the server
+  intentionally rejects browser-supplied API bases.
 - Protected Admin Audit persists authentication lifecycle events and privileged
   mutation requests, successes, and failures. Read-only admin requests remain
   visible in structured HTTP access logs but do not create audit records.
@@ -187,7 +195,7 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Agents contribute capabilities only to direct or delegated specialist
   Workflow runs.
   Public standalone Agent runs, Agent activity endpoints, Agent schedules,
-  Agent target-event triggers, and Agent inbound webhooks are not supported.
+  Agent target-workflow webhooks, and Agent inbound webhooks are not supported.
 - Workflow schedules always run as their authenticated creator. Schedule create
   and update reject service identities with
   `WORKFLOW_SCHEDULE_USER_PRINCIPAL_REQUIRED`; migration pauses schedules whose
@@ -196,7 +204,7 @@ The control plane owns the platform API boundary. Keep this README as a short in
   workspace execution ledger is user-session-only, workspace-authorized, cursor
   paginated, and filterable by status, origin, workflow, issue, and bounded
   search. Browser issue responses receive grouped compact activity summaries.
-  Schedule and event-trigger responses keep configuration, last dispatch, and
+  Schedule and workflow-webhook responses keep configuration, last dispatch, and
   latest successful execution pointers separate; unsuccessful dispatches never
   erase those pointers. Exact execution responses add origin only for normal
   users and preserve the restricted external-integration representation.

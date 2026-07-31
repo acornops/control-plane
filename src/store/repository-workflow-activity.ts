@@ -19,7 +19,7 @@ export interface WorkflowExecutionListOptions {
   limit: number;
   cursor?: WorkflowExecutionPageCursor | null;
   state?: 'all' | 'open' | 'attention' | 'completed' | 'failed' | 'cancelled';
-  origin?: 'manual' | 'external_integration' | 'schedule' | 'event_trigger';
+  origin?: 'manual' | 'external_integration' | 'schedule' | 'webhook';
   workflowId?: string;
   sourceIssueId?: string;
   search?: string;

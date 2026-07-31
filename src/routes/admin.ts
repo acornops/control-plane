@@ -18,7 +18,8 @@ import {
   adminWorkspacePlanPatchSchema,
   adminWorkspaceQuotaPatchSchema,
   adminWorkspaceRestoreSchema,
-  adminWorkspaceSuspendSchema
+  adminWorkspaceSuspendSchema,
+  resolveGitSkillSchema
 } from '../types/contracts.js';
 import { validateBody } from '../utils/http.js';
 import { incrementAdminRequests } from '../metrics.js';
@@ -55,6 +56,12 @@ adminRouter.get(
   '/system/workspace-defaults',
   requireAdminScope('admin:system:read'),
   adminHandler(adminController.listDefaults)
+);
+adminRouter.post(
+  '/system/workspace-defaults/resolve-skill',
+  requireAdminScope('admin:system:write'),
+  validateBody(resolveGitSkillSchema),
+  adminHandler(adminController.resolveDefaultGitSkill)
 );
 adminRouter.post(
   '/system/workspace-defaults',

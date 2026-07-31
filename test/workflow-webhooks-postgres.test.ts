@@ -2,19 +2,19 @@ import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, it, mock } from 'node:test';
 
 import {
-  createWorkspaceWorkflowEventTrigger,
-  receiveWorkflowEventTriggerWebhook,
-  rotateWorkflowEventTriggerSigningSecret,
-  updateWorkflowEventTrigger
-} from '../src/controllers/workflow-event-triggers-controller.js';
+  createWorkspaceWorkflowWebhook,
+  receiveWorkflowWebhook,
+  rotateWorkflowWebhookSigningSecret,
+  updateWorkflowWebhook
+} from '../src/controllers/workflow-webhooks-controller.js';
 import { db } from '../src/infra/db.js';
 import { redis } from '../src/infra/redis.js';
-import { runWorkflowEventTriggerTick } from '../src/services/workflow-event-trigger-worker.js';
+import { runWorkflowWebhookTick } from '../src/services/workflow-webhook-worker.js';
 import { repo } from '../src/store/repository.js';
 import {
   acceptWorkflowWebhookEvent,
-  getWorkflowEventTrigger
-} from '../src/store/repository-workflow-event-triggers.js';
+  getWorkflowWebhook
+} from '../src/store/repository-workflow-webhooks.js';
 import { signWebhookPayload } from '../src/utils/crypto.js';
 import {
   callController,
@@ -42,30 +42,29 @@ beforeEach(async () => {
 afterEach(restoreControllerRegressionState);
 after(closeAutomationDatabaseFixtures);
 
-async function createWebhookTrigger(): Promise<{
+async function createWebhook(): Promise<{
   id: string;
   secret: string;
 }> {
-  const response = await callController(createWorkspaceWorkflowEventTrigger, createRequest(
+  const response = await callController(createWorkspaceWorkflowWebhook, createRequest(
     { workspaceId: 'workspace-1' },
     {
       workflowId: 'cluster-triage',
       name: 'External triage',
-      sourceType: 'webhook',
       approvedContextGrants: ['workspace_metadata', 'target_inventory']
     }
   ));
   assert.equal(response.statusCode, 201);
   const body = response.body as {
-    trigger: { id: string; principal: { id: string } };
-    webhook: { secret: string };
+    webhook: { id: string; principal: { id: string } };
+    signingSecret: { secret: string };
   };
-  assert.equal(body.trigger.principal.id, 'user-1');
-  return { id: body.trigger.id, secret: body.webhook.secret };
+  assert.equal(body.webhook.principal.id, 'user-1');
+  return { id: body.webhook.id, secret: body.signingSecret.secret };
 }
 
 async function sendSignedWebhook(input: {
-  triggerId: string;
+  webhookId: string;
   secret: string;
   eventId: string;
 }): Promise<ReturnType<typeof createResponse>> {
@@ -77,27 +76,27 @@ async function sendSignedWebhook(input: {
     'x-acornops-signature': `v1=${signWebhookPayload(input.secret, timestamp, rawBody)}`
   };
   const req = {
-    params: { triggerId: input.triggerId },
+    params: { webhookId: input.webhookId },
     body: JSON.parse(rawBody),
     rawBody,
     header: (name: string) => headers[name.toLowerCase()]
   };
   const res = createResponse();
-  await receiveWorkflowEventTriggerWebhook(req as never, res as never, (error?: unknown) => {
+  await receiveWorkflowWebhook(req as never, res as never, (error?: unknown) => {
     if (error) throw error;
   });
   return res;
 }
 
-describe('workflow event triggers with PostgreSQL', () => {
-  it('authorizes the mutation workspace before resolving a trigger ID', async () => {
-    const trigger = await createWebhookTrigger();
+describe('workflow webhooks with PostgreSQL', () => {
+  it('authorizes the mutation workspace before resolving a webhook ID', async () => {
+    const webhook = await createWebhook();
     repo.getWorkspaceRole = async (workspaceId: string) => (
       workspaceId === 'workspace-1' ? 'admin' : null
     );
 
-    const response = await callController(updateWorkflowEventTrigger, createRequest(
-      { triggerId: trigger.id },
+    const response = await callController(updateWorkflowWebhook, createRequest(
+      { webhookId: webhook.id },
       { workspaceId: 'workspace-2', enabled: false }
     ));
 
@@ -106,7 +105,7 @@ describe('workflow event triggers with PostgreSQL', () => {
   });
 
   it('accepts signed retries idempotently and recovers delivery without a second execution', async () => {
-    const trigger = await createWebhookTrigger();
+    const webhook = await createWebhook();
     mock.method(redis, 'eval', async () => 1);
     mock.method(globalThis, 'fetch', async (input, init) => {
       if (isMcpReadinessRequest(input, init)) return createReadyMcpReadinessResponse();
@@ -120,102 +119,102 @@ describe('workflow event triggers with PostgreSQL', () => {
     });
 
     const accepted = await sendSignedWebhook({
-      triggerId: trigger.id,
-      secret: trigger.secret,
+      webhookId: webhook.id,
+      secret: webhook.secret,
       eventId: 'source-event-1'
     });
     const replayed = await sendSignedWebhook({
-      triggerId: trigger.id,
-      secret: trigger.secret,
+      webhookId: webhook.id,
+      secret: webhook.secret,
       eventId: 'source-event-1'
     });
     assert.equal(accepted.statusCode, 202);
     assert.equal(replayed.statusCode, 202);
 
     await db.query(
-      `UPDATE automation_trigger_deliveries
+      `UPDATE workflow_webhook_deliveries
        SET status='claimed',claim_owner='crashed-worker',
            claim_expires_at=NOW()-INTERVAL '1 second'
-       WHERE trigger_id=$1`,
-      [trigger.id]
+       WHERE webhook_id=$1`,
+      [webhook.id]
     );
-    assert.equal(await runWorkflowEventTriggerTick(), 1);
+    assert.equal(await runWorkflowWebhookTick(), 1);
     const first = await db.query(
       `SELECT COUNT(*)::int AS count
        FROM workflow_executions
        WHERE workspace_id='workspace-1' AND trigger_id=$1 AND occurrence_key='source-event-1'`,
-      [trigger.id]
+      [webhook.id]
     );
     assert.equal(first.rows[0].count, 1);
 
     await db.query(
-      `UPDATE automation_trigger_deliveries
+      `UPDATE workflow_webhook_deliveries
        SET status='failed',next_attempt_at=NOW(),claim_owner=NULL,claim_expires_at=NULL
-       WHERE trigger_id=$1`,
-      [trigger.id]
+       WHERE webhook_id=$1`,
+      [webhook.id]
     );
-    assert.equal(await runWorkflowEventTriggerTick(), 1);
+    assert.equal(await runWorkflowWebhookTick(), 1);
     const recovered = await db.query(
       `SELECT COUNT(*)::int AS count
        FROM workflow_executions
        WHERE workspace_id='workspace-1' AND trigger_id=$1 AND occurrence_key='source-event-1'`,
-      [trigger.id]
+      [webhook.id]
     );
     assert.equal(recovered.rows[0].count, 1);
-    assert.equal((await getWorkflowEventTrigger(trigger.id))?.lastStatus, 'dispatched');
+    assert.equal((await getWorkflowWebhook(webhook.id))?.lastStatus, 'dispatched');
   });
 
-  it('rejects an accepted event if its trigger is paused before dispatch', async () => {
-    const trigger = await createWebhookTrigger();
+  it('rejects an accepted event if its webhook is paused before dispatch', async () => {
+    const webhook = await createWebhook();
     mock.method(redis, 'eval', async () => 1);
     await db.query(
-      `UPDATE workflow_event_triggers
+      `UPDATE workflow_webhooks
        SET last_execution_id='prior-successful-execution',last_run_id='prior-successful-run'
        WHERE id=$1`,
-      [trigger.id]
+      [webhook.id]
     );
     assert.equal((await sendSignedWebhook({
-      triggerId: trigger.id,
-      secret: trigger.secret,
+      webhookId: webhook.id,
+      secret: webhook.secret,
       eventId: 'paused-event-1'
     })).statusCode, 202);
 
-    const paused = await callController(updateWorkflowEventTrigger, createRequest(
-      { triggerId: trigger.id },
+    const paused = await callController(updateWorkflowWebhook, createRequest(
+      { webhookId: webhook.id },
       { workspaceId: 'workspace-1', enabled: false }
     ));
     assert.equal(paused.statusCode, 200);
-    assert.equal(await runWorkflowEventTriggerTick(), 1);
+    assert.equal(await runWorkflowWebhookTick(), 1);
 
     const delivery = await db.query(
-      'SELECT status FROM automation_trigger_deliveries WHERE trigger_id=$1',
-      [trigger.id]
+      'SELECT status FROM workflow_webhook_deliveries WHERE webhook_id=$1',
+      [webhook.id]
     );
     const executions = await db.query(
       'SELECT COUNT(*)::int AS count FROM workflow_executions WHERE trigger_id=$1',
-      [trigger.id]
+      [webhook.id]
     );
     assert.equal(delivery.rows[0].status, 'rejected');
     assert.equal(executions.rows[0].count, 0);
-    const durablePointer = await getWorkflowEventTrigger(trigger.id);
+    const durablePointer = await getWorkflowWebhook(webhook.id);
     assert.equal(durablePointer?.lastStatus, 'rejected');
     assert.equal(durablePointer?.lastExecutionId, 'prior-successful-execution');
     assert.equal(durablePointer?.lastRunId, 'prior-successful-run');
   });
 
   it('invalidates an in-flight request when its signing secret is rotated', async () => {
-    const trigger = await createWebhookTrigger();
-    const staleTrigger = await getWorkflowEventTrigger(trigger.id);
-    assert.ok(staleTrigger);
+    const webhook = await createWebhook();
+    const staleWebhook = await getWorkflowWebhook(webhook.id);
+    assert.ok(staleWebhook);
 
     const rotated = await callController(
-      rotateWorkflowEventTriggerSigningSecret,
-      createRequest({ triggerId: trigger.id }, { workspaceId: 'workspace-1' })
+      rotateWorkflowWebhookSigningSecret,
+      createRequest({ webhookId: webhook.id }, { workspaceId: 'workspace-1' })
     );
     assert.equal(rotated.statusCode, 200);
 
     const result = await acceptWorkflowWebhookEvent({
-      trigger: staleTrigger,
+      webhook: staleWebhook,
       eventId: 'stale-secret-event',
       occurredAt: new Date().toISOString(),
       payload: { inputs: { target: 'cluster-1' } },
@@ -224,41 +223,40 @@ describe('workflow event triggers with PostgreSQL', () => {
     assert.equal(result, 'inactive');
     const events = await db.query(
       `SELECT COUNT(*)::int AS count
-       FROM automation_trigger_events
-       WHERE source_type='webhook' AND source_id=$1`,
-      [trigger.id]
+       FROM workflow_webhook_events
+       WHERE webhook_id=$1`,
+      [webhook.id]
     );
     assert.equal(events.rows[0].count, 0);
   });
 
   it('accepts an idempotent replay at the rate cap and rejects a new event', async () => {
-    const trigger = await createWebhookTrigger();
+    const webhook = await createWebhook();
     mock.method(redis, 'eval', async () => 1);
     const eventId = 'event-at-rate-cap';
     assert.equal((await sendSignedWebhook({
-      triggerId: trigger.id,
-      secret: trigger.secret,
+      webhookId: webhook.id,
+      secret: webhook.secret,
       eventId
     })).statusCode, 202);
 
     await db.query(
-      `INSERT INTO automation_trigger_events (
-         id,workspace_id,event_type,source_type,source_id,occurrence_key,payload,occurred_at
+      `INSERT INTO workflow_webhook_events (
+         id,workspace_id,webhook_id,occurrence_key,payload,occurred_at
        )
-       SELECT gen_random_uuid()::text,'workspace-1','workflow.webhook.received.v1',
-         'webhook',$1,'rate-cap-' || value::text,'{}'::jsonb,NOW()
+       SELECT gen_random_uuid()::text,'workspace-1',$1,'rate-cap-' || value::text,'{}'::jsonb,NOW()
        FROM generate_series(1,59) AS value`,
-      [trigger.id]
+      [webhook.id]
     );
 
     assert.equal((await sendSignedWebhook({
-      triggerId: trigger.id,
-      secret: trigger.secret,
+      webhookId: webhook.id,
+      secret: webhook.secret,
       eventId
     })).statusCode, 202);
     const limited = await sendSignedWebhook({
-      triggerId: trigger.id,
-      secret: trigger.secret,
+      webhookId: webhook.id,
+      secret: webhook.secret,
       eventId: 'new-event-over-rate-cap'
     });
     assert.equal(limited.statusCode, 429);

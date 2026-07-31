@@ -4,7 +4,11 @@ import {
   gitImportSourceMatches,
   targetSkillImportEnabled
 } from '../src/controllers/workspaces/target-skills-controller.js';
-import { importTargetSkillSchema, reimportTargetSkillSchema } from '../src/types/contracts.js';
+import {
+  importTargetSkillSchema,
+  reimportTargetSkillSchema,
+  resolveGitSkillSchema
+} from '../src/types/contracts.js';
 
 describe('target skills controller regression guards', () => {
   it('derives Git import enablement from validation status instead of request input', () => {
@@ -13,7 +17,7 @@ describe('target skills controller regression guards', () => {
     assert.equal(targetSkillImportEnabled('unvalidated'), false);
   });
 
-  it('requires client-resolved Git snapshots for import and reimport', () => {
+  it('accepts URL-only resolution requests and requires pinned snapshots for storage', () => {
     const snapshotPayload = {
       files: [{ path: 'SKILL.md', content: '---\nname: Demo\ndescription: Demo skill\n---\n' }],
       source: {
@@ -35,23 +39,6 @@ describe('target skills controller regression guards', () => {
         repoUrl: 'https://gitlab.internal/platform/skills',
         apiBaseUrl: 'https://gitlab.internal/api/v4'
       }
-    }).success, true);
-    assert.equal(importTargetSkillSchema.safeParse({
-      ...snapshotPayload,
-      source: {
-        ...snapshotPayload.source,
-        provider: 'gitlab',
-        repoUrl: 'https://git.internal/gitlab/platform/skills',
-        apiBaseUrl: 'https://git.internal/gitlab/api/v4'
-      }
-    }).success, true);
-    assert.equal(importTargetSkillSchema.safeParse({
-      ...snapshotPayload,
-      source: {
-        ...snapshotPayload.source,
-        provider: 'gitlab',
-        apiBaseUrl: 'https://gitlab.internal/api/v3'
-      }
     }).success, false);
     assert.equal(importTargetSkillSchema.safeParse({ repoUrl: 'https://github.com/acornops/skills' }).success, false);
     assert.equal(importTargetSkillSchema.safeParse({
@@ -61,6 +48,14 @@ describe('target skills controller regression guards', () => {
     assert.equal(importTargetSkillSchema.safeParse({
       ...snapshotPayload,
       source: { ...snapshotPayload.source, subpath: '../demo' }
+    }).success, false);
+    assert.equal(resolveGitSkillSchema.safeParse({
+      repoUrl: 'https://github.com/acornops/skills/tree/main/skills/demo'
+    }).success, true);
+    assert.equal(resolveGitSkillSchema.safeParse({
+      provider: 'github',
+      repoUrl: 'https://github.com/acornops/skills',
+      apiBaseUrl: 'https://api.github.com'
     }).success, false);
   });
 
@@ -74,6 +69,10 @@ describe('target skills controller regression guards', () => {
       syncStatus: 'current' as const
     };
     assert.equal(gitImportSourceMatches(stored, { ...stored }), true);
+    assert.equal(gitImportSourceMatches(
+      { ...stored, apiBaseUrl: 'https://legacy.example/api/v3' },
+      stored
+    ), true);
     assert.equal(gitImportSourceMatches(stored, { ...stored, ref: 'next' }), false);
     assert.equal(gitImportSourceMatches(stored, { ...stored, repoUrl: 'https://github.com/acornops/other' }), false);
   });

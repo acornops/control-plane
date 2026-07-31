@@ -1,6 +1,12 @@
 import { isIP } from 'node:net';
 import type { NextFunction, Response } from 'express';
 import type { AdminAuthenticatedRequest } from '../auth/admin-token.js';
+import { config } from '../config.js';
+import { matchGitImportHost } from '../config-git-imports.js';
+import {
+  GitSkillImportError,
+  resolveGitSkill
+} from '../services/git-skill-import.js';
 import { getTargetSkillBundleStorageLimitErrors, normalizeTargetSkillBundle } from '../services/target-skills.js';
 import {
   createWorkspaceDefault,
@@ -16,6 +22,7 @@ import type {
 } from '../types/workspace-defaults.js';
 import { toSingleParam } from '../utils/params.js';
 import { adminAuditEventInput, notFound, parseStringFilter, validationError } from './admin-controller-common.js';
+import { respondGitSkillImportError } from './workspaces/git-skill-import-controller.js';
 
 const privateHostPatterns = [
   /^localhost$/i,
@@ -51,15 +58,29 @@ export function validWorkspaceDefaultHttpsUrl(raw: string): URL | null {
 export function validWorkspaceDefaultSkillSource(
   source: Pick<WorkspaceDefaultGitSkillSource, 'provider' | 'repoUrl'>
 ): boolean {
-  const url = validWorkspaceDefaultHttpsUrl(source.repoUrl);
-  const expectedHost = source.provider === 'github' ? 'github.com' : 'gitlab.com';
-  return url?.hostname.toLowerCase() === expectedHost;
+  return matchGitImportHost(source.repoUrl, config.GIT_IMPORT_HOSTS)?.provider === source.provider;
 }
 
 function queryEnum<T extends string>(value: unknown, allowed: readonly T[]): T | undefined | null {
   if (value === undefined || value === '') return undefined;
   const raw = toSingleParam(value as string | string[]);
   return allowed.includes(raw as T) ? raw as T : null;
+}
+
+export async function resolveDefaultGitSkill(
+  req: AdminAuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    res.status(200).json(await resolveGitSkill(req.body));
+  } catch (error) {
+    if (error instanceof GitSkillImportError) {
+      respondGitSkillImportError(res, error);
+      return;
+    }
+    next(error);
+  }
 }
 
 export async function listDefaults(req: AdminAuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {

@@ -37,6 +37,7 @@
         "PUT /admin/v1/system/llm-provider-defaults/{provider}",
         "DELETE /admin/v1/system/llm-provider-defaults/{provider}",
         "GET /admin/v1/system/workspace-defaults",
+        "POST /admin/v1/system/workspace-defaults/resolve-skill",
         "POST /admin/v1/system/workspace-defaults",
         "PATCH /admin/v1/system/workspace-defaults/{id}",
         "DELETE /admin/v1/system/workspace-defaults/{id}",
@@ -296,35 +297,18 @@
         "mcp.server.tested.v1",
         "tool.catalog.changed.v1"
       ],
-      "workflowEventTriggers": {
+      "workflowWebhooks": {
         "managementPaths": [
-          "GET /api/v1/workspaces/{workspaceId}/workflow-event-triggers",
-          "POST /api/v1/workspaces/{workspaceId}/workflow-event-triggers",
-          "PATCH /api/v1/workflow-event-triggers/{triggerId}",
-          "DELETE /api/v1/workflow-event-triggers/{triggerId}",
-          "POST /api/v1/workflow-event-triggers/{triggerId}/rotate-secret"
+          "GET /api/v1/workspaces/{workspaceId}/workflow-webhooks",
+          "POST /api/v1/workspaces/{workspaceId}/workflow-webhooks",
+          "PATCH /api/v1/workflow-webhooks/{webhookId}",
+          "DELETE /api/v1/workflow-webhooks/{webhookId}",
+          "POST /api/v1/workflow-webhooks/{webhookId}/rotate-secret"
         ],
-        "ingressPath": "POST /api/v1/workflow-event-triggers/{triggerId}/events",
-        "sourceTypes": [
-          "webhook",
-          "acornops_event"
-        ],
-        "acornopsEventTypes": [
-          "issue.created.v1"
-        ],
-        "authorization": "read_workspace_data lists triggers; manage_workflows creates, updates, deletes, and rotates secrets; ingress is authenticated only by the trigger HMAC",
-        "webhookContract": "JSON body {inputs:{parameterKey:string}} plus X-AcornOps-Event-Id, X-AcornOps-Timestamp, and X-AcornOps-Signature=v1=<HMAC-SHA256(secret, timestamp.rawBody)>; 256 KiB maximum, five-minute timestamp window, replay-protected, bounded request attempts, and 60 accepted events per trigger per minute",
-        "issueBindings": [
-          "issue.id",
-          "issue.title",
-          "issue.summary",
-          "issue.severity",
-          "issue.scope",
-          "issue.object",
-          "target.id",
-          "target.type"
-        ],
-        "dispatchPolicy": "Every delivery recompiles current workflow parameters, user-principal authorization, capability mappings, MCP readiness, AI policy, approvals, and execution idempotency; configuration failures auto-pause the trigger",
+        "ingressPath": "POST /api/v1/workflow-webhooks/{webhookId}/events",
+        "authorization": "read_workspace_data lists workflow webhooks; manage_workflows creates, updates, deletes, and rotates secrets; ingress is authenticated only by the webhook HMAC",
+        "webhookContract": "JSON body {inputs:{parameterKey:string}} plus X-AcornOps-Event-Id, X-AcornOps-Timestamp, and X-AcornOps-Signature=v1=<HMAC-SHA256(secret, timestamp.rawBody)>; 256 KiB maximum, five-minute timestamp window, replay-protected, bounded request attempts, and 60 accepted events per webhook per minute",
+        "dispatchPolicy": "Every delivery recompiles current workflow parameters, user-principal authorization, capability mappings, MCP readiness, AI policy, approvals, and execution idempotency; configuration failures auto-pause the webhook",
         "secretPolicy": "Webhook secrets are encrypted at rest and returned only on creation or explicit rotation; rotation invalidates an already-verified request before durable acceptance"
       },
       "workflowActivityVisibility": {
@@ -334,9 +318,9 @@
         ],
         "authorization": "Browser users require read_workspace_data in the exact workspace; workspace activity routes are not exposed to external-integration credentials.",
         "pagination": "The ledger uses an opaque stable cursor and returns {items,nextCursor?,summary.{openCount,attentionCount}} with bounded status, origin, workflow, and issue filters.",
-        "provenance": "Every execution returns an immutable safe origin snapshot for manual, external_integration, schedule, or event_trigger dispatch. Trigger labels survive deletion; webhook payloads and occurrence keys are never projected.",
+        "provenance": "Every execution returns an immutable safe origin snapshot for manual, external_integration, schedule, webhook, or retained historical-event dispatch. Schedule and webhook labels survive deletion; webhook payloads and occurrence keys are never projected.",
         "refresh": "The console uses two-second visible-window polling and immediate focus refresh so background activity remains current without a second workspace event transport.",
-        "context": "Issue rows expose a compact workflowActivity summary without per-issue queries. Schedule and event-trigger rows keep configuration, last dispatch outcome, and latest successful execution pointer separate.",
+        "context": "Issue rows expose a compact workflowActivity summary without per-issue queries. Schedule and workflow-webhook rows keep configuration, last dispatch outcome, and latest successful execution pointer separate.",
         "statusAuthority": "The aggregate execution status is authoritative; dispatch failure does not imply a running execution and terminal execution status never renders as in progress."
       },
       "targetAutoTriage": {
@@ -482,22 +466,18 @@
           "inputs.{parameterKey:string}",
           "principal.{type=user,id=currentUserId}"
         ],
-        "workflowEventTrigger": [
+        "workflowWebhook": [
           "workflowId",
           "name",
           "enabled?",
-          "sourceType=webhook|acornops_event",
-          "eventType=issue.created.v1 only for acornops_event",
-          "inputBindings.{parameterKey:allowlistedIssueOrTargetField}? only for acornops_event",
           "approvedContextGrants[]?"
         ],
-        "workflowEventTriggerUpdate": [
+        "workflowWebhookUpdate": [
           "workspaceId",
           "name?",
           "enabled?",
-          "inputBindings?",
           "approvedContextGrants[]?",
-          "no workflowId, sourceType, eventType, status, or principal"
+          "no workflowId, status, or principal"
         ],
         "promptReferenceResolve": [
           "prompt",
@@ -821,29 +801,26 @@
           "items",
           "summary.{total,active,paused,approvalGated,nextRunAt?}"
         ],
-        "workflowEventTrigger": [
+        "workflowWebhook": [
           "id",
           "workspaceId",
           "workflowId",
           "name",
           "status=enabled|paused",
-          "sourceType=webhook|acornops_event",
-          "eventType?",
-          "inputBindings",
           "approvedContextGrants",
           "principal.{type=user,id}",
-          "endpointUrl? webhook only",
-          "lastTriggeredAt?",
+          "endpointUrl",
+          "lastReceivedAt?",
           "lastStatus?",
           "lastExecutionId?",
           "lastRunId?",
           "latestExecution?",
           "lastError?"
         ],
-        "workflowEventTriggerPage": [
+        "workflowWebhookPage": [
           "items"
         ],
-        "workflowEventTriggerSecret": [
+        "workflowWebhookSecret": [
           "url",
           "secret",
           "secretDisclosure=one_time"
@@ -888,6 +865,7 @@
         "PUT /admin/v1/system/llm-provider-defaults/{provider}",
         "DELETE /admin/v1/system/llm-provider-defaults/{provider}",
         "GET /admin/v1/system/workspace-defaults",
+        "POST /admin/v1/system/workspace-defaults/resolve-skill",
         "POST /admin/v1/system/workspace-defaults",
         "PATCH /admin/v1/system/workspace-defaults/{id}",
         "DELETE /admin/v1/system/workspace-defaults/{id}",

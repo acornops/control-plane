@@ -389,6 +389,20 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
         responses: { '201': jsonResponse('Target skill imported. Valid imported skills are enabled automatically; invalid imports are stored disabled with validation errors.', targetSkillDetailSchema) }
       }
     },
+    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/resolve': {
+      post: {
+        tags: ['workspaces'],
+        summary: 'Resolve an allowed Git URL to a pinned target skill snapshot',
+        description: 'The control plane infers the configured GitHub or GitLab host, ref, and subpath. Requires manage_skills and uses anonymous provider API access.',
+        security: [{ userSession: [] }],
+        parameters: [
+          { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
+          { in: 'path', name: 'targetId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_TARGET_ID } }
+        ],
+        requestBody: gitSkillResolveBody(),
+        responses: { '200': { description: 'Pinned Markdown snapshot.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ResolvedGitSkill' } } } } }
+      }
+    },
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/skills/{skillId}': {
       get: {
         tags: ['workspaces'],
@@ -475,6 +489,26 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
           }
         },
         responses: { '200': jsonResponse('Target skill reimported.', targetSkillDetailSchema) }
+      }
+    }
+  };
+}
+
+function gitSkillResolveBody() {
+  return {
+    required: true,
+    content: {
+      'application/json': {
+        schema: {
+          type: 'object',
+          required: ['repoUrl'],
+          properties: {
+            repoUrl: { type: 'string', format: 'uri', pattern: '^https://', maxLength: 2048 },
+            ref: { type: 'string', minLength: 1, maxLength: 255 },
+            subpath: { type: 'string', minLength: 1, maxLength: 512 }
+          },
+          additionalProperties: false
+        }
       }
     }
   };

@@ -355,60 +355,43 @@ export interface WorkflowSchedulePatch {
   principal?: WorkflowSchedulePrincipal;
 }
 
-export type WorkflowEventTriggerSourceType = 'webhook' | 'acornops_event';
-export type WorkflowEventTriggerStatus = 'enabled' | 'paused';
-export type WorkflowEventTriggerLastStatus = 'dispatched' | 'failed' | 'auto_paused' | 'rejected';
-export type WorkflowEventInputBinding =
-  | 'issue.id'
-  | 'issue.title'
-  | 'issue.summary'
-  | 'issue.severity'
-  | 'issue.scope'
-  | 'issue.object'
-  | 'target.id'
-  | 'target.type';
+export type WorkflowWebhookStatus = 'enabled' | 'paused';
+export type WorkflowWebhookLastStatus = 'dispatched' | 'failed' | 'auto_paused' | 'rejected';
 
-export interface WorkflowEventTriggerRecord {
+export interface WorkflowWebhookRecord {
   id: string;
   workspaceId: string;
   workflowId: string;
   workflowVersion: number;
   parameterSignature: string;
   name: string;
-  status: WorkflowEventTriggerStatus;
-  sourceType: WorkflowEventTriggerSourceType;
-  eventType?: 'issue.created.v1';
-  inputBindings: Record<string, WorkflowEventInputBinding>;
+  status: WorkflowWebhookStatus;
   approvedContextGrants: string[];
   principal: WorkflowSchedulePrincipal;
-  secretCiphertext?: string;
-  secretKeyId?: string;
+  secretCiphertext: string;
+  secretKeyId: string;
   createdBy: WorkflowScheduleActorMetadata;
   updatedBy: WorkflowScheduleActorMetadata;
   createdAt: string;
   updatedAt: string;
-  lastTriggeredAt?: string;
-  lastStatus?: WorkflowEventTriggerLastStatus;
+  lastReceivedAt?: string;
+  lastStatus?: WorkflowWebhookLastStatus;
   lastExecutionId?: string;
   lastRunId?: string;
   lastError?: string;
 }
 
-export interface WorkflowEventTriggerInput {
+export interface WorkflowWebhookInput {
   workflowId: string;
   name: string;
   enabled?: boolean;
-  sourceType: WorkflowEventTriggerSourceType;
-  eventType?: 'issue.created.v1';
-  inputBindings?: Record<string, WorkflowEventInputBinding>;
   approvedContextGrants?: string[];
   principal: WorkflowSchedulePrincipal;
 }
 
-export interface WorkflowEventTriggerPatch {
+export interface WorkflowWebhookPatch {
   name?: string;
   enabled?: boolean;
-  inputBindings?: Record<string, WorkflowEventInputBinding>;
   approvedContextGrants?: string[];
 }
 
@@ -433,21 +416,18 @@ export type WorkflowExecutionOrigin =
       schemaVersion: 1;
       kind: 'schedule';
       label: string;
-      triggerId: string;
+      scheduleId: string;
     }
   | {
       schemaVersion: 1;
-      kind: 'event_trigger';
+      kind: 'webhook';
       label: string;
-      triggerId: string;
-      source: {
-        kind: 'issue' | 'webhook';
-        label: string;
-        id?: string;
-        eventType?: string;
-        targetId?: string;
-        targetType?: 'kubernetes' | 'virtual_machine';
-      };
+      webhookId: string;
+    }
+  | {
+      schemaVersion: 1;
+      kind: 'historical_event';
+      label: string;
     };
 
 export interface WorkflowExecutionSummary {

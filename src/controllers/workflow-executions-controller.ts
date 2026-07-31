@@ -37,7 +37,7 @@ import { publicWorkflowExecutionEvent, publicWorkflowRun } from './external-run-
 
 const WORKFLOW_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
 const executionStates = new Set(['all', 'open', 'attention', 'completed', 'failed', 'cancelled']);
-const executionOrigins = new Set(['manual', 'external_integration', 'schedule', 'event_trigger']);
+const executionOrigins = new Set(['manual', 'external_integration', 'schedule', 'webhook']);
 
 async function execution(id: string): Promise<QueryResultRow | null> {
   const result = await db.query<QueryResultRow>('SELECT * FROM workflow_executions WHERE id=$1', [id]);
@@ -112,7 +112,7 @@ export async function listWorkspaceWorkflowExecutions(
     const page = await listWorkspaceWorkflowExecutionRecords(workspaceId, {
       ...filters,
       state: filters.state as 'all' | 'open' | 'attention' | 'completed' | 'failed' | 'cancelled',
-      origin: filters.origin as 'manual' | 'external_integration' | 'schedule' | 'event_trigger' | undefined,
+      origin: filters.origin as 'manual' | 'external_integration' | 'schedule' | 'webhook' | undefined,
       limit: parseBoundedLimit(req.query.limit),
       cursor,
       signature

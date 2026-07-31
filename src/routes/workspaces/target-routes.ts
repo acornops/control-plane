@@ -9,6 +9,7 @@ import {
   createTargetInsightsEntrySchema,
   createTargetSkillSchema,
   importTargetSkillSchema,
+  resolveGitSkillSchema,
   reimportTargetSkillSchema,
   updateTargetInsightsEntrySchema,
   updateMcpServerSchema,
@@ -120,6 +121,12 @@ export function registerTargetRoutes(router: Router): void {
     requireActor(['user']),
     validateBody(createTargetSkillSchema),
     authed(workspacesController.createTargetSkillForTarget)
+  );
+  router.post(
+    '/workspaces/:workspaceId/targets/:targetId/skills/resolve',
+    requireActor(['user']),
+    validateBody(resolveGitSkillSchema),
+    authed(workspacesController.resolveTargetGitSkill)
   );
   router.post(
     '/workspaces/:workspaceId/targets/:targetId/skills/import',

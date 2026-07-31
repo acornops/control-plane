@@ -526,6 +526,7 @@ export { createTargetInsightsEntrySchema, updateTargetInsightsEntrySchema } from
 export {
   createTargetSkillSchema,
   importTargetSkillSchema,
+  resolveGitSkillSchema,
   reimportTargetSkillSchema,
   updateTargetSkillSchema
 } from './target-skill-contracts.js';

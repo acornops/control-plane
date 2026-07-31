@@ -25,9 +25,9 @@ function row(overrides: Record<string, unknown> = {}) {
     root_requested_at: '2026-07-15T08:00:00.000Z',
     root_started_at: '2026-07-15T08:00:03.000Z',
     root_ended_at: null,
-    trigger_type: 'acornops_event',
-    trigger_id: 'trigger-1',
-    source_id: 'issue-1',
+    trigger_type: 'webhook',
+    trigger_id: 'webhook-1',
+    source_id: 'webhook-1',
     occurrence_key: 'raw-occurrence-key-must-not-escape',
     ...overrides
   };
@@ -38,17 +38,9 @@ describe('workflow activity visibility contract', () => {
     const mapped = mapWorkflowExecutionSummary(row({
       origin_snapshot: {
         schemaVersion: 1,
-        kind: 'event_trigger',
-        label: 'Triage new issues',
-        triggerId: 'trigger-1',
-        source: {
-          kind: 'issue',
-          id: 'issue-1',
-          label: 'Payments worker is restarting',
-          eventType: 'issue.created.v1',
-          targetId: 'cluster-1',
-          targetType: 'kubernetes'
-        }
+        kind: 'webhook',
+        label: 'External production triage',
+        webhookId: 'webhook-1'
       }
     }) as never);
 
@@ -57,17 +49,9 @@ describe('workflow activity visibility contract', () => {
     assert.equal(mapped.rootRun?.targetName, 'Payments production');
     assert.deepEqual(mapped.origin, {
       schemaVersion: 1,
-      kind: 'event_trigger',
-      label: 'Triage new issues',
-      triggerId: 'trigger-1',
-      source: {
-        kind: 'issue',
-        id: 'issue-1',
-        label: 'Payments worker is restarting',
-        eventType: 'issue.created.v1',
-        targetId: 'cluster-1',
-        targetType: 'kubernetes'
-      }
+      kind: 'webhook',
+      label: 'External production triage',
+      webhookId: 'webhook-1'
     });
     assert.equal('occurrenceKey' in mapped.origin, false);
   });

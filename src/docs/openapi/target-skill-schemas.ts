@@ -89,7 +89,6 @@ export function buildTargetSkillSchemas(): TargetSkillOpenApiSchemas {
       properties: {
         provider: { type: 'string', enum: ['github', 'gitlab'], example: 'github' },
         repoUrl: { type: 'string', format: 'uri', example: 'https://github.com/openai/skills' },
-        apiBaseUrl: { type: 'string', format: 'uri', example: 'https://github.internal/api/v3' },
         ref: { type: 'string', example: 'main' },
         subpath: { type: 'string', example: 'skills/.curated/cli-creator' },
         commitSha: { type: 'string', pattern: '^[0-9a-fA-F]{40}$', example: '0123456789abcdef0123456789abcdef01234567' }
