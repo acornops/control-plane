@@ -112,6 +112,15 @@
         "privacy": "Provider keys are write-only and never appear in responses.",
         "workspaceCreation": "The console omits AI setup step 3 only after the new workspace reports at least one configured source=platform_default provider; status lookup failure retains the step."
       },
+      "targetCatalogAccessMode": {
+        "paths": [
+          "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters",
+          "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}"
+        ],
+        "field": "agentAccessMode=read_only|read_write|unknown",
+        "authority": "Derived from the target agent registration's advertised capabilities. Write-confirmation policy is separate and must not be used to infer agent write capability.",
+        "compatibility": "Additive field. Missing values are treated as unknown during rolling deployment."
+      },
       "workflowCapabilityCeiling": {
         "rule": "A workflow selects one or more active reviewed specialist Agents. restrictionMode=inherit resolves their current combined ceiling at session creation; restrictionMode=restrict requires semanticCapabilityIds to be an explicit subset.",
         "emptyRestrictionSemantics": "inherit requires an empty semanticCapabilityIds array. restrict may use an empty array to intentionally authorize no semantic capabilities. The console sends restrictionMode explicitly and stored definitions always contain the final field.",

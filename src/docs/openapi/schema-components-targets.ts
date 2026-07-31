@@ -31,6 +31,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
     KubernetesCluster: {
       allOf: [targetSummarySchema],
       properties: {
+        agentAccessMode: { type: 'string', enum: ['read_only', 'read_write', 'unknown'] },
         namespaceInclude: stringArray,
         namespaceExclude: stringArray,
         writeConfirmationPolicy: jsonObject
