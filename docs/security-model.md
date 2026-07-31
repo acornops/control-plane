@@ -161,7 +161,9 @@
 - Unsafe platform-admin BFF requests require an exact-origin signed double-submit CSRF token; unrelated operational admin tokens remain bearer-only.
   Admin sessions are opaque Redis records in secure, host-only, HTTP-only
   cookies with independent absolute and idle expiration.
-- Mutating admin requests write `admin_audit_events`. Workspace membership
+- Authentication lifecycle events and mutating admin requests write
+  `admin_audit_events`. Read-only admin requests remain in structured HTTP
+  access logs and do not create protected audit records. Workspace membership
   mutations atomically write a protected Admin Audit success record and a
   workspace-visible event in the same transaction as the membership change.
   The workspace event uses `actor.type=admin_token` with the generic token label

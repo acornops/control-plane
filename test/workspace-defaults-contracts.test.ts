@@ -16,7 +16,7 @@ import {
 } from '../src/controllers/admin-workspace-defaults-controller.js';
 import { toAgentMcpServer } from '../src/services/agent-mcp-capabilities.js';
 
-test('workspace default contracts accept only MCP servers and pinned skill bundles', () => {
+test('workspace default contracts accept MCP servers plus bounded manual and pinned skill bundles', () => {
   assert.equal(adminWorkspaceDefaultCreateSchema.safeParse({
     kind: 'mcp_server',
     name: 'GitHub',
@@ -39,6 +39,20 @@ test('workspace default contracts accept only MCP servers and pinned skill bundl
     source: { type: 'https', endpoint: 'https://mcp.example.test' },
     authentication: { type: 'bearer_token' },
     reason: 'Authentication belongs in the workspace'
+  }).success, false);
+  assert.equal(adminWorkspaceDefaultCreateSchema.safeParse({
+    kind: 'skill',
+    availableIn: ['agents', 'kubernetes'],
+    source: { type: 'manual' },
+    files: [{ path: 'SKILL.md', content: '---\nname: test\ndescription: Test skill\n---\n\nInstructions\n' }],
+    reason: 'Create a manual platform default'
+  }).success, true);
+  assert.equal(adminWorkspaceDefaultCreateSchema.safeParse({
+    kind: 'skill',
+    availableIn: ['agents'],
+    source: { type: 'manual', credential: 'must-not-pass' },
+    files: [{ path: 'SKILL.md', content: '---\nname: test\ndescription: Test skill\n---\n' }],
+    reason: 'Reject extra manual source fields'
   }).success, false);
   assert.equal(adminWorkspaceDefaultCreateSchema.safeParse({
     kind: 'skill',
@@ -71,6 +85,17 @@ test('workspace default contracts accept only MCP servers and pinned skill bundl
     availableIn: ['kubernetes', 'virtual_machines'],
     reason: 'Change availability',
     source: { endpoint: 'https://replacement.example.test' }
+  }).success, false);
+  assert.equal(adminWorkspaceDefaultPatchSchema.safeParse({
+    enabled: false,
+    reason: 'Pause future workspace initialization'
+  }).success, true);
+  assert.equal(adminWorkspaceDefaultPatchSchema.safeParse({
+    reason: 'Reject an empty update'
+  }).success, false);
+  assert.equal(adminWorkspaceDefaultPatchSchema.safeParse({
+    enabled: 'false',
+    reason: 'Reject non-boolean status'
   }).success, false);
   for (const availableIn of [
     [],
@@ -106,7 +131,12 @@ test('workspace initialization stores a detached snapshot without promotion book
     new URL('../migrations/control-plane/003_workspace_defaults.sql', import.meta.url),
     'utf8'
   );
+  const enabledStateMigration = readFileSync(
+    new URL('../migrations/control-plane/005_workspace_default_enabled_state.sql', import.meta.url),
+    'utf8'
+  );
   assert.match(migration, /CREATE TABLE workspace_initial_defaults/);
+  assert.match(enabledStateMigration, /ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT TRUE/);
   assert.match(migration, /workspace_id TEXT NOT NULL REFERENCES workspaces\(id\) ON DELETE CASCADE/);
   assert.doesNotMatch(migration, /workspace_default_promotions/);
   assert.doesNotMatch(migration, /workspace_initial_defaults[\s\S]+REFERENCES workspace_defaults/);
@@ -117,6 +147,7 @@ test('workspace initialization stores a detached snapshot without promotion book
   assert.match(repository, /available_in @> ARRAY\[\$\$\{params\.length\}\]::TEXT\[\]/);
   assert.match(repository, /INSERT INTO workspace_initial_defaults/);
   assert.match(repository, /FROM workspace_defaults/);
+  assert.match(repository, /WHERE enabled = TRUE/);
   assert.doesNotMatch(repository, /Promotion/);
   const provisioning = readFileSync(
     new URL('../src/services/workspace-provisioning.ts', import.meta.url),

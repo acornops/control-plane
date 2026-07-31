@@ -21,6 +21,7 @@ interface WorkspaceDefaultRow {
   name: string;
   description: string;
   available_in: WorkspaceDefaultAvailability[];
+  enabled: boolean;
   source: WorkspaceDefault['source'] | string;
   content_digest: string | null;
   created_by: string;
@@ -108,6 +109,7 @@ async function mapDefaultRow(
     name: row.name,
     description: row.description,
     availableIn: row.available_in,
+    enabled: row.enabled,
     source: json(row.source),
     ...(row.content_digest ? { contentDigest: row.content_digest } : {}),
     ...(includeFiles && row.kind === 'skill'
@@ -192,6 +194,7 @@ export async function initializeWorkspaceDefaults(client: PoolClient, workspaceI
        SELECT $1, id, kind, name, description, available_in, source,
          content_digest, NOW()
        FROM workspace_defaults
+       WHERE enabled = TRUE
        RETURNING workspace_id, id
      )
      INSERT INTO workspace_initial_default_skill_files (
@@ -266,18 +269,22 @@ export async function createWorkspaceDefault(input: {
   });
 }
 
-export async function updateWorkspaceDefaultAvailability(input: {
+export async function updateWorkspaceDefault(input: {
   id: string;
-  availableIn: WorkspaceDefaultAvailability[];
+  availableIn?: WorkspaceDefaultAvailability[];
+  enabled?: boolean;
   actorId: string;
   auditEvent: AdminAuditEventInput;
 }): Promise<WorkspaceDefault | null> {
   return withTransaction(async (client) => {
     const result = await client.query<WorkspaceDefaultRow>(
       `UPDATE workspace_defaults
-       SET available_in=$2, updated_by=$3, updated_at=NOW()
+       SET available_in=COALESCE($2, available_in),
+           enabled=COALESCE($3, enabled),
+           updated_by=$4,
+           updated_at=NOW()
        WHERE id=$1 RETURNING *`,
-      [input.id, input.availableIn, input.actorId]
+      [input.id, input.availableIn ?? null, input.enabled ?? null, input.actorId]
     );
     if (!result.rowCount) return null;
     await insertAdminAuditEvent(input.auditEvent, client);

@@ -26,16 +26,20 @@ describe('workspace default initialization', { skip: !hasIsolatedDatabase }, () 
   it('copies current defaults once and projects them disabled to every selected destination', async () => {
     await db.query(
       `INSERT INTO workspace_defaults (
-         id, kind, name, description, available_in, source,
+         id, kind, name, description, available_in, enabled, source,
          content_digest, created_by, updated_by
        ) VALUES
          (
            'default-mcp', 'mcp_server', 'Platform MCP', '',
-           $1::text[], $2::jsonb, NULL, 'user-1', 'user-1'
+           $1::text[], TRUE, $2::jsonb, NULL, 'user-1', 'user-1'
          ),
          (
            'default-skill', 'skill', 'Platform Skill', 'A pinned test skill.',
-           $1::text[], $3::jsonb, 'sha256:bundle', 'user-1', 'user-1'
+           $1::text[], TRUE, $3::jsonb, 'sha256:bundle', 'user-1', 'user-1'
+         ),
+         (
+           'disabled-mcp', 'mcp_server', 'Paused MCP', '',
+           $1::text[], FALSE, $2::jsonb, NULL, 'user-1', 'user-1'
          )`,
       [
         allDestinations,

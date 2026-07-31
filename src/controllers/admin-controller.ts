@@ -69,9 +69,8 @@ export async function systemReadiness(_req: AdminAuthenticatedRequest, res: Resp
   });
 }
 
-export async function systemConfig(req: AdminAuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+export async function systemConfig(_req: AdminAuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    await auditAdmin(req, { action: 'admin.system.config.read', metadata: { highRiskRead: true } });
     res.status(200).json({
       adminApiEnabled: config.CONTROL_PLANE_ADMIN_API_ENABLED,
       planCatalog: config.WORKSPACE_PLANS,
@@ -154,7 +153,6 @@ export async function getWorkspace(req: AdminAuthenticatedRequest, res: Response
       notFound(res, 'Workspace not found');
       return;
     }
-    await auditAdmin(req, { action: 'admin.workspace.detail.read', workspaceId, metadata: { highRiskRead: true } });
     res.status(200).json(workspace);
   } catch (err) {
     next(err);
@@ -330,7 +328,6 @@ export async function getUser(req: AdminAuthenticatedRequest, res: Response, nex
       return;
     }
     detail.activeSessionCount = await countUserSessions(userId).catch(() => 0);
-    await auditAdmin(req, { action: 'admin.user.detail.read', subjectType: 'user', subjectId: userId, metadata: { highRiskRead: true } });
     res.status(200).json(detail);
   } catch (err) {
     next(err);

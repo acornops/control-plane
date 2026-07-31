@@ -15,14 +15,19 @@ const skillFileSchema = z.object({
   path: z.string().trim().min(1).max(512),
   content: z.string().max(32768)
 }).strict();
-const skillSourceSchema = z.object({
-  type: z.literal('git'),
-  provider: z.enum(['github', 'gitlab']),
-  repoUrl: z.string().url().max(2048),
-  ref: z.string().trim().min(1).max(255),
-  subpath: z.string().trim().min(1).max(512).optional(),
-  commitSha: z.string().trim().regex(/^[0-9a-f]{40}$/i)
-}).strict();
+const skillSourceSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('manual')
+  }).strict(),
+  z.object({
+    type: z.literal('git'),
+    provider: z.enum(['github', 'gitlab']),
+    repoUrl: z.string().url().max(2048),
+    ref: z.string().trim().min(1).max(255),
+    subpath: z.string().trim().min(1).max(512).optional(),
+    commitSha: z.string().trim().regex(/^[0-9a-f]{40}$/i)
+  }).strict()
+]);
 export const adminWorkspaceDefaultCreateSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('mcp_server'),
@@ -40,9 +45,17 @@ export const adminWorkspaceDefaultCreateSchema = z.discriminatedUnion('kind', [
   }).strict()
 ]);
 export const adminWorkspaceDefaultPatchSchema = z.object({
-  availableIn: availabilitySchema,
+  availableIn: availabilitySchema.optional(),
+  enabled: z.boolean().optional(),
   reason: adminReasonSchema
-}).strict();
+}).strict().superRefine((value, ctx) => {
+  if (value.availableIn === undefined && value.enabled === undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'At least one of availableIn or enabled must be provided'
+    });
+  }
+});
 export const adminWorkspaceDefaultDeleteSchema = z.object({
   reason: adminReasonSchema
 }).strict();

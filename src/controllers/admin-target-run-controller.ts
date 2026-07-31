@@ -75,13 +75,6 @@ export async function getTargetAgent(req: AdminAuthenticatedRequest, res: Respon
       return;
     }
     const reg = await repo.getTargetAgentRegistration(targetId);
-    await auditAdmin(req, {
-      action: 'admin.target.agent.read',
-      workspaceId: target.workspaceId,
-      targetType: target.targetType,
-      targetId,
-      metadata: { highRiskRead: true }
-    });
     res.status(200).json({
       targetId,
       targetType: target.targetType,
@@ -262,7 +255,6 @@ export async function getRun(req: AdminAuthenticatedRequest, res: Response, next
       notFound(res, 'Run not found');
       return;
     }
-    await auditAdmin(req, { action: 'admin.run.detail.read', workspaceId: run.workspaceId, targetType: run.targetType, targetId: run.targetId, subjectType: 'run', subjectId: runId, metadata: { highRiskRead: true } });
     res.status(200).json(safeRun(run));
   } catch (err) {
     next(err);

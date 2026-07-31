@@ -392,6 +392,25 @@ describe('admin controller security invariants', () => {
     assert.equal(capturedOptions?.actionGroup, 'workspace_access_modified');
   });
 
+  it('normalizes workspace name-or-ID audit queries into the cursor-bound repository options', async () => {
+    let capturedOptions: Record<string, unknown> | undefined;
+    mock.method(repo, 'listAdminAuditEvents', async (options) => {
+      capturedOptions = options as Record<string, unknown>;
+      return { items: [] };
+    });
+    const res = response();
+    await listAdminAuditEvents({
+      ...adminReq,
+      query: { workspaceQuery: '  Atlas Research  ' }
+    } as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(capturedOptions?.workspaceQuery, 'Atlas Research');
+    assert.equal(typeof capturedOptions?.signature, 'string');
+  });
+
   it('uses objectType for admin workspace audit searches', async () => {
     let capturedOptions: Record<string, unknown> | undefined;
     mock.method(repo, 'insertAdminAuditEvent', async (event) => event);

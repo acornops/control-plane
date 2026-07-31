@@ -137,6 +137,11 @@ export async function createAgent(req: AuthenticatedRequest, res: Response, next
       approvalPolicy,
       trustPolicy,
       targetScope,
+      permissionMode: body.permissionMode === 'read_only'
+        || body.permissionMode === 'ask_before_changes'
+        || body.permissionMode === 'auto_allowed_changes'
+        ? body.permissionMode
+        : undefined,
       semanticCapabilityIds: stringList(body.semanticCapabilityIds)
     });
     await recordWorkspaceAuditEvent({

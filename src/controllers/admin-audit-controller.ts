@@ -4,7 +4,7 @@ import { repo } from '../store/repository.js';
 import { WORKSPACE_AUDIT_CATEGORIES } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
 import { CursorMismatchError, decodeCursor, makeQuerySignature, parseBoundedLimit } from '../utils/pagination.js';
-import { auditAdmin, parseIsoDateQuery, parseStringFilter, validationError } from './admin-controller-common.js';
+import { parseIsoDateQuery, parseStringFilter, validationError } from './admin-controller-common.js';
 
 const ADMIN_AUDIT_ACTION_GROUPS = {
   workspace_access_modified: ['admin.workspace.member.add', 'admin.workspace.member.delete', 'admin.workspace.member.role.update', 'admin.member.role.update'],
@@ -40,6 +40,7 @@ export async function listAdminAuditEvents(req: AdminAuthenticatedRequest, res: 
       action: parseStringFilter(req.query.action, 'action'),
       actionGroup: parseStringFilter(req.query.actionGroup, 'actionGroup'),
       workspaceId: parseStringFilter(req.query.workspaceId, 'workspaceId'),
+      workspaceQuery: parseStringFilter(req.query.workspaceQuery, 'workspaceQuery'),
       targetType: parseStringFilter(req.query.targetType, 'targetType'),
       targetId: parseStringFilter(req.query.targetId, 'targetId')
     };
@@ -65,13 +66,13 @@ export async function listAdminAuditEvents(req: AdminAuthenticatedRequest, res: 
       actionGroup: filters.actionGroup.value,
       outcome: outcome.value as 'success' | 'failure' | undefined,
       workspaceId: filters.workspaceId.value,
+      workspaceQuery: filters.workspaceQuery.value,
       targetType: filters.targetType.value,
       targetId: filters.targetId.value,
       ...range
     };
     const signature = makeQuerySignature(normalizedFilters);
     const cursor = decodeCursor<{ occurredAt: string; eventId: string; signature: string }>(req.query.cursor, signature);
-    await auditAdmin(req, { action: 'admin.admin_audit.search', metadata: { highRiskRead: true, filters: normalizedFilters } });
     res.status(200).json(await repo.listAdminAuditEvents({ limit: parseBoundedLimit(req.query.limit), cursor, signature, actions: groupedActions ? [...groupedActions] : undefined, ...normalizedFilters }));
   } catch (err) {
     if (err instanceof CursorMismatchError) {
@@ -116,7 +117,6 @@ export async function listWorkspaceAuditEvents(req: AdminAuthenticatedRequest, r
     };
     const signature = makeQuerySignature({ workspaceId, ...normalizedFilters });
     const cursor = decodeCursor<{ occurredAt: string; eventId: string; signature: string }>(req.query.cursor, signature);
-    await auditAdmin(req, { action: 'admin.workspace_audit.search', workspaceId, metadata: { highRiskRead: true, filters: normalizedFilters } });
     res.status(200).json(await repo.listWorkspaceAuditEvents(workspaceId, { limit: parseBoundedLimit(req.query.limit), cursor, signature, ...normalizedFilters }));
   } catch (err) {
     if (err instanceof CursorMismatchError) {

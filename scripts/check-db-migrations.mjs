@@ -19,7 +19,13 @@ const migrationFiles = readdirSync(migrationsDir)
   .sort();
 assert.deepEqual(
   migrationFiles,
-  ['001_initial_schema.sql', '002_user_sign_in_methods.sql', '003_workspace_defaults.sql', '004_agent_avatar_emoji.sql'],
+  [
+    '001_initial_schema.sql',
+    '002_user_sign_in_methods.sql',
+    '003_workspace_defaults.sql',
+    '004_agent_avatar_emoji.sql',
+    '005_workspace_default_enabled_state.sql'
+  ],
   'the control-plane schema must include the immutable baseline and required forward migrations'
 );
 
@@ -190,6 +196,7 @@ const expectedColumns = [
   ['webhook_history', 'next_attempt_at'],
   ['webhook_history', 'terminal_reason'],
   ['workspace_defaults', 'available_in'],
+  ['workspace_defaults', 'enabled'],
   ['workspace_initial_defaults', 'available_in']
 ];
 

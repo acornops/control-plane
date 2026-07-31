@@ -27,6 +27,7 @@ export interface AdminAuditEvent {
   targetId?: string;
   subjectType?: string;
   subjectId?: string;
+  subjectDisplayName?: string;
   reason?: string;
   requestId: string;
   sourceIpHash?: string;
@@ -76,6 +77,7 @@ interface AdminAuditEventRow {
   target_id: string | null;
   subject_type: string | null;
   subject_id: string | null;
+  subject_display_name: string | null;
   reason: string | null;
   request_id: string;
   source_ip_hash: string | null;
@@ -111,6 +113,7 @@ function mapAdminAuditEvent(row: AdminAuditEventRow): AdminAuditEvent {
     ...(row.target_id ? { targetId: row.target_id } : {}),
     ...(row.subject_type ? { subjectType: row.subject_type } : {}),
     ...(row.subject_id ? { subjectId: row.subject_id } : {}),
+    ...(row.subject_display_name ? { subjectDisplayName: row.subject_display_name } : {}),
     ...(row.reason ? { reason: row.reason } : {}),
     requestId: row.request_id,
     ...(row.source_ip_hash ? { sourceIpHash: row.source_ip_hash } : {}),
@@ -168,6 +171,7 @@ export async function listAdminAuditEvents(options: {
   actions?: string[];
   outcome?: 'success' | 'failure';
   workspaceId?: string;
+  workspaceQuery?: string;
   targetType?: string;
   targetId?: string;
   from?: string;
@@ -176,7 +180,10 @@ export async function listAdminAuditEvents(options: {
 } = {}): Promise<PagedResult<AdminAuditEvent>> {
   const limit = Math.max(1, Math.min(100, options.limit ?? 50));
   const params: Array<string | number | string[]> = [limit + 1];
-  const clauses: string[] = [];
+  const clauses = [
+    `a.action NOT LIKE '%.read'`,
+    `a.action NOT LIKE '%.search'`
+  ];
   const addFilter = (sql: string, value: string): void => {
     params.push(value);
     clauses.push(sql.replace('?', `$${params.length}`));
@@ -190,6 +197,10 @@ export async function listAdminAuditEvents(options: {
   }
   if (options.outcome) addFilter('a.outcome = ?', options.outcome);
   if (options.workspaceId) addFilter('a.workspace_id = ?', options.workspaceId);
+  if (options.workspaceQuery) {
+    params.push(options.workspaceQuery);
+    clauses.push(`(a.workspace_id = $${params.length} OR POSITION(LOWER($${params.length}) IN LOWER(COALESCE(w.name, ''))) > 0)`);
+  }
   if (options.targetType) addFilter('a.target_type = ?', options.targetType);
   if (options.targetId) addFilter('a.target_id = ?', options.targetId);
   if (options.from) addFilter('a.occurred_at >= ?::timestamptz', options.from);
@@ -199,9 +210,10 @@ export async function listAdminAuditEvents(options: {
     clauses.push(`(a.occurred_at, a.id) < ($${params.length - 1}::timestamptz, $${params.length}::text)`);
   }
   const result = await db.query(
-    `SELECT a.*, w.name AS workspace_name
+    `SELECT a.*, w.name AS workspace_name, subject_user.display_name AS subject_display_name
      FROM admin_audit_events a
      LEFT JOIN workspaces w ON w.id = a.workspace_id
+     LEFT JOIN users subject_user ON a.subject_type = 'user' AND subject_user.id = a.subject_id
      ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
      ORDER BY a.occurred_at DESC, a.id DESC
      LIMIT $1`,

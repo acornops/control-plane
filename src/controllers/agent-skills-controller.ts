@@ -147,7 +147,7 @@ export async function getSkill(req: AuthenticatedRequest, res: Response, next: N
     if (!ctx) return;
     const skillId = toSingleParam(req.params.skillId);
     const inherited = await getInheritedWorkspaceDefault(ctx.workspaceId, skillId, 'skill', 'agents');
-    if (inherited?.source.type === 'git') {
+    if (inherited?.source.type === 'git' || inherited?.source.type === 'manual') {
       res.status(200).json({
         skill: {
           id: skillId,
@@ -156,14 +156,16 @@ export async function getSkill(req: AuthenticatedRequest, res: Response, next: N
           enabled: false,
           revision: 1,
           contentDigest: inherited.contentDigest || '',
-          source: {
-            type: 'git',
-            provider: inherited.source.provider,
-            url: inherited.source.repoUrl,
-            ref: inherited.source.ref,
-            path: inherited.source.subpath,
-            pinnedCommit: inherited.source.commitSha
-          },
+          source: inherited.source.type === 'git'
+            ? {
+                type: 'git',
+                provider: inherited.source.provider,
+                url: inherited.source.repoUrl,
+                ref: inherited.source.ref,
+                path: inherited.source.subpath,
+                pinnedCommit: inherited.source.commitSha
+              }
+            : { type: 'manual' },
           files: inherited.files || [],
           inherited: true
         }
@@ -188,21 +190,23 @@ export async function patchSkill(req: AuthenticatedRequest, res: Response, next:
         return fail(res, 400, 'PLATFORM_DEFAULT_SOURCE_IMMUTABLE', 'A platform default can only be enabled; its source is managed by a platform administrator.');
       }
       const inherited = await getInheritedWorkspaceDefault(ctx.workspaceId, skillId, 'skill', 'agents');
-      if (!inherited || inherited.source.type !== 'git') return fail(res, 404, 'NOT_FOUND', 'Agent skill not found');
+      if (!inherited || inherited.source.type === 'https') return fail(res, 404, 'NOT_FOUND', 'Agent skill not found');
       const materialized = await createAgentSkill({
         workspaceId: ctx.workspaceId,
         agentId: ctx.agentId,
         name: inherited.name,
         description: inherited.description,
         enabled: true,
-        source: {
-          type: 'git',
-          provider: inherited.source.provider,
-          url: inherited.source.repoUrl,
-          ref: inherited.source.ref,
-          path: inherited.source.subpath,
-          pinnedCommit: inherited.source.commitSha
-        },
+        source: inherited.source.type === 'git'
+          ? {
+              type: 'git',
+              provider: inherited.source.provider,
+              url: inherited.source.repoUrl,
+              ref: inherited.source.ref,
+              path: inherited.source.subpath,
+              pinnedCommit: inherited.source.commitSha
+            }
+          : { type: 'manual' },
         files: (inherited.files || []).map((file) => ({ path: file.path, content: file.content })),
         actorUserId: req.auth.userId
       });

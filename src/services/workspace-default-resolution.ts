@@ -121,8 +121,11 @@ export async function resolveAgentSkillDefaults(
 ): Promise<ProvenancedAgentSkill[]> {
   const defaults = await applicableDefaults(context.workspaceId, 'skill', 'agents');
   const existing = new Set(local.map((skill) => canonicalSkillSource(skill.source)).filter(Boolean));
+  const existingDigests = new Set(local.map((skill) => skill.contentDigest).filter(Boolean));
   const inherited = defaults
-    .filter((item) => item.source.type === 'git' && !existing.has(canonicalSkillSource(item.source)))
+    .filter((item) => item.source.type === 'git'
+      ? !existing.has(canonicalSkillSource(item.source))
+      : !item.contentDigest || !existingDigests.has(item.contentDigest))
     .map((item): ProvenancedAgentSkill => ({
       id: inheritedWorkspaceDefaultId(item.id),
       name: item.name,
@@ -130,14 +133,16 @@ export async function resolveAgentSkillDefaults(
       enabled: false,
       revision: 1,
       contentDigest: item.contentDigest || '',
-      source: {
-        type: 'git',
-        provider: item.source.type === 'git' ? item.source.provider : undefined,
-        url: item.source.type === 'git' ? item.source.repoUrl : undefined,
-        ref: item.source.type === 'git' ? item.source.ref : undefined,
-        path: item.source.type === 'git' ? item.source.subpath : undefined,
-        pinnedCommit: item.source.type === 'git' ? item.source.commitSha : undefined
-      },
+      source: item.source.type === 'git'
+        ? {
+            type: 'git',
+            provider: item.source.provider,
+            url: item.source.repoUrl,
+            ref: item.source.ref,
+            path: item.source.subpath,
+            pinnedCommit: item.source.commitSha
+          }
+        : { type: 'manual' },
       files: (item.files || []).map((file) => ({
         path: file.path,
         content: file.content,
@@ -158,8 +163,13 @@ export async function resolveTargetSkillDefaults(
 ): Promise<ProvenancedTargetSkill[]> {
   const defaults = await applicableDefaults(context.workspaceId, 'skill', targetType);
   const existing = new Set(local.map((skill) => canonicalSkillSource(skill.source)).filter(Boolean));
+  const existingManualDefinitions = new Set(local
+    .filter((skill) => skill.source.type === 'manual')
+    .map((skill) => `${skill.name}\u0000${skill.description}`));
   const inherited = defaults
-    .filter((item) => item.source.type === 'git' && !existing.has(canonicalSkillSource(item.source)))
+    .filter((item) => item.source.type === 'git'
+      ? !existing.has(canonicalSkillSource(item.source))
+      : !existingManualDefinitions.has(`${item.name}\u0000${item.description}`))
     .map((item): ProvenancedTargetSkill => ({
       id: inheritedWorkspaceDefaultId(item.id),
       workspaceId: context.workspaceId,

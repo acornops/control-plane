@@ -21,7 +21,7 @@ export async function inheritedTargetSkillDetail(
   targetId: string
 ) {
   const inherited = await getInheritedWorkspaceDefault(workspaceId, skillId, 'skill', targetType);
-  if (!inherited || inherited.source.type !== 'git') return null;
+  if (!inherited || inherited.source.type === 'https') return null;
   return {
     id: skillId,
     workspaceId,
@@ -37,15 +37,17 @@ export async function inheritedTargetSkillDetail(
       fileCount: inherited.files?.length || 0,
       totalBytes: inherited.files?.reduce((sum, file) => sum + file.sizeBytes, 0) || 0
     },
-    source: {
-      type: 'git_import',
-      provider: inherited.source.provider,
-      repoUrl: inherited.source.repoUrl,
-      ref: inherited.source.ref,
-      subpath: inherited.source.subpath,
-      commitSha: inherited.source.commitSha,
-      syncStatus: 'current'
-    },
+    source: inherited.source.type === 'git'
+      ? {
+          type: 'git_import',
+          provider: inherited.source.provider,
+          repoUrl: inherited.source.repoUrl,
+          ref: inherited.source.ref,
+          subpath: inherited.source.subpath,
+          commitSha: inherited.source.commitSha,
+          syncStatus: 'current'
+        }
+      : { type: 'manual', syncStatus: 'not_applicable' },
     files: inherited.files || [],
     inherited: true,
     createdAt: inherited.initializedAt,
@@ -72,7 +74,7 @@ export async function materializeInheritedTargetSkill(args: {
     'skill',
     args.targetType
   );
-  if (!inherited || inherited.source.type !== 'git') {
+  if (!inherited || inherited.source.type === 'https') {
     return { status: 404, body: { error: { code: 'NOT_FOUND', message: 'Target skill not found', retryable: false } } };
   }
   const bundle = normalizeTargetSkillBundle((inherited.files || []).map((file) => ({
@@ -98,15 +100,17 @@ export async function materializeInheritedTargetSkill(args: {
     validationStatus: bundle.validationStatus,
     validationErrors: bundle.validationErrors,
     bundleStats: bundle.bundleStats,
-    source: {
-      type: 'git_import',
-      provider: inherited.source.provider,
-      repoUrl: inherited.source.repoUrl,
-      ref: inherited.source.ref,
-      subpath: inherited.source.subpath,
-      commitSha: inherited.source.commitSha,
-      syncStatus: 'current'
-    },
+    source: inherited.source.type === 'git'
+      ? {
+          type: 'git_import',
+          provider: inherited.source.provider,
+          repoUrl: inherited.source.repoUrl,
+          ref: inherited.source.ref,
+          subpath: inherited.source.subpath,
+          commitSha: inherited.source.commitSha,
+          syncStatus: 'current'
+        }
+      : { type: 'manual', syncStatus: 'not_applicable' },
     files: bundle.files,
     actorUserId: args.actorUserId
   });

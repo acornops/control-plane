@@ -28,6 +28,10 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Workspace provider status identifies `workspace`, `platform_default`, or
   `none`; workspace overrides take precedence and deleting one restores the
   platform fallback.
+- Workspace skill defaults accept either a bounded manual Markdown bundle or a
+  pinned public GitHub/GitLab snapshot. Bundle files are write-only at the
+  Platform Admin boundary, while the source type and immutable Git metadata
+  remain available for inventory and provenance.
 
 - Browser clients use cookie-backed auth and CSRF protection where required.
 - The `user_sign_in_methods` platform setting selects one or both
@@ -38,6 +42,15 @@ The control plane owns the platform API boundary. Keep this README as a short in
   separate. Legacy `password_signup` rows resolve to the deployment default
   until an administrator saves the replacement setting.
 - The platform admin console uses only its mirrored `/admin/v1` subset. Its BFF rejects `admin:*` and all target, run, agent-key, and tooling scopes, and removes operational fields before browser delivery.
+- Protected Admin Audit persists authentication lifecycle events and privileged
+  mutation requests, successes, and failures. Read-only admin requests remain
+  visible in structured HTTP access logs but do not create audit records.
+  Legacy read/search rows remain stored as append-only evidence but are excluded
+  from Admin Audit query results.
+- Admin Audit keeps `workspaceId` as an exact-match compatibility filter and
+  exposes `workspaceQuery` for either an exact workspace ID or a
+  case-insensitive literal workspace-name substring. Both filters are bounded,
+  parameterized, and included in cursor signatures.
 - Platform-admin workspace responses retain immutable creator and workspace IDs while optionally including user display name/email and workspace-name labels for readable governance displays. Consumers fall back to the immutable IDs when labels are unavailable.
 - The platform-admin consumer requires exact workspace-name confirmation for suspension and restoration. The producer requires it for suspension and validates it when supplied for restoration, retaining compatibility with existing restore clients. Both actions retain memberships, targets, workload state, references, and audit history and never issue workload commands.
 - OIDC admission evaluates verified ID-token claims and subject-bound UserInfo claims before account or identity-link mutation; conflicting values fail closed.
