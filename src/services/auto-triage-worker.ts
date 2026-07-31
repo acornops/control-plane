@@ -4,9 +4,7 @@ import { logger } from '../logger.js';
 import { type TargetAutoTriageJob } from '../types/auto-triage.js';
 import type { Run } from '../types/domain.js';
 import { repo } from '../store/repository.js';
-import {
-  issueMeetsAutoTriageThreshold
-} from '../store/repository-auto-triage.js';
+import { issueMeetsAutoTriageEligibility } from '../utils/auto-triage-eligibility.js';
 import { resolveTargetAutoTriagePreview } from './auto-triage-policy.js';
 import { resolveWorkspaceLlmSettings } from './workspace-ai-resolution.js';
 import {
@@ -223,7 +221,7 @@ async function processJob(job: TargetAutoTriageJob): Promise<void> {
     || issue.lifecycleVersion !== job.issueLifecycleVersion
     || !['active', 'recovering'].includes(issue.status)
     || !settings.enabled
-    || !issueMeetsAutoTriageThreshold(issue.severity, settings.minimumSeverity)
+    || !issueMeetsAutoTriageEligibility(issue, settings)
   ) {
     let runAndJobTransitioned = false;
     if (job.runId) {

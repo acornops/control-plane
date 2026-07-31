@@ -28,7 +28,7 @@ export async function requeueDisabledTargetAutoTriageJob(
         AND issue_lifecycle_version = $2
         AND status = 'skipped'
         AND session_created_at IS NULL
-        AND error_code = 'AUTO_TRIAGE_DISABLED'
+        AND error_code IN ('AUTO_TRIAGE_DISABLED', 'ISSUE_NOT_ELIGIBLE')
       RETURNING id`,
     [issue.id, issue.lifecycleVersion, settingsRevision]
   );

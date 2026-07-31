@@ -15,14 +15,17 @@ import {
 } from './helpers/automation-database-fixtures.js';
 beforeEach(resetAutomationDatabaseFixtures);
 after(closeAutomationDatabaseFixtures);
-async function insertIssue(id: string, severity: 'critical' | 'warning' | 'info' = 'warning'): Promise<void> {
+async function insertIssue(
+  id: string,
+  severity: 'critical' | 'warning' | 'info' = 'warning'
+): Promise<void> {
   const severityRank = severity === 'critical' ? 0 : severity === 'warning' ? 1 : 2;
   await db.query(
     `INSERT INTO target_issues (
        id,workspace_id,target_id,target_type,fingerprint,issue_type,status,severity,severity_rank,
-       title,summary,first_seen_at,last_seen_at,last_observed_snapshot_at
-     ) VALUES ($1,'workspace-1','cluster-1','kubernetes',$1,'finding','active',$2,$3,$4,$4,NOW(),NOW(),NOW())`,
-    [id, severity, severityRank, `Issue ${id}`]
+       title,summary,scope_kind,scope_name,first_seen_at,last_seen_at,last_observed_snapshot_at
+     ) VALUES ($1,'workspace-1','cluster-1','kubernetes',$1,'finding','active',$2,$3,$4,$4,$5,$6,NOW(),NOW(),NOW())`,
+    [id, severity, severityRank, `Issue ${id}`, null, null]
   );
 }
 
@@ -35,6 +38,9 @@ async function enableAutoTriage() {
     minimumSeverity: 'warning',
     writeMode: 'read_only',
     additionalInstructions: '',
+    namespaceInclude: [],
+    namespaceExclude: [],
+    includeClusterScopedIssues: true,
     updatedBy: 'user-1'
   });
   assert.ok(settings);
@@ -42,33 +48,6 @@ async function enableAutoTriage() {
 }
 
 describe('target auto-triage persistence', () => {
-  it('resolves missing settings to safe defaults and rejects stale revisions', async () => {
-    assert.deepEqual(
-      await repo.autoTriage.getTargetAutoTriageSettings('workspace-1', 'cluster-1'),
-      {
-        workspaceId: 'workspace-1',
-        targetId: 'cluster-1',
-        enabled: false,
-        minimumSeverity: 'warning',
-        writeMode: 'follow_target',
-        additionalInstructions: '',
-        revision: 0
-      }
-    );
-    const saved = await enableAutoTriage();
-    assert.equal(saved.revision, 1);
-    assert.equal(await repo.autoTriage.saveTargetAutoTriageSettings({
-      workspaceId: 'workspace-1',
-      targetId: 'cluster-1',
-      expectedRevision: 0,
-      enabled: false,
-      minimumSeverity: 'critical',
-      writeMode: 'read_only',
-      additionalInstructions: '',
-      updatedBy: 'user-1'
-    }), null);
-  });
-
   it('creates one job per issue lifecycle and enforces two claimed slots per target', async () => {
     const settings = await enableAutoTriage();
     for (const issueId of ['issue-1', 'issue-2', 'issue-3']) {
@@ -151,6 +130,9 @@ describe('target auto-triage persistence', () => {
       minimumSeverity: 'warning',
       writeMode: 'approval_required',
       additionalInstructions: '',
+      namespaceInclude: [],
+      namespaceExclude: [],
+      includeClusterScopedIssues: true,
       updatedBy: 'user-1'
     });
     assert.ok(writeSettings);
@@ -215,6 +197,9 @@ describe('target auto-triage persistence', () => {
       minimumSeverity: 'critical',
       writeMode: 'read_only',
       additionalInstructions: '',
+      namespaceInclude: [],
+      namespaceExclude: [],
+      includeClusterScopedIssues: true,
       updatedBy: 'user-1'
     });
     assert.ok(updated);

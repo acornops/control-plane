@@ -299,9 +299,10 @@ members see a generic `platform-admin` actor and opaque correlation id, not the
 administrator credential id. Audit payloads are sanitized and must not include raw
 tokens, message bodies, prompts, auth headers, or agent keys. Agent-key rotation
 is the only admin response that returns a secret; the replacement key is returned
-once. Login, failed login, logout, high-risk reads, mutation requests, outcomes,
-and human identity are retained in the protected admin audit stream and emitted
-as structured security logs.
+once. Login, failed login, logout, mutation requests, outcomes, and human
+identity are retained in the protected admin audit stream and emitted as
+structured security logs. Read-only admin requests remain in structured HTTP
+access logs without creating protected audit records.
 
 Supported admin scopes are:
 

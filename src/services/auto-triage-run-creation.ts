@@ -165,7 +165,8 @@ export async function createTargetAutoTriageSessionAndRun(input: {
       jobId: job.id,
       leaseOwner: job.leaseOwner!,
       sessionId: session.id,
-      runId: created.run.id
+      runId: created.run.id,
+      settingsRevision: settings.revision
     }, client);
     if (!linked) throw new Error('Automatic investigation lease expired before job linkage');
     return { session, created };

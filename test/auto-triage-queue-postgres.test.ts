@@ -42,6 +42,9 @@ describe('target auto-triage queue visibility', () => {
       minimumSeverity: 'warning',
       writeMode: 'read_only',
       additionalInstructions: '',
+      namespaceInclude: [],
+      namespaceExclude: [],
+      includeClusterScopedIssues: true,
       updatedBy: 'user-1'
     });
     assert.ok(settings);

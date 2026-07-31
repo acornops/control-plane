@@ -224,6 +224,7 @@ export function buildAdminSchemas(): Record<string, JsonSchema> {
         targetId: { type: 'string' },
         subjectType: { type: 'string' },
         subjectId: { type: 'string' },
+        subjectDisplayName: { type: 'string' },
         reason: { type: 'string' },
         requestId: { type: 'string' },
         sourceIpHash: { type: 'string' },

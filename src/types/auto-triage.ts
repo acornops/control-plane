@@ -39,6 +39,9 @@ export interface TargetAutoTriageSettings {
   minimumSeverity: AutoTriageMinimumSeverity;
   writeMode: AutoTriageWriteMode;
   additionalInstructions: string;
+  namespaceInclude: string[];
+  namespaceExclude: string[];
+  includeClusterScopedIssues: boolean;
   revision: number;
   updatedBy?: string;
   createdAt?: string;

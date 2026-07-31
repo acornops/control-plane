@@ -22,7 +22,6 @@ import {
 import { toSingleParam } from '../utils/params.js';
 import {
   adminAuditEventInput,
-  auditAdmin,
   validationError
 } from './admin-controller-common.js';
 
@@ -45,15 +44,11 @@ async function notifySettingChange(settingOverride: Awaited<ReturnType<typeof wr
 }
 
 export async function listSettings(
-  req: AdminAuthenticatedRequest,
+  _req: AdminAuthenticatedRequest,
   res: Response,
   next: NextFunction
 ): Promise<void> {
   try {
-    await auditAdmin(req, {
-      action: 'admin.system.setting.read',
-      metadata: { highRiskRead: true }
-    });
     res.status(200).json({ items: listPlatformSettings() });
   } catch (error) {
     next(error);

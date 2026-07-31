@@ -6,6 +6,7 @@ import {
   listWorkspaceIssues
 } from '../src/controllers/workspaces-controller.js';
 import {
+  getCluster,
   listClusterResources,
   listClusters
 } from '../src/controllers/workspaces/kubernetes-cluster-controller.js';
@@ -16,9 +17,12 @@ import { encodeCursor } from '../src/utils/pagination.js';
 const originalGetWorkspaceRole = repo.getWorkspaceRole;
 const originalGetCluster = repo.getCluster;
 const originalGetClusterSnapshot = repo.getClusterSnapshot;
+const originalGetClusterSnapshotSummary = repo.getClusterSnapshotSummary;
+const originalGetTargetAgentRegistration = repo.getTargetAgentRegistration;
 const originalListClusters = repo.listClusters;
 const originalListClusterSnapshotResources = repo.listClusterSnapshotResources;
 const originalListClusterSnapshotSummaries = repo.listClusterSnapshotSummaries;
+const originalListWorkspaceTargetAgentRegistrations = repo.listWorkspaceTargetAgentRegistrations;
 const originalListWorkspaceIssues = repo.listWorkspaceIssues;
 const originalSummarizeTargetIssues = repo.summarizeTargetIssues;
 const originalGetTargetIssue = repo.getTargetIssue;
@@ -29,9 +33,12 @@ afterEach(() => {
   repo.getWorkspaceRole = originalGetWorkspaceRole;
   repo.getCluster = originalGetCluster;
   repo.getClusterSnapshot = originalGetClusterSnapshot;
+  repo.getClusterSnapshotSummary = originalGetClusterSnapshotSummary;
+  repo.getTargetAgentRegistration = originalGetTargetAgentRegistration;
   repo.listClusters = originalListClusters;
   repo.listClusterSnapshotResources = originalListClusterSnapshotResources;
   repo.listClusterSnapshotSummaries = originalListClusterSnapshotSummaries;
+  repo.listWorkspaceTargetAgentRegistrations = originalListWorkspaceTargetAgentRegistrations;
   repo.listWorkspaceIssues = originalListWorkspaceIssues;
   repo.summarizeTargetIssues = originalSummarizeTargetIssues;
   repo.getTargetIssue = originalGetTargetIssue;
@@ -282,9 +289,27 @@ describe('normalized snapshot controller reads', () => {
       throw new Error('cluster list should not read raw snapshots');
     };
     repo.listClusters = async () => ({
-      items: [createCluster()],
+      items: [createCluster(), createCluster('cluster-2'), createCluster('cluster-3')],
       nextCursor: undefined
     });
+    repo.listWorkspaceTargetAgentRegistrations = async () => [
+      {
+        targetId: 'cluster-1',
+        targetType: 'kubernetes',
+        workspaceId: 'workspace-1',
+        agentKeyHash: 'hash-1',
+        keyVersion: 1,
+        capabilities: ['read', 'write']
+      },
+      {
+        targetId: 'cluster-2',
+        targetType: 'kubernetes',
+        workspaceId: 'workspace-1',
+        agentKeyHash: 'hash-2',
+        keyVersion: 1,
+        capabilities: ['read']
+      }
+    ];
     repo.listClusterSnapshotSummaries = async () => new Map([
       [
         'cluster-1',
@@ -322,7 +347,40 @@ describe('normalized snapshot controller reads', () => {
     });
 
     assert.equal(res.statusCode, 200);
-    assert.equal((res.body as { items: Array<{ summary: { resourceCount: number } }> }).items[0].summary.resourceCount, 7);
+    const items = (res.body as {
+      items: Array<{ id: string; agentAccessMode: string; summary: { resourceCount: number } }>;
+    }).items;
+    assert.equal(items[0].summary.resourceCount, 7);
+    assert.deepEqual(
+      items.map((item) => [item.id, item.agentAccessMode]),
+      [
+        ['cluster-1', 'read_write'],
+        ['cluster-2', 'read_only'],
+        ['cluster-3', 'unknown']
+      ]
+    );
+  });
+
+  it('includes the bounded agent access mode in cluster detail payloads', async () => {
+    repo.getWorkspaceRole = async () => 'viewer';
+    repo.getCluster = async () => createCluster();
+    repo.getClusterSnapshotSummary = async () => null;
+    repo.getTargetAgentRegistration = async () => ({
+      targetId: 'cluster-1',
+      targetType: 'kubernetes',
+      workspaceId: 'workspace-1',
+      agentKeyHash: 'hash-1',
+      keyVersion: 1,
+      capabilities: ['read', 'write']
+    });
+    const res = createResponse();
+
+    await getCluster(createRequest() as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal((res.body as { agentAccessMode: string }).agentAccessMode, 'read_write');
   });
 
   it('rejects resource cursors with mismatched filter signatures before repository reads', async () => {

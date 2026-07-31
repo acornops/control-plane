@@ -6,8 +6,11 @@ import {
   resolveAutoTriageEffectiveBehavior,
   resolveAutoTriageReadiness
 } from '../src/services/auto-triage-policy.js';
-import { issueMeetsAutoTriageThreshold } from '../src/store/repository-auto-triage.js';
 import { updateTargetAutoTriageSchema } from '../src/types/contracts.js';
+import {
+  issueMeetsAutoTriageThreshold,
+  issueMatchesAutoTriageScope
+} from '../src/utils/auto-triage-eligibility.js';
 
 function resolution(input: {
   targetSupportsWrite: boolean;
@@ -53,6 +56,35 @@ describe('target auto-triage policy', () => {
       ...request,
       additionalInstructions: `${'a'.repeat(4000)}   \r\n`
     }).success, true);
+  });
+
+  it('normalizes and bounds Kubernetes namespace settings at the API boundary', () => {
+    const request = {
+      expectedRevision: 0,
+      enabled: true,
+      minimumSeverity: 'warning',
+      writeMode: 'read_only',
+      additionalInstructions: ''
+    };
+    const parsed = updateTargetAutoTriageSchema.parse({
+      ...request,
+      namespaceInclude: [' payments '],
+      namespaceExclude: ['sandbox'],
+      includeClusterScopedIssues: false
+    });
+    assert.deepEqual(parsed.namespaceInclude, ['payments']);
+    assert.equal(updateTargetAutoTriageSchema.safeParse({
+      ...request,
+      namespaceInclude: ['Production']
+    }).success, false);
+    assert.equal(updateTargetAutoTriageSchema.safeParse({
+      ...request,
+      namespaceInclude: ['payments', 'payments']
+    }).success, false);
+    assert.equal(updateTargetAutoTriageSchema.safeParse({
+      ...request,
+      namespaceInclude: Array.from({ length: 101 }, (_, index) => `team-${index}`)
+    }).success, false);
   });
 
   it('defaults every mode except diagnose-only to the target write-capable resolver', () => {
@@ -131,6 +163,54 @@ describe('target auto-triage policy', () => {
     assert.equal(issueMeetsAutoTriageThreshold('warning', 'warning'), true);
     assert.equal(issueMeetsAutoTriageThreshold('info', 'warning'), false);
     assert.equal(issueMeetsAutoTriageThreshold('info', 'info'), true);
+  });
+
+  it('limits Kubernetes eligibility to included namespaces while exclusions win', () => {
+    const settings = {
+      namespaceInclude: ['payments', 'production'],
+      namespaceExclude: ['production'],
+      includeClusterScopedIssues: false
+    };
+    assert.equal(issueMatchesAutoTriageScope({
+      targetType: 'kubernetes',
+      scopeKind: 'Namespace',
+      scopeName: 'payments'
+    }, settings), true);
+    assert.equal(issueMatchesAutoTriageScope({
+      targetType: 'kubernetes',
+      scopeKind: 'Namespace',
+      scopeName: 'production'
+    }, settings), false);
+    assert.equal(issueMatchesAutoTriageScope({
+      targetType: 'kubernetes',
+      scopeKind: undefined,
+      scopeName: undefined
+    }, settings), false);
+    assert.equal(issueMatchesAutoTriageScope({
+      targetType: 'kubernetes',
+      scopeKind: 'Cluster',
+      scopeName: undefined
+    }, {
+      ...settings,
+      includeClusterScopedIssues: true
+    }), true);
+    assert.equal(issueMatchesAutoTriageScope({
+      targetType: 'kubernetes',
+      scopeKind: 'Namespace',
+      scopeName: '   '
+    }, settings), false);
+  });
+
+  it('does not apply Kubernetes namespace eligibility to virtual machines', () => {
+    assert.equal(issueMatchesAutoTriageScope({
+      targetType: 'virtual_machine',
+      scopeKind: undefined,
+      scopeName: undefined
+    }, {
+      namespaceInclude: ['payments'],
+      namespaceExclude: [],
+      includeClusterScopedIssues: false
+    }), true);
   });
 
   it('blocks before chat creation when configured MCP tools cannot bootstrap', () => {

@@ -51,7 +51,7 @@ export function buildAdminWorkspaceDefaultPaths(
       },
       post: {
         tags: ['admin'],
-        summary: 'Add a platform MCP server or pinned skill default',
+        summary: 'Add a platform MCP server, manual skill, or pinned Git skill default',
         security: adminSecurity,
         requestBody: {
           required: true,
@@ -86,17 +86,29 @@ export function buildAdminWorkspaceDefaultPaths(
                       kind: { type: 'string', enum: ['skill'] },
                       availableIn: availability,
                       source: {
-                        type: 'object',
-                        required: ['type', 'provider', 'repoUrl', 'ref', 'commitSha'],
-                        properties: {
-                          type: { type: 'string', enum: ['git'] },
-                          provider: { type: 'string', enum: ['github', 'gitlab'] },
-                          repoUrl: { type: 'string', format: 'uri', maxLength: 2048 },
-                          ref: { type: 'string', minLength: 1, maxLength: 255 },
-                          subpath: { type: 'string', maxLength: 512 },
-                          commitSha: { type: 'string', pattern: '^[0-9a-fA-F]{40}$' }
-                        },
-                        additionalProperties: false
+                        oneOf: [
+                          {
+                            type: 'object',
+                            required: ['type'],
+                            properties: {
+                              type: { type: 'string', enum: ['manual'] }
+                            },
+                            additionalProperties: false
+                          },
+                          {
+                            type: 'object',
+                            required: ['type', 'provider', 'repoUrl', 'ref', 'commitSha'],
+                            properties: {
+                              type: { type: 'string', enum: ['git'] },
+                              provider: { type: 'string', enum: ['github', 'gitlab'] },
+                              repoUrl: { type: 'string', format: 'uri', maxLength: 2048 },
+                              ref: { type: 'string', minLength: 1, maxLength: 255 },
+                              subpath: { type: 'string', maxLength: 512 },
+                              commitSha: { type: 'string', pattern: '^[0-9a-fA-F]{40}$' }
+                            },
+                            additionalProperties: false
+                          }
+                        ]
                       },
                       files: {
                         type: 'array',
@@ -134,7 +146,7 @@ export function buildAdminWorkspaceDefaultPaths(
       }],
       patch: {
         tags: ['admin'],
-        summary: 'Change where a default will appear in newly created workspaces',
+        summary: 'Change whether or where a default will appear in newly created workspaces',
         security: adminSecurity,
         requestBody: {
           required: true,
@@ -142,8 +154,19 @@ export function buildAdminWorkspaceDefaultPaths(
             'application/json': {
               schema: {
                 type: 'object',
-                required: ['availableIn', 'reason'],
-                properties: { availableIn: availability, reason },
+                required: ['reason'],
+                anyOf: [
+                  { required: ['availableIn'] },
+                  { required: ['enabled'] }
+                ],
+                properties: {
+                  availableIn: availability,
+                  enabled: {
+                    type: 'boolean',
+                    description: 'Whether this definition is copied into workspaces created after the change.'
+                  },
+                  reason
+                },
                 additionalProperties: false
               }
             }

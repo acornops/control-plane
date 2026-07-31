@@ -31,6 +31,13 @@ const emptySnapshotSummary: SnapshotClusterSummary = {
   resourceKindCounts: {}
 };
 
+type AgentAccessMode = 'read_only' | 'read_write' | 'unknown';
+
+function agentAccessMode(capabilities: string[] | undefined): AgentAccessMode {
+  if (!capabilities) return 'unknown';
+  return capabilities.includes('write') ? 'read_write' : 'read_only';
+}
+
 export async function listClusters(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
@@ -54,10 +61,17 @@ export async function listClusters(req: AuthenticatedRequest, res: Response, nex
       signature
     });
     const summaryRecords = await repo.listClusterSnapshotSummaries(page.items.map((cluster) => cluster.id));
+    const agentRegistrations = await repo.listWorkspaceTargetAgentRegistrations(workspaceId);
+    const agentAccessModeByClusterId = new Map(
+      agentRegistrations
+        .filter((registration) => registration.targetType === 'kubernetes')
+        .map((registration) => [registration.targetId, agentAccessMode(registration.capabilities)])
+    );
     const items = page.items.map((cluster) => {
       const snapshotRecord = summaryRecords.get(cluster.id);
       return {
         ...cluster,
+        agentAccessMode: agentAccessModeByClusterId.get(cluster.id) || 'unknown',
         latestSnapshot: snapshotRecord?.latestSnapshot || null,
         summary: snapshotRecord?.summary || emptySnapshotSummary
       };
@@ -82,8 +96,10 @@ export async function getCluster(req: AuthenticatedRequest, res: Response, next:
     }
 
     const snapshotRecord = await repo.getClusterSnapshotSummary(clusterId);
+    const agentRegistration = await repo.getTargetAgentRegistration(clusterId);
     res.status(200).json({
       ...access.cluster,
+      agentAccessMode: agentAccessMode(agentRegistration?.capabilities),
       latestSnapshot: snapshotRecord?.latestSnapshot || null,
       summary: snapshotRecord?.summary || emptySnapshotSummary
     });

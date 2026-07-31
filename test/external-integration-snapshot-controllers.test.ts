@@ -12,6 +12,7 @@ const originalGetCluster = repo.getCluster;
 const originalListClusters = repo.listClusters;
 const originalListClusterSnapshotResources = repo.listClusterSnapshotResources;
 const originalListClusterSnapshotSummaries = repo.listClusterSnapshotSummaries;
+const originalListWorkspaceTargetAgentRegistrations = repo.listWorkspaceTargetAgentRegistrations;
 const originalGetExternalIntegrationWorkspaceGrant = repo.getExternalIntegrationWorkspaceGrant;
 
 afterEach(() => {
@@ -20,6 +21,7 @@ afterEach(() => {
   repo.listClusters = originalListClusters;
   repo.listClusterSnapshotResources = originalListClusterSnapshotResources;
   repo.listClusterSnapshotSummaries = originalListClusterSnapshotSummaries;
+  repo.listWorkspaceTargetAgentRegistrations = originalListWorkspaceTargetAgentRegistrations;
   repo.getExternalIntegrationWorkspaceGrant = originalGetExternalIntegrationWorkspaceGrant;
 });
 
@@ -94,6 +96,16 @@ describe('external integration normalized snapshot reads', () => {
       items: [createCluster()],
       nextCursor: undefined
     });
+    repo.listWorkspaceTargetAgentRegistrations = async () => [
+      {
+        targetId: 'cluster-1',
+        targetType: 'kubernetes',
+        workspaceId: 'workspace-1',
+        agentKeyHash: 'hash',
+        keyVersion: 1,
+        capabilities: ['read']
+      }
+    ];
     repo.listClusterSnapshotSummaries = async () => new Map([
       [
         'cluster-1',
@@ -129,6 +141,7 @@ describe('external integration normalized snapshot reads', () => {
     assert.deepEqual((res.body as { items: Array<{ id: string; summary: { resourceCount: number } }> }).items, [
       {
         ...createCluster(),
+        agentAccessMode: 'read_only',
         latestSnapshot: '2026-06-01T00:00:00.000Z',
         summary: {
           resourceCount: 3,

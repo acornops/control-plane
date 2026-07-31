@@ -39,13 +39,44 @@ export function buildTargetIssuePaths(): Record<string, unknown> {
             'application/json': {
               schema: {
                 type: 'object',
-                required: ['expectedRevision', 'enabled', 'minimumSeverity', 'writeMode', 'additionalInstructions'],
+                required: [
+                  'expectedRevision',
+                  'enabled',
+                  'minimumSeverity',
+                  'writeMode',
+                  'additionalInstructions'
+                ],
                 properties: {
                   expectedRevision: { type: 'integer', minimum: 0 },
                   enabled: { type: 'boolean' },
                   minimumSeverity: { type: 'string', enum: ['critical', 'warning', 'info'] },
                   writeMode: { type: 'string', enum: ['follow_target', 'read_only', 'approval_required', 'full_write'] },
-                  additionalInstructions: { type: 'string', maxLength: 4000 }
+                  additionalInstructions: { type: 'string', maxLength: 4000 },
+                  namespaceInclude: {
+                    type: 'array',
+                    default: [],
+                    maxItems: 100,
+                    uniqueItems: true,
+                    items: {
+                      type: 'string',
+                      minLength: 1,
+                      maxLength: 63,
+                      pattern: '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
+                    }
+                  },
+                  namespaceExclude: {
+                    type: 'array',
+                    default: [],
+                    maxItems: 100,
+                    uniqueItems: true,
+                    items: {
+                      type: 'string',
+                      minLength: 1,
+                      maxLength: 63,
+                      pattern: '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
+                    }
+                  },
+                  includeClusterScopedIssues: { type: 'boolean', default: true }
                 },
                 additionalProperties: false
               }

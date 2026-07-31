@@ -13,15 +13,15 @@ import {
   deleteWorkspaceDefault,
   getWorkspaceDefault,
   listWorkspaceDefaults,
-  updateWorkspaceDefaultAvailability
+  updateWorkspaceDefault
 } from '../store/repository-workspace-defaults.js';
 import type {
   WorkspaceDefaultAvailability,
+  WorkspaceDefaultGitSkillSource,
   WorkspaceDefaultKind,
-  WorkspaceDefaultSkillSource
 } from '../types/workspace-defaults.js';
 import { toSingleParam } from '../utils/params.js';
-import { adminAuditEventInput, auditAdmin, notFound, parseStringFilter, validationError } from './admin-controller-common.js';
+import { adminAuditEventInput, notFound, parseStringFilter, validationError } from './admin-controller-common.js';
 import { respondGitSkillImportError } from './workspaces/git-skill-import-controller.js';
 
 const privateHostPatterns = [
@@ -56,7 +56,7 @@ export function validWorkspaceDefaultHttpsUrl(raw: string): URL | null {
 }
 
 export function validWorkspaceDefaultSkillSource(
-  source: Pick<WorkspaceDefaultSkillSource, 'provider' | 'repoUrl'>
+  source: Pick<WorkspaceDefaultGitSkillSource, 'provider' | 'repoUrl'>
 ): boolean {
   return matchGitImportHost(source.repoUrl, config.GIT_IMPORT_HOSTS)?.provider === source.provider;
 }
@@ -95,7 +95,6 @@ export async function listDefaults(req: AdminAuthenticatedRequest, res: Response
       validationError(res, q.error || 'Unknown workspace default filter');
       return;
     }
-    await auditAdmin(req, { action: 'admin.system.workspace_default.read', metadata: { highRiskRead: false } });
     res.status(200).json({
       items: await listWorkspaceDefaults({ kind, availableIn, q: q.value })
     });
@@ -129,7 +128,7 @@ export async function createDefault(req: AdminAuthenticatedRequest, res: Respons
       return;
     }
 
-    if (!validWorkspaceDefaultSkillSource(req.body.source)) {
+    if (req.body.source.type === 'git' && !validWorkspaceDefaultSkillSource(req.body.source)) {
       validationError(res, 'Skill sources must use github.com or gitlab.com HTTPS repositories');
       return;
     }
@@ -170,16 +169,25 @@ export async function patchDefault(req: AdminAuthenticatedRequest, res: Response
       notFound(res, 'Workspace default not found');
       return;
     }
-    const updated = await updateWorkspaceDefaultAvailability({
+    const updated = await updateWorkspaceDefault({
       id,
       availableIn: req.body.availableIn,
+      enabled: req.body.enabled,
       actorId: req.admin.actor?.subject || req.admin.tokenId,
       auditEvent: adminAuditEventInput(req, {
-        action: 'admin.system.workspace_default.availability.update',
+        action: 'admin.system.workspace_default.update',
         subjectType: 'workspace_default',
         subjectId: id,
         reason: req.body.reason,
-        metadata: { kind: before.kind, beforeAvailableIn: before.availableIn, availableIn: req.body.availableIn }
+        metadata: {
+          kind: before.kind,
+          ...(req.body.availableIn === undefined
+            ? {}
+            : { beforeAvailableIn: before.availableIn, availableIn: req.body.availableIn }),
+          ...(req.body.enabled === undefined
+            ? {}
+            : { beforeEnabled: before.enabled, enabled: req.body.enabled })
+        }
       })
     });
     res.status(200).json(updated);

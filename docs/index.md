@@ -19,6 +19,7 @@ This `docs/` tree is the repository-local system of record for agent-readable de
 - [Design Index](/docs/design-docs/index.md)
 - [Core Beliefs](/docs/design-docs/core-beliefs.md)
 - [Workflow Activity Provenance](/docs/design-docs/workflow-activity-provenance.md)
+- [Target Auto-Triage](/docs/design-docs/target-auto-triage.md)
 
 ## Product Specs
 

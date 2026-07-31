@@ -377,7 +377,6 @@ describe('admin controller security invariants', () => {
       assert.equal(res.statusCode, 400);
     }
   });
-
   it('expands allowlisted admin audit action groups without losing exact action records', async () => {
     let capturedOptions: Record<string, unknown> | undefined;
     mock.method(repo, 'insertAdminAuditEvent', async (event) => event);
@@ -388,8 +387,28 @@ describe('admin controller security invariants', () => {
     const res = response();
     await listAdminAuditEvents({ ...adminReq, query: { actionGroup: 'workspace_access_modified' } } as never, res as never, (err?: unknown) => { if (err) throw err; });
     assert.equal(res.statusCode, 200);
-    assert.deepEqual(capturedOptions?.actions, ['admin.workspace.member.add', 'admin.workspace.member.delete', 'admin.workspace.member.role.update', 'admin.member.role.update']);
+    assert.deepEqual(capturedOptions?.actionFilters, [{
+      actions: ['admin.workspace.member.add', 'admin.workspace.member.add.request', 'admin.workspace.member.delete', 'admin.workspace.member.delete.request', 'admin.workspace.member.role.update', 'admin.workspace.member.role.update.request', 'admin.member.role.update', 'admin.member.role.update.request']
+    }]);
     assert.equal(capturedOptions?.actionGroup, 'workspace_access_modified');
+  });
+  it('normalizes workspace name-or-ID audit queries into the cursor-bound repository options', async () => {
+    let capturedOptions: Record<string, unknown> | undefined;
+    mock.method(repo, 'listAdminAuditEvents', async (options) => {
+      capturedOptions = options as Record<string, unknown>;
+      return { items: [] };
+    });
+    const res = response();
+    await listAdminAuditEvents({
+      ...adminReq,
+      query: { workspaceQuery: '  Atlas Research  ' }
+    } as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(capturedOptions?.workspaceQuery, 'Atlas Research');
+    assert.equal(typeof capturedOptions?.signature, 'string');
   });
 
   it('uses objectType for admin workspace audit searches', async () => {

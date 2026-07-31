@@ -34,7 +34,7 @@ const adminReq = {
 };
 
 describe('admin workspace member search', () => {
-  it('returns an authoritative paginated page and audits the high-risk read', async () => {
+  it('returns an authoritative paginated page without writing an admin audit event', async () => {
     mock.method(repo, 'getAdminWorkspace', async () => ({
       id: 'workspace-1',
       name: 'Atlas Research',
@@ -58,8 +58,7 @@ describe('admin workspace member search', () => {
     assert.equal(res.statusCode, 200);
     assert.equal(capturedOptions?.workspaceId, 'workspace-1');
     assert.equal(capturedOptions?.limit, 25);
-    assert.equal(events[0].action, 'admin.workspace.members.search');
-    assert.deepEqual(events[0].metadata, { highRiskRead: true });
+    assert.deepEqual(events, []);
   });
 
   it('pages rows with a stable created-at and user-id cursor', async () => {

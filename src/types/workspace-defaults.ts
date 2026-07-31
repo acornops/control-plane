@@ -9,7 +9,11 @@ export interface WorkspaceDefaultMcpSource {
   endpoint: string;
 }
 
-export interface WorkspaceDefaultSkillSource {
+export interface WorkspaceDefaultManualSkillSource {
+  type: 'manual';
+}
+
+export interface WorkspaceDefaultGitSkillSource {
   type: 'git';
   provider: 'github' | 'gitlab';
   repoUrl: string;
@@ -17,6 +21,10 @@ export interface WorkspaceDefaultSkillSource {
   subpath?: string;
   commitSha: string;
 }
+
+export type WorkspaceDefaultSkillSource =
+  | WorkspaceDefaultManualSkillSource
+  | WorkspaceDefaultGitSkillSource;
 
 export interface WorkspaceDefaultSkillFile {
   path: string;
@@ -31,6 +39,7 @@ export interface WorkspaceDefault {
   name: string;
   description: string;
   availableIn: WorkspaceDefaultAvailability[];
+  enabled: boolean;
   source: WorkspaceDefaultMcpSource | WorkspaceDefaultSkillSource;
   contentDigest?: string;
   files?: WorkspaceDefaultSkillFile[];

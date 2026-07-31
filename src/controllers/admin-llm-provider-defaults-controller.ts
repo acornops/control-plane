@@ -44,16 +44,12 @@ function handleGatewayError(error: unknown, res: Response, next: NextFunction): 
 }
 
 export async function listDefaultLlmProviderCredentials(
-  req: AdminAuthenticatedRequest,
+  _req: AdminAuthenticatedRequest,
   res: Response,
   next: NextFunction
 ): Promise<void> {
   try {
     const response = await listDefaultProviderCredentials();
-    await auditAdmin(req, {
-      action: 'admin.system.llm_provider_defaults.read',
-      metadata: { highRiskRead: true }
-    });
     res.status(200).json(response);
   } catch (error) {
     handleGatewayError(error, res, next);

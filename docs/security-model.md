@@ -118,6 +118,10 @@
   `create_read_write_runs`.
 - Auto-triage does not use `manage_workflows`, Workflow definitions, Automation
   runtime mode, Workflow service identities, or the automation dispatch outbox.
+- Kubernetes namespace include and exclude settings narrow which issues may
+  trigger automatic investigations. They do not grant access and do not replace
+  AgentK's namespace and RBAC ceilings. Virtual-machine eligibility remains
+  target-wide.
 - The target agent and saved target confirmation policy are ceilings.
   Automatic investigations may remove write tools or require more approvals,
   but they cannot add unsupported writes or bypass target-level confirmation.
@@ -161,7 +165,9 @@
 - Unsafe platform-admin BFF requests require an exact-origin signed double-submit CSRF token; unrelated operational admin tokens remain bearer-only.
   Admin sessions are opaque Redis records in secure, host-only, HTTP-only
   cookies with independent absolute and idle expiration.
-- Mutating admin requests write `admin_audit_events`. Workspace membership
+- Authentication lifecycle events and mutating admin requests write
+  `admin_audit_events`. Read-only admin requests remain in structured HTTP
+  access logs and do not create protected audit records. Workspace membership
   mutations atomically write a protected Admin Audit success record and a
   workspace-visible event in the same transaction as the membership change.
   The workspace event uses `actor.type=admin_token` with the generic token label
