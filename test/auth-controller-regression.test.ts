@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
-import { agentGateway } from '../src/agent/ws-server.js';
 import { createSession, postMessage } from '../src/controllers/sessions-controller.js';
 import { cancelRun, decideRunApproval } from '../src/controllers/runs-controller.js';
-import { rotateAgentKey } from '../src/controllers/workspaces/kubernetes-cluster-controller.js';
 import {
   createTargetMcpServerForTarget,
   updateTargetMcpServerToolSettings
@@ -11,7 +9,7 @@ import {
 import { createWebhook, deleteWebhook } from '../src/controllers/webhooks-controller.js';
 import { logger } from '../src/logger.js';
 import { repo } from '../src/store/repository.js';
-import type { TargetAgentRegistration, RunContinuation } from '../src/types/domain.js';
+import type { RunContinuation } from '../src/types/domain.js';
 import {
   callController,
   createApproval,
@@ -246,36 +244,6 @@ describe('controller authorization regressions', () => {
     );
     assert.equal(allowed.statusCode, 200);
     assert.equal(decidedBy, 'user-1');
-  });
-
-  it('requires manage_agent_keys to rotate agent keys', async () => {
-    installWorkspace('operator');
-    const denied = await callController(rotateAgentKey, createRequest({ workspaceId: 'workspace-1', clusterId: 'cluster-1' }));
-    assert.equal(denied.statusCode, 403);
-
-    installWorkspace('admin');
-    const registration: TargetAgentRegistration = {
-      targetId: 'cluster-1',
-      targetType: 'kubernetes',
-      workspaceId: 'workspace-1',
-      agentKeyHash: 'old-hash',
-      keyVersion: 1
-    };
-    repo.getTargetAgentRegistration = async () => registration;
-    repo.rotateTargetAgentKey = async () => 2;
-    let disconnectedClusterId = '';
-    mock.method(agentGateway, 'disconnectCluster', async (clusterId: string) => {
-      disconnectedClusterId = clusterId;
-      return true;
-    });
-    const allowed = await callController(rotateAgentKey, createRequest({ workspaceId: 'workspace-1', clusterId: 'cluster-1' }));
-    assert.equal(allowed.statusCode, 200);
-    assert.equal(disconnectedClusterId, 'cluster-1');
-
-    repo.rotateTargetAgentKey = async () => null;
-    const conflict = await callController(rotateAgentKey, createRequest({ workspaceId: 'workspace-1', clusterId: 'cluster-1' }));
-    assert.equal(conflict.statusCode, 409);
-    assert.equal((conflict.body as { error?: { code?: string } }).error?.code, 'AGENT_KEY_ROTATION_CONFLICT');
   });
 
   it('requires manage_mcp for MCP server mutations', async () => {

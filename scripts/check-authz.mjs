@@ -133,6 +133,8 @@ const mcpOAuthController = read('src/controllers/mcp-oauth-controller.ts');
 const workspaceRoutes = read('src/routes/workspaces.ts');
 const workspaceControllerPath = 'src/controllers/workspaces-controller.ts';
 const clusterControllerPath = 'src/controllers/workspaces/kubernetes-cluster-controller.ts';
+const clusterAgentKeyControllerPath = 'src/controllers/workspaces/kubernetes-agent-key-controller.ts';
+const clusterRbacControllerPath = 'src/controllers/workspaces/kubernetes-rbac-additions-controller.ts';
 const membersControllerPath = 'src/controllers/workspaces/members-controller.ts';
 const targetToolControllerPath = 'src/controllers/workspaces/target-tool-controller.ts';
 const targetNativeToolControllerPath = 'src/controllers/workspaces/target-native-tool-controller.ts';
@@ -161,6 +163,8 @@ const webhooksController = read(webhooksControllerPath);
 const workspaceScopedControllerPaths = [
   workspaceControllerPath,
   clusterControllerPath,
+  clusterAgentKeyControllerPath,
+  clusterRbacControllerPath,
   membersControllerPath,
   targetToolControllerPath,
   targetNativeToolControllerPath,

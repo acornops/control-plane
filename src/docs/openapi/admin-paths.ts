@@ -79,7 +79,7 @@ export function buildAdminPaths(): Record<string, unknown> {
         in: 'path',
         name: 'settingKey',
         required: true,
-        schema: { type: 'string', enum: ['member_discovery', 'ai_policy', 'user_sign_in_methods'] }
+        schema: { type: 'string', enum: ['member_discovery', 'ai_policy', 'user_sign_in_methods', 'kubernetes_rbac_additions'] }
       }],
       patch: {
         tags: ['admin'],
@@ -93,7 +93,10 @@ export function buildAdminPaths(): Record<string, unknown> {
                 type: 'object',
                 required: ['value', 'expectedVersion', 'reason'],
                 properties: {
-                  value: { type: 'object' },
+                  value: {
+                    type: 'object',
+                    description: 'Typed setting override. kubernetes_rbac_additions accepts KubernetesRbacAdditionsOverride; the response value is the resolved effective catalog.'
+                  },
                   expectedVersion: { type: 'integer', minimum: 0 },
                   reason: { type: 'string', minLength: 3, maxLength: 500 }
                 },

@@ -26,13 +26,23 @@ assert.deepEqual(
     '004_agent_avatar_emoji.sql',
     '005_workspace_default_enabled_state.sql',
     '006_cluster_auto_triage_namespace_scope.sql',
-    '007_workflow_webhooks.sql'
+    '007_workflow_webhooks.sql',
+    '008_kubernetes_rbac_additions.sql',
+    '009_kubernetes_rbac_platform_setting.sql'
   ],
   'the control-plane schema must include the immutable baseline and required forward migrations'
 );
 
 const baseline = read('migrations/control-plane/001_initial_schema.sql');
 const migrations = migrationFiles.map((filename) => read(`migrations/control-plane/${filename}`));
+const kubernetesRbacPlatformSettingMigration = read(
+  'migrations/control-plane/009_kubernetes_rbac_platform_setting.sql'
+);
+assert(
+  kubernetesRbacPlatformSettingMigration.includes('platform_setting_overrides_key_check') &&
+    kubernetesRbacPlatformSettingMigration.includes("'kubernetes_rbac_additions'::text"),
+  'the Kubernetes RBAC setting migration must extend the exact platform-setting key allowlist'
+);
 for (const forbidden of [
   /\bADD COLUMN IF NOT EXISTS\b/i,
   /\bDROP (?:COLUMN|CONSTRAINT|TABLE)\b/i,
@@ -206,7 +216,10 @@ const expectedColumns = [
   ['webhook_history', 'terminal_reason'],
   ['workspace_defaults', 'available_in'],
   ['workspace_defaults', 'enabled'],
-  ['workspace_initial_defaults', 'available_in']
+  ['workspace_initial_defaults', 'available_in'],
+  ['kubernetes_target_settings', 'rbac_additions'],
+  ['kubernetes_target_settings', 'rbac_additions_source_version'],
+  ['kubernetes_target_settings', 'rbac_additions_content_hash']
 ];
 
 const expectedConstraints = [
@@ -250,7 +263,11 @@ const expectedConstraints = [
   'webhook_delivery_jobs_status_check',
   'webhook_delivery_jobs_event_id_fkey',
   'workspace_defaults_available_in_check',
-  'workspace_initial_defaults_available_in_check'
+  'workspace_initial_defaults_available_in_check',
+  'platform_setting_overrides_key_check',
+  'kubernetes_target_settings_rbac_additions_array',
+  // PostgreSQL truncates identifiers to 63 bytes when migration 006 is applied.
+  'kubernetes_target_settings_rbac_additions_source_version_nonneg'
 ];
 
 async function runSqlChecks(databaseUrl) {
@@ -286,6 +303,19 @@ async function runSqlChecks(databaseUrl) {
     const constraintMap = new Map(constraints.rows.map((row) => [row.conname, row.definition]));
     for (const constraint of expectedConstraints) {
       assert(constraintMap.has(constraint), `${constraint} must exist in the final baseline`);
+    }
+    const platformSettingKeyConstraint = constraintMap.get('platform_setting_overrides_key_check');
+    for (const settingKey of [
+      'member_discovery',
+      'ai_policy',
+      'password_signup',
+      'user_sign_in_methods',
+      'kubernetes_rbac_additions'
+    ]) {
+      assert(
+        platformSettingKeyConstraint.includes(`'${settingKey}'::text`),
+        `platform_setting_overrides_key_check must allow ${settingKey}`
+      );
     }
     const indexes = await client.query(
       `SELECT indexname FROM pg_indexes WHERE schemaname = current_schema()`

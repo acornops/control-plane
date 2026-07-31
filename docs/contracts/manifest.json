@@ -75,9 +75,15 @@
       ],
       "paginationShape": ["items", "nextCursor?"],
       "mutationFields": ["reason", "ticketRef?"],
-      "platformSettingKeys": ["member_discovery", "ai_policy", "user_sign_in_methods"],
+      "platformSettingKeys": ["member_discovery", "ai_policy", "user_sign_in_methods", "kubernetes_rbac_additions"],
       "platformSettingPatchFields": ["value", "expectedVersion", "reason"],
       "platformSettingResetFields": ["expectedVersion", "reason"],
+      "kubernetesRbacSetting": {
+        "effectiveFields": ["additions[].{key,name,description?,resources[].{apiGroup,apiVersion,resource,kind,scope,verbs[]}}"],
+        "deploymentDefaultFields": ["additions[].{key,name,description?,resources[].{apiGroup,apiVersion,resource,kind,scope,verbs[]}}"],
+        "overrideFields": ["upserts[].{key,name,description?,resources[].{apiGroup,apiVersion,resource,kind,scope,verbs[]}}", "disabledKeys[]"],
+        "resolution": "Deployment profiles are merged with complete admin upserts by stable key, then disabled keys are removed. Changes affect future onboarding only."
+      },
       "llmProviderDefaultStatusFields": ["provider", "configured", "enabled", "source=platform_default|none"],
       "llmProviderDefaultPutFields": ["apiKey(writeOnly)", "reason"],
       "llmProviderDefaultDeleteFields": ["reason"],
@@ -121,6 +127,14 @@
         "field": "agentAccessMode=read_only|read_write|unknown",
         "authority": "Derived from the target agent registration's advertised capabilities. Write-confirmation policy is separate and must not be used to infer agent write capability.",
         "compatibility": "Additive field. Missing values are treated as unknown during rolling deployment."
+      },
+      "kubernetesRbacAdditions": {
+        "catalogPath": "GET /api/v1/workspaces/{workspaceId}/kubernetes-rbac-additions",
+        "catalogFields": ["version", "items[].{key,name,description?}"],
+        "registrationField": "rbacAdditionKeys[]?",
+        "resolution": "The control plane resolves selected keys against the effective future-onboarding catalog (Helm deployment baseline merged with admin upserts and disabled keys) and stores an immutable per-cluster snapshot. Later deployment or admin changes do not affect existing clusters; agent-key rotation reuses the stored snapshot.",
+        "accessMode": "read_only installs configured get, list, and watch; read_write also installs configured create, patch, and delete. Patch requires list.",
+        "governance": "The management console exposes only deployment- or administrator-authored names and descriptions from the effective catalog; users cannot edit resources or verbs. Post-onboarding RBAC changes are outside AcornOps governance."
       },
       "workflowCapabilityCeiling": {
         "rule": "A workflow selects one or more active reviewed specialist Agents. restrictionMode=inherit resolves their current combined ceiling at session creation; restrictionMode=restrict requires semanticCapabilityIds to be an explicit subset.",
@@ -444,6 +458,7 @@
         "targetSkillDetail.files[].{path,content,sizeBytes}"
       ],
       "requestFields": {
+        "registerCluster": ["name", "agentAccessMode?=read_only|read_write", "namespaceInclude?", "namespaceExclude?", "rbacAdditionKeys[]?"],
         "patchCluster": [
           "name?",
           "namespaceInclude?",
@@ -590,7 +605,12 @@
         ],
         "clusterRegistration": [
           "cluster",
-          "agentKey"
+          "agentKey",
+          "installInstructions"
+        ],
+        "kubernetesRbacAdditions": [
+          "version",
+          "items[].{key,name,description?}"
         ],
         "rotateAgentKey": [
           "clusterId",
@@ -1377,8 +1397,21 @@
         "scale_workload",
         "patch_workload",
         "patch_resource",
-        "patch_configmap"
+        "patch_configmap",
+        "get_custom_resource",
+        "list_custom_resources",
+        "watch_custom_resources",
+        "create_custom_resource",
+        "patch_custom_resource",
+        "delete_custom_resource"
       ],
+      "kubernetesRbacAdditions": {
+        "installValue": "rbac.additions[]",
+        "runtimeEnvironment": "ACORNOPS_AGENT_RBAC_ADDITIONS_JSON",
+        "verbs": ["get", "list", "watch", "create", "patch", "delete"],
+        "accessMode": "read-only grants configured get, list, and watch; read-write additionally grants configured create, patch, and delete",
+        "patchBoundary": "JSON Patch add/replace/remove operations under /spec only, with UID and resourceVersion tests, Kubernetes dry-run, ordinary write approval, and post-write identity verification"
+      },
       "toolAdvertisementPolicy": "Every registered AgentK tool is advertised and discoverable; session, run, local write, patch-kind, environment, ConfigMap, namespace, and Kubernetes RBAC policy remain fail-closed execution ceilings.",
       "snapshotFields": [
         "metrics.available",

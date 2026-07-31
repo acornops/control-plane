@@ -7,6 +7,11 @@ import { validateBody } from '../../utils/http.js';
 const authed = authenticatedHandler;
 
 export function registerKubernetesClusterRoutes(router: Router): void {
+  router.get(
+    '/workspaces/:workspaceId/kubernetes-rbac-additions',
+    requireActor(['user']),
+    authed(workspacesController.listKubernetesRbacAdditions)
+  );
   router.get('/workspaces/:workspaceId/kubernetes-clusters', requireActor(['user', 'externalIntegration']), authed(workspacesController.listClusters));
   router.post(
     '/workspaces/:workspaceId/kubernetes-clusters',

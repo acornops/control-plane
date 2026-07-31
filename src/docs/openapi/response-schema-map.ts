@@ -159,6 +159,7 @@ export function schemaForOperation(method: string, path: string, statusCode: str
     'GET /api/v1/workspaces/{workspaceId}/targets/{targetId}/target-insights/activity': 'TargetInsightsActivity',
     'GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters': 'KubernetesClusterPage',
     'POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters': 'ClusterRegistration',
+    'GET /api/v1/workspaces/{workspaceId}/kubernetes-rbac-additions': 'KubernetesRbacAdditions',
     'GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}': 'KubernetesCluster',
     'PATCH /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}': 'KubernetesCluster',
     'GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/resources': 'InventoryPage',

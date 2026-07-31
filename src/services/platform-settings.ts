@@ -17,8 +17,7 @@ import {
   parseConfiguredReasoningSummaryModes,
   REASONING_EFFORT_VALUES,
   REASONING_SUMMARY_MODE_VALUES,
-  SUPPORTED_LLM_PROVIDER_VALUES,
-  type ProviderModelMap
+  SUPPORTED_LLM_PROVIDER_VALUES
 } from '../config-llm-policy.js';
 import { redis } from '../infra/redis.js';
 import { logger } from '../logger.js';
@@ -26,12 +25,25 @@ import {
   listPlatformSettingOverrides,
   type PlatformSettingOverride
 } from '../store/repository-platform-settings.js';
+import type { WorkspaceMemberDiscoveryMode } from '../types/domain.js';
+import {
+  type KubernetesRbacAdditionsOverride,
+  type KubernetesRbacAdditionsValue
+} from './kubernetes-rbac-additions.js';
+import {
+  effectiveKubernetesRbacAdditions as mergeEffectiveKubernetesRbacAdditions,
+  kubernetesRbacAdditionsState,
+  parseKubernetesRbacAdditionsOverride,
+  validateKubernetesRbacAdditionsOverride
+} from './platform-setting-kubernetes-rbac.js';
 import type {
-  LlmProvider,
-  ReasoningEffort,
-  ReasoningSummaryMode,
-  WorkspaceMemberDiscoveryMode
-} from '../types/domain.js';
+  AiPlatformPolicy,
+  PlatformSettingOverrideValueMap,
+  PlatformSettingState,
+  PlatformSettingStateMap,
+  PlatformSettingValueMap
+} from './platform-setting-types.js';
+export type { AiPlatformPolicy, PlatformSettingState } from './platform-setting-types.js';
 
 const settingChannel = 'cp:platform-settings';
 const refreshIntervalMs = 30_000;
@@ -65,41 +77,6 @@ const userSignInMethodsValueSchema = z.object({
 const legacyPasswordSignupValueSchema = z.object({
   enabled: z.boolean()
 }).strict();
-
-export interface AiPlatformPolicy {
-  defaultProvider: LlmProvider;
-  defaultModel: string;
-  providerModels: ProviderModelMap;
-  reasoningSummariesEnabled: boolean;
-  reasoningSummaryModes: ReasoningSummaryMode[];
-  reasoningEfforts: ReasoningEffort[];
-}
-
-export interface PlatformSettingValueMap {
-  member_discovery: { mode: WorkspaceMemberDiscoveryMode };
-  ai_policy: AiPlatformPolicy;
-  user_sign_in_methods: { methods: UserSignInMethod[] };
-}
-
-type PlatformSettingSource = 'deployment_default' | 'runtime_override' | 'runtime_override_constrained';
-
-export interface PlatformSettingState<K extends PlatformSettingKey = PlatformSettingKey> {
-  key: K;
-  value: PlatformSettingValueMap[K];
-  deploymentDefault: PlatformSettingValueMap[K];
-  overrideValue?: PlatformSettingValueMap[K];
-  source: PlatformSettingSource;
-  version: number;
-  updatedBy?: string;
-  updatedAt?: string;
-  editable: boolean;
-  constraints: Record<string, unknown>;
-  warning?: string;
-}
-
-type PlatformSettingStateMap = {
-  [K in PlatformSettingKey]: PlatformSettingState<K>;
-};
 
 let loadedOverrides: PlatformSettingOverride[] = [];
 let states = buildStates(loadedOverrides);
@@ -368,6 +345,11 @@ function buildStates(overrides: PlatformSettingOverride[]): PlatformSettingState
     user_sign_in_methods: userSignInMethodsState(
       map.get('user_sign_in_methods'),
       map.get(LEGACY_PLATFORM_SETTING_KEY)
+    ),
+    kubernetes_rbac_additions: kubernetesRbacAdditionsState(
+      map.get('kubernetes_rbac_additions'),
+      config.PLATFORM_SETTINGS_POLICY.kubernetesRbacAdditions.profiles,
+      config.PLATFORM_SETTINGS_POLICY.kubernetesRbacAdditions.runtimeEditable
     )
   };
 }
@@ -375,18 +357,23 @@ function buildStates(overrides: PlatformSettingOverride[]): PlatformSettingState
 export function parsePlatformSettingValue<K extends PlatformSettingKey>(
   key: K,
   value: unknown
-): PlatformSettingValueMap[K] {
+): PlatformSettingOverrideValueMap[K] {
   const parsed = key === 'member_discovery'
     ? memberDiscoveryValueSchema.parse(value)
     : key === 'ai_policy'
       ? aiPolicyValueSchema.parse(value)
-      : userSignInMethodsValueSchema.parse(value);
-  return parsed as PlatformSettingValueMap[K];
+      : key === 'user_sign_in_methods'
+        ? userSignInMethodsValueSchema.parse(value)
+        : parseKubernetesRbacAdditionsOverride(
+            value,
+            getPlatformSetting('kubernetes_rbac_additions').deploymentDefault
+          );
+  return parsed as PlatformSettingOverrideValueMap[K];
 }
 
 export function validatePlatformSettingOverride<K extends PlatformSettingKey>(
   key: K,
-  value: PlatformSettingValueMap[K]
+  value: PlatformSettingOverrideValueMap[K]
 ): string | null {
   const current = resolvedStates()[key];
   if (!current.editable) return 'This setting is fixed by the deployment policy.';
@@ -405,11 +392,30 @@ export function validatePlatformSettingOverride<K extends PlatformSettingKey>(
     }
     return null;
   }
+  if (key === 'kubernetes_rbac_additions') {
+    return validateKubernetesRbacAdditionsOverride(
+      current.deploymentDefault as KubernetesRbacAdditionsValue,
+      value as KubernetesRbacAdditionsOverride
+    );
+  }
   const candidate = value as PlatformSettingValueMap['ai_policy'];
   const constrained = constrainedAiPolicy(candidate, deploymentAiPolicy());
   return JSON.stringify(candidate) === JSON.stringify(constrained)
     ? null
     : 'AI policy may narrow, but cannot expand, the deployment ceiling.';
+}
+
+/** Resolve an accepted override into the value administrators and onboarding consumers will observe. */
+export function effectivePlatformSettingOverride<K extends PlatformSettingKey>(
+  key: K,
+  value: PlatformSettingOverrideValueMap[K]
+): PlatformSettingValueMap[K] {
+  if (key !== 'kubernetes_rbac_additions') return value as unknown as PlatformSettingValueMap[K];
+  const current = getPlatformSetting('kubernetes_rbac_additions');
+  return mergeEffectiveKubernetesRbacAdditions(
+    current.deploymentDefault,
+    value as KubernetesRbacAdditionsOverride
+  ) as PlatformSettingValueMap[K];
 }
 
 export async function refreshPlatformSettings(): Promise<void> {
@@ -462,7 +468,13 @@ export function getPlatformSettingWithoutOverride<K extends PlatformSettingKey>(
     ? memberDiscoveryState()
     : key === 'ai_policy'
       ? aiPolicyState()
-      : userSignInMethodsState();
+      : key === 'user_sign_in_methods'
+        ? userSignInMethodsState()
+        : kubernetesRbacAdditionsState(
+            undefined,
+            config.PLATFORM_SETTINGS_POLICY.kubernetesRbacAdditions.profiles,
+            config.PLATFORM_SETTINGS_POLICY.kubernetesRbacAdditions.runtimeEditable
+          );
   return structuredClone(state) as PlatformSettingState<K>;
 }
 
@@ -476,6 +488,10 @@ export function effectiveAiPlatformPolicy(): AiPlatformPolicy {
 
 export function effectiveUserSignInMethods(): UserSignInMethod[] {
   return [...resolvedStates().user_sign_in_methods.value.methods];
+}
+
+export function effectiveKubernetesRbacAdditions(): KubernetesRbacAdditionsValue {
+  return structuredClone(resolvedStates().kubernetes_rbac_additions.value);
 }
 
 export function passwordSignInEnabled(): boolean {

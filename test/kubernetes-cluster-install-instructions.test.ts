@@ -151,6 +151,21 @@ describe('Kubernetes cluster install instructions', () => {
     assert.match(instructions.command, /--set rbac\.write\.enabled=true/);
   });
 
+  it('embeds the resolved RBAC addition snapshot in generated install commands', () => {
+    const additions = [{
+      key: 'cnpg', name: 'CNPG', description: 'CloudNativePG clusters',
+      resources: [{
+        apiGroup: 'postgresql.cnpg.io', apiVersion: 'v1', resource: 'clusters', kind: 'Cluster',
+        scope: 'namespaced' as const, verbs: ['list', 'patch'] as const
+      }]
+    }];
+
+    const instructions = buildAgentInstallInstructions(cluster, 'agent-key', 'read_only', additions);
+
+    assert.ok(instructions.command.includes(`--set-json rbac.additions='${JSON.stringify(additions)}'`));
+    assert.doesNotMatch(instructions.command, /rbac\.write\.enabled=true/);
+  });
+
   it('parses unknown access modes as read-only', () => {
     assert.equal(parseAgentAccessMode('read_write'), 'read_write');
     assert.equal(parseAgentAccessMode('read_only'), 'read_only');
@@ -167,6 +182,13 @@ describe('Kubernetes cluster install instructions', () => {
     });
 
     assert.equal(parsed.agentAccessMode, 'read_write');
+  });
+
+  it('accepts only unique stable RBAC addition keys during registration', () => {
+    const parsed = registerClusterSchema.parse({ name: 'payments-prod', rbacAdditionKeys: ['cnpg'] });
+    assert.deepEqual(parsed.rbacAdditionKeys, ['cnpg']);
+    assert.equal(registerClusterSchema.safeParse({ name: 'payments-prod', rbacAdditionKeys: ['cnpg', 'cnpg'] }).success, false);
+    assert.equal(registerClusterSchema.safeParse({ name: 'payments-prod', rbacAdditionKeys: ['CNPG'] }).success, false);
   });
 
   it('rejects namespace policy values AgentK cannot safely enforce', () => {

@@ -3,6 +3,7 @@ import { targetSummarySchema, runSchema, userSchema } from './schema-components-
 import { buildTargetMcpWireSchemas } from './schema-components-target-mcp.js';
 import { buildWebhookSchemas } from './schema-components-webhooks.js';
 import { buildAutoTriageSchemas } from './schema-components-auto-triage.js';
+import { buildKubernetesRbacSchemas } from './schema-components-kubernetes-rbac.js';
 
 export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
   return {
@@ -38,6 +39,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       }
     },
     KubernetesClusterPage: pageOf('KubernetesCluster'),
+    ...buildKubernetesRbacSchemas(),
     ClusterRegistration: {
       type: 'object',
       required: ['cluster', 'agentKey', 'installInstructions'],

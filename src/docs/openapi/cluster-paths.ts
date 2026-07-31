@@ -69,13 +69,21 @@ export function buildClusterPaths(): Record<string, unknown> {
                       enum: ['read_only', 'read_write'],
                       default: 'read_only',
                       description: 'Controls the generated Helm command RBAC mode. read_write adds rbac.write.enabled=true.'
+                    },
+                    rbacAdditionKeys: {
+                      type: 'array',
+                      maxItems: 25,
+                      uniqueItems: true,
+                      items: { type: 'string' },
+                      description: 'Administrator-defined Kubernetes integration bundle keys to snapshot for this cluster installation.'
                     }
                   },
                   example: {
                     name: 'payments-prod-eks',
                     namespaceInclude: ['payments', 'shared'],
                     namespaceExclude: ['sandbox'],
-                    agentAccessMode: 'read_only'
+                    agentAccessMode: 'read_only',
+                    rbacAdditionKeys: ['cnpg']
                   }
                 }
               }
@@ -84,6 +92,23 @@ export function buildClusterPaths(): Record<string, unknown> {
           responses: {
             '201': { description: 'Cluster registration created with agent install instructions.' },
             '409': { description: 'Kubernetes cluster quota exceeded. Returns QUOTA_EXCEEDED with quotaKey=kubernetesClusters.' }
+          }
+        }
+      },
+      '/api/v1/workspaces/{workspaceId}/kubernetes-rbac-additions': {
+        get: {
+          tags: ['workspaces'],
+          summary: 'List administrator-defined Kubernetes integration bundles available for cluster onboarding',
+          security: [{ userSession: [] }],
+          parameters: [{
+            in: 'path',
+            name: 'workspaceId',
+            required: true,
+            schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID }
+          }],
+          responses: {
+            '200': { description: 'Current bundle summaries containing only version, key, name, and description.' },
+            '403': { description: 'Requires manage_targets.' }
           }
         }
       },

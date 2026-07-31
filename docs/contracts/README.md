@@ -38,6 +38,11 @@ The control plane owns the platform API boundary. Keep this README as a short in
   deployment-configured ordinary workspace-user methods (`password`, `oidc`).
   It is non-empty, server-enforced for password login/signup/reset/change and
   ordinary OIDC login/callback, and cannot enable deployment-disabled OIDC.
+- The `kubernetes_rbac_additions` platform setting resolves a deployment-owned
+  baseline catalog with an audited runtime overlay of complete profile upserts
+  and disabled keys. Runtime editing may be disabled by deployment policy.
+  Resolution is used only for future cluster onboarding; stored per-cluster
+  snapshots and operator-managed Kubernetes RBAC are never reconciled.
   Platform-admin OIDC and authenticated OIDC account-link transactions remain
   separate. Legacy `password_signup` rows resolve to the deployment default
   until an administrator saves the replacement setting.
@@ -237,7 +242,12 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Agent handshake responses always include a complete `sessionPolicy`; AgentK rejects tool calls until it is installed.
 - The Kubernetes built-in catalog contains `list_resources`, `get_resource`,
   `get_resource_logs`, `restart_workload`, `scale_workload`, and
-  `patch_workload`, `patch_resource`, and `patch_configmap`.
+  `patch_workload`, `patch_resource`, `patch_configmap`,
+  `get_custom_resource`, `list_custom_resources`, `watch_custom_resources`,
+  `create_custom_resource`, `patch_custom_resource`, and
+  `delete_custom_resource`. Custom-resource tools are limited to the immutable
+  RBAC additions snapshot selected at cluster onboarding; read-only access
+  permits configured reads, while writes retain the standard write-approval path.
 - AgentK advertises every registered tool. Discovery is intentionally broader
   than execution authorization: session, run, local write, patch-kind,
   environment, ConfigMap, namespace, and Kubernetes RBAC policy remain
