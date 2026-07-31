@@ -151,12 +151,25 @@ describe('development target seed', () => {
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workspace_initial_default_skill_files')).length, 1);
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO agent_definitions')).length, 2);
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workflow_definitions')).length, 2);
-    const targetDiagnosticsWorkflow = [...workflowRows.values()].find((row) => row.name === 'Target diagnostics');
-    assert.equal(
-      targetDiagnosticsWorkflow?.prompt,
-      'Inspect {{target:target}} using live diagnostic evidence and summarize findings and safe next actions.'
+    assert.deepEqual(
+      [...agentRows.values()].map((row) => row.name).sort(),
+      ['Kubernetes Agent', 'Virtual Machine Agent']
     );
-    assert.equal(targetDiagnosticsWorkflow?.description, 'Inspect one exact target using live diagnostic evidence.');
+    assert.deepEqual(
+      [...workflowRows.values()].map((row) => (row.agent_ids as string[]).length).sort(),
+      [1, 1]
+    );
+    const kubernetesWorkflow = [...workflowRows.values()].find((row) => row.name === 'Kubernetes health check');
+    assert.equal(
+      kubernetesWorkflow?.prompt,
+      "Assess the selected Kubernetes target's current health without making changes. Inspect workload readiness and availability, pod restarts, warning events, resource pressure, and relevant recent logs. Cite the exact evidence for each finding, distinguish observations from inferences, call out unavailable evidence, and finish with prioritized safe next actions."
+    );
+    assert.equal(
+      kubernetesWorkflow?.description,
+      'Inspect one Kubernetes target for workload failures, warning events, resource pressure, and relevant logs.'
+    );
+    const virtualMachineWorkflow = [...workflowRows.values()].find((row) => row.name === 'Virtual machine health check');
+    assert.match(String(virtualMachineWorkflow?.prompt), /filesystem pressure.*degraded systemd services/);
     assert.equal(transactionQueries.some(({ sql }) => sql.includes("SET state='complete'")), true);
     assert.equal(queries.filter(({ sql }) => sql.includes('INSERT INTO targets')).length, 2);
     assert.equal(queries.filter(({ sql }) => sql.includes('INSERT INTO kubernetes_target_settings')).length, 1);

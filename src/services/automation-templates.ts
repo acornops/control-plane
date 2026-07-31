@@ -62,7 +62,7 @@ interface AutomationTemplateBundle {
 }
 
 export const STARTER_AUTOMATION_TEMPLATE_ID = 'acornops-starter';
-export const STARTER_AUTOMATION_TEMPLATE_VERSION = 4;
+export const STARTER_AUTOMATION_TEMPLATE_VERSION = 7;
 
 async function upsertStarterNativeToolMapping(
   client: PoolClient,
@@ -94,47 +94,49 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
   id: STARTER_AUTOMATION_TEMPLATE_ID,
   version: STARTER_AUTOMATION_TEMPLATE_VERSION,
   name: 'AcornOps workspace defaults',
-  description: 'Target diagnostics, approval-gated target remediation, incident reporting, and coordinated investigation starters.',
+  description: 'Kubernetes and virtual-machine Agents with target tools, health checks, and opt-in remediation and incident investigation.',
   agents: [
     {
-      key: 'targetDiagnostics',
-      name: 'Target Diagnostics',
-      avatarEmoji: '🔎',
-      description: 'Collects diagnostic evidence from an explicitly selected target.',
-      instructions: 'Inspect only the exact target scope compiled for this run. Cite observed evidence and distinguish observations from inferences.',
-      semanticCapabilityIds: ['target.diagnostics.read'],
-      targetConstraints: { targetTypes: ['kubernetes', 'virtual_machine'], targetIds: [] }
-    },
-    {
-      key: 'targetRemediation',
-      name: 'Target Remediation',
-      avatarEmoji: '🛠️',
-      description: 'Diagnoses and safely changes an explicitly selected target.',
-      instructions: 'Inspect the exact compiled target before changing it. Propose the smallest safe change, require approval for every write, verify the result, and provide rollback guidance.',
-      semanticCapabilityIds: ['target.diagnostics.read', 'target.remediation.write'],
+      key: 'kubernetesAgent',
+      name: 'Kubernetes Agent',
+      avatarEmoji: '☸️',
+      description: 'Investigates and safely operates explicitly selected Kubernetes targets.',
+      instructions: 'Operate only on the exact Kubernetes target compiled for this run. Use live target evidence, distinguish observations from inferences, require approval before every write, verify changes, and provide rollback guidance.',
+      semanticCapabilityIds: [
+        'prompt.resources.read',
+        'reports.pdf.generate',
+        'target.diagnostics.read',
+        'target.remediation.write'
+      ],
+      nativeToolIds: ['prompt.resources.read', 'reports.pdf.generate'],
       targetConstraints: { targetTypes: ['kubernetes'], targetIds: [] }
     },
     {
-      key: 'incidentReporter',
-      name: 'Incident Reporter',
-      avatarEmoji: '📝',
-      description: 'Produces an incident report from explicitly granted evidence.',
-      instructions: 'Use only evidence and context present in the compiled scope. Preserve provenance and disclose missing inputs.',
-      semanticCapabilityIds: ['prompt.resources.read', 'reports.pdf.generate'],
-      nativeToolIds: ['prompt.resources.read', 'reports.pdf.generate']
+      key: 'virtualMachineAgent',
+      name: 'Virtual Machine Agent',
+      avatarEmoji: '🖥️',
+      description: 'Investigates explicitly selected Linux virtual-machine targets.',
+      instructions: 'Operate only on the exact virtual-machine target compiled for this run. Use live target evidence, distinguish observations from inferences, preserve provenance, disclose missing inputs, and do not make changes.',
+      semanticCapabilityIds: [
+        'prompt.resources.read',
+        'reports.pdf.generate',
+        'target.diagnostics.read'
+      ],
+      nativeToolIds: ['prompt.resources.read', 'reports.pdf.generate'],
+      targetConstraints: { targetTypes: ['virtual_machine'], targetIds: [] }
     }
   ],
   workflows: [
     {
-      key: 'targetDiagnostics',
-      name: 'Target diagnostics',
-      description: 'Inspect one exact target using live diagnostic evidence.',
-      prompt: 'Inspect {{target:target}} using live diagnostic evidence and summarize findings and safe next actions.',
-      agentKeys: ['targetDiagnostics'],
+      key: 'kubernetesHealth',
+      name: 'Kubernetes health check',
+      description: 'Inspect one Kubernetes target for workload failures, warning events, resource pressure, and relevant logs.',
+      prompt: "Assess the selected Kubernetes target's current health without making changes. Inspect workload readiness and availability, pod restarts, warning events, resource pressure, and relevant recent logs. Cite the exact evidence for each finding, distinguish observations from inferences, call out unavailable evidence, and finish with prioritized safe next actions.",
+      agentKeys: ['kubernetesAgent'],
       semanticCapabilityIds: ['target.diagnostics.read'],
       capabilityMode: 'read_only',
       restrictionMode: 'restrict',
-      resourceRequirements: [{ type: 'target', minimum: 1, maximum: 1, requiredOperations: ['read'], constraints: { targetTypes: ['kubernetes', 'virtual_machine'], targetIds: [] } }],
+      resourceRequirements: [{ type: 'target', minimum: 1, maximum: 1, requiredOperations: ['read'], constraints: { targetTypes: ['kubernetes'], targetIds: [] } }],
       installMode: 'automatic',
       setupSteps: []
     },
@@ -143,7 +145,7 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       name: 'Target remediation',
       description: 'Diagnose and safely change one exact target with approval-gated writes.',
       prompt: 'Diagnose the selected Kubernetes target using live evidence. Propose the smallest safe remediation, request approval before each mutation, verify the result, and summarize rollback guidance.',
-      agentKeys: ['targetRemediation'],
+      agentKeys: ['kubernetesAgent'],
       semanticCapabilityIds: ['target.diagnostics.read', 'target.remediation.write'],
       capabilityMode: 'read_write',
       restrictionMode: 'restrict',
@@ -154,15 +156,15 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       setupSteps: ['Add paused workflow', 'Select an exact Kubernetes target', 'Preview approval-gated tools', 'Activate']
     },
     {
-      key: 'incidentReporter',
-      name: 'Incident report',
-      description: 'Generate an incident report from explicitly granted evidence.',
-      prompt: 'Generate an incident report titled {{text:report_title}} with provenance from {{chat:incident_context}} and only the granted evidence.',
-      agentKeys: ['incidentReporter'],
-      semanticCapabilityIds: [],
+      key: 'virtualMachineHealth',
+      name: 'Virtual machine health check',
+      description: 'Inspect one Linux VM for host pressure, degraded services, suspicious processes or listeners, and relevant logs.',
+      prompt: "Assess the selected Linux virtual machine's current health without making changes. Inspect the host summary, filesystem pressure, top processes, network listeners, degraded systemd services, and relevant allowlisted journal logs. Cite the exact evidence for each finding, distinguish observations from inferences, call out unavailable evidence, and finish with prioritized safe next actions.",
+      agentKeys: ['virtualMachineAgent'],
+      semanticCapabilityIds: ['target.diagnostics.read'],
       capabilityMode: 'read_only',
-      restrictionMode: 'inherit',
-      resourceRequirements: [{ type: 'chat', minimum: 1, maximum: 20, requiredOperations: ['read'] }],
+      restrictionMode: 'restrict',
+      resourceRequirements: [{ type: 'target', minimum: 1, maximum: 1, requiredOperations: ['read'], constraints: { targetTypes: ['virtual_machine'], targetIds: [] } }],
       status: 'active',
       installMode: 'automatic',
       setupSteps: []
@@ -172,7 +174,7 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       name: 'Incident investigation',
       description: 'Coordinate target diagnostics and incident reporting for an exact target and selected chats.',
       prompt: 'Investigate the selected target and relevant incident context, then produce a provenance-preserving report with findings and safe next actions.',
-      agentKeys: ['targetDiagnostics', 'incidentReporter'],
+      agentKeys: ['kubernetesAgent', 'virtualMachineAgent'],
       semanticCapabilityIds: ['prompt.resources.read', 'reports.pdf.generate', 'target.diagnostics.read'],
       capabilityMode: 'read_only',
       restrictionMode: 'restrict',

@@ -23,8 +23,8 @@ import {
 } from './automation-templates.js';
 
 const PUBLIC_TEMPLATE_IDS: Record<string, string> = {
-  targetDiagnostics: 'target-diagnostics',
-  incidentReporter: 'incident-report',
+  kubernetesHealth: 'kubernetes-health-check',
+  virtualMachineHealth: 'virtual-machine-health-check',
   targetRemediation: 'target-remediation',
   managedResponse: 'incident-investigation'
 };

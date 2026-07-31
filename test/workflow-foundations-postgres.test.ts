@@ -10,6 +10,7 @@ import {
   installAutomationTemplate,
   listAutomationTemplateBundles
 } from '../src/services/automation-template-lifecycle.js';
+import { refreshAgentReadiness } from '../src/services/automation-readiness.js';
 import {
   overrideStarterAutomationSeedFailureForTests,
   provisionStarterAutomation
@@ -20,6 +21,7 @@ import {
   listAgentWorkflowDependencies
 } from '../src/store/repository-automation-cleanup.js';
 import { listTemplateInstallations } from '../src/store/repository-automation-templates.js';
+import { upsertPlatformCapabilityRoutingMapping } from '../src/store/repository-capability-routing.js';
 import { getAgentDefinition } from '../src/store/repository-agents.js';
 import { getWorkflowDefinition } from '../src/store/repository-workflows.js';
 import {
@@ -38,8 +40,19 @@ describe('Workflow and Agent template foundations', () => {
       createdBy: 'user-1'
     });
     assert.equal(provisioned.created, true);
-    const agents = await db.query<{ status: string; review_state: string; origin: { type: string } }>(
-      'SELECT status,review_state,origin FROM agent_definitions WHERE workspace_id=$1',
+    const agents = await db.query<{
+      id: string;
+      name: string;
+      version: number;
+      status: string;
+      review_state: string;
+      origin: { type: string };
+      semantic_capability_ids: string[];
+      target_scope: { targetTypes: string[] };
+      tools: string[];
+    }>(
+      `SELECT id,name,version,status,review_state,origin,semantic_capability_ids,target_scope,tools
+       FROM agent_definitions WHERE workspace_id=$1 ORDER BY name`,
       ['workspace-provisioned']
     );
     assert.equal(agents.rowCount, 2);
@@ -48,12 +61,65 @@ describe('Workflow and Agent template foundations', () => {
       true
     );
     assert.equal(agents.rows.every((agent) => agent.origin.type === 'manual'), true);
+    assert.deepEqual(agents.rows.map((agent) => agent.name), [
+      'Kubernetes Agent',
+      'Virtual Machine Agent'
+    ]);
+    assert.deepEqual(agents.rows[0].target_scope.targetTypes, ['kubernetes']);
+    assert.deepEqual(agents.rows[0].semantic_capability_ids, [
+      'prompt.resources.read',
+      'reports.pdf.generate',
+      'target.diagnostics.read',
+      'target.remediation.write'
+    ]);
+    assert.deepEqual(agents.rows[1].target_scope.targetTypes, ['virtual_machine']);
+    assert.deepEqual(agents.rows[1].semantic_capability_ids, [
+      'prompt.resources.read',
+      'reports.pdf.generate',
+      'target.diagnostics.read'
+    ]);
+    assert.equal(agents.rows.every((agent) => (
+      agent.tools.includes('prompt.resources.read') && agent.tools.includes('reports.pdf.generate')
+    )), true);
+    await db.query(
+      `INSERT INTO targets (id,workspace_id,target_type,name,status,metadata,created_at,updated_at)
+       VALUES ('vm-read-only','workspace-provisioned','virtual_machine','Read-only VM','online','{}',NOW(),NOW())`
+    );
+    const virtualMachineAgent = agents.rows[1];
+    await upsertPlatformCapabilityRoutingMapping({
+      id: 'vm-read-only-diagnostics',
+      workspaceId: 'workspace-provisioned',
+      capabilityId: 'target.diagnostics.read',
+      agentId: virtualMachineAgent.id,
+      agentVersion: virtualMachineAgent.version,
+      status: 'active',
+      reviewState: 'reviewed',
+      priority: 10,
+      targetTypes: ['virtual_machine'],
+      targetIds: ['vm-read-only'],
+      mcpTools: [],
+      targetToolRefs: [{
+        serverId: 'builtin-vm-tools',
+        toolName: 'get_host_summary',
+        alias: 'get_host_summary',
+        operation: 'read'
+      }],
+      nativeToolIds: [],
+      skillIds: [],
+      contextGrants: [],
+      createdBy: 'platform:test',
+      reviewedBy: 'platform:test'
+    });
+    assert.deepEqual(
+      (await refreshAgentReadiness('workspace-provisioned', virtualMachineAgent.id))?.readiness,
+      { status: 'ready', reasons: [] }
+    );
     const workflows = await db.query<{ status: string; readiness_status: string; agent_ids: string[]; origin: { type: string } }>(
       'SELECT status,readiness_status,agent_ids,origin FROM workflow_definitions WHERE workspace_id=$1',
       ['workspace-provisioned']
     );
     assert.equal(workflows.rowCount, 2);
-    assert.equal(workflows.rows.every((workflow) => workflow.agent_ids.length === 1), true);
+    assert.deepEqual(workflows.rows.map((workflow) => workflow.agent_ids.length).sort(), [1, 1]);
     assert.equal(workflows.rows.every((workflow) => workflow.origin.type === 'manual'), true);
     const [installation] = await listTemplateInstallations('workspace-provisioned');
     assert.equal(installation.state, 'complete');
@@ -110,9 +176,9 @@ describe('Workflow and Agent template foundations', () => {
       workspaceId: 'workspace-1',
       installedBy: 'user-1'
     });
-    const editedAgentId = seeded.installation.recordIds['agent:targetDiagnostics'];
-    const editedWorkflowId = seeded.installation.recordIds['workflow:targetDiagnostics'];
-    const deletedWorkflowId = seeded.installation.recordIds['workflow:incidentReporter'];
+    const editedAgentId = seeded.installation.recordIds['agent:kubernetesAgent'];
+    const editedWorkflowId = seeded.installation.recordIds['workflow:kubernetesHealth'];
+    const deletedWorkflowId = seeded.installation.recordIds['workflow:virtualMachineHealth'];
 
     const editedAgent = await updateAgentThroughDefinitionService('workspace-1', editedAgentId, {
       name: 'My diagnostics Agent'
@@ -155,20 +221,20 @@ describe('Workflow and Agent template foundations', () => {
       workspaceId: 'workspace-1',
       installedBy: 'user-1'
     });
-    const deletedWorkflowId = seeded.installation.recordIds['workflow:incidentReporter'];
+    const deletedWorkflowId = seeded.installation.recordIds['workflow:virtualMachineHealth'];
     assert.equal(
       await deleteWorkflowThroughDefinitionService('workspace-1', deletedWorkflowId),
       'deleted'
     );
 
     const recommendation = (await listAutomationTemplateBundles('workspace-1'))
-      .find((item) => item.id === 'incident-report');
+      .find((item) => item.id === 'virtual-machine-health-check');
     assert.equal(recommendation?.installationStatus, 'not_installed');
     assert.equal(recommendation?.workflowId, undefined);
 
     const added = await installAutomationTemplate({
       workspaceId: 'workspace-1',
-      templateId: 'incident-report',
+      templateId: 'virtual-machine-health-check',
       installedBy: 'user-1'
     });
     assert.equal(added.alreadyInstalled, false);
@@ -189,8 +255,9 @@ describe('Workflow and Agent template foundations', () => {
       installedBy: 'user-1'
     });
     const [installationBefore] = await listTemplateInstallations('workspace-1');
-    const specialistId = seeded.installation.recordIds['agent:targetDiagnostics'];
-    const directWorkflowId = seeded.installation.recordIds['workflow:targetDiagnostics'];
+    const specialistId = seeded.installation.recordIds['agent:kubernetesAgent'];
+    const directWorkflowId = seeded.installation.recordIds['workflow:kubernetesHealth'];
+    const virtualMachineWorkflowId = seeded.installation.recordIds['workflow:virtualMachineHealth'];
     const coordinatedWorkflowId = installationBefore.recordIds['workflow:managedResponse'];
     assert.equal(
       (await getWorkflowDefinition('workspace-1', coordinatedWorkflowId))?.executionMode,
@@ -215,6 +282,10 @@ describe('Workflow and Agent template foundations', () => {
       'deleted'
     );
     assert.equal(
+      await deleteWorkflowThroughDefinitionService('workspace-1', virtualMachineWorkflowId),
+      'deleted'
+    );
+    assert.equal(
       (await deleteAgentWithInstallationCleanup('workspace-1', specialistId)).status,
       'deleted'
     );
@@ -230,7 +301,7 @@ describe('Workflow and Agent template foundations', () => {
       installedBy: 'user-1'
     });
     const [installationReadded] = await listTemplateInstallations('workspace-1');
-    const replacementSpecialistId = installationReadded.recordIds['agent:targetDiagnostics'];
+    const replacementSpecialistId = installationReadded.recordIds['agent:kubernetesAgent'];
     assert.notEqual(replacementSpecialistId, specialistId);
     assert.notEqual(readded.workflowId, coordinatedWorkflowId);
     assert.equal(await getAgentDefinition('workspace-1', replacementSpecialistId) !== null, true);
