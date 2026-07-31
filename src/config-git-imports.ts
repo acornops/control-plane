@@ -23,6 +23,20 @@ export const DEFAULT_GIT_IMPORT_HOSTS: GitImportHost[] = [
 
 export const DEFAULT_GIT_IMPORT_HOSTS_JSON = JSON.stringify(DEFAULT_GIT_IMPORT_HOSTS);
 
+export const gitImportHostsJsonSchema = z.preprocess(
+  (value) => typeof value === 'string' && value.trim() === '' ? undefined : value,
+  z.string().default(DEFAULT_GIT_IMPORT_HOSTS_JSON).superRefine((value, ctx) => {
+    try {
+      parseGitImportHosts(value);
+    } catch (error) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: error instanceof Error ? error.message : 'Invalid Git import host configuration'
+      });
+    }
+  })
+);
+
 const gitImportHostSchema = z.object({
   provider: z.enum(['github', 'gitlab']),
   webBaseUrl: z.string().url().max(2048),

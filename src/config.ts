@@ -2,11 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { agentTransportConfigFields, validateAgentTransportConfig } from './config-agent-transport.js';
 import { agentKHelmConfigFields, parseAgentKHelmValues, validateAgentKHelmConfig } from './config-agentk-helm.js';
-import {
-  DEFAULT_GIT_IMPORT_HOSTS_JSON,
-  parseGitImportHosts,
-  type GitImportHost
-} from './config-git-imports.js';
+import { gitImportHostsJsonSchema, parseGitImportHosts } from './config-git-imports.js';
 import { configureWorkspaceRoleTemplates } from './auth/role-template-config.js';
 import { DEFAULT_LLM_PROVIDERS_JSON, llmPolicyConfigFields, validateLlmPolicyConfig } from './config-llm-policy.js';
 import { platformSettingsConfigFields, resolvePlatformSettingsRuntimeConfig } from './config-platform-settings.js';
@@ -26,19 +22,13 @@ import {
   mcpOAuthConfigIssues,
   oidcIssuerProductionIssues
 } from './config-url-policy.js';
-import {
-  parseExternalIntegrationClientDescriptors,
-  type ExternalIntegrationClientDescriptor
-} from './config-external-integrations.js';
+import { parseExternalIntegrationClientDescriptors, type ExternalIntegrationClientDescriptor } from './config-external-integrations.js';
 import { requireReadableFile, validateOptionalReadableFile } from './config-readable-file.js';
 import { parseWebhookAllowedPrivateHostsJson, webhookAllowedPrivateHostsJsonError } from './config-webhook-egress.js';
 import { finalizeOidcConfig, oidcAdmissionPolicyFromEnv, oidcHttpUrlFromEnv, oidcPrelinkedIdentitiesFromEnv, oidcScopesFromEnv, optionalOidcHttpUrlFromEnv, validateOidcAuthenticationConfig } from './config-oidc-admission.js';
-export { ADMIN_SCOPE_VALUES, parseAdminTokenDescriptors, parseWorkspacePlansConfig } from './config-admin.js';
-export type { AdminScope, AdminTokenDescriptor, WorkspacePlanDefinition } from './config-admin.js';
-export { parseExternalIntegrationClientDescriptors } from './config-external-integrations.js';
-export type { ExternalIntegrationClientDescriptor } from './config-external-integrations.js';
-export { parseGitImportHosts } from './config-git-imports.js';
-export type { GitImportHost } from './config-git-imports.js';
+export { ADMIN_SCOPE_VALUES, parseAdminTokenDescriptors, parseWorkspacePlansConfig, type AdminScope, type AdminTokenDescriptor, type WorkspacePlanDefinition } from './config-admin.js';
+export { parseExternalIntegrationClientDescriptors, type ExternalIntegrationClientDescriptor } from './config-external-integrations.js';
+export { parseGitImportHosts, type GitImportHost } from './config-git-imports.js';
 const PLACEHOLDER_VALUES = new Set([
   'change-me',
   'changeme',
@@ -168,10 +158,7 @@ const envSchema = z.object({
   TOOL_RESULT_ARTIFACT_MAX_BYTES: z.coerce.number().int().min(1024).max(2 * 1024 * 1024).default(2 * 1024 * 1024),
   SKILL_SNAPSHOT_BLOB_ORPHAN_GRACE_DAYS: z.coerce.number().int().positive().default(7),
   TARGET_METRIC_HISTORY_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
-  GIT_IMPORT_HOSTS_JSON: z.preprocess(
-    emptyStringToUndefined,
-    z.string().default(DEFAULT_GIT_IMPORT_HOSTS_JSON)
-  ),
+  GIT_IMPORT_HOSTS_JSON: gitImportHostsJsonSchema,
   WORKSPACE_AUDIT_LOGGING_MODE: workspaceAuditLoggingModeFromEnv,
   WORKSPACE_AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
   ...platformSettingsConfigFields,
@@ -339,15 +326,6 @@ const envSchema = z.object({
     parseWorkspacePlansConfig(value.WORKSPACE_PLANS_CONFIG_JSON);
   } catch (err) {
     addConfigIssue(ctx, 'WORKSPACE_PLANS_CONFIG_JSON', err instanceof Error ? err.message : 'Invalid workspace plan configuration');
-  }
-  try {
-    parseGitImportHosts(value.GIT_IMPORT_HOSTS_JSON);
-  } catch (err) {
-    addConfigIssue(
-      ctx,
-      'GIT_IMPORT_HOSTS_JSON',
-      err instanceof Error ? err.message : 'Invalid Git import host configuration'
-    );
   }
   if (value.INTERNAL_TRANSPORT_TLS_ENABLED) {
     requireReadableFile(ctx, 'INTERNAL_TRANSPORT_TLS_CERT_FILE', value.INTERNAL_TRANSPORT_TLS_CERT_FILE);
@@ -541,7 +519,7 @@ const envSchema = z.object({
   ADMIN_TOKEN_DESCRIPTORS: parseAdminTokenDescriptors(value.CONTROL_PLANE_ADMIN_TOKENS_JSON, value.NODE_ENV),
   EXTERNAL_INTEGRATION_CLIENTS: parseExternalIntegrationClientDescriptors(value.EXTERNAL_INTEGRATION_CLIENTS_JSON, value.NODE_ENV),
   WORKSPACE_PLANS: parseWorkspacePlansConfig(value.WORKSPACE_PLANS_CONFIG_JSON),
-  GIT_IMPORT_HOSTS: parseGitImportHosts(value.GIT_IMPORT_HOSTS_JSON) as GitImportHost[],
+  GIT_IMPORT_HOSTS: parseGitImportHosts(value.GIT_IMPORT_HOSTS_JSON),
   ...resolvePlatformSettingsRuntimeConfig(
     value.PLATFORM_SETTINGS_POLICY_JSON,
     value.PASSWORD_SIGNUP_ENABLED,
