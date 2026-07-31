@@ -248,69 +248,6 @@ describe('workflow schedule MCP readiness', () => {
     assert.equal(audit?.metadata?.reason, 'workflow_definition_invalid');
   });
 
-  it('auto-pauses when a stored resource is no longer authorized', async () => {
-    installWorkspace('admin');
-    mock.method(globalThis, 'fetch', async () => createReadyMcpReadinessResponse());
-    const created = await callController(
-      createWorkflowScheduleForWorkspace,
-      createRequest({ workspaceId: 'workspace-1' }, scheduleInput())
-    );
-    assert.equal(created.statusCode, 201);
-    const schedule = (created.body as { schedule: { id: string; nextRunAt: string } }).schedule;
-    await db.query(
-      `UPDATE workflow_definitions
-       SET resource_requirements=$3::jsonb
-       WHERE workspace_id=$1 AND id=$2`,
-      [
-        'workspace-1',
-        'cluster-triage',
-        JSON.stringify([{
-          type: 'target',
-          minimum: 1,
-          maximum: 1,
-          requiredOperations: ['read'],
-          constraints: { targetIds: ['different-target'] }
-        }])
-      ]
-    );
-
-    const result = await runWorkflowScheduleTick({ now: new Date(schedule.nextRunAt) });
-
-    assert.equal(result.autoPaused, 1);
-    const listed = await callController(
-      listWorkspaceWorkflowSchedules,
-      createRequest({ workspaceId: 'workspace-1' })
-    );
-    const paused = (listed.body as { items: Array<{ id: string; status: string; lastError?: string }> }).items
-      .find((item) => item.id === schedule.id);
-    assert.equal(paused?.status, 'paused');
-    assert.match(paused?.lastError || '', /outside this Workflow resource policy/);
-  });
-
-  it('auto-pauses when a stored resource no longer exists', async () => {
-    installWorkspace('admin');
-    mock.method(globalThis, 'fetch', async () => createReadyMcpReadinessResponse());
-    const created = await callController(
-      createWorkflowScheduleForWorkspace,
-      createRequest({ workspaceId: 'workspace-1' }, scheduleInput())
-    );
-    assert.equal(created.statusCode, 201);
-    const schedule = (created.body as { schedule: { id: string; nextRunAt: string } }).schedule;
-    await db.query("DELETE FROM targets WHERE workspace_id='workspace-1' AND id='cluster-1'");
-
-    const result = await runWorkflowScheduleTick({ now: new Date(schedule.nextRunAt) });
-
-    assert.equal(result.autoPaused, 1);
-    const listed = await callController(
-      listWorkspaceWorkflowSchedules,
-      createRequest({ workspaceId: 'workspace-1' })
-    );
-    const paused = (listed.body as { items: Array<{ id: string; status: string; lastError?: string }> }).items
-      .find((item) => item.id === schedule.id);
-    assert.equal(paused?.status, 'paused');
-    assert.match(paused?.lastError || '', /does not exist in this workspace/);
-  });
-
   it('immediately pauses enabled schedules when an Agent changes to individual MCP credentials', async () => {
     installWorkspace('admin');
     mock.method(globalThis, 'fetch', async () => createReadyMcpReadinessResponse());

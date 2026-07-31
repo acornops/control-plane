@@ -33,8 +33,8 @@ export async function createDelegatedWorkflowRun(params: {
   compiledAccessScope: CompiledWorkflowAccessScope;
   toolCallId: string;
   capabilityId: string;
-  targetId: string;
-  targetType: string;
+  targetId?: string;
+  targetType?: string;
   taskPrompt: string;
   required: boolean;
   maxConcurrentChildren: number;
@@ -110,7 +110,7 @@ export async function createDelegatedWorkflowRun(params: {
         params.compiledAccessScope, params.parent.llmProvider || null, params.parent.llmModel || null,
         params.parent.llmReasoningSummaryMode || null, params.parent.llmReasoningEffort || null,
         params.parent.id, params.toolCallId, params.capabilityId, params.required,
-        params.specialist.id, params.specialist.version, snapshot, params.targetId, params.targetType,
+        params.specialist.id, params.specialist.version, snapshot, params.targetId || null, params.targetType || null,
         idempotencyKey, params.taskPrompt, digestPrompt(params.taskPrompt), params.parent.bindingDigest,
         JSON.stringify(params.parent.resourceBindings), params.parent.resolvedAt
       ]

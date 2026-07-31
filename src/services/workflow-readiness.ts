@@ -182,7 +182,7 @@ export async function getWorkflowCapabilityReadinessReport(
   target?: TargetSummary,
   context: { actorUserId?: string; principal?: RunPrincipalRef } = {}
 ): Promise<McpReadinessReport> {
-  const exactToolRefs = [...(scope.mcpTools || []), ...(scope.targetToolRefs || [])]
+  const exactToolRefs = [...(scope.mcpTools || [])]
     .filter((ref, index, refs) => refs.findIndex((candidate) => (
       candidate.serverId === ref.serverId && candidate.toolName === ref.toolName
     )) === index);

@@ -90,15 +90,15 @@ export async function installAutomationTemplateFixtures(
       await client.query(
          `INSERT INTO workflow_definitions (
            workspace_id,id,version,template_id,name,description,status,tags,required_permissions,created_by,
-           readiness_status,readiness_reasons,origin,prompt,agent_ids,resource_requirements,capability_policy
+           readiness_status,readiness_reasons,origin,prompt,agent_ids,capability_policy
          ) VALUES
          ($1,'cluster-triage',3,'acornops-starter','Target diagnostics','Inspect one explicitly selected target.','active','["target"]','["read_workspace_data"]','user-1',
           'ready','[]','{"type":"template","templateId":"acornops-starter","templateVersion":1}',
-          'Inspect the selected target and summarize findings.','["agent-cluster-triage"]','[{"type":"target","minimum":1,"maximum":1,"requiredOperations":["read"],"constraints":{"targetTypes":["kubernetes","virtual_machine"],"targetIds":[]}}]',
+          'Inspect the target named in the request and summarize findings.','["agent-cluster-triage"]',
           '{"mode":"read_only","restrictionMode":"restrict","semanticCapabilityIds":["target.diagnostics.read"],"contextGrants":["workspace_metadata","target_inventory"],"maxRuntimeSeconds":900,"retentionDays":90,"approvalRequirements":[]}'),
          ($1,'incident-report-pdf',3,'acornops-starter','Incident report','Generate a report from selected chats.','active','["incident"]',
           '["read_workspace_data"]','user-1','ready','[]','{"type":"template","templateId":"acornops-starter","templateVersion":1}',
-          'Generate an incident report from the selected incident context with provenance.','["agent-incident-reporter"]','[{"type":"chat","minimum":1,"maximum":20,"requiredOperations":["read"]}]',
+          'Generate an incident report from the incident context named in the request with provenance.','["agent-incident-reporter"]',
           '{"mode":"read_only","restrictionMode":"inherit","semanticCapabilityIds":[],"contextGrants":[],"maxRuntimeSeconds":900,"retentionDays":90,"approvalRequirements":["Before generating the report"]}')`,
         [workspaceId]
       );

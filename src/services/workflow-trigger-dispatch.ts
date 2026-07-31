@@ -1,10 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
-import { isTargetType, type TargetSummary } from '../types/domain.js';
 import type { WorkflowSchedulePrincipal } from '../types/workflows.js';
 import { getAgentDefinition } from '../store/repository-agents.js';
 import { listCapabilityRoutingMappings } from '../store/repository-capability-routing.js';
-import { repo } from '../store/repository.js';
 import {
   createWorkflowExecution,
   createWorkflowSession,
@@ -19,7 +17,7 @@ import {
 } from './workflow-access.js';
 import { emitWorkflowExecutionEvents } from './workflow-execution-events.js';
 import { isModelAllowedForProvider } from './llm-policy.js';
-import { promptResourceRegistry, PromptResourceProviderError } from './prompt-resources/index.js';
+import { PromptResourceProviderError } from './prompt-resources/index.js';
 import { resolveRunPrincipal } from './run-principal.js';
 import { resolveEffectiveWorkflowCapabilityIds } from './workflow-capability-policy.js';
 import { getWorkflowCapabilityReadinessErrors } from './workflow-readiness.js';
@@ -107,7 +105,6 @@ export async function dispatchWorkflowTrigger(
   const sessionId = randomUUID();
   let compiledAccessScope;
   let sessionAccessScope;
-  let target: TargetSummary | undefined;
   let specialistAgent: NonNullable<Awaited<ReturnType<typeof getAgentDefinition>>> | undefined;
   let resolution;
 
@@ -118,20 +115,6 @@ export async function dispatchWorkflowTrigger(
       initiatingMessageId: messageId,
       source: 'trigger'
     });
-    const runtimeProjection = promptResourceRegistry.projectRuntime(resolution.bindings, messageId);
-    const projectedTarget = runtimeProjection.targetRoute && typeof runtimeProjection.targetRoute === 'object'
-      ? runtimeProjection.targetRoute as Record<string, unknown>
-      : undefined;
-    let targetRoute: { id: string; targetType: 'kubernetes' | 'virtual_machine' } | undefined;
-    if (
-      projectedTarget
-      && typeof projectedTarget.id === 'string'
-      && typeof projectedTarget.targetType === 'string'
-      && isTargetType(projectedTarget.targetType)
-    ) {
-      targetRoute = { id: projectedTarget.id, targetType: projectedTarget.targetType };
-      target = await repo.getTarget(trigger.workspaceId, targetRoute.id) || undefined;
-    }
     const readiness = await computeWorkflowReadiness(workflow);
     if (readiness.status !== 'ready') {
       throw new WorkflowAccessDeniedError(
@@ -164,7 +147,6 @@ export async function dispatchWorkflowTrigger(
       actor: runtimeSubject,
       principal: trigger.principal,
       approvedContextGrants: trigger.approvedContextGrants,
-      targetRoute,
       resourceBindings: resolution.bindings,
       promptDigest: resolution.promptDigest,
       bindingDigest: resolution.bindingDigest
@@ -189,7 +171,7 @@ export async function dispatchWorkflowTrigger(
   const mcpReadinessErrors = await getWorkflowCapabilityReadinessErrors(
     trigger.workspaceId,
     compiledAccessScope,
-    target,
+    undefined,
     { principal: trigger.principal }
   );
   if (mcpReadinessErrors.length > 0) {
@@ -237,8 +219,6 @@ export async function dispatchWorkflowTrigger(
           label: trigger.name,
           webhookId: trigger.id
         },
-    targetId: target?.id,
-    targetType: target?.targetType,
     promptDigest: resolution.promptDigest,
     bindingDigest: resolution.bindingDigest,
     resourceBindings: resolution.bindings,

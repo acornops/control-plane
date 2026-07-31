@@ -24,14 +24,9 @@ import type {
   WorkflowCapabilityPolicy,
   WorkflowDefinitionForAccess
 } from '../types/workflows.js';
-import type { PromptResourceRequirement } from '../types/prompt-resources.js';
-import { promptResourceRegistry } from '../services/prompt-resources/index.js';
 import { toSingleParam } from '../utils/params.js';
 import { publicWorkflowDefinition } from './workflow-public.js';
-import {
-  parseWorkflowTemplate,
-  workflowTemplateResourceCardinalityBlockers
-} from '../services/workflow-template.js';
+import { parseWorkflowTemplate } from '../services/workflow-template.js';
 
 function bodyRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -60,14 +55,6 @@ const workflowCapabilityPolicyBodySchema = z.object({
   approvalRequirements: stringListSchema.optional()
 }).strict();
 
-const resourceRequirementBodySchema = z.object({
-  type: nonEmptyStringSchema,
-  minimum: z.number().int().nonnegative(),
-  maximum: z.number().int().nonnegative(),
-  requiredOperations: stringListSchema,
-  constraints: z.record(z.unknown()).optional()
-}).strict();
-
 function capabilityPolicy(value: unknown, fallback?: WorkflowCapabilityPolicy): WorkflowCapabilityPolicy {
   const parsed = workflowCapabilityPolicyBodySchema.safeParse(value ?? {});
   if (!parsed.success) {
@@ -92,47 +79,11 @@ function capabilityPolicy(value: unknown, fallback?: WorkflowCapabilityPolicy): 
   };
 }
 
-function resourceRequirements(value: unknown): PromptResourceRequirement[] {
-  if (value === undefined || value === null) return [];
-  if (!Array.isArray(value)) {
-    throw new DefinitionValidationError('WORKFLOW_RESOURCE_REQUIREMENTS_INVALID', 'resourceRequirements must be an array.');
-  }
-  const registered = new Map(promptResourceRegistry.descriptors().map((descriptor) => [descriptor.type, descriptor]));
-  return value.map((item, index) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      throw new DefinitionValidationError('WORKFLOW_RESOURCE_REQUIREMENTS_INVALID', `Resource requirement ${index + 1} must be an object.`);
-    }
-    const parsed = resourceRequirementBodySchema.safeParse(item);
-    if (!parsed.success) {
-      throw new DefinitionValidationError(
-        'WORKFLOW_RESOURCE_REQUIREMENTS_INVALID',
-        parsed.error.issues[0]?.message || `Resource requirement ${index + 1} is invalid.`
-      );
-    }
-    const body = parsed.data;
-    const type = body.type;
-    const descriptor = registered.get(type);
-    const minimum = body.minimum;
-    const maximum = body.maximum;
-    if (!descriptor || minimum < 0 || maximum < minimum || maximum > descriptor.maximum) {
-      throw new DefinitionValidationError('WORKFLOW_RESOURCE_REQUIREMENTS_INVALID', `Resource requirement ${index + 1} has an unknown type or invalid cardinality.`);
-    }
-    return {
-      type,
-      minimum,
-      maximum,
-      requiredOperations: body.requiredOperations,
-      constraints: body.constraints
-    };
-  });
-}
-
 const workflowAuthoringBodySchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
   prompt: z.string().optional(),
   agentIds: z.array(nonEmptyStringSchema).min(1).optional(),
-  resourceRequirements: z.array(resourceRequirementBodySchema).optional(),
   capabilityPolicy: workflowCapabilityPolicyBodySchema.optional(),
   tags: stringListSchema.optional(),
   requiredPermissions: stringListSchema.optional(),
@@ -173,10 +124,7 @@ function validationError(res: Response, error: DefinitionValidationError): void 
 }
 
 async function validateAuthoringPrompt(
-  workspaceId: string,
-  actorUserId: string,
-  prompt: string,
-  requirements: PromptResourceRequirement[]
+  prompt: string
 ): Promise<void> {
   const template = parseWorkflowTemplate(prompt);
   if (template.errors.length > 0) {
@@ -184,33 +132,6 @@ async function validateAuthoringPrompt(
       'WORKFLOW_PROMPT_TEMPLATE_INVALID',
       template.errors.map((error) => error.message).slice(0, 3).join(' '),
       template.errors.map((error) => error.code)
-    );
-  }
-  const resolution = await promptResourceRegistry.resolve(prompt, {
-    workspaceId,
-    actorUserId,
-    mode: 'authoring',
-    requirements
-  }, {
-    enforceCardinality: false,
-    includeImplicit: false
-  });
-  if (resolution.blockers.length > 0) {
-    throw new DefinitionValidationError(
-      'WORKFLOW_PROMPT_REFERENCES_INVALID',
-      resolution.blockers.map((blocker) => blocker.message).slice(0, 3).join(' '),
-      resolution.blockers.map((blocker) => blocker.code)
-    );
-  }
-  const cardinalityBlockers = workflowTemplateResourceCardinalityBlockers({
-    concreteBindings: resolution.bindings,
-    requirements
-  });
-  if (cardinalityBlockers.length > 0) {
-    throw new DefinitionValidationError(
-      'WORKFLOW_PROMPT_RESOURCE_CARDINALITY_INVALID',
-      cardinalityBlockers.map((blocker) => blocker.message).slice(0, 3).join(' '),
-      cardinalityBlockers.map((blocker) => blocker.code)
     );
   }
 }
@@ -254,15 +175,13 @@ export async function createWorkflow(req: AuthenticatedRequest, res: Response, n
       res.status(400).json({ error: { code: 'WORKFLOW_FIELDS_REQUIRED', message: 'name, prompt, and at least one agentId are required.', retryable: false } });
       return;
     }
-    const parsedRequirements = resourceRequirements(body.resourceRequirements);
-    await validateAuthoringPrompt(workspaceId, req.auth.userId, prompt, parsedRequirements);
+    await validateAuthoringPrompt(prompt);
     const workflow = await createWorkflowThroughDefinitionService({
       workspaceId,
       name,
       description: typeof body.description === 'string' ? body.description : undefined,
       prompt,
       agentIds,
-      resourceRequirements: parsedRequirements,
       capabilityPolicy: capabilityPolicy(body.capabilityPolicy),
       tags: strings(body.tags),
       requiredPermissions: (body.requiredPermissions === undefined
@@ -294,7 +213,6 @@ export async function duplicateWorkflow(req: AuthenticatedRequest, res: Response
       description: source.description,
       prompt: source.prompt,
       agentIds: source.agentIds,
-      resourceRequirements: source.resourceRequirements,
       capabilityPolicy: withEffectiveWorkflowRuntimePolicy(source.capabilityPolicy),
       tags: source.tags,
       requiredPermissions: source.requiredPermissions,
@@ -327,17 +245,13 @@ export async function updateWorkflow(req: AuthenticatedRequest, res: Response, n
       return;
     }
     const nextPrompt = typeof body.prompt === 'string' ? body.prompt : current.prompt;
-    const nextRequirements = body.resourceRequirements === undefined
-      ? current.resourceRequirements
-      : resourceRequirements(body.resourceRequirements);
-    await validateAuthoringPrompt(workspaceId, req.auth.userId, nextPrompt, nextRequirements);
+    await validateAuthoringPrompt(nextPrompt);
     const updated = await updateWorkflowThroughDefinitionService(workspaceId, workflowId, {
       name: typeof body.name === 'string' ? body.name : undefined,
       description: typeof body.description === 'string' ? body.description : undefined,
       status: body.status === 'active' || body.status === 'paused' || body.status === 'draft' ? body.status : undefined,
       prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
       agentIds,
-      resourceRequirements: body.resourceRequirements === undefined ? undefined : nextRequirements,
       capabilityPolicy: body.capabilityPolicy === undefined ? undefined : capabilityPolicy(body.capabilityPolicy, current.capabilityPolicy),
       tags: body.tags === undefined ? undefined : strings(body.tags),
       requiredPermissions: body.requiredPermissions === undefined ? undefined : strings(body.requiredPermissions) as WorkflowDefinitionForAccess['requiredPermissions']

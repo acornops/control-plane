@@ -66,7 +66,7 @@ export async function suggestPromptReferences(req: AuthenticatedRequest, res: Re
       workspaceId,
       actorUserId: req.auth.userId,
       workflowId,
-      requirements: workflow?.resourceRequirements || [],
+      requirements: [],
       query: stringValue(req.query.q) || '',
       limit: offset + limit + 1
     });
@@ -110,7 +110,7 @@ export async function resolvePromptReferences(req: AuthenticatedRequest, res: Re
     const workflowId = body.workflowId;
     const workflow = workflowId ? await getWorkflowDefinition(workspaceId, workflowId) : null;
     if (workflowId && !workflow) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found.', retryable: false } });
-    const requirements = workflow?.resourceRequirements || body.requirements || [];
+    const requirements = body.requirements || [];
     const result = await promptResourceRegistry.resolve(prompt, {
       workspaceId,
       actorUserId: req.auth.userId,

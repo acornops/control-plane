@@ -67,7 +67,6 @@ const workflowAuthoringProperties = {
   status: { type: 'string', enum: ['active', 'draft', 'paused'] },
   prompt: { type: 'string' },
   agentIds: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', minLength: 1 } },
-  resourceRequirements: { type: 'array', items: { $ref: '#/components/schemas/PromptResourceRequirement' } },
   capabilityPolicy: { type: 'object', properties: {
     mode: { type: 'string', enum: ['read_only', 'read_write'] },
     restrictionMode: { type: 'string', enum: ['inherit', 'restrict'] },

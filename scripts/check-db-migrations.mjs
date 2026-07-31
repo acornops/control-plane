@@ -170,7 +170,6 @@ const expectedColumns = [
   ['target_auto_triage_jobs', 'lease_expires_at'],
   ['workflow_executions', 'resource_bindings'],
   ['workflow_runs', 'resource_bindings'],
-  ['workflow_definitions', 'resource_requirements'],
   ['agent_definitions', 'mcp_installations'],
   ['agent_definitions', 'semantic_capability_ids'],
   ['agent_definitions', 'avatar_emoji'],

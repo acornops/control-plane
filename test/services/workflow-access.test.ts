@@ -55,7 +55,6 @@ function workflow(agents: AgentDefinition[]): WorkflowDefinitionForAccess {
     prompt: 'Audit the workspace.',
     agentIds: agents.map((value) => value.id),
     executionMode: agents.length > 1 ? 'coordinated' : 'direct',
-    resourceRequirements: [],
     capabilityPolicy: {
       mode: 'read_only',
       restrictionMode: 'restrict',
@@ -122,6 +121,58 @@ describe('Workflow executor scope compiler', () => {
     assert.equal(compiled.jwtClaims.agent_id, 'agent-a');
     assert.deepEqual(compiled.tools, ['events.search', 'workspace.metadata.read']);
     assert.deepEqual(compiled.coordinationFunctions, []);
+  });
+
+  it('grants target tools as invocation-time routes without binding the Workflow run', () => {
+    const specialist = {
+      ...agent('agent-vm'),
+      semanticCapabilityIds: ['target.diagnostics.read'],
+      targetScope: { type: 'selected_target' as const, targetTypes: ['virtual_machine' as const] }
+    };
+    const definition = {
+      ...workflow([specialist]),
+      capabilityPolicy: {
+        ...workflow([specialist]).capabilityPolicy,
+        semanticCapabilityIds: ['target.diagnostics.read']
+      }
+    };
+    const routeMapping: CapabilityRoutingMapping = {
+      ...mapping(specialist),
+      capabilityId: 'target.diagnostics.read',
+      targetTypes: ['virtual_machine'],
+      targetIds: ['vm-1'],
+      mcpTools: [],
+      targetToolRefs: [{
+        serverId: 'targets', toolName: 'host_summary', alias: 'host_summary', operation: 'read'
+      }],
+      nativeToolIds: []
+    };
+    const compiled = compileWorkflowAccessScope({
+      workflow: definition,
+      selectedAgents: [specialist],
+      specialistAgent: specialist,
+      mappings: [routeMapping],
+      actor,
+      approvedContextGrants: ['workspace_metadata']
+    });
+
+    assert.equal(compiled.resourceBindings.length, 0);
+    assert.deepEqual(compiled.targetToolRoutes, [{
+      alias: 'host_summary',
+      serverId: 'targets',
+      toolName: 'host_summary',
+      operation: 'read',
+      targetId: 'vm-1',
+      targetType: 'virtual_machine'
+    }]);
+    assert.deepEqual(compiled.jwtClaims.permissions.allowed_target_tool_routes, [{
+      alias: 'host_summary',
+      server_id: 'targets',
+      tool_name: 'host_summary',
+      operation: 'read',
+      target_id: 'vm-1',
+      target_type: 'virtual_machine'
+    }]);
   });
 
   it('snapshots Fetch configuration into the direct run scope', () => {
@@ -259,5 +310,17 @@ describe('Workflow executor scope compiler', () => {
 
     assert.equal(candidate?.agent.id, 'agent-a');
     assert.equal(candidate?.mapping.priority, 5);
+
+    const targetlessCandidate = selectDelegationCandidate({
+      workflow: definition,
+      capabilityId: 'workspace.audit.read',
+      agents,
+      mappings: [
+        mapping(agents[0], 5),
+        mapping(agents[1], 5),
+        { ...mapping(agents[2], 1), status: 'disabled' }
+      ]
+    });
+    assert.equal(targetlessCandidate?.agent.id, 'agent-a');
   });
 });

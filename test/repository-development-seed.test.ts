@@ -87,11 +87,11 @@ describe('development target seed', () => {
           const row = {
             workspace_id: values[0], id: values[1], version: 1, origin: values[2], name: values[3],
             description: values[4], status: values[5], prompt: values[6],
-            agent_ids: JSON.parse(String(values[7])), resource_requirements: JSON.parse(String(values[8])),
-            capability_policy: values[9], tags: JSON.parse(String(values[10])),
-            required_permissions: JSON.parse(String(values[11])),
-            created_by: values[12], readiness_status: values[13],
-            readiness_reasons: JSON.parse(String(values[14])),
+            agent_ids: JSON.parse(String(values[7])),
+            capability_policy: values[8], tags: JSON.parse(String(values[9])),
+            required_permissions: JSON.parse(String(values[10])),
+            created_by: values[11], readiness_status: values[12],
+            readiness_reasons: JSON.parse(String(values[13])),
             created_at: new Date(), updated_at: new Date()
           };
           workflowRows.set(String(values[1]), row);
@@ -160,13 +160,10 @@ describe('development target seed', () => {
       [1, 1]
     );
     const kubernetesWorkflow = [...workflowRows.values()].find((row) => row.name === 'Kubernetes health check');
-    assert.equal(
-      kubernetesWorkflow?.prompt,
-      "Assess the selected Kubernetes target's current health without making changes. Inspect workload readiness and availability, pod restarts, warning events, resource pressure, and relevant recent logs. Cite the exact evidence for each finding, distinguish observations from inferences, call out unavailable evidence, and finish with prioritized safe next actions."
-    );
+    assert.match(String(kubernetesWorkflow?.prompt), /available Kubernetes targets.*target tools/);
     assert.equal(
       kubernetesWorkflow?.description,
-      'Inspect one Kubernetes target for workload failures, warning events, resource pressure, and relevant logs.'
+      'Inspect available Kubernetes targets for workload failures, warning events, resource pressure, and relevant logs.'
     );
     const virtualMachineWorkflow = [...workflowRows.values()].find((row) => row.name === 'Virtual machine health check');
     assert.match(String(virtualMachineWorkflow?.prompt), /filesystem pressure.*degraded systemd services/);

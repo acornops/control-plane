@@ -180,8 +180,9 @@ Rootness is topology (`parent_run_id IS NULL`), not an executor role. Only a
 root may finalize the execution and append the final assistant message.
 Coordinator runs receive only internal delegate and await functions. Child
 specialist scopes are compiled as least-privilege intersections of the pinned
-Workflow authorization envelope, the selected Agent snapshot, one semantic
-capability, and one exact target binding.
+Workflow authorization envelope, the selected Agent snapshot, and one semantic
+capability. Target-aware tools remain independently constrained by signed,
+per-target routes selected at tool invocation time.
 
 Root retries create a new root attempt and child graph. Approval continuation
 resumes the same run. Cancellation traverses every nonterminal run in the

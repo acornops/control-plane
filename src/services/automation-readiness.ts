@@ -8,10 +8,8 @@ import { repo } from '../store/repository.js';
 import {
   capabilityRequiresExactTarget,
   targetAllowedByAgentScope,
-  targetAllowedByMapping,
-  targetAllowedByWorkflowConstraints
+  targetAllowedByMapping
 } from './target-scope-authorization.js';
-import { workflowTargetPolicy } from './prompt-resources/providers/target-provider.js';
 
 function unique(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
@@ -109,7 +107,6 @@ export async function computeWorkflowReadiness(workflow: WorkflowDefinitionForAc
     activeReviewedOnly: true,
     capabilityIds: requested
   });
-  const targetConstraints = workflowTargetPolicy(workflow);
   const eligibleMappings = mappings.filter((mapping) => {
     const agent = selectedById.get(mapping.agentId);
     return Boolean(agent && mapping.agentVersion === agent.version);
@@ -122,36 +119,18 @@ export async function computeWorkflowReadiness(workflow: WorkflowDefinitionForAc
       continue;
     }
     let covered = true;
-    for (const targetId of targetConstraints?.targetIds || []) {
-      const target = await repo.getTarget(workflow.workspaceId, targetId);
-      if (!target || !targetAllowedByWorkflowConstraints(targetConstraints, target)
-        || !capabilityMappings.some((mapping) => {
-          const agent = selectedById.get(mapping.agentId);
-          return Boolean(agent && targetAllowedByAgentScope(agent.targetScope, target) && targetAllowedByMapping(mapping, target));
-        })) {
-        covered = false;
-        break;
-      }
-    }
-    if (covered && capabilityRequiresExactTarget(capabilityId) && !(targetConstraints?.targetIds.length)) {
+    if (capabilityRequiresExactTarget(capabilityId)) {
       covered = false;
       for (const mapping of capabilityMappings) {
         const agent = selectedById.get(mapping.agentId);
         if (!agent || (!mapping.targetToolRefs.length && !mapping.nativeToolIds.length)) continue;
         if (!mapping.targetIds.length) {
-          const constrainedTypes = targetConstraints?.targetTypes || [];
-          if (constrainedTypes.every((targetType) => (
-            (!mapping.targetTypes.length || mapping.targetTypes.includes(targetType))
-            && (!agent.targetScope.targetTypes?.length || agent.targetScope.targetTypes.includes(targetType))
-          ))) {
-            covered = true;
-            break;
-          }
+          covered = true;
+          break;
         }
         for (const targetId of mapping.targetIds) {
           const target = await repo.getTarget(workflow.workspaceId, targetId);
           if (target
-            && targetAllowedByWorkflowConstraints(targetConstraints, target)
             && targetAllowedByAgentScope(agent.targetScope, target)
             && targetAllowedByMapping(mapping, target)) {
             covered = true;
@@ -160,10 +139,6 @@ export async function computeWorkflowReadiness(workflow: WorkflowDefinitionForAc
         }
         if (covered) break;
       }
-    } else if (covered) {
-      covered = (targetConstraints?.targetTypes || []).every((targetType) => capabilityMappings.some((mapping) => (
-        !mapping.targetTypes.length || mapping.targetTypes.includes(targetType)
-      )));
     }
     if (!covered) unmapped.push(capabilityId);
   }

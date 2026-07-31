@@ -37,7 +37,8 @@ async function resolveAutomationRun(runId: string) {
       allowedToolRefs: [
         ...(workflowRun.compiledAccessScope.mcpTools || []),
         ...(workflowRun.compiledAccessScope.targetToolRefs || [])
-      ]
+      ],
+      targetToolRoutes: workflowRun.compiledAccessScope.targetToolRoutes || []
     };
   }
   return null;
@@ -62,6 +63,18 @@ export async function createToolApproval(req: Request, res: Response, next: Next
         res.status(400).json({ error: { code: 'MCP_TOOL_REF_NOT_GRANTED', message: 'Run is not granted this exact MCP tool', retryable: false } });
         return;
       }
+      const routesForAlias = automationRun.targetToolRoutes.filter((route) => route.alias === req.body.toolName);
+      const selectedTargetId = req.body.arguments?.target_id;
+      const selectedTargetRoute = routesForAlias.find((route) => (
+        route.targetId === selectedTargetId
+        && route.serverId === req.body.toolRef.serverId
+        && route.toolName === req.body.toolRef.toolName
+        && route.operation === 'write'
+      ));
+      if (routesForAlias.length > 0 && !selectedTargetRoute) {
+        res.status(400).json({ error: { code: 'MCP_TARGET_ROUTE_NOT_GRANTED', message: 'Run is not granted this target route', retryable: false } });
+        return;
+      }
       if (!req.body.continuation) {
         res.status(400).json({ error: { code: 'CONTINUATION_REQUIRED', message: 'A durable continuation is required before requesting approval', retryable: false } });
         return;
@@ -69,8 +82,8 @@ export async function createToolApproval(req: Request, res: Response, next: Next
       const approval = await createAutomationRunApproval({
         workspaceId: automationRun.workspaceId,
         runId,
-        targetId: automationRun.targetId,
-        targetType: automationRun.targetType,
+        targetId: automationRun.targetId || selectedTargetRoute?.targetId,
+        targetType: automationRun.targetType || selectedTargetRoute?.targetType,
         approvalKind: 'tool_write',
         toolCallId: req.body.toolCallId,
         toolName: req.body.toolName,

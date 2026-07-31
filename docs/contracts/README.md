@@ -113,6 +113,13 @@ The control plane owns the platform API boundary. Keep this README as a short in
   AcornOps-coordinated root with delegated specialist children. Responses derive
   `executionMode`; the strict request schema rejects all unknown fields with the
   standard invalid-request response.
+- Workflows do not select, bind, or persist targets. They inherit the assigned
+  Agents' reviewed tool ceiling. Target MCP tools expose an eligible `target_id`
+  argument to the model; execution removes it from MCP arguments and the gateway
+  authorizes the exact Agent, alias, server/tool, and target route signed into the
+  run token. A prompt may name a target, but target interpretation is deliberately
+  model-driven and an unavailable or ambiguous target fails only if the model
+  attempts the corresponding tool call.
 - Manual workflow policy defaults are server-owned. The console may send the
   selected `restrictionMode` and semantic subset, while omitted mode, context,
   permissions, and approvals default to read-only workspace metadata access.
@@ -134,9 +141,8 @@ The control plane owns the platform API boundary. Keep this README as a short in
   pinned runs.
 - Workflow capability preview uses the same workspace-data and run-creation
   authorization as launch. It reports semantic capabilities separately from
-  direct attachments, evaluates eligible target candidates from one snapshot,
-  and resolves an exact selected target through the same target-tool grant
-  intersection used by execution bootstrap. Preview is read-only and bounded:
+  direct attachments and reports target MCP tools inherited from the assigned
+  Agents without exposing target candidates or a selected target. Preview is read-only and bounded:
   it creates no session, execution, run, approval, or audit record and exposes
   no credentials, URLs, headers, schemas, arguments, private connection state,
   or internal coordinator identity. Dispatch always recompiles its authoritative

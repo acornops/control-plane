@@ -78,6 +78,7 @@ describe('gateway token service', () => {
       allowed_providers: ['anthropic', 'gemini'],
       allowed_tools: ['get_resource', 'get_resource_logs'],
       allowed_tool_refs: [],
+      allowed_target_tool_routes: [],
       allowed_native_tools: [],
       allowed_tool_operations: {
         get_resource: 'read',
@@ -156,7 +157,12 @@ describe('gateway token service', () => {
       sessionId: 'workflow-session-1',
       principal: { type: 'service_identity', id: 'service-workflow-1' },
       allowedProviders: ['openai'],
-      allowedTools: ['mcp.tools.list', 'audit.events.search'],
+      allowedTools: ['mcp.tools.list', 'audit.events.search', 'inspect_target'],
+      allowedToolRefs: [{ serverId: 'target-tools', toolName: 'inspect' }],
+      allowedTargetToolRoutes: [{
+        alias: 'inspect_target', serverId: 'target-tools', toolName: 'inspect', operation: 'read',
+        targetId: 'vm-1', targetType: 'virtual_machine'
+      }],
       allowedToolOperations: {
         'mcp.tools.list': 'read',
         'audit.events.search': 'read'
@@ -191,8 +197,12 @@ describe('gateway token service', () => {
     assert.equal(verification.payload.trigger_id, 'trigger-manual-1');
     assert.deepEqual(verification.payload.permissions, {
       allowed_providers: ['openai'],
-      allowed_tools: ['mcp.tools.list', 'audit.events.search'],
-      allowed_tool_refs: [],
+      allowed_tools: ['mcp.tools.list', 'audit.events.search', 'inspect_target'],
+      allowed_tool_refs: [{ server_id: 'target-tools', tool_name: 'inspect' }],
+      allowed_target_tool_routes: [{
+        alias: 'inspect_target', server_id: 'target-tools', tool_name: 'inspect', operation: 'read',
+        target_id: 'vm-1', target_type: 'virtual_machine'
+      }],
       allowed_native_tools: [],
       allowed_tool_operations: {
         'mcp.tools.list': 'read',
@@ -217,6 +227,10 @@ describe('gateway token service', () => {
     assert.equal(claims.targetId, undefined);
     assert.equal(claims.targetType, undefined);
     assert.deepEqual(claims.contextGrants, ['audit_events', 'workspace_metadata']);
+    assert.deepEqual(claims.allowedTargetToolRoutes, [{
+      alias: 'inspect_target', serverId: 'target-tools', toolName: 'inspect', operation: 'read',
+      targetId: 'vm-1', targetType: 'virtual_machine'
+    }]);
   });
 
   it('signs and verifies complete generic resource bindings against the canonical digest', async () => {
@@ -354,6 +368,7 @@ describe('gateway token service', () => {
       allowed_providers: ['openai'],
       allowed_tools: ['list_resources'],
       allowed_tool_refs: [],
+      allowed_target_tool_routes: [],
       allowed_native_tools: [],
       allowed_tool_operations: {},
       max_output_tokens: null,

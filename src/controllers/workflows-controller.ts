@@ -8,16 +8,13 @@ import { WorkflowAccessDeniedError } from '../services/workflow-access.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
 import { emitWorkflowExecutionEvents } from '../services/workflow-execution-events.js';
-import { promptResourceRegistry, PromptResourceProviderError } from '../services/prompt-resources/index.js';
+import { PromptResourceProviderError } from '../services/prompt-resources/index.js';
 import {
   getWorkflowCapabilityReadinessReport,
   publicMcpReadinessError
 } from '../services/workflow-readiness.js';
-import { narrowWorkflowScopeToTargetTools } from '../services/workflow-capability-preview.js';
 import { compileWorkflowScope } from '../services/workflow-scope-compiler.js';
-import { resolveTargetRunTools } from '../services/target-run-tool-resolution.js';
 import { projectAgentConversationRunScope } from '../services/agent-chat.js';
-import { repo } from '../store/repository.js';
 import {
   createWorkflowExecution,
   createWorkflowSession,
@@ -27,7 +24,6 @@ import {
   listWorkflowDefinitions,
   isAgentChatCarrier
 } from '../store/repository-workflows.js';
-import { isTargetType, type TargetSummary } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
 import {
   containsSearchText,
@@ -324,22 +320,6 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
           initiatingMessageId: messageId
         });
     const content = resolution.content;
-    const runtimeProjection = promptResourceRegistry.projectRuntime(resolution.bindings, messageId);
-    const projectedTarget = runtimeProjection.targetRoute && typeof runtimeProjection.targetRoute === 'object'
-      ? runtimeProjection.targetRoute as Record<string, unknown>
-      : undefined;
-    const targetRoute = projectedTarget
-      && typeof projectedTarget.id === 'string'
-      && typeof projectedTarget.targetType === 'string'
-      && isTargetType(projectedTarget.targetType)
-      ? { id: projectedTarget.id, targetType: projectedTarget.targetType }
-      : undefined;
-    const target: TargetSummary | undefined = targetRoute
-      ? await repo.getTarget(session.workspaceId, targetRoute.id) || undefined
-      : undefined;
-    if (targetRoute && !target) {
-      return void res.status(409).json({ error: { code: 'PROMPT_REFERENCE_NOT_FOUND', message: 'The bound target is no longer available.', retryable: false } });
-    }
     let compiled = isAgentConversation
       ? projectAgentConversationRunScope(session.compiledAccessScope, {
           promptDigest: resolution.promptDigest,
@@ -350,39 +330,14 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
           workflow,
           actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
           approvedContextGrants: session.compiledAccessScope.contextGrants,
-          targetRoute,
           resourceBindings: resolution.bindings,
           promptDigest: resolution.promptDigest,
           bindingDigest: resolution.bindingDigest
         });
-    if (target) {
-      const resolution = await resolveTargetRunTools({
-        workspaceId: session.workspaceId,
-        targetId: target.id,
-        targetType: target.targetType,
-        toolAccessMode: compiled.scope.mode,
-        includeNativeTools: false,
-        strictMcpResolution: true
-      });
-      const narrowed = narrowWorkflowScopeToTargetTools({
-        scope: compiled.scope,
-        mappings: compiled.mappings,
-        resolution
-      });
-      if (compiled.scope.targetToolRefs.length > 0 && narrowed.targetTools.allowedToolRefs.length === 0) {
-        await recordWorkspaceAuditEvent({
-          workspaceId: session.workspaceId, category: 'run', eventType: 'workflow.launch_blocked.v1', operation: 'read',
-          ...workflowAuditActor(req), objectType: 'workflow', objectId: workflow.id, objectName: workflow.name,
-          summary: 'Workflow launch blocked', metadata: { workflowId: workflow.id, reasonCodes: ['WORKFLOW_TARGET_TOOLS_UNAVAILABLE'] }
-        });
-        return void res.status(409).json({ error: { code: 'WORKFLOW_TARGET_TOOLS_UNAVAILABLE', message: 'The selected target tool catalog is unavailable.', retryable: true } });
-      }
-      compiled = { ...compiled, scope: narrowed.scope };
-    }
     const mcpReadiness = await getWorkflowCapabilityReadinessReport(
       session.workspaceId,
       compiled.scope,
-      target,
+      undefined,
       { principal: compiled.scope.principal }
     );
     if (mcpReadiness.errors.length > 0) {
@@ -415,8 +370,6 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       content,
       clientRequestId: clientRequestId || undefined,
       clientRequestFingerprint: clientRequestFingerprint || undefined,
-      targetId: targetRoute?.id,
-      targetType: targetRoute?.targetType,
       promptDigest: resolution.promptDigest,
       bindingDigest: resolution.bindingDigest,
       resourceBindings: resolution.bindings,

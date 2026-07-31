@@ -20,7 +20,6 @@ function textWorkflow(prompt: string): WorkflowDefinitionForAccess {
     prompt,
     agentIds: ['agent-1'],
     executionMode: 'direct',
-    resourceRequirements: [],
     capabilityPolicy: {
       mode: 'read_only',
       restrictionMode: 'inherit',

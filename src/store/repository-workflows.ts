@@ -5,7 +5,6 @@ import type {
   WorkflowCapabilityPolicy,
   WorkflowDefinitionForAccess
 } from '../types/workflows.js';
-import type { PromptResourceRequirement } from '../types/prompt-resources.js';
 import type { DefinitionOrigin } from '../types/agents.js';
 import { resetWorkflowRunRepositoryForTests } from './repository-workflow-runs.js';
 
@@ -61,7 +60,6 @@ export interface WorkflowDefinitionUpdate {
   status?: WorkflowDefinitionForAccess['status'];
   prompt?: string;
   agentIds?: string[];
-  resourceRequirements?: PromptResourceRequirement[];
   capabilityPolicy?: Partial<WorkflowCapabilityPolicy>;
   tags?: string[];
   requiredPermissions?: WorkflowDefinitionForAccess['requiredPermissions'];
@@ -73,7 +71,6 @@ export interface CreateWorkflowDefinitionInput {
   description?: string;
   prompt: string;
   agentIds: string[];
-  resourceRequirements?: PromptResourceRequirement[];
   capabilityPolicy: WorkflowCapabilityPolicy;
   tags?: string[];
   requiredPermissions?: WorkflowDefinitionForAccess['requiredPermissions'];
@@ -107,16 +104,6 @@ function normalizeCapabilityPolicy(policy: WorkflowCapabilityPolicy): WorkflowCa
   };
 }
 
-function normalizeResourceRequirements(values: PromptResourceRequirement[] = []): PromptResourceRequirement[] {
-  return values.map((value) => ({
-    type: value.type.trim(),
-    minimum: Math.max(0, Math.floor(value.minimum)),
-    maximum: Math.max(0, Math.floor(value.maximum)),
-    requiredOperations: uniqueSorted(value.requiredOperations),
-    ...(value.constraints ? { constraints: { ...value.constraints } } : {})
-  })).sort((left, right) => left.type.localeCompare(right.type));
-}
-
 function mapWorkflowDefinition(row: WorkflowRow): WorkflowDefinitionForAccess {
   return {
     id: row.id,
@@ -129,7 +116,6 @@ function mapWorkflowDefinition(row: WorkflowRow): WorkflowDefinitionForAccess {
     prompt: row.prompt,
     agentIds: row.agent_ids || [],
     executionMode: (row.agent_ids || []).length > 1 ? 'coordinated' : 'direct',
-    resourceRequirements: normalizeResourceRequirements(row.resource_requirements || []),
     capabilityPolicy: normalizeCapabilityPolicy(row.capability_policy),
     tags: row.tags || [],
     requiredPermissions: row.required_permissions || [],
@@ -180,9 +166,9 @@ export async function ensureAgentChatCarrier(
   };
   const result = await db.query<WorkflowRow>(
     `INSERT INTO workflow_definitions (
-       workspace_id,id,version,origin,name,description,status,prompt,agent_ids,resource_requirements,
+       workspace_id,id,version,origin,name,description,status,prompt,agent_ids,
        capability_policy,tags,required_permissions,created_by,readiness_status,readiness_reasons
-     ) VALUES ($1,$2,1,$3,$4,$5,'draft','Agent conversation',$6,'[]'::jsonb,$7,'[]'::jsonb,'[]'::jsonb,$8,$9,$10)
+     ) VALUES ($1,$2,1,$3,$4,$5,'draft','Agent conversation',$6,$7,'[]'::jsonb,'[]'::jsonb,$8,$9,$10)
      ON CONFLICT (workspace_id,id) DO UPDATE SET
        origin=EXCLUDED.origin,
        name=EXCLUDED.name,
@@ -230,16 +216,15 @@ export async function createWorkflowDefinition(
   const slug = input.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'workflow';
   const capabilityPolicy = normalizeCapabilityPolicy(input.capabilityPolicy);
   const agentIds = uniqueSorted(input.agentIds);
-  const resourceRequirements = normalizeResourceRequirements(input.resourceRequirements);
   const readiness = {
     status: 'needs_setup',
     reasons: ['Readiness has not been evaluated against the live capability catalog.']
   } as const;
   const result = await queryable.query<WorkflowRow>(
     `INSERT INTO workflow_definitions (
-       workspace_id,id,version,origin,name,description,status,prompt,agent_ids,resource_requirements,
+       workspace_id,id,version,origin,name,description,status,prompt,agent_ids,
        capability_policy,tags,required_permissions,created_by,readiness_status,readiness_reasons
-     ) VALUES ($1,$2,1,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+     ) VALUES ($1,$2,1,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
     [
       input.workspaceId,
       `${slug}-${randomUUID().slice(0, 8)}`,
@@ -249,7 +234,6 @@ export async function createWorkflowDefinition(
       input.status || 'draft',
       input.prompt.trim(),
       JSON.stringify(agentIds),
-      JSON.stringify(resourceRequirements),
       capabilityPolicy,
       JSON.stringify(uniqueSorted(input.tags)),
       JSON.stringify(uniqueSorted(input.requiredPermissions || []) as WorkflowDefinitionForAccess['requiredPermissions']),
@@ -275,7 +259,6 @@ export async function duplicateWorkflowDefinition(
     description: source.description,
     prompt: source.prompt,
     agentIds: source.agentIds,
-    resourceRequirements: source.resourceRequirements,
     capabilityPolicy: source.capabilityPolicy,
     tags: source.tags,
     requiredPermissions: source.requiredPermissions,
@@ -299,9 +282,9 @@ export async function updateWorkflowDefinitionScope(
   });
   const result = await queryable.query<WorkflowRow>(
     `UPDATE workflow_definitions SET
-       version=version+1,name=$3,description=$4,status=$5,prompt=$6,agent_ids=$7,resource_requirements=$8,
-       capability_policy=$9,tags=$10,required_permissions=$11,
-       readiness_status='needs_setup',readiness_reasons=$12,updated_at=NOW()
+       version=version+1,name=$3,description=$4,status=$5,prompt=$6,agent_ids=$7,
+       capability_policy=$8,tags=$9,required_permissions=$10,
+       readiness_status='needs_setup',readiness_reasons=$11,updated_at=NOW()
      WHERE workspace_id=$1 AND id=$2 RETURNING *`,
     [
       workspaceId,
@@ -311,9 +294,6 @@ export async function updateWorkflowDefinitionScope(
       update.status || current.status,
       update.prompt?.trim() || current.prompt,
       JSON.stringify(update.agentIds ? uniqueSorted(update.agentIds) : current.agentIds),
-      JSON.stringify(update.resourceRequirements
-        ? normalizeResourceRequirements(update.resourceRequirements)
-        : current.resourceRequirements),
       capabilityPolicy,
       JSON.stringify(update.tags ? uniqueSorted(update.tags) : current.tags || []),
       JSON.stringify(update.requiredPermissions ? uniqueSorted(update.requiredPermissions) : current.requiredPermissions),

@@ -4,36 +4,23 @@ import { requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { logger } from '../logger.js';
 import { incrementWorkflowCapabilityPreviewBlocker, observeWorkflowCapabilityPreview } from '../metrics.js';
 import { computeWorkflowReadiness } from '../services/automation-readiness.js';
-import {
-  directWorkflowAttachments,
-  narrowWorkflowScopeToTargetTools,
-  targetPreviewTools,
-  unavailableSelectedTarget,
-  workflowRequiresExactTarget,
-  workflowTargetCandidates
-} from '../services/workflow-capability-preview.js';
+import { directWorkflowAttachments } from '../services/workflow-capability-preview.js';
 import { resolveEffectiveWorkflowCapabilityIds } from '../services/workflow-capability-policy.js';
-import { resolveTargetRunTools } from '../services/target-run-tool-resolution.js';
 import { compileWorkflowAccessScope, WorkflowAccessDeniedError } from '../services/workflow-access.js';
 import { getWorkflowCapabilityReadinessReport } from '../services/workflow-readiness.js';
 import { getAgentDefinition } from '../store/repository-agents.js';
 import { listCapabilityRoutingMappings } from '../store/repository-capability-routing.js';
-import { repo } from '../store/repository.js';
 import { getWorkflowDefinition, isAgentChatCarrier } from '../store/repository-workflows.js';
-import type { WorkflowAccessActor, WorkflowCapabilitiesPreview, WorkflowCapabilityPreviewReasonCode, WorkflowCapabilityToolPreview, WorkflowTargetCapabilityCandidate } from '../types/workflows.js';
+import type { WorkflowAccessActor, WorkflowCapabilitiesPreview, WorkflowCapabilityPreviewReasonCode, WorkflowCapabilityToolPreview } from '../types/workflows.js';
 import type { PromptResourceBinding } from '../types/prompt-resources.js';
 import { toSingleParam } from '../utils/params.js';
 import { respondWorkflowAccessError } from './workflow-public.js';
-import { getMcpConnection, listAgentMcpServers, listTargetMcpServers, type McpServerConfig } from '../services/mcp-registry-client.js';
-import { builtinTargetMcpServerDisplayName } from '../services/kubernetes-cluster-tools-catalog.js';
-import { workflowTargetPolicy } from '../services/prompt-resources/providers/target-provider.js';
-import { promptResourceRegistry } from '../services/prompt-resources/index.js';
+import { getMcpConnection, listAgentMcpServers, type McpServerConfig } from '../services/mcp-registry-client.js';
 import { PromptResourceProviderError } from '../services/prompt-resources/errors.js';
 import {
   compileWorkflowPrompt,
   WorkflowTemplateValidationError
 } from '../services/workflow-template.js';
-import { isTargetType, type TargetSummary } from '../types/domain.js';
 
 function requestWorkspaceId(req: AuthenticatedRequest): string | null {
   const raw = req.body?.workspaceId || req.query.workspaceId;
@@ -50,7 +37,6 @@ async function compilePreviewScope(input: {
   workflow: NonNullable<Awaited<ReturnType<typeof getWorkflowDefinition>>>;
   actor: WorkflowAccessActor;
   approvedContextGrants: string[];
-  targetRoute?: { id: string; targetType: 'kubernetes' | 'virtual_machine' };
   resourceBindings: PromptResourceBinding[];
   promptDigest: string;
   bindingDigest: string;
@@ -71,7 +57,7 @@ async function compilePreviewScope(input: {
     mappings,
     scope: compileWorkflowAccessScope({
       workflow: input.workflow, specialistAgent, selectedAgents, mappings, actor: input.actor,
-      approvedContextGrants: input.approvedContextGrants, targetRoute: input.targetRoute,
+      approvedContextGrants: input.approvedContextGrants,
       resourceBindings: input.resourceBindings, promptDigest: input.promptDigest, bindingDigest: input.bindingDigest
     })
   };
@@ -82,7 +68,6 @@ export async function genericMcpAuthRequirements(input: {
   userId: string;
   agents: NonNullable<Awaited<ReturnType<typeof getAgentDefinition>>>[];
   scope: ReturnType<typeof compileWorkflowAccessScope>;
-  target?: TargetSummary;
 }): Promise<WorkflowCapabilitiesPreview['mcpRequirements']> {
   const allowedServerIds = new Set(input.scope.mcpServers);
   const installedAgentServers = (await Promise.all(input.agents.map(async (agent) => ({
@@ -92,17 +77,9 @@ export async function genericMcpAuthRequirements(input: {
     .filter(({ server }) => server.enabled
       && server.credential_mode !== 'none'
       && allowedServerIds.has(server.id));
-  const allowedTargetServerIds = new Set(input.scope.targetToolRefs.map((ref) => ref.serverId));
-  const installedTargetServers = input.target
-    ? (await listTargetMcpServers(input.workspaceId, input.target.id, input.target.targetType))
-      .filter((server) => server.enabled
-        && server.credential_mode !== 'none'
-        && allowedTargetServerIds.has(server.id))
-    : [];
-
   const requirementForServer = async (
     server: McpServerConfig,
-    owner: { owningAgent: { id: string; name: string } } | { owningTarget: { id: string; name: string; targetType: TargetSummary['targetType'] } },
+    owner: { owningAgent: { id: string; name: string } },
     serverName = server.server_name
   ): Promise<WorkflowCapabilitiesPreview['mcpRequirements'][number]> => {
     const credentialMode = server.credential_mode === 'workspace'
@@ -152,16 +129,7 @@ export async function genericMcpAuthRequirements(input: {
     server,
     { owningAgent: { id: agent.id, name: agent.name } }
   ));
-  const targetRequirements = input.target
-    ? installedTargetServers.map((server) => requirementForServer(
-        server,
-        { owningTarget: { id: input.target!.id, name: input.target!.name, targetType: input.target!.targetType } },
-        server.provenance_type === 'builtin'
-          ? builtinTargetMcpServerDisplayName(input.target!.targetType)
-          : server.server_name
-      ))
-    : [];
-  return Promise.all([...agentRequirements, ...targetRequirements]);
+  return Promise.all(agentRequirements);
 }
 
 function responseBody(input: {
@@ -169,8 +137,6 @@ function responseBody(input: {
   promptDigest: string;
   bindingDigest: string;
   status: WorkflowCapabilitiesPreview['status'];
-  candidates: WorkflowTargetCapabilityCandidate[];
-  selectedTarget?: WorkflowTargetCapabilityCandidate;
   reasonCodes?: WorkflowCapabilityPreviewReasonCode[];
   scope?: ReturnType<typeof compileWorkflowAccessScope>;
   tools?: WorkflowCapabilityToolPreview[];
@@ -195,16 +161,12 @@ function responseBody(input: {
     checkedAt: new Date().toISOString(),
     status: input.status,
     reasonCodes: input.reasonCodes || [],
-    targetCandidates: input.candidates,
-    ...(input.selectedTarget ? { selectedTarget: input.selectedTarget } : {}),
     tools: { read, write },
     directMcpServers,
     enabledSkills,
     mcpRequirements: input.mcpRequirements || [],
     approvalRequirements,
     counts: {
-      targets: input.candidates.length,
-      readyTargets: input.candidates.filter((candidate) => candidate.status === 'ready').length,
       tools: tools.length,
       readTools: read.length,
       writeTools: write.length,
@@ -217,7 +179,7 @@ function responseBody(input: {
 
 export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   const startedAt = Date.now();
-  let metricStatus: 'needs_target' | 'ready' | 'blocked' | 'error' = 'error';
+  let metricStatus: 'ready' | 'blocked' | 'error' = 'error';
   try {
     const workspaceId = requestWorkspaceId(req);
     if (!workspaceId) return void res.status(400).json({ error: { code: 'WORKFLOW_WORKSPACE_REQUIRED', message: 'workspaceId is required.', retryable: false } });
@@ -231,106 +193,36 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
       workflow,
       actorUserId: req.auth.userId
     });
-    const runtimeProjection = promptResourceRegistry.projectRuntime(referenceResolution.bindings, 'capability-preview');
-    const projectedTarget = runtimeProjection.targetRoute && typeof runtimeProjection.targetRoute === 'object'
-      ? runtimeProjection.targetRoute as Record<string, unknown>
-      : undefined;
-    const target = projectedTarget && typeof projectedTarget.id === 'string'
-      && typeof projectedTarget.targetType === 'string' && isTargetType(projectedTarget.targetType)
-      ? { id: projectedTarget.id, targetType: projectedTarget.targetType }
-      : undefined;
-    const selectedAgents = (await Promise.all(workflow.agentIds.map((agentId) => getAgentDefinition(workspaceId, agentId))))
-      .filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
-    const semanticCapabilityIds = resolveEffectiveWorkflowCapabilityIds(workflow.capabilityPolicy, selectedAgents);
-    const [mappings, targets, registrations, selectedTargetRecord] = await Promise.all([
-      listCapabilityRoutingMappings(workspaceId, { activeReviewedOnly: true, capabilityIds: semanticCapabilityIds }),
-      repo.listWorkflowTargetSnapshot(workspaceId),
-      repo.listWorkspaceTargetAgentRegistrations(workspaceId),
-      target ? repo.getTarget(workspaceId, target.id) : Promise.resolve(null)
-    ]);
-    const targetPolicy = workflowTargetPolicy(workflow);
-    const requiresTarget = workflowRequiresExactTarget(semanticCapabilityIds) || Boolean(targetPolicy?.targetIds.length || targetPolicy?.targetTypes.length);
-    const candidates = requiresTarget ? workflowTargetCandidates({ workflow, agents: selectedAgents, semanticCapabilityIds, mappings, targets, registrations }) : [];
-    if (requiresTarget && !target) {
-      incrementWorkflowCapabilityPreviewBlocker('TARGET_REQUIRED');
-      metricStatus = 'needs_target';
-      const response = responseBody({
-        workflow,
-        promptDigest: referenceResolution.promptDigest,
-        bindingDigest: referenceResolution.bindingDigest,
-        status: 'needs_target',
-        candidates,
-        reasonCodes: ['TARGET_REQUIRED'],
-        semanticCapabilityIds
-      });
-      logger.info({ workspaceId, workflowId: workflow.id, workflowVersion: workflow.version, status: response.status, targetCount: response.counts.targets, readyTargetCount: response.counts.readyTargets, toolCount: 0, reasonCodes: response.reasonCodes }, 'Workflow capability preview completed');
-      return void res.status(200).json(response);
-    }
-    let selectedCandidate: WorkflowTargetCapabilityCandidate | undefined;
-    if (target) {
-      selectedCandidate = !selectedTargetRecord
-        ? unavailableSelectedTarget(target, 'TARGET_NOT_FOUND')
-        : selectedTargetRecord.targetType !== target.targetType
-          ? unavailableSelectedTarget(selectedTargetRecord, 'TARGET_TYPE_MISMATCH')
-          : candidates.find((candidate) => candidate.id === selectedTargetRecord.id) || { ...unavailableSelectedTarget(selectedTargetRecord, 'TARGET_NOT_FOUND'), reason: 'The selected target is outside this workflow scope.' };
-      if (selectedCandidate.status !== 'ready') {
-        metricStatus = 'blocked';
-        const reasonCodes = selectedCandidate.reasonCode ? [selectedCandidate.reasonCode] : ['CAPABILITY_MAPPING_UNAVAILABLE' as const];
-        const response = responseBody({
-          workflow,
-          promptDigest: referenceResolution.promptDigest,
-          bindingDigest: referenceResolution.bindingDigest,
-          status: 'blocked',
-          candidates,
-          selectedTarget: selectedCandidate,
-          reasonCodes,
-          semanticCapabilityIds
-        });
-        logger.info({ workspaceId, workflowId: workflow.id, workflowVersion: workflow.version, targetId: selectedCandidate.id, targetType: selectedCandidate.targetType, status: response.status, targetCount: response.counts.targets, readyTargetCount: response.counts.readyTargets, toolCount: 0, reasonCodes }, 'Workflow capability preview completed');
-        return void res.status(200).json(response);
-      }
-    }
     const compiled = await compilePreviewScope({
       workflow,
       actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
       approvedContextGrants: approvedContextGrants(req),
-      targetRoute: selectedTargetRecord ? { id: selectedTargetRecord.id, targetType: selectedTargetRecord.targetType } : undefined,
       resourceBindings: referenceResolution.bindings,
       promptDigest: referenceResolution.promptDigest,
       bindingDigest: referenceResolution.bindingDigest
     });
-    let scope = compiled.scope;
-    let selectedTargetTools: WorkflowCapabilityToolPreview[] = [];
-    let selectedTargetToolNames: string[] = [];
-    if (selectedTargetRecord) {
-      const resolution = await resolveTargetRunTools({ workspaceId, targetId: selectedTargetRecord.id, targetType: selectedTargetRecord.targetType, toolAccessMode: scope.mode, includeNativeTools: false, strictMcpResolution: true, resyncIfEmpty: false });
-      const narrowed = narrowWorkflowScopeToTargetTools({ scope, mappings: compiled.mappings, resolution });
-      scope = narrowed.scope;
-      selectedTargetTools = targetPreviewTools(narrowed.targetTools);
-      selectedTargetToolNames = narrowed.targetTools.allowedToolNames;
-      if (compiled.scope.targetToolRefs.length > 0 && narrowed.targetTools.allowedToolRefs.length === 0) {
-        incrementWorkflowCapabilityPreviewBlocker('TARGET_TOOL_CATALOG_UNAVAILABLE');
-        metricStatus = 'blocked';
-        const blockedTarget = { ...selectedCandidate!, status: 'unsupported' as const, reasonCode: 'TARGET_TOOL_CATALOG_UNAVAILABLE' as const, reason: 'The target tool catalog is currently unavailable.' };
-        return void res.status(200).json(responseBody({
-          workflow,
-          promptDigest: referenceResolution.promptDigest,
-          bindingDigest: referenceResolution.bindingDigest,
-          status: 'blocked',
-          candidates,
-          selectedTarget: blockedTarget,
-          reasonCodes: ['TARGET_TOOL_CATALOG_UNAVAILABLE'],
-          semanticCapabilityIds
-        }));
-      }
-    }
-    const readiness = await getWorkflowCapabilityReadinessReport(workspaceId, scope, selectedTargetRecord || undefined, { principal: scope.principal });
+    const scope = compiled.scope;
+    const targetToolAliases = new Set(scope.targetToolRoutes.map((route) => route.alias));
+    const targetTools: WorkflowCapabilityToolPreview[] = [...targetToolAliases].map((alias) => {
+      const routes = scope.targetToolRoutes.filter((route) => route.alias === alias);
+      const serverIds = [...new Set(routes.map((route) => route.serverId))];
+      return {
+        id: alias,
+        name: alias,
+        label: alias,
+        access: scope.toolOperations[alias] === 'write' ? 'write' : 'read',
+        source: 'target',
+        serverIds,
+        ...(serverIds.length === 1 ? { serverId: serverIds[0] } : {})
+      };
+    });
+    const readiness = await getWorkflowCapabilityReadinessReport(workspaceId, scope, undefined, { principal: scope.principal });
     const attachments = compiled.specialistAgent
-      ? directWorkflowAttachments({ agent: compiled.specialistAgent, scope, target: selectedTargetRecord || undefined, excludedToolNames: selectedTargetToolNames })
+      ? directWorkflowAttachments({ agent: compiled.specialistAgent, scope, excludedToolNames: targetToolAliases })
       : { tools: [], mcpServers: [], skills: [] };
-    const genericAuthRequirements = await genericMcpAuthRequirements({ workspaceId, userId: req.auth.userId, agents: compiled.selectedAgents, scope, target: selectedTargetRecord || undefined });
+    const genericAuthRequirements = await genericMcpAuthRequirements({ workspaceId, userId: req.auth.userId, agents: compiled.selectedAgents, scope });
     const mcpRequirements = genericAuthRequirements;
-    const tools = [...selectedTargetTools, ...attachments.tools].filter((tool, index, values) => values.findIndex((candidate) => candidate.id === tool.id && candidate.source === tool.source) === index);
+    const tools = [...targetTools, ...attachments.tools].filter((tool, index, values) => values.findIndex((candidate) => candidate.id === tool.id && candidate.source === tool.source) === index);
     const reasonCodes: WorkflowCapabilityPreviewReasonCode[] = readiness.errors.length ? ['MCP_CONNECTION_UNAVAILABLE'] : [];
     reasonCodes.forEach(incrementWorkflowCapabilityPreviewBlocker);
     metricStatus = readiness.errors.length ? 'blocked' : 'ready';
@@ -339,8 +231,6 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
       promptDigest: referenceResolution.promptDigest,
       bindingDigest: referenceResolution.bindingDigest,
       status: metricStatus,
-      candidates,
-      selectedTarget: selectedCandidate,
       reasonCodes,
       scope,
       tools,
@@ -348,7 +238,7 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
       enabledSkills: attachments.skills,
       mcpRequirements
     });
-    logger.info({ workspaceId, workflowId: workflow.id, workflowVersion: workflow.version, targetId: selectedCandidate?.id, targetType: selectedCandidate?.targetType, status: response.status, targetCount: response.counts.targets, readyTargetCount: response.counts.readyTargets, toolCount: response.counts.tools, readToolCount: response.counts.readTools, writeToolCount: response.counts.writeTools, reasonCodes }, 'Workflow capability preview completed');
+    logger.info({ workspaceId, workflowId: workflow.id, workflowVersion: workflow.version, status: response.status, toolCount: response.counts.tools, readToolCount: response.counts.readTools, writeToolCount: response.counts.writeTools, reasonCodes }, 'Workflow capability preview completed');
     res.status(200).json(response);
   } catch (error) {
     if (error instanceof WorkflowAccessDeniedError) return respondWorkflowAccessError(res, error);

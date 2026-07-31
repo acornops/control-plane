@@ -3,7 +3,7 @@ import type { WorkspaceAuditOperation } from './domain.js';
 import type { AgentDefinition, AutomationReadinessStatus, McpToolRef, RunPermissionMode, RunPrincipalRef } from './agents.js';
 import type { DefinitionOrigin } from './agents.js';
 import type { TargetType } from './domain.js';
-import type { PromptResourceBinding, PromptResourceRequirement } from './prompt-resources.js';
+import type { PromptResourceBinding } from './prompt-resources.js';
 import type { CapabilityRoutingMapping } from './capability-routing.js';
 
 export type WorkflowStatus = 'active' | 'draft' | 'paused';
@@ -37,7 +37,6 @@ export interface WorkflowDefinitionForAccess {
   prompt: string;
   agentIds: string[];
   executionMode: WorkflowExecutionMode;
-  resourceRequirements: PromptResourceRequirement[];
   capabilityPolicy: WorkflowCapabilityPolicy;
   tags?: string[];
   requiredPermissions: WorkspaceCapability[];
@@ -121,6 +120,14 @@ export interface WorkflowJwtClaimPreview {
     allowed_tools: string[];
     allowed_tool_refs: Array<{ server_id: string; tool_name: string }>;
     allowed_tool_operations: Record<string, WorkspaceAuditOperation>;
+    allowed_target_tool_routes: Array<{
+      alias: string;
+      server_id: string;
+      tool_name: string;
+      operation: WorkspaceAuditOperation;
+      target_id: string;
+      target_type: 'kubernetes' | 'virtual_machine';
+    }>;
     context_grants: string[];
     resource_bindings: Array<{
       binding_id: string;
@@ -162,6 +169,7 @@ export interface CompiledWorkflowAccessScope {
   mcpServers: string[];
   mcpTools: McpToolRef[];
   targetToolRefs: McpToolRef[];
+  targetToolRoutes: WorkflowTargetToolRoute[];
   tools: string[];
   toolOperations: Record<string, WorkspaceAuditOperation>;
   nativeToolConfigs: Record<string, Record<string, unknown>>;
@@ -182,28 +190,19 @@ export interface CompiledWorkflowAccessScope {
   jwtClaims: WorkflowJwtClaimPreview;
 }
 
-export type WorkflowCapabilityPreviewStatus = 'needs_target' | 'ready' | 'blocked';
-export type WorkflowTargetCandidateStatus = 'ready' | 'unavailable' | 'unsupported';
-export type WorkflowCapabilityPreviewReasonCode =
-  | 'TARGET_REQUIRED'
-  | 'TARGET_NOT_FOUND'
-  | 'TARGET_TYPE_MISMATCH'
-  | 'TARGET_OFFLINE'
-  | 'TARGET_STATUS_UNKNOWN'
-  | 'TARGET_WRITE_UNSUPPORTED'
-  | 'CAPABILITY_MAPPING_UNAVAILABLE'
-  | 'TARGET_TOOL_MAPPING_UNAVAILABLE'
-  | 'TARGET_TOOL_CATALOG_UNAVAILABLE'
-  | 'MCP_CONNECTION_UNAVAILABLE';
-
-export interface WorkflowTargetCapabilityCandidate {
-  id: string;
-  name: string;
-  targetType: TargetType;
-  status: WorkflowTargetCandidateStatus;
-  reasonCode?: WorkflowCapabilityPreviewReasonCode;
-  reason?: string;
+export interface WorkflowTargetToolRoute {
+  alias: string;
+  serverId: string;
+  toolName: string;
+  operation: WorkspaceAuditOperation;
+  targetId: string;
+  targetType: 'kubernetes' | 'virtual_machine';
 }
+
+export type WorkflowCapabilityPreviewStatus = 'ready' | 'blocked';
+export type WorkflowCapabilityPreviewReasonCode =
+  | 'CAPABILITY_MAPPING_UNAVAILABLE'
+  | 'MCP_CONNECTION_UNAVAILABLE';
 
 export interface WorkflowCapabilityToolPreview {
   id: string;
@@ -213,6 +212,7 @@ export interface WorkflowCapabilityToolPreview {
   access: 'read' | 'write';
   source: 'target' | 'mcp' | 'builtin';
   serverId?: string;
+  serverIds?: string[];
 }
 
 export interface WorkflowCapabilityAttachmentPreview {
@@ -239,16 +239,9 @@ interface WorkflowMcpRequirementPreviewBase {
     | 'none';
 }
 
-export type WorkflowMcpRequirementPreview = WorkflowMcpRequirementPreviewBase & (
-  | {
-      owningAgent: { id: string; name: string };
-      owningTarget?: never;
-    }
-  | {
-      owningAgent?: never;
-      owningTarget: { id: string; name: string; targetType: TargetType };
-    }
-);
+export type WorkflowMcpRequirementPreview = WorkflowMcpRequirementPreviewBase & {
+  owningAgent: { id: string; name: string };
+};
 
 export interface WorkflowCapabilitiesPreview {
   workflowId: string;
@@ -260,8 +253,6 @@ export interface WorkflowCapabilitiesPreview {
   checkedAt: string;
   status: WorkflowCapabilityPreviewStatus;
   reasonCodes: WorkflowCapabilityPreviewReasonCode[];
-  targetCandidates: WorkflowTargetCapabilityCandidate[];
-  selectedTarget?: WorkflowTargetCapabilityCandidate;
   tools: {
     read: WorkflowCapabilityToolPreview[];
     write: WorkflowCapabilityToolPreview[];
@@ -271,8 +262,6 @@ export interface WorkflowCapabilitiesPreview {
   mcpRequirements: WorkflowMcpRequirementPreview[];
   approvalRequirements: string[];
   counts: {
-    targets: number;
-    readyTargets: number;
     tools: number;
     readTools: number;
     writeTools: number;

@@ -54,6 +54,7 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
   }
 
   const maxOutputTokens = config.LLM_MAX_OUTPUT_TOKENS;
+  const workflowTargetToolRoutes = run.compiledAccessScope.targetToolRoutes || [];
   const workflowMcpRefs = run.compiledAccessScope.mcpTools || [];
   const workflowMcpRefKeys = new Set(workflowMcpRefs.map((ref) => `${ref.serverId}\u0000${ref.toolName}`));
   const workflowAgentSnapshot = run.executorSnapshot.role === 'specialist'
@@ -79,6 +80,7 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     !workflowRemoteAliases.has(tool)
     && !workspaceNativeToolIds.has(tool)
     && !providerNativeToolIds.has(tool)
+    && !workflowTargetToolRoutes.some((route) => route.alias === tool)
   ));
   let allowedToolOperations = Object.fromEntries(allowedToolNames.map((tool) => [
     tool,
@@ -88,6 +90,7 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     serverId: tool.serverId,
     toolName: tool.toolName
   }));
+  let allowedTargetToolRoutes: typeof workflowTargetToolRoutes = [];
   const agentClaims = workflowRunAgentClaims(run);
   const allowedNativeTools: Array<{ id: string; config: Record<string, unknown> }> = [
     ...providerNativeToolIds
@@ -103,6 +106,12 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     description: string;
     capability: 'read' | 'write';
     input_schema: Record<string, unknown>;
+    target_routes?: Array<{
+      target_id: string;
+      target_type: 'kubernetes' | 'virtual_machine';
+      server_id: string;
+      tool_name: string;
+    }>;
   }> = allowedToolNames.map((toolName) => ({
       name: toolName,
       description: `Execute workflow-granted tool "${toolName}".`,
@@ -161,6 +170,78 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
         input_schema: tool.inputSchema
       });
     }
+  } else if (workflowTargetToolRoutes.length > 0) {
+    const targetRoutes = workflowTargetToolRoutes;
+    const targetKeys = [...new Set(targetRoutes.map((route) => `${route.targetId}\u0000${route.targetType}`))];
+    const targetCatalogs = await Promise.all(targetKeys.map(async (key) => {
+      const [targetId, targetType] = key.split('\u0000') as [string, 'kubernetes' | 'virtual_machine'];
+      const target = await repo.getTarget(run.workspaceId, targetId);
+      if (!target || target.targetType !== targetType) return null;
+      const resolution = await resolveTargetRunTools({
+        workspaceId: run.workspaceId,
+        targetId,
+        targetType,
+        toolAccessMode: run.compiledAccessScope.mode,
+        runId: run.id,
+        includeNativeTools: false
+      });
+      return { target, resolution };
+    }));
+    const resolvedByTarget = new Map(targetCatalogs.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+      .map((entry) => [`${entry.target.id}\u0000${entry.target.targetType}`, entry]));
+    const aliases = [...new Set(targetRoutes.map((route) => route.alias))].sort();
+    for (const alias of aliases) {
+      const resolvedRoutes = targetRoutes.flatMap((route) => {
+        if (route.alias !== alias) return [];
+        const catalog = resolvedByTarget.get(`${route.targetId}\u0000${route.targetType}`);
+        const spec = catalog?.resolution.allowedToolSpecs.find((candidate) => (
+          candidate.server_id === route.serverId && candidate.tool_name === route.toolName
+        ));
+        return catalog && spec ? [{ route, target: catalog.target, spec }] : [];
+      });
+      if (resolvedRoutes.length === 0) continue;
+      const first = resolvedRoutes[0];
+      const baseSchema = first.spec.input_schema && typeof first.spec.input_schema === 'object'
+        ? structuredClone(first.spec.input_schema)
+        : { type: 'object' };
+      const properties = baseSchema.properties && typeof baseSchema.properties === 'object' && !Array.isArray(baseSchema.properties)
+        ? baseSchema.properties as Record<string, unknown>
+        : {};
+      const required = Array.isArray(baseSchema.required)
+        ? baseSchema.required.filter((value): value is string => typeof value === 'string')
+        : [];
+      const targetLabels = resolvedRoutes.map(({ target }) => `${target.name} (${target.id})`).join(', ');
+      const capability = resolvedRoutes.some(({ route }) => route.operation === 'write') ? 'write' as const : 'read' as const;
+      const routeSpecs = resolvedRoutes.map(({ route }) => ({
+        target_id: route.targetId,
+        target_type: route.targetType,
+        server_id: route.serverId,
+        tool_name: route.toolName
+      }));
+      allowedToolNames.push(alias);
+      allowedToolOperations[alias] = capability;
+      allowedToolSpecs.push({
+        name: alias,
+        description: `${first.spec.description} Select the target with target_id. Available targets: ${targetLabels}.`,
+        capability,
+        input_schema: {
+          ...baseSchema,
+          type: 'object',
+          properties: {
+            ...properties,
+            target_id: {
+              type: 'string',
+              enum: resolvedRoutes.map(({ route }) => route.targetId),
+              description: 'The exact workspace target to use for this tool call.'
+            }
+          },
+          required: [...new Set([...required, 'target_id'])]
+        },
+        target_routes: routeSpecs
+      });
+      allowedToolRefs.push(...resolvedRoutes.map(({ route }) => ({ serverId: route.serverId, toolName: route.toolName })));
+      allowedTargetToolRoutes.push(...resolvedRoutes.map(({ route }) => route));
+    }
   }
   for (const tool of workflowMcpTools) {
     allowedToolNames.push(tool.alias);
@@ -183,11 +264,11 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     allowedToolSpecs.push(name === '_acornops_delegate_specialist'
       ? {
           name,
-          description: 'Delegate one capability-scoped task on one pinned target. The control plane selects the least-privileged eligible specialist.',
+          description: 'Delegate one capability-scoped task. Include targetBinding only when the task must be pinned to one exact target. The control plane selects the least-privileged eligible specialist.',
           capability: 'read' as const,
           input_schema: {
             type: 'object',
-            required: ['capabilityId', 'targetBinding', 'taskPrompt'],
+            required: ['capabilityId', 'taskPrompt'],
             properties: {
               capabilityId: { type: 'string' },
               targetBinding: {
@@ -221,6 +302,7 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     allowedProviders,
     allowedTools: allowedToolNames,
     allowedToolRefs,
+    allowedTargetToolRoutes,
     allowedNativeTools,
     allowedToolOperations,
     contextGrants: run.compiledAccessScope.contextGrants,

@@ -124,7 +124,7 @@ export function observeWorkflowSchedulePreviewDurationMs(status: 'valid' | 'inva
 }
 
 export function observeWorkflowCapabilityPreview(
-  status: 'needs_target' | 'ready' | 'blocked' | 'error',
+  status: 'ready' | 'blocked' | 'error',
   durationMs: number
 ): void {
   increment(workflowCapabilityPreviewOutcomes, status);

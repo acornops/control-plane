@@ -8,7 +8,7 @@ export function buildInternalPaths(): Record<string, unknown> {
         parameters: [
           { in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid' } }
         ],
-        responses: { '200': { description: 'Pinned executor instructions, prompt, input context, target binding, and exact compiled grants.' } }
+        responses: { '200': { description: 'Pinned executor instructions, prompt, input context, and exact compiled grants.' } }
       }
     },
     '/internal/v1/mcp/tools/call': {

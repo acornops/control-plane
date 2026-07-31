@@ -72,7 +72,6 @@ async function coordinatedRoot() {
     name: 'Coordinated delegation probe',
     prompt: 'Inspect the selected target.',
     agentIds: agents.map((agent) => agent.id),
-    resourceRequirements: [],
     capabilityPolicy: {
       mode: 'read_only',
       restrictionMode: 'restrict',

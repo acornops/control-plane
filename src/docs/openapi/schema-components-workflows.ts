@@ -55,7 +55,7 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
     },
     WorkflowDefinition: {
       type: 'object',
-      required: ['id', 'workspaceId', 'version', 'origin', 'name', 'status', 'prompt', 'agentIds', 'executionMode', 'resourceRequirements', 'capabilityPolicy', 'requiredPermissions', 'createdBy'],
+      required: ['id', 'workspaceId', 'version', 'origin', 'name', 'status', 'prompt', 'agentIds', 'executionMode', 'capabilityPolicy', 'requiredPermissions', 'createdBy'],
       properties: {
         id: workflowId,
         workspaceId: uuid,
@@ -67,7 +67,6 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         prompt: { type: 'string' },
         agentIds: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', minLength: 1 } },
         executionMode: { type: 'string', enum: ['direct', 'coordinated'], readOnly: true },
-        resourceRequirements: { type: 'array', items: schemaRef('PromptResourceRequirement') },
         capabilityPolicy: schemaRef('WorkflowCapabilityPolicy'),
         tags: stringArray,
         requiredPermissions: stringArray,
@@ -97,26 +96,14 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         description: { type: 'string' },
         access: { type: 'string', enum: ['read', 'write'] },
         source: { type: 'string', enum: ['target', 'mcp', 'builtin'] },
-        serverId: { type: 'string' }
-      },
-      additionalProperties: false
-    },
-    WorkflowTargetCapabilityCandidate: {
-      type: 'object',
-      required: ['id', 'name', 'targetType', 'status'],
-      properties: {
-        id: { type: 'string' },
-        name: { type: 'string' },
-        targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] },
-        status: { type: 'string', enum: ['ready', 'unavailable', 'unsupported'] },
-        reasonCode: { type: 'string', enum: ['TARGET_REQUIRED', 'TARGET_NOT_FOUND', 'TARGET_TYPE_MISMATCH', 'TARGET_OFFLINE', 'TARGET_STATUS_UNKNOWN', 'TARGET_WRITE_UNSUPPORTED', 'CAPABILITY_MAPPING_UNAVAILABLE', 'TARGET_TOOL_MAPPING_UNAVAILABLE', 'TARGET_TOOL_CATALOG_UNAVAILABLE', 'MCP_CONNECTION_UNAVAILABLE'] },
-        reason: { type: 'string', maxLength: 256 }
+        serverId: { type: 'string' },
+        serverIds: { type: 'array', items: { type: 'string' }, uniqueItems: true }
       },
       additionalProperties: false
     },
     WorkflowCapabilitiesPreview: {
       type: 'object',
-      required: ['workflowId', 'workflowVersion', 'promptDigest', 'bindingDigest', 'mode', 'semanticCapabilityIds', 'checkedAt', 'status', 'reasonCodes', 'targetCandidates', 'tools', 'directMcpServers', 'enabledSkills', 'mcpRequirements', 'approvalRequirements', 'counts'],
+      required: ['workflowId', 'workflowVersion', 'promptDigest', 'bindingDigest', 'mode', 'semanticCapabilityIds', 'checkedAt', 'status', 'reasonCodes', 'tools', 'directMcpServers', 'enabledSkills', 'mcpRequirements', 'approvalRequirements', 'counts'],
       properties: {
         workflowId,
         workflowVersion: { type: 'integer', minimum: 1 },
@@ -125,10 +112,8 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         mode: { type: 'string', enum: ['read_only', 'read_write'] },
         semanticCapabilityIds: stringArray,
         checkedAt: dateTime,
-        status: { type: 'string', enum: ['needs_target', 'ready', 'blocked'] },
-        reasonCodes: { type: 'array', items: { type: 'string', enum: ['TARGET_REQUIRED', 'TARGET_NOT_FOUND', 'TARGET_TYPE_MISMATCH', 'TARGET_OFFLINE', 'TARGET_STATUS_UNKNOWN', 'TARGET_WRITE_UNSUPPORTED', 'CAPABILITY_MAPPING_UNAVAILABLE', 'TARGET_TOOL_MAPPING_UNAVAILABLE', 'TARGET_TOOL_CATALOG_UNAVAILABLE', 'MCP_CONNECTION_UNAVAILABLE'] } },
-        targetCandidates: { type: 'array', items: schemaRef('WorkflowTargetCapabilityCandidate') },
-        selectedTarget: schemaRef('WorkflowTargetCapabilityCandidate'),
+        status: { type: 'string', enum: ['ready', 'blocked'] },
+        reasonCodes: { type: 'array', items: { type: 'string', enum: ['CAPABILITY_MAPPING_UNAVAILABLE', 'MCP_CONNECTION_UNAVAILABLE'] } },
         tools: {
           type: 'object',
           required: ['read', 'write'],
@@ -153,16 +138,6 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
               properties: {
                 id: { type: 'string', minLength: 1 },
                 name: { type: 'string', minLength: 1, maxLength: 160 }
-              },
-              additionalProperties: false
-            },
-            owningTarget: {
-              type: 'object',
-              required: ['id', 'name', 'targetType'],
-              properties: {
-                id: { type: 'string', minLength: 1 },
-                name: { type: 'string', minLength: 1, maxLength: 160 },
-                targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] }
               },
               additionalProperties: false
             },
@@ -191,9 +166,8 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         approvalRequirements: stringArray,
         counts: {
           type: 'object',
-          required: ['targets', 'readyTargets', 'tools', 'readTools', 'writeTools', 'directMcpServers', 'enabledSkills', 'approvals'],
+          required: ['tools', 'readTools', 'writeTools', 'directMcpServers', 'enabledSkills', 'approvals'],
           properties: {
-            targets: { type: 'integer', minimum: 0 }, readyTargets: { type: 'integer', minimum: 0 },
             tools: { type: 'integer', minimum: 0 }, readTools: { type: 'integer', minimum: 0 }, writeTools: { type: 'integer', minimum: 0 },
             directMcpServers: { type: 'integer', minimum: 0 }, enabledSkills: { type: 'integer', minimum: 0 }, approvals: { type: 'integer', minimum: 0 }
           },

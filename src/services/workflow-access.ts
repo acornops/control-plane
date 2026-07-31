@@ -12,17 +12,13 @@ import { COORDINATOR_FUNCTIONS } from './coordination-functions.js';
 import { WORKFLOW_COORDINATOR_PROFILE_VERSION } from './workflow-coordinator.js';
 import { resolveEffectiveWorkflowCapabilityIds } from './workflow-capability-policy.js';
 import { getWorkspaceNativeTool } from './workspace-native-tools.js';
-import {
-  capabilityRequiresExactTarget,
-  targetAllowedByAgentScope
-} from './target-scope-authorization.js';
+import { targetAllowedByAgentScope } from './target-scope-authorization.js';
 
 export type WorkflowAccessDeniedCode =
   | 'WORKFLOW_PERMISSION_DENIED'
   | 'WORKFLOW_CONTEXT_GRANT_DENIED'
   | 'WORKFLOW_AGENT_SCOPE_DENIED'
   | 'WORKFLOW_CAPABILITY_MAPPING_UNAVAILABLE'
-  | 'WORKFLOW_TARGET_REQUIRED'
   | 'WORKFLOW_TARGET_SCOPE_DENIED';
 
 export class WorkflowAccessDeniedError extends Error {
@@ -115,26 +111,28 @@ function assertSelectedAgents(input: CompileWorkflowAccessInput): void {
   }
 }
 
-function exactMappingsForSpecialist(
+function mappingsForSpecialist(
   input: CompileWorkflowAccessInput,
   specialist: AgentDefinition,
   capabilityIds: string[]
 ): CapabilityRoutingMapping[] {
   const targetRoutes = input.targetRoute ? [input.targetRoute] : [];
-  return capabilityIds.map((capabilityId) => {
-    const mapping = input.mappings.find((candidate) => (
+  return capabilityIds.flatMap((capabilityId) => {
+    const mappings = input.mappings.filter((candidate) => (
       candidate.capabilityId === capabilityId
       && candidate.agentId === specialist.id
       && candidate.agentVersion === specialist.version
-      && mappingCompatible(candidate, targetRoutes)
+      && (targetRoutes.length > 0
+        ? mappingCompatible(candidate, targetRoutes)
+        : candidate.status === 'active' && candidate.reviewState === 'reviewed')
     ));
-    if (!mapping) {
+    if (mappings.length === 0) {
       throw new WorkflowAccessDeniedError(
         'WORKFLOW_CAPABILITY_MAPPING_UNAVAILABLE',
-        `No active reviewed exact-resource mapping is available for ${capabilityId}.`
+        `No active reviewed mapping is available for ${capabilityId}.`
       );
     }
-    return mapping;
+    return mappings;
   });
 }
 
@@ -175,19 +173,14 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
   const coordinator = !input.specialistAgent;
   const specialist = input.specialistAgent;
   const effectiveCapabilityIds = resolveEffectiveWorkflowCapabilityIds(input.workflow.capabilityPolicy, input.selectedAgents);
-  const requiresTarget = effectiveCapabilityIds.some(capabilityRequiresExactTarget);
-  if (requiresTarget && !input.targetRoute) {
-    throw new WorkflowAccessDeniedError('WORKFLOW_TARGET_REQUIRED', 'This workflow capability requires one exact target.');
-  }
   if (specialist && input.targetRoute && !targetAllowedByAgentScope(specialist.targetScope, input.targetRoute)) {
     throw new WorkflowAccessDeniedError('WORKFLOW_TARGET_SCOPE_DENIED', 'The selected target is outside the Agent scope.');
   }
 
-  const mappings = specialist ? exactMappingsForSpecialist(input, specialist, effectiveCapabilityIds) : [];
-  const directAttachmentMode = Boolean(specialist)
-    && effectiveCapabilityIds.length === 0
-    && specialist!.semanticCapabilityIds.length === 0;
-  const directMcpTools = directAttachmentMode
+  const mappings = specialist ? mappingsForSpecialist(input, specialist, effectiveCapabilityIds) : [];
+  const inheritAgentAttachments = Boolean(specialist)
+    && input.workflow.capabilityPolicy.restrictionMode === 'inherit';
+  const directMcpTools = inheritAgentAttachments
     ? specialist!.mcpInstallations.flatMap((installation) => {
         if (!installation.enabled) return [];
         const constraints = installation.targetConstraints || { targetTypes: [], targetIds: [] };
@@ -210,7 +203,7 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
       candidate.serverId === ref.serverId && candidate.toolName === ref.toolName
     )) === index);
   const nativeToolIds = coordinator || input.delegatedSpecialist ? [] : uniqueSorted([
-    ...(directAttachmentMode ? specialist!.tools : []),
+    ...(inheritAgentAttachments ? specialist!.tools : []),
     ...mappings.flatMap((mapping) => mapping.nativeToolIds)
   ]);
   const mode = input.workflow.capabilityPolicy.mode;
@@ -219,6 +212,25 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
       candidate.serverId === ref.serverId && candidate.toolName === ref.toolName
     )) === index)
     .filter((ref) => mode === 'read_write' || ref.operation === 'read');
+  const targetToolRoutes = mappings.flatMap((mapping) => (
+    mapping.targetIds.length === 1 && mapping.targetTypes.length === 1
+      ? (mapping.targetToolRefs || []).map((ref) => ({
+          alias: ref.alias,
+          serverId: ref.serverId,
+          toolName: ref.toolName,
+          operation: ref.operation,
+          targetId: mapping.targetIds[0],
+          targetType: mapping.targetTypes[0]
+        }))
+      : []
+  )).filter((route, index, routes) => routes.findIndex((candidate) => (
+    candidate.alias === route.alias
+    && candidate.serverId === route.serverId
+    && candidate.toolName === route.toolName
+    && candidate.targetId === route.targetId
+    && candidate.targetType === route.targetType
+  )) === index)
+    .filter((route) => mode === 'read_write' || route.operation === 'read');
   const tools = uniqueSorted([
     ...mcpTools.map((ref) => ref.alias),
     ...targetToolRefs.map((ref) => ref.alias),
@@ -239,7 +251,7 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
   const effectiveRefs = mcpTools.filter((ref) => mode === 'read_write' || ref.operation === 'read');
   const contextGrants = uniqueSorted([
     ...requestedContext,
-    ...(directAttachmentMode ? specialist!.contextGrants : []),
+    ...(inheritAgentAttachments ? specialist!.contextGrants : []),
     ...mappings.flatMap((mapping) => mapping.contextGrants)
   ]);
   const permissionMode = mode === 'read_only' || !specialist || specialist.permissionMode === 'read_only'
@@ -264,11 +276,12 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
     mcpServers: uniqueSorted(effectiveRefs.map((ref) => ref.serverId)),
     mcpTools: effectiveRefs.map((ref) => ({ serverId: ref.serverId, toolName: ref.toolName })),
     targetToolRefs: targetToolRefs.map((ref) => ({ serverId: ref.serverId, toolName: ref.toolName })),
+    targetToolRoutes,
     tools: effectiveTools,
     toolOperations,
     nativeToolConfigs,
     enabledSkills: coordinator ? [] : uniqueSorted([
-      ...(directAttachmentMode
+      ...(inheritAgentAttachments
         ? specialist!.skillInstallations.filter((skill) => skill.enabled).map((skill) => skill.id)
         : []),
       ...mappings.flatMap((mapping) => mapping.skillIds)
@@ -297,6 +310,14 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
         allowed_tools: effectiveTools,
         allowed_tool_refs: effectiveRefs.map((ref) => ({ server_id: ref.serverId, tool_name: ref.toolName })),
         allowed_tool_operations: toolOperations,
+        allowed_target_tool_routes: targetToolRoutes.map((route) => ({
+          alias: route.alias,
+          server_id: route.serverId,
+          tool_name: route.toolName,
+          operation: route.operation,
+          target_id: route.targetId,
+          target_type: route.targetType
+        })),
         context_grants: executorContextGrants,
         resource_bindings: executorResourceBindings.map((binding) => ({
           binding_id: binding.bindingId,
@@ -329,7 +350,7 @@ export function compileWorkflowSessionCeiling(
     capabilityRestrictionMode: input.workflow.capabilityPolicy.restrictionMode,
     requiredPermissions,
     grantedCapabilities: requiredPermissions,
-    mcpServers: [], mcpTools: [], targetToolRefs: [], tools: [], toolOperations: {},
+    mcpServers: [], mcpTools: [], targetToolRefs: [], targetToolRoutes: [], tools: [], toolOperations: {},
     nativeToolConfigs: {}, enabledSkills: [],
     contextGrants: requestedContext,
     approvalGates: uniqueSorted(input.workflow.capabilityPolicy.approvalRequirements),
@@ -351,7 +372,7 @@ export function compileWorkflowSessionCeiling(
       executor_role: executor.role,
       ...(specialist ? { agent_id: specialist.id, agent_version: specialist.version } : {}),
       permissions: {
-        allowed_tools: [], allowed_tool_refs: [], allowed_tool_operations: {},
+        allowed_tools: [], allowed_tool_refs: [], allowed_tool_operations: {}, allowed_target_tool_routes: [],
         context_grants: requestedContext, resource_bindings: []
       }
     }
@@ -361,14 +382,16 @@ export function compileWorkflowSessionCeiling(
 export function selectDelegationCandidate(input: {
   workflow: WorkflowDefinitionForAccess;
   capabilityId: string;
-  target: { id: string; targetType: 'kubernetes' | 'virtual_machine' };
+  target?: { id: string; targetType: 'kubernetes' | 'virtual_machine' };
   agents: AgentDefinition[];
   mappings: CapabilityRoutingMapping[];
 }): { agent: AgentDefinition; mapping: CapabilityRoutingMapping } | null {
   const selected = new Set(input.workflow.agentIds);
   return input.mappings
     .filter((mapping) => mapping.capabilityId === input.capabilityId
-      && mappingCompatible(mapping, [input.target]))
+      && mapping.status === 'active'
+      && mapping.reviewState === 'reviewed'
+      && (!input.target || mappingCompatible(mapping, [input.target])))
     .map((mapping) => ({
       mapping,
       agent: input.agents.find((agent) => (
@@ -380,6 +403,6 @@ export function selectDelegationCandidate(input: {
       ))
     }))
     .filter((candidate): candidate is { mapping: CapabilityRoutingMapping; agent: AgentDefinition } => Boolean(candidate.agent))
-    .filter(({ agent }) => targetAllowedByAgentScope(agent.targetScope, input.target))
+    .filter(({ agent }) => !input.target || targetAllowedByAgentScope(agent.targetScope, input.target))
     .sort((left, right) => left.mapping.priority - right.mapping.priority || left.agent.id.localeCompare(right.agent.id))[0] || null;
 }

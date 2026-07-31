@@ -6,7 +6,6 @@ import {
   DEFAULT_MAX_CONCURRENT_DELEGATIONS,
   DEFAULT_MAX_DELEGATIONS
 } from '../services/coordination-functions.js';
-import { promptResourceRegistry } from '../services/prompt-resources/index.js';
 import {
   compileWorkflowAccessScope,
   selectDelegationCandidate
@@ -19,7 +18,6 @@ import {
   listWorkflowChildRuns
 } from '../store/repository-workflows.js';
 import { WorkflowDelegationConflictError } from '../store/repository-workflow-run-delegations.js';
-import type { TargetType } from '../types/domain.js';
 import type { WorkflowDefinitionForAccess } from '../types/workflows.js';
 import { toSingleParam } from '../utils/params.js';
 
@@ -68,13 +66,16 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
     const binding = req.body?.targetBinding as { id?: unknown; targetType?: unknown } | undefined;
     const targetId = typeof binding?.id === 'string' ? binding.id.trim() : '';
     const targetType = binding?.targetType;
+    const hasTargetBinding = Boolean(binding);
+    const validTargetBinding = !hasTargetBinding || (
+      Boolean(targetId) && (targetType === 'kubernetes' || targetType === 'virtual_machine')
+    );
     const required = req.body?.required !== false;
-    if (!toolCallId || !capabilityId || !taskPrompt || !targetId
-      || (targetType !== 'kubernetes' && targetType !== 'virtual_machine')) {
+    if (!toolCallId || !capabilityId || !taskPrompt || !validTargetBinding) {
       badRequest(
         res,
         'DELEGATION_REQUEST_INVALID',
-        'toolCallId, capabilityId, taskPrompt, and an exact targetBinding are required.',
+        'toolCallId, capabilityId, and taskPrompt are required; targetBinding must be exact when provided.',
         400
       );
       return;
@@ -98,19 +99,10 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
       badRequest(res, 'DELEGATION_PROMPT_SNAPSHOT_MISSING', 'The exact parent prompt is unavailable.');
       return;
     }
-    const targetGranted = parent.resourceBindings.some((resourceBinding) => {
-      const projection = promptResourceRegistry.projectRuntime([resourceBinding], parent.id);
-      const route = projection.targetRoute && typeof projection.targetRoute === 'object'
-        ? projection.targetRoute as Record<string, unknown>
-        : undefined;
-      return route?.id === targetId && route.targetType === targetType;
-    });
-    if (!targetGranted) {
-      badRequest(res, 'DELEGATION_TARGET_DENIED', 'The target is outside the pinned Workflow resources.', 403);
-      return;
-    }
-    const target = await (await import('../store/repository.js')).repo.getTarget(parent.workspaceId, targetId);
-    if (!target || target.status === 'offline' || target.targetType !== targetType) {
+    const target = hasTargetBinding
+      ? await (await import('../store/repository.js')).repo.getTarget(parent.workspaceId, targetId)
+      : undefined;
+    if (hasTargetBinding && (!target || target.status === 'offline' || target.targetType !== targetType)) {
       badRequest(res, 'DELEGATION_TARGET_NOT_READY', 'The exact target is unavailable or incompatible.');
       return;
     }
@@ -131,16 +123,28 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
     const selected = selectDelegationCandidate({
       workflow,
       capabilityId,
-      target: { id: targetId, targetType: targetType as TargetType },
+      ...(target ? { target: { id: target.id, targetType: target.targetType } } : {}),
       agents,
       mappings
     });
     if (!selected) {
       observeWorkflowDelegationOutcome('unavailable', Date.now() - startedAt);
-      badRequest(res, 'DELEGATION_SPECIALIST_UNAVAILABLE', 'No eligible reviewed specialist can handle this capability and target.');
+      badRequest(res, 'DELEGATION_SPECIALIST_UNAVAILABLE', 'No eligible reviewed specialist can handle this capability.');
       return;
     }
-    if (selected.mapping.contextGrants.some((grant) => !authorizationCeiling.contextGrants.includes(grant))) {
+    const selectedMappings = mappings.filter((mapping) => (
+      mapping.agentId === selected.agent.id
+      && mapping.agentVersion === selected.agent.version
+      && mapping.status === 'active'
+      && mapping.reviewState === 'reviewed'
+      && (!target || (
+        (!mapping.targetIds.length || mapping.targetIds.includes(target.id))
+        && (!mapping.targetTypes.length || mapping.targetTypes.includes(target.targetType))
+      ))
+    ));
+    if (selectedMappings.some((mapping) => (
+      mapping.contextGrants.some((grant) => !authorizationCeiling.contextGrants.includes(grant))
+    ))) {
       badRequest(res, 'DELEGATION_CONTEXT_DENIED', 'The specialist requires context outside the parent scope.', 403);
       return;
     }
@@ -157,7 +161,7 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
       selectedAgents: agents,
       specialistAgent: selected.agent,
       delegatedSpecialist: true,
-      mappings: [selected.mapping],
+      mappings: selectedMappings,
       actor: {
         userId: authorizationCeiling.actor.userId,
         role: authorizationCeiling.actor.role,
@@ -167,7 +171,7 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
       },
       approvedContextGrants: authorizationCeiling.contextGrants,
       principal: authorizationCeiling.principal,
-      targetRoute: { id: targetId, targetType: targetType as TargetType },
+      ...(target ? { targetRoute: { id: target.id, targetType: target.targetType } } : {}),
       resourceBindings: parent.resourceBindings,
       promptDigest: parent.promptDigest,
       bindingDigest: parent.bindingDigest
@@ -195,8 +199,8 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
       compiledAccessScope: compiledScope,
       toolCallId,
       capabilityId,
-      targetId,
-      targetType: targetType as TargetType,
+      targetId: target?.id,
+      targetType: target?.targetType,
       taskPrompt,
       required,
       maxConcurrentChildren: DEFAULT_MAX_CONCURRENT_DELEGATIONS,
@@ -207,7 +211,7 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
       childRunId: child.run.id,
       status: child.run.status,
       capabilityId,
-      targetBinding: { id: targetId, targetType },
+      ...(target ? { targetBinding: { id: target.id, targetType: target.targetType } } : {}),
       selectedAgentId: selected.agent.id
     });
   } catch (error) {
@@ -237,7 +241,9 @@ export async function awaitDelegations(req: Request, res: Response, next: NextFu
     const items = children.map((child) => ({
       childRunId: child.id,
       capabilityId: child.delegationCapabilityId,
-      targetBinding: { id: child.targetId, targetType: child.targetType },
+      ...(child.targetId && child.targetType
+        ? { targetBinding: { id: child.targetId, targetType: child.targetType } }
+        : {}),
       required: child.delegationRequired,
       selectedAgentId: child.agentId,
       status: child.status,

@@ -11,7 +11,6 @@ import type {
 } from '../../../types/prompt-resources.js';
 import { PromptResourceProviderError } from '../errors.js';
 import type { TargetType } from '../../../types/domain.js';
-import type { WorkflowDefinitionForAccess } from '../../../types/workflows.js';
 
 export interface TargetPromptResourceConstraints {
   targetTypes: TargetType[];
@@ -31,18 +30,6 @@ const descriptor: PromptReferenceTypeDescriptor = {
   provider: 'acornops.target-registry',
   providerVersion: '1'
 };
-
-export function workflowTargetPolicy(workflow: WorkflowDefinitionForAccess): TargetPromptResourceConstraints | undefined {
-  const requirement = workflow.resourceRequirements.find((item) => item.type === descriptor.type);
-  if (!requirement?.constraints) return undefined;
-  const targetTypes = Array.isArray(requirement.constraints.targetTypes)
-    ? requirement.constraints.targetTypes.filter((value): value is 'kubernetes' | 'virtual_machine' => value === 'kubernetes' || value === 'virtual_machine')
-    : [];
-  const targetIds = Array.isArray(requirement.constraints.targetIds)
-    ? requirement.constraints.targetIds.filter((value): value is string => typeof value === 'string')
-    : [];
-  return { targetTypes, targetIds };
-}
 
 function normalized(value: string): string {
   return value.normalize('NFC').toLocaleLowerCase();

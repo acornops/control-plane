@@ -180,9 +180,8 @@ describe('workflows management controller', () => {
       {
         name: 'Custom incident report',
         description: 'Generate a tailored incident report from selected chats.',
-        prompt: 'Generate {{text:report_title}} from {{chat:incident_context}}.',
+        prompt: 'Generate a report from the incident context named in the request.',
         agentIds: ['agent-incident-reporter'],
-        resourceRequirements: [{ type: 'chat', minimum: 1, maximum: 20, requiredOperations: ['read'] }],
         tags: ['incident', 'custom'],
         capabilityPolicy: {
           mode: 'read_only',
@@ -252,34 +251,22 @@ describe('workflows management controller', () => {
 
   });
 
-  it('rejects concrete target references outside the workflow resource policy', async () => {
+  it('accepts target names in plain workflow prompts without binding the workflow', async () => {
     installWorkspace('owner');
 
     const response = await callController(createWorkflow, createRequest(
       { workspaceId: 'workspace-1' },
       {
-        name: 'Out of policy concrete target',
-        prompt: 'Inspect @target[Test Cluster] and report findings.',
-        agentIds: ['agent-cluster-triage'],
-        resourceRequirements: [{
-          type: 'target',
-          minimum: 1,
-          maximum: 1,
-          requiredOperations: ['read'],
-          constraints: { targetIds: ['different-target'] }
-        }]
+        name: 'Prompt-selected target',
+        prompt: 'Inspect Test Cluster and report findings.',
+        agentIds: ['agent-cluster-triage']
       }
     ));
 
-    assert.equal(response.statusCode, 400);
-    assert.equal(
-      (response.body as { error: { code: string } }).error.code,
-      'WORKFLOW_PROMPT_REFERENCES_INVALID'
-    );
-    assert.match(
-      (response.body as { error: { message: string } }).error.message,
-      /outside this Workflow resource policy/
-    );
+    assert.equal(response.statusCode, 201);
+    const created = (response.body as { workflow: PublicWorkflowDefinition }).workflow;
+    assert.equal(created.prompt, 'Inspect Test Cluster and report findings.');
+    assert.equal('resourceRequirements' in created, false);
   });
 
   it('rejects unknown fields through the strict workflow request schema', async () => {

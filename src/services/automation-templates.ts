@@ -15,7 +15,6 @@ import { getWorkflowDefinition } from '../store/repository-workflows.js';
 import type { DefinitionOrigin } from '../types/agents.js';
 import type { WorkflowCapabilityMode } from '../types/workflows.js';
 import type { WorkflowCapabilityRestrictionMode, WorkflowStatus } from '../types/workflows.js';
-import type { PromptResourceRequirement } from '../types/prompt-resources.js';
 import { refreshAgentReadiness, refreshWorkflowReadiness } from './automation-readiness.js';
 import { effectiveWorkflowRuntimePolicy } from './workflow-runtime-policy.js';
 import { getWorkspaceNativeTool } from './workspace-native-tools.js';
@@ -47,7 +46,6 @@ export interface WorkflowTemplate {
   contextGrants?: string[];
   approvalRequirements?: string[];
   status?: WorkflowStatus;
-  resourceRequirements?: PromptResourceRequirement[];
   installMode: 'automatic' | 'opt_in';
   setupSteps: string[];
 }
@@ -100,8 +98,8 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       key: 'kubernetesAgent',
       name: 'Kubernetes Agent',
       avatarEmoji: '☸️',
-      description: 'Investigates and safely operates explicitly selected Kubernetes targets.',
-      instructions: 'Operate only on the exact Kubernetes target compiled for this run. Use live target evidence, distinguish observations from inferences, require approval before every write, verify changes, and provide rollback guidance.',
+      description: 'Investigates and safely operates Kubernetes targets identified in the request.',
+      instructions: 'Use the target identified by the request when calling target tools. Do not guess when a target name is ambiguous. Use live target evidence, distinguish observations from inferences, require approval before every write, verify changes, and provide rollback guidance.',
       semanticCapabilityIds: [
         'prompt.resources.read',
         'reports.pdf.generate',
@@ -115,8 +113,8 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       key: 'virtualMachineAgent',
       name: 'Virtual Machine Agent',
       avatarEmoji: '🖥️',
-      description: 'Investigates explicitly selected Linux virtual-machine targets.',
-      instructions: 'Operate only on the exact virtual-machine target compiled for this run. Use live target evidence, distinguish observations from inferences, preserve provenance, disclose missing inputs, and do not make changes.',
+      description: 'Investigates Linux virtual-machine targets identified in the request.',
+      instructions: 'Use the target identified by the request when calling target tools. Do not guess when a target name is ambiguous. Use live target evidence, distinguish observations from inferences, preserve provenance, disclose missing inputs, and do not make changes.',
       semanticCapabilityIds: [
         'prompt.resources.read',
         'reports.pdf.generate',
@@ -130,41 +128,38 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
     {
       key: 'kubernetesHealth',
       name: 'Kubernetes health check',
-      description: 'Inspect one Kubernetes target for workload failures, warning events, resource pressure, and relevant logs.',
-      prompt: "Assess the selected Kubernetes target's current health without making changes. Inspect workload readiness and availability, pod restarts, warning events, resource pressure, and relevant recent logs. Cite the exact evidence for each finding, distinguish observations from inferences, call out unavailable evidence, and finish with prioritized safe next actions.",
+      description: 'Inspect available Kubernetes targets for workload failures, warning events, resource pressure, and relevant logs.',
+      prompt: "Assess the available Kubernetes targets' current health without making changes. Use the Kubernetes Agent's target tools where relevant. Inspect workload readiness and availability, pod restarts, warning events, resource pressure, and relevant recent logs. Cite the exact target and evidence for each finding, distinguish observations from inferences, call out unavailable evidence, and finish with prioritized safe next actions.",
       agentKeys: ['kubernetesAgent'],
-      semanticCapabilityIds: ['target.diagnostics.read'],
+      semanticCapabilityIds: [],
       capabilityMode: 'read_only',
-      restrictionMode: 'restrict',
-      resourceRequirements: [{ type: 'target', minimum: 1, maximum: 1, requiredOperations: ['read'], constraints: { targetTypes: ['kubernetes'], targetIds: [] } }],
+      restrictionMode: 'inherit',
       installMode: 'automatic',
       setupSteps: []
     },
     {
       key: 'targetRemediation',
       name: 'Target remediation',
-      description: 'Diagnose and safely change one exact target with approval-gated writes.',
-      prompt: 'Diagnose the selected Kubernetes target using live evidence. Propose the smallest safe remediation, request approval before each mutation, verify the result, and summarize rollback guidance.',
+      description: 'Diagnose and safely change a Kubernetes target named in the request with approval-gated writes.',
+      prompt: 'Diagnose the Kubernetes target named in this request using live evidence. If the target is missing or ambiguous, explain what is needed instead of guessing. Propose the smallest safe remediation, request approval before each mutation, verify the result, and summarize rollback guidance.',
       agentKeys: ['kubernetesAgent'],
       semanticCapabilityIds: ['target.diagnostics.read', 'target.remediation.write'],
       capabilityMode: 'read_write',
       restrictionMode: 'restrict',
       approvalRequirements: ['Before every write-capable target tool'],
-      resourceRequirements: [{ type: 'target', minimum: 1, maximum: 1, requiredOperations: ['read', 'write'], constraints: { targetTypes: ['kubernetes'], targetIds: [] } }],
       status: 'paused',
       installMode: 'opt_in',
-      setupSteps: ['Add paused workflow', 'Select an exact Kubernetes target', 'Preview approval-gated tools', 'Activate']
+      setupSteps: ['Add paused workflow', 'Review approval-gated tools', 'Activate']
     },
     {
       key: 'virtualMachineHealth',
       name: 'Virtual machine health check',
-      description: 'Inspect one Linux VM for host pressure, degraded services, suspicious processes or listeners, and relevant logs.',
-      prompt: "Assess the selected Linux virtual machine's current health without making changes. Inspect the host summary, filesystem pressure, top processes, network listeners, degraded systemd services, and relevant allowlisted journal logs. Cite the exact evidence for each finding, distinguish observations from inferences, call out unavailable evidence, and finish with prioritized safe next actions.",
+      description: 'Inspect available Linux VMs for host pressure, degraded services, suspicious processes or listeners, and relevant logs.',
+      prompt: "Assess the available Linux virtual machines' current health without making changes. Use the Virtual Machine Agent's target tools where relevant. Inspect the host summary, filesystem pressure, top processes, network listeners, degraded systemd services, and relevant allowlisted journal logs. Cite the exact target and evidence for each finding, distinguish observations from inferences, call out unavailable evidence, and finish with prioritized safe next actions.",
       agentKeys: ['virtualMachineAgent'],
-      semanticCapabilityIds: ['target.diagnostics.read'],
+      semanticCapabilityIds: [],
       capabilityMode: 'read_only',
-      restrictionMode: 'restrict',
-      resourceRequirements: [{ type: 'target', minimum: 1, maximum: 1, requiredOperations: ['read'], constraints: { targetTypes: ['virtual_machine'], targetIds: [] } }],
+      restrictionMode: 'inherit',
       status: 'active',
       installMode: 'automatic',
       setupSteps: []
@@ -172,19 +167,15 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
     {
       key: 'managedResponse',
       name: 'Incident investigation',
-      description: 'Coordinate target diagnostics and incident reporting for an exact target and selected chats.',
-      prompt: 'Investigate the selected target and relevant incident context, then produce a provenance-preserving report with findings and safe next actions.',
+      description: 'Coordinate diagnostics and incident reporting from targets and context named in the request.',
+      prompt: 'Investigate the targets and incident context named in this request. Do not guess when a target is missing or ambiguous. Produce a provenance-preserving report with findings and safe next actions.',
       agentKeys: ['kubernetesAgent', 'virtualMachineAgent'],
       semanticCapabilityIds: ['prompt.resources.read', 'reports.pdf.generate', 'target.diagnostics.read'],
       capabilityMode: 'read_only',
       restrictionMode: 'restrict',
-      resourceRequirements: [
-        { type: 'target', minimum: 1, maximum: 1, requiredOperations: ['read'], constraints: { targetTypes: ['kubernetes', 'virtual_machine'], targetIds: [] } },
-        { type: 'chat', minimum: 1, maximum: 20, requiredOperations: ['read'] }
-      ],
       status: 'paused',
       installMode: 'opt_in',
-      setupSteps: ['Add paused workflow', 'Select an exact target and incident chats', 'Preview coordinated access', 'Activate']
+      setupSteps: ['Add paused workflow', 'Review coordinated access', 'Activate']
     }
   ]
 };
@@ -304,7 +295,6 @@ export async function insertStarterWorkflow(
     description: input.template.description,
     prompt: input.template.prompt,
     agentIds: input.template.agentKeys.map((key) => input.agentIds[key]),
-    resourceRequirements: input.template.resourceRequirements,
     capabilityPolicy,
     tags: [],
     requiredPermissions: [],

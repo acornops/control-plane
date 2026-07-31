@@ -17,6 +17,13 @@ export interface McpToolRef {
   toolName: string;
 }
 
+export interface TargetToolRoutePermission extends McpToolRef {
+  alias: string;
+  operation: WorkspaceAuditOperation;
+  targetId: string;
+  targetType: TargetType;
+}
+
 export interface ApprovalReceiptClaims {
   approvalId: string;
   runId: string;
@@ -45,6 +52,7 @@ interface BaseRunScopeClaims {
   allowedProviders: string[];
   allowedTools: string[];
   allowedToolRefs?: McpToolRef[];
+  allowedTargetToolRoutes?: TargetToolRoutePermission[];
   allowedNativeTools?: NativeToolPermission[];
   allowedToolOperations?: Record<string, WorkspaceAuditOperation>;
   maxOutputTokens?: number;
@@ -256,6 +264,31 @@ function mcpToolRefsClaim(value: unknown): McpToolRef[] {
   });
 }
 
+function targetToolRoutesClaim(value: unknown): TargetToolRoutePermission[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error('Gateway token permission allowed_target_tool_routes must be an array');
+  return value.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error('Gateway token target tool routes must be objects');
+    }
+    const item = entry as Record<string, unknown>;
+    if (typeof item.alias !== 'string' || typeof item.server_id !== 'string'
+      || typeof item.tool_name !== 'string' || typeof item.target_id !== 'string'
+      || typeof item.target_type !== 'string' || !isTargetType(item.target_type)
+      || (item.operation !== 'read' && item.operation !== 'write')) {
+      throw new Error('Gateway token target tool route is invalid');
+    }
+    return {
+      alias: item.alias,
+      serverId: item.server_id,
+      toolName: item.tool_name,
+      targetId: item.target_id,
+      targetType: item.target_type,
+      operation: item.operation
+    };
+  });
+}
+
 function principalClaim(value: unknown, userId?: string): RunPrincipalRef {
   if (value === undefined || value === null) {
     if (userId) return { type: 'user', id: userId };
@@ -320,6 +353,7 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
     allowedProviders: stringArrayClaim(permissionObject.allowed_providers, 'allowed_providers'),
     allowedTools: stringArrayClaim(permissionObject.allowed_tools, 'allowed_tools'),
     allowedToolRefs: mcpToolRefsClaim(permissionObject.allowed_tool_refs),
+    allowedTargetToolRoutes: targetToolRoutesClaim(permissionObject.allowed_target_tool_routes),
     allowedNativeTools: nativeToolPermissionsClaim(permissionObject.allowed_native_tools),
     allowedToolOperations: toolOperationMapClaim(permissionObject.allowed_tool_operations),
     allowedModels: stringArrayClaim(permissionObject.allowed_models, 'allowed_models'),
@@ -396,6 +430,14 @@ export class GatewayTokenService {
       allowed_tool_refs: (input.allowedToolRefs || []).map((ref) => ({
         server_id: ref.serverId,
         tool_name: ref.toolName
+      })),
+      allowed_target_tool_routes: (input.allowedTargetToolRoutes || []).map((route) => ({
+        alias: route.alias,
+        server_id: route.serverId,
+        tool_name: route.toolName,
+        operation: route.operation,
+        target_id: route.targetId,
+        target_type: route.targetType
       })),
       allowed_native_tools: input.allowedNativeTools || [],
       allowed_tool_operations: input.allowedToolOperations || {},

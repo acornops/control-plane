@@ -36,10 +36,12 @@ test('starter automation ships target-type Agents with fresh-install-ready targe
 test('starter Workflows select only the two target-type Agents', () => {
   const workflows = Object.fromEntries(STARTER_BUNDLE.workflows.map((workflow) => [workflow.key, workflow]));
   assert.deepEqual(workflows.kubernetesHealth.agentKeys, ['kubernetesAgent']);
-  assert.deepEqual(workflows.kubernetesHealth.resourceRequirements[0]?.constraints?.targetTypes, ['kubernetes']);
+  assert.equal(workflows.kubernetesHealth.restrictionMode, 'inherit');
+  assert.deepEqual(workflows.kubernetesHealth.semanticCapabilityIds, []);
   assert.match(workflows.kubernetesHealth.prompt, /without making changes/);
   assert.deepEqual(workflows.virtualMachineHealth.agentKeys, ['virtualMachineAgent']);
-  assert.deepEqual(workflows.virtualMachineHealth.resourceRequirements[0]?.constraints?.targetTypes, ['virtual_machine']);
+  assert.equal(workflows.virtualMachineHealth.restrictionMode, 'inherit');
+  assert.deepEqual(workflows.virtualMachineHealth.semanticCapabilityIds, []);
   assert.match(workflows.virtualMachineHealth.prompt, /without making changes/);
   assert.deepEqual(workflows.targetRemediation.agentKeys, ['kubernetesAgent']);
   assert.deepEqual(workflows.managedResponse.agentKeys, ['kubernetesAgent', 'virtualMachineAgent']);

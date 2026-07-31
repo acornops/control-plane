@@ -5,7 +5,6 @@ import { delegateSpecialist } from '../src/controllers/internal-delegation-contr
 import { createWorkflowScheduleForWorkspace } from '../src/controllers/workflow-schedules-controller.js';
 import { db } from '../src/infra/db.js';
 import { runAutomationOutboxTick } from '../src/services/automation-outbox-worker.js';
-import { promptResourceRegistry } from '../src/services/prompt-resources/index.js';
 import { runWorkflowScheduleTick } from '../src/services/workflow-scheduler.js';
 import {
   createWorkflowSchedule,
@@ -45,7 +44,7 @@ afterEach(() => {
 after(closeAutomationDatabaseFixtures);
 
 describe('coordinated Workflow schedules', () => {
-  it('pins the Agent ceiling and delegates from immutable resource bindings', async () => {
+  it('pins the Agent ceiling and delegates to a model-selected target', async () => {
     installWorkspace('admin');
     await db.query(
       `INSERT INTO workspace_memberships (workspace_id,user_id,role)
@@ -65,15 +64,8 @@ describe('coordinated Workflow schedules', () => {
     const workflow = await createWorkflowDefinition({
       workspaceId: 'workspace-1',
       name: 'Scheduled coordination',
-      prompt: 'Inspect {{target:target}} using a specialist.',
+      prompt: 'Inspect cluster-1 using a specialist.',
       agentIds: ['agent-cluster-triage', 'agent-incident-reporter'],
-      resourceRequirements: [{
-        type: 'target',
-        minimum: 1,
-        maximum: 1,
-        requiredOperations: ['read'],
-        constraints: { targetTypes: ['kubernetes'], targetIds: [] }
-      }],
       capabilityPolicy: {
         mode: 'read_only',
         restrictionMode: 'restrict',
@@ -124,10 +116,6 @@ describe('coordinated Workflow schedules', () => {
     assert.equal(persisted.rows[0].executor_role, 'coordinator');
     assert.deepEqual(persisted.rows[0].run_selected_agents, []);
     assert.equal(persisted.rows[0].ceiling_selected_agents.length, 2);
-    mock.method(promptResourceRegistry, 'resolve', async () => {
-      throw new Error('Delegation must use the immutable parent resource bindings.');
-    });
-
     const delegated = await callController(delegateSpecialist, createRequest(
       { runId: persisted.rows[0].run_id },
       {

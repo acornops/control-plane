@@ -3,7 +3,6 @@ import type {
   PromptResourceBinding,
   PromptResourceRequirement
 } from '../types/prompt-resources.js';
-import type { WorkflowDefinitionForAccess } from '../types/workflows.js';
 import { PromptResourceProviderError } from './prompt-resources/errors.js';
 import { promptResourceRegistry } from './prompt-resources/index.js';
 
@@ -70,7 +69,6 @@ export function workflowTemplateResourceCardinalityBlockers(input: {
 }
 
 export function validateWorkflowBindingCardinality(
-  workflow: WorkflowDefinitionForAccess,
   bindings: PromptResourceBinding[]
 ): void {
   const explicit = bindings.filter((binding) => binding.source !== 'implicit');
@@ -87,15 +85,6 @@ export function validateWorkflowBindingCardinality(
       throw new PromptResourceProviderError(
         'PROMPT_REFERENCE_CARDINALITY',
         `Prompt permits between ${descriptor.minimum} and ${descriptor.maximum} ${descriptor.type} resources; found ${count}.`
-      );
-    }
-  }
-  for (const requirement of workflow.resourceRequirements || []) {
-    const count = counts.get(requirement.type) || 0;
-    if (count < requirement.minimum || count > requirement.maximum) {
-      throw new PromptResourceProviderError(
-        'PROMPT_REFERENCE_CARDINALITY',
-        `Prompt requires between ${requirement.minimum} and ${requirement.maximum} ${requirement.type} resources; found ${count}.`
       );
     }
   }
