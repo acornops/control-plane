@@ -307,8 +307,8 @@
         ],
         "ingressPath": "POST /api/v1/workflow-webhooks/{webhookId}/events",
         "authorization": "read_workspace_data lists workflow webhooks; manage_workflows creates, updates, deletes, and rotates secrets; ingress is authenticated only by the webhook HMAC",
-        "webhookContract": "JSON body {inputs:{parameterKey:string}} plus X-AcornOps-Event-Id, X-AcornOps-Timestamp, and X-AcornOps-Signature=v1=<HMAC-SHA256(secret, timestamp.rawBody)>; 256 KiB maximum, five-minute timestamp window, replay-protected, bounded request attempts, and 60 accepted events per webhook per minute",
-        "dispatchPolicy": "Every delivery recompiles current workflow parameters, user-principal authorization, capability mappings, MCP readiness, AI policy, approvals, and execution idempotency; configuration failures auto-pause the webhook",
+        "webhookContract": "Any JSON object as event metadata plus X-AcornOps-Event-Id, X-AcornOps-Timestamp, and X-AcornOps-Signature=v1=<HMAC-SHA256(secret, timestamp.rawBody)>; metadata never changes the saved prompt; 256 KiB maximum, five-minute timestamp window, replay-protected, bounded request attempts, and 60 accepted events per webhook per minute",
+        "dispatchPolicy": "Every delivery recompiles the current saved workflow definition, user-principal authorization, capability mappings, MCP readiness, AI policy, approvals, and execution idempotency; configuration failures auto-pause the webhook",
         "secretPolicy": "Webhook secrets are encrypted at rest and returned only on creation or explicit rotation; rotation invalidates an already-verified request before durable acceptance"
       },
       "workflowActivityVisibility": {
@@ -463,7 +463,11 @@
           "allowedLogSources?"
         ],
         "workflowSchedule": [
-          "inputs.{parameterKey:string}",
+          "workflowId",
+          "name",
+          "cron",
+          "timezone",
+          "enabled?",
           "principal.{type=user,id=currentUserId}"
         ],
         "workflowWebhook": [
@@ -502,11 +506,12 @@
           "references[].{kind=tool|skill,id}?"
         ],
         "postWorkflowMessage": [
-          "launch.{kind=launch,inputs.{parameterKey:string},clientRequestId?}",
+          "launch.{kind=launch,clientRequestId?}",
           "followUp.{kind=follow_up,content,clientRequestId?}"
         ],
         "workflowCapabilityPreview": [
-          "inputs.{parameterKey:string}"
+          "workflowId",
+          "approvedContextGrants"
         ],
         "workflowDefinitionMutation": [
           "prompt",
@@ -702,7 +707,7 @@
           "status"
         ],
         "workflowDefinition": [
-          "parameters[].{key,type=text|target|chat,required=true}"
+          "saved prompt without runtime parameters"
         ],
         "promptReferenceDescriptor": [
           "type",
@@ -784,7 +789,6 @@
           "status",
           "cron",
           "timezone",
-          "inputs",
           "approvedContextGrants",
           "principal.{type=user,id}",
           "nextRunAt?",

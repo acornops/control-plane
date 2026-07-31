@@ -44,7 +44,7 @@ export function workflowMessageRequestFingerprint(
   body: Record<string, unknown>
 ): string {
   const request = body.kind === 'launch'
-    ? { kind: 'launch', inputs: body.inputs }
+    ? { kind: 'launch' }
     : { kind: 'follow_up', content: body.content };
   return createHash('sha256').update(canonicalJson(request), 'utf8').digest('hex');
 }

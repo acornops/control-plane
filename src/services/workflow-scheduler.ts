@@ -27,8 +27,6 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
     name: schedule.name,
     workspaceId: schedule.workspaceId,
     workflowId: schedule.workflowId,
-    parameterSignature: schedule.parameterSignature,
-    inputs: schedule.inputs,
     approvedContextGrants: schedule.approvedContextGrants,
     principal: schedule.principal,
     triggerType: 'schedule',
@@ -42,7 +40,7 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
       eventType: 'workflow.schedule_auto_paused.v1',
       operation: 'write',
       actorUserId: dispatch.reason === 'workflow_not_active'
-        || dispatch.reason === 'workflow_parameters_changed'
+        || dispatch.reason === 'workflow_definition_invalid'
         ? schedule.updatedBy.userId
         : schedule.createdBy.userId,
       objectType: 'workflow_schedule',

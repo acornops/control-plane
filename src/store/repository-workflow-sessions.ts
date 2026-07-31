@@ -22,7 +22,6 @@ export interface WorkflowSessionRecord {
   agentChatReadScope?: CompiledWorkflowAccessScope;
   agentChatCapabilityCeiling?: CompiledWorkflowAccessScope;
   launchedAt?: string;
-  launchResourceInputs: Record<string, string>;
   createdAt: string;
 }
 
@@ -46,7 +45,6 @@ function mapSession(row: Row): WorkflowSessionRecord {
     agentChatReadScope: row.agent_chat_read_scope || undefined,
     agentChatCapabilityCeiling: row.agent_chat_capability_ceiling || undefined,
     launchedAt: iso(row.launched_at),
-    launchResourceInputs: row.launch_resource_inputs || {},
     createdAt: iso(row.created_at)!
   };
 }

@@ -116,11 +116,10 @@ const workflowCapabilitiesPreviewBody = {
     'application/json': {
       schema: {
         type: 'object',
-        required: ['workspaceId', 'approvedContextGrants', 'inputs'],
+        required: ['workspaceId', 'approvedContextGrants'],
         properties: {
           workspaceId: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID },
-          approvedContextGrants: { type: 'array', items: { type: 'string' } },
-          inputs: { type: 'object', additionalProperties: { type: 'string' }, description: 'Exact runtime parameter values compiled using the same path as launch.' }
+          approvedContextGrants: { type: 'array', items: { type: 'string' } }
         },
         additionalProperties: false
       }
@@ -134,7 +133,7 @@ const workflowScheduleBody = {
     'application/json': {
       schema: {
         type: 'object',
-        required: ['workflowId', 'name', 'cron', 'timezone', 'inputs', 'principal'],
+        required: ['workflowId', 'name', 'cron', 'timezone', 'principal'],
         properties: {
           workspaceId: { type: 'string', format: 'uuid' },
           workflowId: { type: 'string' },
@@ -142,7 +141,6 @@ const workflowScheduleBody = {
           enabled: { type: 'boolean' },
           cron: { type: 'string', example: '0 9 * * 1-5' },
           timezone: { type: 'string', example: 'UTC' },
-          inputs: { type: 'object', additionalProperties: { type: 'string' }, description: 'Exact workflow runtime parameter values re-resolved and reauthorized for every occurrence.' },
           approvedContextGrants: { type: 'array', items: { type: 'string' } },
           principal: { type: 'object', required: ['type', 'id'], properties: {
             type: { type: 'string', enum: ['user'] }, id: { type: 'string' }
@@ -212,10 +210,10 @@ export function buildWorkflowPaths(): Record<string, unknown> {
     '/api/v1/workspaces/{workspaceId}/prompt-references/resolve': {
       post: {
         tags: ['prompt resources'], summary: 'Preview prompt resource resolution',
-        description: 'Authoring-only preview that parses concrete @type[label] references and returns derived runtime parameters. Run creation always resolves and authorizes again.',
+        description: 'Authoring-only preview that parses concrete @type[label] references. Run creation always resolves and authorizes again.',
         security: [{ userSession: [] }], parameters: [workspaceIdParameter],
         requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['prompt'], properties: { prompt: { type: 'string', maxLength: 32768 }, workflowId: { type: 'string' }, requirements: { type: 'array', items: { $ref: '#/components/schemas/PromptResourceRequirement' } } }, additionalProperties: false } } } },
-        responses: { '200': { description: 'Parsed concrete references, derived parameters, candidate status, binding preview, and blockers.' } }
+        responses: { '200': { description: 'Parsed concrete references, candidate status, binding preview, and blockers.' } }
       }
     },
     '/api/v1/workspaces/{workspaceId}/workflow-schedules': {
@@ -241,7 +239,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       patch: {
         tags: ['workflows'],
         summary: 'Update workflow schedule',
-        description: 'Updates schedule cadence, enabled state, workflow, grants, or runtime inputs. Requires manage_workflows.',
+        description: 'Updates schedule cadence, enabled state, workflow, or grants. Requires manage_workflows.',
         security: [{ userSession: [] }],
         parameters: [scheduleIdParameter],
         requestBody: workflowScheduleBody,
@@ -259,7 +257,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       post: {
         tags: ['workflows'],
         summary: 'Preview a workflow schedule',
-        description: 'Compiles the active workflow with the submitted inputs and validates context grants, cron, and timezone without creating or changing a schedule.',
+        description: 'Compiles the active saved workflow definition and validates context grants, cron, and timezone without creating or changing a schedule.',
         security: [{ userSession: [] }],
         parameters: [workspaceIdParameter],
         requestBody: workflowScheduleBody,
@@ -398,7 +396,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       post: {
         tags: ['workflows'],
         summary: 'Post a workflow session message and dispatch a run',
-        description: 'A session accepts one launch followed by ordinary follow-up messages. Idempotent launch retries return the original execution. Resource parameters are reauthorized by stable ID on every follow-up.',
+        description: 'A session accepts one parameterless launch followed by ordinary follow-up messages. Idempotent launch retries return the original execution.',
         security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
         parameters: [externalUserHeader, sessionIdParameter],
         requestBody: {
@@ -409,10 +407,9 @@ export function buildWorkflowPaths(): Record<string, unknown> {
                 oneOf: [
                   {
                     type: 'object',
-                    required: ['kind', 'inputs'],
+                    required: ['kind'],
                     properties: {
                       kind: { type: 'string', enum: ['launch'] },
-                      inputs: { type: 'object', additionalProperties: { type: 'string' } },
                       clientRequestId: {
                         type: 'string',
                         minLength: 1,

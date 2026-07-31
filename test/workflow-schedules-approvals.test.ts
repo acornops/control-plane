@@ -111,7 +111,6 @@ describe('workflow schedules and approval inbox', () => {
         name: 'Hourly triage',
         cron: '0 * * * *',
         timezone: 'UTC',
-        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
@@ -131,7 +130,6 @@ describe('workflow schedules and approval inbox', () => {
         cron: '0 9 * * 1-5',
         timezone: 'UTC',
         principal: { type: 'user', id: 'user-1' },
-        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
@@ -155,7 +153,6 @@ describe('workflow schedules and approval inbox', () => {
         cron: 'invalid',
         timezone: 'Not/AZone',
         principal: { type: 'user', id: 'user-1' },
-        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['unapproved_context']
       }
     ));
@@ -182,7 +179,6 @@ describe('workflow schedules and approval inbox', () => {
         timezone: 'UTC',
         enabled: true,
         principal: { type: 'user', id: 'user-1' },
-        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
@@ -221,7 +217,7 @@ describe('workflow schedules and approval inbox', () => {
         cron: '0 * * * *',
         timezone: 'UTC',
         principal: { type: 'service_identity', id: 'service-1' },
-        inputs: { target: 'cluster-1' }
+        approvedContextGrants: []
       }
     ));
 
@@ -257,7 +253,6 @@ describe('workflow schedules and approval inbox', () => {
         timezone: 'UTC',
         enabled: true,
         principal: { type: 'user', id: 'user-1' },
-        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
@@ -316,7 +311,6 @@ describe('workflow schedules and approval inbox', () => {
         timezone: 'UTC',
         enabled: true,
         principal: { type: 'user', id: 'user-1' },
-        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));

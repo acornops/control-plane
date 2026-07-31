@@ -144,7 +144,7 @@ export function buildWorkflowWebhookPaths(): Record<string, unknown> {
       post: {
         tags: ['workflows'],
         summary: 'Submit a signed workflow webhook event',
-        description: 'Accepts an inputs object after verifying X-AcornOps-Event-Id, X-AcornOps-Timestamp, and an HMAC SHA-256 X-AcornOps-Signature over `<timestamp>.<raw body>`. Events are replay-protected and limited to 256 KiB.',
+        description: 'Accepts signed event metadata after verifying X-AcornOps-Event-Id, X-AcornOps-Timestamp, and an HMAC SHA-256 X-AcornOps-Signature over `<timestamp>.<raw body>`. Event metadata does not alter the saved workflow prompt. Events are replay-protected and limited to 256 KiB.',
         security: [],
         parameters: [
           webhookIdParameter,
@@ -158,11 +158,7 @@ export function buildWorkflowWebhookPaths(): Record<string, unknown> {
             'application/json': {
               schema: {
                 type: 'object',
-                required: ['inputs'],
-                properties: {
-                  inputs: { type: 'object', additionalProperties: { type: 'string' } }
-                },
-                additionalProperties: false
+                additionalProperties: true
               }
             }
           }

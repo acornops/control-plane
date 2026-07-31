@@ -69,7 +69,6 @@ function scheduleInput(enabled = true): Record<string, unknown> {
     timezone: 'UTC',
     enabled,
     principal: { type: 'user', id: 'user-1' },
-    inputs: { target: 'cluster-1' },
     approvedContextGrants: ['workspace_metadata', 'target_inventory']
   };
 }
@@ -210,7 +209,7 @@ describe('workflow schedule MCP readiness', () => {
     assert.equal(audit?.metadata?.readinessCode, 'MCP_CONNECTION_REQUIRED');
   });
 
-  it('auto-pauses when the active workflow parameter set changes', async () => {
+  it('auto-pauses when the active workflow definition becomes invalid', async () => {
     installWorkspace('admin');
     mock.method(globalThis, 'fetch', async () => createReadyMcpReadinessResponse());
     const { repo } = await import('../src/store/repository.js');
@@ -228,10 +227,10 @@ describe('workflow schedule MCP readiness', () => {
     const schedule = (created.body as { schedule: { id: string; nextRunAt: string } }).schedule;
     await db.query(
       `UPDATE workflow_definitions
-       SET prompt='Treat {{text:target}} as ordinary text.',
-           resource_requirements='[]'::jsonb,
+       SET prompt=$3,
            version=version+1
-       WHERE workspace_id='workspace-1' AND id='cluster-triage'`
+       WHERE workspace_id=$1 AND id=$2`,
+      ['workspace-1', 'cluster-triage', 'x'.repeat(32_769)]
     );
 
     const result = await runWorkflowScheduleTick({ now: new Date(schedule.nextRunAt) });
@@ -246,7 +245,7 @@ describe('workflow schedule MCP readiness', () => {
     assert.equal(paused?.status, 'paused');
     assert.equal(paused?.lastStatus, 'auto_paused');
     const audit = auditEvents.find((event) => event.eventType === 'workflow.schedule_auto_paused.v1');
-    assert.equal(audit?.metadata?.reason, 'workflow_parameters_changed');
+    assert.equal(audit?.metadata?.reason, 'workflow_definition_invalid');
   });
 
   it('auto-pauses when a stored resource is no longer authorized', async () => {

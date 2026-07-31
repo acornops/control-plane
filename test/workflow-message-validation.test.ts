@@ -38,7 +38,6 @@ test('workflow messages reject malformed optional client request IDs before disp
       { sessionId },
       {
         kind: 'launch',
-        inputs: { target: 'cluster-1' },
         clientRequestId
       }
     ));

@@ -81,7 +81,7 @@ export function parsePromptReferences(rawPrompt: string): PromptReferenceParseRe
     }
     const normalizedLabel = label.normalize('NFC').trim();
     if (!normalizedLabel) {
-      errors.push(malformed(start, cursor, 'Prompt references must select a concrete resource. Use {{type:key}} for runtime input.'));
+      errors.push(malformed(start, cursor, 'Prompt references must select a concrete resource with @type[label].'));
       index = cursor - 1;
       continue;
     }

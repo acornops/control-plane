@@ -31,8 +31,7 @@ import { toSingleParam } from '../utils/params.js';
 import { PromptResourceProviderError } from '../services/prompt-resources/errors.js';
 import {
   compileWorkflowPrompt,
-  workflowParameterSignature,
-  WorkflowParameterValuesError,
+  EMPTY_WORKFLOW_INPUT_SIGNATURE,
   WorkflowTemplateValidationError
 } from '../services/workflow-template.js';
 import { getWorkflowScheduleMcpReadinessReport } from '../services/workflow-schedule-readiness.js';
@@ -44,16 +43,15 @@ function objectBody(req: AuthenticatedRequest): Record<string, unknown> {
   return req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {};
 }
 
-function inputRecord(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  return value as Record<string, unknown>;
-}
-
 function publicSchedule(
   schedule: WorkflowScheduleRecord,
   latestExecution: Awaited<ReturnType<typeof getWorkflowExecutionSummary>> = null
 ) {
-  const { parameterSignature: _parameterSignature, ...result } = schedule;
+  const {
+    parameterSignature: _parameterSignature,
+    inputs: _inputs,
+    ...result
+  } = schedule;
   return {
     ...result,
     latestExecution
@@ -76,7 +74,6 @@ export async function previewWorkflowSchedule(req: AuthenticatedRequest, res: Re
     const workflowId = typeof body.workflowId === 'string' ? body.workflowId.trim() : '';
     const cron = typeof body.cron === 'string' ? body.cron.trim() : '';
     const timezone = typeof body.timezone === 'string' ? body.timezone.trim() : '';
-    const inputs = inputRecord(body.inputs);
     const approvedContextGrants = stringList(body.approvedContextGrants);
     const errors: Array<{ field: string; message: string }> = [];
     const principal = principalRef(body.principal);
@@ -101,15 +98,12 @@ export async function previewWorkflowSchedule(req: AuthenticatedRequest, res: Re
       try {
         resolution = await compileWorkflowPrompt({
           workflow,
-          inputValues: inputs,
           actorUserId: req.auth.userId,
           source: 'trigger'
         });
       } catch (error) {
-        if (error instanceof WorkflowParameterValuesError) {
-          error.errors.forEach((item) => errors.push({ field: item.key ? `inputs.${item.key}` : 'inputs', message: item.message }));
-        } else if (error instanceof WorkflowTemplateValidationError || error instanceof PromptResourceProviderError) {
-          errors.push({ field: 'inputs', message: error.message });
+        if (error instanceof WorkflowTemplateValidationError || error instanceof PromptResourceProviderError) {
+          errors.push({ field: 'workflowId', message: error.message });
         } else {
           throw error;
         }
@@ -201,12 +195,6 @@ function validateScheduleInput(body: Record<string, unknown>, partial = false): 
   if (!partial && !name) return { ok: false, code: 'SCHEDULE_NAME_REQUIRED', message: 'Schedule name is required.' };
   if (!partial && !cron) return { ok: false, code: 'SCHEDULE_CRON_REQUIRED', message: 'Cron expression is required.' };
   if (!partial && !timezone) return { ok: false, code: 'SCHEDULE_TIMEZONE_REQUIRED', message: 'Timezone is required.' };
-  if (!partial && (!body.inputs || typeof body.inputs !== 'object' || Array.isArray(body.inputs))) {
-    return { ok: false, code: 'WORKFLOW_SCHEDULE_INPUTS_REQUIRED', message: 'inputs must be an object.' };
-  }
-  if (partial && body.inputs !== undefined && (!body.inputs || typeof body.inputs !== 'object' || Array.isArray(body.inputs))) {
-    return { ok: false, code: 'WORKFLOW_SCHEDULE_INPUTS_INVALID', message: 'inputs must be an object.' };
-  }
   if (cron && !validateWorkflowScheduleCron(cron)) return { ok: false, code: 'INVALID_CRON', message: 'Cron expression must use five valid fields.' };
   if (timezone && !validateWorkflowScheduleTimezone(timezone)) return { ok: false, code: 'INVALID_TIMEZONE', message: 'Timezone is not recognized.' };
   return { ok: true };
@@ -266,7 +254,6 @@ export async function createWorkflowScheduleForWorkspace(req: AuthenticatedReque
     }
     const resolution = await compileWorkflowPrompt({
       workflow,
-      inputValues: inputRecord(body.inputs),
       actorUserId: principal.id,
       source: 'trigger'
     });
@@ -287,7 +274,7 @@ export async function createWorkflowScheduleForWorkspace(req: AuthenticatedReque
     const schedule = await createWorkflowSchedule({
       workspaceId,
       workflowVersion: workflow.version,
-      parameterSignature: workflowParameterSignature(workflow.parameters),
+      parameterSignature: EMPTY_WORKFLOW_INPUT_SIGNATURE,
       actorUserId: req.auth.userId,
       input: {
         workflowId: workflow.id,
@@ -295,7 +282,6 @@ export async function createWorkflowScheduleForWorkspace(req: AuthenticatedReque
         enabled: body.enabled !== false,
         cron: String(body.cron),
         timezone: String(body.timezone),
-        inputs: resolution.inputValues,
         approvedContextGrants: stringList(body.approvedContextGrants),
         principal
       }
@@ -314,15 +300,6 @@ export async function createWorkflowScheduleForWorkspace(req: AuthenticatedReque
     });
     res.status(201).json({ schedule: publicSchedule(schedule) });
   } catch (err) {
-    if (err instanceof WorkflowParameterValuesError) {
-      res.status(400).json({ error: {
-        code: 'WORKFLOW_PARAMETER_VALUES_INVALID',
-        message: err.message,
-        retryable: false,
-        details: { errors: err.errors }
-      } });
-      return;
-    }
     if (err instanceof WorkflowTemplateValidationError) {
       res.status(400).json({ error: {
         code: 'WORKFLOW_PROMPT_TEMPLATE_INVALID',
@@ -388,10 +365,8 @@ export async function updateWorkflowSchedule(req: AuthenticatedRequest, res: Res
       res.status(403).json({ error: { code: 'WORKFLOW_SCHEDULE_PRINCIPAL_INVALID', message: 'The schedule user is not active or authorized in this workspace.', retryable: false } });
       return;
     }
-    const inputs = body.inputs === undefined ? current.inputs : inputRecord(body.inputs);
     const resolution = await compileWorkflowPrompt({
       workflow,
-      inputValues: inputs,
       actorUserId: principal.id,
       source: 'trigger'
     });
@@ -421,13 +396,12 @@ export async function updateWorkflowSchedule(req: AuthenticatedRequest, res: Res
       {
         workflowId,
         workflowVersion: workflow.version,
-        parameterSignature: workflowParameterSignature(workflow.parameters),
+        parameterSignature: EMPTY_WORKFLOW_INPUT_SIGNATURE,
         name: typeof body.name === 'string' ? body.name : undefined,
         enabled: typeof body.enabled === 'boolean' ? body.enabled : undefined,
         status: body.status === 'enabled' || body.status === 'paused' ? body.status : undefined,
         cron: typeof body.cron === 'string' ? body.cron : undefined,
         timezone: typeof body.timezone === 'string' ? body.timezone : undefined,
-        inputs: body.inputs === undefined ? undefined : resolution.inputValues,
         approvedContextGrants: body.approvedContextGrants === undefined ? undefined : stringList(body.approvedContextGrants),
         principal
       },
@@ -450,15 +424,6 @@ export async function updateWorkflowSchedule(req: AuthenticatedRequest, res: Res
       : null;
     res.status(200).json({ schedule: updated ? publicSchedule(updated, latestExecution) : null });
   } catch (err) {
-    if (err instanceof WorkflowParameterValuesError) {
-      res.status(400).json({ error: {
-        code: 'WORKFLOW_PARAMETER_VALUES_INVALID',
-        message: err.message,
-        retryable: false,
-        details: { errors: err.errors }
-      } });
-      return;
-    }
     if (err instanceof WorkflowTemplateValidationError) {
       res.status(400).json({ error: {
         code: 'WORKFLOW_PROMPT_TEMPLATE_INVALID',

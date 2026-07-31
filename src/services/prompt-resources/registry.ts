@@ -223,7 +223,7 @@ export class PromptResourceRegistry {
     }
     const descriptor = provider.descriptor();
     if (!provider.resolveById) {
-      throw new PromptResourceProviderError('PROMPT_REFERENCE_DENIED', `${descriptor.displayName} does not support runtime parameter selection.`);
+      throw new PromptResourceProviderError('PROMPT_REFERENCE_DENIED', `${descriptor.displayName} does not support direct resource selection.`);
     }
     const candidate = validateCandidate(
       descriptor,

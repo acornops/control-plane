@@ -96,7 +96,6 @@ describe('coordinated Workflow schedules', () => {
         timezone: 'UTC',
         enabled: true,
         principal: { type: 'user', id: 'user-1' },
-        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
@@ -164,7 +163,6 @@ describe('coordinated Workflow schedules', () => {
         timezone: 'UTC',
         status: 'enabled',
         principal: { type: 'user', id: 'user-1' },
-        inputs: { target: 'cluster-1' },
         approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     });

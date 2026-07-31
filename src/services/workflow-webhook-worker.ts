@@ -16,21 +16,6 @@ import {
   sanitizeWorkflowTriggerError
 } from './workflow-trigger-dispatch.js';
 
-function nestedRecord(value: unknown, key: string): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  const nested = (value as Record<string, unknown>)[key];
-  return nested && typeof nested === 'object' && !Array.isArray(nested)
-    ? nested as Record<string, unknown>
-    : {};
-}
-
-function deliveryInputs(delivery: ClaimedWorkflowWebhookDelivery): Record<string, string> {
-  const inputs = nestedRecord(delivery.payload, 'inputs');
-  return Object.fromEntries(
-    Object.entries(inputs).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-  );
-}
-
 async function auditDispatch(
   delivery: ClaimedWorkflowWebhookDelivery,
   eventType: string,
@@ -102,29 +87,27 @@ async function processDelivery(delivery: ClaimedWorkflowWebhookDelivery): Promis
       name: currentWebhook.name,
       workspaceId: delivery.workspaceId,
       workflowId: currentWebhook.workflowId,
-      parameterSignature: currentWebhook.parameterSignature,
-      inputs: deliveryInputs(effectiveDelivery),
       approvedContextGrants: currentWebhook.approvedContextGrants,
       principal: currentWebhook.principal,
       triggerType: 'webhook',
       occurrenceKey: delivery.occurrenceKey
     });
     if (dispatch.outcome === 'auto_paused') {
-      const inputRejected = dispatch.reason === 'input_invalid';
+      const definitionRejected = dispatch.reason === 'workflow_definition_invalid';
       await finishWorkflowWebhookDelivery({
         delivery: effectiveDelivery,
         status: 'rejected',
-        webhookStatus: inputRejected ? 'rejected' : 'auto_paused',
+        webhookStatus: definitionRejected ? 'rejected' : 'auto_paused',
         error: dispatch.error,
-        pauseWebhook: !inputRejected
+        pauseWebhook: !definitionRejected
       });
       await auditDispatch(
         effectiveDelivery,
-        inputRejected
+        definitionRejected
           ? 'workflow.webhook_rejected.v1'
           : 'workflow.webhook_auto_paused.v1',
-        inputRejected
-          ? 'Workflow webhook input rejected'
+        definitionRejected
+          ? 'Workflow webhook definition rejected'
           : 'Workflow webhook auto-paused',
         { reason: dispatch.reason }
       );

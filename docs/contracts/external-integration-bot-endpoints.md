@@ -340,21 +340,12 @@ Content-Type: application/json
 ```json
 {
   "kind": "launch",
-  "inputs": {
-    "cluster": "target-id",
-    "investigation_focus": "Start by showing the compiled read scope."
-  },
   "clientRequestId": "mattermost-post-id"
 }
 ```
 
-Workflow responses expose `parameters` derived from the saved prompt. Launch
-`inputs` must contain exactly those keys. Text parameters contain operator
-text; target and chat parameters contain stable resource IDs rather than
-labels. The control plane compiles the saved prompt, resolves concrete
-`@type[label]` references, resolves resource parameters by ID, and performs the
-same authorization used by interactive launch and schedules. A second launch
-is rejected, while an exact idempotent retry returns the original execution.
+Workflow launches do not accept runtime prompt parameters. A second launch is
+rejected, while an exact idempotent retry returns the original execution.
 
 Post later thread replies as ordinary follow-ups:
 

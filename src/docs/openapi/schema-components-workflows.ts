@@ -55,7 +55,7 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
     },
     WorkflowDefinition: {
       type: 'object',
-      required: ['id', 'workspaceId', 'version', 'origin', 'name', 'status', 'prompt', 'agentIds', 'executionMode', 'resourceRequirements', 'capabilityPolicy', 'parameters', 'requiredPermissions', 'createdBy'],
+      required: ['id', 'workspaceId', 'version', 'origin', 'name', 'status', 'prompt', 'agentIds', 'executionMode', 'resourceRequirements', 'capabilityPolicy', 'requiredPermissions', 'createdBy'],
       properties: {
         id: workflowId,
         workspaceId: uuid,
@@ -70,20 +70,6 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         resourceRequirements: { type: 'array', items: schemaRef('PromptResourceRequirement') },
         capabilityPolicy: schemaRef('WorkflowCapabilityPolicy'),
         tags: stringArray,
-        parameters: {
-          type: 'array',
-          readOnly: true,
-          items: {
-            type: 'object',
-            required: ['key', 'type', 'required'],
-            properties: {
-              key: { type: 'string', pattern: '^[a-z][a-z0-9_]{0,63}$' },
-              type: { type: 'string', enum: ['text', 'target', 'chat'] },
-              required: { type: 'boolean', enum: [true] }
-            },
-            additionalProperties: false
-          }
-        },
         requiredPermissions: stringArray,
         createdBy: { type: 'string' },
         createdAt: dateTime,
@@ -280,10 +266,6 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         status: { type: 'string', enum: ['enabled', 'paused'] },
         cron: { type: 'string' },
         timezone: { type: 'string' },
-        inputs: {
-          type: 'object',
-          additionalProperties: { type: 'string' }
-        },
         approvedContextGrants: stringArray,
         principal: {
           type: 'object',
@@ -358,11 +340,10 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
     },
     PromptResourceCandidateList: { type: 'object', required: ['items'], properties: { items: { type: 'array', items: schemaRef('PromptResourceCandidate') } }, additionalProperties: false },
     PromptReferenceResolution: {
-      type: 'object', required: ['prompt', 'promptDigest', 'bindingDigest', 'tokens', 'parameters', 'candidates', 'bindings', 'blockers', 'resolvedAt'],
+      type: 'object', required: ['prompt', 'promptDigest', 'bindingDigest', 'tokens', 'candidates', 'bindings', 'blockers', 'resolvedAt'],
       properties: {
         prompt: { type: 'string' }, promptDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' }, bindingDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
         tokens: { type: 'array', items: { type: 'object', required: ['type', 'label', 'start', 'end'], properties: { type: { type: 'string' }, label: { type: 'string' }, start: { type: 'integer' }, end: { type: 'integer' } }, additionalProperties: false } },
-        parameters: { type: 'array', items: { type: 'object', required: ['key', 'type', 'required'], properties: { key: { type: 'string' }, type: { type: 'string', enum: ['text', 'target', 'chat'] }, required: { type: 'boolean', enum: [true] } }, additionalProperties: false } },
         candidates: { type: 'array', items: { oneOf: [schemaRef('PromptResourceCandidate'), { type: 'null' }] } },
         bindings: { type: 'array', items: jsonObject },
         blockers: { type: 'array', items: { type: 'object', required: ['code', 'message', 'retryable'], properties: { code: { type: 'string' }, message: { type: 'string' }, tokenIndex: { type: 'integer' }, type: { type: 'string' }, retryable: { type: 'boolean' } }, additionalProperties: false } },

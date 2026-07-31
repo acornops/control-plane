@@ -140,7 +140,6 @@ describe('workflow external integration access', () => {
       { sessionId },
       {
         kind: 'launch',
-        inputs: { target: 'cluster-1' }
       }
     ));
     assert.equal(missingRequestId.statusCode, 400);
@@ -153,7 +152,6 @@ describe('workflow external integration access', () => {
       { sessionId },
       {
         kind: 'launch',
-        inputs: { target: 'cluster-1' },
         clientRequestId: 123
       }
     ));
@@ -167,7 +165,6 @@ describe('workflow external integration access', () => {
       { sessionId },
       {
         kind: 'launch',
-        inputs: { target: 'cluster-1' },
         clientRequestId: 'external-message-other-link',
       }
     );
@@ -183,7 +180,6 @@ describe('workflow external integration access', () => {
   it('creates fresh gated executions on replies and permits only exact-origin decisions', async () => {
     installWorkspace('admin');
     installExternalWriteGrant();
-    const incidentChat = await repo.addSession('workspace-1', 'cluster-1', 'user-1', 'Payments incident');
     mock.method(globalThis, 'fetch', async (input) => {
       if (isWorkspaceAiCredentialStatusRequest(input)) {
         return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse('workspace-1')), { status: 200 });
@@ -202,10 +198,6 @@ describe('workflow external integration access', () => {
       { sessionId },
       {
         kind: 'launch',
-        inputs: {
-          report_title: 'Payments incident',
-          incident_context: incidentChat.id
-        },
         clientRequestId
       }
     )));
@@ -221,17 +213,6 @@ describe('workflow external integration access', () => {
       launch('external-gated-message-1'),
       launch('external-gated-message-1')
     ]);
-    const changedRetry = await callController(postMessage, withWriteCapability(createExternalIntegrationRequest(
-      { sessionId },
-      {
-        kind: 'launch',
-        inputs: {
-          report_title: 'A different report',
-          incident_context: incidentChat.id
-        },
-        clientRequestId: 'external-gated-message-1'
-      }
-    )));
     await updateWorkflowDefinitionScope('workspace-1', 'incident-report-pdf', {
       prompt: 'Updated prompt for future sessions only.'
     });
@@ -239,11 +220,6 @@ describe('workflow external integration access', () => {
     const second = await followUp('external-gated-message-3');
     assert.equal(first.statusCode, 202);
     assert.equal(firstRetry.statusCode, 202);
-    assert.equal(changedRetry.statusCode, 409);
-    assert.equal(
-      (changedRetry.body as { error: { code: string } }).error.code,
-      'WORKFLOW_CLIENT_REQUEST_ID_CONFLICT'
-    );
     assert.equal(secondLaunch.statusCode, 409);
     assert.equal(
       (secondLaunch.body as { error: { code: string } }).error.code,
@@ -266,12 +242,12 @@ describe('workflow external integration access', () => {
     );
     const firstRun = await getWorkflowRun(firstBody.run_id);
     assert.ok(firstRun);
-    assert.deepEqual(firstRun.resourceBindings.map((binding) => binding.type), ['chat']);
+    assert.deepEqual(firstRun.resourceBindings, []);
     const followUpRun = await getWorkflowRun(secondBody.run_id);
     assert.ok(followUpRun);
     assert.deepEqual(
       followUpRun.resourceBindings.map((binding) => binding.type).sort(),
-      ['chat', 'workflow_session']
+      ['workflow_session']
     );
     assert.equal(
       followUpRun.resourceBindings.filter((binding) => binding.type === 'workflow_session').length,

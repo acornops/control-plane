@@ -122,14 +122,12 @@ export async function resolvePromptReferences(req: AuthenticatedRequest, res: Re
       includeImplicit: false
     });
     const cardinalityBlockers = workflowTemplateResourceCardinalityBlockers({
-      parameters: template.parameters,
       concreteBindings: result.bindings,
       requirements
     });
     res.status(200).json({
       ...result,
-      blockers: [...result.blockers, ...cardinalityBlockers],
-      parameters: template.parameters
+      blockers: [...result.blockers, ...cardinalityBlockers]
     });
   } catch (error) { next(error); }
 }

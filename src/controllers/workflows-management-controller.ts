@@ -203,7 +203,6 @@ async function validateAuthoringPrompt(
     );
   }
   const cardinalityBlockers = workflowTemplateResourceCardinalityBlockers({
-    parameters: template.parameters,
     concreteBindings: resolution.bindings,
     requirements
   });

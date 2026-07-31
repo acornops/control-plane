@@ -31,7 +31,6 @@ import { promptResourceRegistry } from '../services/prompt-resources/index.js';
 import { PromptResourceProviderError } from '../services/prompt-resources/errors.js';
 import {
   compileWorkflowPrompt,
-  WorkflowParameterValuesError,
   WorkflowTemplateValidationError
 } from '../services/workflow-template.js';
 import { isTargetType, type TargetSummary } from '../types/domain.js';
@@ -228,18 +227,8 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
     if (!authz) return;
     const requiredCapability = workflow.capabilityPolicy.mode === 'read_write' ? 'create_read_write_runs' : 'create_read_only_runs';
     if (!authz.can(requiredCapability)) return void res.status(403).json({ error: { code: 'FORBIDDEN', message: 'No permission to preview this workflow run.', retryable: false } });
-    if (!req.body?.inputs || typeof req.body.inputs !== 'object' || Array.isArray(req.body.inputs)) {
-      return void res.status(400).json({ error: {
-        code: 'WORKFLOW_PARAMETER_VALUES_INVALID',
-        message: 'One or more workflow parameter values are invalid.',
-        retryable: false,
-        details: { errors: [{ key: '', code: 'WORKFLOW_PARAMETER_VALUE_INVALID', message: 'inputs must be an object.' }] }
-      } });
-    }
-    const inputs = req.body.inputs as Record<string, unknown>;
     const referenceResolution = await compileWorkflowPrompt({
       workflow,
-      inputValues: inputs,
       actorUserId: req.auth.userId
     });
     const runtimeProjection = promptResourceRegistry.projectRuntime(referenceResolution.bindings, 'capability-preview');
@@ -363,14 +352,6 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
     res.status(200).json(response);
   } catch (error) {
     if (error instanceof WorkflowAccessDeniedError) return respondWorkflowAccessError(res, error);
-    if (error instanceof WorkflowParameterValuesError) {
-      return void res.status(400).json({ error: {
-        code: 'WORKFLOW_PARAMETER_VALUES_INVALID',
-        message: error.message,
-        retryable: false,
-        details: { errors: error.errors }
-      } });
-    }
     if (error instanceof WorkflowTemplateValidationError) {
       return void res.status(400).json({ error: {
         code: 'WORKFLOW_PROMPT_TEMPLATE_INVALID',

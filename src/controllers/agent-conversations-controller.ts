@@ -279,7 +279,7 @@ export async function postAgentConversationMessage(req: AuthenticatedRequest, re
     req.params.sessionId = session.id;
     req.body = session.launchedAt
       ? { kind: 'follow_up', content, clientRequestId: req.body?.clientRequestId }
-      : { kind: 'launch', inputs: { message: content }, clientRequestId: req.body?.clientRequestId };
+      : { kind: 'launch', content, clientRequestId: req.body?.clientRequestId };
     await postWorkflowMessage(req, res, next);
   } catch (error) {
     next(error);

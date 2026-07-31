@@ -3,10 +3,7 @@ import type {
   PromptResourceBinding,
   PromptResourceRequirement
 } from '../types/prompt-resources.js';
-import type {
-  WorkflowDefinitionForAccess,
-  WorkflowParameterDefinition
-} from '../types/workflows.js';
+import type { WorkflowDefinitionForAccess } from '../types/workflows.js';
 import { PromptResourceProviderError } from './prompt-resources/errors.js';
 import { promptResourceRegistry } from './prompt-resources/index.js';
 
@@ -21,16 +18,11 @@ function explicitResourceCounts(bindings: PromptResourceBinding[]): Map<string, 
 }
 
 export function workflowTemplateResourceCardinalityBlockers(input: {
-  parameters: WorkflowParameterDefinition[];
   concreteBindings: PromptResourceBinding[];
   requirements: PromptResourceRequirement[];
 }): PromptReferenceBlocker[] {
   const blockers: PromptReferenceBlocker[] = [];
   const counts = explicitResourceCounts(input.concreteBindings);
-  input.parameters
-    .filter((parameter) => parameter.type === 'target' || parameter.type === 'chat')
-    .forEach((parameter) => counts.set(parameter.type, (counts.get(parameter.type) || 0) + 1));
-
   const aggregateCount = [...counts.values()].reduce((sum, count) => sum + count, 0);
   if (aggregateCount > MAX_WORKFLOW_RESOURCE_BINDINGS) {
     blockers.push({

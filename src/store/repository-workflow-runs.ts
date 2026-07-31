@@ -264,7 +264,7 @@ export async function createWorkflowExecution(params: {
   llmModel?: string;
   llmReasoningSummaryMode?: WorkflowRunRecord['llmReasoningSummaryMode'];
   llmReasoningEffort?: WorkflowRunRecord['llmReasoningEffort'];
-  launchResourceInputs?: Record<string, string>;
+  markSessionLaunched?: boolean;
 }): Promise<{
   execution: WorkflowExecutionRecord;
   message: WorkflowMessageRecord;
@@ -302,13 +302,13 @@ export async function createWorkflowExecution(params: {
           agent: params.specialistSnapshot || (() => { throw new Error('SPECIALIST_EXECUTOR_SNAPSHOT_REQUIRED'); })()
         };
     const approvalGates = compiledAccessScope.approvalGates;
-    if (params.launchResourceInputs) {
+    if (params.markSessionLaunched) {
       const launchResult = await client.query(
         `UPDATE workflow_sessions
-         SET launched_at=NOW(),launch_resource_inputs=$2
+         SET launched_at=NOW(),launch_resource_inputs='{}'::jsonb
          WHERE id=$1 AND launched_at IS NULL
          RETURNING id`,
-        [params.session.id, JSON.stringify(params.launchResourceInputs)]
+        [params.session.id]
       );
       if (!launchResult.rowCount) {
         const error = new Error('Workflow session was already launched.');

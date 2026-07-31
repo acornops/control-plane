@@ -102,7 +102,6 @@ describe('external integration Workflow launch', () => {
       { sessionId },
       {
         kind: 'launch',
-        inputs: { target: 'cluster-1' },
         clientRequestId: 'external-triage-message-1'
       }
     ));

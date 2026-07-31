@@ -25,8 +25,6 @@ import { resolveEffectiveWorkflowCapabilityIds } from './workflow-capability-pol
 import { getWorkflowCapabilityReadinessErrors } from './workflow-readiness.js';
 import {
   compileWorkflowPrompt,
-  workflowParameterSignature,
-  WorkflowParameterValuesError,
   WorkflowTemplateValidationError
 } from './workflow-template.js';
 import { resolveWorkspaceLlmSettings } from './workspace-ai-resolution.js';
@@ -36,8 +34,6 @@ export interface WorkflowTriggerDispatchInput {
   name: string;
   workspaceId: string;
   workflowId: string;
-  parameterSignature: string;
-  inputs: Record<string, string>;
   approvedContextGrants: string[];
   principal: WorkflowSchedulePrincipal;
   triggerType: 'schedule' | 'webhook';
@@ -49,8 +45,7 @@ export type WorkflowTriggerDispatchResult =
       outcome: 'auto_paused';
       reason:
         | 'workflow_not_active'
-        | 'workflow_parameters_changed'
-        | 'input_invalid'
+        | 'workflow_definition_invalid'
         | 'principal_invalid'
         | 'access_denied'
         | 'mcp_readiness_failed'
@@ -99,16 +94,6 @@ export async function dispatchWorkflowTrigger(
       error: 'Workflow is not active.'
     };
   }
-  if (trigger.parameterSignature !== workflowParameterSignature(workflow.parameters)) {
-    return {
-      outcome: 'auto_paused',
-      reason: 'workflow_parameters_changed',
-      error: trigger.triggerType === 'schedule'
-        ? 'Workflow runtime parameters changed. Review and save the schedule before enabling it again.'
-        : 'Workflow runtime parameters changed. Review and save the webhook before enabling it again.'
-    };
-  }
-
   const runtimeSubject = await resolveRunPrincipal(trigger.workspaceId, trigger.principal);
   if (!runtimeSubject) {
     return {
@@ -129,7 +114,6 @@ export async function dispatchWorkflowTrigger(
   try {
     resolution = await compileWorkflowPrompt({
       workflow,
-      inputValues: trigger.inputs,
       actorUserId: runtimeSubject.userId,
       initiatingMessageId: messageId,
       source: 'trigger'
@@ -189,22 +173,13 @@ export async function dispatchWorkflowTrigger(
     if (
       error instanceof WorkflowAccessDeniedError
       || error instanceof PromptResourceProviderError
-      || error instanceof WorkflowParameterValuesError
       || error instanceof WorkflowTemplateValidationError
     ) {
       return {
         outcome: 'auto_paused',
-        reason:
-          error instanceof WorkflowParameterValuesError
-          || error instanceof PromptResourceProviderError
-            ? trigger.triggerType === 'schedule'
-              ? error instanceof WorkflowParameterValuesError
-                ? 'workflow_parameters_changed'
-                : 'access_denied'
-              : 'input_invalid'
-            : error instanceof WorkflowTemplateValidationError
-              ? 'workflow_parameters_changed'
-            : 'access_denied',
+        reason: error instanceof WorkflowTemplateValidationError
+          ? 'workflow_definition_invalid'
+          : 'access_denied',
         error: sanitizeWorkflowTriggerError(error)
       };
     }
@@ -268,12 +243,12 @@ export async function dispatchWorkflowTrigger(
     bindingDigest: resolution.bindingDigest,
     resourceBindings: resolution.bindings,
     resolvedAt: resolution.resolvedAt,
+    markSessionLaunched: true,
     specialistSnapshot: specialistAgent,
     llmProvider: aiSettings.provider,
     llmModel: aiSettings.model,
     llmReasoningSummaryMode: aiSettings.reasoning.summary_mode,
     llmReasoningEffort: aiSettings.reasoning.effort,
-    launchResourceInputs: resolution.resourceInputValues
   });
   emitWorkflowExecutionEvents(execution.id, initialEvents);
   return {

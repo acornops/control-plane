@@ -27,7 +27,6 @@ export async function pauseSchedulesForTargetIndividualCredentials(input: {
       if (!actor) continue;
       const resolution = await compileWorkflowPrompt({
         workflow,
-        inputValues: schedule.inputs,
         actorUserId: actor.userId,
         source: 'trigger'
       });

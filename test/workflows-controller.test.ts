@@ -110,8 +110,7 @@ describe('workflows controller', () => {
       { workflowId: 'cluster-triage' },
       {
         workspaceId: 'workspace-1',
-        approvedContextGrants: ['workspace_metadata', 'target_inventory'],
-        inputs: { target: 'cluster-1' }
+        approvedContextGrants: ['workspace_metadata', 'target_inventory']
       }
     ));
     assert.equal(preview.statusCode, 200);
@@ -131,7 +130,7 @@ describe('workflows controller', () => {
 
     const response = await callController(postMessage, createRequest(
       { sessionId },
-      { kind: 'launch', inputs: { target: 'cluster-1' } }
+      { kind: 'launch' }
     ));
 
     assert.equal(response.statusCode, 202);
@@ -212,15 +211,20 @@ describe('workflows controller', () => {
     assert.deepEqual(approvalsResponse.body, []);
   });
 
-  it('creates an approval-gated incident report run from selected workspace chats', async () => {
+  it('previews and launches a workflow without runtime inputs', async () => {
     installWorkspace('operator');
-    const incidentSession = await repo.addSession('workspace-1', 'cluster-1', 'user-1', 'Payments incident');
     mock.method(globalThis, 'fetch', async (input) => {
       if (isWorkspaceAiCredentialStatusRequest(input)) {
         return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse('workspace-1')), { status: 200 });
       }
       return new Response(`unexpected request: ${String(input)}`, { status: 500 });
     });
+
+    const preview = await callController(previewWorkflowCapabilities, createRequest(
+      { workflowId: 'incident-report-pdf' },
+      { workspaceId: 'workspace-1', approvedContextGrants: [] }
+    ));
+    assert.equal(preview.statusCode, 200);
 
     const createdSession = await callController(createSession, createRequest(
       { workflowId: 'incident-report-pdf' },
@@ -231,13 +235,7 @@ describe('workflows controller', () => {
 
     const response = await callController(postMessage, createRequest(
       { sessionId },
-      {
-        kind: 'launch',
-        inputs: {
-          report_title: 'Payments incident report',
-          incident_context: incidentSession.id
-        }
-      }
+      { kind: 'launch' }
     ));
 
     assert.equal(response.statusCode, 202);
@@ -426,7 +424,7 @@ describe('workflows controller', () => {
     const sessionId = (createdSession.body as { session: { id: string } }).session.id;
     const response = await callController(postMessage, createRequest(
       { sessionId },
-      { kind: 'launch', inputs: { target: 'cluster-1' } }
+      { kind: 'launch' }
     ));
 
     assert.equal(response.statusCode, 409);

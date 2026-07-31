@@ -21,12 +21,10 @@ describe('prompt reference controller', () => {
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual((response.body as { blockers: unknown[] }).blockers, []);
-    assert.deepEqual((response.body as { parameters: unknown[] }).parameters, [
-      { key: 'focus', type: 'text', required: true }
-    ]);
+    assert.equal(Object.hasOwn(response.body as object, 'parameters'), false);
   });
 
-  it('counts distinct runtime resource parameters in authoring cardinality', async () => {
+  it('treats legacy runtime placeholder syntax as plain authoring text', async () => {
     installWorkspace('viewer');
     const parameterOnly = await callController(resolvePromptReferences, createRequest(
       { workspaceId: 'workspace-1' },
@@ -41,7 +39,8 @@ describe('prompt reference controller', () => {
       }
     ));
     assert.equal(parameterOnly.statusCode, 200);
-    assert.deepEqual((parameterOnly.body as { blockers: unknown[] }).blockers, []);
+    assert.ok((parameterOnly.body as { blockers: Array<{ code: string }> }).blockers
+      .some((blocker) => blocker.code === 'PROMPT_REFERENCE_CARDINALITY'));
 
     const twoParameters = await callController(resolvePromptReferences, createRequest(
       { workspaceId: 'workspace-1' },

@@ -68,7 +68,7 @@ async function sendSignedWebhook(input: {
   secret: string;
   eventId: string;
 }): Promise<ReturnType<typeof createResponse>> {
-  const rawBody = JSON.stringify({ inputs: { target: 'cluster-1' } });
+  const rawBody = JSON.stringify({ event: { source: 'monitoring', severity: 'critical' } });
   const timestamp = String(Math.floor(Date.now() / 1000));
   const headers: Record<string, string> = {
     'x-acornops-event-id': input.eventId,
@@ -217,7 +217,7 @@ describe('workflow webhooks with PostgreSQL', () => {
       webhook: staleWebhook,
       eventId: 'stale-secret-event',
       occurredAt: new Date().toISOString(),
-      payload: { inputs: { target: 'cluster-1' } },
+      payload: { event: { source: 'monitoring', severity: 'critical' } },
       maxEventsPerMinute: 60
     });
     assert.equal(result, 'inactive');

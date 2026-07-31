@@ -59,7 +59,7 @@ import {
 import {
   compileWorkflowFollowUp,
   compileWorkflowPrompt,
-  WorkflowParameterValuesError,
+  WorkflowMessageContentError,
   WorkflowTemplateValidationError
 } from '../services/workflow-template.js';
 const WORKFLOW_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
@@ -267,7 +267,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
     const clientRequestId = workflowClientRequestId(req, res);
     if (clientRequestId === null) return;
     const allowedFields = kind === 'launch'
-      ? new Set(['kind', 'inputs', 'clientRequestId'])
+      ? new Set(['kind', ...(isAgentConversation ? ['content'] : []), 'clientRequestId'])
       : new Set(['kind', 'content', 'clientRequestId']);
     const unexpectedFields = Object.keys(req.body || {}).filter((field) => !allowedFields.has(field));
     if (unexpectedFields.length > 0) {
@@ -278,15 +278,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
         details: { fields: unexpectedFields.sort() }
       } });
     }
-    if (kind === 'launch' && (!req.body.inputs || typeof req.body.inputs !== 'object' || Array.isArray(req.body.inputs))) {
-      return void res.status(400).json({ error: {
-        code: 'WORKFLOW_PARAMETER_VALUES_INVALID',
-        message: 'One or more workflow parameter values are invalid.',
-        retryable: false,
-        details: { errors: [{ key: '', code: 'WORKFLOW_PARAMETER_VALUE_INVALID', message: 'inputs must be an object.' }] }
-      } });
-    }
-    if (kind === 'follow_up' && (typeof req.body.content !== 'string' || !req.body.content.trim())) {
+    if ((kind === 'follow_up' || isAgentConversation) && (typeof req.body.content !== 'string' || !req.body.content.trim())) {
       return void res.status(400).json({ error: {
         code: 'WORKFLOW_MESSAGE_REQUIRED',
         message: 'content is required for a follow-up.',
@@ -317,22 +309,16 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       } });
     }
     const messageId = randomUUID();
-    const inputValues = req.body?.inputs && typeof req.body.inputs === 'object' && !Array.isArray(req.body.inputs)
-      ? req.body.inputs as Record<string, unknown>
-      : {};
-    const resolution = kind === 'launch'
+    const resolution = kind === 'launch' && !isAgentConversation
       ? await compileWorkflowPrompt({
           workflow,
-          inputValues,
           actorUserId: req.auth.userId,
           workflowSessionId: session.id,
           initiatingMessageId: messageId
         })
       : await compileWorkflowFollowUp({
           workflow,
-          launchWorkflow: session.workflowSnapshot,
           content: typeof req.body?.content === 'string' ? req.body.content : '',
-          resourceInputValues: session.launchResourceInputs,
           actorUserId: req.auth.userId,
           workflowSessionId: session.id,
           initiatingMessageId: messageId
@@ -440,10 +426,10 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       llmModel: llmSettings.model,
       llmReasoningSummaryMode: llmSettings.reasoning.summary_mode,
       llmReasoningEffort: llmSettings.reasoning.effort,
+      markSessionLaunched: kind === 'launch',
       ...(isAgentConversation ? {
         origin: { schemaVersion: 1 as const, kind: 'agent_chat' as const, label: 'Agent chat' }
-      } : {}),
-      ...(kind === 'launch' ? { launchResourceInputs: resolution.resourceInputValues } : {})
+      } : {})
     });
     emitWorkflowExecutionEvents(created.execution.id, created.initialEvents);
     await recordWorkspaceAuditEvent({
@@ -488,12 +474,11 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       )) return;
     }
     if (error instanceof WorkflowAccessDeniedError) return respondWorkflowAccessError(res, error);
-    if (error instanceof WorkflowParameterValuesError) {
+    if (error instanceof WorkflowMessageContentError) {
       return void res.status(400).json({ error: {
-        code: 'WORKFLOW_PARAMETER_VALUES_INVALID',
+        code: error.code,
         message: error.message,
-        retryable: false,
-        details: { errors: error.errors }
+        retryable: false
       } });
     }
     if (error instanceof WorkflowTemplateValidationError) {

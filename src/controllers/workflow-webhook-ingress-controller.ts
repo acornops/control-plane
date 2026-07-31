@@ -7,13 +7,11 @@ import {
   getWorkflowWebhook
 } from '../store/repository-workflow-webhooks.js';
 import { getWorkflowDefinition } from '../store/repository-workflows.js';
-import type { WorkflowParameterDefinition } from '../types/workflows.js';
 import {
   decryptWebhookSecret,
   signWebhookPayload
 } from '../utils/crypto.js';
 import { toSingleParam } from '../utils/params.js';
-import { workflowParameterSignature } from '../services/workflow-template.js';
 
 const MAX_WEBHOOK_PAYLOAD_BYTES = 256 * 1024;
 const MAX_WEBHOOK_EVENTS_PER_MINUTE = 60;
@@ -35,28 +33,6 @@ export function constantTimeSignatureEqual(actual: string, expected: string): bo
   const left = Buffer.from(normalized, 'hex');
   const right = Buffer.from(expected, 'hex');
   return left.length === right.length && timingSafeEqual(left, right);
-}
-
-export function webhookInputsValid(value: unknown): boolean {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  return Object.values(value).every((input) => typeof input === 'string');
-}
-
-export function validateWebhookInputs(
-  parameters: WorkflowParameterDefinition[],
-  value: unknown
-): string | null {
-  if (!webhookInputsValid(value)) {
-    return 'Webhook payload must contain an inputs object with string values.';
-  }
-  const inputs = value as Record<string, string>;
-  const expected = new Set(parameters.map((parameter) => parameter.key));
-  for (const parameter of parameters) {
-    if (!Object.hasOwn(inputs, parameter.key)) return `${parameter.key} is required.`;
-    if (!inputs[parameter.key].trim()) return `${parameter.key} cannot be empty.`;
-  }
-  const unknown = Object.keys(inputs).find((key) => !expected.has(key));
-  return unknown ? `${unknown.slice(0, 64)} is not declared by this workflow.` : null;
 }
 
 async function webhookAttemptRateLimited(webhookId: string): Promise<boolean> {
@@ -87,14 +63,6 @@ export async function receiveWorkflowWebhook(
       return;
     }
     const body = objectBody(req);
-    if (!webhookInputsValid(body.inputs)) {
-      res.status(400).json({ error: {
-        code: 'WEBHOOK_PAYLOAD_INVALID',
-        message: 'Webhook payload must contain an inputs object with string values.',
-        retryable: false
-      } });
-      return;
-    }
     const timestamp = (req.header('x-acornops-timestamp') || '').trim();
     const signature = (req.header('x-acornops-signature') || '').trim();
     const eventId = (req.header('x-acornops-event-id') || '').trim();
@@ -146,22 +114,10 @@ export async function receiveWorkflowWebhook(
       return;
     }
     const workflow = await getWorkflowDefinition(webhook.workspaceId, webhook.workflowId);
-    if (
-      !workflow
-      || webhook.parameterSignature !== workflowParameterSignature(workflow.parameters)
-    ) {
+    if (!workflow) {
       res.status(409).json({ error: {
         code: 'WEBHOOK_WORKFLOW_CHANGED',
         message: 'The target workflow changed. Review and save this workflow webhook before retrying.',
-        retryable: false
-      } });
-      return;
-    }
-    const inputError = validateWebhookInputs(workflow.parameters, body.inputs);
-    if (inputError) {
-      res.status(400).json({ error: {
-        code: 'WEBHOOK_INPUTS_INVALID',
-        message: inputError,
         retryable: false
       } });
       return;

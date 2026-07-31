@@ -4,7 +4,7 @@ import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { config } from '../config.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
-import { workflowParameterSignature } from '../services/workflow-template.js';
+import { EMPTY_WORKFLOW_INPUT_SIGNATURE } from '../services/workflow-template.js';
 import {
   createWorkflowWebhook,
   deleteWorkflowWebhookRecord,
@@ -197,7 +197,7 @@ export async function createWorkspaceWorkflowWebhook(
     const webhook = await createWorkflowWebhook({
       workspaceId,
       workflowVersion: workflow.version,
-      parameterSignature: workflowParameterSignature(workflow.parameters),
+      parameterSignature: EMPTY_WORKFLOW_INPUT_SIGNATURE,
       actorUserId: req.auth.userId,
       input: {
         workflowId,
@@ -305,7 +305,7 @@ export async function updateWorkflowWebhook(
       webhookId,
       {
         workflowVersion: workflow.version,
-        parameterSignature: workflowParameterSignature(workflow.parameters),
+        parameterSignature: EMPTY_WORKFLOW_INPUT_SIGNATURE,
         name,
         enabled: typeof body.enabled === 'boolean' ? body.enabled : undefined,
         approvedContextGrants
@@ -435,8 +435,6 @@ export async function deleteWorkflowWebhook(
 
 export {
   constantTimeSignatureEqual,
-  receiveWorkflowWebhook,
-  validateWebhookInputs,
-  webhookInputsValid
+  receiveWorkflowWebhook
 } from './workflow-webhook-ingress-controller.js';
 export { validateWorkflowWebhookContextGrants } from './workflow-webhook-validation.js';

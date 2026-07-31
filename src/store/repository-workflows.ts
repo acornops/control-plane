@@ -8,7 +8,6 @@ import type {
 import type { PromptResourceRequirement } from '../types/prompt-resources.js';
 import type { DefinitionOrigin } from '../types/agents.js';
 import { resetWorkflowRunRepositoryForTests } from './repository-workflow-runs.js';
-import { workflowParameters } from '../services/workflow-template.js';
 
 export type {
   WorkflowExecutionRecord,
@@ -133,7 +132,6 @@ function mapWorkflowDefinition(row: WorkflowRow): WorkflowDefinitionForAccess {
     resourceRequirements: normalizeResourceRequirements(row.resource_requirements || []),
     capabilityPolicy: normalizeCapabilityPolicy(row.capability_policy),
     tags: row.tags || [],
-    parameters: workflowParameters(row.prompt),
     requiredPermissions: row.required_permissions || [],
     createdBy: row.created_by,
     createdAt: iso(row.created_at),
@@ -184,7 +182,7 @@ export async function ensureAgentChatCarrier(
     `INSERT INTO workflow_definitions (
        workspace_id,id,version,origin,name,description,status,prompt,agent_ids,resource_requirements,
        capability_policy,tags,required_permissions,created_by,readiness_status,readiness_reasons
-     ) VALUES ($1,$2,1,$3,$4,$5,'draft','{{text:message}}',$6,'[]'::jsonb,$7,'[]'::jsonb,'[]'::jsonb,$8,$9,$10)
+     ) VALUES ($1,$2,1,$3,$4,$5,'draft','Agent conversation',$6,'[]'::jsonb,$7,'[]'::jsonb,'[]'::jsonb,$8,$9,$10)
      ON CONFLICT (workspace_id,id) DO UPDATE SET
        origin=EXCLUDED.origin,
        name=EXCLUDED.name,

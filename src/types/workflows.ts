@@ -16,14 +16,6 @@ export type WorkflowContextGrant =
   | 'target_inventory'
   | string;
 
-export type WorkflowParameterType = 'text' | 'target' | 'chat';
-
-export interface WorkflowParameterDefinition {
-  key: string;
-  type: WorkflowParameterType;
-  required: true;
-}
-
 export interface WorkflowCapabilityPolicy {
   mode: WorkflowCapabilityMode;
   restrictionMode: WorkflowCapabilityRestrictionMode;
@@ -48,7 +40,6 @@ export interface WorkflowDefinitionForAccess {
   resourceRequirements: PromptResourceRequirement[];
   capabilityPolicy: WorkflowCapabilityPolicy;
   tags?: string[];
-  parameters: WorkflowParameterDefinition[];
   requiredPermissions: WorkspaceCapability[];
   createdBy: string;
   createdAt?: string;
@@ -309,12 +300,13 @@ export interface WorkflowScheduleRecord {
   workspaceId: string;
   workflowId: string;
   workflowVersion: number;
-  /** Internal persisted schema fingerprint; omit from external schedule responses. */
+  /** Deprecated persistence-only column retained until a schema migration removes it. */
   parameterSignature: string;
   name: string;
   status: WorkflowScheduleStatus;
   cron: string;
   timezone: string;
+  /** Deprecated persistence-only column retained until a schema migration removes it. */
   inputs: Record<string, string>;
   approvedContextGrants: string[];
   principal: WorkflowSchedulePrincipal;
@@ -337,7 +329,6 @@ export interface WorkflowScheduleInput {
   status?: WorkflowScheduleStatus;
   cron: string;
   timezone: string;
-  inputs: Record<string, string>;
   approvedContextGrants?: string[];
   principal: WorkflowSchedulePrincipal;
 }
@@ -350,7 +341,6 @@ export interface WorkflowSchedulePatch {
   status?: WorkflowScheduleStatus;
   cron?: string;
   timezone?: string;
-  inputs?: Record<string, string>;
   approvedContextGrants?: string[];
   principal?: WorkflowSchedulePrincipal;
 }
@@ -363,6 +353,7 @@ export interface WorkflowWebhookRecord {
   workspaceId: string;
   workflowId: string;
   workflowVersion: number;
+  /** Deprecated persistence-only column retained until a schema migration removes it. */
   parameterSignature: string;
   name: string;
   status: WorkflowWebhookStatus;
