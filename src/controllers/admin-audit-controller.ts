@@ -6,9 +6,33 @@ import { toSingleParam } from '../utils/params.js';
 import { CursorMismatchError, decodeCursor, makeQuerySignature, parseBoundedLimit } from '../utils/pagination.js';
 import { parseIsoDateQuery, parseStringFilter, validationError } from './admin-controller-common.js';
 
+const mutationActions = (...actions: string[]): string[] => actions.flatMap((action) => [action, `${action}.request`]);
+
+interface AdminAuditActionFilter {
+  actions: string[];
+  subjectIds?: string[];
+}
+
+const mutationFilter = (actions: string[], subjectIds?: string[]): AdminAuditActionFilter => ({
+  actions: mutationActions(...actions),
+  ...(subjectIds ? { subjectIds } : {})
+});
+
 const ADMIN_AUDIT_ACTION_GROUPS = {
-  workspace_access_modified: ['admin.workspace.member.add', 'admin.workspace.member.delete', 'admin.workspace.member.role.update', 'admin.member.role.update'],
-  workspace_status_modified: ['admin.workspace.suspend', 'admin.workspace.restore']
+  platform_settings_modified: [
+    mutationFilter(['admin.system.setting.update', 'admin.system.setting.reset'], ['member_discovery', 'user_sign_in_methods'])
+  ],
+  llm_provider_defaults_modified: [
+    mutationFilter(['admin.system.llm_provider_default.update', 'admin.system.llm_provider_default.delete']),
+    mutationFilter(['admin.system.setting.update', 'admin.system.setting.reset'], ['ai_policy'])
+  ],
+  workspace_defaults_modified: [
+    mutationFilter(['admin.system.workspace_default.create', 'admin.system.workspace_default.update', 'admin.system.workspace_default.delete'])
+  ],
+  workspace_status_modified: [mutationFilter(['admin.workspace.suspend', 'admin.workspace.restore'])],
+  workspace_access_modified: [
+    mutationFilter(['admin.workspace.member.add', 'admin.workspace.member.delete', 'admin.workspace.member.role.update', 'admin.member.role.update'])
+  ]
 } as const;
 
 function parseRange(req: AdminAuthenticatedRequest, res: Response): { from?: string; to?: string } | null {
@@ -54,9 +78,9 @@ export async function listAdminAuditEvents(req: AdminAuthenticatedRequest, res: 
       validationError(res, 'action and actionGroup cannot be combined');
       return;
     }
-    const groupedActions = filters.actionGroup.value ? ADMIN_AUDIT_ACTION_GROUPS[filters.actionGroup.value as keyof typeof ADMIN_AUDIT_ACTION_GROUPS] : undefined;
-    if (filters.actionGroup.value && !groupedActions) {
-      validationError(res, 'actionGroup must be workspace_access_modified or workspace_status_modified');
+    const groupedFilters = filters.actionGroup.value ? ADMIN_AUDIT_ACTION_GROUPS[filters.actionGroup.value as keyof typeof ADMIN_AUDIT_ACTION_GROUPS] : undefined;
+    if (filters.actionGroup.value && !groupedFilters) {
+      validationError(res, `actionGroup must be one of ${Object.keys(ADMIN_AUDIT_ACTION_GROUPS).join(', ')}`);
       return;
     }
     const normalizedFilters = {
@@ -73,7 +97,11 @@ export async function listAdminAuditEvents(req: AdminAuthenticatedRequest, res: 
     };
     const signature = makeQuerySignature(normalizedFilters);
     const cursor = decodeCursor<{ occurredAt: string; eventId: string; signature: string }>(req.query.cursor, signature);
-    res.status(200).json(await repo.listAdminAuditEvents({ limit: parseBoundedLimit(req.query.limit), cursor, signature, actions: groupedActions ? [...groupedActions] : undefined, ...normalizedFilters }));
+    const actionFilters = groupedFilters?.map((filter) => ({
+      actions: [...filter.actions],
+      ...(filter.subjectIds ? { subjectIds: [...filter.subjectIds] } : {})
+    }));
+    res.status(200).json(await repo.listAdminAuditEvents({ limit: parseBoundedLimit(req.query.limit), cursor, signature, actionFilters, ...normalizedFilters }));
   } catch (err) {
     if (err instanceof CursorMismatchError) {
       res.status(400).json({ error: { code: 'INVALID_CURSOR', message: err.message, retryable: false } });

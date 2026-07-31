@@ -17,7 +17,7 @@ export function buildAdminPaths(): Record<string, unknown> {
     { in: 'query', name: 'adminTokenId', required: false, schema: { type: 'string' } },
     { in: 'query', name: 'adminActorSubject', required: false, schema: { type: 'string' } },
     { in: 'query', name: 'action', required: false, schema: { type: 'string' } },
-    { in: 'query', name: 'actionGroup', required: false, schema: { type: 'string', enum: ['workspace_access_modified', 'workspace_status_modified'] }, description: 'Fixed related-action group. Cannot be combined with action.' },
+    { in: 'query', name: 'actionGroup', required: false, schema: { type: 'string', enum: ['platform_settings_modified', 'llm_provider_defaults_modified', 'workspace_defaults_modified', 'workspace_status_modified', 'workspace_access_modified'] }, description: 'Fixed related-action group. Cannot be combined with action.' },
     { in: 'query', name: 'outcome', required: false, schema: { type: 'string', enum: ['success', 'failure'] } },
     { in: 'query', name: 'workspaceId', required: false, schema: { type: 'string' }, description: 'Exact workspace ID. Retained for backward compatibility.' },
     { in: 'query', name: 'workspaceQuery', required: false, schema: { type: 'string' }, description: 'Exact workspace ID or case-insensitive workspace-name substring.' },

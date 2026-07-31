@@ -80,3 +80,28 @@ test('filters admin audit events by an exact workspace ID or literal case-insens
   assert.match(queryText, /\(a\.workspace_id = \$2 OR POSITION\(LOWER\(\$2\) IN LOWER\(COALESCE\(w\.name, ''\)\)\) > 0\)/);
   assert.deepEqual(queryParams, [51, 'Atlas_100%']);
 });
+
+test('combines tab-aligned action and subject filters without widening results', async () => {
+  let queryText = '';
+  let queryParams: unknown[] = [];
+  mock.method(db, 'query', async (sql: string, params: unknown[]) => {
+    queryText = sql;
+    queryParams = params;
+    return { rowCount: 0, rows: [] };
+  });
+
+  await listAdminAuditEvents({
+    actionFilters: [
+      { actions: ['admin.system.llm_provider_default.update'] },
+      { actions: ['admin.system.setting.update'], subjectIds: ['ai_policy'] }
+    ]
+  });
+
+  assert.match(queryText, /\(\(a\.action = ANY\(\$2::text\[\]\)\) OR \(a\.action = ANY\(\$3::text\[\]\) AND a\.subject_id = ANY\(\$4::text\[\]\)\)\)/);
+  assert.deepEqual(queryParams, [
+    51,
+    ['admin.system.llm_provider_default.update'],
+    ['admin.system.setting.update'],
+    ['ai_policy']
+  ]);
+});

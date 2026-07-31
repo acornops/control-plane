@@ -169,6 +169,7 @@ export async function listAdminAuditEvents(options: {
   adminActorSubject?: string;
   action?: string;
   actions?: string[];
+  actionFilters?: Array<{ actions: string[]; subjectIds?: string[] }>;
   outcome?: 'success' | 'failure';
   workspaceId?: string;
   workspaceQuery?: string;
@@ -194,6 +195,18 @@ export async function listAdminAuditEvents(options: {
   if (options.actions?.length) {
     params.push(options.actions);
     clauses.push(`a.action = ANY($${params.length}::text[])`);
+  }
+  if (options.actionFilters?.length) {
+    const actionFilterClauses = options.actionFilters.map((filter) => {
+      params.push(filter.actions);
+      const branch = [`a.action = ANY($${params.length}::text[])`];
+      if (filter.subjectIds?.length) {
+        params.push(filter.subjectIds);
+        branch.push(`a.subject_id = ANY($${params.length}::text[])`);
+      }
+      return `(${branch.join(' AND ')})`;
+    });
+    clauses.push(`(${actionFilterClauses.join(' OR ')})`);
   }
   if (options.outcome) addFilter('a.outcome = ?', options.outcome);
   if (options.workspaceId) addFilter('a.workspace_id = ?', options.workspaceId);
