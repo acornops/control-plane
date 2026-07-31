@@ -226,15 +226,16 @@ enables `CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED=true` by default.
 URLs returned by the integration endpoint and must be the public HTTPS console
 origin in production.
 
-GitHub and GitLab skill imports are fetched by the management console and
-submitted to the control plane as resolved Markdown snapshots. The control plane
-does not require Git provider egress or credentials for this flow. Custom
-GitHub Enterprise and self-managed GitLab hosts work when users choose the
-matching provider in the import dialog. User browsers must be able to reach the
-Git host API, and the Git host must allow browser API requests from the console
-origin. The console derives GitHub Enterprise API URLs as `/api/v3` and GitLab
-API URLs as `/api/v4`; operators should tell users the API base URL for
-path-prefixed or otherwise custom deployments.
+Git skill imports are resolved by the control plane against
+`GIT_IMPORT_HOSTS_JSON`. Each allowlisted entry declares `provider`
+(`github` or `gitlab`), an HTTPS `webBaseUrl`, and its HTTPS `apiBaseUrl`.
+The default contains GitHub.com and GitLab.com. Provider API access is
+anonymous, so private repositories are not supported. Custom hosts require
+control-plane network egress and, when applicable, additional CA trust. Users
+paste only a full repository, folder, or `SKILL.md` URL; unsupported hosts fail
+before any outbound request. Resolution has a 30-second overall deadline,
+10-second per-request timeouts, bounded provider responses, and no redirect
+following.
 
 `EXTERNAL_INTEGRATION_CLIENTS_JSON` contains enabled integration client
 descriptors, not raw tokens. Generate a raw bearer token for each installed

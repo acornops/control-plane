@@ -36,6 +36,20 @@ const importBody = {
   } } }
 };
 
+const gitSkillResolveBody = {
+  required: true,
+  content: { 'application/json': { schema: {
+    type: 'object',
+    required: ['repoUrl'],
+    properties: {
+      repoUrl: { type: 'string', format: 'uri', pattern: '^https://', maxLength: 2048 },
+      ref: { type: 'string', minLength: 1, maxLength: 255 },
+      subpath: { type: 'string', minLength: 1, maxLength: 512 }
+    },
+    additionalProperties: false
+  } } }
+};
+
 const connectionBody = {
   required: true,
   content: { 'application/json': { schema: {
@@ -264,6 +278,9 @@ export function buildCatalogPaths(): Record<string, unknown> {
     },
     '/api/v1/workspaces/{workspaceId}/agents/{agentId}/skills/import': {
       post: { tags: ['agents'], summary: 'Import a pinned Git skill on one Agent', description: 'Requires immutable Git commit provenance and manage_agents plus manage_skills.', security: [{ userSession: [] }], parameters: [workspaceId, agentId], responses: { '201': { description: 'Skill imported.' } } }
+    },
+    '/api/v1/workspaces/{workspaceId}/agents/{agentId}/skills/resolve': {
+      post: { tags: ['agents'], summary: 'Resolve an allowed Git URL to a pinned Agent skill snapshot', description: 'The configured GitHub or GitLab host, ref, and subpath are inferred server-side. Requires manage_agents and manage_skills.', security: [{ userSession: [] }], parameters: [workspaceId, agentId], requestBody: gitSkillResolveBody, responses: { '200': { description: 'Pinned Markdown snapshot.' } } }
     },
     '/api/v1/workspaces/{workspaceId}/agents/{agentId}/skills/{skillId}': {
       get: { tags: ['agents'], summary: 'Read an Agent skill installation', security: [{ userSession: [] }], parameters: [workspaceId, agentId, skillId], responses: { '200': { description: 'Skill detail.' } } },

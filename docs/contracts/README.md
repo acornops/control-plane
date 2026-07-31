@@ -38,6 +38,14 @@ The control plane owns the platform API boundary. Keep this README as a short in
   separate. Legacy `password_signup` rows resolve to the deployment default
   until an administrator saves the replacement setting.
 - The platform admin console uses only its mirrored `/admin/v1` subset. Its BFF rejects `admin:*` and all target, run, agent-key, and tooling scopes, and removes operational fields before browser delivery.
+- Target, Agent, and platform-default Git skill imports resolve one full URL
+  server-side against `GIT_IMPORT_HOSTS_JSON`. The provider, ref, and subpath
+  are inferred; browser callers cannot supply a provider API base or bypass the
+  deployment host allowlist.
+- Roll out the control plane before URL-only console consumers. Public-host
+  legacy clients remain compatible when they omit `apiBaseUrl`; pause legacy
+  custom-host imports during a mixed-version rollout because the server
+  intentionally rejects browser-supplied API bases.
 - Platform-admin workspace responses retain immutable creator and workspace IDs while optionally including user display name/email and workspace-name labels for readable governance displays. Consumers fall back to the immutable IDs when labels are unavailable.
 - The platform-admin consumer requires exact workspace-name confirmation for suspension and restoration. The producer requires it for suspension and validates it when supplied for restoration, retaining compatibility with existing restore clients. Both actions retain memberships, targets, workload state, references, and audit history and never issue workload commands.
 - OIDC admission evaluates verified ID-token claims and subject-bound UserInfo claims before account or identity-link mutation; conflicting values fail closed.

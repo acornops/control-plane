@@ -48,6 +48,7 @@ agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverI
 agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/connection/oauth/start', requireUser, publicAgentVisibility, authed(mcpOAuthController.startMcpOAuthConnection));
 agentsRouter.get('/workspaces/:workspaceId/agents/:agentId/skills', requireUser, publicAgentVisibility, authed(agentSkillsController.listSkills));
 agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/skills', requireUser, publicAgentVisibility, authed(agentSkillsController.createSkill));
+agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/skills/resolve', requireUser, publicAgentVisibility, authed(agentSkillsController.resolveGitImport));
 agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/skills/import', requireUser, publicAgentVisibility, authed(agentSkillsController.importSkill));
 agentsRouter.get('/workspaces/:workspaceId/agents/:agentId/skills/:skillId', requireUser, publicAgentVisibility, authed(agentSkillsController.getSkill));
 agentsRouter.patch('/workspaces/:workspaceId/agents/:agentId/skills/:skillId', requireUser, publicAgentVisibility, authed(agentSkillsController.patchSkill));

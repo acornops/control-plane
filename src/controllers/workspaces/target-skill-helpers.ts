@@ -74,7 +74,6 @@ export function gitImportSourceMatches(left: TargetSkillSource, right: TargetSki
     right.type === 'git_import' &&
     left.provider === right.provider &&
     left.repoUrl === right.repoUrl &&
-    (left.apiBaseUrl || '') === (right.apiBaseUrl || '') &&
     left.ref === right.ref &&
     (left.subpath || '') === (right.subpath || '');
 }

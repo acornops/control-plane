@@ -1,8 +1,12 @@
 import type { NextFunction, Response } from 'express';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
+import { config } from '../config.js';
+import { isConfiguredGitImportSource } from '../config-git-imports.js';
 import { getTargetSkillBundleStorageLimitErrors, normalizeTargetSkillBundle } from '../services/target-skills.js';
 import { syncAgentSkillCapabilitySnapshot } from '../services/agent-skill-capabilities.js';
+import { GitSkillImportError, resolveGitSkill } from '../services/git-skill-import.js';
+import { respondGitSkillImportError } from './workspaces/git-skill-import-controller.js';
 import {
   getInheritedWorkspaceDefault,
   workspaceDefaultIdFromInheritedId,
@@ -56,7 +60,6 @@ function source(input: unknown, fallback: AgentSkillInstallationSnapshot['source
     type: 'git',
     ...(raw.provider === 'github' || raw.provider === 'gitlab' ? { provider: raw.provider } : {}),
     ...(typeof raw.url === 'string' ? { url: raw.url } : {}),
-    ...(typeof raw.apiBaseUrl === 'string' ? { apiBaseUrl: raw.apiBaseUrl } : {}),
     ...(typeof raw.ref === 'string' ? { ref: raw.ref } : {}),
     ...(typeof raw.path === 'string' ? { path: raw.path } : {}),
     ...(typeof raw.pinnedCommit === 'string' ? { pinnedCommit: raw.pinnedCommit } : {})
@@ -130,6 +133,9 @@ export async function importSkill(req: AuthenticatedRequest, res: Response, next
     if (gitSource.type !== 'git' || !gitSource.provider || !gitSource.url || !gitSource.ref || !gitSource.pinnedCommit) {
       return fail(res, 400, 'AGENT_SKILL_SOURCE_INVALID', 'Git imports require provider, url, ref, and pinnedCommit provenance.');
     }
+    if (!isConfiguredGitImportSource(gitSource.provider, gitSource.url, config.GIT_IMPORT_HOSTS)) {
+      return fail(res, 400, 'UNSUPPORTED_GIT_HOST', 'This Git host is not supported by this AcornOps deployment.');
+    }
     const skill = await createAgentSkill({
       workspaceId: ctx.workspaceId, agentId: ctx.agentId, name: bundle.name, description: bundle.description,
       enabled: body.enabled !== false, source: gitSource,
@@ -139,6 +145,21 @@ export async function importSkill(req: AuthenticatedRequest, res: Response, next
     await audit(req, ctx.workspaceId, ctx.agentId, skill, 'agent.skill_imported.v1', 'Git skill installed on Agent');
     res.status(201).json({ skill: withSkillProvenance(skill) });
   } catch (error) { next(error); }
+}
+
+export async function resolveGitImport(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const ctx = await context(req, res, true);
+    if (!ctx) return;
+    if (!ctx.authz.can('manage_skills')) return fail(res, 403, 'FORBIDDEN', 'Adding skills requires manage_agents and manage_skills.');
+    res.status(200).json(await resolveGitSkill(req.body));
+  } catch (error) {
+    if (error instanceof GitSkillImportError) {
+      respondGitSkillImportError(res, error);
+      return;
+    }
+    next(error);
+  }
 }
 
 export async function getSkill(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
@@ -255,9 +276,11 @@ export async function reimportSkill(req: AuthenticatedRequest, res: Response, ne
     if (nextSource.type !== 'git'
       || nextSource.provider !== existing.source.provider
       || nextSource.url !== existing.source.url
-      || nextSource.apiBaseUrl !== existing.source.apiBaseUrl
       || nextSource.path !== existing.source.path) {
       return fail(res, 400, 'SOURCE_MISMATCH', 'Reimport must use the stored Git repository and path.');
+    }
+    if (!isConfiguredGitImportSource(nextSource.provider, nextSource.url, config.GIT_IMPORT_HOSTS)) {
+      return fail(res, 400, 'UNSUPPORTED_GIT_HOST', 'This Git host is not supported by this AcornOps deployment.');
     }
     const updated = await updateAgentSkill({
       workspaceId: ctx.workspaceId, agentId: ctx.agentId, skillId, name: bundle.name, description: bundle.description,

@@ -295,6 +295,8 @@ export {
   updateTargetSkillForTarget
 } from './workspaces/target-skills-controller.js';
 
+export { resolveTargetGitSkill } from './workspaces/git-skill-import-controller.js';
+
 export {
   getTargetAssistantCapabilitiesPreview
 } from './workspaces/target-assistant-preview-controller.js';

@@ -1,6 +1,8 @@
 import { NextFunction, Response } from 'express';
 import { AuthenticatedRequest } from '../../auth/middleware.js';
 import { requireTargetAccess } from '../../auth/workspace-authorization.js';
+import { config } from '../../config.js';
+import { isConfiguredGitImportSource } from '../../config-git-imports.js';
 import { pageInMemory } from '../../services/snapshot-listing.js';
 import {
   composeTargetSkillsCatalog,
@@ -170,6 +172,16 @@ export async function importTargetSkillForTarget(req: AuthenticatedRequest, res:
     }
 
     const source = normalizeGitImportSource(req.body.source);
+    if (!isConfiguredGitImportSource(source.provider, source.repoUrl, config.GIT_IMPORT_HOSTS)) {
+      res.status(400).json({
+        error: {
+          code: 'UNSUPPORTED_GIT_HOST',
+          message: 'This Git host is not supported by this AcornOps deployment.',
+          retryable: false
+        }
+      });
+      return;
+    }
     const bundle = normalizeTargetSkillBundle(req.body.files);
     const storageLimitErrors = getTargetSkillBundleStorageLimitErrors(bundle);
     if (storageLimitErrors.length > 0) {
@@ -447,6 +459,16 @@ export async function reimportTargetSkillForTarget(req: AuthenticatedRequest, re
     }
 
     const source = normalizeGitImportSource(req.body.source);
+    if (!isConfiguredGitImportSource(source.provider, source.repoUrl, config.GIT_IMPORT_HOSTS)) {
+      res.status(400).json({
+        error: {
+          code: 'UNSUPPORTED_GIT_HOST',
+          message: 'This Git host is not supported by this AcornOps deployment.',
+          retryable: false
+        }
+      });
+      return;
+    }
     if (!gitImportSourceMatches(existing.source, source)) {
       res.status(400).json({
         error: {

@@ -62,15 +62,13 @@ Important local and production variables:
 - `WEBHOOK_EGRESS_ALLOWED_PRIVATE_HOSTS_JSON` (default `[]`; exact hostnames or
   leading `*.example.com` wildcard patterns)
 
-GitHub and GitLab skill imports are fetched in the management console. The
-control plane only receives the resolved Markdown snapshot plus informational
-source metadata, then validates and stores it. Custom GitHub Enterprise and
-self-managed GitLab hosts work because the console selects the provider
-explicitly instead of inferring it from the hostname. The developer browser
-must be able to reach the Git host API, and that host must allow browser API
-requests for the import flow. The console derives GitHub Enterprise API URLs as
-`/api/v3` and GitLab API URLs as `/api/v4`; use the optional API base URL field
-for path-prefixed or otherwise custom deployments.
+The control plane resolves Git skill URLs to bounded, pinned Markdown
+snapshots. `GIT_IMPORT_HOSTS_JSON` is a deployment-owned array of
+`provider`, `webBaseUrl`, and `apiBaseUrl` entries. It defaults to GitHub.com
+and GitLab.com and may include GitHub Enterprise or self-managed GitLab hosts,
+including path-prefixed web bases. Browser callers submit one repository,
+folder, or `SKILL.md` URL; the server infers the provider, ref, and subpath.
+Provider API requests are anonymous and reject redirects.
 
 ## Validation
 
