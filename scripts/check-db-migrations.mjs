@@ -24,7 +24,8 @@ assert.deepEqual(
     '002_user_sign_in_methods.sql',
     '003_workspace_defaults.sql',
     '004_agent_avatar_emoji.sql',
-    '005_workspace_default_enabled_state.sql'
+    '005_workspace_default_enabled_state.sql',
+    '006_cluster_auto_triage_namespace_scope.sql'
   ],
   'the control-plane schema must include the immutable baseline and required forward migrations'
 );
@@ -156,6 +157,9 @@ const expectedColumns = [
   ['sessions', 'auto_triage_confirmation_required'],
   ['messages', 'created_by'],
   ['target_auto_triage_settings', 'revision'],
+  ['target_auto_triage_settings', 'namespace_include'],
+  ['target_auto_triage_settings', 'namespace_exclude'],
+  ['target_auto_triage_settings', 'include_cluster_scoped_issues'],
   ['target_auto_triage_jobs', 'issue_lifecycle_version'],
   ['target_auto_triage_jobs', 'settings_revision'],
   ['target_auto_triage_jobs', 'retry_generation'],
@@ -215,6 +219,8 @@ const expectedConstraints = [
   'runs_request_actor_type_check',
   'runs_request_actor_provenance_check',
   'target_auto_triage_settings_pkey',
+  'target_auto_triage_settings_namespace_include_check',
+  'target_auto_triage_settings_namespace_exclude_check',
   'fk_target_auto_triage_settings_workspace_target',
   'target_auto_triage_jobs_issue_lifecycle_key',
   'fk_target_auto_triage_jobs_workspace_target',

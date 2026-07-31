@@ -12,7 +12,7 @@ import {
   skipUnstartedTargetAutoTriageJobs,
   startSingleTargetAutoTriageIssue
 } from '../../store/repository-auto-triage-manual-actions.js';
-import { issueMeetsAutoTriageThreshold } from '../../store/repository-auto-triage.js';
+import { issueMeetsAutoTriageEligibility } from '../../utils/auto-triage-eligibility.js';
 import {
   AUTO_TRIAGE_INSTRUCTIONS_MAX_CHARACTERS,
   normalizeAutoTriageInstructions
@@ -81,6 +81,26 @@ export async function updateTargetAutoTriage(
     );
     const target = authz ? await requireTarget(workspaceId, targetId, res) : null;
     if (!authz || !target) return;
+    const namespaceInclude = Array.isArray(req.body.namespaceInclude) ? req.body.namespaceInclude : [];
+    const namespaceExclude = Array.isArray(req.body.namespaceExclude) ? req.body.namespaceExclude : [];
+    const includeClusterScopedIssues = req.body.includeClusterScopedIssues !== false;
+    if (
+      target.targetType !== 'kubernetes'
+      && (
+        namespaceInclude.length > 0
+        || namespaceExclude.length > 0
+        || includeClusterScopedIssues !== true
+      )
+    ) {
+      res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Namespace eligibility settings are supported only for Kubernetes targets',
+          retryable: false
+        }
+      });
+      return;
+    }
     if (
       req.body.writeMode !== 'read_only'
       && !authz.can('create_read_write_runs')
@@ -114,6 +134,9 @@ export async function updateTargetAutoTriage(
       minimumSeverity: req.body.minimumSeverity,
       writeMode: req.body.writeMode,
       additionalInstructions,
+      namespaceInclude,
+      namespaceExclude,
+      includeClusterScopedIssues,
       updatedBy: req.auth.userId
     });
     if (!saved) {
@@ -164,12 +187,18 @@ export async function updateTargetAutoTriage(
           enabled: previous.enabled,
           minimumSeverity: previous.minimumSeverity,
           writeMode: previous.writeMode,
+          namespaceInclude: previous.namespaceInclude,
+          namespaceExclude: previous.namespaceExclude,
+          includeClusterScopedIssues: previous.includeClusterScopedIssues,
           additionalInstructionsLength: [...previous.additionalInstructions].length
         },
         next: {
           enabled: saved.enabled,
           minimumSeverity: saved.minimumSeverity,
           writeMode: saved.writeMode,
+          namespaceInclude: saved.namespaceInclude,
+          namespaceExclude: saved.namespaceExclude,
+          includeClusterScopedIssues: saved.includeClusterScopedIssues,
           additionalInstructionsLength: [...saved.additionalInstructions].length
         },
         instructionsChanged: previous.additionalInstructions !== saved.additionalInstructions,
@@ -300,12 +329,12 @@ export async function startOrRetryIssueAutomaticInvestigation(
     }
     if (
       !['active', 'recovering'].includes(issue.status)
-      || !issueMeetsAutoTriageThreshold(issue.severity, settings.minimumSeverity)
+      || !issueMeetsAutoTriageEligibility(issue, settings)
     ) {
       res.status(409).json({
         error: {
           code: 'AUTO_TRIAGE_ISSUE_NOT_ELIGIBLE',
-          message: 'This issue is not active at the configured auto-triage severity.',
+          message: 'This issue is not active or does not match the configured auto-triage scope and severity.',
           retryable: false
         }
       });

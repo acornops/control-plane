@@ -2,9 +2,9 @@ import type { PoolClient } from 'pg';
 import type { TargetIssue } from '../types/domain.js';
 import {
   enqueueTargetAutoTriageJob,
-  getTargetAutoTriageSettings,
-  issueMeetsAutoTriageThreshold
+  getTargetAutoTriageSettings
 } from './repository-auto-triage.js';
+import { issueMeetsAutoTriageEligibility } from '../utils/auto-triage-eligibility.js';
 
 function severityRank(severity: TargetIssue['severity']): number {
   if (severity === 'critical') return 0;
@@ -22,11 +22,11 @@ export async function enqueueAutoTriageForObservedIssue(
     previous
     && previous.status !== 'resolved'
     && Number(previous.severity_rank) > severityRank(settings.minimumSeverity)
-    && issueMeetsAutoTriageThreshold(issue.severity, settings.minimumSeverity)
+    && issueMeetsAutoTriageEligibility(issue, settings)
   );
   if (
     settings.enabled
-    && issueMeetsAutoTriageThreshold(issue.severity, settings.minimumSeverity)
+    && issueMeetsAutoTriageEligibility(issue, settings)
     && (!previous || previous.status === 'resolved' || crossedThreshold)
   ) {
     await enqueueTargetAutoTriageJob(

@@ -22,6 +22,9 @@ describe('target auto-triage settings concurrency', () => {
       minimumSeverity: 'warning',
       writeMode: 'read_only',
       additionalInstructions: '',
+      namespaceInclude: [],
+      namespaceExclude: [],
+      includeClusterScopedIssues: true,
       updatedBy: 'user-1'
     });
     assert.ok(settings);
@@ -60,6 +63,9 @@ describe('target auto-triage settings concurrency', () => {
       minimumSeverity: 'warning',
       writeMode: 'read_only',
       additionalInstructions: '',
+      namespaceInclude: [],
+      namespaceExclude: [],
+      includeClusterScopedIssues: true,
       updatedBy: 'user-1'
     }));
 
@@ -99,5 +105,90 @@ describe('target auto-triage settings concurrency', () => {
       [issue.id]
     );
     assert.deepEqual(counts.rows[0], { sessions: 0, runs: 0 });
+  });
+
+  it('records the settings revision actually pinned to a created run', async () => {
+    const queuedSettings = await repo.autoTriage.saveTargetAutoTriageSettings({
+      workspaceId: 'workspace-1',
+      targetId: 'cluster-1',
+      expectedRevision: 0,
+      enabled: true,
+      minimumSeverity: 'warning',
+      writeMode: 'read_only',
+      additionalInstructions: '',
+      namespaceInclude: [],
+      namespaceExclude: [],
+      includeClusterScopedIssues: true,
+      updatedBy: 'user-1'
+    });
+    assert.ok(queuedSettings);
+    await db.query(
+      `INSERT INTO target_issues (
+         id,workspace_id,target_id,target_type,fingerprint,issue_type,status,severity,severity_rank,
+         title,summary,first_seen_at,last_seen_at,last_observed_snapshot_at
+       ) VALUES (
+         'issue-current-settings-revision','workspace-1','cluster-1','kubernetes',
+         'issue-current-settings-revision','finding','active','warning',1,
+         'Current settings issue','Current settings issue',NOW(),NOW(),NOW()
+       )`
+    );
+    const issue = await repo.getTargetIssue('workspace-1', 'issue-current-settings-revision');
+    assert.ok(issue);
+    await repo.autoTriage.enqueueTargetAutoTriageJob(
+      db,
+      issue,
+      'existing_issue_start',
+      queuedSettings.revision
+    );
+    const [job] = await repo.autoTriage.claimDueTargetAutoTriageJobs(
+      'worker-current-settings',
+      1,
+      120
+    );
+    assert.ok(job);
+    const currentSettings = await repo.autoTriage.saveTargetAutoTriageSettings({
+      workspaceId: 'workspace-1',
+      targetId: 'cluster-1',
+      expectedRevision: queuedSettings.revision,
+      enabled: true,
+      minimumSeverity: 'warning',
+      writeMode: 'read_only',
+      additionalInstructions: 'Use the current runbook.',
+      namespaceInclude: [],
+      namespaceExclude: [],
+      includeClusterScopedIssues: true,
+      updatedBy: 'user-1'
+    });
+    assert.ok(currentSettings);
+
+    await createTargetAutoTriageSessionAndRun({
+      job,
+      issue,
+      targetName: 'Test Cluster',
+      settings: currentSettings,
+      effective: {
+        requestedWriteMode: 'read_only',
+        effectiveToolMode: 'read_only',
+        confirmationRequiredForWrite: false,
+        targetCeilingApplied: false,
+        targetSupportsWrite: true,
+        summary: 'read_only'
+      },
+      llm: {
+        provider: 'openai',
+        model: 'gpt-5',
+        allowedProviders: ['openai'],
+        allowedProviderModels: { openai: ['gpt-5'] },
+        allowedModels: ['gpt-5'],
+        credentialConfigured: true,
+        reasoning: { summary_mode: 'off', effort: 'low' }
+      }
+    });
+    const persisted = await repo.autoTriage.getTargetAutoTriageJobForIssueLifecycle(
+      'workspace-1',
+      issue.id,
+      issue.lifecycleVersion
+    );
+    assert.equal(persisted?.settingsRevision, currentSettings.revision);
   });
 });

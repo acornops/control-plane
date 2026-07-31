@@ -22,6 +22,13 @@ or a separate recovery-policy system.
   the same durable job rather than creating a duplicate.
 - A qualifying created, reopened, or severity-escalated issue receives at most
   one automatic investigation session per lifecycle version.
+- Kubernetes settings may narrow eligibility with namespace include and exclude
+  lists. Empty lists mean all namespaces already observed by the target;
+  exclusions take precedence. A separate switch controls issues without a
+  namespace, such as Node issues. Virtual machines remain target-wide.
+- Namespace eligibility is a trigger policy, not a new tool authorization
+  boundary. The target's existing AgentK namespace scope remains the hard
+  collection and tool-access ceiling.
 - Automatic sessions use the existing target session store, route, retention,
   deletion, and deep-link behavior. The console presents them in a dedicated
   Investigations history view beside human Chats, while global chat search
@@ -59,6 +66,11 @@ Session creation also takes a shared lock on the enabled settings revision. A
 worker that resolved readiness against stale settings releases its job for
 fresh policy resolution instead of creating a chat after disablement or pinning
 an outdated action policy.
+Every enqueue, explicit-start, retry, eligible-count, and worker path evaluates
+the same saved severity and namespace policy. A previously queued lifecycle
+that becomes ineligible is skipped before dispatch. If it was skipped before
+session creation, a later eligible settings revision can explicitly requeue
+the same durable job.
 
 Readiness failures remain blocked and retry with bounded backoff while the issue
 is active. Backoff begins at 30 seconds and caps at 15 minutes. Repeated checks

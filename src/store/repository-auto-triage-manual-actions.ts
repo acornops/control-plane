@@ -5,6 +5,7 @@ import {
   enqueueTargetAutoTriageJob,
   getTargetAutoTriageJobForIssueLifecycle
 } from './repository-auto-triage.js';
+import { AUTO_TRIAGE_SCOPE_SQL } from './repository-auto-triage-scope.js';
 import { withTransaction } from './repository-transaction.js';
 
 export async function startSingleTargetAutoTriageIssue(
@@ -30,6 +31,7 @@ export async function startSingleTargetAutoTriageIssue(
                 WHEN 'warning' THEN 1
                 ELSE 2
               END
+          AND ${AUTO_TRIAGE_SCOPE_SQL('issue', 'settings')}
         FOR UPDATE OF issue, settings`,
       [
         issue.workspaceId,

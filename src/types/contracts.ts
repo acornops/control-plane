@@ -212,7 +212,10 @@ export const updateTargetAutoTriageSchema = z.object({
   writeMode: z.enum(['follow_target', 'read_only', 'approval_required', 'full_write']),
   additionalInstructions: z.string().refine(autoTriageInstructionsFitLimit, {
     message: 'Additional instructions must be 4,000 normalized characters or fewer'
-  })
+  }),
+  namespaceInclude: namespaceListSchema.default([]),
+  namespaceExclude: namespaceListSchema.default([]),
+  includeClusterScopedIssues: z.boolean().optional().default(true)
 }).strict();
 
 export const startExistingAutoTriageInvestigationsSchema = z.object({

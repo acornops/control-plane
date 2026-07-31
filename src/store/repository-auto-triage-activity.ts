@@ -8,6 +8,7 @@ import type {
 } from '../types/auto-triage.js';
 import type { TargetIssueSeverity } from '../types/domain.js';
 import { toIso } from './repository-mappers.js';
+import { AUTO_TRIAGE_SCOPE_SQL } from './repository-auto-triage-scope.js';
 
 interface AutomaticInvestigationRow {
   issue_id: string;
@@ -38,10 +39,17 @@ export async function countEligibleCurrentAutoTriageIssues(
   const result = await db.query<{ count: number | string }>(
     `SELECT COUNT(*)::int AS count
        FROM target_issues issue
+       LEFT JOIN target_auto_triage_settings settings
+         ON settings.workspace_id = issue.workspace_id
+        AND settings.target_id = issue.target_id
       WHERE issue.workspace_id = $1
         AND issue.target_id = $2
         AND issue.status IN ('active', 'recovering')
         AND issue.severity_rank <= $3
+        AND (
+          settings.target_id IS NULL
+          OR ${AUTO_TRIAGE_SCOPE_SQL('issue', 'settings')}
+        )
         AND (
           NOT EXISTS (
             SELECT 1
@@ -56,7 +64,7 @@ export async function countEligibleCurrentAutoTriageIssues(
                AND job.issue_lifecycle_version = issue.lifecycle_version
                AND job.status = 'skipped'
                AND job.session_created_at IS NULL
-               AND job.error_code = 'AUTO_TRIAGE_DISABLED'
+               AND job.error_code IN ('AUTO_TRIAGE_DISABLED', 'ISSUE_NOT_ELIGIBLE')
           )
         )`,
     [workspaceId, targetId, severityRank(minimumSeverity)]
@@ -217,6 +225,7 @@ export async function getAutomaticInvestigationActivityByIssueIds(
                 WHEN 'warning' THEN 1
                 ELSE 2
               END
+              AND ${AUTO_TRIAGE_SCOPE_SQL('issue', 'settings')}
             ) AS retry_eligible,
             GREATEST(job.updated_at, COALESCE(run.requested_at, job.updated_at)) AS updated_at
        FROM target_auto_triage_jobs job

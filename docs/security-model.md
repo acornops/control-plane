@@ -118,6 +118,10 @@
   `create_read_write_runs`.
 - Auto-triage does not use `manage_workflows`, Workflow definitions, Automation
   runtime mode, Workflow service identities, or the automation dispatch outbox.
+- Kubernetes namespace include and exclude settings narrow which issues may
+  trigger automatic investigations. They do not grant access and do not replace
+  AgentK's namespace and RBAC ceilings. Virtual-machine eligibility remains
+  target-wide.
 - The target agent and saved target confirmation policy are ceilings.
   Automatic investigations may remove write tools or require more approvals,
   but they cannot add unsupported writes or bypass target-level confirmation.

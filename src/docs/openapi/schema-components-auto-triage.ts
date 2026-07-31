@@ -52,9 +52,13 @@ export function buildAutoTriageSchemas(): Record<string, JsonSchema> {
         'minimumSeverity',
         'writeMode',
         'additionalInstructions',
+        'namespaceInclude',
+        'namespaceExclude',
+        'includeClusterScopedIssues',
         'revision',
         'canEdit',
         'eligibleCurrentIssueCount',
+        'queueSummary',
         'effectiveBehavior',
         'readiness'
       ],
@@ -65,6 +69,29 @@ export function buildAutoTriageSchemas(): Record<string, JsonSchema> {
         minimumSeverity: { type: 'string', enum: ['critical', 'warning', 'info'] },
         writeMode: { type: 'string', enum: ['follow_target', 'read_only', 'approval_required', 'full_write'] },
         additionalInstructions: { type: 'string', maxLength: 4000 },
+        namespaceInclude: {
+          type: 'array',
+          maxItems: 100,
+          uniqueItems: true,
+          items: {
+            type: 'string',
+            minLength: 1,
+            maxLength: 63,
+            pattern: '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
+          }
+        },
+        namespaceExclude: {
+          type: 'array',
+          maxItems: 100,
+          uniqueItems: true,
+          items: {
+            type: 'string',
+            minLength: 1,
+            maxLength: 63,
+            pattern: '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
+          }
+        },
+        includeClusterScopedIssues: { type: 'boolean' },
         revision: { type: 'integer', minimum: 0 },
         canEdit: { type: 'boolean' },
         eligibleCurrentIssueCount: { type: 'integer', minimum: 0 },

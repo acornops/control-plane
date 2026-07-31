@@ -25,6 +25,9 @@ const savedSettings: TargetAutoTriageSettings = {
   minimumSeverity: 'warning',
   writeMode: 'approval_required',
   additionalInstructions: '',
+  namespaceInclude: [],
+  namespaceExclude: [],
+  includeClusterScopedIssues: true,
   revision: 1
 };
 const originalAutoTriageRepository = repo.autoTriage;
@@ -123,6 +126,33 @@ describe('target auto-triage controller authorization', () => {
     assert.equal(
       (response.body as { error: { code: string } }).error.code,
       'AUTO_TRIAGE_SETTINGS_CONFLICT'
+    );
+  });
+
+  it('rejects Kubernetes namespace eligibility settings for virtual machines', async () => {
+    installWorkspace('owner');
+
+    const response = await callController(
+      updateTargetAutoTriage,
+      createRequest(
+        { workspaceId: 'workspace-1', targetId: 'target-1' },
+        {
+          expectedRevision: 0,
+          enabled: true,
+          minimumSeverity: 'warning',
+          writeMode: 'read_only',
+          additionalInstructions: '',
+          namespaceInclude: ['payments'],
+          namespaceExclude: [],
+          includeClusterScopedIssues: true
+        }
+      )
+    );
+
+    assert.equal(response.statusCode, 400);
+    assert.equal(
+      (response.body as { error: { code: string } }).error.code,
+      'VALIDATION_ERROR'
     );
   });
 

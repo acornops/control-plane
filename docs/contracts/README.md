@@ -70,7 +70,9 @@ The control plane owns the platform API boundary. Keep this README as a short in
   Its worker has a dedicated timer and error boundary and ignores Automation
   runtime mode, so Workflow failures cannot pause automatic investigations.
   Requested write behavior can only become stricter after intersecting target
-  and agent policy.
+  and agent policy. Kubernetes settings additionally narrow eligible issue
+  namespaces and independently control cluster-scoped issues; virtual-machine
+  settings remain target-wide.
 - Workspace specialist Agents own Agent-scoped MCP and skill installations;
   Cluster and VM default Agents retain distinct target-scoped capabilities.
   Catalog imports are MCP-only, return secret-free DTOs, and never accept a

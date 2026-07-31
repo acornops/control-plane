@@ -16,6 +16,8 @@ import {
 } from './repository-auto-triage-job-mappers.js';
 import { requeueDisabledTargetAutoTriageJob } from './repository-auto-triage-requeue.js';
 import { withTransaction } from './repository-transaction.js';
+import { issueMatchesAutoTriageScope } from '../utils/auto-triage-eligibility.js';
+import { AUTO_TRIAGE_SCOPE_SQL } from './repository-auto-triage-scope.js';
 
 type Queryable = Pick<typeof db, 'query'> | PoolClient;
 
@@ -24,6 +26,9 @@ const DEFAULT_SETTINGS = {
   minimumSeverity: 'warning' as const,
   writeMode: 'follow_target' as const,
   additionalInstructions: '',
+  namespaceInclude: [],
+  namespaceExclude: [],
+  includeClusterScopedIssues: true,
   revision: 0
 };
 
@@ -34,6 +39,9 @@ interface AutoTriageSettingsRow {
   minimum_severity: TargetAutoTriageSettings['minimumSeverity'];
   write_mode: TargetAutoTriageSettings['writeMode'];
   additional_instructions: string;
+  namespace_include: unknown;
+  namespace_exclude: unknown;
+  include_cluster_scoped_issues: boolean;
   revision: number | string;
   updated_by: string | null;
   created_at: Date | string;
@@ -41,6 +49,12 @@ interface AutoTriageSettingsRow {
 }
 
 function mapSettings(row: AutoTriageSettingsRow): TargetAutoTriageSettings {
+  const namespaceInclude = Array.isArray(row.namespace_include)
+    ? row.namespace_include.filter((value): value is string => typeof value === 'string')
+    : [];
+  const namespaceExclude = Array.isArray(row.namespace_exclude)
+    ? row.namespace_exclude.filter((value): value is string => typeof value === 'string')
+    : [];
   return {
     workspaceId: row.workspace_id,
     targetId: row.target_id,
@@ -48,6 +62,9 @@ function mapSettings(row: AutoTriageSettingsRow): TargetAutoTriageSettings {
     minimumSeverity: row.minimum_severity,
     writeMode: row.write_mode,
     additionalInstructions: row.additional_instructions,
+    namespaceInclude,
+    namespaceExclude,
+    includeClusterScopedIssues: row.include_cluster_scoped_issues !== false,
     revision: Number(row.revision),
     updatedBy: row.updated_by || undefined,
     createdAt: toIso(row.created_at),
@@ -59,13 +76,6 @@ function severityRank(severity: TargetIssueSeverity): number {
   if (severity === 'critical') return 0;
   if (severity === 'warning') return 1;
   return 2;
-}
-
-export function issueMeetsAutoTriageThreshold(
-  issueSeverity: TargetIssueSeverity,
-  minimumSeverity: TargetIssueSeverity
-): boolean {
-  return severityRank(issueSeverity) <= severityRank(minimumSeverity);
 }
 
 export async function getTargetAutoTriageSettings(
@@ -96,14 +106,18 @@ export async function saveTargetAutoTriageSettings(input: {
   minimumSeverity: TargetAutoTriageSettings['minimumSeverity'];
   writeMode: TargetAutoTriageSettings['writeMode'];
   additionalInstructions: string;
+  namespaceInclude: string[];
+  namespaceExclude: string[];
+  includeClusterScopedIssues: boolean;
   updatedBy: string;
 }): Promise<TargetAutoTriageSettings | null> {
   if (input.expectedRevision === 0) {
     const inserted = await db.query<AutoTriageSettingsRow>(
       `INSERT INTO target_auto_triage_settings (
          workspace_id, target_id, enabled, minimum_severity, write_mode,
-         additional_instructions, revision, updated_by
-       ) VALUES ($1,$2,$3,$4,$5,$6,1,$7)
+         additional_instructions, namespace_include, namespace_exclude,
+         include_cluster_scoped_issues, revision, updated_by
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,1,$10)
        ON CONFLICT (target_id) DO NOTHING
        RETURNING *`,
       [
@@ -113,6 +127,9 @@ export async function saveTargetAutoTriageSettings(input: {
         input.minimumSeverity,
         input.writeMode,
         input.additionalInstructions,
+        JSON.stringify(input.namespaceInclude),
+        JSON.stringify(input.namespaceExclude),
+        input.includeClusterScopedIssues,
         input.updatedBy
       ]
     );
@@ -125,8 +142,11 @@ export async function saveTargetAutoTriageSettings(input: {
             minimum_severity = $5,
             write_mode = $6,
             additional_instructions = $7,
+            namespace_include = $8::jsonb,
+            namespace_exclude = $9::jsonb,
+            include_cluster_scoped_issues = $10,
             revision = revision + 1,
-            updated_by = $8,
+            updated_by = $11,
             updated_at = NOW()
       WHERE workspace_id = $1
         AND target_id = $2
@@ -140,6 +160,9 @@ export async function saveTargetAutoTriageSettings(input: {
       input.minimumSeverity,
       input.writeMode,
       input.additionalInstructions,
+      JSON.stringify(input.namespaceInclude),
+      JSON.stringify(input.namespaceExclude),
+      input.includeClusterScopedIssues,
       input.updatedBy
     ]
   );
@@ -224,9 +247,11 @@ export async function enqueueCurrentTargetAutoTriageIssues(input: {
       workspace_id: string;
       target_id: string;
       target_type: TargetType;
+      scope_kind: string | null;
+      scope_name: string | null;
       lifecycle_version: number | string;
     }>(
-      `SELECT id, workspace_id, target_id, target_type, lifecycle_version
+      `SELECT id, workspace_id, target_id, target_type, scope_kind, scope_name, lifecycle_version
          FROM target_issues
         WHERE workspace_id = $1
           AND target_id = $2
@@ -239,6 +264,11 @@ export async function enqueueCurrentTargetAutoTriageIssues(input: {
     let queuedCount = 0;
     let alreadyExistsCount = 0;
     for (const issue of issues.rows) {
+      if (!issueMatchesAutoTriageScope({
+        targetType: issue.target_type,
+        scopeKind: issue.scope_kind || undefined,
+        scopeName: issue.scope_name || undefined
+      }, settings)) continue;
       const queued = await enqueueTargetAutoTriageJob(
         client,
         {
@@ -267,6 +297,7 @@ export async function retryTargetAutoTriageIssue(
         SET status = 'queued',
             trigger_reason = 'retry',
             run_id = NULL,
+            settings_revision = settings.revision,
             retry_generation = retry_generation + 1,
             attempt_count = 0,
             next_attempt_at = NOW(),
@@ -290,6 +321,7 @@ export async function retryTargetAutoTriageIssue(
               WHEN 'warning' THEN 1
               ELSE 2
             END
+        AND ${AUTO_TRIAGE_SCOPE_SQL('issue', 'settings')}
         AND job.status = 'failed'
         AND (
           job.session_created_at IS NULL
@@ -442,17 +474,19 @@ export async function linkClaimedTargetAutoTriageJob(input: {
   leaseOwner: string;
   sessionId: string;
   runId: string;
+  settingsRevision: number;
 }, queryable: Queryable = db): Promise<boolean> {
   const result = await queryable.query(
     `UPDATE target_auto_triage_jobs
         SET session_id = $3,
             session_created_at = COALESCE(session_created_at, NOW()),
             run_id = $4,
+            settings_revision = $5,
             updated_at = NOW()
       WHERE id = $1
         AND lease_owner = $2
         AND lease_expires_at > NOW()`,
-    [input.jobId, input.leaseOwner, input.sessionId, input.runId]
+    [input.jobId, input.leaseOwner, input.sessionId, input.runId, input.settingsRevision]
   );
   return (result.rowCount ?? 0) > 0;
 }
