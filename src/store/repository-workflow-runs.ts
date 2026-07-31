@@ -283,7 +283,9 @@ export async function createWorkflowExecution(params: {
           }
         : { schemaVersion: 1, kind: 'manual', label: 'Manual' }
     );
-    const source = origin.kind === 'event_trigger' ? origin.source : undefined;
+    const source = origin.kind === 'webhook'
+      ? { kind: 'webhook', id: origin.webhookId }
+      : undefined;
     const executionId = randomUUID();
     const messageId = params.messageId || randomUUID();
     const executor = compiledAccessScope.executor;

@@ -40,16 +40,8 @@ export interface WorkflowTriggerDispatchInput {
   inputs: Record<string, string>;
   approvedContextGrants: string[];
   principal: WorkflowSchedulePrincipal;
-  triggerType: 'schedule' | 'webhook' | 'acornops_event';
+  triggerType: 'schedule' | 'webhook';
   occurrenceKey: string;
-  source?: {
-    kind: 'issue' | 'webhook';
-    label: string;
-    id?: string;
-    eventType?: string;
-    targetId?: string;
-    targetType?: 'kubernetes' | 'virtual_machine';
-  };
 }
 
 export type WorkflowTriggerDispatchResult =
@@ -113,7 +105,7 @@ export async function dispatchWorkflowTrigger(
       reason: 'workflow_parameters_changed',
       error: trigger.triggerType === 'schedule'
         ? 'Workflow runtime parameters changed. Review and save the schedule before enabling it again.'
-        : 'Workflow runtime parameters changed. Review and save the trigger before enabling it again.'
+        : 'Workflow runtime parameters changed. Review and save the webhook before enabling it again.'
     };
   }
 
@@ -262,17 +254,13 @@ export async function dispatchWorkflowTrigger(
           schemaVersion: 1,
           kind: 'schedule',
           label: trigger.name,
-          triggerId: trigger.id
+          scheduleId: trigger.id
         }
       : {
           schemaVersion: 1,
-          kind: 'event_trigger',
+          kind: 'webhook',
           label: trigger.name,
-          triggerId: trigger.id,
-          source: trigger.source || {
-            kind: trigger.triggerType === 'webhook' ? 'webhook' : 'issue',
-            label: trigger.triggerType === 'webhook' ? 'Webhook event' : 'AcornOps event'
-          }
+          webhookId: trigger.id
         },
     targetId: target?.id,
     targetType: target?.targetType,

@@ -19,7 +19,13 @@ const migrationFiles = readdirSync(migrationsDir)
   .sort();
 assert.deepEqual(
   migrationFiles,
-  ['001_initial_schema.sql', '002_user_sign_in_methods.sql', '003_workspace_defaults.sql', '004_agent_avatar_emoji.sql'],
+  [
+    '001_initial_schema.sql',
+    '002_user_sign_in_methods.sql',
+    '003_workspace_defaults.sql',
+    '004_agent_avatar_emoji.sql',
+    '005_workflow_webhooks.sql'
+  ],
   'the control-plane schema must include the immutable baseline and required forward migrations'
 );
 
@@ -114,7 +120,9 @@ const expectedTables = [
   'workflow_run_approvals',
   'workflow_run_continuations',
   'workflow_schedules',
-  'workflow_event_triggers',
+  'workflow_webhooks',
+  'workflow_webhook_events',
+  'workflow_webhook_deliveries',
   'workflow_reports',
   'automation_template_installations',
   'capability_routing_mappings',
@@ -180,10 +188,12 @@ const expectedColumns = [
   ['workflow_schedules', 'parameter_signature'],
   ['workflow_schedules', 'last_execution_id'],
   ['workflow_schedules', 'last_run_id'],
-  ['workflow_event_triggers', 'input_bindings'],
-  ['workflow_event_triggers', 'parameter_signature'],
-  ['workflow_event_triggers', 'last_execution_id'],
-  ['workflow_event_triggers', 'last_run_id'],
+  ['workflow_webhooks', 'parameter_signature'],
+  ['workflow_webhooks', 'last_received_at'],
+  ['workflow_webhooks', 'last_execution_id'],
+  ['workflow_webhooks', 'last_run_id'],
+  ['workflow_webhook_events', 'webhook_id'],
+  ['workflow_webhook_deliveries', 'webhook_id'],
   ['target_issues', 'lifecycle_version'],
   ['webhook_history', 'attempt_number'],
   ['webhook_history', 'will_retry'],
@@ -223,8 +233,11 @@ const expectedConstraints = [
   'workflow_executions_client_request_fingerprint_check',
   'workflow_schedules_inputs_check',
   'workflow_schedules_parameter_signature_check',
-  'workflow_event_triggers_event_type_check',
-  'workflow_event_triggers_source_secret_check',
+  'workflow_webhooks_parameter_signature_check',
+  'workflow_webhooks_principal_check',
+  'workflow_webhook_events_workspace_webhook_occurrence_key',
+  'workflow_webhook_events_webhook_id_fkey',
+  'workflow_webhook_deliveries_webhook_id_fkey',
   'runs_assistant_references_array',
   'webhook_delivery_jobs_status_check',
   'webhook_delivery_jobs_event_id_fkey',
@@ -277,6 +290,8 @@ async function runSqlChecks(databaseUrl) {
       'idx_target_auto_triage_jobs_workspace_issue',
       'workflow_executions_workspace_created_idx',
       'workflow_executions_source_idx',
+      'workflow_webhooks_workspace_idx',
+      'workflow_webhook_deliveries_claim_idx',
       'workspace_defaults_available_in_idx',
       'workspace_initial_defaults_workspace_kind_idx'
     ]) {
@@ -316,7 +331,10 @@ async function runSqlChecks(databaseUrl) {
       'workflow_delegations',
       'workflow_approvals',
       'automation_run_approvals',
-      'automation_run_continuations'
+      'automation_run_continuations',
+      'workflow_event_triggers',
+      'automation_trigger_events',
+      'automation_trigger_deliveries'
     ]) {
       assert.equal(tableNames.has(table), false, `${table} must not survive the greenfield baseline`);
     }

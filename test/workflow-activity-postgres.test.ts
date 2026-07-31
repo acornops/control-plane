@@ -64,9 +64,9 @@ async function insertActivityExecution(input: {
       messageId,
       input.origin.kind === 'schedule'
         ? 'schedule'
-        : input.origin.kind === 'event_trigger'
-          ? 'acornops_event'
-          : 'manual',
+        : input.origin.kind === 'webhook'
+          ? 'webhook'
+          : input.origin.kind,
       input.origin,
       input.issueId ? 'issue' : null,
       input.issueId || null,
@@ -112,7 +112,7 @@ async function seedActivityExecutions(): Promise<void> {
       schemaVersion: 1,
       kind: 'schedule',
       label: 'Hourly diagnostics',
-      triggerId: 'schedule-hourly'
+      scheduleId: 'schedule-hourly'
     },
     targetId: 'cluster-1',
     createdAt: '2026-07-25T05:00:00.000Z'
@@ -123,10 +123,8 @@ async function seedActivityExecutions(): Promise<void> {
     workflowName: 'Issue remediation',
     origin: {
       schemaVersion: 1,
-      kind: 'event_trigger',
-      label: 'Critical issue automation',
-      triggerId: 'trigger-critical',
-      source: { kind: 'issue', label: 'Issue event', id: 'issue-1' }
+      kind: 'historical_event',
+      label: 'Critical issue automation'
     },
     issueId: 'issue-1',
     targetId: 'cluster-1',
@@ -138,10 +136,8 @@ async function seedActivityExecutions(): Promise<void> {
     workflowName: 'Issue evidence collection',
     origin: {
       schemaVersion: 1,
-      kind: 'event_trigger',
-      label: 'Issue evidence trigger',
-      triggerId: 'trigger-evidence',
-      source: { kind: 'issue', label: 'Issue event', id: 'issue-1' }
+      kind: 'historical_event',
+      label: 'Issue evidence automation'
     },
     issueId: 'issue-1',
     targetId: 'cluster-1',
@@ -153,10 +149,8 @@ async function seedActivityExecutions(): Promise<void> {
     workflowName: 'Completed issue triage',
     origin: {
       schemaVersion: 1,
-      kind: 'event_trigger',
-      label: 'Issue triage trigger',
-      triggerId: 'trigger-triage',
-      source: { kind: 'issue', label: 'Issue event', id: 'issue-2' }
+      kind: 'historical_event',
+      label: 'Issue triage automation'
     },
     issueId: 'issue-2',
     targetId: 'cluster-1',

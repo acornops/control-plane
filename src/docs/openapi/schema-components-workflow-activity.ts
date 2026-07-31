@@ -9,19 +9,19 @@ export function buildWorkflowActivitySchemas(): Record<string, JsonSchema> {
         {
           required: ['kind'],
           properties: {
-            kind: { type: 'string', enum: ['manual', 'external_integration'] }
+            kind: { type: 'string', enum: ['manual', 'external_integration', 'agent_chat', 'historical_event'] }
           }
         },
         {
-          required: ['kind', 'triggerId'],
+          required: ['kind', 'scheduleId'],
           properties: {
             kind: { type: 'string', enum: ['schedule'] }
           }
         },
         {
-          required: ['kind', 'triggerId', 'source'],
+          required: ['kind', 'webhookId'],
           properties: {
-            kind: { type: 'string', enum: ['event_trigger'] }
+            kind: { type: 'string', enum: ['webhook'] }
           }
         }
       ],
@@ -29,23 +29,11 @@ export function buildWorkflowActivitySchemas(): Record<string, JsonSchema> {
         schemaVersion: { type: 'integer', enum: [1] },
         kind: {
           type: 'string',
-          enum: ['manual', 'external_integration', 'schedule', 'event_trigger']
+          enum: ['manual', 'external_integration', 'agent_chat', 'schedule', 'webhook', 'historical_event']
         },
         label: { type: 'string' },
-        triggerId: { type: 'string' },
-        source: {
-          type: 'object',
-          required: ['kind', 'label'],
-          properties: {
-            kind: { type: 'string', enum: ['issue', 'webhook'] },
-            label: { type: 'string' },
-            id: { type: 'string' },
-            eventType: { type: 'string' },
-            targetId: { type: 'string' },
-            targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] }
-          },
-          additionalProperties: false
-        }
+        scheduleId: { type: 'string' },
+        webhookId: { type: 'string' }
       },
       additionalProperties: false
     },

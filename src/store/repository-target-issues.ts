@@ -11,7 +11,6 @@ import {
   resumeIssueWebhookJobs,
   supersedeOlderIssueWebhookJobs
 } from './repository-webhook-outbox.js';
-import { enqueueWorkflowIssueCreatedEvent } from './repository-workflow-event-triggers.js';
 import { toIso } from './repository-mappers.js';
 import { stopTargetAutoTriageJobsForResolvedIssue } from './repository-auto-triage.js';
 import { enqueueAutoTriageForObservedIssue } from './repository-target-issue-auto-triage.js';
@@ -179,26 +178,6 @@ async function upsertObservedIssue(
   const issue = mapIssueRow(row);
   await enqueueAutoTriageForObservedIssue(client as PoolClient, issue, previous);
   if (!previous) {
-    await enqueueWorkflowIssueCreatedEvent(client, {
-      workspaceId: issue.workspaceId,
-      issueId: issue.id,
-      lifecycleVersion: issue.lifecycleVersion,
-      occurredAt: observation.snapshotTs,
-      payload: {
-        issue: {
-          id: issue.id,
-          title: issue.title,
-          summary: issue.summary,
-          severity: issue.severity,
-          scope: issue.scopeName || issue.scopeKind,
-          object: issue.objectName || issue.objectKind
-        },
-        target: {
-          id: issue.targetId,
-          type: issue.targetType
-        }
-      }
-    });
     await enqueueWebhookOutboxEvent({
       type: 'issue.created.v1',
       workspaceId: issue.workspaceId,

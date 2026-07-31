@@ -1,6 +1,6 @@
 import { EXAMPLE_RUN_ID, EXAMPLE_WORKSPACE_ID } from '../../constants/dev-defaults.js';
 import { streamContent } from './schema-types.js';
-import { buildWorkflowEventTriggerPaths } from './workflow-event-trigger-paths.js';
+import { buildWorkflowWebhookPaths } from './workflow-webhook-paths.js';
 
 const workspaceIdParameter = {
   in: 'path',
@@ -156,7 +156,7 @@ const workflowScheduleBody = {
 
 export function buildWorkflowPaths(): Record<string, unknown> {
   return {
-    ...buildWorkflowEventTriggerPaths(),
+    ...buildWorkflowWebhookPaths(),
     '/api/v1/workspaces/{workspaceId}/workflows': {
       get: {
         tags: ['workflows'],
@@ -319,7 +319,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       post: {
         tags: ['workflows'],
         summary: 'Duplicate a workflow as a custom draft',
-        description: 'Copies the effective definition only. Runs, sessions, schedules, triggers, activity, and version history are not copied.',
+        description: 'Copies the effective definition only. Runs, sessions, schedules, workflow webhooks, activity, and version history are not copied.',
         security: [{ userSession: [] }],
         parameters: [workflowIdParameter],
         requestBody: {
@@ -470,7 +470,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
         parameters: [
           workspaceIdParameter,
           { in: 'query', name: 'state', required: false, schema: { type: 'string', enum: ['all', 'open', 'attention', 'completed', 'failed', 'cancelled'] } },
-          { in: 'query', name: 'origin', required: false, schema: { type: 'string', enum: ['manual', 'external_integration', 'schedule', 'event_trigger'] } },
+          { in: 'query', name: 'origin', required: false, schema: { type: 'string', enum: ['manual', 'external_integration', 'schedule', 'webhook'] } },
           { in: 'query', name: 'workflowId', required: false, schema: { type: 'string' } },
           { in: 'query', name: 'sourceIssueId', required: false, schema: { type: 'string' } },
           { in: 'query', name: 'search', required: false, schema: { type: 'string', maxLength: 200 } },

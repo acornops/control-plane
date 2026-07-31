@@ -3,59 +3,28 @@ import { describe, it } from 'node:test';
 
 import {
   constantTimeSignatureEqual,
-  validateEventTriggerContextGrants,
-  validateIssueBindings,
+  validateWorkflowWebhookContextGrants,
   validateWebhookInputs,
   webhookInputsValid
-} from '../src/controllers/workflow-event-triggers-controller.js';
+} from '../src/controllers/workflow-webhooks-controller.js';
 import {
-  EVENT_TRIGGER_CREATE_FIELDS,
+  WORKFLOW_WEBHOOK_CREATE_FIELDS,
   parseContextGrantList,
   unexpectedBodyField
-} from '../src/controllers/workflow-event-trigger-validation.js';
+} from '../src/controllers/workflow-webhook-validation.js';
 import { signWebhookPayload } from '../src/utils/crypto.js';
 
-describe('workflow event-trigger validation', () => {
-  it('requires complete, declared issue bindings and target IDs for target parameters', () => {
-    const parameters = [
-      { key: 'target', type: 'target' as const, required: true as const },
-      { key: 'summary', type: 'text' as const, required: true as const }
-    ];
-
-    assert.equal(validateIssueBindings(parameters, {
-      target: 'target.id',
-      summary: 'issue.summary'
-    }), null);
-    assert.match(validateIssueBindings(parameters, {
-      target: 'issue.id',
-      summary: 'issue.summary'
-    }) || '', /must use the target ID/);
-    assert.match(validateIssueBindings(parameters, {
-      target: 'target.id'
-    }) || '', /Select an issue field for summary/);
-    assert.match(validateIssueBindings(parameters, {
-      target: 'target.id',
-      summary: 'issue.summary',
-      undeclared: 'issue.id'
-    }) || '', /not declared/);
-  });
-
-  it('rejects issue event triggers for workflows with chat parameters', () => {
-    assert.match(validateIssueBindings([
-      { key: 'incident_context', type: 'chat', required: true }
-    ], { incident_context: 'issue.summary' }) || '', /do not support workflows with chat parameters/);
-  });
-
+describe('workflow webhook validation', () => {
   it('requires exactly the workflow context grants', () => {
-    assert.equal(validateEventTriggerContextGrants(
+    assert.equal(validateWorkflowWebhookContextGrants(
       ['workspace.summary'],
       ['workspace.summary']
     ), null);
-    assert.match(validateEventTriggerContextGrants(
+    assert.match(validateWorkflowWebhookContextGrants(
       ['workspace.summary'],
       []
     ) || '', /Approve the workspace.summary/);
-    assert.match(validateEventTriggerContextGrants(
+    assert.match(validateWorkflowWebhookContextGrants(
       ['workspace.summary'],
       ['workspace.summary', 'target.secrets']
     ) || '', /target.secrets is not used/);
@@ -68,7 +37,7 @@ describe('workflow event-trigger validation', () => {
     assert.equal(parseContextGrantList(['workspace.summary', 'workspace.summary']), null);
     assert.equal(parseContextGrantList(['workspace.summary', 42]), null);
     assert.equal(
-      unexpectedBodyField({ workflowId: 'workflow-1', principal: { id: 'user-2' } }, EVENT_TRIGGER_CREATE_FIELDS),
+      unexpectedBodyField({ workflowId: 'workflow-1', principal: { id: 'user-2' } }, WORKFLOW_WEBHOOK_CREATE_FIELDS),
       'principal'
     );
   });

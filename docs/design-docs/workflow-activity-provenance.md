@@ -1,7 +1,7 @@
 # Workflow Activity Provenance
 
 The control plane exposes workspace workflow activity without reconstructing
-origin from mutable schedules, triggers, or webhook requests.
+origin from mutable schedules, workflow webhooks, or webhook requests.
 
 ## Persisted Boundary
 
@@ -10,12 +10,14 @@ is created. The snapshot contains only the fields needed to explain the run:
 
 - manual label or the registered external-integration client display name;
 - schedule label and identifier; or
-- event-trigger label, identifier, and a bounded issue or webhook source.
+- workflow webhook label and identifier; or
+- a bounded historical-event label retained by the forward migration.
 
 Webhook payloads, signing material, and raw occurrence keys never enter the
-public provenance object. Trigger deletion does not affect the stored snapshot.
-The greenfield baseline owns the final columns and indexes; there is no legacy
-row backfill or compatibility mapper.
+public provenance object. Schedule or webhook deletion does not affect the
+stored snapshot. The forward migration converts prior signed-webhook
+provenance, retains retired event executions as historical entries, and does
+not rewrite workspace audit records.
 
 ## Read Surfaces
 
@@ -33,14 +35,14 @@ Issue list and detail controllers fetch activity for all returned issue IDs in
 one grouped query. They attach `workflowActivity` only for browser users and
 never issue one execution query per issue.
 
-## Trigger Pointers
+## Automation pointers
 
-Schedules and event triggers store the latest successful execution and root-run
+Schedules and workflow webhooks store the latest successful execution and root-run
 identifiers separately from dispatch status and error. A failed, rejected,
 skipped, or auto-paused dispatch updates dispatch facts but preserves those
 successful pointers.
 
-Public schedule and trigger responses resolve the pointer to a compact execution
+Public schedule and webhook responses resolve the pointer to a compact execution
 summary. Configuration state, last dispatch outcome, and current execution
 status therefore remain distinct.
 
@@ -52,9 +54,9 @@ status therefore remain distinct.
 - Open means any status other than completed, failed, or cancelled.
 - Attention means waiting for approval or needs review.
 - The aggregate execution status is authoritative.
-- Source labels come from the immutable snapshot, not a live join to trigger
+- Source labels come from the immutable snapshot, not a live join to automation
   configuration.
 
 Repository tests cover workspace isolation, counts, filtering, stable
-pagination, issue summaries, provenance sanitization, schedule and trigger
+pagination, issue summaries, provenance sanitization, schedule and webhook
 pointer preservation, and OpenAPI publication.
