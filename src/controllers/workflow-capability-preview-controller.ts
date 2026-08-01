@@ -19,8 +19,8 @@ import { getMcpConnection, listAgentMcpServers, type McpServerConfig } from '../
 import { PromptResourceProviderError } from '../services/prompt-resources/errors.js';
 import {
   compileWorkflowPrompt,
-  WorkflowTemplateValidationError
-} from '../services/workflow-template.js';
+  WorkflowPromptValidationError
+} from '../services/workflow-prompt.js';
 import { resolveWorkspaceMcpToolSpecs } from '../services/workspace-mcp-tool-specs.js';
 
 function requestWorkspaceId(req: AuthenticatedRequest): string | null {
@@ -245,9 +245,9 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
     res.status(200).json(response);
   } catch (error) {
     if (error instanceof WorkflowAccessDeniedError) return respondWorkflowAccessError(res, error);
-    if (error instanceof WorkflowTemplateValidationError) {
+    if (error instanceof WorkflowPromptValidationError) {
       return void res.status(400).json({ error: {
-        code: 'WORKFLOW_PROMPT_TEMPLATE_INVALID',
+        code: 'WORKFLOW_PROMPT_INVALID',
         message: error.message,
         retryable: false,
         details: { errors: error.errors }

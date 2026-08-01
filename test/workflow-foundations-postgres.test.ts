@@ -45,11 +45,10 @@ describe('Workflow and Agent template foundations', () => {
       name: string;
       status: string;
       review_state: string;
-      origin: { type: string };
       semantic_capability_ids: string[];
       tools: string[];
     }>(
-      `SELECT id,name,status,review_state,origin,semantic_capability_ids,tools
+      `SELECT id,name,status,review_state,semantic_capability_ids,tools
        FROM agent_definitions WHERE workspace_id=$1 ORDER BY name`,
       ['workspace-provisioned']
     );
@@ -58,7 +57,6 @@ describe('Workflow and Agent template foundations', () => {
       agents.rows.every((agent) => agent.status === 'active' && agent.review_state === 'reviewed'),
       true
     );
-    assert.equal(agents.rows.every((agent) => agent.origin.type === 'manual'), true);
     assert.deepEqual(agents.rows.map((agent) => agent.name), [
       'Kubernetes Agent',
       'Virtual Machine Agent'
@@ -102,13 +100,12 @@ describe('Workflow and Agent template foundations', () => {
       (await refreshAgentReadiness('workspace-provisioned', virtualMachineAgent.id))?.readiness,
       { status: 'ready', reasons: [] }
     );
-    const workflows = await db.query<{ status: string; readiness_status: string; agent_ids: string[]; origin: { type: string } }>(
-      'SELECT status,readiness_status,agent_ids,origin FROM workflow_definitions WHERE workspace_id=$1',
+    const workflows = await db.query<{ status: string; readiness_status: string; agent_ids: string[] }>(
+      'SELECT status,readiness_status,agent_ids FROM workflow_definitions WHERE workspace_id=$1',
       ['workspace-provisioned']
     );
     assert.equal(workflows.rowCount, 2);
     assert.deepEqual(workflows.rows.map((workflow) => workflow.agent_ids.length).sort(), [1, 1]);
-    assert.equal(workflows.rows.every((workflow) => workflow.origin.type === 'manual'), true);
     const [installation] = await listTemplateInstallations('workspace-provisioned');
     assert.equal(installation.state, 'complete');
     assert.equal(Object.keys(installation.recordIds).length, 4);
@@ -227,9 +224,6 @@ describe('Workflow and Agent template foundations', () => {
     });
     assert.equal(added.alreadyInstalled, false);
     assert.notEqual(added.workflowId, deletedWorkflowId);
-    assert.deepEqual((await getWorkflowDefinition('workspace-1', added.workflowId))?.origin, {
-      type: 'manual'
-    });
   });
 
   it('blocks assigned Agent deletion and prunes deleted Workflow and Agent installation references', async () => {
@@ -293,8 +287,5 @@ describe('Workflow and Agent template foundations', () => {
     assert.notEqual(replacementSpecialistId, specialistId);
     assert.notEqual(readded.workflowId, coordinatedWorkflowId);
     assert.equal(await getAgentDefinition('workspace-1', replacementSpecialistId) !== null, true);
-    assert.deepEqual((await getWorkflowDefinition('workspace-1', readded.workflowId))?.origin, {
-      type: 'manual'
-    });
   });
 });

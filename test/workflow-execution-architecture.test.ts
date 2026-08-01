@@ -123,6 +123,12 @@ describe('unified Workflow execution architecture', () => {
       );
       assert.doesNotMatch(body, /\b(?:agent|workflow)_version\b/, `${table} contains definition versioning`);
     }
+    assert.doesNotMatch(tableBody('agent_definitions'), /\borigin\b/, 'Agent definitions contain retired origin metadata');
+    assert.doesNotMatch(
+      tableBody('workflow_definitions'),
+      /\b(?:origin|template_id|starter_prompt)\b/,
+      'Workflow definitions contain retired template metadata'
+    );
     assert.doesNotMatch(tableBody('agent_definitions'), /\bworkflow_ids?\b/, 'Agents must not own Workflow assignments');
     assert.doesNotMatch(agentSchemas, /\btarget(?:Id|Type|Scope|Ref|Binding|Tool|Skill)\b/i);
     assert.doesNotMatch(workflowSchemas, /\btarget(?:Id|Type|Scope|Ref|Binding|Tool|Skill)\b/i);

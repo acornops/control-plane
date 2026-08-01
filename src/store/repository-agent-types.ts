@@ -8,7 +8,6 @@ export interface CreateAgentDefinitionInput {
   instructions: string;
   ownerUserId: string;
   createdBy: string;
-  origin?: AgentDefinition['origin'];
   reviewState?: AgentDefinition['reviewState'];
   providerType?: AgentDefinition['providerType'];
   mcpServers?: string[];

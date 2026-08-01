@@ -5,9 +5,10 @@ import { requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { promptResourceRegistry, PromptResourceProviderError } from '../services/prompt-resources/index.js';
 import { getWorkflowDefinition } from '../store/repository-workflows.js';
 import {
-  parseWorkflowTemplate,
-  workflowTemplateResourceCardinalityBlockers
-} from '../services/workflow-template.js';
+  validateWorkflowPrompt,
+  workflowPromptResourceCardinalityBlockers,
+  WorkflowPromptValidationError
+} from '../services/workflow-prompt.js';
 import { parseBoundedLimit } from '../utils/pagination.js';
 import { toSingleParam } from '../utils/params.js';
 
@@ -98,13 +99,15 @@ export async function resolvePromptReferences(req: AuthenticatedRequest, res: Re
     } });
     const body = parsedBody.data;
     const prompt = body.prompt;
-    const template = parseWorkflowTemplate(prompt);
-    if (template.errors.length > 0) {
+    try {
+      validateWorkflowPrompt(prompt);
+    } catch (error) {
+      if (!(error instanceof WorkflowPromptValidationError)) throw error;
       return void res.status(400).json({ error: {
-        code: 'WORKFLOW_PROMPT_TEMPLATE_INVALID',
-        message: template.errors[0]?.message || 'Workflow prompt template is invalid.',
+        code: 'WORKFLOW_PROMPT_INVALID',
+        message: error.message,
         retryable: false,
-        details: { errors: template.errors.slice(0, 64) }
+        details: { errors: error.errors }
       } });
     }
     const workflowId = body.workflowId;
@@ -121,7 +124,7 @@ export async function resolvePromptReferences(req: AuthenticatedRequest, res: Re
       enforceCardinality: false,
       includeImplicit: false
     });
-    const cardinalityBlockers = workflowTemplateResourceCardinalityBlockers({
+    const cardinalityBlockers = workflowPromptResourceCardinalityBlockers({
       concreteBindings: result.bindings,
       requirements
     });

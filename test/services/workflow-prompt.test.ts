@@ -3,17 +3,15 @@ import test from 'node:test';
 import {
   compileWorkflowFollowUp,
   compileWorkflowPrompt,
-  parseWorkflowTemplate,
   WorkflowMessageContentError,
-  WorkflowTemplateValidationError
-} from '../../src/services/workflow-template.js';
+  WorkflowPromptValidationError
+} from '../../src/services/workflow-prompt.js';
 import type { WorkflowDefinitionForAccess } from '../../src/types/workflows.js';
 
 function textWorkflow(prompt: string): WorkflowDefinitionForAccess {
   return {
     id: 'workflow-1',
     workspaceId: 'workspace-1',
-    origin: { type: 'manual' },
     name: 'Text workflow',
     status: 'active',
     prompt,
@@ -33,11 +31,8 @@ function textWorkflow(prompt: string): WorkflowDefinitionForAccess {
   };
 }
 
-test('workflow prompts treat legacy parameter and reference syntax as plain text', async () => {
+test('workflow prompts keep placeholder-like text literal', async () => {
   const prompt = 'Inspect {{target:target}} and @target[Test Cluster].';
-  const parsed = parseWorkflowTemplate(prompt);
-  assert.deepEqual(parsed.errors, []);
-
   const compiled = await compileWorkflowPrompt({
     workflow: textWorkflow(prompt),
     actorUserId: 'user-1'
@@ -46,22 +41,14 @@ test('workflow prompts treat legacy parameter and reference syntax as plain text
   assert.deepEqual(compiled.bindings, []);
 });
 
-test('workflow prompt compilation uses only the saved definition', async () => {
-  const compiled = await compileWorkflowPrompt({
-    workflow: textWorkflow('Run the saved instructions.'),
-    actorUserId: 'user-1'
-  });
-  assert.equal(compiled.content, 'Run the saved instructions.');
-});
-
 test('workflow prompts retain their bounded plain-text limit', async () => {
   await assert.rejects(
     compileWorkflowPrompt({
       workflow: textWorkflow('x'.repeat(32_769)),
       actorUserId: 'user-1'
     }),
-    (error) => error instanceof WorkflowTemplateValidationError
-      && error.errors[0]?.code === 'WORKFLOW_TEMPLATE_PROMPT_TOO_LONG'
+    (error) => error instanceof WorkflowPromptValidationError
+      && error.errors[0]?.code === 'WORKFLOW_PROMPT_TOO_LONG'
   );
 });
 

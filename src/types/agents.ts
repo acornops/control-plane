@@ -7,11 +7,6 @@ export type AgentProviderType = 'internal' | 'external';
 export type AutomationReadinessStatus = 'ready' | 'needs_setup' | 'blocked';
 export type RunPermissionMode = 'read_only' | 'ask_before_changes' | 'auto_allowed_changes';
 
-export interface DefinitionOrigin {
-  type: 'template' | 'manual';
-  templateId?: string;
-}
-
 export interface RunPrincipalRef {
   type: 'user' | 'service_identity';
   id: string;
@@ -91,7 +86,6 @@ export interface AgentDefinition {
   description?: string;
   instructions: string;
   status: AgentStatus;
-  origin: DefinitionOrigin;
   reviewState: AgentReviewState;
   providerType: AgentProviderType;
   ownerUserId: string;

@@ -30,8 +30,8 @@ import { toSingleParam } from '../utils/params.js';
 import { PromptResourceProviderError } from '../services/prompt-resources/errors.js';
 import {
   compileWorkflowPrompt,
-  WorkflowTemplateValidationError
-} from '../services/workflow-template.js';
+  WorkflowPromptValidationError
+} from '../services/workflow-prompt.js';
 import { getWorkflowScheduleMcpReadinessReport } from '../services/workflow-schedule-readiness.js';
 import { publicMcpReadinessError } from '../services/mcp-readiness.js';
 import { WorkflowAccessDeniedError } from '../services/workflow-access.js';
@@ -95,7 +95,7 @@ export async function previewWorkflowSchedule(req: AuthenticatedRequest, res: Re
           source: 'trigger'
         });
       } catch (error) {
-        if (error instanceof WorkflowTemplateValidationError || error instanceof PromptResourceProviderError) {
+        if (error instanceof WorkflowPromptValidationError || error instanceof PromptResourceProviderError) {
           errors.push({ field: 'workflowId', message: error.message });
         } else {
           throw error;
@@ -291,9 +291,9 @@ export async function createWorkflowScheduleForWorkspace(req: AuthenticatedReque
     });
     res.status(201).json({ schedule: publicSchedule(schedule) });
   } catch (err) {
-    if (err instanceof WorkflowTemplateValidationError) {
+    if (err instanceof WorkflowPromptValidationError) {
       res.status(400).json({ error: {
-        code: 'WORKFLOW_PROMPT_TEMPLATE_INVALID',
+        code: 'WORKFLOW_PROMPT_INVALID',
         message: err.message,
         retryable: false,
         details: { errors: err.errors }
@@ -413,9 +413,9 @@ export async function updateWorkflowSchedule(req: AuthenticatedRequest, res: Res
       : null;
     res.status(200).json({ schedule: updated ? publicSchedule(updated, latestExecution) : null });
   } catch (err) {
-    if (err instanceof WorkflowTemplateValidationError) {
+    if (err instanceof WorkflowPromptValidationError) {
       res.status(400).json({ error: {
-        code: 'WORKFLOW_PROMPT_TEMPLATE_INVALID',
+        code: 'WORKFLOW_PROMPT_INVALID',
         message: err.message,
         retryable: false,
         details: { errors: err.errors }

@@ -289,7 +289,7 @@ export function buildAgentPaths(): Record<string, unknown> {
       post: {
         tags: ['agents'],
         summary: 'Duplicate an agent as a manual draft',
-        description: 'Copies the effective definition only. Runs, triggers, activity, schedules, and origin attribution are not copied.',
+        description: 'Copies the effective definition only. Runs, triggers, activity, and schedules are not copied.',
         security: [{ userSession: [] }],
         parameters: [agentIdPathParameter],
         requestBody: {

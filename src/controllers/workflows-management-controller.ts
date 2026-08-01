@@ -25,7 +25,10 @@ import type {
 } from '../types/workflows.js';
 import { toSingleParam } from '../utils/params.js';
 import { publicWorkflowDefinition } from './workflow-public.js';
-import { parseWorkflowTemplate } from '../services/workflow-template.js';
+import {
+  validateWorkflowPrompt,
+  WorkflowPromptValidationError
+} from '../services/workflow-prompt.js';
 
 function bodyRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -122,15 +125,15 @@ function validationError(res: Response, error: DefinitionValidationError): void 
   });
 }
 
-async function validateAuthoringPrompt(
-  prompt: string
-): Promise<void> {
-  const template = parseWorkflowTemplate(prompt);
-  if (template.errors.length > 0) {
+function validateAuthoringPrompt(prompt: string): void {
+  try {
+    validateWorkflowPrompt(prompt);
+  } catch (error) {
+    if (!(error instanceof WorkflowPromptValidationError)) throw error;
     throw new DefinitionValidationError(
-      'WORKFLOW_PROMPT_TEMPLATE_INVALID',
-      template.errors.map((error) => error.message).slice(0, 3).join(' '),
-      template.errors.map((error) => error.code)
+      'WORKFLOW_PROMPT_INVALID',
+      error.message,
+      error.errors.map((item) => item.code)
     );
   }
 }
@@ -173,7 +176,7 @@ export async function createWorkflow(req: AuthenticatedRequest, res: Response, n
       res.status(400).json({ error: { code: 'WORKFLOW_FIELDS_REQUIRED', message: 'name, prompt, and at least one agentId are required.', retryable: false } });
       return;
     }
-    await validateAuthoringPrompt(prompt);
+    validateAuthoringPrompt(prompt);
     const workflow = await createWorkflowThroughDefinitionService({
       workspaceId,
       name,

@@ -53,7 +53,7 @@ async function mapAgent(row: AgentRow): Promise<AgentDefinition> {
   const agent: AgentDefinition = {
     id: row.id, workspaceId: row.workspace_id, name: row.name, avatarEmoji: row.avatar_emoji || '🤖', description: row.description || undefined,
     instructions: row.instructions, status: row.status,
-    origin: row.origin || { type: 'manual' }, reviewState: row.review_state || 'reviewed',
+    reviewState: row.review_state || 'reviewed',
     providerType: row.provider_type, ownerUserId: row.owner_user_id,
     createdBy: row.created_by, createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)!,
     mcpServers: row.mcp_servers || [], mcpTools: row.mcp_tools || [],
@@ -113,7 +113,6 @@ export async function createAgentDefinition(
     description: input.description?.trim(),
     instructions: input.instructions.trim(),
     status: 'active',
-    origin: input.origin || { type: 'manual' },
     reviewState: input.reviewState || 'reviewed',
     providerType: input.providerType || 'internal',
     ownerUserId: input.ownerUserId,
@@ -136,11 +135,11 @@ export async function createAgentDefinition(
   };
   const result = await queryable.query<AgentRow>(
     `INSERT INTO agent_definitions (
-      workspace_id,id,name,description,instructions,status,origin,review_state,provider_type,owner_user_id,created_by,
+      workspace_id,id,name,description,instructions,status,review_state,provider_type,owner_user_id,created_by,
       mcp_servers,mcp_tools,mcp_installations,tools,native_tool_configs,skills,skill_installations,context_grants,approval_policy,trust_policy,
       permission_mode,semantic_capability_ids,avatar_emoji,readiness_status,readiness_reasons
-     ) VALUES ($1,$2,$3,$4,$5,'active',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,'needs_setup',$24) RETURNING *`,
-    [input.workspaceId, id, agent.name, agent.description || null, agent.instructions, agent.origin, agent.reviewState, agent.providerType,
+     ) VALUES ($1,$2,$3,$4,$5,'active',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,'needs_setup',$23) RETURNING *`,
+    [input.workspaceId, id, agent.name, agent.description || null, agent.instructions, agent.reviewState, agent.providerType,
      agent.ownerUserId, agent.createdBy, JSON.stringify(agent.mcpServers), JSON.stringify(agent.mcpTools), JSON.stringify(agent.mcpInstallations),
      JSON.stringify(agent.tools), JSON.stringify(agent.nativeToolConfigs), JSON.stringify(agent.skills), JSON.stringify(agent.skillInstallations), JSON.stringify(agent.contextGrants),
      agent.approvalPolicy, agent.trustPolicy, agent.permissionMode, JSON.stringify(agent.semanticCapabilityIds), agent.avatarEmoji,
@@ -163,12 +162,12 @@ export async function duplicateAgentDefinition(
   const inheritedSkills = source.skills.filter((skill) => !installedSkillIds.has(skill));
   const result = await db.query<AgentRow>(
     `INSERT INTO agent_definitions (
-       workspace_id,id,name,description,instructions,status,origin,review_state,provider_type,
+       workspace_id,id,name,description,instructions,status,review_state,provider_type,
        owner_user_id,created_by,mcp_servers,mcp_tools,mcp_installations,tools,native_tool_configs,skills,skill_installations,context_grants,
        approval_policy,trust_policy,permission_mode,semantic_capability_ids,avatar_emoji,readiness_status,readiness_reasons
      ) VALUES (
-       $1,$2,$3,$4,$5,'draft',$6,'draft',$7,$8,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
-       'needs_setup',$22
+       $1,$2,$3,$4,$5,'draft','draft',$6,$7,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+       'needs_setup',$21
      ) RETURNING *`,
     [
       workspaceId,
@@ -176,7 +175,6 @@ export async function duplicateAgentDefinition(
       name,
       source.description || null,
       source.instructions,
-      { type: 'manual' },
       source.providerType,
       createdBy,
       '[]',

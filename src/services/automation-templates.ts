@@ -12,7 +12,6 @@ import {
 } from '../store/repository-automation-templates.js';
 import { withTransaction } from '../store/repository-transaction.js';
 import { getWorkflowDefinition } from '../store/repository-workflows.js';
-import type { DefinitionOrigin } from '../types/agents.js';
 import type { WorkflowCapabilityMode } from '../types/workflows.js';
 import type { WorkflowCapabilityRestrictionMode, WorkflowStatus } from '../types/workflows.js';
 import { refreshAgentReadiness, refreshWorkflowReadiness } from './automation-readiness.js';
@@ -201,10 +200,6 @@ function injectSeedFailureForTests(stage: 'after_agents' | 'after_workflows'): v
   }
 }
 
-function agentDefinitionOrigin(): DefinitionOrigin {
-  return { type: 'manual' };
-}
-
 export async function insertStarterAgent(
   client: PoolClient,
   input: { workspaceId: string; installedBy: string; template: AgentTemplate }
@@ -217,7 +212,6 @@ export async function insertStarterAgent(
     instructions: input.template.instructions,
     ownerUserId: input.installedBy,
     createdBy: input.installedBy,
-    origin: agentDefinitionOrigin(),
     reviewState: 'reviewed',
     providerType: 'internal',
     approvalPolicy: { mode: 'before_write', writeToolsRequireApproval: true },
@@ -254,7 +248,6 @@ export async function insertStarterWorkflow(
     tags: [],
     requiredPermissions: [],
     createdBy: input.installedBy,
-    origin: { type: 'manual' },
     status: initialWorkflowTemplateStatus(input.template)
   });
   return workflow.id;

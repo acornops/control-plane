@@ -24,7 +24,7 @@ describe('prompt reference controller', () => {
     assert.equal(Object.hasOwn(response.body as object, 'parameters'), false);
   });
 
-  it('treats legacy target placeholder syntax as plain authoring text', async () => {
+  it('treats placeholder-like target text as ordinary authoring text', async () => {
     installWorkspace('viewer');
     const parameterOnly = await callController(resolvePromptReferences, createRequest(
       { workspaceId: 'workspace-1' },

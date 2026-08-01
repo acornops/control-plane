@@ -264,7 +264,7 @@ const expectedConstraints = [
   'platform_setting_overrides_key_check',
   'kubernetes_target_settings_rbac_additions_array',
   // PostgreSQL truncates identifiers to 63 bytes when migration 006 is applied.
-  'kubernetes_target_settings_rbac_additions_source_version_nonneg'
+  'k8s_target_settings_rbac_source_version_nonnegative'
 ];
 
 async function runSqlChecks(databaseUrl) {

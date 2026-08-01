@@ -23,8 +23,8 @@ import { resolveEffectiveWorkflowCapabilityIds } from './workflow-capability-pol
 import { getWorkflowCapabilityReadinessErrors } from './mcp-readiness.js';
 import {
   compileWorkflowPrompt,
-  WorkflowTemplateValidationError
-} from './workflow-template.js';
+  WorkflowPromptValidationError
+} from './workflow-prompt.js';
 import { resolveWorkspaceLlmSettings } from './workspace-ai-resolution.js';
 
 export interface WorkflowTriggerDispatchInput {
@@ -155,11 +155,11 @@ export async function dispatchWorkflowTrigger(
     if (
       error instanceof WorkflowAccessDeniedError
       || error instanceof PromptResourceProviderError
-      || error instanceof WorkflowTemplateValidationError
+      || error instanceof WorkflowPromptValidationError
     ) {
       return {
         outcome: 'auto_paused',
-        reason: error instanceof WorkflowTemplateValidationError
+        reason: error instanceof WorkflowPromptValidationError
           ? 'workflow_definition_invalid'
           : 'access_denied',
         error: sanitizeWorkflowTriggerError(error)

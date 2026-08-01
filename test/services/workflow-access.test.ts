@@ -19,7 +19,6 @@ function agent(id: string): AgentDefinition {
     name: id,
     instructions: 'Use only the compiled scope.',
     status: 'active',
-    origin: { type: 'manual' },
     reviewState: 'reviewed',
     providerType: 'internal',
     ownerUserId: 'owner-1',
@@ -46,7 +45,6 @@ function workflow(agents: AgentDefinition[]): WorkflowDefinitionForAccess {
   return {
     id: 'workflow-1',
     workspaceId: 'workspace-1',
-    origin: { type: 'manual' },
     name: 'Audit',
     prompt: 'Audit the workspace.',
     agentIds: agents.map((value) => value.id),

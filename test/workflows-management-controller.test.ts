@@ -109,7 +109,6 @@ describe('workflows management controller', () => {
     assert.equal(duplicated.statusCode, 201);
     const draft = (duplicated.body as { workflow: PublicWorkflowDefinition }).workflow;
     assert.notEqual(draft.id, 'cluster-triage');
-    assert.equal(draft.origin.type, 'manual');
     assert.equal(draft.status, 'draft');
     assert.equal(draft.createdBy, 'user-1');
 
@@ -195,7 +194,6 @@ describe('workflows management controller', () => {
 
     assert.equal(created.statusCode, 201);
     const workflow = (created.body as { workflow: PublicWorkflowDefinition & Record<string, unknown> }).workflow;
-    assert.equal(workflow.origin.type, 'manual');
     assert.deepEqual(workflow.agentIds, ['agent-incident-reporter']);
     assert.equal(workflow.executionMode, 'direct');
     assert.deepEqual(workflow.capabilityPolicy.semanticCapabilityIds, ['incident.report.generate']);

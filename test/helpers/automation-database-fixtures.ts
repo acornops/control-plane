@@ -61,17 +61,17 @@ export async function installAutomationTemplateFixtures(
         `INSERT INTO agent_definitions (
            workspace_id,id,name,avatar_emoji,description,instructions,status,provider_type,owner_user_id,created_by,
            mcp_servers,tools,skills,context_grants,approval_policy,trust_policy,mcp_tools,mcp_installations,
-           permission_mode,skill_installations,origin,review_state,semantic_capability_ids,
+           permission_mode,skill_installations,review_state,semantic_capability_ids,
            readiness_status,readiness_reasons
          ) VALUES
          ($1,'agent-cluster-triage','Infrastructure Diagnostics','🔎','Collects infrastructure diagnostic evidence.','Use only the environment identified by the request when calling relevant MCP tools.','active','internal','user-1','user-1',
           '[]','[]','[]','["workspace_metadata"]',
           '{"mode":"before_write","writeToolsRequireApproval":true}','{"level":"restricted","allowExternalData":false}',
-          '[]','[]','read_only','[]','{"type":"template","templateId":"acornops-starter"}','reviewed','["infrastructure.diagnostics.read"]','ready','[]'),
+          '[]','[]','read_only','[]','reviewed','["infrastructure.diagnostics.read"]','ready','[]'),
          ($1,'agent-incident-reporter','Incident Reporter','📝','Creates evidence-backed incident reports.','Use only explicitly granted evidence.','active','internal','user-1','user-1',
           '[]','["prompt.resources.read","reports.pdf.generate"]','[]','[]',
           '{"mode":"before_write","writeToolsRequireApproval":true}','{"level":"restricted","allowExternalData":false}',
-          '[]','[]','read_only','[]','{"type":"template","templateId":"acornops-starter"}','reviewed','["incident.report.generate"]','ready','[]')`,
+          '[]','[]','read_only','[]','reviewed','["incident.report.generate"]','ready','[]')`,
         [workspaceId]
       );
       await client.query(
@@ -88,15 +88,15 @@ export async function installAutomationTemplateFixtures(
       );
       await client.query(
          `INSERT INTO workflow_definitions (
-           workspace_id,id,template_id,name,description,status,tags,required_permissions,created_by,
-           readiness_status,readiness_reasons,origin,prompt,agent_ids,capability_policy
+           workspace_id,id,name,description,status,tags,required_permissions,created_by,
+           readiness_status,readiness_reasons,prompt,agent_ids,capability_policy
          ) VALUES
-         ($1,'cluster-triage','acornops-starter','Infrastructure diagnostics','Inspect one explicitly identified environment.','active','["diagnostics"]','["read_workspace_data"]','user-1',
-          'ready','[]','{"type":"template","templateId":"acornops-starter"}',
+         ($1,'cluster-triage','Infrastructure diagnostics','Inspect one explicitly identified environment.','active','["diagnostics"]','["read_workspace_data"]','user-1',
+          'ready','[]',
           'Inspect the infrastructure named in the request and summarize findings.','["agent-cluster-triage"]',
           '{"mode":"read_only","restrictionMode":"restrict","semanticCapabilityIds":["infrastructure.diagnostics.read"],"contextGrants":["workspace_metadata"],"maxRuntimeSeconds":900,"retentionDays":90,"approvalRequirements":[]}'),
-         ($1,'incident-report-pdf','acornops-starter','Incident report','Generate a report from selected chats.','active','["incident"]',
-          '["read_workspace_data"]','user-1','ready','[]','{"type":"template","templateId":"acornops-starter"}',
+         ($1,'incident-report-pdf','Incident report','Generate a report from selected chats.','active','["incident"]',
+          '["read_workspace_data"]','user-1','ready','[]',
           'Generate an incident report from the incident context named in the request with provenance.','["agent-incident-reporter"]',
           '{"mode":"read_only","restrictionMode":"inherit","semanticCapabilityIds":[],"contextGrants":[],"maxRuntimeSeconds":900,"retentionDays":90,"approvalRequirements":["Before generating the report"]}')`,
         [workspaceId]

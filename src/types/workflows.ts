@@ -1,7 +1,6 @@
 import type { WorkspaceCapability } from '../auth/authorization.js';
 import type { WorkspaceAuditOperation } from './domain.js';
 import type { AgentDefinition, AutomationReadinessStatus, McpToolRef, RunPermissionMode, RunPrincipalRef } from './agents.js';
-import type { DefinitionOrigin } from './agents.js';
 import type { PromptResourceBinding } from './prompt-resources.js';
 import type { CapabilityRoutingMapping } from './capability-routing.js';
 import type { CapabilityAccessActor, CapabilityAccessMode, CapabilityRestrictionMode } from './capability-access.js';
@@ -28,7 +27,6 @@ export interface WorkflowCapabilityPolicy {
 export interface WorkflowDefinitionForAccess {
   id: string;
   workspaceId: string;
-  origin: DefinitionOrigin;
   name: string;
   description?: string;
   status?: WorkflowStatus;
@@ -41,7 +39,6 @@ export interface WorkflowDefinitionForAccess {
   createdBy: string;
   createdAt?: string;
   updatedAt?: string;
-  starterPrompt?: string;
   readiness?: {
     status: AutomationReadinessStatus;
     reasons: string[];

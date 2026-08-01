@@ -50,9 +50,8 @@ describe('agents controller', () => {
     const response = await callController(listAgents, createRequest({ workspaceId: 'workspace-1' }));
 
     assert.equal(response.statusCode, 200);
-    const body = response.body as { items: Array<{ origin: { type: string }; ownerUserId: string; createdBy: string }> };
+    const body = response.body as { items: Array<{ ownerUserId: string; createdBy: string }> };
     assert.equal(body.items.length, 1);
-    assert.deepEqual(body.items[0].origin, { type: 'manual' });
     assert.equal(body.items[0].ownerUserId, 'user-1');
     assert.equal(body.items[0].createdBy, 'user-1');
   });
@@ -98,49 +97,16 @@ describe('agents controller', () => {
     assert.equal(response.statusCode, 403);
   });
 
-  it('treats legacy template-origin Agents as workspace-owned definitions', async () => {
+  it('duplicates a workspace Agent as an independent draft', async () => {
     installWorkspace('admin');
     await installAutomationTemplateFixtures(['workspace-1']);
-
-    const edited = await callController(updateAgent, createRequest(
-      { agentId: 'agent-cluster-triage' },
-      { workspaceId: 'workspace-1', instructions: 'Replace system instructions.' }
-    ));
-    assert.equal(edited.statusCode, 200);
-    assert.equal((edited.body as { agent: { instructions: string } }).agent.instructions, 'Replace system instructions.');
-
-    const availability = await callController(updateAgent, createRequest(
-      { agentId: 'agent-cluster-triage' },
-      { workspaceId: 'workspace-1', status: 'disabled' }
-    ));
-    assert.equal(availability.statusCode, 200);
-    assert.equal((availability.body as { agent: { status: string } }).agent.status, 'disabled');
-
-    const changedAgain = await callController(updateAgent, createRequest(
-      { agentId: 'agent-cluster-triage' },
-      { workspaceId: 'workspace-1', instructions: 'A later workspace-owned revision.' }
-    ));
-    assert.equal(changedAgain.statusCode, 200);
-    assert.equal((changedAgain.body as { agent: { instructions: string } }).agent.instructions, 'A later workspace-owned revision.');
-
-    const deleted = await callController(deleteAgent, createRequest(
-      { agentId: 'agent-cluster-triage' },
-      { workspaceId: 'workspace-1' }
-    ));
-    assert.equal(deleted.statusCode, 409);
-    assert.equal((deleted.body as { error: { code: string } }).error.code, 'AGENT_ASSIGNED_TO_WORKFLOWS');
-    assert.deepEqual(
-      (deleted.body as { error: { details: { workflows: Array<{ id: string; relation: string }> } } }).error.details.workflows,
-      [{ id: 'cluster-triage', name: 'Infrastructure diagnostics', relation: 'selected_agent' }]
-    );
 
     const duplicated = await callController(duplicateAgent, createRequest(
       { agentId: 'agent-cluster-triage' },
       { workspaceId: 'workspace-1', name: 'Custom diagnostics' }
     ));
     assert.equal(duplicated.statusCode, 201);
-    const duplicatedAgent = (duplicated.body as { agent: { avatarEmoji: string; origin: { type: string }; status: string } }).agent;
-    assert.equal(duplicatedAgent.origin.type, 'manual');
+    const duplicatedAgent = (duplicated.body as { agent: { avatarEmoji: string; status: string } }).agent;
     assert.equal(duplicatedAgent.status, 'draft');
     assert.equal(duplicatedAgent.avatarEmoji, '🔎');
   });

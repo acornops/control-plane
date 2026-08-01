@@ -62,17 +62,16 @@ describe('development target seed', () => {
         if (sql.includes('INSERT INTO agent_definitions')) {
           const values = params || [];
           const row = {
-            workspace_id: values[0], id: values[1], name: values[2], avatar_emoji: values[22], description: values[3],
-            instructions: values[4], status: 'active', origin: values[5],
-            review_state: values[6], provider_type: values[7],
-            owner_user_id: values[8], created_by: values[9], mcp_servers: JSON.parse(String(values[10])),
-            mcp_tools: JSON.parse(String(values[11])), mcp_installations: JSON.parse(String(values[12])),
-            tools: JSON.parse(String(values[13])), native_tool_configs: JSON.parse(String(values[14])),
-            skills: JSON.parse(String(values[15])), skill_installations: JSON.parse(String(values[16])),
-            context_grants: JSON.parse(String(values[17])),
-            approval_policy: values[18], trust_policy: values[19], permission_mode: values[20],
-            semantic_capability_ids: JSON.parse(String(values[21])),
-            readiness_status: 'needs_setup', readiness_reasons: JSON.parse(String(values[23])),
+            workspace_id: values[0], id: values[1], name: values[2], avatar_emoji: values[21], description: values[3],
+            instructions: values[4], status: 'active', review_state: values[5], provider_type: values[6],
+            owner_user_id: values[7], created_by: values[8], mcp_servers: JSON.parse(String(values[9])),
+            mcp_tools: JSON.parse(String(values[10])), mcp_installations: JSON.parse(String(values[11])),
+            tools: JSON.parse(String(values[12])), native_tool_configs: JSON.parse(String(values[13])),
+            skills: JSON.parse(String(values[14])), skill_installations: JSON.parse(String(values[15])),
+            context_grants: JSON.parse(String(values[16])),
+            approval_policy: values[17], trust_policy: values[18], permission_mode: values[19],
+            semantic_capability_ids: JSON.parse(String(values[20])),
+            readiness_status: 'needs_setup', readiness_reasons: JSON.parse(String(values[22])),
             created_at: new Date(), updated_at: new Date()
           };
           agentRows.set(String(values[1]), row);
@@ -96,13 +95,13 @@ describe('development target seed', () => {
         if (sql.includes('INSERT INTO workflow_definitions')) {
           const values = params || [];
           const row = {
-            workspace_id: values[0], id: values[1], origin: values[2], name: values[3],
-            description: values[4], status: values[5], prompt: values[6],
-            agent_ids: JSON.parse(String(values[7])),
-            capability_policy: values[8], tags: JSON.parse(String(values[9])),
-            required_permissions: JSON.parse(String(values[10])),
-            created_by: values[11], readiness_status: values[12],
-            readiness_reasons: JSON.parse(String(values[13])),
+            workspace_id: values[0], id: values[1], name: values[2],
+            description: values[3], status: values[4], prompt: values[5],
+            agent_ids: JSON.parse(String(values[6])),
+            capability_policy: values[7], tags: JSON.parse(String(values[8])),
+            required_permissions: JSON.parse(String(values[9])),
+            created_by: values[10], readiness_status: values[11],
+            readiness_reasons: JSON.parse(String(values[12])),
             created_at: new Date(), updated_at: new Date()
           };
           workflowRows.set(String(values[1]), row);

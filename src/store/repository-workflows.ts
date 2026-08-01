@@ -5,7 +5,6 @@ import type {
   WorkflowCapabilityPolicy,
   WorkflowDefinitionForAccess
 } from '../types/workflows.js';
-import type { DefinitionOrigin } from '../types/agents.js';
 import { resetWorkflowRunRepositoryForTests } from './repository-workflow-runs.js';
 
 export type {
@@ -71,7 +70,6 @@ export interface CreateWorkflowDefinitionInput {
   tags?: string[];
   requiredPermissions?: WorkflowDefinitionForAccess['requiredPermissions'];
   createdBy: string;
-  origin?: DefinitionOrigin;
   status?: WorkflowDefinitionForAccess['status'];
 }
 
@@ -104,7 +102,6 @@ function mapWorkflowDefinition(row: WorkflowRow): WorkflowDefinitionForAccess {
   return {
     id: row.id,
     workspaceId: row.workspace_id,
-    origin: row.origin || { type: 'manual' },
     name: row.name,
     description: row.description || undefined,
     status: row.status,
@@ -159,13 +156,12 @@ export async function createWorkflowDefinition(
   } as const;
   const result = await queryable.query<WorkflowRow>(
     `INSERT INTO workflow_definitions (
-       workspace_id,id,origin,name,description,status,prompt,agent_ids,
+       workspace_id,id,name,description,status,prompt,agent_ids,
        capability_policy,tags,required_permissions,created_by,readiness_status,readiness_reasons
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
     [
       input.workspaceId,
       `${slug}-${randomUUID().slice(0, 8)}`,
-      input.origin || { type: 'manual' },
       input.name.trim(),
       input.description?.trim() || null,
       input.status || 'draft',
@@ -200,7 +196,6 @@ export async function duplicateWorkflowDefinition(
     tags: source.tags,
     requiredPermissions: source.requiredPermissions,
     createdBy,
-    origin: { type: 'manual' },
     status: 'draft'
   });
 }

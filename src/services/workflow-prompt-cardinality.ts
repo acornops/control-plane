@@ -16,7 +16,7 @@ function explicitResourceCounts(bindings: PromptResourceBinding[]): Map<string, 
   return counts;
 }
 
-export function workflowTemplateResourceCardinalityBlockers(input: {
+export function workflowPromptResourceCardinalityBlockers(input: {
   concreteBindings: PromptResourceBinding[];
   requirements: PromptResourceRequirement[];
 }): PromptReferenceBlocker[] {

@@ -54,8 +54,8 @@ import {
   compileWorkflowFollowUp,
   compileWorkflowPrompt,
   WorkflowMessageContentError,
-  WorkflowTemplateValidationError
-} from '../services/workflow-template.js';
+  WorkflowPromptValidationError
+} from '../services/workflow-prompt.js';
 const WORKFLOW_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
 
 function requestWorkspaceId(req: AuthenticatedRequest): string | null {
@@ -415,9 +415,9 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
         retryable: false
       } });
     }
-    if (error instanceof WorkflowTemplateValidationError) {
+    if (error instanceof WorkflowPromptValidationError) {
       return void res.status(400).json({ error: {
-        code: 'WORKFLOW_PROMPT_TEMPLATE_INVALID',
+        code: 'WORKFLOW_PROMPT_INVALID',
         message: error.message,
         retryable: false,
         details: { errors: error.errors }

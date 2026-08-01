@@ -24,7 +24,6 @@ function agent(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
     name: 'Incident analyst',
     instructions: 'Inspect the available incident evidence.',
     status: 'active',
-    origin: { type: 'manual' },
     reviewState: 'reviewed',
     providerType: 'internal',
     ownerUserId: 'user-1',

@@ -25,7 +25,7 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
     },
     AgentDefinition: {
       type: 'object',
-      required: ['id', 'workspaceId', 'name', 'avatarEmoji', 'instructions', 'status', 'origin', 'reviewState', 'providerType', 'ownerUserId', 'createdBy', 'nativeToolConfigs'],
+      required: ['id', 'workspaceId', 'name', 'avatarEmoji', 'instructions', 'status', 'reviewState', 'providerType', 'ownerUserId', 'createdBy', 'nativeToolConfigs'],
       properties: {
         id: { type: 'string' },
         workspaceId: { type: 'string' },
@@ -34,7 +34,6 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         description: { type: 'string' },
         instructions: { type: 'string' },
         status: { type: 'string', enum: ['active', 'disabled', 'draft'] },
-        origin: { type: 'object', required: ['type'], properties: { type: { type: 'string', enum: ['template', 'manual'] }, templateId: { type: 'string' } }, additionalProperties: false },
         reviewState: { type: 'string', enum: ['draft', 'reviewed'] },
         providerType: { type: 'string', enum: ['internal', 'external'] },
         ownerUserId: { type: 'string' },

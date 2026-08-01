@@ -9,15 +9,6 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
   return {
     ...buildWorkflowWebhookSchemas(),
     ...buildWorkflowActivitySchemas(),
-    WorkflowOrigin: {
-      type: 'object',
-      required: ['type'],
-      properties: {
-        type: { type: 'string', enum: ['template', 'manual'] },
-        templateId: { type: 'string' }
-      },
-      additionalProperties: false
-    },
     PromptResourceRequirement: {
       type: 'object',
       required: ['type', 'minimum', 'maximum', 'requiredOperations'],
@@ -54,11 +45,10 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
     },
     WorkflowDefinition: {
       type: 'object',
-      required: ['id', 'workspaceId', 'origin', 'name', 'status', 'prompt', 'agentIds', 'executionMode', 'capabilityPolicy', 'requiredPermissions', 'createdBy'],
+      required: ['id', 'workspaceId', 'name', 'status', 'prompt', 'agentIds', 'executionMode', 'capabilityPolicy', 'requiredPermissions', 'createdBy'],
       properties: {
         id: workflowId,
         workspaceId: uuid,
-        origin: schemaRef('WorkflowOrigin'),
         name: { type: 'string' },
         description: { type: 'string' },
         status: { type: 'string', enum: ['active', 'draft', 'paused'] },

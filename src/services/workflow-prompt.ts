@@ -12,29 +12,14 @@ import { PromptResourceProviderError } from './prompt-resources/errors.js';
 
 export {
   MAX_WORKFLOW_RESOURCE_BINDINGS,
-  workflowTemplateResourceCardinalityBlockers
-} from './workflow-template-cardinality.js';
+  workflowPromptResourceCardinalityBlockers
+} from './workflow-prompt-cardinality.js';
 
 export const MAX_WORKFLOW_PROMPT_LENGTH = 32_768;
-/** Deprecated database columns still require a stable 64-character value. */
 
-export interface WorkflowTemplateError {
-  code: 'WORKFLOW_TEMPLATE_PROMPT_TOO_LONG';
+export interface WorkflowPromptError {
+  code: 'WORKFLOW_PROMPT_TOO_LONG';
   message: string;
-  start?: number;
-  end?: number;
-  key?: string;
-}
-
-interface TextSegment {
-  kind: 'text';
-  value: string;
-}
-
-export interface ParsedWorkflowTemplate {
-  prompt: string;
-  errors: WorkflowTemplateError[];
-  segments: TextSegment[];
 }
 
 export class WorkflowMessageContentError extends Error {
@@ -47,34 +32,25 @@ export class WorkflowMessageContentError extends Error {
   }
 }
 
-export class WorkflowTemplateValidationError extends Error {
-  readonly errors: WorkflowTemplateError[];
+export class WorkflowPromptValidationError extends Error {
+  readonly errors: WorkflowPromptError[];
 
-  constructor(errors: WorkflowTemplateError[]) {
+  constructor(errors: WorkflowPromptError[]) {
     super(errors[0]?.message || 'Workflow prompt is invalid.');
-    this.name = 'WorkflowTemplateValidationError';
-    this.errors = errors.slice(0, 64);
+    this.name = 'WorkflowPromptValidationError';
+    this.errors = errors;
   }
 }
 
-/**
- * Workflow prompts are plain text. The legacy function name remains temporarily
- * as an internal compatibility boundary for controllers and persisted records.
- */
-export function parseWorkflowTemplate(rawPrompt: string): ParsedWorkflowTemplate {
+export function validateWorkflowPrompt(rawPrompt: string): string {
   const prompt = rawPrompt.normalize('NFC');
-  const errors: WorkflowTemplateError[] = prompt.length > MAX_WORKFLOW_PROMPT_LENGTH
-    ? [{
-        code: 'WORKFLOW_TEMPLATE_PROMPT_TOO_LONG',
-        message: `Prompt exceeds the ${MAX_WORKFLOW_PROMPT_LENGTH} character limit.`
-      }]
-    : [];
-
-  return {
-    prompt,
-    errors,
-    segments: prompt ? [{ kind: 'text', value: prompt }] : []
-  };
+  if (prompt.length > MAX_WORKFLOW_PROMPT_LENGTH) {
+    throw new WorkflowPromptValidationError([{
+      code: 'WORKFLOW_PROMPT_TOO_LONG',
+      message: `Prompt exceeds the ${MAX_WORKFLOW_PROMPT_LENGTH} character limit.`
+    }]);
+  }
+  return prompt;
 }
 
 export interface CompiledWorkflowPrompt {
@@ -103,9 +79,7 @@ export async function compileWorkflowPrompt(input: {
   workflowSessionId?: string;
   initiatingMessageId?: string;
 }): Promise<CompiledWorkflowPrompt> {
-  const parsed = parseWorkflowTemplate(input.workflow.prompt);
-  if (parsed.errors.length > 0) throw new WorkflowTemplateValidationError(parsed.errors);
-  return plainPrompt(parsed.prompt);
+  return plainPrompt(validateWorkflowPrompt(input.workflow.prompt));
 }
 
 export async function compileWorkflowFollowUp(input: {

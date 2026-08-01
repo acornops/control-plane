@@ -88,7 +88,6 @@ CREATE TABLE agent_definitions (
     mcp_installations jsonb DEFAULT '[]'::jsonb NOT NULL,
     permission_mode text DEFAULT 'ask_before_changes'::text NOT NULL,
     skill_installations jsonb DEFAULT '[]'::jsonb NOT NULL,
-    origin jsonb DEFAULT '{"type": "manual"}'::jsonb NOT NULL,
     review_state text DEFAULT 'reviewed'::text NOT NULL,
     semantic_capability_ids jsonb DEFAULT '[]'::jsonb NOT NULL,
     avatar_emoji text DEFAULT '🤖'::text NOT NULL,
@@ -99,10 +98,9 @@ CREATE TABLE agent_definitions (
     CONSTRAINT agent_definitions_mcp_servers_check CHECK ((jsonb_typeof(mcp_servers) = 'array'::text)),
     CONSTRAINT agent_definitions_mcp_tools_check CHECK ((jsonb_typeof(mcp_tools) = 'array'::text)),
     CONSTRAINT agent_definitions_native_tool_configs_check CHECK ((jsonb_typeof(native_tool_configs) = 'object'::text)),
-    CONSTRAINT agent_definitions_origin_check CHECK (((jsonb_typeof(origin) = 'object'::text) AND ((origin ->> 'type'::text) = ANY (ARRAY['template'::text, 'manual'::text])))),
     CONSTRAINT agent_definitions_permission_mode_check CHECK ((permission_mode = ANY (ARRAY['read_only'::text, 'ask_before_changes'::text, 'auto_allowed_changes'::text]))),
     CONSTRAINT agent_definitions_provider_type_check CHECK ((provider_type = ANY (ARRAY['internal'::text, 'external'::text]))),
-    CONSTRAINT agent_definitions_review_state_check CHECK ((review_state = ANY (ARRAY['draft'::text, 'reviewed'::text, 'rejected'::text]))),
+    CONSTRAINT agent_definitions_review_state_check CHECK ((review_state = ANY (ARRAY['draft'::text, 'reviewed'::text]))),
     CONSTRAINT agent_definitions_semantic_capability_ids_check CHECK ((jsonb_typeof(semantic_capability_ids) = 'array'::text)),
     CONSTRAINT agent_definitions_skill_installations_check CHECK ((jsonb_typeof(skill_installations) = 'array'::text)),
     CONSTRAINT agent_definitions_skills_check CHECK ((jsonb_typeof(skills) = 'array'::text)),
@@ -305,7 +303,7 @@ CREATE TABLE kubernetes_target_settings (
     rbac_additions_source_version integer DEFAULT 0 NOT NULL,
     rbac_additions_content_hash text DEFAULT ''::text NOT NULL,
     CONSTRAINT kubernetes_target_settings_rbac_additions_array CHECK ((jsonb_typeof(rbac_additions) = 'array'::text)),
-    CONSTRAINT kubernetes_target_settings_rbac_additions_source_version_nonnegative CHECK ((rbac_additions_source_version >= 0))
+    CONSTRAINT k8s_target_settings_rbac_source_version_nonnegative CHECK ((rbac_additions_source_version >= 0))
 );
 
 CREATE TABLE mcp_secret_cleanup_jobs (
@@ -978,25 +976,21 @@ CREATE TABLE webhook_subscriptions (
 CREATE TABLE workflow_definitions (
     workspace_id text NOT NULL,
     id text NOT NULL,
-    template_id text,
     name text NOT NULL,
     description text,
     status text NOT NULL,
     tags jsonb DEFAULT '[]'::jsonb NOT NULL,
     required_permissions jsonb DEFAULT '[]'::jsonb NOT NULL,
-    starter_prompt text,
     created_by text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     readiness_status text DEFAULT 'needs_setup'::text NOT NULL,
     readiness_reasons jsonb DEFAULT '[]'::jsonb NOT NULL,
-    origin jsonb DEFAULT '{"type": "manual"}'::jsonb NOT NULL,
     prompt text NOT NULL,
     capability_policy jsonb NOT NULL,
     agent_ids jsonb NOT NULL,
-    CONSTRAINT workflow_definitions_agent_ids_check CHECK (((agent_ids IS NULL) OR (jsonb_typeof(agent_ids) = 'array'::text))),
+    CONSTRAINT workflow_definitions_agent_ids_check CHECK ((jsonb_typeof(agent_ids) = 'array'::text)),
     CONSTRAINT workflow_definitions_agent_ids_nonempty CHECK ((jsonb_array_length(agent_ids) > 0)),
-    CONSTRAINT workflow_definitions_origin_check CHECK (((jsonb_typeof(origin) = 'object'::text) AND ((origin ->> 'type'::text) = ANY (ARRAY['template'::text, 'manual'::text])))),
     CONSTRAINT workflow_definitions_required_permissions_check CHECK ((jsonb_typeof(required_permissions) = 'array'::text)),
     CONSTRAINT workflow_definitions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'draft'::text, 'paused'::text]))),
     CONSTRAINT workflow_definitions_tags_check CHECK ((jsonb_typeof(tags) = 'array'::text))
