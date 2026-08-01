@@ -76,7 +76,9 @@ const toolSync = [
   read('src/services/kubernetes-cluster-tool-sync.ts'),
   read('src/services/virtual-machine-tool-sync.ts')
 ].join('\n');
-const internalExecutionBootstrap = read('src/controllers/internal-execution-bootstrap.ts');
+const workflowRunBootstrap = read('src/controllers/internal-execution-bootstrap.ts');
+const agentChatRunBootstrap = read('src/controllers/internal-agent-chat-bootstrap.ts');
+const targetRunBootstrap = read('src/controllers/internal-target-run-bootstrap.ts');
 const targetRunToolResolution = read('src/services/target-run-tool-resolution.ts');
 const internalMcpBridgeController = read('src/controllers/internal-mcp-bridge-controller.ts');
 const openApi = [read('src/docs/openapi.ts'), readTree('src/docs/openapi')].join('\n');
@@ -138,6 +140,9 @@ expectIncludes(readme, '[`docs/contracts/README.md`](docs/contracts/README.md)',
 expectIncludes(readme, '[`docs/contracts/manifest.json`](docs/contracts/manifest.json)', 'README manifest link');
 expectIncludes(readme, 'Signup does not create or attach a workspace.', 'Password signup workspace ownership note');
 expect(manifest.repo === 'control-plane', 'Manifest repo');
+expectIncludes(targetRunBootstrap, "type: 'target'", 'Target-run bootstrap scope discriminator');
+expectIncludes(agentChatRunBootstrap, "type: 'agent_chat'", 'Agent-chat bootstrap scope discriminator');
+expectIncludes(workflowRunBootstrap, "type: 'workspace'", 'Workflow-run bootstrap scope discriminator');
 expect(
   JSON.stringify(agentContract?.agentTypeValues) === JSON.stringify(['agentk']),
   'AgentK contract should expose only the canonical agentType value'

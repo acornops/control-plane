@@ -107,7 +107,7 @@ describe('internal execution bootstrap audit metadata', () => {
     });
   });
 
-  it('allows VM write tools when the target advertises write capability and the run is read-write', async () => {
+  it('bootstraps an explicit target scope and allows supported VM write tools', async () => {
     repo.getRun = async () => createRun({ targetId: 'vm-1', targetType: 'virtual_machine', toolAccessMode: 'read_write' });
     repo.getTarget = async () => createTarget({ id: 'vm-1', targetType: 'virtual_machine', name: 'vm' });
     repo.getSession = async () => createSessionRecord({ targetId: 'vm-1', targetType: 'virtual_machine', clusterId: undefined });
@@ -124,7 +124,16 @@ describe('internal execution bootstrap audit metadata', () => {
     mockVmBootstrapToolFetch();
 
     const response = await callController(bootstrap, createRequest({ runId: 'run-1' }));
-    const tools = (response.body as {
+    const body = response.body as {
+      scope: {
+        type: string;
+        workspace_id: string;
+        target_id: string;
+        target_type: string;
+        session_id: string;
+        run_id: string;
+        user_id: string;
+      };
       tools: {
         allowed_tools: string[];
         native_tools: Array<{ id: string }>;
@@ -132,9 +141,19 @@ describe('internal execution bootstrap audit metadata', () => {
         tool_specs: Array<{ name: string }>;
         gateway: { token: string };
       };
-    }).tools;
+    };
+    const tools = body.tools;
 
     assert.equal(response.statusCode, 200);
+    assert.deepEqual(body.scope, {
+      type: 'target',
+      workspace_id: 'workspace-1',
+      target_id: 'vm-1',
+      target_type: 'virtual_machine',
+      session_id: 'session-1',
+      run_id: 'run-1',
+      user_id: 'user-1'
+    });
     assert.deepEqual(tools.allowed_tools, ['query_logs', 'restart_service', 'acornops_generate_pdf_report']);
     assert.deepEqual(tools.native_tools, [{
       id: 'web_search',

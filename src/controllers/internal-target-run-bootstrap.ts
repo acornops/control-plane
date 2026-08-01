@@ -105,6 +105,7 @@ export async function bootstrapTargetRun(run: Run, res: Response): Promise<void>
   res.status(200).json({
     contract_version: 2,
     scope: {
+      type: 'target',
       workspace_id: run.workspaceId,
       target_id: targetId,
       target_type: target.targetType,
