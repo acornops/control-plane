@@ -13,6 +13,17 @@ import { replaceClusterSnapshotDerivedRows } from './repository-kubernetes-inven
 import { upsertTargetMetricSample } from './repository-target-metrics.js';
 import { withTransaction } from './repository-transaction.js';
 import { assertWorkspaceTargetQuota } from './repository-quotas.js';
+import {
+  kubernetesRbacAdditionSchema,
+  kubernetesRbacAdditionsHash,
+  type KubernetesRbacAddition
+} from '../services/kubernetes-rbac-additions.js';
+
+export interface KubernetesRbacAdditionsSnapshot {
+  additions: KubernetesRbacAddition[];
+  sourceVersion: number;
+  contentHash: string;
+}
 
 const clusterSelect = `
   SELECT
@@ -41,7 +52,8 @@ function isNewerSnapshot(currentTimestamp: string, previousTimestamp: string): b
 export async function addCluster(
   workspaceId: string,
   name: string,
-  namespaceScope?: { include?: string[]; exclude?: string[] }
+  namespaceScope?: { include?: string[]; exclude?: string[] },
+  rbacSnapshot: KubernetesRbacAdditionsSnapshot = { additions: [], sourceVersion: 0, contentHash: '' }
 ): Promise<KubernetesCluster> {
   const id = randomUUID();
   const now = new Date().toISOString();
@@ -53,12 +65,18 @@ export async function addCluster(
       [id, workspaceId, name, now, now]
     );
     await client.query(
-      `INSERT INTO kubernetes_target_settings (target_id, namespace_include, namespace_exclude)
-       VALUES ($1, $2::jsonb, $3::jsonb)`,
+      `INSERT INTO kubernetes_target_settings (
+         target_id, namespace_include, namespace_exclude,
+         rbac_additions, rbac_additions_source_version, rbac_additions_content_hash
+       )
+       VALUES ($1, $2::jsonb, $3::jsonb, $4::jsonb, $5, $6)`,
       [
         id,
         JSON.stringify(namespaceScope?.include || []),
-        JSON.stringify(namespaceScope?.exclude || [])
+        JSON.stringify(namespaceScope?.exclude || []),
+        JSON.stringify(rbacSnapshot.additions),
+        rbacSnapshot.sourceVersion,
+        rbacSnapshot.contentHash
       ]
     );
   });
@@ -67,6 +85,41 @@ export async function addCluster(
     throw new Error(`Failed to create Kubernetes target ${id}`);
   }
   return cluster;
+}
+
+export async function getClusterRbacAdditionsSnapshot(
+  clusterId: string
+): Promise<KubernetesRbacAdditionsSnapshot | null> {
+  const result = await db.query<{
+    rbac_additions: unknown;
+    rbac_additions_source_version: number;
+    rbac_additions_content_hash: string;
+  }>(
+    `SELECT rbac_additions, rbac_additions_source_version, rbac_additions_content_hash
+     FROM kubernetes_target_settings
+     WHERE target_id = $1`,
+    [clusterId]
+  );
+  if (!result.rowCount) return null;
+  const row = result.rows[0];
+  const parsedAdditions = kubernetesRbacAdditionSchema.array().max(25).safeParse(row.rbac_additions);
+  if (!parsedAdditions.success) {
+    throw new Error(`Stored Kubernetes RBAC additions are invalid for target ${clusterId}`);
+  }
+  const sourceVersion = Number(row.rbac_additions_source_version);
+  if (!Number.isInteger(sourceVersion) || sourceVersion < 0) {
+    throw new Error(`Stored Kubernetes RBAC addition version is invalid for target ${clusterId}`);
+  }
+  const contentHash = row.rbac_additions_content_hash || '';
+  const expectedHash = kubernetesRbacAdditionsHash(parsedAdditions.data);
+  if ((parsedAdditions.data.length > 0 || contentHash) && contentHash !== expectedHash) {
+    throw new Error(`Stored Kubernetes RBAC addition snapshot hash does not match for target ${clusterId}`);
+  }
+  return {
+    additions: parsedAdditions.data,
+    sourceVersion,
+    contentHash
+  };
 }
 
 export async function listClusters(

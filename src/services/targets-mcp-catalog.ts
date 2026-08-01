@@ -20,6 +20,11 @@ const enumString = (values: string[]) => string({ enum: values });
 const kubernetesName = string({ minLength: 1, maxLength: 253 });
 const namespace = string({ minLength: 1, maxLength: 63 });
 const reason = string({ minLength: 1, maxLength: 512 });
+const customResourceIdentity = {
+  addition_key: string({ minLength: 1, maxLength: 64 }),
+  resource: string({ minLength: 1, maxLength: 253 }),
+  namespace
+};
 const serviceUnit = string({
   minLength: 9,
   maxLength: 263,
@@ -75,6 +80,43 @@ const kubernetesTools: TargetsMcpCatalogTool[] = [
       name: kubernetesName,
       namespace
     }, ['kind', 'name'])
+  },
+  {
+    name: 'list_custom_resources',
+    description: 'List a custom-resource type from an administrator-approved integration. Use only addition and resource keys exposed by the installed AgentK configuration.',
+    capability: 'read',
+    targetTypes: ['kubernetes'],
+    inputSchema: objectSchema({
+      ...customResourceIdentity,
+      label_selector: string({ maxLength: 1024 }),
+      field_selector: string({ maxLength: 1024 }),
+      limit: integer({ minimum: 1, maximum: 50 }),
+      continue_token: string({ maxLength: 4096 })
+    }, ['addition_key', 'resource'])
+  },
+  {
+    name: 'get_custom_resource',
+    description: 'Fetch one exact custom resource from an administrator-approved integration.',
+    capability: 'read',
+    targetTypes: ['kubernetes'],
+    inputSchema: objectSchema({
+      ...customResourceIdentity,
+      name: kubernetesName
+    }, ['addition_key', 'resource', 'name'])
+  },
+  {
+    name: 'watch_custom_resources',
+    description: 'Watch bounded changes to an administrator-approved custom-resource type.',
+    capability: 'read',
+    targetTypes: ['kubernetes'],
+    inputSchema: objectSchema({
+      ...customResourceIdentity,
+      label_selector: string({ maxLength: 1024 }),
+      field_selector: string({ maxLength: 1024 }),
+      resource_version: string({ minLength: 1, maxLength: 128 }),
+      timeout_seconds: integer({ minimum: 1, maximum: 30 }),
+      limit: integer({ minimum: 1, maximum: 50 })
+    }, ['addition_key', 'resource'])
   },
   {
     name: 'restart_workload',
@@ -150,6 +192,63 @@ const kubernetesTools: TargetsMcpCatalogTool[] = [
       confirm_non_secret_data: { const: true },
       changes: guardedChanges
     }, ['namespace', 'name', 'expected_uid', 'expected_resource_version', 'reason', 'confirm_non_secret_data', 'changes'])
+  },
+  {
+    name: 'create_custom_resource',
+    description: 'Create one custom resource from an administrator-approved integration.',
+    capability: 'write',
+    targetTypes: ['kubernetes'],
+    inputSchema: objectSchema({
+      ...customResourceIdentity,
+      body: { type: 'object', additionalProperties: true },
+      reason
+    }, ['addition_key', 'resource', 'body', 'reason'])
+  },
+  {
+    name: 'patch_custom_resource',
+    description: 'Patch /spec fields on one exact administrator-approved custom resource. Requires identity from list_custom_resources, read/write access, and normal write approval.',
+    capability: 'write',
+    targetTypes: ['kubernetes'],
+    inputSchema: objectSchema({
+      ...customResourceIdentity,
+      name: kubernetesName,
+      expected_uid: string({ minLength: 1, maxLength: 128 }),
+      expected_resource_version: string({ minLength: 1, maxLength: 128 }),
+      reason,
+      operations: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 20,
+        items: objectSchema({
+          op: enumString(['add', 'replace', 'remove']),
+          path: string({
+            minLength: 6,
+            maxLength: 512,
+            pattern: '^/spec(?:/[^/~]*(?:~[01][^/~]*)*)+$'
+          }),
+          value: {}
+        }, ['op', 'path'])
+      }
+    }, [
+      'addition_key', 'resource', 'name', 'expected_uid',
+      'expected_resource_version', 'reason', 'operations'
+    ])
+  },
+  {
+    name: 'delete_custom_resource',
+    description: 'Delete one exact custom resource from an administrator-approved integration.',
+    capability: 'write',
+    targetTypes: ['kubernetes'],
+    inputSchema: objectSchema({
+      ...customResourceIdentity,
+      name: kubernetesName,
+      expected_uid: string({ minLength: 1, maxLength: 128 }),
+      expected_resource_version: string({ minLength: 1, maxLength: 128 }),
+      reason
+    }, [
+      'addition_key', 'resource', 'name', 'expected_uid',
+      'expected_resource_version', 'reason'
+    ])
   }
 ];
 

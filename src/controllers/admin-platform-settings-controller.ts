@@ -8,6 +8,7 @@ import {
 import { logger } from '../logger.js';
 import {
   applyPlatformSettingOverride,
+  effectivePlatformSettingOverride,
   getPlatformSetting,
   getPlatformSettingWithoutOverride,
   listPlatformSettings,
@@ -15,6 +16,11 @@ import {
   publishPlatformSettingsChanged,
   validatePlatformSettingOverride
 } from '../services/platform-settings.js';
+import {
+  kubernetesRbacAdditionsHash,
+  type KubernetesRbacAdditionsOverride,
+  type KubernetesRbacAdditionsValue
+} from '../services/kubernetes-rbac-additions.js';
 import {
   PlatformSettingVersionConflictError,
   writePlatformSettingOverride
@@ -76,6 +82,14 @@ export async function updateSetting(
       return;
     }
     const before = getPlatformSetting(key);
+    const after = effectivePlatformSettingOverride(key, value);
+    const rbacAuditMetadata = key === 'kubernetes_rbac_additions'
+      ? {
+          profileKeys: (value as KubernetesRbacAdditionsOverride).upserts.map((profile) => profile.key),
+          disabledKeys: (value as KubernetesRbacAdditionsOverride).disabledKeys,
+          catalogHash: kubernetesRbacAdditionsHash((after as KubernetesRbacAdditionsValue).additions)
+        }
+      : {};
     const stored = await writePlatformSettingOverride({
       key,
       overrideValue: value,
@@ -89,9 +103,10 @@ export async function updateSetting(
         metadata: {
           settingKey: key,
           before: before.value,
-          after: value,
+          after,
           previousVersion: req.body.expectedVersion,
-          version: req.body.expectedVersion + 1
+          version: req.body.expectedVersion + 1,
+          ...rbacAuditMetadata
         }
       })
     });

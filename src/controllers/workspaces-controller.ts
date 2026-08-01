@@ -329,11 +329,11 @@ export {
   listClusterResources,
   listClusters,
   registerCluster,
-  rotateAgentKey,
   updateCluster
 } from './workspaces/kubernetes-cluster-controller.js';
 
 export { listKubernetesRbacAdditions } from './workspaces/kubernetes-rbac-additions-controller.js';
+export { rotateAgentKey } from './workspaces/kubernetes-agent-key-controller.js';
 
 export {
   deleteCluster

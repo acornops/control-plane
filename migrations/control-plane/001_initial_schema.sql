@@ -300,7 +300,12 @@ CREATE TABLE kubernetes_target_settings (
     target_id text NOT NULL,
     namespace_include jsonb DEFAULT '[]'::jsonb NOT NULL,
     namespace_exclude jsonb DEFAULT '[]'::jsonb NOT NULL,
-    write_confirmation_required_override boolean
+    write_confirmation_required_override boolean,
+    rbac_additions jsonb DEFAULT '[]'::jsonb NOT NULL,
+    rbac_additions_source_version integer DEFAULT 0 NOT NULL,
+    rbac_additions_content_hash text DEFAULT ''::text NOT NULL,
+    CONSTRAINT kubernetes_target_settings_rbac_additions_array CHECK ((jsonb_typeof(rbac_additions) = 'array'::text)),
+    CONSTRAINT kubernetes_target_settings_rbac_additions_source_version_nonnegative CHECK ((rbac_additions_source_version >= 0))
 );
 
 CREATE TABLE mcp_secret_cleanup_jobs (
@@ -341,7 +346,7 @@ CREATE TABLE platform_setting_overrides (
     version integer DEFAULT 1 NOT NULL,
     updated_by text,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT platform_setting_overrides_key_check CHECK ((key = ANY (ARRAY['member_discovery'::text, 'ai_policy'::text, 'password_signup'::text, 'user_sign_in_methods'::text]))),
+    CONSTRAINT platform_setting_overrides_key_check CHECK ((key = ANY (ARRAY['member_discovery'::text, 'ai_policy'::text, 'password_signup'::text, 'user_sign_in_methods'::text, 'kubernetes_rbac_additions'::text]))),
     CONSTRAINT platform_setting_overrides_version_check CHECK ((version > 0))
 );
 

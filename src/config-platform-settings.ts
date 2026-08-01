@@ -1,7 +1,11 @@
 import { z } from 'zod';
+import {
+  kubernetesRbacAdditionSchema,
+  type KubernetesRbacAddition
+} from './services/kubernetes-rbac-additions.js';
 import type { WorkspaceMemberDiscoveryMode } from './types/domain.js';
 
-export const PLATFORM_SETTING_KEYS = ['member_discovery', 'ai_policy', 'user_sign_in_methods'] as const;
+export const PLATFORM_SETTING_KEYS = ['member_discovery', 'ai_policy', 'user_sign_in_methods', 'kubernetes_rbac_additions'] as const;
 export type PlatformSettingKey = typeof PLATFORM_SETTING_KEYS[number];
 export const LEGACY_PLATFORM_SETTING_KEY = 'password_signup' as const;
 export type PlatformSettingStorageKey = PlatformSettingKey | typeof LEGACY_PLATFORM_SETTING_KEY;
@@ -28,6 +32,15 @@ const platformSettingsPolicySchema = z.object({
     allowedMethods: z.array(z.enum(USER_SIGN_IN_METHODS)).min(1).optional(),
     defaultMethods: z.array(z.enum(USER_SIGN_IN_METHODS)).min(1).optional()
   }).strict().optional(),
+  kubernetesRbacAdditions: z.object({
+    runtimeEditable: z.boolean().default(true),
+    profiles: z.array(kubernetesRbacAdditionSchema).max(25)
+      .refine(
+        (profiles) => new Set(profiles.map((profile) => profile.key)).size === profiles.length,
+        'Kubernetes RBAC profile keys must not contain duplicates'
+      )
+      .default([])
+  }).strict().default({}),
   // Retained only to accept existing deployment policy JSON. The runtime
   // setting was superseded by userSignInMethods.
   passwordSignup: z.object({
@@ -47,6 +60,10 @@ export interface PlatformSettingsDeploymentPolicy {
   userSignInMethods: {
     allowedMethods: UserSignInMethod[];
     defaultMethods: UserSignInMethod[];
+  };
+  kubernetesRbacAdditions: {
+    runtimeEditable: boolean;
+    profiles: KubernetesRbacAddition[];
   };
 }
 
@@ -96,6 +113,10 @@ export function resolvePlatformSettingsDeploymentPolicy(
     userSignInMethods: {
       allowedMethods,
       defaultMethods
+    },
+    kubernetesRbacAdditions: {
+      runtimeEditable: parsed.kubernetesRbacAdditions.runtimeEditable,
+      profiles: parsed.kubernetesRbacAdditions.profiles
     }
   };
 }

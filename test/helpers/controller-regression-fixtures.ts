@@ -50,6 +50,7 @@ const originals = {
   deleteRunContinuation: repo.deleteRunContinuation,
   updateRun: repo.updateRun,
   getTargetAgentRegistration: repo.getTargetAgentRegistration,
+  getClusterRbacAdditionsSnapshot: repo.getClusterRbacAdditionsSnapshot,
   rotateTargetAgentKey: repo.rotateTargetAgentKey,
   upsertTargetAgentRegistration: repo.upsertTargetAgentRegistration,
   insertWorkspaceAuditEvent: repo.insertWorkspaceAuditEvent,
@@ -126,6 +127,7 @@ export function restoreControllerRegressionState(): void {
   repo.deleteRunContinuation = originals.deleteRunContinuation;
   repo.updateRun = originals.updateRun;
   repo.getTargetAgentRegistration = originals.getTargetAgentRegistration;
+  repo.getClusterRbacAdditionsSnapshot = originals.getClusterRbacAdditionsSnapshot;
   repo.rotateTargetAgentKey = originals.rotateTargetAgentKey;
   repo.upsertTargetAgentRegistration = originals.upsertTargetAgentRegistration;
   repo.insertWorkspaceAuditEvent = originals.insertWorkspaceAuditEvent;

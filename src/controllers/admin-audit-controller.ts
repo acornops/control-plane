@@ -20,7 +20,10 @@ const mutationFilter = (actions: string[], subjectIds?: string[]): AdminAuditAct
 
 const ADMIN_AUDIT_ACTION_GROUPS = {
   platform_settings_modified: [
-    mutationFilter(['admin.system.setting.update', 'admin.system.setting.reset'], ['member_discovery', 'user_sign_in_methods'])
+    mutationFilter(
+      ['admin.system.setting.update', 'admin.system.setting.reset'],
+      ['member_discovery', 'user_sign_in_methods', 'kubernetes_rbac_additions']
+    )
   ],
   llm_provider_defaults_modified: [
     mutationFilter(['admin.system.llm_provider_default.update', 'admin.system.llm_provider_default.delete']),

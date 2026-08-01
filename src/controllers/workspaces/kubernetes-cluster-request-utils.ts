@@ -1,5 +1,6 @@
 import { config } from '../../config.js';
 import { KubernetesCluster } from '../../types/domain.js';
+import type { KubernetesRbacAddition } from '../../services/kubernetes-rbac-additions.js';
 
 interface AgentInstallInstructions {
   command: string;
@@ -99,7 +100,8 @@ export function parseAgentAccessMode(value: unknown): AgentAccessMode {
 export function buildAgentInstallInstructions(
   cluster: KubernetesCluster,
   agentKey: string,
-  agentAccessMode: AgentAccessMode = 'read_only'
+  agentAccessMode: AgentAccessMode = 'read_only',
+  rbacAdditions: KubernetesRbacAddition[] = []
 ): AgentInstallInstructions {
   const include = cluster.namespaceInclude || [];
   const exclude = cluster.namespaceExclude || [];
@@ -133,6 +135,9 @@ export function buildAgentInstallInstructions(
     helmSetJson('namespaceScope.include', include),
     helmSetJson('namespaceScope.exclude', exclude)
   );
+  if (rbacAdditions.length > 0) {
+    lines.push(helmSetJson('rbac.additions', rbacAdditions));
+  }
   if (agentAccessMode === 'read_write') {
     lines.push(helmSetBool('rbac.write.enabled', true));
   }

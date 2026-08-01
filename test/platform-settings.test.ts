@@ -7,6 +7,7 @@ import {
   applyRefreshedPlatformSettingOverrides,
   getPlatformSetting,
   getPlatformSettingWithoutOverride,
+  parsePlatformSettingValue,
   passwordSignupOperationalBlockers,
   validatePlatformSettingOverride
 } from '../src/services/platform-settings.js';
@@ -185,6 +186,79 @@ describe('durable platform setting resolution', () => {
     assert.match(
       validatePlatformSettingOverride('user_sign_in_methods', { methods: [] }) || '',
       /At least one/
+    );
+  });
+
+  it('merges Helm Kubernetes RBAC profiles with additive admin overrides', () => {
+    const cnpg = {
+        key: 'cnpg',
+        name: 'CNPG',
+        description: 'CloudNativePG clusters',
+        resources: [{
+          apiGroup: 'postgresql.cnpg.io',
+          apiVersion: 'v1',
+          resource: 'clusters',
+          kind: 'Cluster',
+          scope: 'namespaced' as const,
+          verbs: ['list', 'patch'] as const
+        }]
+    };
+    const mongodb = {
+      ...cnpg,
+      key: 'mongodb',
+      name: 'MongoDB',
+      resources: [{ ...cnpg.resources[0], apiGroup: 'mongodbcommunity.mongodb.com', resource: 'mongodbcommunity', kind: 'MongoDBCommunity', verbs: ['list'] as const }]
+    };
+    mutableConfig.PLATFORM_SETTINGS_POLICY = {
+      ...originalPolicy,
+      kubernetesRbacAdditions: { runtimeEditable: true, profiles: [cnpg] }
+    };
+    const overlay = { upserts: [mongodb], disabledKeys: ['cnpg'] };
+
+    assert.equal(validatePlatformSettingOverride('kubernetes_rbac_additions', overlay), null);
+    applyPlatformSettingOverrides([override('kubernetes_rbac_additions', overlay, 7)]);
+    const state = getPlatformSetting('kubernetes_rbac_additions');
+    assert.deepEqual(state.deploymentDefault.additions, [cnpg]);
+    assert.deepEqual(state.value.additions, [mongodb]);
+    assert.deepEqual(state.overrideValue, overlay);
+    assert.equal(state.version, 7);
+
+    applyPlatformSettingOverrides([override('kubernetes_rbac_additions', {
+      upserts: [{ ...cnpg, resources: [{ ...cnpg.resources[0], verbs: ['patch'] }] }],
+      disabledKeys: []
+    }, 8)]);
+    const ignored = getPlatformSetting('kubernetes_rbac_additions');
+    assert.deepEqual(ignored.value, { additions: [cnpg] });
+    assert.match(ignored.warning || '', /invalid and were ignored/);
+  });
+
+  it('normalizes the original whole-catalog mutation without hiding future Helm additions', () => {
+    const legacy = { additions: [{
+      key: 'cnpg', name: 'CNPG', description: '',
+      resources: [{
+        apiGroup: 'postgresql.cnpg.io', apiVersion: 'v1', resource: 'clusters', kind: 'Cluster',
+        scope: 'namespaced' as const, verbs: ['list'] as const
+      }]
+    }] };
+
+    assert.deepEqual(parsePlatformSettingValue('kubernetes_rbac_additions', legacy), {
+      upserts: legacy.additions,
+      disabledKeys: []
+    });
+  });
+
+  it('lets deployment policy make the Kubernetes RBAC catalog read-only', () => {
+    mutableConfig.PLATFORM_SETTINGS_POLICY = {
+      ...originalPolicy,
+      kubernetesRbacAdditions: { runtimeEditable: false, profiles: [] }
+    };
+    applyPlatformSettingOverrides([]);
+
+    const state = getPlatformSetting('kubernetes_rbac_additions');
+    assert.equal(state.editable, false);
+    assert.match(
+      validatePlatformSettingOverride('kubernetes_rbac_additions', { upserts: [], disabledKeys: [] }) || '',
+      /fixed by the deployment policy/
     );
   });
 

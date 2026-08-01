@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { kubernetesRbacAdditionKeysSchema } from '../services/kubernetes-rbac-additions.js';
 import { validateMcpPublicHeaders as enforceMcpPublicHeaderPolicy } from '../services/mcp-public-header-policy.js';
 import { autoTriageInstructionsFitLimit } from '../utils/auto-triage-instructions.js';
 import { TARGET_TYPES } from './domain.js';
@@ -175,10 +176,9 @@ const namespaceListSchema = z.array(namespaceSchema).max(100).refine(
 const agentAccessModeSchema = z.string().trim().max(64).optional();
 
 export const registerClusterSchema = z.object({
-  name: z.string().min(1),
-  agentAccessMode: agentAccessModeSchema,
-  namespaceInclude: namespaceListSchema,
-  namespaceExclude: namespaceListSchema
+  name: z.string().min(1), agentAccessMode: agentAccessModeSchema,
+  namespaceInclude: namespaceListSchema, namespaceExclude: namespaceListSchema,
+  rbacAdditionKeys: kubernetesRbacAdditionKeysSchema
 });
 
 export const updateClusterSchema = z.object({

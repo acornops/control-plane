@@ -15,6 +15,7 @@ const RESERVED_VALUE_PATHS = [
   ['config', 'agentKey'],
   ['config', 'watchNamespaces'],
   ['config', 'tls', 'additionalCaBundle', 'inlinePem'],
+  ['rbac', 'additions'],
   ['rbac', 'write', 'enabled']
 ] as const;
 

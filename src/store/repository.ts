@@ -51,15 +51,7 @@ import {
   listWorkspaceInvitations as listWorkspaceInvitationsRecord,
   revokeWorkspaceInvitation as revokeWorkspaceInvitationRecord
 } from './repository-invitations.js';
-import {
-  addCluster as addClusterRecord,
-  deleteCluster as deleteClusterRecord,
-  getCluster as getClusterRecord,
-  getClusterSnapshot as getClusterSnapshotRecord,
-  listClusters as listClustersRecord,
-  updateCluster as updateClusterRecord,
-  upsertClusterSnapshot as upsertClusterSnapshotRecord
-} from './repository-kubernetes-clusters.js';
+import * as repositoryKubernetesClusters from './repository-kubernetes-clusters.js';
 import {
   addVirtualMachine as addVirtualMachineRecord,
   deleteVirtualMachine as deleteVirtualMachineRecord,
@@ -320,19 +312,20 @@ export class Repository {
 
   deleteWorkspaceMember = deleteWorkspaceMemberRecord;
 
-  addCluster = addClusterRecord;
+  addCluster = repositoryKubernetesClusters.addCluster;
 
-  listClusters = listClustersRecord;
+  listClusters = repositoryKubernetesClusters.listClusters;
 
   listTargets = listTargetsRecord; listWorkspaceTargetSnapshot = listWorkspaceTargetSnapshotRecord;
 
   getTarget = getTargetRecord;
 
-  getCluster = getClusterRecord;
+  getCluster = repositoryKubernetesClusters.getCluster;
+  getClusterRbacAdditionsSnapshot = repositoryKubernetesClusters.getClusterRbacAdditionsSnapshot;
 
-  updateCluster = updateClusterRecord;
+  updateCluster = repositoryKubernetesClusters.updateCluster;
 
-  deleteCluster = deleteClusterRecord;
+  deleteCluster = repositoryKubernetesClusters.deleteCluster;
 
   addVirtualMachine = addVirtualMachineRecord;
 
@@ -418,9 +411,9 @@ export class Repository {
 
   markRunToolApprovalExecutionFinished = markRunToolApprovalExecutionFinishedRecord;
 
-  upsertClusterSnapshot = upsertClusterSnapshotRecord;
+  upsertClusterSnapshot = repositoryKubernetesClusters.upsertClusterSnapshot;
 
-  getClusterSnapshot = getClusterSnapshotRecord;
+  getClusterSnapshot = repositoryKubernetesClusters.getClusterSnapshot;
 
   getClusterSnapshotSummary = getClusterSnapshotSummaryRecord;
 

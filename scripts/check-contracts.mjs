@@ -98,7 +98,13 @@ const expectedAgentkBuiltinToolNames = [
   'scale_workload',
   'patch_workload',
   'patch_resource',
-  'patch_configmap'
+  'patch_configmap',
+  'get_custom_resource',
+  'list_custom_resources',
+  'watch_custom_resources',
+  'create_custom_resource',
+  'patch_custom_resource',
+  'delete_custom_resource'
 ];
 
 const gatewayCanonicalVectorsPath = path.resolve(
