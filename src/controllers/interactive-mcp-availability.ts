@@ -7,7 +7,7 @@ import {
   resolveTargetRunTools,
   type TargetRunToolResolution
 } from '../services/target-run-tool-resolution.js';
-import { publicMcpReadinessError } from '../services/workflow-readiness.js';
+import { publicMcpReadinessError } from '../services/mcp-readiness.js';
 import type { AssistantReference } from '../types/assistant-references.js';
 import type { RunPrincipalRef } from '../types/agents.js';
 

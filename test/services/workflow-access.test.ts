@@ -12,7 +12,7 @@ import type { AgentDefinition } from '../../src/types/agents.js';
 import type { CapabilityRoutingMapping } from '../../src/types/capability-routing.js';
 import type { WorkflowDefinitionForAccess } from '../../src/types/workflows.js';
 
-function agent(id: string, version = 2): AgentDefinition {
+function agent(id: string): AgentDefinition {
   return {
     id,
     workspaceId: 'workspace-1',
@@ -22,7 +22,6 @@ function agent(id: string, version = 2): AgentDefinition {
     origin: { type: 'manual' },
     reviewState: 'reviewed',
     providerType: 'internal',
-    version,
     ownerUserId: 'owner-1',
     createdBy: 'owner-1',
     createdAt: '2026-07-01T00:00:00.000Z',
@@ -35,12 +34,10 @@ function agent(id: string, version = 2): AgentDefinition {
     skills: [],
     skillInstallations: [],
     contextGrants: ['workspace_metadata'],
-    targetScope: { type: 'workspace' },
     approvalPolicy: { mode: 'none', writeToolsRequireApproval: false },
     trustPolicy: { level: 'restricted', allowExternalData: false },
     permissionMode: 'read_only',
     semanticCapabilityIds: ['workspace.audit.read'],
-    workflowUsage: { workflowRunCount: 0 },
     readiness: { status: 'ready', reasons: [] }
   };
 }
@@ -49,7 +46,6 @@ function workflow(agents: AgentDefinition[]): WorkflowDefinitionForAccess {
   return {
     id: 'workflow-1',
     workspaceId: 'workspace-1',
-    version: 4,
     origin: { type: 'manual' },
     name: 'Audit',
     prompt: 'Audit the workspace.',
@@ -74,21 +70,16 @@ function mapping(specialist: AgentDefinition, priority = 10): CapabilityRoutingM
     id: `mapping-${specialist.id}`,
     workspaceId: specialist.workspaceId,
     capabilityId: 'workspace.audit.read',
-    version: 1,
     agentId: specialist.id,
-    agentVersion: specialist.version,
     status: 'active',
     reviewState: 'reviewed',
     priority,
-    targetTypes: [],
-    targetIds: [],
     mcpTools: [{
       serverId: 'ops',
       toolName: 'events_search',
       alias: 'events.search',
       operation: 'read'
     }],
-    targetToolRefs: [],
     nativeToolIds: ['workspace.metadata.read'],
     skillIds: [],
     contextGrants: ['workspace_metadata'],
@@ -116,33 +107,29 @@ describe('Workflow executor scope compiler', () => {
       approvedContextGrants: ['workspace_metadata']
     });
 
-    assert.deepEqual(compiled.executor, { role: 'specialist', agentId: 'agent-a', agentVersion: 2 });
+    assert.deepEqual(compiled.executor, { role: 'specialist', agentId: 'agent-a' });
     assert.equal(compiled.jwtClaims.executor_role, 'specialist');
     assert.equal(compiled.jwtClaims.agent_id, 'agent-a');
     assert.deepEqual(compiled.tools, ['events.search', 'workspace.metadata.read']);
     assert.deepEqual(compiled.coordinationFunctions, []);
   });
 
-  it('grants target tools as invocation-time routes without binding the Workflow run', () => {
+  it('inherits an ordinary MCP tool reference without adding a Workflow-specific binding', () => {
     const specialist = {
       ...agent('agent-vm'),
-      semanticCapabilityIds: ['target.diagnostics.read'],
-      targetScope: { type: 'selected_target' as const, targetTypes: ['virtual_machine' as const] }
+      semanticCapabilityIds: ['infrastructure.diagnostics.read']
     };
     const definition = {
       ...workflow([specialist]),
       capabilityPolicy: {
         ...workflow([specialist]).capabilityPolicy,
-        semanticCapabilityIds: ['target.diagnostics.read']
+        semanticCapabilityIds: ['infrastructure.diagnostics.read']
       }
     };
     const routeMapping: CapabilityRoutingMapping = {
       ...mapping(specialist),
-      capabilityId: 'target.diagnostics.read',
-      targetTypes: ['virtual_machine'],
-      targetIds: ['vm-1'],
-      mcpTools: [],
-      targetToolRefs: [{
+      capabilityId: 'infrastructure.diagnostics.read',
+      mcpTools: [{
         serverId: 'targets', toolName: 'host_summary', alias: 'host_summary', operation: 'read'
       }],
       nativeToolIds: []
@@ -157,22 +144,10 @@ describe('Workflow executor scope compiler', () => {
     });
 
     assert.equal(compiled.resourceBindings.length, 0);
-    assert.deepEqual(compiled.targetToolRoutes, [{
-      alias: 'host_summary',
-      serverId: 'targets',
-      toolName: 'host_summary',
-      operation: 'read',
-      targetId: 'vm-1',
-      targetType: 'virtual_machine'
-    }]);
-    assert.deepEqual(compiled.jwtClaims.permissions.allowed_target_tool_routes, [{
-      alias: 'host_summary',
-      server_id: 'targets',
-      tool_name: 'host_summary',
-      operation: 'read',
-      target_id: 'vm-1',
-      target_type: 'virtual_machine'
-    }]);
+    assert.deepEqual(compiled.mcpTools, [{ serverId: 'targets', toolName: 'host_summary' }]);
+    assert(compiled.jwtClaims.permissions.allowed_tool_refs.some((ref) => (
+      ref.server_id === 'targets' && ref.tool_name === 'host_summary'
+    )));
   });
 
   it('snapshots Fetch configuration into the direct run scope', () => {
@@ -205,6 +180,43 @@ describe('Workflow executor scope compiler', () => {
         allowedUrlPatterns: ['https://status.example.com/api/*']
       }
     });
+  });
+
+  it('inherits Agent MCP attachments independently from generic target tools', () => {
+    const specialist = {
+      ...agent('agent-target-mcp'),
+      mcpInstallations: [{
+        id: 'target-mcp',
+        name: 'Target MCP',
+        url: 'https://mcp.example.test',
+        enabled: true,
+        credentialMode: 'workspace' as const,
+        revision: 1,
+        tools: [{
+          serverId: 'target-mcp', toolName: 'host_summary', alias: 'host_summary',
+          description: 'Read one host.', inputSchema: { type: 'object' },
+          capability: 'read' as const, enabled: true, reviewState: 'approved' as const,
+          riskLevel: 'low' as const, autoAllowed: true
+        }]
+      }]
+    };
+    const compiled = compileWorkflowAccessScope({
+      workflow: { ...workflow([specialist]), capabilityPolicy: {
+        ...workflow([specialist]).capabilityPolicy,
+        restrictionMode: 'inherit'
+      } },
+      selectedAgents: [specialist],
+      specialistAgent: specialist,
+      mappings: [mapping(specialist)],
+      actor,
+      approvedContextGrants: ['workspace_metadata']
+    });
+
+    assert(compiled.tools.includes('host_summary'));
+    assert.deepEqual(compiled.mcpTools, [
+      { serverId: 'target-mcp', toolName: 'host_summary' },
+      { serverId: 'ops', toolName: 'events_search' }
+    ]);
   });
 
   it('creates a coordinated root with only internal coordination functions and no Agent identity', () => {
@@ -252,12 +264,7 @@ describe('Workflow executor scope compiler', () => {
     assert.equal(ceiling.executor.role, 'coordinator');
     assert.deepEqual(ceiling.semanticCapabilityIds, ['workspace.audit.read']);
     assert.equal(ceiling.routingMappingSnapshots.length, 2);
-    assert.deepEqual(ceiling.selectedAgents, [
-      { id: 'agent-a', version: 2 },
-      { id: 'agent-b', version: 2 }
-    ]);
-    assert.deepEqual(child.executor, { role: 'specialist', agentId: 'agent-b', agentVersion: 2 });
-    assert.deepEqual(child.selectedAgents, [{ id: 'agent-b', version: 2 }]);
+    assert.deepEqual(child.executor, { role: 'specialist', agentId: 'agent-b' });
     assert.deepEqual(child.selectedAgentSnapshots.map((agent) => agent.id), ['agent-b']);
     assert.deepEqual(child.routingMappingSnapshots.map((mapping) => mapping.agentId), ['agent-b']);
     assert.deepEqual(child.tools, ['events.search']);
@@ -299,12 +306,11 @@ describe('Workflow executor scope compiler', () => {
     const candidate = selectDelegationCandidate({
       workflow: definition,
       capabilityId: 'workspace.audit.read',
-      target: { id: 'target-1', targetType: 'kubernetes' },
       agents,
       mappings: [
-        { ...mapping(agents[0], 5), targetTypes: ['kubernetes'] },
-        { ...mapping(agents[1], 5), targetTypes: ['kubernetes'] },
-        { ...mapping(agents[2], 1), status: 'disabled', targetTypes: ['kubernetes'] }
+        mapping(agents[0], 5),
+        mapping(agents[1], 5),
+        { ...mapping(agents[2], 1), status: 'disabled' }
       ]
     });
 

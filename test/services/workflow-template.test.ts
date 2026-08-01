@@ -13,7 +13,6 @@ function textWorkflow(prompt: string): WorkflowDefinitionForAccess {
   return {
     id: 'workflow-1',
     workspaceId: 'workspace-1',
-    version: 1,
     origin: { type: 'manual' },
     name: 'Text workflow',
     status: 'active',

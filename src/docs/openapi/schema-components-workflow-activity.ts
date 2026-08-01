@@ -9,7 +9,7 @@ export function buildWorkflowActivitySchemas(): Record<string, JsonSchema> {
         {
           required: ['kind'],
           properties: {
-            kind: { type: 'string', enum: ['manual', 'external_integration', 'agent_chat', 'historical_event'] }
+            kind: { type: 'string', enum: ['manual', 'external_integration', 'historical_event'] }
           }
         },
         {
@@ -29,7 +29,7 @@ export function buildWorkflowActivitySchemas(): Record<string, JsonSchema> {
         schemaVersion: { type: 'integer', enum: [1] },
         kind: {
           type: 'string',
-          enum: ['manual', 'external_integration', 'agent_chat', 'schedule', 'webhook', 'historical_event']
+          enum: ['manual', 'external_integration', 'schedule', 'webhook', 'historical_event']
         },
         label: { type: 'string' },
         scheduleId: { type: 'string' },
@@ -45,11 +45,10 @@ export function buildWorkflowActivitySchemas(): Record<string, JsonSchema> {
         workspaceId: uuid,
         workflow: {
           type: 'object',
-          required: ['id', 'name', 'version'],
+          required: ['id', 'name'],
           properties: {
             id: { type: 'string' },
-            name: { type: 'string' },
-            version: { type: 'integer', minimum: 1 }
+            name: { type: 'string' }
           },
           additionalProperties: false
         },
@@ -73,9 +72,6 @@ export function buildWorkflowActivitySchemas(): Record<string, JsonSchema> {
           required: ['id', 'requestedAt'],
           properties: {
             id: { type: 'string' },
-            targetId: { type: 'string' },
-            targetName: { type: 'string' },
-            targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] },
             requestedAt: dateTime,
             startedAt: dateTime,
             endedAt: dateTime
@@ -106,18 +102,6 @@ export function buildWorkflowActivitySchemas(): Record<string, JsonSchema> {
           },
           additionalProperties: false
         }
-      },
-      additionalProperties: false
-    },
-    WorkflowActivitySummary: {
-      type: 'object',
-      required: ['totalCount', 'openCount', 'attentionCount'],
-      properties: {
-        totalCount: { type: 'integer', minimum: 0 },
-        openCount: { type: 'integer', minimum: 0 },
-        attentionCount: { type: 'integer', minimum: 0 },
-        openExecution: schemaRef('WorkflowExecutionSummary'),
-        latestExecution: schemaRef('WorkflowExecutionSummary')
       },
       additionalProperties: false
     }

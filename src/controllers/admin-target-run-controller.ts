@@ -84,7 +84,7 @@ export async function getTargetAgent(req: AdminAuthenticatedRequest, res: Respon
       lastHeartbeatAt: reg?.lastHeartbeatAt || null,
       lastConnectionId: reg?.lastConnectionId || null,
       owningControlPlaneInstance: null,
-      agentVersion: reg?.lastAgentVersion || null,
+      connectorVersion: reg?.lastConnectorVersion || null,
       capabilities: reg?.capabilities || []
     });
   } catch (err) {

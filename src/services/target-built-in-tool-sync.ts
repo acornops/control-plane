@@ -13,11 +13,6 @@ import { isReservedInternalToolName } from './internal-tool-names.js';
 import { targetWebhookScope } from './target-webhook-scope.js';
 import { sanitizeToolInputSchema } from './tool-metadata.js';
 import { webhooks } from './webhooks.js';
-import { repo } from '../store/repository.js';
-import { reconcileTargetDiagnosticsForTarget } from './target-diagnostics-capability.js';
-import { refreshAgentReadiness, refreshWorkflowReadiness } from './automation-readiness.js';
-import { listAgentDefinitions } from '../store/repository-agents.js';
-import { listWorkflowDefinitions } from '../store/repository-workflows.js';
 
 export interface BuiltInToolSyncResult {
   ok: boolean;
@@ -55,23 +50,6 @@ function targetAgentResultContract(tool: {
 
 function countRegisteredTools(tools: Array<{ name: string }>, expectedNames: Set<string>): number {
   return tools.filter((tool) => expectedNames.has(tool.name)).length;
-}
-
-async function reconcileCapabilityState(
-  workspaceId: string,
-  targetId: string,
-  tools: Awaited<ReturnType<typeof listTargetMcpTools>>
-): Promise<void> {
-  try {
-    const target = await repo.getTarget(workspaceId, targetId);
-    if (!target) return;
-    await reconcileTargetDiagnosticsForTarget(target, tools);
-    const agents = await listAgentDefinitions(workspaceId, { includeInactive: true });
-    await Promise.all(agents.map((agent) => refreshAgentReadiness(workspaceId, agent.id)));
-    await Promise.all((await listWorkflowDefinitions(workspaceId)).map((workflow) => refreshWorkflowReadiness(workflow)));
-  } catch (error) {
-    logger.warn({ workspaceId, targetId, error }, 'Built-in tools synchronized but target diagnostics mapping reconciliation failed');
-  }
 }
 
 export async function syncTargetBuiltInTools(
@@ -158,7 +136,6 @@ export async function syncTargetBuiltInTools(
         },
         'Synchronized built-in target tools'
       );
-      await reconcileCapabilityState(workspaceId, targetId, created.tools);
       return {
         ok: true,
         workspaceId,
@@ -211,7 +188,6 @@ export async function syncTargetBuiltInTools(
       },
       'Synchronized built-in target tools'
     );
-    await reconcileCapabilityState(workspaceId, targetId, updated.tools);
     return {
       ok: true,
       workspaceId,

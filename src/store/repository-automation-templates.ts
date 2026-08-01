@@ -4,7 +4,6 @@ import { db } from '../infra/db.js';
 export interface TemplateInstallationRecord {
   workspaceId: string;
   templateId: string;
-  templateVersion: number;
   state: 'pending' | 'complete';
   installedBy: string;
   recordIds: Record<string, string>;
@@ -21,7 +20,6 @@ export function mapTemplateInstallation(row: Row): TemplateInstallationRecord {
   return {
     workspaceId: row.workspace_id,
     templateId: row.template_id,
-    templateVersion: row.template_version,
     state: row.state,
     installedBy: row.installed_by,
     recordIds: row.record_ids || {},
@@ -40,15 +38,14 @@ export async function listTemplateInstallations(workspaceId: string): Promise<Te
 export async function reserveTemplateInstallation(input: {
   workspaceId: string;
   templateId: string;
-  templateVersion: number;
   installedBy: string;
 }, queryable: Queryable = db): Promise<TemplateInstallationRecord> {
   await queryable.query(
     `INSERT INTO automation_template_installations (
-       workspace_id,template_id,template_version,state,installed_by,record_ids
-     ) VALUES ($1,$2,$3,'pending',$4,'{}'::jsonb)
+       workspace_id,template_id,state,installed_by,record_ids
+     ) VALUES ($1,$2,'pending',$3,'{}'::jsonb)
      ON CONFLICT (workspace_id,template_id) DO NOTHING`,
-    [input.workspaceId, input.templateId, input.templateVersion, input.installedBy]
+    [input.workspaceId, input.templateId, input.installedBy]
   );
   const result = await queryable.query<Row>(
     `SELECT * FROM automation_template_installations

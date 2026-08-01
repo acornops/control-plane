@@ -70,7 +70,9 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Audit events keep structured object details instead of forcing agents to reconstruct them from free text.
 - Roles with `permissions.manage_mcp` may mutate MCP server configuration.
 - Roles with `permissions.manage_tools` may mutate MCP per-tool enablement and non-Target-Insights built-in tool settings.
-- Kubernetes clusters and VMs own their target-scoped MCP servers, skills, and tools through the target's generic agent. Target capability routes remain distinct from workspace Agent capability routes.
+- Kubernetes clusters and VMs own their target-scoped MCP servers, skills, and tools through their connector runtime. Workspace Agents are independent capability profiles and have no persistent target scope.
+- Direct Agent conversations use the neutral interactive run lifecycle and issue an `agent_chat` run scope bound to the Agent identity; they do not create Workflow definitions, sessions, executions, or runs.
+- Target-chat run tokens reject Agent and Workflow identity claims. Agent and Workflow scopes select targets only through arguments to a granted generic Targets MCP tool.
 - Experimental target auto-triage is a revisioned target setting, not a workflow feature.
   Qualifying issue lifecycles enqueue one durable automatic investigation,
   existing issues require an explicit bulk-start request, and the system actor
@@ -78,11 +80,12 @@ The control plane owns the platform API boundary. Keep this README as a short in
   Its worker has a dedicated timer and error boundary and ignores Automation
   runtime mode, so Workflow failures cannot pause automatic investigations.
   Requested write behavior can only become stricter after intersecting target
-  and agent policy. Kubernetes settings additionally narrow eligible issue
+  settings and connector write policy. Kubernetes settings additionally narrow eligible issue
   namespaces and independently control cluster-scoped issues; virtual-machine
   settings remain target-wide.
 - Workspace specialist Agents own Agent-scoped MCP and skill installations;
-  Cluster and VM default Agents retain distinct target-scoped capabilities.
+  the starter Kubernetes and VM Agents are ordinary target-independent profiles
+  that may receive generic Targets MCP tools.
   Catalog imports are MCP-only, return secret-free DTOs, and never accept a
   browser-supplied target type as authoritative.
 - The control plane owns code-defined workspace-native tools. `manage_agents`
@@ -114,23 +117,27 @@ The control plane owns the platform API boundary. Keep this README as a short in
   `executionMode`; the strict request schema rejects all unknown fields with the
   standard invalid-request response.
 - Workflows do not select, bind, or persist targets. They inherit the assigned
-  Agents' reviewed tool ceiling. Target MCP tools expose an eligible `target_id`
-  argument to the model; execution removes it from MCP arguments and the gateway
-  authorizes the exact Agent, alias, server/tool, and target route signed into the
-  run token. A prompt may name a target, but target interpretation is deliberately
+  Agents' reviewed tool ceiling. Generic Targets MCP tools accept `target_id` and
+  `target_type` only at invocation time; the gateway authorizes the exact
+  `targets` server/tool reference signed into the run token, then resolves the
+  selected target's built-in connector tool. A prompt may name a target, but target interpretation is deliberately
   model-driven and an unavailable or ambiguous target fails only if the model
   attempts the corresponding tool call.
 - Manual workflow policy defaults are server-owned. The console may send the
   selected `restrictionMode` and semantic subset, while omitted mode, context,
   permissions, and approvals default to read-only workspace metadata access.
   `ASSISTANT_MAX_RUNTIME_MS` is the only execution limit and
-  `TARGET_CHAT_REPORT_RETENTION_DAYS` is the only workflow and target-chat PDF
-  retention policy. Mutations reject per-workflow timing fields; responses and
+  `GENERATED_DOCUMENT_RETENTION_DAYS` is the only generated-document retention
+  policy. Mutations reject per-workflow timing fields; responses and
   workflow options expose the effective deployment values.
 - Virtual-machine registration and key rotation preserve their response shape,
   but generated install instructions use the validated
   `CONTROL_PLANE_BASE_URL` and a literal heredoc so credential values are not
   expanded by the operator shell.
+- AgentK and AgentV connections must send `x-connector-version` as
+  `agentk/<release>` or `agentv/<release>` respectively. The handshake rejects
+  missing, mismatched, whitespace-containing, or nested values and persists the
+  accepted value as the target registration's `last_connector_version`.
 - Selected Agents jointly bound the workflow semantic capability ceiling.
   `restrictionMode=inherit` resolves their current combined ceiling and
   requires an empty semantic list. `restrictionMode=restrict` uses an explicit
@@ -174,7 +181,7 @@ The control plane owns the platform API boundary. Keep this README as a short in
   A completed installation remains a tombstone, so deleting starter definitions
   does not recreate them; startup performs no pre-release repair or upgrade.
 - Every public Agent is a specialist capability profile. Coordinators are
-  versioned, code-owned Workflow executors with no Agent record or public ID.
+  code-owned Workflow executors with no Agent record or public ID.
   Public Workflow, compiled-scope, audit, search, and trace DTOs never expose
   coordinator profile instructions.
 - Coordinated execution detail exposes only a bounded `coordination` summary:
@@ -182,7 +189,7 @@ The control plane owns the platform API boundary. Keep this README as a short in
   It excludes prompts, compiled scopes, results, credentials, tool arguments,
   and internal coordinator identity. Parent cancellation cascades to active
   delegated child runs.
-- Default Agents are workspace-owned definitions. Workspace managers may edit, version, restore, duplicate, disable, or delete them under normal permissions; legacy template-origin Agents follow the same rules. Agent deletion reports dependent workflows until those dependencies are removed.
+- Default Agents are workspace-owned definitions. Workspace managers may edit, restore, duplicate, disable, or delete them under normal permissions; legacy template-origin Agents follow the same rules. Agent deletion reports dependent workflows until those dependencies are removed.
 - Workspace provisioning creates default workflows once as ordinary workspace-owned definitions. Recommended workflows use the existing automation-template API as a catalog and idempotent add action, but the resulting workflows are directly editable and are never overwritten, upgraded, or automatically restored by AcornOps. Optional recommendations remain paused and report `needs_setup` until live prerequisites pass.
 - AcornOps does not provision a repository-review Agent or workflow and does not maintain provider-specific source-control profiles. A workspace manager creates a specialist Agent, installs and reviews a compatible MCP server through the generic Agent capability routes, then creates a workflow that selects that Agent. When the Agent has no platform semantic capability IDs, run compilation snapshots those reviewed exact attachments directly; platform semantic capabilities still require reviewed routing mappings. Credentialed installations use the same secret-free `mcpRequirements` and mode-aware connection flow as every other user-created Agent attachment.
 - Workflow capability previews identify credential recovery by generic MCP server ID, ownership mode, auth type, owning Agent, connection state, and action. They never expose provider-profile identities, endpoint URLs, header configuration, credential values, or individual connection inventories. The console writes a replacement credential through the installation connection route and then recomputes preview readiness.
@@ -200,16 +207,15 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Authorized users may duplicate an effective definition into a manual draft without copying execution history, sessions, schedules, activity, or capability installations.
 - Agents contribute capabilities only to direct or delegated specialist
   Workflow runs.
-  Public standalone Agent runs, Agent activity endpoints, Agent schedules,
-  Agent target-workflow webhooks, and Agent inbound webhooks are not supported.
+  Public standalone Agent runs, Agent activity endpoints, Agent schedules, and
+  Agent inbound webhooks are not supported.
 - Workflow schedules always run as their authenticated creator. Schedule create
   and update reject service identities with
   `WORKFLOW_SCHEDULE_USER_PRINCIPAL_REQUIRED`; migration pauses schedules whose
   creators are no longer authorized workspace members.
 - Workflow executions persist a safe immutable origin snapshot. The
   workspace execution ledger is user-session-only, workspace-authorized, cursor
-  paginated, and filterable by status, origin, workflow, issue, and bounded
-  search. Browser issue responses receive grouped compact activity summaries.
+  paginated, and filterable by status, origin, workflow, and bounded search.
   Schedule and workflow-webhook responses keep configuration, last dispatch, and
   latest successful execution pointers separate; unsuccessful dispatches never
   erase those pointers. Exact execution responses add origin only for normal
@@ -218,21 +224,20 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Roles without the relevant management capability are read-only for that configuration surface.
 - Chat and run creation must preserve `sessionPolicy.allowedTools` and `sessionPolicy.writeEnabled`.
 - Agent conversations are console-only, single-Agent manual sessions backed by
-  a hidden system-managed Workflow carrier. The carrier is excluded from
-  Workflow catalogs and cannot be edited, duplicated, scheduled, triggered, or
-  launched through Workflow session endpoints.
+  the neutral session, message, and run lifecycle. They create no hidden
+  Workflow definition, session, execution, or run.
 - Agent conversations are workspace-readable, but only their creator may
   continue, change access, or delete them. Creation defaults to the intersection
-  of the pinned Agent permission mode and creator capabilities: a write-capable
+  of the current Agent permission mode and creator capabilities: a write-capable
   Agent starts read-write only when the creator has `create_read_write_runs`;
   otherwise it starts read-only. Creators may pause a write-capable conversation,
-  but a pinned read-only Agent cannot be elevated. Normal approval and audit
+  but a currently read-only Agent cannot be elevated. Normal approval and audit
   paths remain authoritative.
-- Conversation creation pins the Agent revision and maximum capability scope.
-  Conversation summaries expose the pinned permission mode rather than asking
-  clients to infer it from the latest Agent revision.
-  Capabilities added later are unavailable to that conversation, and removing a
-  pinned capability fails closed until the user starts a new conversation.
+- A conversation pins only the Agent identity and preferred access mode. Each
+  message resolves the current active, ready Agent and actor permissions, then
+  persists the exact Agent snapshot and compiled capability scope on the new
+  run. Capability additions and removals therefore apply to the next message in
+  the same conversation without changing an already-running execution.
 - Chat session responses derive `lastRuntimeSelection` from the newest accepted
   run snapshot regardless of its eventual terminal status; empty sessions omit
   it, and message acceptance echoes the runtime frozen on that run.

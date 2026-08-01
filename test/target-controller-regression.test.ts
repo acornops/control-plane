@@ -204,7 +204,7 @@ describe('target controller regressions', () => {
     const session = createSessionRecord({ id: 'session-delete', targetId: 'target-1', targetType: 'virtual_machine', clusterId: undefined });
     const recorded: unknown[] = [];
     repo.getSession = async () => session;
-    repo.deleteSession = async () => true;
+    repo.deleteSession = async () => ({ status: 'deleted' });
     repo.insertTargetChatActivityEvent = async (event) => {
       recorded.push(event);
       return {
@@ -246,6 +246,27 @@ describe('target controller regressions', () => {
       }
     });
     assert.match(activity.payload.deletedAt, /^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('does not delete a target session while one of its runs is active', async () => {
+    installWorkspace('admin');
+    repo.getSession = async () => createSessionRecord({
+      id: 'session-active', targetId: 'target-1', targetType: 'virtual_machine', clusterId: undefined
+    });
+    repo.deleteSession = async () => ({ status: 'active_runs', runIds: ['run-active'] });
+
+    const response = await callController(
+      deleteSession,
+      createRequest({ sessionId: 'session-active' })
+    );
+
+    assert.equal(response.statusCode, 409);
+    assert.deepEqual(response.body, { error: {
+      code: 'SESSION_HAS_ACTIVE_RUNS',
+      message: 'Wait for active runs to finish or cancel them before deleting this session.',
+      retryable: false,
+      details: { runIds: ['run-active'] }
+    } });
   });
 
   it('routes target MCP catalogs and server reads by persisted target type', async () => {

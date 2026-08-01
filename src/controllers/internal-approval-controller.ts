@@ -22,6 +22,34 @@ import { resolveTargetRunTools } from '../services/target-run-tool-resolution.js
 import { getWorkflowRun } from '../store/repository-workflows.js';
 import { KUBERNETES_TARGET_TYPE } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
+import { resolveAgentChatRunTools } from '../services/agent-chat-run-tools.js';
+import { TARGETS_MCP_SERVER_ID } from '../services/targets-mcp.js';
+import type { TargetType } from '../types/domain.js';
+
+type TargetsMcpSelection =
+  | { kind: 'not_applicable' }
+  | { kind: 'invalid' }
+  | { kind: 'valid'; targetId: string; targetType: TargetType };
+
+export async function resolveTargetsMcpSelection(input: {
+  workspaceId: string;
+  serverId: string;
+  arguments: Record<string, unknown> | undefined;
+}): Promise<TargetsMcpSelection> {
+  if (input.serverId !== TARGETS_MCP_SERVER_ID) return { kind: 'not_applicable' };
+  const targetId = typeof input.arguments?.target_id === 'string'
+    ? input.arguments.target_id
+    : '';
+  const targetType = input.arguments?.target_type === 'kubernetes'
+    || input.arguments?.target_type === 'virtual_machine'
+    ? input.arguments.target_type
+    : undefined;
+  if (!targetId || !targetType) return { kind: 'invalid' };
+  const target = await repo.getTarget(input.workspaceId, targetId);
+  return target?.targetType === targetType
+    ? { kind: 'valid', targetId, targetType }
+    : { kind: 'invalid' };
+}
 
 async function resolveAutomationRun(runId: string) {
   const workflowRun = await getWorkflowRun(runId);
@@ -29,16 +57,10 @@ async function resolveAutomationRun(runId: string) {
     return {
       executionId: workflowRun.executionId,
       workspaceId: workflowRun.workspaceId,
-      targetId: workflowRun.targetId,
-      targetType: workflowRun.targetType,
       requestedBy: workflowRun.createdBy,
       status: workflowRun.status,
       toolOperations: workflowRun.compiledAccessScope.toolOperations,
-      allowedToolRefs: [
-        ...(workflowRun.compiledAccessScope.mcpTools || []),
-        ...(workflowRun.compiledAccessScope.targetToolRefs || [])
-      ],
-      targetToolRoutes: workflowRun.compiledAccessScope.targetToolRoutes || []
+      allowedToolRefs: workflowRun.compiledAccessScope.mcpTools || []
     };
   }
   return null;
@@ -63,16 +85,13 @@ export async function createToolApproval(req: Request, res: Response, next: Next
         res.status(400).json({ error: { code: 'MCP_TOOL_REF_NOT_GRANTED', message: 'Run is not granted this exact MCP tool', retryable: false } });
         return;
       }
-      const routesForAlias = automationRun.targetToolRoutes.filter((route) => route.alias === req.body.toolName);
-      const selectedTargetId = req.body.arguments?.target_id;
-      const selectedTargetRoute = routesForAlias.find((route) => (
-        route.targetId === selectedTargetId
-        && route.serverId === req.body.toolRef.serverId
-        && route.toolName === req.body.toolRef.toolName
-        && route.operation === 'write'
-      ));
-      if (routesForAlias.length > 0 && !selectedTargetRoute) {
-        res.status(400).json({ error: { code: 'MCP_TARGET_ROUTE_NOT_GRANTED', message: 'Run is not granted this target route', retryable: false } });
+      const targetSelection = await resolveTargetsMcpSelection({
+        workspaceId: automationRun.workspaceId,
+        serverId: req.body.toolRef.serverId,
+        arguments: req.body.arguments
+      });
+      if (targetSelection.kind === 'invalid') {
+        res.status(400).json({ error: { code: 'MCP_TARGET_INVALID', message: 'The target MCP call requires a valid workspace target.', retryable: false } });
         return;
       }
       if (!req.body.continuation) {
@@ -82,8 +101,6 @@ export async function createToolApproval(req: Request, res: Response, next: Next
       const approval = await createAutomationRunApproval({
         workspaceId: automationRun.workspaceId,
         runId,
-        targetId: automationRun.targetId || selectedTargetRoute?.targetId,
-        targetType: automationRun.targetType || selectedTargetRoute?.targetType,
         approvalKind: 'tool_write',
         toolCallId: req.body.toolCallId,
         toolName: req.body.toolName,
@@ -122,30 +139,53 @@ export async function createToolApproval(req: Request, res: Response, next: Next
       res.status(400).json({ error: { code: 'READ_WRITE_REQUIRED', message: 'Run is not allowed to execute write tools', retryable: false } });
       return;
     }
+    if (run.status !== 'running' && run.status !== 'waiting_for_approval') {
+      res.status(409).json({ error: { code: 'RUN_NOT_ACTIVE', message: 'Run is not active for an approval interrupt', retryable: false } });
+      return;
+    }
     const session = await repo.getSession(run.sessionId, true);
-    const resolvedTools = await resolveTargetRunTools({
-      workspaceId: run.workspaceId,
-      targetId: run.targetId,
-      targetType: run.targetType,
-      toolAccessMode: run.toolAccessMode,
-      runId: run.id,
-      strictMcpResolution: true
+    if (!session) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Conversation not found for run', retryable: false } });
+      return;
+    }
+    const resolvedTools = run.conversationKind === 'agent_chat'
+      ? await resolveAgentChatRunTools(run)
+      : run.targetId && run.targetType
+        ? await resolveTargetRunTools({
+            workspaceId: run.workspaceId,
+            targetId: run.targetId,
+            targetType: run.targetType,
+            toolAccessMode: run.toolAccessMode,
+            runId: run.id,
+            strictMcpResolution: true
+          })
+        : null;
+    if (!resolvedTools) {
+      res.status(409).json({ error: { code: 'RUN_SCOPE_INVALID', message: 'Interactive run scope is incomplete', retryable: false } });
+      return;
+    }
+    const exactTool = resolvedTools.allowedToolSpecs.find((tool) => {
+      if (tool.name !== req.body.toolName || tool.capability !== 'write') return false;
+      return tool.server_id === req.body.toolRef.serverId && tool.tool_name === req.body.toolRef.toolName;
     });
-    const exactTool = resolvedTools.allowedToolSpecs.find((tool) => (
-      tool.name === req.body.toolName
-      && tool.server_id === req.body.toolRef.serverId
-      && tool.tool_name === req.body.toolRef.toolName
-      && tool.capability === 'write'
-    ));
     if (!exactTool) {
       res.status(400).json({ error: { code: 'MCP_TOOL_REF_NOT_GRANTED', message: 'Run is not granted this exact MCP write tool', retryable: false } });
+      return;
+    }
+    const targetSelection = await resolveTargetsMcpSelection({
+      workspaceId: run.workspaceId,
+      serverId: req.body.toolRef.serverId,
+      arguments: req.body.arguments
+    });
+    if (targetSelection.kind === 'invalid') {
+      res.status(400).json({ error: { code: 'MCP_TARGET_INVALID', message: 'The target MCP call requires a valid workspace target.', retryable: false } });
       return;
     }
     const expiresAt = new Date(Date.now() + config.ASSISTANT_WRITE_CONFIRMATION_TIMEOUT_SECONDS * 1000).toISOString();
     const approval = await repo.createRunToolApproval({
       runId: run.id,
       workspaceId: run.workspaceId,
-      targetId: run.targetId,
+      targetId: run.targetId || (targetSelection.kind === 'valid' ? targetSelection.targetId : undefined),
       toolCallId: req.body.toolCallId,
       toolName: req.body.toolName,
       toolRef: req.body.toolRef,
@@ -159,23 +199,25 @@ export async function createToolApproval(req: Request, res: Response, next: Next
     const waitingRun = await repo.getRun(run.id);
     await recordRunStatusChangedActivity(run, waitingRun);
     await recordApprovalActivity(approval, 'approval.requested', run.sessionId, run.messageId);
-    webhooks.emit({
-      type: 'run.tool_approval_requested.v1',
-      workspaceId: run.workspaceId,
-      clusterId: approval.targetType === KUBERNETES_TARGET_TYPE ? approval.targetId : undefined,
-      targetId: approval.targetId,
-      targetType: approval.targetType,
-      subject: { type: 'tool_approval', id: approval.id },
-      data: {
-        runId: run.id,
-        sessionId: run.sessionId,
-        toolCallId: approval.toolCallId,
-        toolName: approval.toolName,
-        summary: approval.summary,
-        arguments: approval.arguments,
-        expiresAt: approval.expiresAt
-      }
-    });
+    if (approval.targetId && approval.targetType) {
+      webhooks.emit({
+        type: 'run.tool_approval_requested.v1',
+        workspaceId: run.workspaceId,
+        clusterId: approval.targetType === KUBERNETES_TARGET_TYPE ? approval.targetId : undefined,
+        targetId: approval.targetId,
+        targetType: approval.targetType,
+        subject: { type: 'tool_approval', id: approval.id },
+        data: {
+          runId: run.id,
+          sessionId: run.sessionId,
+          toolCallId: approval.toolCallId,
+          toolName: approval.toolName,
+          summary: approval.summary,
+          arguments: approval.arguments,
+          expiresAt: approval.expiresAt
+        }
+      });
+    }
     res.status(201).json(approval);
   } catch (err) {
     if (err instanceof AutomationApprovalConflictError) {

@@ -5,10 +5,10 @@ import type { WorkflowCapabilityPolicy } from '../types/workflows.js';
 import { incrementWorkflowRoutingOutcome } from '../metrics.js';
 import { capabilitiesOutsideAgentCeiling } from './workflow-capability-policy.js';
 
-export const WORKFLOW_COORDINATOR_PROFILE_VERSION = 1;
 export const WORKFLOW_COORDINATOR_INSTRUCTIONS =
-  'Coordinate this Workflow by delegating each required semantic capability and exact target to a specialist. '
-  + 'Use only the AcornOps delegation functions, wait for every child to finish, and synthesize the final answer from successful specialist results.';
+  'Coordinate this Workflow by delegating each required semantic capability to a specialist. '
+  + 'Use only the AcornOps delegation functions, wait for every child to finish, and synthesize the final answer from successful specialist results. '
+  + 'Specialists select resource identifiers through their granted MCP tools at call time.';
 
 interface WorkflowRoutingSelection {
   agentIds: string[];

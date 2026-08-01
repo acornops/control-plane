@@ -112,6 +112,15 @@
         "privacy": "Provider keys are write-only and never appear in responses.",
         "workspaceCreation": "The console omits AI setup step 3 only after the new workspace reports at least one configured source=platform_default provider; status lookup failure retains the step."
       },
+      "kubernetesRbacAdditions": {
+        "catalogPath": "GET /api/v1/workspaces/{workspaceId}/kubernetes-rbac-additions",
+        "catalogFields": [
+          "version",
+          "items[].{key,name,description?}"
+        ],
+        "availability": "The production control plane currently returns a versioned empty catalog. The console renders its explicit empty state and therefore never submits rbacAdditionKeys.",
+        "governance": "No additional Kubernetes resources or verbs are granted until the control plane implements a reviewed end-to-end catalog and immutable installation snapshot."
+      },
       "targetCatalogAccessMode": {
         "paths": [
           "GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters",
@@ -132,7 +141,7 @@
         "runtimeToolIdentity": "McpToolRef{serverId,toolName}"
       },
       "workflowRuntimePolicy": {
-        "authority": "ASSISTANT_MAX_RUNTIME_MS is the only workflow execution limit and TARGET_CHAT_REPORT_RETENTION_DAYS is the only workflow and target-chat report retention policy.",
+        "authority": "ASSISTANT_MAX_RUNTIME_MS is the only workflow execution limit and GENERATED_DOCUMENT_RETENTION_DAYS is the only generated-document retention policy.",
         "mutationContract": "Workflow mutations reject maxRuntimeSeconds, retentionDays, and all other unknown capability-policy fields; deployment policy is authoritative.",
         "response": "Workflow responses normalize maxRuntimeSeconds and retentionDays to effective deployment values.",
         "options": "Workflow option catalogs expose one effective runtime limit and one effective retention policy.",
@@ -164,8 +173,8 @@
         },
         "ownership": "Control-plane code owns workspace-native metadata, schemas, authorization class, audit operation, and execution.",
         "assignment": "manage_agents grants, updates, or revokes a tool on a specialist Agent and transactionally rebinds exact reviewed mappings and dependent readiness; optional code-validated config is accepted on PUT, revoke clears config, and bodyless grants remain valid for unconfigured tools; manage_mcp is not required.",
-        "invocationScopePolicy": "Workspace-native declarations carry invocationScopes. prompt.resources.read and http.fetch.get support workflow; reports.pdf.generate supports workflow and target_chat; delegated specialist Workflow runs receive no workspace-native tools.",
-        "artifactSafety": "reports.pdf.generate is a control-plane-owned internal_artifact available to workflows and target chat without crossing the target-adapter boundary. It is allowed in read-only runs without write approval, persisted as a write audit event, bounded, provenance-linked, authenticated, and idempotent by workflow run or target run plus tool_call_id.",
+        "invocationScopePolicy": "Workspace-native declarations carry invocationScopes. prompt.resources.read and http.fetch.get support workflow; reports.pdf.generate supports workflow, target_chat, and agent_chat; delegated specialist Workflow runs receive no workspace-native tools.",
+        "artifactSafety": "reports.pdf.generate is a control-plane-owned internal_artifact available to workflows, target chat, and Agent chat without crossing the target-adapter boundary. It is allowed in read-only runs without write approval, persisted as a write audit event, bounded, provenance-linked, authenticated, and idempotent by workflow or interactive run plus tool_call_id.",
         "promptResources": "prompt.resources.read accepts binding IDs only and dispatches bounded reads through the providers authorized in the run's signed resource bindings.",
         "fetchSafety": "http.fetch.get accepts only a concrete url and executes unauthenticated public HTTPS GET in the control plane against one to 20 run-snapshotted full-URL patterns. Wildcards are restricted to path/query. DNS is public-only and pinned, redirects and IP literals are blocked, timeout is 15 seconds, decompressed output is capped at 256 KiB, and only JSON or text is returned as untrusted external data. Audits and metrics omit full URLs, queries, and bodies.",
         "ui": "Agent Capabilities > Tools lists AcornOps native tools separately from MCP-discovered tools. Fetch configuration uses a GET-only repeatable full-URL drawer; grant, configuration update, and revoke require manage_agents only.",
@@ -175,11 +184,11 @@
       "workflowRoutingContract": {
         "request": "required unique non-empty agentIds; strict schema rejects every unknown field with INVALID_REQUEST",
         "response": "executionMode is derived as direct for one selected Agent or coordinated for two or more; selection order has no meaning",
-        "coordinationTrace": "GET workflow execution returns only bounded child capability, target, specialist, status, and failure; internal coordinator identity and sensitive execution content are omitted",
+        "coordinationTrace": "GET workflow execution returns only bounded child capability, specialist, status, and failure; internal coordinator identity and sensitive execution content are omitted",
         "cancellation": "parent cancellation cascades to active coordinated child runs"
       },
       "systemAutomationDefinitions": {
-        "provisioning": "The greenfield baseline creates only the final schema. Current-version workspace provisioning atomically commits the two automatic specialist Agents, two active workspace-owned default workflows, and a completed starter installation. Optional recommended workflows are added explicitly; coordinated workflows use a versioned code-owned coordinator profile and create no hidden Agent.",
+        "provisioning": "The greenfield baseline creates only the final schema. Current workspace provisioning atomically commits the two automatic specialist Agents, two active workspace-owned default workflows, and a completed starter installation. Optional recommended workflows are added explicitly; coordinated workflows use a code-owned coordinator profile and create no hidden Agent.",
         "attribution": "Default Agents and workflows are workspace-owned, use manual origin, and display their workspace creator. Legacy template-origin definitions are treated as workspace-owned.",
         "visibility": "Every public Agent is a specialist capability profile. Public workflow, compiled-scope, audit, search, and trace DTOs omit internal coordinator profile instructions and identity.",
         "mutation": "Every workspace Agent and workflow, including legacy template-origin rows, is directly editable with the corresponding manage permission and is never overwritten, upgraded, or automatically restored by AcornOps. Agent deletion returns structured dependent workflows until those dependencies are removed.",
@@ -192,9 +201,9 @@
           "PATCH /api/v1/agent-conversations/{conversationId}/access",
           "POST /api/v1/agent-conversations/{conversationId}/messages"
         ],
-        "runtime": "Console-only single-Agent manual conversations dispatch through a protected system-managed Workflow carrier with origin.type=agent_chat. Carriers are draft-only, hidden from workflow catalogs, and unavailable to direct workflow reads, edits, duplication, schedules, triggers, and capability preview.",
-        "access": "Conversations are workspace-readable. Only the creator may continue, change access, or delete them. New conversation access is the intersection of the pinned Agent permission mode and creator capabilities: read_write requires a write-capable Agent plus create_read_write_runs; otherwise access is read_only. A creator may pause a write-capable conversation by changing it to read_only, while a pinned read_only Agent cannot be elevated. Existing approval and audit paths remain authoritative.",
-        "pinning": "Creation pins the Agent revision, permissionMode, specialist snapshot, read scope, and maximum capability ceiling. Conversation summaries project the pinned permissionMode so clients do not infer policy from a newer Agent revision. Newly added capabilities are excluded. Removed pinned capabilities fail closed and require a new conversation.",
+        "runtime": "Console-only single-Agent manual conversations use the neutral sessions, messages, runs, events, approvals, artifacts, retention, and deletion runtime. Each message dispatches directly with scope.type=agent_chat and creates no Workflow definition, session, execution, or run.",
+        "access": "Conversations are workspace-readable. Only the creator may continue, change access, or delete them. New conversation access is the intersection of the current Agent permission mode and creator capabilities: read_write requires a write-capable Agent plus create_read_write_runs; otherwise access is read_only. A creator may pause a write-capable conversation by changing it to read_only, while a currently read-only Agent cannot be elevated. Conversations and Agent definitions with active direct runs cannot be deleted. Existing approval and audit paths remain authoritative.",
+        "pinning": "A conversation binds the Agent identity and preferred access mode. Each message resolves the current active, ready Agent and actor policy, then atomically pins the exact instructions, tools, skills, principal, model, Agent snapshot, and compiled scope on the new run. Capability additions and removals therefore apply only to later runs; active runs retain their immutable snapshots.",
         "automationBoundary": "Agent chat cannot schedule, accept triggers, coordinate or delegate to other Agents. Workflows remain the only repeatable, multi-Agent, scheduled, or externally triggered automation model."
       },
       "catalogAuthorization": {
@@ -310,10 +319,10 @@
           "GET /api/v1/workflow-executions/{executionId}"
         ],
         "authorization": "Browser users require read_workspace_data in the exact workspace; workspace activity routes are not exposed to external-integration credentials.",
-        "pagination": "The ledger uses an opaque stable cursor and returns {items,nextCursor?,summary.{openCount,attentionCount}} with bounded status, origin, workflow, and issue filters.",
+        "pagination": "The ledger uses an opaque stable cursor and returns {items,nextCursor?,summary.{openCount,attentionCount}} with bounded status, origin, and workflow filters.",
         "provenance": "Every execution returns an immutable safe origin snapshot for manual, external_integration, schedule, webhook, or retained historical-event dispatch. Schedule and webhook labels survive deletion; webhook payloads and occurrence keys are never projected.",
         "refresh": "The console uses two-second visible-window polling and immediate focus refresh so background activity remains current without a second workspace event transport.",
-        "context": "Issue rows expose a compact workflowActivity summary without per-issue queries. Schedule and workflow-webhook rows keep configuration, last dispatch outcome, and latest successful execution pointer separate.",
+        "context": "Schedule and workflow-webhook rows keep configuration, last dispatch outcome, and latest successful execution pointer separate.",
         "statusAuthority": "The aggregate execution status is authoritative; dispatch failure does not imply a running execution and terminal execution status never renders as in progress."
       },
       "targetAutoTriage": {
@@ -334,7 +343,7 @@
         "queueVisibility": "Target settings responses include queueSummary.{activeCount,waitingCount,oldestWaitingAt?}. Counts follow worker admission semantics, remain independent of Workflow activity, and support a compact link to the existing target issue surface rather than a separate queue page.",
         "historyUi": "The console filters the existing target session history into manual Chats and auto_triage Investigations while global search spans both. Investigation rows use linked issue scope, object, severity, and assistant status. A per-user, per-target browser marker derives the supplementary unseen badge from existing session creation timestamps; it is not control-plane state.",
         "sharedChat": "Browser members with create_sessions and the relevant run capability may reply to auto_triage sessions with actual message authorship. Manual sessions and all external-integration access remain creator-owned.",
-        "workflowIndependence": "Automatic investigation enqueueing is evaluated independently during issue lifecycle persistence and does not alter generic workflow issue events or webhook behavior. The worker does not consult Automation runtime mode or share a Workflow scheduler tick."
+        "workflowIndependence": "Automatic investigation enqueueing is evaluated independently during issue lifecycle persistence and does not invoke Workflow execution or alter outbound issue webhook behavior. The worker does not consult Automation runtime mode or share a Workflow scheduler tick."
       },
       "eventTypes": [
         "run_progress",
@@ -437,6 +446,12 @@
         "targetSkillDetail.files[].{path,content,sizeBytes}"
       ],
       "requestFields": {
+        "registerCluster": [
+          "name",
+          "agentAccessMode?=read_only|read_write",
+          "namespaceInclude?",
+          "namespaceExclude?"
+        ],
         "patchCluster": [
           "name?",
           "namespaceInclude?",
@@ -551,6 +566,10 @@
           "role",
           "roleTemplate?"
         ],
+        "kubernetesRbacAdditions": [
+          "version",
+          "items[].{key,name,description?}"
+        ],
         "memberDiscovery": [
           "GET /api/v1/workspaces/{workspaceId}/member-candidates",
           "mode=disabled|exact_email|directory",
@@ -583,7 +602,8 @@
         ],
         "clusterRegistration": [
           "cluster",
-          "agentKey"
+          "agentKey",
+          "installInstructions"
         ],
         "rotateAgentKey": [
           "clusterId",
@@ -670,17 +690,15 @@
           "origin",
           "reviewState",
           "providerType",
-          "version",
           "ownerUserId",
           "mcpServers[]",
+          "mcpTools[]",
           "tools[]",
           "nativeToolConfigs",
           "skills[]",
           "contextGrants[]",
-          "targetScope",
           "approvalPolicy",
           "trustPolicy",
-          "workflowUsage.{workflowRunCount,lastRunAt?,lastStatus?}",
           "readiness.{status,reasons[]}"
         ],
         "automationDiagnostics": [
@@ -726,12 +744,11 @@
           "blockers[]",
           "resolvedAt"
         ],
-        "workflowReport": [
+        "generatedDocument": [
           "id",
-          "executionId?",
-          "runId?",
-          "targetRunId?",
-          "sourceVersion",
+          "workflowExecutionId?",
+          "workflowRunId?",
+          "conversationRunId?",
           "mediaType",
           "title",
           "sourceSizeBytes",
@@ -742,16 +759,15 @@
         "workflowSelectedAgents": [
           "agentIds[]",
           "executionMode=direct|coordinated",
-          "internal session authorization ceiling selectedAgents[]",
+          "internal session authorization ceiling selectedAgentSnapshots[]",
           "jwtClaims.executor_role",
           "jwtClaims.agent_id? specialist only",
-          "jwtClaims.agent_version? specialist only",
           "jwtClaims.trigger_id?"
         ],
         "workflowExecutionSummary": [
           "id",
           "workspaceId",
-          "workflow.{id,name,version}",
+          "workflow.{id,name}",
           "status",
           "origin",
           "rootRun?",
@@ -766,18 +782,10 @@
           "nextCursor?",
           "summary.{openCount,attentionCount,latestUpdatedAt?}"
         ],
-        "workflowActivitySummary": [
-          "totalCount",
-          "openCount",
-          "attentionCount",
-          "openExecution?",
-          "latestExecution?"
-        ],
         "workflowSchedule": [
           "id",
           "workspaceId",
           "workflowId",
-          "workflowVersion",
           "name",
           "status",
           "cron",
@@ -824,7 +832,7 @@
         ],
         "workspaceApprovalInbox": [
           "query.{status?,limit?,cursor?,runId?,approvalId?}",
-          "items[].{approvalId,runId,source,workflowId?,targetId?,summary,toolName,requestedBy?,expiresAt,status,decision?,decidedBy?,decidedAt?,requestedAt}",
+          "items[].{approvalId,runId,source,summary,toolName,requestedBy?,expiresAt,status,decision?,decidedBy?,decidedAt?,requestedAt}",
           "pendingCount",
           "nextCursor?"
         ]
@@ -965,7 +973,7 @@
         "POST /api/v1/runs/{runId}/approvals/{approvalId}/decision"
       ],
       "linkedBotDeniedCapabilities": ["read_members", "read_audit_log", "manage_targets", "read_target_logs", "cancel_runs", "delete_sessions"],
-      "linkedBotWorkflowPolicy": "Active read-only workflows require create_read_only_runs. Active read-write and approval-gated workflows require create_read_write_runs. External integrations may continue only sessions created by the exact same link and client; every message recompiles current permissions against the pinned Workflow version and requires a new clientRequestId.",
+      "linkedBotWorkflowPolicy": "Active read-only workflows require create_read_only_runs. Active read-write and approval-gated workflows require create_read_write_runs. External integrations may continue only sessions created by the exact same link and client; every message recompiles current permissions against the stored Workflow snapshot and requires a new clientRequestId.",
       "linkedBotWorkflowVisibilityPolicy": "Any linked integration with effective read_workspace_data may inspect the sanitized execution DTO and aggregate replayable execution SSE for any execution in the workspace. Approval decisions, session continuation, and report metadata/downloads remain exact-origin.",
       "linkedBotApprovalDecisionPolicy": "Requires exact integration link/client execution provenance. Approvals require effective create_read_write_runs; the exact origin may reject with current workspace read access after write permission is removed. Supported records are troubleshooting writes plus Workflow pre-step and runtime tool_write approvals. Browser-created, other-link/client, delegated specialist, scheduled, and system-triggered approvals remain denied.",
       "secretReturnPolicy": "Never returns browser cookies, OIDC access tokens, ID tokens, refresh tokens, or raw link tokens to external integration clients. Link tokens are stored only as hashes."
@@ -975,13 +983,13 @@
       "internalTransportSecurity": "HTTP by default; HTTPS/mTLS when Helm internalTransport.tls.enabled=true; bearer/JWT tokens remain required",
       "bootstrapFields": [
         "contract_version",
-        "scope.{type,workspace_id,target_id?,target_type?,workflow_id,execution_id,workflow_session_id,executor_role,parent_run_id?,attempt_number?,idempotency_key?,agent_id?,agent_version?,trigger_id?,session_id,run_id,user_id}",
+        "scope.{type,workspace_id,target_id?,target_type?,workflow_id?,execution_id?,workflow_session_id?,executor_role?,parent_run_id?,attempt_number?,idempotency_key?,agent_id?,trigger_id?,session_id,run_id,user_id}",
         "assistant?.{targetType?,instructions}",
         "policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}",
         "context.{endpoint,max_context_tokens}",
         "resources.{prompt_digest,binding_digest,resolved_at,bindings[].{binding_id,type,resource_id,provider,provider_version,workspace_id,label_snapshot,source,operations,context_mode,provider_data?}}",
         "llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}",
-        "tools.{tool_registry_version,allowed_tools,allowed_tool_refs[].{server_id,tool_name},native_tools,platform_functions[].{id,model_alias},tool_specs[].{server_id?,tool_ref?,target_routes[]?},referenced_tools[].{name,label,server_id?,tool_name?},write_unavailable_reason?,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}",
+        "tools.{tool_registry_version,allowed_tools,allowed_tool_refs[].{server_id,tool_name},native_tools,platform_functions[].{id,model_alias},tool_specs[].{server_id?,tool_ref?},referenced_tools[].{name,label,server_id?,tool_name?},write_unavailable_reason?,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}",
         "skills?.{contract_version,entries[].{ref,skill_id,name,description,file_count,total_bytes},referenced_refs[],load_endpoint}",
         "routing",
         "tracing"
@@ -1015,8 +1023,8 @@
         "approvalReceipt"
       ],
       "approvalResponseScopeFields": [
-        "targetId?",
-        "targetType?",
+        "targetId? (target scope only; forbidden for Agent chat and Workflow runs)",
+        "targetType? (target scope only; forbidden for Agent chat and Workflow runs)",
         "workflowId?",
         "executionId?",
         "workflowSessionId?"
@@ -1098,8 +1106,9 @@
         "409 run_id_scope_mismatch",
         "429 overloaded",
         "workspace scope always identifies a Workflow executor run",
-        "coordinator runs forbid Agent identity; specialist runs require Agent identity and version",
-        "a Workflow remains workspace-scoped and may invoke only target routes signed into its token; target_id is chosen at target-tool invocation rather than bound to the Workflow",
+        "agent_chat scope identifies one direct Agent run, requires exact Agent identity, and forbids Workflow and top-level target identity",
+        "coordinator runs forbid Agent identity; specialist runs require exact Agent identity",
+        "a Workflow remains workspace-scoped; target_id and target_type are selected and validated only when invoking an allowed generic targets MCP tool",
         "idempotency_key is stable across at-least-once dispatch of one attempt"
       ]
     },
@@ -1118,10 +1127,9 @@
       "mcpRegistryScopeFields": [
         "workspace_id",
         "scope_type",
-        "agent_id",
-        "target_id",
-        "target_type",
-        "target_constraints"
+        "agent_id (agent scope only)",
+        "target_id (target scope only)",
+        "target_type (target scope only)"
       ],
       "catalogContracts": {
         "artifactKinds": [
@@ -1165,7 +1173,6 @@
         "importFields": [
           "scope_type",
           "agent_id? (agent scope)",
-          "target_constraints? (agent scope only)",
           "target_id? (target scope)",
           "target_type? (target scope; server-derived at browser boundary)",
           "artifact",
@@ -1206,7 +1213,6 @@
         "catalog_imported_at",
         "provenance_type",
         "endpoint_configuration",
-        "target_constraints",
         "revision",
         "tools"
       ],
@@ -1301,25 +1307,25 @@
         "allowed_tools",
         "allowed_tool_refs[].server_id",
         "allowed_tool_refs[].tool_name",
-        "allowed_target_tool_routes[].{alias,server_id,tool_name,operation,target_id,target_type}",
         "allowed_native_tools",
         "allowed_tool_operations?",
         "resource_bindings[].{binding_id,type,resource_id,provider,provider_version,workspace_id,label_snapshot,source,operations,context_mode,provider_data?}",
         "binding_digest",
         "max_output_tokens"
       ],
-      "runJwtWorkspaceScopeFields": [
+      "runJwtNonTargetScopeFields": [
         "scope.type",
         "workflow_id (required for Workflow scope)",
         "execution_id (required for Workflow scope)",
         "workflow_session_id (required for Workflow scope)",
         "executor_role=coordinator|specialist (required for Workflow scope)",
-        "agent_id and agent_version required only for specialist Workflow runs",
-        "agent_id and agent_version forbidden for coordinator Workflow runs",
+        "agent_id required only for specialist Workflow runs",
+        "agent_id forbidden for coordinator Workflow runs",
         "trigger_id?",
         "user_id? (required for individual MCP authorization)",
         "permissions.context_grants",
-        "Agent-without-Workflow run claims are rejected",
+        "scope.type=agent_chat requires agent_id while forbidding Workflow and top-level target identity claims",
+        "Workflow and agent_chat target selection is call-time only and requires an exact allowed_tool_refs entry whose server_id is targets and whose tool_name equals the model tool name",
         "write tool calls receive a gateway-injected idempotencyKey derived from run_id and tool_call_id"
       ],
       "internalTransportSecurity": "HTTP by default; HTTPS/mTLS when Helm internalTransport.tls.enabled=true; admin/run-scoped bearer tokens remain required",
@@ -1334,15 +1340,14 @@
     "agentk": {
       "agentHeaders": [
         "x-agent-key",
-        "x-agent-version"
+        "x-connector-version"
       ],
+      "connectorVersionHeader": "agentk/<CONNECTOR_VERSION>; required, validated against agentType, and persisted as last_connector_version",
       "agentTypeValues": [
         "agentk"
       ],
       "handshakeRequestFields": [
         "agentKey",
-        "version",
-        "agentVersion",
         "targetId",
         "targetType",
         "agentType",
@@ -1414,11 +1419,11 @@
       "contractVersion": 2,
       "agentHeaders": [
         "x-agent-key",
-        "x-agent-version"
+        "x-connector-version"
       ],
+      "connectorVersionHeader": "agentv/<package-version>; required, validated against agentType, and persisted as last_connector_version",
       "handshakeRequestFields": [
         "agentKey",
-        "agentVersion",
         "targetId",
         "targetType",
         "agentType",

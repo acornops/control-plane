@@ -18,7 +18,6 @@ function mapExecution(row: QueryResultRow): WorkflowExecutionRecord {
     id: row.id,
     workspaceId: row.workspace_id,
     workflowId: row.workflow_id,
-    workflowVersion: row.workflow_version,
     workflowSessionId: row.workflow_session_id,
     messageId: row.message_id,
     createdBy: row.created_by,

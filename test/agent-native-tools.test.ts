@@ -54,14 +54,12 @@ describe('Agent workspace-native tool assignments', () => {
       actorUserId: 'user-1',
       config: { allowedUrlPatterns: ['https://status.example.com/health'] }
     });
-    assert.equal(updated.version, granted.version + 1);
     assert.deepEqual(updated.nativeToolConfigs['http.fetch.get'], {
       allowedUrlPatterns: ['https://status.example.com/health']
     });
     const updatedMapping = (await listCapabilityRoutingMappings('workspace-1'))
       .find((mapping) => mapping.id === `native:${before.id}:http.fetch.get`);
-    assert.equal(updatedMapping?.agentVersion, updated.version);
-    assert.equal(updatedMapping?.version, grantedMapping.version + 1);
+    assert.equal(updatedMapping?.reviewState, 'reviewed');
 
     const revoked = await setAgentNativeToolAssignment({
       workspaceId: 'workspace-1',
@@ -93,10 +91,9 @@ describe('Agent workspace-native tool assignments', () => {
     }));
   });
 
-  it('versions and rebinds reviewed mappings while refreshing dependent readiness', async () => {
+  it('updates reviewed mappings while refreshing dependent readiness', async () => {
     const before = await getAgentDefinition('workspace-1', 'agent-cluster-triage');
     assert.ok(before);
-    assert.equal(before.version, 2);
 
     const granted = await setAgentNativeToolAssignment({
       workspaceId: 'workspace-1',
@@ -105,15 +102,12 @@ describe('Agent workspace-native tool assignments', () => {
       assigned: true,
       actorUserId: 'user-1'
     });
-    assert.equal(granted.version, 3);
     assert.ok(granted.tools.includes('reports.pdf.generate'));
     assert.ok(granted.semanticCapabilityIds.includes('reports.pdf.generate'));
     assert.equal(granted.readiness.status, 'ready');
 
     const afterGrantMappings = (await listCapabilityRoutingMappings('workspace-1'))
       .filter((mapping) => mapping.agentId === before.id);
-    assert.ok(afterGrantMappings.filter((mapping) => mapping.status === 'active')
-      .every((mapping) => mapping.agentVersion === granted.version));
     const nativeMapping = afterGrantMappings.find((mapping) => mapping.nativeToolIds.includes('reports.pdf.generate'));
     assert.ok(nativeMapping);
     assert.equal(nativeMapping.reviewState, 'reviewed');
@@ -128,7 +122,6 @@ describe('Agent workspace-native tool assignments', () => {
       assigned: false,
       actorUserId: 'user-1'
     });
-    assert.equal(revoked.version, 4);
     assert.equal(revoked.tools.includes('reports.pdf.generate'), false);
     assert.equal(revoked.semanticCapabilityIds.includes('reports.pdf.generate'), false);
     assert.equal(revoked.readiness.status, 'ready');
@@ -139,8 +132,6 @@ describe('Agent workspace-native tool assignments', () => {
       afterRevokeMappings.find((mapping) => mapping.nativeToolIds.includes('reports.pdf.generate'))?.status,
       'disabled'
     );
-    assert.ok(afterRevokeMappings.filter((mapping) => mapping.status === 'active')
-      .every((mapping) => mapping.agentVersion === revoked.version));
     assert.equal((await getWorkflowDefinition('workspace-1', 'cluster-triage'))?.readiness.status, 'ready');
 
     const audit = await db.query<{ event_type: string }>(

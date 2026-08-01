@@ -20,7 +20,7 @@ type CatalogLoaderOverride = (workspaceId: string) => Promise<WorkflowOptionsCat
 
 let catalogLoaderOverride: CatalogLoaderOverride | undefined;
 
-export function configureWorkflowOptionsCatalogLoaderForTests(loader?: CatalogLoaderOverride): void {
+export function configureCapabilityOptionsCatalogLoaderForTests(loader?: CatalogLoaderOverride): void {
   catalogLoaderOverride = loader;
 }
 
@@ -162,7 +162,7 @@ async function loadAgents(workspaceId: string): Promise<CatalogSourceResult> {
   return { options, availability: availability(options, 'No specialist agents are available.') };
 }
 
-export async function getWorkflowOptionsCatalog(workspaceId: string, agentId?: string): Promise<WorkflowOptionsCatalog> {
+export async function getCapabilityOptionsCatalog(workspaceId: string, agentId?: string): Promise<WorkflowOptionsCatalog> {
   if (catalogLoaderOverride) return catalogLoaderOverride(workspaceId);
   const capabilities = loadAgentCapabilities(workspaceId, agentId);
   const [mcpServers, mcpTools, skills, agents] = await Promise.all([

@@ -11,7 +11,11 @@ import {
   getWorkspaceInitialDefault,
   listWorkspaceInitialDefaults
 } from '../store/repository-workspace-defaults.js';
-import type { McpServerConfig } from './mcp-registry-client.js';
+import type {
+  AgentMcpServerConfig,
+  McpServerConfig,
+  TargetMcpServerConfig
+} from './mcp-registry-client.js';
 
 const INHERITED_ID_PREFIX = 'platform-default:';
 
@@ -77,6 +81,16 @@ async function applicableDefaults(
   return defaults.filter((item) => availabilityMatches(item.availableIn, destination));
 }
 
+export function resolveMcpServerDefaults(
+  local: AgentMcpServerConfig[],
+  destination: 'agents',
+  context: { workspaceId: string; destinationId: string }
+): Promise<Array<AgentMcpServerConfig & CapabilityProvenance>>;
+export function resolveMcpServerDefaults(
+  local: TargetMcpServerConfig[],
+  destination: TargetType,
+  context: { workspaceId: string; destinationId: string }
+): Promise<Array<TargetMcpServerConfig & CapabilityProvenance>>;
 export async function resolveMcpServerDefaults(
   local: McpServerConfig[],
   destination: 'agents' | TargetType,
@@ -88,14 +102,13 @@ export async function resolveMcpServerDefaults(
     .filter((item) => item.source.type === 'https' && !existingUrls.has(canonicalUrl(item.source.endpoint)))
     .map((item): ProvenancedMcpServerConfig => {
       if (item.source.type !== 'https') throw new Error('Unexpected workspace default source');
-      const targetType = destination === 'agents' ? 'agent' : destination;
       return {
         id: inheritedWorkspaceDefaultId(item.id),
         workspace_id: context.workspaceId,
         ...(destination === 'agents'
           ? { agent_id: context.destinationId, scope_type: 'agent' as const }
           : { target_id: context.destinationId, scope_type: 'target' as const }),
-        target_type: targetType,
+        ...(destination === 'agents' ? {} : { target_type: destination }),
         server_name: item.name,
         server_url: item.source.endpoint,
         enabled: false,

@@ -18,7 +18,6 @@ export async function compileWorkflowScope(input: {
   workflow: WorkflowDefinitionForAccess;
   actor: WorkflowAccessActor;
   approvedContextGrants: string[];
-  targetRoute?: { id: string; targetType: 'kubernetes' | 'virtual_machine' };
   resourceBindings?: CompiledWorkflowAccessScope['resourceBindings'];
   promptDigest?: string;
   bindingDigest?: string;
@@ -77,7 +76,6 @@ export async function compileWorkflowScope(input: {
       mappings,
       actor: input.actor,
       approvedContextGrants: input.approvedContextGrants,
-      targetRoute: input.targetRoute,
       resourceBindings: input.resourceBindings,
       promptDigest: input.promptDigest,
       bindingDigest: input.bindingDigest

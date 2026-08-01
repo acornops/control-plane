@@ -109,7 +109,7 @@ describe('external run public projections', () => {
       id: 'run-1', executionId: 'execution-1', workspaceId: 'workspace-1',
       workflowId: 'workflow-1', workflowSessionId: 'session-private', attemptNumber: 1,
       executorRole: 'coordinator',
-      executorSnapshot: { role: 'coordinator', profileVersion: 1, instructions: 'private coordinator instructions' },
+      executorSnapshot: { role: 'coordinator', instructions: 'private coordinator instructions' },
       idempotencyKey: 'private-key', messageId: 'message-private', createdBy: 'user-1', status: 'completed',
       compiledAccessScope: {} as WorkflowRunRecord['compiledAccessScope'], prompt: 'private prompt',
       promptDigest: 'digest', bindingDigest: 'binding', resourceBindings: [], resolvedAt: '2026-07-23T00:00:00.000Z',

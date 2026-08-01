@@ -10,9 +10,7 @@ describe('gateway MCP destination descriptors', () => {
       {
         workspace_id: 'workspace-1',
         scope_type: 'agent',
-        agent_id: 'agent-1',
-        target_id: 'agent-1',
-        target_type: 'agent'
+        agent_id: 'agent-1'
       }
     );
   });

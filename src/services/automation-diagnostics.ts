@@ -125,7 +125,7 @@ export async function loadAutomationDiagnostics(workspaceId?: string): Promise<A
       values
     ),
     db.query<QueryResultRow>(
-      `SELECT COUNT(*) AS count FROM workflow_reports ${reportScope.clause}`, reportScope.values
+      `SELECT COUNT(*) AS count FROM generated_documents ${reportScope.clause}`, reportScope.values
     )
   ]);
 

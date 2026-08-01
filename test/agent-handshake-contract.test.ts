@@ -18,10 +18,32 @@ describe('AgentK handshake contract', () => {
         agentKey: 'agent-key'
       },
       agentKeyHeader: 'agent-key',
-      agentVersion: 'test'
+      connectorVersion: 'agentk/test'
     });
 
     assert.equal(ws.closeCode, 1008);
     assert.equal((parseLastSent(ws) as { error?: { message?: string } }).error?.message, 'Invalid agent key');
   });
+
+  for (const connectorVersion of ['', 'agentv/1.2.3', 'agentk/1.2.3/extra']) {
+    it(`rejects invalid AgentK connector version ${JSON.stringify(connectorVersion)}`, async () => {
+      const ws = new FakeWebSocket();
+
+      await handleAgentHandshake({
+        ws: ws as unknown as WebSocket,
+        requestId: 'invalid-connector-version',
+        params: {
+          targetId: 'cluster-1',
+          targetType: 'kubernetes',
+          agentType: 'agentk',
+          agentKey: 'agent-key'
+        },
+        agentKeyHeader: 'agent-key',
+        connectorVersion
+      });
+
+      assert.equal(ws.closeCode, 1008);
+      assert.equal((parseLastSent(ws) as { error?: { message?: string } }).error?.message, 'Invalid agent key');
+    });
+  }
 });

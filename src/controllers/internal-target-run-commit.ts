@@ -2,12 +2,13 @@ import { recordTargetChatActivityEvent } from '../services/target-chat-activity-
 import { repo } from '../store/repository.js';
 import type { Run } from '../types/domain.js';
 
-export async function commitTargetAssistantFinalMessage(
+export async function commitInteractiveAssistantFinalMessage(
   run: Run,
   status: string,
   content: string
 ): Promise<void> {
   const message = await repo.upsertAssistantFinalMessage(run.sessionId, run.id, content);
+  if (run.conversationKind === 'agent_chat' || !run.targetId || !run.targetType) return;
   await recordTargetChatActivityEvent({
     workspaceId: run.workspaceId,
     targetId: run.targetId,

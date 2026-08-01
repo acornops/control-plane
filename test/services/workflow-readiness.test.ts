@@ -6,7 +6,7 @@ import {
   getTargetMcpConnectionReadinessErrors,
   getWorkflowCapabilityReadinessErrors,
   publicMcpReadinessError
-} from '../../src/services/workflow-readiness.js';
+} from '../../src/services/mcp-readiness.js';
 
 afterEach(() => mock.restoreAll());
 
@@ -106,7 +106,6 @@ describe('target MCP credential connection readiness', () => {
     const errors = await getWorkflowCapabilityReadinessErrors(
       'workspace-1',
       { resourceBindings: [], mcpTools: [{ serverId: 'server-1', toolName: 'records.list' }], mcpServers: ['server-1'] } as never,
-      { id: 'target-1', targetType: 'kubernetes' } as never,
       { principal: { type: 'service_identity', id: 'service-1' } }
     );
 
@@ -116,31 +115,25 @@ describe('target MCP credential connection readiness', () => {
     assert.equal(readinessLookup, true);
   });
 
-  it('checks exact target MCP tool references as well as Agent-owned references', async () => {
-    let requestBody = '';
-    mock.method(globalThis, 'fetch', async (_input, init) => {
-      requestBody = String(init?.body || '');
-      return new Response(JSON.stringify({ ready: false, failures: [{
-        server_id: 'target-server', tool_name: 'records.list', code: 'MCP_CONNECTION_MISSING'
-      }] }), { status: 200 });
+  it('does not treat generic Targets MCP tools as user credential prerequisites', async () => {
+    let readinessLookup = false;
+    mock.method(globalThis, 'fetch', async () => {
+      readinessLookup = true;
+      return new Response(JSON.stringify({ ready: true, failures: [] }), { status: 200 });
     });
 
     const errors = await getWorkflowCapabilityReadinessErrors(
       'workspace-1',
       {
         resourceBindings: [],
-        mcpTools: [],
-        targetToolRefs: [{ serverId: 'target-server', toolName: 'records.list' }],
-        mcpServers: ['target-server']
+        mcpTools: [{ serverId: 'targets', toolName: 'list_resources' }],
+        mcpServers: []
       } as never,
-      { id: 'target-1', targetType: 'kubernetes' } as never,
       { principal: { type: 'user', id: 'user-1' } }
     );
 
-    assert.match(requestBody, /target-server/);
-    assert.match(requestBody, /records\.list/);
-    assert.equal(errors.length, 1);
-    assert.match(errors[0] || '', /Connect a credential/);
+    assert.deepEqual(errors, []);
+    assert.equal(readinessLookup, false);
   });
 
   it('bounds failure counts and identifiers and normalizes unexpected gateway codes', async () => {

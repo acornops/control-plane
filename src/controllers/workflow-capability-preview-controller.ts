@@ -7,10 +7,10 @@ import { computeWorkflowReadiness } from '../services/automation-readiness.js';
 import { directWorkflowAttachments } from '../services/workflow-capability-preview.js';
 import { resolveEffectiveWorkflowCapabilityIds } from '../services/workflow-capability-policy.js';
 import { compileWorkflowAccessScope, WorkflowAccessDeniedError } from '../services/workflow-access.js';
-import { getWorkflowCapabilityReadinessReport } from '../services/workflow-readiness.js';
+import { getWorkflowCapabilityReadinessReport } from '../services/mcp-readiness.js';
 import { getAgentDefinition } from '../store/repository-agents.js';
 import { listCapabilityRoutingMappings } from '../store/repository-capability-routing.js';
-import { getWorkflowDefinition, isAgentChatCarrier } from '../store/repository-workflows.js';
+import { getWorkflowDefinition } from '../store/repository-workflows.js';
 import type { WorkflowAccessActor, WorkflowCapabilitiesPreview, WorkflowCapabilityPreviewReasonCode, WorkflowCapabilityToolPreview } from '../types/workflows.js';
 import type { PromptResourceBinding } from '../types/prompt-resources.js';
 import { toSingleParam } from '../utils/params.js';
@@ -21,6 +21,7 @@ import {
   compileWorkflowPrompt,
   WorkflowTemplateValidationError
 } from '../services/workflow-template.js';
+import { resolveWorkspaceMcpToolSpecs } from '../services/workspace-mcp-tool-specs.js';
 
 function requestWorkspaceId(req: AuthenticatedRequest): string | null {
   const raw = req.body?.workspaceId || req.query.workspaceId;
@@ -70,6 +71,7 @@ export async function genericMcpAuthRequirements(input: {
   scope: ReturnType<typeof compileWorkflowAccessScope>;
 }): Promise<WorkflowCapabilitiesPreview['mcpRequirements']> {
   const allowedServerIds = new Set(input.scope.mcpServers);
+  if (allowedServerIds.size === 0) return [];
   const installedAgentServers = (await Promise.all(input.agents.map(async (agent) => ({
     agent,
     servers: await listAgentMcpServers(input.workspaceId, agent.id)
@@ -153,7 +155,6 @@ function responseBody(input: {
   const approvalRequirements = input.scope?.approvalGates || input.workflow.capabilityPolicy.approvalRequirements;
   return {
     workflowId: input.workflow.id,
-    workflowVersion: input.workflow.version,
     promptDigest: input.promptDigest,
     bindingDigest: input.bindingDigest,
     mode: input.workflow.capabilityPolicy.mode,
@@ -184,7 +185,7 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
     const workspaceId = requestWorkspaceId(req);
     if (!workspaceId) return void res.status(400).json({ error: { code: 'WORKFLOW_WORKSPACE_REQUIRED', message: 'workspaceId is required.', retryable: false } });
     const workflow = await getWorkflowDefinition(workspaceId, toSingleParam(req.params.workflowId));
-    if (!workflow || isAgentChatCarrier(workflow)) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
+    if (!workflow) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
     const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
     const requiredCapability = workflow.capabilityPolicy.mode === 'read_write' ? 'create_read_write_runs' : 'create_read_only_runs';
@@ -202,27 +203,29 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
       bindingDigest: referenceResolution.bindingDigest
     });
     const scope = compiled.scope;
-    const targetToolAliases = new Set(scope.targetToolRoutes.map((route) => route.alias));
-    const targetTools: WorkflowCapabilityToolPreview[] = [...targetToolAliases].map((alias) => {
-      const routes = scope.targetToolRoutes.filter((route) => route.alias === alias);
-      const serverIds = [...new Set(routes.map((route) => route.serverId))];
-      return {
-        id: alias,
-        name: alias,
-        label: alias,
-        access: scope.toolOperations[alias] === 'write' ? 'write' : 'read',
-        source: 'target',
-        serverIds,
-        ...(serverIds.length === 1 ? { serverId: serverIds[0] } : {})
-      };
+    const workspaceMcpSpecs = await resolveWorkspaceMcpToolSpecs({
+      workspaceId,
+      runId: `workflow-preview:${workflow.id}`,
+      mode: scope.mode,
+      refs: scope.mcpTools
     });
-    const readiness = await getWorkflowCapabilityReadinessReport(workspaceId, scope, undefined, { principal: scope.principal });
+    const workspaceMcpAliases = new Set(workspaceMcpSpecs.map((tool) => tool.name));
+    const workspaceMcpTools: WorkflowCapabilityToolPreview[] = workspaceMcpSpecs.map((tool) => ({
+      id: tool.name,
+      name: tool.name,
+      label: tool.tool_name,
+      description: tool.description,
+      access: tool.capability,
+      source: 'mcp',
+      serverId: tool.server_id
+    }));
+    const readiness = await getWorkflowCapabilityReadinessReport(workspaceId, scope, { principal: scope.principal });
     const attachments = compiled.specialistAgent
-      ? directWorkflowAttachments({ agent: compiled.specialistAgent, scope, excludedToolNames: targetToolAliases })
+      ? directWorkflowAttachments({ agent: compiled.specialistAgent, scope, excludedToolNames: workspaceMcpAliases })
       : { tools: [], mcpServers: [], skills: [] };
     const genericAuthRequirements = await genericMcpAuthRequirements({ workspaceId, userId: req.auth.userId, agents: compiled.selectedAgents, scope });
     const mcpRequirements = genericAuthRequirements;
-    const tools = [...targetTools, ...attachments.tools].filter((tool, index, values) => values.findIndex((candidate) => candidate.id === tool.id && candidate.source === tool.source) === index);
+    const tools = [...workspaceMcpTools, ...attachments.tools].filter((tool, index, values) => values.findIndex((candidate) => candidate.id === tool.id && candidate.source === tool.source) === index);
     const reasonCodes: WorkflowCapabilityPreviewReasonCode[] = readiness.errors.length ? ['MCP_CONNECTION_UNAVAILABLE'] : [];
     reasonCodes.forEach(incrementWorkflowCapabilityPreviewBlocker);
     metricStatus = readiness.errors.length ? 'blocked' : 'ready';
@@ -238,7 +241,7 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
       enabledSkills: attachments.skills,
       mcpRequirements
     });
-    logger.info({ workspaceId, workflowId: workflow.id, workflowVersion: workflow.version, status: response.status, toolCount: response.counts.tools, readToolCount: response.counts.readTools, writeToolCount: response.counts.writeTools, reasonCodes }, 'Workflow capability preview completed');
+    logger.info({ workspaceId, workflowId: workflow.id, status: response.status, toolCount: response.counts.tools, readToolCount: response.counts.readTools, writeToolCount: response.counts.writeTools, reasonCodes }, 'Workflow capability preview completed');
     res.status(200).json(response);
   } catch (error) {
     if (error instanceof WorkflowAccessDeniedError) return respondWorkflowAccessError(res, error);

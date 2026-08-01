@@ -51,7 +51,7 @@ export function buildOpenApiDocument(baseUrl: string, sessionCookieName: string)
       { name: 'runs', description: 'Run query, cancel, and stream endpoints.' },
       { name: 'workflows', description: 'Workspace workflow definitions, schedules, sessions, and approval inbox endpoints.' },
       { name: 'catalog', description: 'MCP registries, destination-bound browsing, scoped MCP imports, and credential connections.' },
-      { name: 'agents', description: 'Workspace-scoped custom agent definitions, triggers, versions, tests, and activity.' },
+      { name: 'agents', description: 'Workspace-scoped Agent definitions, direct conversations, tests, and activity.' },
       { name: 'admin', description: 'Operator-only admin API protected exclusively by admin bearer tokens.' },
       { name: 'internal', description: 'Internal execution endpoints for execution-engine.' }
     ],

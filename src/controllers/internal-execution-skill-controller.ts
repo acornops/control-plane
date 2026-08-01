@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { resolveRunSkillSnapshots } from '../services/run-skill-snapshots.js';
 import { repo } from '../store/repository.js';
 import { getWorkflowRun } from '../store/repository-workflows.js';
 import { toSingleParam } from '../utils/params.js';
@@ -28,6 +29,37 @@ export async function getRunSkillSnapshot(req: Request, res: Response, next: Nex
         file_count: skill.files.length,
         total_bytes: skill.files.reduce((total, file) => total + Buffer.byteLength(file.content, 'utf8'), 0),
         files: skill.files.map((file) => ({
+          path: file.path,
+          content: file.content,
+          size_bytes: Buffer.byteLength(file.content, 'utf8')
+        }))
+      });
+      return;
+    }
+
+    const agentChatRun = await repo.getRun(runId);
+    if (agentChatRun?.conversationKind === 'agent_chat') {
+      const skill = agentChatRun.agentSnapshot && agentChatRun.compiledAccessScope
+        ? resolveRunSkillSnapshots(
+            agentChatRun.agentSnapshot,
+            agentChatRun.compiledAccessScope.enabledSkills
+          ).find((candidate) => candidate.ref === skillRef)
+        : undefined;
+      if (!skill) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent chat skill snapshot not found', retryable: false } });
+        return;
+      }
+      const { installation } = skill;
+      res.status(200).json({
+        skill_ref: skill.ref,
+        skill_id: installation.id,
+        name: installation.name,
+        description: installation.description,
+        source: installation.source,
+        content_hash: installation.contentDigest,
+        file_count: installation.files.length,
+        total_bytes: skill.totalBytes,
+        files: installation.files.map((file) => ({
           path: file.path,
           content: file.content,
           size_bytes: Buffer.byteLength(file.content, 'utf8')

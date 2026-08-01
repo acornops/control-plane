@@ -352,25 +352,28 @@ export interface TargetAgentRegistration {
   lastSeenAt?: string;
   lastHeartbeatAt?: string;
   lastConnectionId?: string;
-  lastAgentVersion?: string;
+  lastConnectorVersion?: string;
   capabilities?: string[];
 }
 
 export interface ChatSession {
   id: string;
   workspaceId: string;
-  targetId: string;
-  targetType: TargetType;
+  conversationKind: 'target_chat' | 'agent_chat';
+  targetId?: string; targetType?: TargetType;
   clusterId?: string;
+  agentId?: string;
   createdBy: string;
   createdByUser?: UserDisplay;
   origin: 'manual' | 'auto_triage';
   automaticInvestigation?: import('./auto-triage.js').AutomaticInvestigationSessionContext;
   title: string;
   status: 'open' | 'archived' | 'deleted';
+  preferredAccessMode?: ToolAccessMode;
   createdAt: string;
   updatedAt: string;
   lastMessageAt: string;
+  launchedAt?: string;
   lastRuntimeSelection?: {
     provider: LlmProvider;
     model: string;
@@ -454,9 +457,13 @@ export interface Message {
 export interface Run {
   id: string;
   workspaceId: string;
-  targetId: string;
-  targetType: TargetType;
+  conversationKind: 'target_chat' | 'agent_chat';
+  targetId?: string;
+  targetType?: TargetType;
   clusterId?: string;
+  agentId?: string;
+  agentSnapshot?: import('./agents.js').AgentDefinition;
+  compiledAccessScope?: import('./agent-chat.js').CompiledAgentChatAccessScope;
   sessionId: string;
   messageId: string;
   principal?: import('./agents.js').RunPrincipalRef;
@@ -498,8 +505,8 @@ export interface RunToolApproval {
   id: string;
   runId: string;
   workspaceId: string;
-  targetId: string;
-  targetType: TargetType;
+  targetId?: string;
+  targetType?: TargetType;
   clusterId?: string;
   toolCallId: string;
   toolName: string;

@@ -9,35 +9,12 @@ import type {
   WorkflowDefinitionForAccess
 } from '../types/workflows.js';
 import { COORDINATOR_FUNCTIONS } from './coordination-functions.js';
-import { WORKFLOW_COORDINATOR_PROFILE_VERSION } from './workflow-coordinator.js';
 import { resolveEffectiveWorkflowCapabilityIds } from './workflow-capability-policy.js';
 import { getWorkspaceNativeTool } from './workspace-native-tools.js';
-import { targetAllowedByAgentScope } from './target-scope-authorization.js';
+import { WorkflowAccessDeniedError } from './capability-access-errors.js';
 
-export type WorkflowAccessDeniedCode =
-  | 'WORKFLOW_PERMISSION_DENIED'
-  | 'WORKFLOW_CONTEXT_GRANT_DENIED'
-  | 'WORKFLOW_AGENT_SCOPE_DENIED'
-  | 'WORKFLOW_CAPABILITY_MAPPING_UNAVAILABLE'
-  | 'WORKFLOW_TARGET_SCOPE_DENIED';
+export { WorkflowAccessDeniedError, type WorkflowAccessDeniedCode } from './capability-access-errors.js';
 
-export class WorkflowAccessDeniedError extends Error {
-  readonly code: WorkflowAccessDeniedCode;
-  readonly missingPermissions: WorkspaceCapability[];
-  readonly missingContextGrants: string[];
-
-  constructor(
-    code: WorkflowAccessDeniedCode,
-    message: string,
-    options: { missingPermissions?: WorkspaceCapability[]; missingContextGrants?: string[] } = {}
-  ) {
-    super(message);
-    this.name = 'WorkflowAccessDeniedError';
-    this.code = code;
-    this.missingPermissions = options.missingPermissions || [];
-    this.missingContextGrants = options.missingContextGrants || [];
-  }
-}
 
 export interface CompileWorkflowAccessInput {
   workflow: WorkflowDefinitionForAccess;
@@ -46,7 +23,6 @@ export interface CompileWorkflowAccessInput {
   mappings: CapabilityRoutingMapping[];
   actor: WorkflowAccessActor;
   approvedContextGrants: string[];
-  targetRoute?: { id: string; targetType: 'kubernetes' | 'virtual_machine' };
   resourceBindings?: PromptResourceBinding[];
   promptDigest?: string;
   bindingDigest?: string;
@@ -70,7 +46,7 @@ function requiredPermissionsFor(workflow: WorkflowDefinitionForAccess): Workspac
   return uniqueSorted([...workflow.requiredPermissions, requiredRunCapability(workflow)]) as WorkspaceCapability[];
 }
 
-export function workflowToolOperation(
+function workflowToolOperation(
   tool: string,
   mode: WorkflowDefinitionForAccess['capabilityPolicy']['mode']
 ): WorkspaceAuditOperation {
@@ -79,18 +55,6 @@ export function workflowToolOperation(
   return /^(read|list|get|search|query|summarize|describe|inspect|preview|status)$/.test(operation)
     ? 'read'
     : 'write';
-}
-
-function mappingCompatible(
-  mapping: CapabilityRoutingMapping,
-  targets: Array<{ id: string; targetType: 'kubernetes' | 'virtual_machine' }>
-): boolean {
-  if (mapping.status !== 'active' || mapping.reviewState !== 'reviewed') return false;
-  if (targets.length === 0) return mapping.targetIds.length === 0;
-  return targets.every((target) => (
-    (!mapping.targetIds.length || mapping.targetIds.includes(target.id))
-    && (!mapping.targetTypes.length || mapping.targetTypes.includes(target.targetType))
-  ));
 }
 
 function assertSelectedAgents(input: CompileWorkflowAccessInput): void {
@@ -116,15 +80,12 @@ function mappingsForSpecialist(
   specialist: AgentDefinition,
   capabilityIds: string[]
 ): CapabilityRoutingMapping[] {
-  const targetRoutes = input.targetRoute ? [input.targetRoute] : [];
   return capabilityIds.flatMap((capabilityId) => {
     const mappings = input.mappings.filter((candidate) => (
       candidate.capabilityId === capabilityId
       && candidate.agentId === specialist.id
-      && candidate.agentVersion === specialist.version
-      && (targetRoutes.length > 0
-        ? mappingCompatible(candidate, targetRoutes)
-        : candidate.status === 'active' && candidate.reviewState === 'reviewed')
+      && candidate.status === 'active'
+      && candidate.reviewState === 'reviewed'
     ));
     if (mappings.length === 0) {
       throw new WorkflowAccessDeniedError(
@@ -173,21 +134,12 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
   const coordinator = !input.specialistAgent;
   const specialist = input.specialistAgent;
   const effectiveCapabilityIds = resolveEffectiveWorkflowCapabilityIds(input.workflow.capabilityPolicy, input.selectedAgents);
-  if (specialist && input.targetRoute && !targetAllowedByAgentScope(specialist.targetScope, input.targetRoute)) {
-    throw new WorkflowAccessDeniedError('WORKFLOW_TARGET_SCOPE_DENIED', 'The selected target is outside the Agent scope.');
-  }
-
   const mappings = specialist ? mappingsForSpecialist(input, specialist, effectiveCapabilityIds) : [];
   const inheritAgentAttachments = Boolean(specialist)
     && input.workflow.capabilityPolicy.restrictionMode === 'inherit';
   const directMcpTools = inheritAgentAttachments
     ? specialist!.mcpInstallations.flatMap((installation) => {
-        if (!installation.enabled) return [];
-        const constraints = installation.targetConstraints || { targetTypes: [], targetIds: [] };
-        if ((input.targetRoute ? [input.targetRoute] : []).some((target) => (
-          (constraints.targetIds.length > 0 && !constraints.targetIds.includes(target.id))
-          || (constraints.targetTypes.length > 0 && !constraints.targetTypes.includes(target.targetType))
-        ))) return [];
+      if (!installation.enabled) return [];
         return installation.tools
           .filter((tool) => tool.enabled && tool.reviewState === 'approved')
           .map((tool) => ({
@@ -207,38 +159,12 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
     ...mappings.flatMap((mapping) => mapping.nativeToolIds)
   ]);
   const mode = input.workflow.capabilityPolicy.mode;
-  const targetToolRefs = mappings.flatMap((mapping) => mapping.targetToolRefs || [])
-    .filter((ref, index, refs) => refs.findIndex((candidate) => (
-      candidate.serverId === ref.serverId && candidate.toolName === ref.toolName
-    )) === index)
-    .filter((ref) => mode === 'read_write' || ref.operation === 'read');
-  const targetToolRoutes = mappings.flatMap((mapping) => (
-    mapping.targetIds.length === 1 && mapping.targetTypes.length === 1
-      ? (mapping.targetToolRefs || []).map((ref) => ({
-          alias: ref.alias,
-          serverId: ref.serverId,
-          toolName: ref.toolName,
-          operation: ref.operation,
-          targetId: mapping.targetIds[0],
-          targetType: mapping.targetTypes[0]
-        }))
-      : []
-  )).filter((route, index, routes) => routes.findIndex((candidate) => (
-    candidate.alias === route.alias
-    && candidate.serverId === route.serverId
-    && candidate.toolName === route.toolName
-    && candidate.targetId === route.targetId
-    && candidate.targetType === route.targetType
-  )) === index)
-    .filter((route) => mode === 'read_write' || route.operation === 'read');
   const tools = uniqueSorted([
     ...mcpTools.map((ref) => ref.alias),
-    ...targetToolRefs.map((ref) => ref.alias),
     ...nativeToolIds
   ]);
   const toolOperations = {
     ...Object.fromEntries(mcpTools.map((ref) => [ref.alias, ref.operation])),
-    ...Object.fromEntries(targetToolRefs.map((ref) => [ref.alias, ref.operation])),
     ...Object.fromEntries(nativeToolIds.map((tool) => [
       tool,
       getWorkspaceNativeTool(tool)?.approvalOperation || workflowToolOperation(tool, mode)
@@ -258,15 +184,14 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
     ? 'read_only'
     : specialist.permissionMode;
   const executor = specialist
-    ? { role: 'specialist' as const, agentId: specialist.id, agentVersion: specialist.version }
-    : { role: 'coordinator' as const, profileVersion: WORKFLOW_COORDINATOR_PROFILE_VERSION };
+    ? { role: 'specialist' as const, agentId: specialist.id }
+    : { role: 'coordinator' as const };
   const executorContextGrants = coordinator ? [] : contextGrants;
   const executorResourceBindings = coordinator ? [] : [...(input.resourceBindings || [])];
 
   return {
     workflowId: input.workflow.id,
     workspaceId: input.workflow.workspaceId,
-    workflowVersion: input.workflow.version,
     actor: { userId: input.actor.userId, role: input.actor.role },
     mode,
     semanticCapabilityIds: coordinator ? [] : effectiveCapabilityIds,
@@ -275,8 +200,6 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
     grantedCapabilities: requiredPermissions,
     mcpServers: uniqueSorted(effectiveRefs.map((ref) => ref.serverId)),
     mcpTools: effectiveRefs.map((ref) => ({ serverId: ref.serverId, toolName: ref.toolName })),
-    targetToolRefs: targetToolRefs.map((ref) => ({ serverId: ref.serverId, toolName: ref.toolName })),
-    targetToolRoutes,
     tools: effectiveTools,
     toolOperations,
     nativeToolConfigs,
@@ -291,7 +214,6 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
     permissionMode,
     principal,
     executor,
-    selectedAgents: specialist ? [{ id: specialist.id, version: specialist.version }] : [],
     selectedAgentSnapshots: specialist ? [specialist] : [],
     routingMappingSnapshots: coordinator ? [] : input.mappings,
     resourceBindings: executorResourceBindings,
@@ -302,22 +224,13 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
     jwtClaims: {
       scope: { type: 'workspace' },
       workflow_id: input.workflow.id,
-      workflow_version: input.workflow.version,
       executor_role: executor.role,
-      ...(specialist ? { agent_id: specialist.id, agent_version: specialist.version } : {}),
+      ...(specialist ? { agent_id: specialist.id } : {}),
       ...(input.triggerId ? { trigger_id: input.triggerId } : {}),
       permissions: {
         allowed_tools: effectiveTools,
         allowed_tool_refs: effectiveRefs.map((ref) => ({ server_id: ref.serverId, tool_name: ref.toolName })),
         allowed_tool_operations: toolOperations,
-        allowed_target_tool_routes: targetToolRoutes.map((route) => ({
-          alias: route.alias,
-          server_id: route.serverId,
-          tool_name: route.toolName,
-          operation: route.operation,
-          target_id: route.targetId,
-          target_type: route.targetType
-        })),
         context_grants: executorContextGrants,
         resource_bindings: executorResourceBindings.map((binding) => ({
           binding_id: binding.bindingId,
@@ -333,24 +246,23 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
 }
 
 export function compileWorkflowSessionCeiling(
-  input: Omit<CompileWorkflowAccessInput, 'targetRoute'>
+  input: CompileWorkflowAccessInput
 ): CompiledWorkflowAccessScope {
   const { requiredPermissions, requestedContext, principal } = validateCommon({ ...input, mappings: [] });
   const specialist = input.workflow.executionMode === 'direct' ? input.selectedAgents[0] : undefined;
   const executor = specialist
-    ? { role: 'specialist' as const, agentId: specialist.id, agentVersion: specialist.version }
-    : { role: 'coordinator' as const, profileVersion: WORKFLOW_COORDINATOR_PROFILE_VERSION };
+    ? { role: 'specialist' as const, agentId: specialist.id }
+    : { role: 'coordinator' as const };
   return {
     workflowId: input.workflow.id,
     workspaceId: input.workflow.workspaceId,
-    workflowVersion: input.workflow.version,
     actor: { userId: input.actor.userId, role: input.actor.role },
     mode: input.workflow.capabilityPolicy.mode,
     semanticCapabilityIds: resolveEffectiveWorkflowCapabilityIds(input.workflow.capabilityPolicy, input.selectedAgents),
     capabilityRestrictionMode: input.workflow.capabilityPolicy.restrictionMode,
     requiredPermissions,
     grantedCapabilities: requiredPermissions,
-    mcpServers: [], mcpTools: [], targetToolRefs: [], targetToolRoutes: [], tools: [], toolOperations: {},
+    mcpServers: [], mcpTools: [], tools: [], toolOperations: {},
     nativeToolConfigs: {}, enabledSkills: [],
     contextGrants: requestedContext,
     approvalGates: uniqueSorted(input.workflow.capabilityPolicy.approvalRequirements),
@@ -359,7 +271,6 @@ export function compileWorkflowSessionCeiling(
       : specialist.permissionMode,
     principal,
     executor,
-    selectedAgents: input.selectedAgents.map((agent) => ({ id: agent.id, version: agent.version })),
     selectedAgentSnapshots: input.selectedAgents,
     routingMappingSnapshots: input.mappings,
     resourceBindings: [],
@@ -368,11 +279,10 @@ export function compileWorkflowSessionCeiling(
     jwtClaims: {
       scope: { type: 'workspace' },
       workflow_id: input.workflow.id,
-      workflow_version: input.workflow.version,
       executor_role: executor.role,
-      ...(specialist ? { agent_id: specialist.id, agent_version: specialist.version } : {}),
+      ...(specialist ? { agent_id: specialist.id } : {}),
       permissions: {
-        allowed_tools: [], allowed_tool_refs: [], allowed_tool_operations: {}, allowed_target_tool_routes: [],
+        allowed_tools: [], allowed_tool_refs: [], allowed_tool_operations: {},
         context_grants: requestedContext, resource_bindings: []
       }
     }
@@ -382,7 +292,6 @@ export function compileWorkflowSessionCeiling(
 export function selectDelegationCandidate(input: {
   workflow: WorkflowDefinitionForAccess;
   capabilityId: string;
-  target?: { id: string; targetType: 'kubernetes' | 'virtual_machine' };
   agents: AgentDefinition[];
   mappings: CapabilityRoutingMapping[];
 }): { agent: AgentDefinition; mapping: CapabilityRoutingMapping } | null {
@@ -390,19 +299,16 @@ export function selectDelegationCandidate(input: {
   return input.mappings
     .filter((mapping) => mapping.capabilityId === input.capabilityId
       && mapping.status === 'active'
-      && mapping.reviewState === 'reviewed'
-      && (!input.target || mappingCompatible(mapping, [input.target])))
+      && mapping.reviewState === 'reviewed')
     .map((mapping) => ({
       mapping,
       agent: input.agents.find((agent) => (
         agent.id === mapping.agentId
-        && agent.version === mapping.agentVersion
         && selected.has(agent.id)
         && agent.status === 'active'
         && agent.reviewState === 'reviewed'
       ))
     }))
     .filter((candidate): candidate is { mapping: CapabilityRoutingMapping; agent: AgentDefinition } => Boolean(candidate.agent))
-    .filter(({ agent }) => !input.target || targetAllowedByAgentScope(agent.targetScope, input.target))
     .sort((left, right) => left.mapping.priority - right.mapping.priority || left.agent.id.localeCompare(right.agent.id))[0] || null;
 }

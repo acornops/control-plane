@@ -122,7 +122,7 @@ Agentic tool-loop guardrails are configurable via env:
 `ASSISTANT_MAX_TOOL_CALLS` (default `24`), `ASSISTANT_MAX_DUPLICATE_TOOL_CALLS` (default `2`),
 and `ASSISTANT_TOOL_DEFAULT_TIMEOUT_MS` (default `10000`).
 Target chat instructions come from the registered target-adapter contract;
-workflow and standalone Agent instructions come from their pinned Agent version.
+workflow and standalone Agent instructions come from the immutable snapshots stored for each run.
 
 ## Start Local Control Plane (Standalone)
 
@@ -212,7 +212,7 @@ Conversation and run-event defaults:
 
 - `CONVERSATION_RETENTION_DAYS=30`
 - `CONVERSATION_RETENTION_JOB_INTERVAL_SECONDS=3600`
-- `TARGET_CHAT_REPORT_RETENTION_DAYS=30` (bounded 1–365 days)
+- `GENERATED_DOCUMENT_RETENTION_DAYS=30` (bounded 1–365 days)
 - `RUN_EVENT_BUFFER_SIZE=200` (in-memory replay buffer when `PERSIST_RUN_EVENTS=false`)
 - `PERSIST_RUN_EVENTS=false` in local development and `true` in production.
 

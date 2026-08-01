@@ -44,7 +44,7 @@ afterEach(() => {
 after(closeAutomationDatabaseFixtures);
 
 describe('coordinated Workflow schedules', () => {
-  it('pins the Agent ceiling and delegates to a model-selected target', async () => {
+  it('pins the Agent ceiling and delegates to a model-selected specialist', async () => {
     installWorkspace('admin');
     await db.query(
       `INSERT INTO workspace_memberships (workspace_id,user_id,role)
@@ -69,8 +69,8 @@ describe('coordinated Workflow schedules', () => {
       capabilityPolicy: {
         mode: 'read_only',
         restrictionMode: 'restrict',
-        semanticCapabilityIds: ['target.diagnostics.read'],
-        contextGrants: ['workspace_metadata', 'target_inventory'],
+        semanticCapabilityIds: ['infrastructure.diagnostics.read'],
+        contextGrants: ['workspace_metadata'],
         maxRuntimeSeconds: 300,
         retentionDays: 30,
         approvalRequirements: []
@@ -88,7 +88,7 @@ describe('coordinated Workflow schedules', () => {
         timezone: 'UTC',
         enabled: true,
         principal: { type: 'user', id: 'user-1' },
-        approvedContextGrants: ['workspace_metadata', 'target_inventory']
+        approvedContextGrants: ['workspace_metadata']
       }
     ));
     assert.equal(created.statusCode, 201);
@@ -116,13 +116,26 @@ describe('coordinated Workflow schedules', () => {
     assert.equal(persisted.rows[0].executor_role, 'coordinator');
     assert.deepEqual(persisted.rows[0].run_selected_agents, []);
     assert.equal(persisted.rows[0].ceiling_selected_agents.length, 2);
+    const invalidDelegation = await callController(delegateSpecialist, createRequest(
+      { runId: persisted.rows[0].run_id },
+      {
+        toolCallId: 'invalid-scheduled-delegation',
+        capabilityId: 'infrastructure.diagnostics.read',
+        taskPrompt: 'Inspect the scheduled infrastructure.',
+        resourceBinding: { resourceId: 'resource-1' }
+      }
+    ));
+    assert.equal(invalidDelegation.statusCode, 400);
+    assert.equal(
+      (invalidDelegation.body as { error: { code: string } }).error.code,
+      'DELEGATION_REQUEST_INVALID'
+    );
     const delegated = await callController(delegateSpecialist, createRequest(
       { runId: persisted.rows[0].run_id },
       {
         toolCallId: 'scheduled-delegation-1',
-        capabilityId: 'target.diagnostics.read',
-        targetBinding: { id: 'cluster-1', targetType: 'kubernetes' },
-        taskPrompt: 'Inspect the scheduled target.',
+        capabilityId: 'infrastructure.diagnostics.read',
+        taskPrompt: 'Inspect the scheduled infrastructure.',
         required: true
       }
     ));
@@ -141,8 +154,6 @@ describe('coordinated Workflow schedules', () => {
   it('preserves the latest successful execution pointer after a failed dispatch', async () => {
     const created = await createWorkflowSchedule({
       workspaceId: 'workspace-1',
-      workflowVersion: 3,
-      parameterSignature: 'a'.repeat(64),
       actorUserId: 'user-1',
       input: {
         workflowId: 'cluster-triage',
@@ -151,7 +162,7 @@ describe('coordinated Workflow schedules', () => {
         timezone: 'UTC',
         status: 'enabled',
         principal: { type: 'user', id: 'user-1' },
-        approvedContextGrants: ['workspace_metadata', 'target_inventory']
+        approvedContextGrants: ['workspace_metadata']
       }
     });
     const scheduleId = created.id;

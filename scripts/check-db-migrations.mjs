@@ -19,16 +19,8 @@ const migrationFiles = readdirSync(migrationsDir)
   .sort();
 assert.deepEqual(
   migrationFiles,
-  [
-    '001_initial_schema.sql',
-    '002_user_sign_in_methods.sql',
-    '003_workspace_defaults.sql',
-    '004_agent_avatar_emoji.sql',
-    '005_workspace_default_enabled_state.sql',
-    '006_cluster_auto_triage_namespace_scope.sql',
-    '007_workflow_webhooks.sql'
-  ],
-  'the control-plane schema must include the immutable baseline and required forward migrations'
+  ['001_initial_schema.sql'],
+  'this unreleased application must keep exactly one complete greenfield schema'
 );
 
 const baseline = read('migrations/control-plane/001_initial_schema.sql');
@@ -125,7 +117,7 @@ const expectedTables = [
   'workflow_webhooks',
   'workflow_webhook_events',
   'workflow_webhook_deliveries',
-  'workflow_reports',
+  'generated_documents',
   'automation_template_installations',
   'capability_routing_mappings',
   'target_skills',
@@ -152,12 +144,20 @@ const expectedColumns = [
   ['runs', 'tool_access_mode'],
   ['runs', 'request_actor_type'],
   ['runs', 'confirmation_required_for_write_override'],
+  ['runs', 'conversation_kind'],
+  ['runs', 'agent_id'],
+  ['runs', 'agent_snapshot'],
+  ['runs', 'compiled_access_scope'],
   ['sessions', 'origin'],
   ['sessions', 'linked_issue_id'],
   ['sessions', 'linked_issue_lifecycle_version'],
   ['sessions', 'auto_triage_write_mode'],
   ['sessions', 'auto_triage_effective_tool_mode'],
   ['sessions', 'auto_triage_confirmation_required'],
+  ['sessions', 'conversation_kind'],
+  ['sessions', 'agent_id'],
+  ['sessions', 'preferred_access_mode'],
+  ['sessions', 'launched_at'],
   ['messages', 'created_by'],
   ['target_auto_triage_settings', 'revision'],
   ['target_auto_triage_settings', 'namespace_include'],
@@ -188,11 +188,8 @@ const expectedColumns = [
   ['workflow_executions', 'origin_snapshot'],
   ['workflow_executions', 'source_type'],
   ['workflow_executions', 'source_id'],
-  ['workflow_schedules', 'inputs'],
-  ['workflow_schedules', 'parameter_signature'],
   ['workflow_schedules', 'last_execution_id'],
   ['workflow_schedules', 'last_run_id'],
-  ['workflow_webhooks', 'parameter_signature'],
   ['workflow_webhooks', 'last_received_at'],
   ['workflow_webhooks', 'last_execution_id'],
   ['workflow_webhooks', 'last_run_id'],
@@ -220,6 +217,13 @@ const expectedConstraints = [
   'sessions_origin_check',
   'sessions_auto_triage_write_mode_check',
   'sessions_auto_triage_tool_mode_check',
+  'sessions_conversation_kind_check',
+  'sessions_conversation_binding_check',
+  'sessions_preferred_access_mode_check',
+  'sessions_workspace_agent_fkey',
+  'runs_conversation_kind_check',
+  'runs_conversation_binding_check',
+  'runs_workspace_agent_fkey',
   'runs_request_actor_type_check',
   'runs_request_actor_provenance_check',
   'target_auto_triage_settings_pkey',
@@ -238,9 +242,6 @@ const expectedConstraints = [
   'workflow_run_approvals_run_id_tool_call_id_key',
   'workflow_sessions_launch_resource_inputs_check',
   'workflow_executions_client_request_fingerprint_check',
-  'workflow_schedules_inputs_check',
-  'workflow_schedules_parameter_signature_check',
-  'workflow_webhooks_parameter_signature_check',
   'workflow_webhooks_principal_check',
   'workflow_webhook_events_workspace_webhook_occurrence_key',
   'workflow_webhook_events_webhook_id_fkey',
@@ -277,6 +278,18 @@ async function runSqlChecks(databaseUrl) {
       );
       assert.equal(result.rowCount, 1, `${table}.${column} must exist in the final baseline`);
     }
+    for (const [table, column] of [
+      ['sessions', 'target_id'],
+      ['runs', 'target_id'],
+      ['run_tool_approvals', 'target_id']
+    ]) {
+      const result = await client.query(
+        `SELECT is_nullable FROM information_schema.columns
+         WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2`,
+        [table, column]
+      );
+      assert.equal(result.rows[0]?.is_nullable, 'YES', `${table}.${column} must allow Agent-chat records`);
+    }
 
     const constraints = await client.query(
       `SELECT conname, pg_get_constraintdef(oid) AS definition
@@ -300,7 +313,8 @@ async function runSqlChecks(databaseUrl) {
       'workflow_webhooks_workspace_idx',
       'workflow_webhook_deliveries_claim_idx',
       'workspace_defaults_available_in_idx',
-      'workspace_initial_defaults_workspace_kind_idx'
+      'workspace_initial_defaults_workspace_kind_idx',
+      'sessions_agent_conversations_idx'
     ]) {
       assert(indexNames.has(indexName), `${indexName} must exist in the final baseline`);
     }
@@ -319,9 +333,40 @@ async function runSqlChecks(databaseUrl) {
       ['workflow_schedules', 'control_message'],
       ['workflow_runs', 'workflow_run_id'],
       ['workflow_runs', 'agent_snapshot'],
+      ['workflow_sessions', 'conversation_origin'],
+      ['workflow_sessions', 'agent_id'],
+      ['workflow_sessions', 'access_mode'],
+      ['workflow_sessions', 'agent_chat_read_scope'],
+      ['workflow_sessions', 'agent_chat_capability_ceiling'],
       ['capability_routing_mappings', 'invocation_scopes'],
       ['sessions', 'selected_agent_id'],
-      ['runs', 'agent_id']
+      ['agent_definitions', 'target_id'],
+      ['agent_definitions', 'target_ids'],
+      ['agent_definitions', 'target_type'],
+      ['agent_definitions', 'target_scope'],
+      ['agent_definitions', 'target_binding'],
+      ['agent_definitions', 'workflow_ids'],
+      ['runs', 'agent_version'],
+      ['agent_definitions', 'version'],
+      ['capability_routing_mappings', 'version'],
+      ['capability_routing_mappings', 'agent_version'],
+      ['capability_routing_mappings', 'target_tool_refs'],
+      ['workflow_definitions', 'version'],
+      ['workflow_definitions', 'target_id'],
+      ['workflow_definitions', 'target_ids'],
+      ['workflow_definitions', 'target_type'],
+      ['workflow_definitions', 'target_scope'],
+      ['workflow_definitions', 'target_binding'],
+      ['workflow_executions', 'workflow_version'],
+      ['workflow_definitions', 'enabled_mcp_servers'],
+      ['workflow_definitions', 'enabled_skills'],
+      ['workflow_runs', 'agent_version'],
+      ['workflow_schedules', 'workflow_version'],
+      ['workflow_schedules', 'inputs'],
+      ['workflow_schedules', 'parameter_signature'],
+      ['workflow_sessions', 'workflow_version'],
+      ['workflow_webhooks', 'workflow_version'],
+      ['workflow_webhooks', 'parameter_signature']
     ]) {
       const result = await client.query(
         `SELECT 1 FROM information_schema.columns
@@ -335,6 +380,13 @@ async function runSqlChecks(databaseUrl) {
       'agent_triggers',
       'agent_activity',
       'agent_run_events',
+      'agent_versions',
+      'agent_targets',
+      'target_agents',
+      'workflow_mcp_servers',
+      'workflow_targets',
+      'target_workflows',
+      'workflow_reports',
       'workflow_delegations',
       'workflow_approvals',
       'automation_run_approvals',

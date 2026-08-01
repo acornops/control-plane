@@ -154,7 +154,7 @@ const automationApprovalDecision = read('src/controllers/automation-run-approval
 const troubleshootingApprovalDecision = read('src/controllers/troubleshooting-run-approval-decision.ts');
 const workflowExecutionAccess = read('src/controllers/workflow-execution-access.ts');
 const workflowController = read('src/controllers/workflows-controller.ts');
-const workflowReportsController = read('src/controllers/workflow-reports-controller.ts');
+const generatedDocumentsController = read('src/controllers/generated-documents-controller.ts');
 const workflowRoutes = read('src/routes/workflows.ts');
 const runsRoutes = read('src/routes/runs.ts');
 const webhooksController = read(webhooksControllerPath);
@@ -335,7 +335,7 @@ assert(
   'external integration Workflow session continuation must require exact origin ownership'
 );
 assert(
-  workflowReportsController.includes('externalIntegrationOwnsWorkflowExecution'),
+  generatedDocumentsController.includes('externalIntegrationOwnsWorkflowExecution'),
   'external integration Workflow report access must require exact execution ownership'
 );
 assert(

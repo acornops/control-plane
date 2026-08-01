@@ -10,7 +10,7 @@ import {
   compileWorkflowAccessScope,
   selectDelegationCandidate
 } from '../services/workflow-access.js';
-import { getExactMcpReadinessErrors } from '../services/workflow-readiness.js';
+import { getExactMcpReadinessErrors } from '../services/mcp-readiness.js';
 import {
   createDelegatedWorkflowRun,
   getWorkflowSession,
@@ -23,6 +23,7 @@ import { toSingleParam } from '../utils/params.js';
 
 const MAX_COORDINATOR_CHILD_RESULT_CHARS = 12_000;
 const MAX_COORDINATOR_CHILD_ERROR_CHARS = 500;
+const DELEGATION_REQUEST_FIELDS = new Set(['toolCallId', 'capabilityId', 'taskPrompt', 'required']);
 
 export function boundedCoordinatorChildResult(
   assistantMessage?: { content: string; format?: string }
@@ -51,6 +52,19 @@ async function pinnedWorkflow(executionId: string): Promise<WorkflowDefinitionFo
 export async function delegateSpecialist(req: Request, res: Response, next: NextFunction): Promise<void> {
   const startedAt = Date.now();
   try {
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+      ? req.body as Record<string, unknown>
+      : {};
+    const unsupportedFields = Object.keys(body).filter((field) => !DELEGATION_REQUEST_FIELDS.has(field));
+    if (unsupportedFields.length) {
+      badRequest(
+        res,
+        'DELEGATION_REQUEST_INVALID',
+        `Unsupported delegation field(s): ${unsupportedFields.sort().join(', ')}.`,
+        400
+      );
+      return;
+    }
     const parent = await getWorkflowRun(toSingleParam(req.params.runId));
     if (!parent || parent.endedAt) {
       badRequest(res, 'DELEGATION_PARENT_UNAVAILABLE', 'The parent Workflow run is unavailable.');
@@ -60,22 +74,15 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
       badRequest(res, 'DELEGATION_COORDINATOR_REQUIRED', 'Only a coordinator root may delegate.', 403);
       return;
     }
-    const toolCallId = typeof req.body?.toolCallId === 'string' ? req.body.toolCallId.trim() : '';
-    const capabilityId = typeof req.body?.capabilityId === 'string' ? req.body.capabilityId.trim() : '';
-    const taskPrompt = typeof req.body?.taskPrompt === 'string' ? req.body.taskPrompt.trim() : '';
-    const binding = req.body?.targetBinding as { id?: unknown; targetType?: unknown } | undefined;
-    const targetId = typeof binding?.id === 'string' ? binding.id.trim() : '';
-    const targetType = binding?.targetType;
-    const hasTargetBinding = Boolean(binding);
-    const validTargetBinding = !hasTargetBinding || (
-      Boolean(targetId) && (targetType === 'kubernetes' || targetType === 'virtual_machine')
-    );
-    const required = req.body?.required !== false;
-    if (!toolCallId || !capabilityId || !taskPrompt || !validTargetBinding) {
+    const toolCallId = typeof body.toolCallId === 'string' ? body.toolCallId.trim() : '';
+    const capabilityId = typeof body.capabilityId === 'string' ? body.capabilityId.trim() : '';
+    const taskPrompt = typeof body.taskPrompt === 'string' ? body.taskPrompt.trim() : '';
+    const required = body.required !== false;
+    if (!toolCallId || !capabilityId || !taskPrompt) {
       badRequest(
         res,
         'DELEGATION_REQUEST_INVALID',
-        'toolCallId, capabilityId, and taskPrompt are required; targetBinding must be exact when provided.',
+        'toolCallId, capabilityId, and taskPrompt are required.',
         400
       );
       return;
@@ -99,13 +106,6 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
       badRequest(res, 'DELEGATION_PROMPT_SNAPSHOT_MISSING', 'The exact parent prompt is unavailable.');
       return;
     }
-    const target = hasTargetBinding
-      ? await (await import('../store/repository.js')).repo.getTarget(parent.workspaceId, targetId)
-      : undefined;
-    if (hasTargetBinding && (!target || target.status === 'offline' || target.targetType !== targetType)) {
-      badRequest(res, 'DELEGATION_TARGET_NOT_READY', 'The exact target is unavailable or incompatible.');
-      return;
-    }
     if (authorizationCeiling.principal.type === 'user') {
       const membership = await db.query(
         'SELECT 1 FROM workspace_memberships WHERE workspace_id=$1 AND user_id=$2',
@@ -123,7 +123,6 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
     const selected = selectDelegationCandidate({
       workflow,
       capabilityId,
-      ...(target ? { target: { id: target.id, targetType: target.targetType } } : {}),
       agents,
       mappings
     });
@@ -134,13 +133,8 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
     }
     const selectedMappings = mappings.filter((mapping) => (
       mapping.agentId === selected.agent.id
-      && mapping.agentVersion === selected.agent.version
       && mapping.status === 'active'
       && mapping.reviewState === 'reviewed'
-      && (!target || (
-        (!mapping.targetIds.length || mapping.targetIds.includes(target.id))
-        && (!mapping.targetTypes.length || mapping.targetTypes.includes(target.targetType))
-      ))
     ));
     if (selectedMappings.some((mapping) => (
       mapping.contextGrants.some((grant) => !authorizationCeiling.contextGrants.includes(grant))
@@ -171,7 +165,6 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
       },
       approvedContextGrants: authorizationCeiling.contextGrants,
       principal: authorizationCeiling.principal,
-      ...(target ? { targetRoute: { id: target.id, targetType: target.targetType } } : {}),
       resourceBindings: parent.resourceBindings,
       promptDigest: parent.promptDigest,
       bindingDigest: parent.bindingDigest
@@ -199,8 +192,6 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
       compiledAccessScope: compiledScope,
       toolCallId,
       capabilityId,
-      targetId: target?.id,
-      targetType: target?.targetType,
       taskPrompt,
       required,
       maxConcurrentChildren: DEFAULT_MAX_CONCURRENT_DELEGATIONS,
@@ -211,7 +202,6 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
       childRunId: child.run.id,
       status: child.run.status,
       capabilityId,
-      ...(target ? { targetBinding: { id: target.id, targetType: target.targetType } } : {}),
       selectedAgentId: selected.agent.id
     });
   } catch (error) {
@@ -241,9 +231,6 @@ export async function awaitDelegations(req: Request, res: Response, next: NextFu
     const items = children.map((child) => ({
       childRunId: child.id,
       capabilityId: child.delegationCapabilityId,
-      ...(child.targetId && child.targetType
-        ? { targetBinding: { id: child.targetId, targetType: child.targetType } }
-        : {}),
       required: child.delegationRequired,
       selectedAgentId: child.agentId,
       status: child.status,

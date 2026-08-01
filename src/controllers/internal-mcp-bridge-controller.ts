@@ -13,6 +13,7 @@ import {
   executeWorkspaceNativeTool,
   WorkspaceNativeToolExecutionError
 } from '../services/workspace-native-tool-executor.js';
+import { TARGETS_MCP_SERVER_ID } from '../services/targets-mcp.js';
 
 const ACTIVE_TOOL_RUN_STATUSES = new Set(['dispatching', 'running', 'waiting_for_approval']);
 
@@ -78,13 +79,30 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    if (!isToolAllowedByRunToken(toolName, claims.allowedTools)) {
+    const requestedTargetId = typeof req.body?.targetId === 'string' ? req.body.targetId : undefined;
+    const requestedTargetType = req.body?.targetType === KUBERNETES_TARGET_TYPE || req.body?.targetType === VIRTUAL_MACHINE_TARGET_TYPE
+      ? req.body.targetType
+      : undefined;
+    const requestedToolRef = req.body?.toolRef && typeof req.body.toolRef === 'object'
+      ? req.body.toolRef as { server_id?: string; tool_name?: string }
+      : undefined;
+    const genericTargetCall = claims.scopeType !== 'target'
+      && requestedToolRef?.server_id === TARGETS_MCP_SERVER_ID;
+    const requestedRefAllowed = requestedToolRef
+      ? claims.allowedToolRefs?.some((ref) => (
+          ref.serverId === requestedToolRef.server_id && ref.toolName === requestedToolRef.tool_name
+        )) === true
+      : false;
+    const authorizedToolName = toolName;
+    const requestedToolAllowed = isToolAllowedByRunToken(toolName, claims.allowedTools);
+    if (!requestedToolAllowed || (requestedToolRef && !requestedRefAllowed)
+      || (genericTargetCall && (requestedToolRef?.tool_name !== toolName || !requestedTargetId || !requestedTargetType))) {
       res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Tool is not permitted for this run', retryable: false } });
       return;
     }
     const workspaceId = claims.workspaceId;
-    const targetId = claims.targetId;
-    const targetType = claims.targetType;
+    const targetId = claims.targetId || (genericTargetCall ? requestedTargetId : undefined);
+    const targetType = claims.targetType || (genericTargetCall ? requestedTargetType : undefined);
     const workflowRun = await getWorkflowRun(claims.runId);
     const run = workflowRun ? null : await repo.getRun(claims.runId);
     if (!workflowRun && !run) {
@@ -92,22 +110,31 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
       return;
     }
     const scopeMatches = workflowRun
-      ? workflowRun.workspaceId === workspaceId && workflowRun.targetId === targetId
-        && workflowRun.targetType === targetType && workflowRun.workflowSessionId === claims.sessionId
+      ? claims.scopeType === 'workspace'
+        && workflowRun.workspaceId === workspaceId && workflowRun.workflowSessionId === claims.sessionId
         && workflowRun.executionId === claims.executionId
         && workflowRun.executorRole === claims.executorRole
         && (workflowRun.executorRole === 'coordinator'
-          ? !claims.agentId && !claims.agentVersion
-          : workflowRun.agentId === claims.agentId && workflowRun.agentVersion === claims.agentVersion)
-      : run
-        ? run.workspaceId === workspaceId && run.targetId === targetId && run.targetType === targetType && run.sessionId === claims.sessionId
+          ? !claims.agentId
+          : workflowRun.agentId === claims.agentId)
+      : run?.conversationKind === 'agent_chat'
+        ? claims.scopeType === 'agent_chat'
+          && run.workspaceId === workspaceId && run.sessionId === claims.sessionId
+          && run.agentId === claims.agentId
+        : run
+          ? claims.scopeType === 'target'
+            && run.workspaceId === workspaceId && run.targetId === targetId && run.targetType === targetType && run.sessionId === claims.sessionId
         : false;
     if (!scopeMatches) {
       res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Run token scope does not match run', retryable: false } });
       return;
     }
-    if (workflowRun && !workflowRun.compiledAccessScope.tools.includes(toolName)) {
+    if (workflowRun && !workflowRun.compiledAccessScope.tools.includes(authorizedToolName)) {
       res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Tool is not permitted for this workflow run', retryable: false } });
+      return;
+    }
+    if (run?.conversationKind === 'agent_chat' && !run.compiledAccessScope?.tools.includes(authorizedToolName)) {
+      res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Tool is not permitted for this Agent chat run', retryable: false } });
       return;
     }
     if (!ACTIVE_TOOL_RUN_STATUSES.has(workflowRun?.status || run!.status)) {
@@ -160,7 +187,7 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
 
     const startedAt = Date.now();
     const operation = workflowRun
-      ? operationForWorkflowToolCall(workflowRun, toolName)
+      ? operationForWorkflowToolCall(workflowRun, authorizedToolName)
       : operationForToolCall(claims, toolName);
     try {
       const agentResult = await agentGateway.callAgentMcpTool(

@@ -1,2 +1,0 @@
-ALTER TABLE workspace_defaults
-  ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT TRUE;

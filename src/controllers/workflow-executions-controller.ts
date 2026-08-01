@@ -7,7 +7,7 @@ import { incrementWorkflowExecutionStream } from '../metrics.js';
 import { cancelRunInExecutionEngine } from '../services/execution-engine-client.js';
 import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
 import { WorkflowAccessDeniedError } from '../services/workflow-access.js';
-import { getWorkflowCapabilityReadinessReport, publicMcpReadinessError } from '../services/workflow-readiness.js';
+import { getWorkflowCapabilityReadinessReport, publicMcpReadinessError } from '../services/mcp-readiness.js';
 import { cancelWorkflowExecutionGraph } from '../services/workflow-execution-cancellation.js';
 import { resumeWorkflowExecution } from '../services/workflow-state-machine.js';
 import {
@@ -22,7 +22,6 @@ import {
 } from '../store/repository-workflows.js';
 import { runtime } from '../store/runtime.js';
 import { repo } from '../store/repository.js';
-import { isTargetType } from '../types/domain.js';
 import type { WorkflowDefinitionForAccess } from '../types/workflows.js';
 import { toSingleParam } from '../utils/params.js';
 import {
@@ -52,7 +51,6 @@ function publicExecution(
     id: record.id,
     workspaceId: record.workspaceId,
     workflowId: record.workflowId,
-    workflowVersion: record.workflowVersion,
     workflowSessionId: record.workflowSessionId,
     status: record.status,
     triggerType: record.triggerType,
@@ -92,7 +90,6 @@ export async function listWorkspaceWorkflowExecutions(
       state: stateValue || 'all',
       origin: originValue || undefined,
       workflowId: toSingleParam(req.query.workflowId as string | string[] | undefined),
-      sourceIssueId: toSingleParam(req.query.sourceIssueId as string | string[] | undefined),
       search: search || undefined
     };
     const signature = makeQuerySignature(filters);
@@ -150,7 +147,6 @@ export async function getWorkflowExecution(req: AuthenticatedRequest, res: Respo
         return {
           childRunId: child.id,
           capabilityId: child.delegationCapabilityId,
-          target: { id: child.targetId, targetType: child.targetType },
           agent: { id: child.agentId, name: specialistSnapshot?.name || 'Unavailable Agent' },
           required: child.delegationRequired,
           status: child.status,
@@ -279,7 +275,7 @@ export async function resumeWorkflowExecutionController(req: AuthenticatedReques
     if (!row) { res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow execution not found', retryable: false } }); return; }
     const workflow = row.workflow_snapshot as WorkflowDefinitionForAccess | undefined;
     if (!workflow) {
-      res.status(409).json({ error: { code: 'WORKFLOW_VERSION_UNAVAILABLE', message: 'Workflow definition is unavailable.', retryable: false } });
+      res.status(409).json({ error: { code: 'WORKFLOW_DEFINITION_UNAVAILABLE', message: 'Workflow definition is unavailable.', retryable: false } });
       return;
     }
     const mode = workflow.capabilityPolicy.mode === 'read_write' ? 'create_read_write_runs' : 'create_read_only_runs';
@@ -300,21 +296,10 @@ export async function resumeWorkflowExecutionController(req: AuthenticatedReques
       res.status(409).json({ error: { code: 'WORKFLOW_RUN_NOT_FOUND', message: 'The pinned root run is unavailable.', retryable: false } });
       return;
     }
-    const targetRoute = previous.targetId && previous.targetType && isTargetType(previous.targetType)
-      ? { id: previous.targetId, targetType: previous.targetType }
-      : undefined;
-    const target = targetRoute
-      ? await repo.getTarget(row.workspace_id, targetRoute.id) || undefined
-      : undefined;
-    if (targetRoute && !target) {
-      res.status(409).json({ error: { code: 'PROMPT_REFERENCE_NOT_FOUND', message: 'The bound target is no longer available.', retryable: false } });
-      return;
-    }
     const pinnedScope = previous.compiledAccessScope;
     const mcpReadiness = await getWorkflowCapabilityReadinessReport(
       row.workspace_id,
       pinnedScope,
-      target,
       { principal: pinnedScope.principal }
     );
     if (mcpReadiness.errors.length > 0) {
@@ -331,8 +316,6 @@ export async function resumeWorkflowExecutionController(req: AuthenticatedReques
         specialistSnapshot: previous.executorSnapshot.role === 'specialist'
           ? previous.executorSnapshot.agent
           : undefined,
-        targetId: targetRoute?.id,
-        targetType: targetRoute?.targetType,
         compiledAccessScope: pinnedScope,
         prompt,
         promptDigest: previous.promptDigest,

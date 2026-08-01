@@ -15,7 +15,7 @@ afterEach(restoreControllerRegressionState);
 
 describe('internal execution Target Insights context', () => {
   it('continues session context assembly when Target Insights retrieval fails', async () => {
-    repo.getSession = async () => createSessionRecord();
+    repo.getSession = async () => createSessionRecord({ conversationKind: 'target_chat' });
     repo.getRun = async () => createRun({ status: 'running' });
     repo.listMessages = async () => ({ items: [createMessage({ content: 'diagnose registry 401' })] });
     repo.getTargetToolSetting = async () => null;
@@ -40,7 +40,7 @@ describe('internal execution Target Insights context', () => {
   });
 
   it('marks Target Insights retrieval as skipped when the target setting is disabled', async () => {
-    repo.getSession = async () => createSessionRecord();
+    repo.getSession = async () => createSessionRecord({ conversationKind: 'target_chat' });
     repo.getRun = async () => createRun({ status: 'running' });
     repo.listMessages = async () => ({ items: [createMessage({ content: 'diagnose crashloopbackoff' })] });
     repo.getTargetToolSetting = async () => ({

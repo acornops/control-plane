@@ -14,8 +14,7 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
       required: ['type'],
       properties: {
         type: { type: 'string', enum: ['template', 'manual'] },
-        templateId: { type: 'string' },
-        templateVersion: { type: 'integer', minimum: 1 }
+        templateId: { type: 'string' }
       },
       additionalProperties: false
     },
@@ -55,11 +54,10 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
     },
     WorkflowDefinition: {
       type: 'object',
-      required: ['id', 'workspaceId', 'version', 'origin', 'name', 'status', 'prompt', 'agentIds', 'executionMode', 'capabilityPolicy', 'requiredPermissions', 'createdBy'],
+      required: ['id', 'workspaceId', 'origin', 'name', 'status', 'prompt', 'agentIds', 'executionMode', 'capabilityPolicy', 'requiredPermissions', 'createdBy'],
       properties: {
         id: workflowId,
         workspaceId: uuid,
-        version: { type: 'integer', minimum: 1 },
         origin: schemaRef('WorkflowOrigin'),
         name: { type: 'string' },
         description: { type: 'string' },
@@ -95,7 +93,7 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         label: { type: 'string' },
         description: { type: 'string' },
         access: { type: 'string', enum: ['read', 'write'] },
-        source: { type: 'string', enum: ['target', 'mcp', 'builtin'] },
+        source: { type: 'string', enum: ['mcp', 'builtin'] },
         serverId: { type: 'string' },
         serverIds: { type: 'array', items: { type: 'string' }, uniqueItems: true }
       },
@@ -103,10 +101,9 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
     },
     WorkflowCapabilitiesPreview: {
       type: 'object',
-      required: ['workflowId', 'workflowVersion', 'promptDigest', 'bindingDigest', 'mode', 'semanticCapabilityIds', 'checkedAt', 'status', 'reasonCodes', 'tools', 'directMcpServers', 'enabledSkills', 'mcpRequirements', 'approvalRequirements', 'counts'],
+      required: ['workflowId', 'promptDigest', 'bindingDigest', 'mode', 'semanticCapabilityIds', 'checkedAt', 'status', 'reasonCodes', 'tools', 'directMcpServers', 'enabledSkills', 'mcpRequirements', 'approvalRequirements', 'counts'],
       properties: {
         workflowId,
-        workflowVersion: { type: 'integer', minimum: 1 },
         promptDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
         bindingDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
         mode: { type: 'string', enum: ['read_only', 'read_write'] },
@@ -189,11 +186,8 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
           type: 'object',
           required: ['source'],
           properties: {
-            source: { type: 'string', enum: ['workspace', 'target', 'agent'] },
+            source: { type: 'string', enum: ['workspace', 'agent'] },
             provider: { type: 'string', enum: ['github', 'gitlab'] },
-            targetId: { type: 'string' },
-            targetName: { type: 'string' },
-            targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] },
             agentId: { type: 'string' }
           },
           additionalProperties: false
@@ -235,7 +229,6 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         id: uuid,
         workspaceId: uuid,
         workflowId,
-        workflowVersion: { type: 'integer' },
         name: { type: 'string' },
         status: { type: 'string', enum: ['enabled', 'paused'] },
         cron: { type: 'string' },
@@ -324,25 +317,23 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         resolvedAt: dateTime
       }, additionalProperties: false
     },
-    WorkflowApprovalInbox: {
+    WorkspaceApprovalInbox: {
       type: 'object',
       required: ['items', 'pendingCount'],
       properties: {
-        items: { type: 'array', items: schemaRef('WorkflowApprovalInboxRow') },
+        items: { type: 'array', items: schemaRef('WorkspaceApprovalInboxRow') },
         pendingCount: { type: 'integer', minimum: 0 },
         nextCursor: { type: 'string' }
       }
     },
-    WorkflowApprovalInboxRow: {
+    WorkspaceApprovalInboxRow: {
       type: 'object',
       required: ['approvalId', 'runId', 'source', 'status', 'summary'],
       properties: {
         approvalId: uuid,
         runId: uuid,
-        source: { type: 'string', enum: ['target_tool', 'workflow_gate', 'agent_gate', 'agent_tool', 'workflow_tool'] },
+        source: { type: 'string', enum: ['interactive_tool', 'workflow_gate', 'agent_gate', 'agent_tool', 'workflow_tool'] },
         workflowId,
-        targetId: uuid,
-        targetType: { type: 'string' },
         summary: { type: 'string' },
         toolName: { type: 'string' },
         requestedBy: { type: 'string' },
@@ -357,12 +348,11 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
     },
     WorkflowSession: {
       type: 'object',
-      required: ['id', 'workspaceId', 'workflowId', 'workflowVersion', 'createdBy'],
+      required: ['id', 'workspaceId', 'workflowId', 'createdBy'],
       properties: {
         id: workflowSessionId,
         workspaceId: uuid,
         workflowId,
-        workflowVersion: { type: 'integer' },
         createdBy: uuid,
         launchedAt: dateTime,
         runs: { type: 'array', items: jsonObject },
@@ -393,20 +383,11 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
     },
     WorkflowCoordinationChild: {
       type: 'object',
-      required: ['id', 'capabilityId', 'target', 'agent', 'required', 'status'],
+      required: ['id', 'capabilityId', 'agent', 'required', 'status'],
       properties: {
         id: { type: 'string' },
         childRunId: { type: 'string' },
         capabilityId: { type: 'string' },
-        target: {
-          type: 'object',
-          required: ['id', 'targetType'],
-          properties: {
-            id: { type: 'string' },
-            targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] }
-          },
-          additionalProperties: false
-        },
         agent: {
           type: 'object',
           required: ['id', 'name'],
@@ -447,15 +428,14 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
     },
     ReportArtifact: {
       type: 'object',
-      required: ['id', 'workspaceId', 'sourceVersion', 'mediaType', 'title', 'sourceSizeBytes', 'retentionExpiresAt', 'createdAt', 'downloadUrl'],
+      required: ['id', 'workspaceId', 'mediaType', 'title', 'sourceSizeBytes', 'retentionExpiresAt', 'createdAt', 'downloadUrl'],
       properties: {
         id: uuid,
         workspaceId: uuid,
-        executionId: { type: 'string' },
-        runId: { type: 'string' },
-        targetRunId: { type: 'string' },
+        workflowExecutionId: { type: 'string' },
+        workflowRunId: { type: 'string' },
+        conversationRunId: { type: 'string' },
         toolCallId: { type: 'string' },
-        sourceVersion: { type: 'integer', minimum: 1 },
         mediaType: { type: 'string', enum: ['application/pdf'] },
         title: { type: 'string' },
         sourceSizeBytes: { type: 'integer', minimum: 0 },

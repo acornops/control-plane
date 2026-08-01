@@ -43,15 +43,13 @@ describe('Workflow and Agent template foundations', () => {
     const agents = await db.query<{
       id: string;
       name: string;
-      version: number;
       status: string;
       review_state: string;
       origin: { type: string };
       semantic_capability_ids: string[];
-      target_scope: { targetTypes: string[] };
       tools: string[];
     }>(
-      `SELECT id,name,version,status,review_state,origin,semantic_capability_ids,target_scope,tools
+      `SELECT id,name,status,review_state,origin,semantic_capability_ids,tools
        FROM agent_definitions WHERE workspace_id=$1 ORDER BY name`,
       ['workspace-provisioned']
     );
@@ -65,41 +63,31 @@ describe('Workflow and Agent template foundations', () => {
       'Kubernetes Agent',
       'Virtual Machine Agent'
     ]);
-    assert.deepEqual(agents.rows[0].target_scope.targetTypes, ['kubernetes']);
-    assert.deepEqual(agents.rows[0].semantic_capability_ids, [
+    assert.deepEqual([...agents.rows[0].semantic_capability_ids].sort(), [
       'prompt.resources.read',
       'reports.pdf.generate',
-      'target.diagnostics.read',
-      'target.remediation.write'
-    ]);
-    assert.deepEqual(agents.rows[1].target_scope.targetTypes, ['virtual_machine']);
-    assert.deepEqual(agents.rows[1].semantic_capability_ids, [
+      'infrastructure.diagnostics.read',
+      'infrastructure.remediation.write'
+    ].sort());
+    assert.deepEqual([...agents.rows[1].semantic_capability_ids].sort(), [
       'prompt.resources.read',
       'reports.pdf.generate',
-      'target.diagnostics.read'
-    ]);
+      'infrastructure.diagnostics.read'
+    ].sort());
     assert.equal(agents.rows.every((agent) => (
       agent.tools.includes('prompt.resources.read') && agent.tools.includes('reports.pdf.generate')
     )), true);
-    await db.query(
-      `INSERT INTO targets (id,workspace_id,target_type,name,status,metadata,created_at,updated_at)
-       VALUES ('vm-read-only','workspace-provisioned','virtual_machine','Read-only VM','online','{}',NOW(),NOW())`
-    );
     const virtualMachineAgent = agents.rows[1];
     await upsertPlatformCapabilityRoutingMapping({
       id: 'vm-read-only-diagnostics',
       workspaceId: 'workspace-provisioned',
-      capabilityId: 'target.diagnostics.read',
+      capabilityId: 'infrastructure.diagnostics.read',
       agentId: virtualMachineAgent.id,
-      agentVersion: virtualMachineAgent.version,
       status: 'active',
       reviewState: 'reviewed',
       priority: 10,
-      targetTypes: ['virtual_machine'],
-      targetIds: ['vm-read-only'],
-      mcpTools: [],
-      targetToolRefs: [{
-        serverId: 'builtin-vm-tools',
+      mcpTools: [{
+        serverId: 'targets',
         toolName: 'get_host_summary',
         alias: 'get_host_summary',
         operation: 'read'

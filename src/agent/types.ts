@@ -9,7 +9,7 @@ export interface AgentConnection {
   targetType: TargetType;
   workspaceId: string;
   keyVersion: number;
-  agentVersion?: string;
+  connectorVersion?: string;
   ownerRefreshInterval?: NodeJS.Timeout;
 }
 

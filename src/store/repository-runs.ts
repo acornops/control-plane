@@ -3,32 +3,30 @@ import { db } from '../infra/db.js';
 import type { PoolClient } from 'pg';
 import type { Run, RunEvent, RunStatus } from '../types/domain.js';
 import { mapRun, mapRunEvent } from './repository-mappers.js';
+import { conversationRunSelect } from './repository-conversation-runtime.js';
 
 type Queryable = Pick<typeof db, 'query'> | PoolClient;
-
-const runSelect = `
-  SELECT r.*, t.target_type
-  FROM runs r
-  JOIN targets t ON t.id = r.target_id
-`;
 
 export async function addRun(run: Run): Promise<Run> {
   const result = await db.query(
     `WITH inserted AS (
        INSERT INTO runs (
-         id, workspace_id, target_id, session_id, message_id,
+         id, workspace_id, target_id, session_id, message_id, conversation_kind,
+         agent_id, agent_snapshot, compiled_access_scope,
          llm_provider, llm_model, llm_reasoning_summary_mode, llm_reasoning_effort,
          tool_access_mode,
          status, requested_at, started_at, ended_at,
          error_code, error_message, usage, assistant_message
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb)
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21::jsonb,$22::jsonb)
        RETURNING *
      )
      SELECT inserted.*, t.target_type
      FROM inserted
-     JOIN targets t ON t.id = inserted.target_id`,
+     LEFT JOIN targets t ON t.id = inserted.target_id`,
     [
-      run.id, run.workspaceId, run.targetId, run.sessionId, run.messageId,
+      run.id, run.workspaceId, run.targetId || null, run.sessionId, run.messageId, run.conversationKind || 'target_chat',
+      run.agentId || null, run.agentSnapshot ? JSON.stringify(run.agentSnapshot) : null,
+      run.compiledAccessScope ? JSON.stringify(run.compiledAccessScope) : null,
       run.llmProvider, run.llmModel, run.llmReasoningSummaryMode, run.llmReasoningEffort,
       run.toolAccessMode, run.status, run.requestedAt, run.startedAt || null, run.endedAt || null,
       run.errorCode || null, run.errorMessage || null, JSON.stringify(run.usage || null),
@@ -39,7 +37,7 @@ export async function addRun(run: Run): Promise<Run> {
 }
 
 export async function getRun(runId: string): Promise<Run | null> {
-  const result = await db.query(`${runSelect} WHERE r.id = $1`, [runId]);
+  const result = await db.query(`${conversationRunSelect} WHERE r.id = $1`, [runId]);
   return result.rowCount ? mapRun(result.rows[0]) : null;
 }
 
@@ -48,7 +46,7 @@ export async function updateRun(
   patch: Partial<Run>,
   queryable: Queryable = db
 ): Promise<Run | null> {
-  const currentResult = await queryable.query(`${runSelect} WHERE r.id = $1`, [runId]);
+  const currentResult = await queryable.query(`${conversationRunSelect} WHERE r.id = $1`, [runId]);
   if (!currentResult.rowCount) return null;
   const current = mapRun(currentResult.rows[0]);
   const next: Run = { ...current, ...patch };
@@ -62,7 +60,7 @@ export async function updateRun(
      )
      SELECT updated.*, t.target_type
      FROM updated
-     JOIN targets t ON t.id = updated.target_id`,
+     LEFT JOIN targets t ON t.id = updated.target_id`,
     [runId, next.status, next.startedAt || null, next.endedAt || null, next.errorCode || null,
       next.errorMessage || null, JSON.stringify(next.usage || null), JSON.stringify(next.assistantMessage || null)]
   );
@@ -76,7 +74,7 @@ export async function updateRunWhileStatus(
   client: PoolClient
 ): Promise<Run | null> {
   const currentResult = await client.query(
-    `${runSelect} WHERE r.id = $1 FOR UPDATE OF r`,
+    `${conversationRunSelect} WHERE r.id = $1 FOR UPDATE OF r`,
     [runId]
   );
   if (!currentResult.rowCount) return null;
@@ -94,7 +92,7 @@ export async function updateRunWhileStatus(
      )
      SELECT updated.*, t.target_type
      FROM updated
-     JOIN targets t ON t.id = updated.target_id`,
+     LEFT JOIN targets t ON t.id = updated.target_id`,
     [runId, next.status, next.startedAt || null, next.endedAt || null, next.errorCode || null,
       next.errorMessage || null, JSON.stringify(next.usage || null), JSON.stringify(next.assistantMessage || null)]
   );

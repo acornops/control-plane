@@ -4,18 +4,18 @@ import { config } from '../config.js';
 import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
 import { isModelAllowedForProvider } from '../services/llm-policy.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
-import { intersectGrantedTargetRunTools, resolveTargetRunTools, WEB_SEARCH_TOOL_ID } from '../services/target-run-tool-resolution.js';
-import { resolveTargetRunConfirmationPolicy } from '../services/target-run-confirmation-policy.js';
+import { WEB_SEARCH_TOOL_ID } from '../services/provider-native-tool-ids.js';
+import { resolveWorkspaceMcpToolSpecs } from '../services/workspace-mcp-tool-specs.js';
 import { gatewayTokenService } from '../services/token-service.js';
 import { workflowRunAgentClaims } from '../services/workflow-run-agent-claims.js';
 import { repo } from '../store/repository.js';
 import { getWorkflowRun, getWorkflowSession, WorkflowRunRecord } from '../store/repository-workflows.js';
-import { isTargetType } from '../types/domain.js';
-import { targetAssistantContract } from '../services/target-adapter-contract.js';
 import { toSingleParam } from '../utils/params.js';
-import { resolveReadyInteractiveRunTools } from './interactive-mcp-availability.js';
 import { mapGatewayError } from './workspaces/common.js';
 import { getWorkspaceNativeTool } from '../services/workspace-native-tools.js';
+import { bootstrapAgentChatRun } from './internal-agent-chat-bootstrap.js';
+import { bootstrapTargetRun } from './internal-target-run-bootstrap.js';
+import { resolveRunSkillSnapshots } from '../services/run-skill-snapshots.js';
 
 const AI_GATEWAY_UPSTREAM_MESSAGE = 'Failed to check workspace AI provider settings with llm-gateway';
 
@@ -54,21 +54,27 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
   }
 
   const maxOutputTokens = config.LLM_MAX_OUTPUT_TOKENS;
-  const workflowTargetToolRoutes = run.compiledAccessScope.targetToolRoutes || [];
   const workflowMcpRefs = run.compiledAccessScope.mcpTools || [];
   const workflowMcpRefKeys = new Set(workflowMcpRefs.map((ref) => `${ref.serverId}\u0000${ref.toolName}`));
   const workflowAgentSnapshot = run.executorSnapshot.role === 'specialist'
     ? run.executorSnapshot.agent
     : undefined;
+  const workflowSkills = workflowAgentSnapshot
+    ? resolveRunSkillSnapshots(workflowAgentSnapshot, run.compiledAccessScope.enabledSkills)
+    : [];
   const workflowMcpTools = (workflowAgentSnapshot?.mcpInstallations || []).flatMap((installation) => {
-    const constraints = installation.targetConstraints;
-    const targetAllowed = (!constraints.targetIds.length || Boolean(run.targetId && constraints.targetIds.includes(run.targetId)))
-      && (!constraints.targetTypes.length || Boolean(run.targetType && constraints.targetTypes.some((type) => type === run.targetType)));
-    if (!installation.enabled || !targetAllowed) return [];
+    if (!installation.enabled) return [];
     return installation.tools.filter((tool) => tool.enabled && tool.reviewState === 'approved'
       && workflowMcpRefKeys.has(`${tool.serverId}\u0000${tool.toolName}`));
   });
   const workflowRemoteAliases = new Set(workflowMcpTools.map((tool) => tool.alias));
+  const workspaceMcpToolSpecs = await resolveWorkspaceMcpToolSpecs({
+    workspaceId: run.workspaceId,
+    runId: run.id,
+    mode: run.compiledAccessScope.mode,
+    refs: workflowMcpRefs
+  });
+  const workspaceMcpAliases = new Set(workspaceMcpToolSpecs.map((tool) => tool.name));
   const workspaceNativeToolDefinitions = (run.parentRunId ? [] : run.compiledAccessScope.tools)
     .map((toolId) => getWorkspaceNativeTool(toolId))
     .filter((tool): tool is NonNullable<typeof tool> => Boolean(tool));
@@ -78,9 +84,9 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
   );
   let allowedToolNames = run.compiledAccessScope.tools.filter((tool) => (
     !workflowRemoteAliases.has(tool)
+    && !workspaceMcpAliases.has(tool)
     && !workspaceNativeToolIds.has(tool)
     && !providerNativeToolIds.has(tool)
-    && !workflowTargetToolRoutes.some((route) => route.alias === tool)
   ));
   let allowedToolOperations = Object.fromEntries(allowedToolNames.map((tool) => [
     tool,
@@ -90,7 +96,6 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     serverId: tool.serverId,
     toolName: tool.toolName
   }));
-  let allowedTargetToolRoutes: typeof workflowTargetToolRoutes = [];
   const agentClaims = workflowRunAgentClaims(run);
   const allowedNativeTools: Array<{ id: string; config: Record<string, unknown> }> = [
     ...providerNativeToolIds
@@ -106,12 +111,6 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     description: string;
     capability: 'read' | 'write';
     input_schema: Record<string, unknown>;
-    target_routes?: Array<{
-      target_id: string;
-      target_type: 'kubernetes' | 'virtual_machine';
-      server_id: string;
-      tool_name: string;
-    }>;
   }> = allowedToolNames.map((toolName) => ({
       name: toolName,
       description: `Execute workflow-granted tool "${toolName}".`,
@@ -129,119 +128,11 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     });
   }
 
-  if ((run.targetId && !run.targetType) || (!run.targetId && run.targetType)) {
-    res.status(409).json({ error: { code: 'WORKFLOW_TARGET_INVALID', message: 'Workflow run target binding is incomplete', retryable: false } });
-    return;
-  }
-  if (run.targetType && !isTargetType(run.targetType)) {
-    res.status(409).json({ error: { code: 'WORKFLOW_TARGET_TYPE_INVALID', message: 'Workflow run target type is not supported', retryable: false } });
-    return;
-  }
-  const hasTargetBinding = Boolean(run.targetId && run.targetType);
-  if (hasTargetBinding) {
-    const targetTools = await resolveTargetRunTools({
-      workspaceId: run.workspaceId,
-      targetId: run.targetId!,
-      targetType: run.targetType as 'kubernetes' | 'virtual_machine',
-      toolAccessMode: run.compiledAccessScope.mode,
-      runId: run.id,
-      includeNativeTools: false
-    });
-    const effectiveTargetTools = intersectGrantedTargetRunTools(
-      targetTools,
-      run.compiledAccessScope.tools,
-      run.compiledAccessScope.targetToolRefs || []
-    );
-    allowedToolNames = effectiveTargetTools.allowedToolNames;
-    allowedToolOperations = effectiveTargetTools.allowedToolOperations;
-    allowedToolSpecs = effectiveTargetTools.allowedToolSpecs
-      .map((spec) => ({
-        ...spec,
-        capability: allowedToolOperations[spec.name] === 'write' ? 'write' as const : 'read' as const
-      }));
-    allowedToolRefs = [...effectiveTargetTools.allowedToolRefs, ...allowedToolRefs];
-    for (const tool of workspaceNativeToolDefinitions) {
-      allowedToolNames.push(tool.modelAlias);
-      allowedToolOperations[tool.modelAlias] = tool.approvalOperation;
-      allowedToolSpecs.push({
-        name: tool.modelAlias,
-        description: tool.description,
-        capability: tool.approvalOperation,
-        input_schema: tool.inputSchema
-      });
-    }
-  } else if (workflowTargetToolRoutes.length > 0) {
-    const targetRoutes = workflowTargetToolRoutes;
-    const targetKeys = [...new Set(targetRoutes.map((route) => `${route.targetId}\u0000${route.targetType}`))];
-    const targetCatalogs = await Promise.all(targetKeys.map(async (key) => {
-      const [targetId, targetType] = key.split('\u0000') as [string, 'kubernetes' | 'virtual_machine'];
-      const target = await repo.getTarget(run.workspaceId, targetId);
-      if (!target || target.targetType !== targetType) return null;
-      const resolution = await resolveTargetRunTools({
-        workspaceId: run.workspaceId,
-        targetId,
-        targetType,
-        toolAccessMode: run.compiledAccessScope.mode,
-        runId: run.id,
-        includeNativeTools: false
-      });
-      return { target, resolution };
-    }));
-    const resolvedByTarget = new Map(targetCatalogs.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-      .map((entry) => [`${entry.target.id}\u0000${entry.target.targetType}`, entry]));
-    const aliases = [...new Set(targetRoutes.map((route) => route.alias))].sort();
-    for (const alias of aliases) {
-      const resolvedRoutes = targetRoutes.flatMap((route) => {
-        if (route.alias !== alias) return [];
-        const catalog = resolvedByTarget.get(`${route.targetId}\u0000${route.targetType}`);
-        const spec = catalog?.resolution.allowedToolSpecs.find((candidate) => (
-          candidate.server_id === route.serverId && candidate.tool_name === route.toolName
-        ));
-        return catalog && spec ? [{ route, target: catalog.target, spec }] : [];
-      });
-      if (resolvedRoutes.length === 0) continue;
-      const first = resolvedRoutes[0];
-      const baseSchema = first.spec.input_schema && typeof first.spec.input_schema === 'object'
-        ? structuredClone(first.spec.input_schema)
-        : { type: 'object' };
-      const properties = baseSchema.properties && typeof baseSchema.properties === 'object' && !Array.isArray(baseSchema.properties)
-        ? baseSchema.properties as Record<string, unknown>
-        : {};
-      const required = Array.isArray(baseSchema.required)
-        ? baseSchema.required.filter((value): value is string => typeof value === 'string')
-        : [];
-      const targetLabels = resolvedRoutes.map(({ target }) => `${target.name} (${target.id})`).join(', ');
-      const capability = resolvedRoutes.some(({ route }) => route.operation === 'write') ? 'write' as const : 'read' as const;
-      const routeSpecs = resolvedRoutes.map(({ route }) => ({
-        target_id: route.targetId,
-        target_type: route.targetType,
-        server_id: route.serverId,
-        tool_name: route.toolName
-      }));
-      allowedToolNames.push(alias);
-      allowedToolOperations[alias] = capability;
-      allowedToolSpecs.push({
-        name: alias,
-        description: `${first.spec.description} Select the target with target_id. Available targets: ${targetLabels}.`,
-        capability,
-        input_schema: {
-          ...baseSchema,
-          type: 'object',
-          properties: {
-            ...properties,
-            target_id: {
-              type: 'string',
-              enum: resolvedRoutes.map(({ route }) => route.targetId),
-              description: 'The exact workspace target to use for this tool call.'
-            }
-          },
-          required: [...new Set([...required, 'target_id'])]
-        },
-        target_routes: routeSpecs
-      });
-      allowedToolRefs.push(...resolvedRoutes.map(({ route }) => ({ serverId: route.serverId, toolName: route.toolName })));
-      allowedTargetToolRoutes.push(...resolvedRoutes.map(({ route }) => route));
-    }
+  for (const tool of workspaceMcpToolSpecs) {
+    allowedToolNames.push(tool.name);
+    allowedToolOperations[tool.name] = tool.capability;
+    allowedToolSpecs.push(tool);
+    allowedToolRefs.push({ serverId: tool.server_id, toolName: tool.tool_name });
   }
   for (const tool of workflowMcpTools) {
     allowedToolNames.push(tool.alias);
@@ -264,18 +155,13 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     allowedToolSpecs.push(name === '_acornops_delegate_specialist'
       ? {
           name,
-          description: 'Delegate one capability-scoped task. Include targetBinding only when the task must be pinned to one exact target. The control plane selects the least-privileged eligible specialist.',
+          description: 'Delegate one capability-scoped task. The control plane selects the least-privileged eligible specialist.',
           capability: 'read' as const,
           input_schema: {
             type: 'object',
             required: ['capabilityId', 'taskPrompt'],
             properties: {
               capabilityId: { type: 'string' },
-              targetBinding: {
-                type: 'object', required: ['id', 'targetType'],
-                properties: { id: { type: 'string' }, targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] } },
-                additionalProperties: false
-              },
               taskPrompt: { type: 'string' },
               required: { type: 'boolean', default: true }
             },
@@ -302,18 +188,13 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     allowedProviders,
     allowedTools: allowedToolNames,
     allowedToolRefs,
-    allowedTargetToolRoutes,
     allowedNativeTools,
     allowedToolOperations,
     contextGrants: run.compiledAccessScope.contextGrants,
     maxOutputTokens,
     allowedModels,
     resourceBindings: run.compiledAccessScope.resourceBindings,
-    bindingDigest: run.compiledAccessScope.bindingDigest,
-    executionId: run.executionId,
-    executorRole: run.executorRole,
-    agentId: agentClaims.agentId,
-    agentVersion: agentClaims.agentVersion
+    bindingDigest: run.compiledAccessScope.bindingDigest
   };
   const token = await gatewayTokenService.signRunScopeToken({
     ...commonTokenClaims,
@@ -323,12 +204,7 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     workflowSessionId: run.workflowSessionId,
     executorRole: run.executorRole,
     agentId: agentClaims.agentId,
-    agentVersion: agentClaims.agentVersion,
-    triggerId: agentClaims.triggerId,
-    ...(hasTargetBinding ? {
-      targetId: run.targetId,
-      targetType: run.targetType as 'kubernetes' | 'virtual_machine'
-    } : {})
+    triggerId: agentClaims.triggerId
   });
 
   const snapshot = {
@@ -338,7 +214,6 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
       workspace_id: run.workspaceId,
       session_id: run.workflowSessionId,
       run_id: run.id,
-      ...(hasTargetBinding ? { target_id: run.targetId, target_type: run.targetType } : {}),
       user_id: session.createdBy,
       workflow_id: run.workflowId,
       execution_id: run.executionId,
@@ -348,7 +223,6 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
       attempt_number: run.attemptNumber,
       idempotency_key: run.idempotencyKey,
       ...(agentClaims.agentId ? { agent_id: agentClaims.agentId } : {}),
-      ...(agentClaims.agentVersion ? { agent_version: agentClaims.agentVersion } : {}),
       ...(agentClaims.triggerId ? { trigger_id: agentClaims.triggerId } : {})
     },
     assistant: {
@@ -413,10 +287,23 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
         token
       }
     },
-    routing: {
-      target_scoped: hasTargetBinding,
-      workflow_scoped: true
-    },
+    ...(workflowSkills.length > 0 ? {
+      skills: {
+        contract_version: 2,
+        entries: workflowSkills.map(({ ref, installation, totalBytes }) => ({
+          ref,
+          skill_id: installation.id,
+          name: installation.name,
+          description: installation.description,
+          file_count: installation.files.length,
+          total_bytes: totalBytes,
+          source: 'agent'
+        })),
+        referenced_refs: [],
+        load_endpoint: `/internal/v1/runs/${run.id}/skills/{skill_ref}`
+      }
+    } : {}),
+    routing: { workflow_scoped: true },
     tracing: {
       trace_id: randomUUID(),
       sample_rate: 0.1
@@ -439,187 +326,11 @@ export async function bootstrap(req: Request, res: Response, next: NextFunction)
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Run not found', retryable: false } });
       return;
     }
-    const target = await repo.getTarget(run.workspaceId, run.targetId);
-    if (!target) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Target not found for run', retryable: false } });
+    if (run.conversationKind === 'agent_chat') {
+      await bootstrapAgentChatRun(run, res);
       return;
     }
-    const targetId = target.id;
-    const session = await repo.getSession(run.sessionId);
-    const targetSkills = await repo.getRunSkillCatalog(run.id);
-
-    const llmSettings = await resolveWorkspaceLlmSettings(run.workspaceId, {
-      provider: run.llmProvider,
-      model: run.llmModel,
-      reasoningSummaryMode: run.llmReasoningSummaryMode,
-      reasoningEffort: run.llmReasoningEffort
-    });
-    const allowedProviders = llmSettings.allowedProviders;
-    const allowedModels = llmSettings.allowedModels;
-    if (!allowedProviders.includes(llmSettings.provider)) {
-      res.status(400).json({ error: { code: 'PROVIDER_NOT_ALLOWED', message: 'Workspace AI provider is not enabled', retryable: false } });
-      return;
-    }
-    if (!allowedModels.includes(llmSettings.model)) {
-      res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Workspace AI model is not allowed', retryable: false } });
-      return;
-    }
-    if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, llmSettings.allowedProviderModels)) {
-      res.status(400).json({ error: { code: 'MODEL_NOT_ALLOWED', message: 'Workspace AI model is not available for the selected provider', retryable: false } });
-      return;
-    }
-    if (!llmSettings.credentialConfigured) {
-      res.status(400).json({ error: { code: 'AI_PROVIDER_CREDENTIAL_MISSING', message: 'Workspace AI provider credential is not configured', retryable: false } });
-      return;
-    }
-    const maxOutputTokens = config.LLM_MAX_OUTPUT_TOKENS;
-    if (!run.principal) {
-      res.status(409).json({ error: { code: 'RUN_PRINCIPAL_MISSING', message: 'This run does not have a pinned principal.', retryable: false } });
-      return;
-    }
-    const availability = await resolveReadyInteractiveRunTools(res, {
-      workspaceId: run.workspaceId,
-      targetId,
-      targetType: target.targetType,
-      toolAccessMode: run.toolAccessMode,
-      runId: run.id,
-      provider: llmSettings.provider,
-      principal: run.principal,
-      assistantReferences: run.assistantReferences
-    });
-    if (!availability) return;
-    const toolResolution = availability.resolution;
-    const { confirmationRequiredForWrite, permissionMode } = resolveTargetRunConfirmationPolicy(run, toolResolution.confirmationRequiredForWrite);
-    const { allowedToolSpecs, allowedToolNames, allowedToolRefs, allowedNativeTools } = toolResolution;
-    const platformFunctions = toolResolution.platformFunctions.map((tool) => ({
-      id: tool.id,
-      model_alias: tool.modelAlias
-    }));
-    const allowedToolOperations = toolResolution.allowedToolOperations;
-    const referencedTools = (run.assistantReferences || []).filter((reference) => reference.kind === 'tool');
-    const referencedSkills = (run.assistantReferences || []).filter((reference) => reference.kind === 'skill');
-    const currentToolPreviews = new Map(toolResolution.previewItems.map((tool) => [tool.name, tool]));
-    const staleToolReference = referencedTools.find((reference) => {
-      const current = currentToolPreviews.get(reference.id);
-      if (!current) return true;
-      if (!reference.serverId && !reference.toolName) return false;
-      return !allowedToolSpecs.some((tool) => tool.name === reference.id
-        && tool.server_id === reference.serverId
-        && tool.tool_name === reference.toolName);
-    });
-    const skillRefById = new Map(targetSkills.map((skill) => [skill.skillId, skill.ref]));
-    const staleSkillReference = referencedSkills.find((reference) => !skillRefById.has(reference.id));
-    if (staleToolReference || staleSkillReference) {
-      res.status(409).json({
-        error: {
-          code: 'ASSISTANT_REFERENCE_INVALID',
-          message: 'A referenced tool or skill is no longer available for this run.',
-          retryable: false
-        }
-      });
-      return;
-    }
-
-    const token = await gatewayTokenService.signRunScopeToken({
-      runId: run.id,
-      workspaceId: run.workspaceId,
-      targetId,
-      targetType: target.targetType,
-      sessionId: run.sessionId,
-      ...(run.principal.type === 'user' ? { userId: run.principal.id } : {}),
-      principal: run.principal,
-      permissionMode,
-      allowedProviders,
-      allowedTools: allowedToolNames,
-      allowedToolRefs,
-      allowedNativeTools,
-      allowedToolOperations,
-      maxOutputTokens,
-      allowedModels
-    });
-
-    const snapshot = {
-      contract_version: 2,
-      scope: {
-        workspace_id: run.workspaceId,
-        target_id: targetId,
-        target_type: target.targetType,
-        session_id: run.sessionId,
-        run_id: run.id,
-        user_id: run.principal.type === 'user' ? run.principal.id : undefined
-      },
-      assistant: targetAssistantContract(target.targetType),
-      policy: {
-        max_runtime_ms: config.ASSISTANT_MAX_RUNTIME_MS,
-        max_output_tokens: maxOutputTokens ?? null,
-        budget_cents: config.ASSISTANT_BUDGET_CENTS,
-        max_steps: config.ASSISTANT_MAX_STEPS,
-        max_tool_calls: config.ASSISTANT_MAX_TOOL_CALLS,
-        max_duplicate_tool_calls: config.ASSISTANT_MAX_DUPLICATE_TOOL_CALLS
-      },
-      context: {
-        endpoint: `/internal/v1/sessions/${run.sessionId}/context`,
-        max_context_tokens: config.ASSISTANT_CONTEXT_MAX_TOKENS
-      },
-      llm: {
-        provider: llmSettings.provider,
-        model: llmSettings.model,
-        temperature: config.ASSISTANT_LLM_TEMPERATURE,
-        mode: 'gateway',
-        reasoning: llmSettings.reasoning,
-        gateway: {
-          url: config.LLM_GATEWAY_URL,
-          token,
-          request_timeout_ms: config.LLM_GATEWAY_TIMEOUT_MS
-        }
-      },
-      tools: {
-        tool_registry_version: 'trv_1',
-        allowed_tools: allowedToolNames,
-        allowed_tool_refs: allowedToolRefs.map((ref) => ({ server_id: ref.serverId, tool_name: ref.toolName })),
-        native_tools: allowedNativeTools,
-        platform_functions: platformFunctions,
-        tool_specs: allowedToolSpecs,
-        referenced_tools: referencedTools.map((reference) => ({
-          name: reference.id,
-          label: reference.label,
-          ...(reference.serverId ? { server_id: reference.serverId } : {}),
-          ...(reference.toolName ? { tool_name: reference.toolName } : {})
-        })),
-        write_unavailable_reason: toolResolution.writeUnavailableReason,
-        confirmation_required_for_write: Object.values(allowedToolOperations).includes('write') && confirmationRequiredForWrite,
-        approval_timeout_seconds: toolResolution.approvalTimeoutSeconds,
-        gateway: {
-          url: config.LLM_GATEWAY_URL,
-          token
-        }
-      },
-      ...(targetSkills.length > 0 ? {
-        skills: {
-          contract_version: 2,
-          entries: targetSkills.map((skill) => ({
-            ref: skill.ref,
-            skill_id: skill.skillId,
-            name: skill.name,
-            description: skill.description,
-            file_count: skill.fileCount,
-            total_bytes: skill.totalBytes,
-            source: 'target_adapter'
-          })),
-          referenced_refs: referencedSkills.map((reference) => skillRefById.get(reference.id)!),
-          load_endpoint: `/internal/v1/runs/${run.id}/skills/{skill_ref}`
-        }
-      } : {}),
-      routing: {
-        target_scoped: true
-      },
-      tracing: {
-        trace_id: randomUUID(),
-        sample_rate: 0.1
-      }
-    };
-
-    res.status(200).json(snapshot);
+    await bootstrapTargetRun(run, res);
   } catch (err) {
     if (err instanceof LlmGatewayHttpError) {
       const mapped = mapGatewayError(err, { upstreamMessage: AI_GATEWAY_UPSTREAM_MESSAGE });

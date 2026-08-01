@@ -65,9 +65,7 @@ async function recordWorkflowRunStarted(run: WorkflowRunRecord): Promise<void> {
     payload: {
       agentId: run.agentId || null,
       attemptNumber: run.attemptNumber,
-      status: run.status,
-      targetId: run.targetId || null,
-      targetType: run.targetType || null
+      status: run.status
     }
   });
   for (const approval of await listWorkflowRunApprovals(run.id)) {

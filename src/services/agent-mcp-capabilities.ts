@@ -1,9 +1,9 @@
-import type { McpServerConfig } from './mcp-registry-client.js';
+import type { AgentMcpServerConfig } from './mcp-registry-client.js';
 import { listAgentMcpServers } from './mcp-registry-client.js';
 import { updateAgentMcpCapabilitySnapshot } from '../store/repository-agents.js';
 import type { AgentMcpInstallationSnapshot } from '../types/agents.js';
 
-export function toAgentMcpServer(server: McpServerConfig) {
+export function toAgentMcpServer(server: AgentMcpServerConfig) {
   const inherited = 'inherited' in server && server.inherited === true;
   return {
     id: server.id,
@@ -22,10 +22,6 @@ export function toAgentMcpServer(server: McpServerConfig) {
     authHeaderPrefix: server.auth_header_prefix || undefined,
     agentId: server.agent_id || undefined,
     revision: server.revision || 1,
-    targetConstraints: {
-      targetTypes: server.target_constraints?.target_types || [],
-      targetIds: server.target_constraints?.target_ids || []
-    },
     provenance: server.catalog_source_id
       && server.catalog_artifact_name
       && server.catalog_version
@@ -77,7 +73,6 @@ export async function syncAgentMcpCapabilitySnapshot(
       enabled: mapped.enabled,
       credentialMode: mapped.credentialMode,
       revision: mapped.revision,
-      targetConstraints: mapped.targetConstraints,
       provenance: mapped.provenance,
       tools: mapped.tools.map((tool) => ({
         serverId: tool.serverId,

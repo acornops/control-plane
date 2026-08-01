@@ -2,7 +2,7 @@ import type { NextFunction, Response } from 'express';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { AgentNativeToolAssignmentError, setAgentNativeToolAssignment } from '../services/agent-native-tools.js';
-import { listWorkspaceNativeTools } from '../services/workspace-native-tools.js';
+import { listWorkspaceNativeToolsForInvocationScope } from '../services/workspace-native-tools.js';
 import { getAgentDefinition } from '../store/repository-agents.js';
 import { toSingleParam } from '../utils/params.js';
 import { agentResponse } from './agent-controller-helpers.js';
@@ -11,7 +11,11 @@ export async function listNativeTools(req: AuthenticatedRequest, res: Response, 
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
     if (!(await requireWorkspaceDataRead(req, res, workspaceId))) return;
-    res.status(200).json({ items: listWorkspaceNativeTools() });
+    const items = listWorkspaceNativeToolsForInvocationScope('agent_chat').map((tool) => ({
+      ...tool,
+      invocationScopes: tool.invocationScopes.filter((scope) => scope !== 'target_chat')
+    }));
+    res.status(200).json({ items });
   } catch (error) { next(error); }
 }
 

@@ -1,11 +1,11 @@
 import { observeWorkspaceNativeToolCall } from '../metrics.js';
 import { recordWorkspaceAuditEvent } from './workspace-audit.js';
 import {
-  createTargetRunReport,
-  createWorkflowReport,
-  type WorkflowReportRecord,
-  WorkflowReportError
-} from '../store/repository-workflow-reports.js';
+  createConversationDocument,
+  createWorkflowDocument,
+  type GeneratedDocumentRecord,
+  GeneratedDocumentError
+} from '../store/repository-generated-documents.js';
 import type { WorkflowRunRecord } from '../store/repository-workflows.js';
 import type { Run } from '../types/domain.js';
 import { config } from '../config.js';
@@ -96,17 +96,17 @@ async function generatePdf(
     throw new WorkspaceNativeToolExecutionError('REPORT_SOURCE_INVALID', 'A title and non-empty markdown source are required.');
   }
   const workflowRun = 'executionId' in run;
-  const retentionDays = config.TARGET_CHAT_REPORT_RETENTION_DAYS;
+  const retentionDays = config.GENERATED_DOCUMENT_RETENTION_DAYS;
   const provenance = args.provenance && typeof args.provenance === 'object' && !Array.isArray(args.provenance)
     ? args.provenance as Record<string, unknown>
     : {};
   if (Buffer.byteLength(JSON.stringify(provenance), 'utf8') > 32_768) {
     throw new WorkspaceNativeToolExecutionError('REPORT_PROVENANCE_TOO_LARGE', 'Report provenance exceeds the allowed size.', 413);
   }
-  let report: WorkflowReportRecord;
+  let report: GeneratedDocumentRecord;
   try {
     report = workflowRun
-      ? await createWorkflowReport({
+      ? await createWorkflowDocument({
           workspaceId: run.workspaceId,
           executionId: run.executionId,
           runId: run.id,
@@ -122,16 +122,17 @@ async function generatePdf(
           },
           retentionDays
         })
-      : await createTargetRunReport({
+      : await createConversationDocument({
           workspaceId: run.workspaceId,
-          targetRunId: run.id,
+          conversationRunId: run.id,
           toolCallId,
           title,
           source: { markdown },
           provenance: {
             ...provenance,
-            targetId: run.targetId,
-            targetType: run.targetType,
+            ...(run.conversationKind === 'agent_chat'
+              ? { agentId: run.agentId, conversationKind: 'agent_chat' }
+              : { targetId: run.targetId, targetType: run.targetType }),
             sessionId: run.sessionId,
             runId: run.id,
             toolCallId
@@ -139,7 +140,7 @@ async function generatePdf(
           retentionDays
         });
   } catch (error) {
-    if (error instanceof WorkflowReportError) {
+    if (error instanceof GeneratedDocumentError) {
       const status = error.code === 'REPORT_RENDER_TIMEOUT' ? 504 : 413;
       throw new WorkspaceNativeToolExecutionError(error.code, 'The report could not be created within artifact limits.', status);
     }
@@ -248,11 +249,9 @@ export async function executeWorkspaceNativeTool(input: {
         toolId: tool.id,
         authorizationClass: tool.authorizationClass,
         runId: input.run.id,
-        ...('workflowId' in input.run ? { workflowId: input.run.workflowId } : {
-          targetId: input.run.targetId,
-          targetType: input.run.targetType,
-          sessionId: input.run.sessionId
-        }),
+        ...('workflowId' in input.run ? { workflowId: input.run.workflowId } : input.run.conversationKind === 'agent_chat'
+          ? { agentId: input.run.agentId, sessionId: input.run.sessionId }
+          : { targetId: input.run.targetId, targetType: input.run.targetType, sessionId: input.run.sessionId }),
         durationMs: Date.now() - startedAt,
         succeeded: true,
         ...fetchAuditMetadata(tool.id, input.arguments, result)
@@ -276,11 +275,9 @@ export async function executeWorkspaceNativeTool(input: {
         toolId: tool.id,
         authorizationClass: tool.authorizationClass,
         runId: input.run.id,
-        ...('workflowId' in input.run ? { workflowId: input.run.workflowId } : {
-          targetId: input.run.targetId,
-          targetType: input.run.targetType,
-          sessionId: input.run.sessionId
-        }),
+        ...('workflowId' in input.run ? { workflowId: input.run.workflowId } : input.run.conversationKind === 'agent_chat'
+          ? { agentId: input.run.agentId, sessionId: input.run.sessionId }
+          : { targetId: input.run.targetId, targetType: input.run.targetType, sessionId: input.run.sessionId }),
         durationMs: Date.now() - startedAt,
         succeeded: false,
         errorCode: error instanceof WorkspaceNativeToolExecutionError ? error.code : 'NATIVE_TOOL_EXECUTION_FAILED',

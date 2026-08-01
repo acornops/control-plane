@@ -51,7 +51,7 @@ async function createWebhook(): Promise<{
     {
       workflowId: 'cluster-triage',
       name: 'External triage',
-      approvedContextGrants: ['workspace_metadata', 'target_inventory']
+      approvedContextGrants: ['workspace_metadata']
     }
   ));
   assert.equal(response.statusCode, 201);

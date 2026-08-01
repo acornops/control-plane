@@ -1,12 +1,14 @@
 import { getConfiguredRoleTemplate, getWorkspacePermissions, isSupportedRole } from '../auth/authorization.js';
 import { config } from '../config.js';
-import { ChatSession, KubernetesCluster, KUBERNETES_TARGET_TYPE, Message, Role, Run, RunContinuation, RunEvent, RunToolApproval, TargetAgentRegistration, TargetSummary, User, Workspace, WorkspaceInvitation, WorkspaceMembership, WorkspaceSummary } from '../types/domain.js';
+import { ChatSession, KubernetesCluster, KUBERNETES_TARGET_TYPE, Message, Role, Run, RunContinuation, RunEvent, TargetAgentRegistration, TargetSummary, User, Workspace, WorkspaceInvitation, WorkspaceMembership, WorkspaceSummary } from '../types/domain.js';
 import type { PasswordCredentialRow, PasswordCredentialWithUser, UserRow } from './repository-auth-row-types.js';
 import { buildWorkspaceQuota, resolveWorkspacePlan } from './repository-quotas.js';
 import { mapLastRuntimeSelection, SessionRuntimeSelectionRow } from './repository-session-runtime.js';
 import { type AutomaticSessionRowFields, mapAutomaticSessionFields, type MessageAuthorRowFields, mapMessageAuthorFields } from './repository-auto-triage-mappers.js';
 
 export type { PasswordCredentialRow, PasswordCredentialWithUser, UserRow } from './repository-auth-row-types.js';
+export { mapRunToolApproval } from './repository-approval-mappers.js';
+export type { RunToolApprovalRow } from './repository-approval-mappers.js';
 export const toIso = (value: Date | string | null | undefined): string | undefined =>
   !value ? undefined : typeof value === 'string' ? value : value.toISOString();
 const nullableNumber = (value: number | string | null | undefined): number | null => value == null ? null : Number(value);
@@ -79,8 +81,12 @@ export interface TargetRow {
 export interface SessionRow extends SessionRuntimeSelectionRow, AutomaticSessionRowFields {
   id: string;
   workspace_id: string;
-  target_id: string;
-  target_type: ChatSession['targetType'];
+  conversation_kind: ChatSession['conversationKind'];
+  target_id: string | null;
+  target_type: ChatSession['targetType'] | null;
+  agent_id: string | null;
+  preferred_access_mode: ChatSession['preferredAccessMode'] | null;
+  launched_at: Date | string | null;
   created_by: string;
   created_by_user_id?: string | null;
   created_by_display_name?: string | null;
@@ -108,8 +114,12 @@ export interface MessageRow extends MessageAuthorRowFields {
 export interface RunRow {
   id: string;
   workspace_id: string;
-  target_id: string;
-  target_type: Run['targetType'];
+  conversation_kind: Run['conversationKind'];
+  target_id: string | null;
+  target_type: Run['targetType'] | null;
+  agent_id: string | null;
+  agent_snapshot: Run['agentSnapshot'] | null;
+  compiled_access_scope: Run['compiledAccessScope'] | null;
   session_id: string;
   message_id: string;
   llm_provider: Run['llmProvider'];
@@ -138,37 +148,6 @@ export interface RunEventRow {
   payload: Record<string, unknown>;
 }
 
-export interface RunToolApprovalRow {
-  id: string;
-  run_id: string;
-  workspace_id: string;
-  target_id: string;
-  target_type: RunToolApproval['targetType'];
-  tool_call_id: string;
-  tool_name: string;
-  server_id: string;
-  server_tool_name: string;
-  requested_tool_alias: string;
-  arguments_digest: string;
-  summary: string | null;
-  arguments: Record<string, unknown> | null;
-  status: RunToolApproval['status'];
-  execution_status: RunToolApproval['executionStatus'];
-  execution_started_at: Date | string | null;
-  execution_finished_at: Date | string | null;
-  tool_result: unknown | null;
-  tool_result_is_error: boolean | null;
-  requested_by: string | null;
-  session_id?: string | null;
-  session_origin?: ChatSession['origin'] | null;
-  session_title?: string | null;
-  decided_by: string | null;
-  decision: 'approved' | 'rejected' | null;
-  created_at: Date | string;
-  decided_at: Date | string | null;
-  expires_at: Date | string;
-}
-
 export interface RunContinuationRow {
   run_id: string;
   approval_id: string;
@@ -187,7 +166,7 @@ export interface TargetAgentRegistrationRow {
   last_seen_at: Date | string | null;
   last_heartbeat_at: Date | string | null;
   last_connection_id: string | null;
-  last_agent_version: string | null;
+  last_connector_version: string | null;
   capabilities: string[] | null;
 }
 
@@ -403,12 +382,18 @@ export function mapTarget(row: TargetRow): TargetSummary {
 }
 
 export function mapSession(row: SessionRow): ChatSession {
+  const conversationKind = row.conversation_kind || 'target_chat';
   return {
     id: row.id,
     workspaceId: row.workspace_id,
-    targetId: row.target_id,
-    targetType: row.target_type,
-    clusterId: row.target_type === KUBERNETES_TARGET_TYPE ? row.target_id : undefined,
+    conversationKind,
+    ...(conversationKind === 'target_chat' ? {
+      targetId: row.target_id || undefined,
+      targetType: row.target_type || undefined,
+      clusterId: row.target_type === KUBERNETES_TARGET_TYPE ? row.target_id || undefined : undefined
+    } : {
+      agentId: row.agent_id || undefined
+    }),
     createdBy: row.created_by,
     createdByUser: row.created_by_user_id && row.created_by_display_name
       ? {
@@ -419,9 +404,11 @@ export function mapSession(row: SessionRow): ChatSession {
     ...mapAutomaticSessionFields(row),
     title: row.title,
     status: row.status,
+    preferredAccessMode: row.preferred_access_mode || undefined,
     createdAt: toIso(row.created_at)!,
     updatedAt: toIso(row.updated_at)!,
     lastMessageAt: toIso(row.last_message_at)!,
+    launchedAt: toIso(row.launched_at),
     lastRuntimeSelection: mapLastRuntimeSelection(row),
     expiresAt: toIso(row.expires_at)!,
     deletedAt: toIso(row.deleted_at)
@@ -444,14 +431,22 @@ export function mapMessage(row: MessageRow): Message {
 }
 
 export function mapRun(row: RunRow): Run {
-  const targetId = row.target_id;
-  const targetType = row.target_type;
+  const targetId = row.target_id || undefined;
+  const targetType = row.target_type || undefined;
+  const conversationKind = row.conversation_kind || 'target_chat';
   return {
     id: row.id,
     workspaceId: row.workspace_id,
-    targetId,
-    targetType,
-    clusterId: targetType === KUBERNETES_TARGET_TYPE ? targetId : undefined,
+    conversationKind,
+    ...(conversationKind === 'target_chat' ? {
+      targetId,
+      targetType,
+      clusterId: targetType === KUBERNETES_TARGET_TYPE ? targetId : undefined
+    } : {
+      agentId: row.agent_id || undefined,
+      agentSnapshot: row.agent_snapshot || undefined,
+      compiledAccessScope: row.compiled_access_scope || undefined
+    }),
     sessionId: row.session_id,
     messageId: row.message_id,
     principal: row.principal || undefined,
@@ -484,41 +479,6 @@ export function mapRunEvent(row: RunEventRow): RunEvent {
   };
 }
 
-export function mapRunToolApproval(row: RunToolApprovalRow): RunToolApproval {
-  const targetId = row.target_id;
-  const targetType = row.target_type;
-  return {
-    id: row.id,
-    runId: row.run_id,
-    workspaceId: row.workspace_id,
-    targetId,
-    targetType,
-    clusterId: targetType === KUBERNETES_TARGET_TYPE ? targetId : undefined,
-    toolCallId: row.tool_call_id,
-    toolName: row.tool_name,
-    toolRef: { serverId: row.server_id, toolName: row.server_tool_name },
-    requestedToolAlias: row.requested_tool_alias,
-    argumentsDigest: row.arguments_digest,
-    summary: row.summary || undefined,
-    arguments: row.arguments || {},
-    status: row.status,
-    executionStatus: row.execution_status || 'not_started',
-    executionStartedAt: toIso(row.execution_started_at),
-    executionFinishedAt: toIso(row.execution_finished_at),
-    toolResult: row.tool_result ?? undefined,
-    toolResultIsError: row.tool_result_is_error ?? undefined,
-    requestedBy: row.requested_by || undefined,
-    sessionId: row.session_id || undefined,
-    sessionOrigin: row.session_origin || undefined,
-    sessionTitle: row.session_title || undefined,
-    decidedBy: row.decided_by || undefined,
-    decision: row.decision || undefined,
-    createdAt: toIso(row.created_at)!,
-    decidedAt: toIso(row.decided_at),
-    expiresAt: toIso(row.expires_at)!
-  };
-}
-
 export function mapRunContinuation(row: RunContinuationRow): RunContinuation {
   return {
     runId: row.run_id,
@@ -540,7 +500,7 @@ export function mapTargetAgentRegistration(row: TargetAgentRegistrationRow): Tar
     lastSeenAt: toIso(row.last_seen_at),
     lastHeartbeatAt: toIso(row.last_heartbeat_at),
     lastConnectionId: row.last_connection_id || undefined,
-    lastAgentVersion: row.last_agent_version || undefined,
+    lastConnectorVersion: row.last_connector_version || undefined,
     capabilities: row.capabilities || undefined
   };
 }

@@ -10,7 +10,7 @@ export interface EffectiveWorkflowRuntimePolicy {
 export function effectiveWorkflowRuntimePolicy(): EffectiveWorkflowRuntimePolicy {
   return {
     maxRuntimeSeconds: Math.max(1, Math.floor(config.ASSISTANT_MAX_RUNTIME_MS / 1000)),
-    retentionDays: config.TARGET_CHAT_REPORT_RETENTION_DAYS
+    retentionDays: config.GENERATED_DOCUMENT_RETENTION_DAYS
   };
 }
 

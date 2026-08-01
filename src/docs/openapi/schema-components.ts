@@ -2,6 +2,7 @@ import { JsonSchema } from './schema-types.js';
 import { buildAgentSchemas } from './schema-components-agents.js';
 import { buildAdminSchemas } from './schema-components-admin.js';
 import { buildCommonSchemas } from './schema-components-common.js';
+import { buildKubernetesRbacSchemas } from './schema-components-kubernetes-rbac.js';
 import { buildTargetRuntimeSchemas } from './schema-components-targets.js';
 import { buildAuthWorkspaceSchemas } from './schema-components-workspace.js';
 import { buildWorkflowSchemas } from './schema-components-workflows.js';
@@ -14,6 +15,7 @@ export function buildSharedOpenApiSchemas(): Record<string, JsonSchema> {
     ...buildAuthWorkspaceSchemas(),
     ...buildWorkflowSchemas(),
     ...buildCatalogSchemas(),
+    ...buildKubernetesRbacSchemas(),
     ...buildTargetRuntimeSchemas(),
     ...buildAdminSchemas()
   };

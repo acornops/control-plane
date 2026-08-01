@@ -10,7 +10,8 @@ import { repo } from '../store/repository.js';
 import { KUBERNETES_TARGET_TYPE, LlmProvider, TargetType, ToolAccessMode } from '../types/domain.js';
 import { listWorkspaceNativeToolsForInvocationScope } from './workspace-native-tools.js';
 
-export const WEB_SEARCH_TOOL_ID = 'web_search';
+export { WEB_SEARCH_TOOL_ID } from './provider-native-tool-ids.js';
+import { WEB_SEARCH_TOOL_ID } from './provider-native-tool-ids.js';
 export const TARGET_INSIGHTS_TOOL_ID = 'target_insights';
 
 function defaultWebSearchConfig(): Record<string, unknown> {
@@ -38,6 +39,7 @@ export interface TargetRunToolSpec {
   description: string;
   input_schema: Record<string, unknown>;
   capability: ToolCapability;
+  source?: 'builtin' | 'mcp';
 }
 
 export interface TargetRunNativeTool {
@@ -87,6 +89,15 @@ export interface TargetRunToolResolution {
 
 function toolRefKey(ref: { serverId: string; toolName: string }): string {
   return `${ref.serverId}\u0000${ref.toolName}`;
+}
+
+export function targetToolSpecMatchesRoute(
+  spec: TargetRunToolSpec,
+  route: { serverId: string; toolName: string; operation: ToolCapability }
+): boolean {
+  return spec.server_id === route.serverId
+    && spec.tool_name === route.toolName
+    && spec.capability === route.operation;
 }
 
 export function remoteMcpToolRefs(
@@ -301,6 +312,7 @@ export async function resolveTargetRunTools(params: {
       tool_name: tool.name,
       description: mcpToolDescription(tool),
       capability: normalizeToolCapability(tool),
+      source: tool.source,
       input_schema: sanitizeToolInputSchema(tool.input_schema)
     }));
     const previewToolNames = new Set<string>();
@@ -367,7 +379,7 @@ export async function resolveTargetRunTools(params: {
       }
       const platformNativeSettings = await Promise.all(
         targetChatPlatformNativeTools
-          .filter((tool) => tool.targetToggleable)
+          .filter((tool) => tool.userToggleable)
           .map(async (tool) => [tool.id, await repo.getTargetToolSetting(targetId, tool.id)] as const)
       );
       for (const [toolId, setting] of platformNativeSettings) {

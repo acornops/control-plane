@@ -1,30 +1,31 @@
-# Default target Workflows
+# Default infrastructure Workflows
 
 ## Goal
 
-Replace the generic Target diagnostics and mismatched Incident report defaults
+Replace the generic infrastructure diagnostics and mismatched Incident report defaults
 with one immediately useful, read-only health-check Workflow for each shipped
-target Agent.
+infrastructure specialist.
 
 ## Decisions
 
 - Ship Kubernetes health check and Virtual machine health check as the two
   automatic Workflows.
-- Keep both Workflows direct, read-only, and bound to exactly one compatible
-  target. Their prompts explicitly cover the evidence available from AgentK
-  and AgentV and prohibit changes.
+- Keep both Workflows direct and read-only, each assigned to one compatible
+  Agent. Their prompts explicitly cover the evidence available through the
+  generic Targets MCP tools and prohibit changes; neither Workflow stores a
+  target identity or binding.
 - Use new internal and public template identities so existing workspace-owned
   defaults are not mislabeled or silently overwritten.
 - Preserve the existing opt-in remediation and incident-investigation
   Workflows for later redesign.
-- The initial v6 implementation added optional AgentV service restart to the VM
-  Agent ceiling. Version 7 removed it because strict readiness correctly treated
-  the default absence of `restart_service` as missing setup. See
+- An early template revision added optional AgentV service restart to the VM
+  Agent ceiling. It was removed because strict readiness correctly treated the
+  default absence of `restart_service` as missing setup. See
   `virtual-machine-agent-readiness.md` for the correction.
 
 ## Work
 
-- [x] Replace the two automatic Workflow templates and increment the bundle.
+- [x] Replace the two automatic Workflow templates and increment the template bundle revision.
 - [x] Update lifecycle, provisioning, and template tests.
 - [x] Align management-console fixtures and public docs.
 - [x] Run focused and repository validation.

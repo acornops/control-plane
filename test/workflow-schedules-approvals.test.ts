@@ -5,11 +5,11 @@ import { config } from '../src/config.js';
 import {
   createWorkflowScheduleForWorkspace,
   deleteWorkflowSchedule,
-  listWorkspaceApprovalInbox,
   listWorkspaceWorkflowSchedules,
   previewWorkflowSchedule,
   updateWorkflowSchedule
 } from '../src/controllers/workflow-schedules-controller.js';
+import { listWorkspaceApprovalInbox } from '../src/controllers/workspace-approval-inbox-controller.js';
 import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
 import { runWorkflowScheduleTick } from '../src/services/workflow-scheduler.js';
@@ -111,7 +111,7 @@ describe('workflow schedules and approval inbox', () => {
         name: 'Hourly triage',
         cron: '0 * * * *',
         timezone: 'UTC',
-        approvedContextGrants: ['workspace_metadata', 'target_inventory']
+        approvedContextGrants: ['workspace_metadata']
       }
     ));
 
@@ -130,7 +130,7 @@ describe('workflow schedules and approval inbox', () => {
         cron: '0 9 * * 1-5',
         timezone: 'UTC',
         principal: { type: 'user', id: 'user-1' },
-        approvedContextGrants: ['workspace_metadata', 'target_inventory']
+        approvedContextGrants: ['workspace_metadata']
       }
     ));
 
@@ -179,13 +179,12 @@ describe('workflow schedules and approval inbox', () => {
         timezone: 'UTC',
         enabled: true,
         principal: { type: 'user', id: 'user-1' },
-        approvedContextGrants: ['workspace_metadata', 'target_inventory']
+        approvedContextGrants: ['workspace_metadata']
       }
     ));
 
     assert.equal(created.statusCode, 201);
-    const schedule = (created.body as { schedule: { id: string; workflowVersion: number; nextRunAt: string } }).schedule;
-    assert.equal(schedule.workflowVersion, 3);
+    const schedule = (created.body as { schedule: { id: string; nextRunAt: string } }).schedule;
     assert.ok(schedule.nextRunAt);
 
     const listed = await callController(listWorkspaceWorkflowSchedules, createRequest({ workspaceId: 'workspace-1' }));
@@ -253,16 +252,14 @@ describe('workflow schedules and approval inbox', () => {
         timezone: 'UTC',
         enabled: true,
         principal: { type: 'user', id: 'user-1' },
-        approvedContextGrants: ['workspace_metadata', 'target_inventory']
+        approvedContextGrants: ['workspace_metadata']
       }
     ));
     const createdSchedule = (created.body as { schedule: { id: string; nextRunAt: string } }).schedule;
     const scheduleId = createdSchedule.id;
-    assert.equal('parameterSignature' in createdSchedule, false);
     await db.query(
       `UPDATE workflow_definitions
-       SET prompt='Use the latest definition to inspect {{target:target}}.',
-           version=version+1
+       SET prompt='Use the latest definition to inspect {{target:target}}.'
        WHERE workspace_id='workspace-1' AND id='cluster-triage'`
     );
 
@@ -279,7 +276,7 @@ describe('workflow schedules and approval inbox', () => {
     );
     assert.equal(
       execution.rows[0]?.prompt_text,
-      'Use the latest definition to inspect @target[Test Cluster].'
+      'Use the latest definition to inspect {{target:target}}.'
     );
     const listed = await callController(listWorkspaceWorkflowSchedules, createRequest({ workspaceId: 'workspace-1' }));
     const schedule = (listed.body as { items: Array<{ id: string; lastStatus?: string; lastRunAt?: string }> }).items.find((item) => item.id === scheduleId);
@@ -311,7 +308,7 @@ describe('workflow schedules and approval inbox', () => {
         timezone: 'UTC',
         enabled: true,
         principal: { type: 'user', id: 'user-1' },
-        approvedContextGrants: ['workspace_metadata', 'target_inventory']
+        approvedContextGrants: ['workspace_metadata']
       }
     ));
     const createdSchedule = (created.body as { schedule: { id: string; nextRunAt: string } }).schedule;
@@ -330,7 +327,7 @@ describe('workflow schedules and approval inbox', () => {
     assert.equal(schedule?.lastStatus, 'auto_paused');
   });
 
-  it('lists target approvals and workflow approval gates in one workspace inbox', async () => {
+  it('lists interactive approvals and Workflow approval gates in one workspace inbox', async () => {
     installWorkspace('admin');
     const workflow = await getWorkflowDefinition('workspace-1', 'cluster-triage');
     assert.ok(workflow);
@@ -350,13 +347,12 @@ describe('workflow schedules and approval inbox', () => {
       selectedAgents,
       specialistAgent: selectedAgents[0],
       mappings: await listCapabilityRoutingMappings('workspace-1', { activeReviewedOnly: true }),
-      targetRoute: { id: 'cluster-1', targetType: 'kubernetes' },
       actor: {
         userId: 'user-1',
         role: 'admin',
         permissions: getWorkspacePermissions('admin')
       },
-      approvedContextGrants: ['workspace_metadata', 'target_inventory']
+      approvedContextGrants: ['workspace_metadata']
     });
     const session = await createWorkflowSession({ workflow: { ...workflow, capabilityPolicy: { ...workflow.capabilityPolicy, mode: 'read_write', approvalRequirements: ['Before running write-capable workflow automation'] } }, createdBy: 'user-1', compiledAccessScope });
     const message = await createWorkflowUserMessage({ session, content: 'Run gated workflow' });
@@ -375,7 +371,7 @@ describe('workflow schedules and approval inbox', () => {
     assert.equal(response.statusCode, 200);
     const body = response.body as { pendingCount: number; items: Array<{ approvalId: string; source: string; runId: string; status: string }> };
     assert.equal(body.pendingCount, 2);
-    assert.deepEqual(body.items.map((item) => item.source).sort(), ['target_tool', 'workflow_gate']);
+    assert.deepEqual(body.items.map((item) => item.source).sort(), ['interactive_tool', 'workflow_gate']);
     assert.ok(body.items.some((item) => item.approvalId === workflowApproval.id && item.runId === run.id));
     assert.ok(body.items.some((item) => item.approvalId === targetApproval.id && item.runId === targetRun.id));
 

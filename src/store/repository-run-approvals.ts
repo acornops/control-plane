@@ -15,14 +15,14 @@ import { withTransaction } from './repository-transaction.js';
 const RUN_TOOL_APPROVAL_SELECT = `
   SELECT a.*, t.target_type, r.session_id, s.origin AS session_origin, s.title AS session_title
   FROM run_tool_approvals a
-  JOIN targets t ON t.id = a.target_id
+  LEFT JOIN targets t ON t.id = a.target_id
   JOIN runs r ON r.id = a.run_id
   JOIN sessions s ON s.id = r.session_id`;
 
 export async function createRunToolApproval(params: {
   runId: string;
   workspaceId: string;
-  targetId: string;
+  targetId?: string;
   toolCallId: string;
   toolName: string;
   toolRef: { serverId: string; toolName: string };
@@ -54,12 +54,12 @@ export async function createRunToolApproval(params: {
        )
        SELECT a.*, t.target_type
        FROM upserted a
-       JOIN targets t ON t.id = a.target_id`,
+       LEFT JOIN targets t ON t.id = a.target_id`,
       [
         id,
         params.runId,
         params.workspaceId,
-        params.targetId,
+        params.targetId || null,
         params.toolCallId,
         params.toolName,
         params.toolRef.serverId,
@@ -105,7 +105,7 @@ export async function createRunToolApproval(params: {
         metadata: {
           runId: params.runId,
           ...(params.sessionId ? { sessionId: params.sessionId } : {}),
-          targetId: params.targetId,
+          ...(params.targetId ? { targetId: params.targetId } : {}),
           toolCallId: params.toolCallId,
           toolName: params.toolName,
           ...(params.summary ? { summary: params.summary } : {}),
@@ -244,7 +244,7 @@ export async function decideRunToolApprovalOutcome(
      )
      SELECT a.*, t.target_type
      FROM selected a
-     JOIN targets t ON t.id = a.target_id`,
+     LEFT JOIN targets t ON t.id = a.target_id`,
     [approvalId, status, decision, decidedBy]
   );
   if (!result.rowCount) return null;
@@ -265,7 +265,7 @@ export async function expireRunToolApproval(approvalId: string): Promise<RunTool
      )
      SELECT a.*, t.target_type
      FROM updated a
-     JOIN targets t ON t.id = a.target_id`,
+     LEFT JOIN targets t ON t.id = a.target_id`,
     [approvalId]
   );
   if (!result.rowCount) return getRunToolApproval(approvalId);
@@ -289,7 +289,7 @@ export async function expirePendingRunToolApprovals(limit = 100): Promise<RunToo
      )
      SELECT a.*, t.target_type
      FROM updated a
-     JOIN targets t ON t.id = a.target_id`,
+     LEFT JOIN targets t ON t.id = a.target_id`,
     [Math.max(1, Math.min(1000, limit))]
   );
   return result.rows.map(mapRunToolApproval);
@@ -307,7 +307,7 @@ export async function expirePendingRunToolApprovalsForRun(runId: string): Promis
      )
      SELECT a.*, t.target_type, r.session_id, s.origin AS session_origin, s.title AS session_title
        FROM expired a
-       JOIN targets t ON t.id = a.target_id
+       LEFT JOIN targets t ON t.id = a.target_id
        JOIN runs r ON r.id = a.run_id
        JOIN sessions s ON s.id = r.session_id`,
     [runId]
@@ -349,7 +349,7 @@ export async function startRunToolApprovalExecution(
       `WITH changed AS (
          UPDATE run_tool_approvals SET execution_status='executing',execution_started_at=NOW()
          WHERE id=$1 AND status='approved' AND execution_status='not_started' RETURNING *
-       ) SELECT a.*,t.target_type FROM changed a JOIN targets t ON t.id=a.target_id`, [approvalId]
+       ) SELECT a.*,t.target_type FROM changed a LEFT JOIN targets t ON t.id=a.target_id`, [approvalId]
     );
     if (!updated.rowCount) throw new ApprovalExecutionStartError('APPROVAL_EXECUTION_ALREADY_STARTED', approval);
     return { approval: mapRunToolApproval(updated.rows[0]), approvalReceipt };
@@ -374,7 +374,7 @@ export async function markRunToolApprovalExecutionFinished(
      )
      SELECT a.*, t.target_type
      FROM updated a
-     JOIN targets t ON t.id = a.target_id`,
+     LEFT JOIN targets t ON t.id = a.target_id`,
     [approvalId, JSON.stringify(resultPayload ?? null), isError]
   );
   if (!result.rowCount) return getRunToolApproval(approvalId);

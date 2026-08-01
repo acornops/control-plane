@@ -24,7 +24,6 @@ function gatewayServer() {
     last_discovery_error: null,
     revision: 1,
     provenance_type: 'catalog',
-    target_constraints: {},
     tools: []
   };
 }
@@ -55,7 +54,7 @@ describe('MCP catalog import gateway contract', () => {
     assert.equal('credential' in body, false);
   });
 
-  it('keeps Agent scope and constraints isolated from target fields', async () => {
+  it('keeps Agent scope independent from target fields', async () => {
     let body: Record<string, unknown> = {};
     mock.method(globalThis, 'fetch', async (_input, init) => {
       body = JSON.parse(String(init?.body));
@@ -66,7 +65,6 @@ describe('MCP catalog import gateway contract', () => {
       workspaceId: 'workspace-1',
       scopeType: 'agent',
       agentId: 'agent-1',
-      targetConstraints: { targetTypes: ['virtual_machine'], targetIds: ['vm-1'] },
       artifact: { sourceId: 'source-1', artifactName: 'operations' },
       version: '2.0.0',
       remoteEndpoint: 'https://mcp.example/mcp',
@@ -76,7 +74,7 @@ describe('MCP catalog import gateway contract', () => {
 
     assert.equal(body.scope_type, 'agent');
     assert.equal(body.agent_id, 'agent-1');
-    assert.deepEqual(body.target_constraints, { target_types: ['virtual_machine'], target_ids: ['vm-1'] });
+    assert.equal('target_constraints' in body, false);
     assert.equal('target_id' in body, false);
     assert.equal('target_type' in body, false);
     assert.equal(body.expected_revision, 3);

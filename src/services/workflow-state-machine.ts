@@ -2,12 +2,11 @@ import { randomUUID } from 'node:crypto';
 import type { QueryResultRow } from 'pg';
 import type { WorkflowRunRecord } from '../store/repository-workflows.js';
 import { withTransaction } from '../store/repository-transaction.js';
-import type { TargetType } from '../types/domain.js';
 import type { PromptResourceBinding } from '../types/prompt-resources.js';
 import type { CompiledWorkflowAccessScope } from '../types/workflows.js';
 import type { AgentDefinition } from '../types/agents.js';
 import { insertWorkflowExecutionEvent } from '../store/repository-workflow-execution-events.js';
-import { WORKFLOW_COORDINATOR_INSTRUCTIONS, WORKFLOW_COORDINATOR_PROFILE_VERSION } from './workflow-coordinator.js';
+import { WORKFLOW_COORDINATOR_INSTRUCTIONS } from './workflow-coordinator.js';
 
 type Artifact = { id: string; type: string; title: string };
 
@@ -18,8 +17,6 @@ export interface WorkflowRetrySnapshot {
   messageId: string;
   executorRole: 'coordinator' | 'specialist';
   specialistSnapshot?: AgentDefinition;
-  targetId?: string;
-  targetType?: TargetType;
   compiledAccessScope: CompiledWorkflowAccessScope;
   prompt: string;
   promptDigest: string;
@@ -123,31 +120,21 @@ export async function resumeWorkflowExecution(
       ? 'waiting_for_approval'
       : 'queued';
     const executor = retry.compiledAccessScope.executor;
-    const compiledAccessScope = executor.role === 'coordinator'
-      ? {
-          ...retry.compiledAccessScope,
-          executor: {
-            role: 'coordinator' as const,
-            profileVersion: WORKFLOW_COORDINATOR_PROFILE_VERSION
-          }
-        }
-      : retry.compiledAccessScope;
     const executorSnapshot = executor.role === 'coordinator'
-      ? { role: 'coordinator', profileVersion: WORKFLOW_COORDINATOR_PROFILE_VERSION, instructions: WORKFLOW_COORDINATOR_INSTRUCTIONS }
+      ? { role: 'coordinator', instructions: WORKFLOW_COORDINATOR_INSTRUCTIONS }
       : {
           role: 'specialist',
           agentId: executor.agentId,
-          agentVersion: executor.agentVersion,
           agent: retry.specialistSnapshot || (() => { throw new Error('SPECIALIST_EXECUTOR_SNAPSHOT_REQUIRED'); })()
         };
     await client.query(
       `INSERT INTO workflow_runs (
          id,execution_id,workspace_id,workflow_id,workflow_session_id,
-         attempt_number,executor_role,agent_id,agent_version,executor_snapshot,target_id,target_type,
+         attempt_number,executor_role,agent_id,executor_snapshot,
          idempotency_key,message_id,created_by,status,compiled_access_scope,llm_provider,llm_model,
          llm_reasoning_summary_mode,llm_reasoning_effort,prompt_text,prompt_digest,binding_digest,
          resource_bindings,resolved_at,requested_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,NOW())`,
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,NOW())`,
       [
         runId,
         executionId,
@@ -157,15 +144,12 @@ export async function resumeWorkflowExecution(
         attempt,
         executor.role,
         executor.role === 'specialist' ? executor.agentId : null,
-        executor.role === 'specialist' ? executor.agentVersion : null,
         executorSnapshot,
-        retry.targetId || null,
-        retry.targetType || null,
         idempotencyKey,
         retry.messageId,
         actorUserId,
         status,
-        compiledAccessScope,
+        retry.compiledAccessScope,
         previous.llm_provider,
         previous.llm_model,
         previous.llm_reasoning_summary_mode,
@@ -222,9 +206,7 @@ export async function resumeWorkflowExecution(
         parentRunId: null,
         agentId: executor.role === 'specialist' ? executor.agentId : null,
         attemptNumber: attempt,
-        status,
-        targetId: retry.targetId || null,
-        targetType: retry.targetType || null
+        status
       }
     });
     for (const approval of approvals) {

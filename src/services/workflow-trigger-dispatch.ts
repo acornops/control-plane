@@ -20,7 +20,7 @@ import { isModelAllowedForProvider } from './llm-policy.js';
 import { PromptResourceProviderError } from './prompt-resources/index.js';
 import { resolveRunPrincipal } from './run-principal.js';
 import { resolveEffectiveWorkflowCapabilityIds } from './workflow-capability-policy.js';
-import { getWorkflowCapabilityReadinessErrors } from './workflow-readiness.js';
+import { getWorkflowCapabilityReadinessErrors } from './mcp-readiness.js';
 import {
   compileWorkflowPrompt,
   WorkflowTemplateValidationError
@@ -171,7 +171,6 @@ export async function dispatchWorkflowTrigger(
   const mcpReadinessErrors = await getWorkflowCapabilityReadinessErrors(
     trigger.workspaceId,
     compiledAccessScope,
-    undefined,
     { principal: trigger.principal }
   );
   if (mcpReadinessErrors.length > 0) {

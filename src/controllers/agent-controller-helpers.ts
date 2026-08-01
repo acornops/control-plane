@@ -1,16 +1,13 @@
 import { Response } from 'express';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
-import { getWorkflowOptionsCatalog, listWorkflowDefinitions } from '../store/repository-workflows.js';
+import { getCapabilityOptionsCatalog } from '../store/repository-capability-options.js';
 import type { AgentDefinitionUpdate } from '../store/repository-agent-types.js';
 import type { AgentCapability, AgentDefinition, AgentDefinitionResponse } from '../types/agents.js';
-import { TARGET_TYPES, type TargetType } from '../types/domain.js';
-import { repo } from '../store/repository.js';
 
 const KNOWN_CONTEXT_GRANTS = new Set([
   'workspace_metadata',
-  'audit_events',
-  'target_inventory'
+  'audit_events'
 ]);
 
 export function requireAgentWorkspaceId(req: AuthenticatedRequest, res: Response): string | null {
@@ -37,7 +34,7 @@ export async function auditAgentDefinitionMutation(
     workspaceId: agent.workspaceId, category: 'run', eventType, operation: 'write',
     actorUserId: req.auth.userId, objectType: 'agent', objectId: agent.id,
     objectName: agent.name, summary,
-    metadata: { agentId: agent.id, agentVersion: agent.version, status: agent.status, ...metadata }
+    metadata: { agentId: agent.id, status: agent.status, ...metadata }
   });
 }
 
@@ -83,7 +80,6 @@ export function agentPatch(body: Record<string, unknown>): AgentDefinitionUpdate
     trustPolicy: body.trustPolicy && typeof body.trustPolicy === 'object' && !Array.isArray(body.trustPolicy)
       ? body.trustPolicy as AgentDefinition['trustPolicy']
       : undefined,
-    targetScope: normalizeTargetScope(body.targetScope),
     permissionMode: body.permissionMode === 'read_only'
       || body.permissionMode === 'ask_before_changes'
       || body.permissionMode === 'auto_allowed_changes'
@@ -116,48 +112,11 @@ export function normalizeTrustPolicy(value: unknown, providerType: AgentDefiniti
   };
 }
 
-export function normalizeTargetScope(value: unknown): AgentDefinition['targetScope'] | undefined {
-  if (Array.isArray(value)) {
-    const tokens = value.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean);
-    const explicitScope = tokens.find((token) => token.startsWith('scope:'))?.slice('scope:'.length);
-    const targetTypes = (tokens
-      .flatMap((token) => {
-        if (token.startsWith('target-type:')) return [token.slice('target-type:'.length)];
-        if (token.endsWith(':*')) return [token.slice(0, -2)];
-        return [];
-      })) as TargetType[];
-    const targetIds = tokens
-      .flatMap((token) => {
-        if (token.startsWith('target:')) return [token.slice('target:'.length)];
-        const [kind, id] = token.split(':', 2);
-        if (kind && id && id !== '*' && kind !== 'scope' && kind !== 'target-type' && kind !== 'workspace') return [id];
-        return [];
-      })
-      .filter(Boolean);
-    const workspaceScoped = explicitScope === 'workspace' || tokens.includes('workspace:current') || tokens.includes('workspace');
-    if (workspaceScoped && targetTypes.length === 0 && targetIds.length === 0) return { type: 'workspace' };
-    return {
-      type: explicitScope === 'workspace' ? 'workspace' : 'selected_target',
-      ...(targetTypes.length > 0 ? { targetTypes: [...new Set(targetTypes)] } : {}),
-      ...(targetIds.length > 0 ? { targetIds: [...new Set(targetIds)] } : {})
-    };
-  }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  const scope = value as Partial<AgentDefinition['targetScope']>;
-  if (scope.type !== 'workspace' && scope.type !== 'selected_target') return undefined;
-  return {
-    type: scope.type,
-    ...(Array.isArray(scope.targetTypes) ? { targetTypes: scope.targetTypes } : {}),
-    ...(Array.isArray(scope.targetIds) ? { targetIds: scope.targetIds } : {})
-  };
-}
-
 export async function collectAgentOptionErrors(workspaceId: string, input: Partial<AgentDefinition>): Promise<string[]> {
-  const options = await getWorkflowOptionsCatalog(workspaceId);
+  const options = await getCapabilityOptionsCatalog(workspaceId);
   const servers = new Map(options.mcpServers.map((option) => [option.value, option]));
   const tools = new Map(options.mcpTools.map((option) => [option.value, option]));
   const skills = new Map(options.skills.map((option) => [option.value, option]));
-  const targetTypes = new Set(TARGET_TYPES);
   const errors: string[] = [];
 
   for (const server of input.mcpServers || []) {
@@ -178,19 +137,6 @@ export async function collectAgentOptionErrors(workspaceId: string, input: Parti
   for (const grant of input.contextGrants || []) {
     if (!KNOWN_CONTEXT_GRANTS.has(grant)) errors.push(`Unknown context grant: ${grant}`);
   }
-  for (const targetType of input.targetScope?.targetTypes || []) {
-    if (!targetTypes.has(targetType)) errors.push(`Unknown target type: ${targetType}`);
-  }
-  for (const targetId of input.targetScope?.targetIds || []) {
-    const target = await repo.getTarget(workspaceId, targetId);
-    if (!target) {
-      errors.push(`Unknown target: ${targetId}`);
-      continue;
-    }
-    if (input.targetScope?.targetTypes?.length && !input.targetScope.targetTypes.includes(target.targetType)) {
-      errors.push(`Target ${targetId} is not one of the allowed target types.`);
-    }
-  }
   if (input.trustPolicy && input.trustPolicy.level !== 'restricted' && input.trustPolicy.level !== 'trusted') {
     errors.push('Unknown trust policy level.');
   }
@@ -207,12 +153,6 @@ export async function collectAgentOptionErrors(workspaceId: string, input: Parti
 
 export function badRequest(res: Response, code: string, message: string, details?: unknown): void {
   res.status(400).json({ error: { code, message, retryable: false, details } });
-}
-
-export async function workflowsUsingAgent(workspaceId: string, agentId: string): Promise<string[]> {
-  return (await listWorkflowDefinitions(workspaceId))
-    .filter((workflow) => workflow.agentIds.includes(agentId))
-    .map((workflow) => workflow.name);
 }
 
 function writeRequiresApproval(agent: AgentDefinition): boolean {
@@ -233,15 +173,6 @@ function agentCapabilities(agent: AgentDefinition): AgentCapability[] {
   for (const grant of agent.contextGrants) {
     capabilities.push({ source: 'context', resourceType: 'context_grant', resourceScope: grant, operation: 'read', requiresApproval: grant !== 'workspace_metadata' });
   }
-  if (agent.targetScope.type === 'workspace' && !agent.targetScope.targetTypes?.length && !agent.targetScope.targetIds?.length) {
-    capabilities.push({ source: 'target', resourceType: 'target_scope', resourceScope: 'workspace', operation: 'read', requiresApproval: false });
-  }
-  for (const targetType of agent.targetScope.targetTypes || []) {
-    capabilities.push({ source: 'target', resourceType: 'target_type', resourceScope: targetType, operation: 'read', requiresApproval: false });
-  }
-  for (const targetId of agent.targetScope.targetIds || []) {
-    capabilities.push({ source: 'target', resourceType: 'target', resourceScope: targetId, operation: 'read', requiresApproval: false });
-  }
   if (writeRequiresApproval(agent)) {
     for (const tool of agent.tools.filter((tool) => tool.includes('.create') || tool.includes('.update') || tool.includes('.delete') || tool.includes('.write') || tool.includes('.generate'))) {
       capabilities.push({ source: 'builtin_tool', resourceType: 'tool', resourceScope: tool, toolId: tool, operation: 'write', requiresApproval: true });
@@ -253,7 +184,6 @@ function agentCapabilities(agent: AgentDefinition): AgentCapability[] {
 export async function agentResponse(agent: AgentDefinition): Promise<AgentDefinitionResponse> {
   return {
     ...agent,
-    capabilities: agentCapabilities(agent),
-    workflowsUsingAgent: await workflowsUsingAgent(agent.workspaceId, agent.id)
+    capabilities: agentCapabilities(agent)
   };
 }

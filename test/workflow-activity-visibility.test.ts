@@ -9,7 +9,6 @@ function row(overrides: Record<string, unknown> = {}) {
     id: 'execution-1',
     workspace_id: 'workspace-1',
     workflow_id: 'workflow-1',
-    workflow_version: 3,
     workflow_snapshot: { name: 'Production triage' },
     status: 'running',
     request_actor_type: 'user',
@@ -19,9 +18,6 @@ function row(overrides: Record<string, unknown> = {}) {
     ended_at: null,
     updated_at: '2026-07-15T08:02:00.000Z',
     root_run_id: 'run-1',
-    root_target_id: 'cluster-1',
-    root_target_name: 'Payments production',
-    root_target_type: 'kubernetes',
     root_requested_at: '2026-07-15T08:00:00.000Z',
     root_started_at: '2026-07-15T08:00:03.000Z',
     root_ended_at: null,
@@ -46,7 +42,7 @@ describe('workflow activity visibility contract', () => {
 
     assert.equal(mapped.status, 'running');
     assert.equal(mapped.workflow.name, 'Production triage');
-    assert.equal(mapped.rootRun?.targetName, 'Payments production');
+    assert.equal(mapped.rootRun?.id, 'run-1');
     assert.deepEqual(mapped.origin, {
       schemaVersion: 1,
       kind: 'webhook',

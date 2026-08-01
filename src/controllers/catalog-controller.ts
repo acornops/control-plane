@@ -18,15 +18,10 @@ import {
 } from '../services/mcp-registry-client.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { targetWebhookScope } from '../services/target-webhook-scope.js';
-import {
-  CatalogDestinationValidationError,
-  validateAgentCatalogDestination
-} from '../services/catalog-destination-validator.js';
 import { webhooks } from '../services/webhooks.js';
 import { recordMcpServerAudit } from './workspaces/mcp-audit.js';
 import { getAgentDefinition } from '../store/repository-agents.js';
 import { syncAgentMcpCapabilitySnapshot, toAgentMcpServer } from '../services/agent-mcp-capabilities.js';
-import { repo } from '../store/repository.js';
 import { toSingleParam } from '../utils/params.js';
 import {
   auditTrustBoundaryInvalidation,
@@ -225,13 +220,10 @@ export async function importAgentCatalogMcpServer(
       badRequest(res, 'A catalog artifact, pinned version, and remoteEndpoint are required.');
       return;
     }
-    const targetConstraints = parsed.targetConstraints || { targetTypes: [], targetIds: [] };
-    await validateAgentCatalogDestination({ agent, targetConstraints, findTarget: repo.getTarget });
     const server = await importCatalogMcpServer({
       workspaceId,
       scopeType: 'agent',
       agentId,
-      targetConstraints,
       ...parsed
     });
     await syncAgentMcpCapabilitySnapshot(workspaceId, agentId, req.auth.userId);
@@ -256,10 +248,6 @@ export async function importAgentCatalogMcpServer(
     });
     res.status(201).json({ server: toAgentMcpServer(server) });
   } catch (err) {
-    if (err instanceof CatalogDestinationValidationError) {
-      badRequest(res, err.message);
-      return;
-    }
     forwardCatalogError(err, res, next);
   }
 }
@@ -289,8 +277,6 @@ export async function reimportAgentCatalogMcpServer(
       badRequest(res, 'A catalog artifact, pinned version, remoteEndpoint, and expectedRevision are required.');
       return;
     }
-    const targetConstraints = parsed.targetConstraints || { targetTypes: [], targetIds: [] };
-    await validateAgentCatalogDestination({ agent, targetConstraints, findTarget: repo.getTarget });
     const previous = (await listAgentMcpServers(workspaceId, agentId)).find((item) => item.id === serverId);
     const server = await importCatalogMcpServer({
       workspaceId,
@@ -322,10 +308,6 @@ export async function reimportAgentCatalogMcpServer(
     });
     res.status(200).json({ server: toAgentMcpServer(server) });
   } catch (err) {
-    if (err instanceof CatalogDestinationValidationError) {
-      badRequest(res, err.message);
-      return;
-    }
     forwardCatalogError(err, res, next);
   }
 }
@@ -346,10 +328,6 @@ async function importTargetCatalogServer(
       res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Target catalog installation requires manage_mcp.', retryable: false } });
       return;
     }
-    if (req.body && typeof req.body === 'object' && !Array.isArray(req.body) && 'targetConstraints' in req.body) {
-      badRequest(res, 'Target catalog installations do not accept Agent target constraints.');
-      return;
-    }
     const parsed = parseCatalogImportBody(req.body, reimport);
     if (!parsed || (reimport && parsed.expectedRevision === undefined)) {
       badRequest(res, reimport
@@ -357,7 +335,7 @@ async function importTargetCatalogServer(
         : 'A catalog artifact, pinned version, and remoteEndpoint are required.');
       return;
     }
-    const { targetConstraints: _ignored, expectedRevision, ...catalogInput } = parsed;
+    const { expectedRevision, ...catalogInput } = parsed;
     const previous = reimport
       ? (await listTargetMcpServers(workspaceId, targetId, access.target.targetType)).find((item) => item.id === serverId)
       : undefined;

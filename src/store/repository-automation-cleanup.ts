@@ -9,6 +9,21 @@ export interface AgentWorkflowDependency {
   relation: 'selected_agent';
 }
 
+export async function listActiveAgentConversationRunIds(
+  workspaceId: string,
+  agentId: string,
+  queryable: Queryable = db
+): Promise<string[]> {
+  const result = await queryable.query<{ id: string }>(
+    `SELECT id FROM runs
+     WHERE workspace_id=$1 AND agent_id=$2 AND conversation_kind='agent_chat'
+       AND status IN ('queued','dispatching','running','waiting_for_approval','cancelling')
+     ORDER BY requested_at,id`,
+    [workspaceId, agentId]
+  );
+  return result.rows.map((row) => row.id);
+}
+
 interface Queryable {
   query: PoolClient['query'];
 }
@@ -27,7 +42,6 @@ export async function listAgentWorkflowDependencies(
      FROM workflow_definitions
      WHERE workspace_id=$1
        AND agent_ids ? $2
-       AND COALESCE(origin->>'type','manual') <> 'agent_chat'
      ORDER BY name,id`,
     [workspaceId, agentId]
   );
@@ -36,11 +50,13 @@ export async function listAgentWorkflowDependencies(
 
 export async function deleteAgentWithInstallationCleanup(
   workspaceId: string,
-  agentId: string
+  agentId: string,
+  onLockedReadyToDelete?: () => Promise<void>
 ): Promise<
   | { status: 'deleted' }
   | { status: 'not_found' }
   | { status: 'conflict'; workflows: AgentWorkflowDependency[] }
+  | { status: 'active_runs'; runIds: string[] }
 > {
   return withTransaction(async (client) => {
     const locked = await client.query(
@@ -50,17 +66,15 @@ export async function deleteAgentWithInstallationCleanup(
     if (!locked.rowCount) return { status: 'not_found' } as const;
     const workflows = await listAgentWorkflowDependencies(workspaceId, agentId, client);
     if (workflows.length > 0) return { status: 'conflict', workflows } as const;
+    const runIds = await listActiveAgentConversationRunIds(workspaceId, agentId, client);
+    if (runIds.length > 0) return { status: 'active_runs', runIds } as const;
+    // Keep the Agent row locked while external installations are removed so a
+    // new direct run cannot snapshot the Agent between this guard and deletion.
+    await onLockedReadyToDelete?.();
 
     await client.query(
-      `DELETE FROM workflow_sessions
-       WHERE workspace_id=$1 AND agent_id=$2 AND conversation_origin='agent_chat'`,
-      [workspaceId, agentId]
-    );
-    await client.query(
-      `DELETE FROM workflow_definitions
-       WHERE workspace_id=$1
-         AND origin->>'type'='agent_chat'
-         AND origin->>'agentId'=$2`,
+      `DELETE FROM sessions
+       WHERE workspace_id=$1 AND agent_id=$2 AND conversation_kind='agent_chat'`,
       [workspaceId, agentId]
     );
     await client.query(

@@ -4,12 +4,6 @@ import { listCapabilityRoutingMappings } from '../store/repository-capability-ro
 import { getAgentDefinition, updateAgentReadiness } from '../store/repository-agents.js';
 import { updateWorkflowReadiness } from '../store/repository-workflows.js';
 import { capabilitiesOutsideAgentCeiling, resolveEffectiveWorkflowCapabilityIds } from './workflow-capability-policy.js';
-import { repo } from '../store/repository.js';
-import {
-  capabilityRequiresExactTarget,
-  targetAllowedByAgentScope,
-  targetAllowedByMapping
-} from './target-scope-authorization.js';
 
 function unique(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
@@ -24,58 +18,23 @@ export async function computeAgentReadiness(agent: AgentDefinition): Promise<Age
     capabilityIds: agent.semanticCapabilityIds
   });
   const mapped = new Set(mappings
-    .filter((mapping) => mapping.agentId === agent.id && mapping.agentVersion === agent.version)
+    .filter((mapping) => mapping.agentId === agent.id)
     .map((mapping) => mapping.capabilityId));
   const missing: string[] = [];
   for (const capabilityId of agent.semanticCapabilityIds) {
-    const capabilityMappings = mappings.filter((mapping) => mapping.capabilityId === capabilityId
-      && mapping.agentId === agent.id && mapping.agentVersion === agent.version);
     if (!mapped.has(capabilityId)) {
       missing.push(capabilityId);
-      continue;
-    }
-    if (!capabilityRequiresExactTarget(capabilityId)) continue;
-    if (agent.targetScope.targetIds?.length) {
-      for (const targetId of agent.targetScope.targetIds) {
-        const target = await repo.getTarget(agent.workspaceId, targetId);
-        if (!target || !targetAllowedByAgentScope(agent.targetScope, target)
-          || !capabilityMappings.some((mapping) => targetAllowedByMapping(mapping, target)
-            && (mapping.targetToolRefs.length || mapping.nativeToolIds.length))) {
-          missing.push(capabilityId);
-          break;
-        }
-      }
-    } else {
-      let eligiblePair = false;
-      for (const mapping of capabilityMappings) {
-        if (!mapping.targetToolRefs.length && !mapping.nativeToolIds.length) continue;
-        if (!mapping.targetIds.length && (agent.targetScope.targetTypes || []).every((targetType) => (
-          !mapping.targetTypes.length || mapping.targetTypes.includes(targetType)
-        ))) {
-          eligiblePair = true;
-          break;
-        }
-        for (const targetId of mapping.targetIds) {
-          const target = await repo.getTarget(agent.workspaceId, targetId);
-          if (target && targetAllowedByAgentScope(agent.targetScope, target) && targetAllowedByMapping(mapping, target)) {
-            eligiblePair = true;
-            break;
-          }
-        }
-        if (eligiblePair) break;
-      }
-      if (!eligiblePair) missing.push(capabilityId);
     }
   }
   return missing.length > 0
-    ? { status: 'needs_setup', reasons: missing.map((capabilityId) => `No active reviewed live-resource mapping for ${capabilityId}.`) }
+    ? { status: 'needs_setup', reasons: missing.map((capabilityId) => `No active reviewed capability mapping is configured for ${capabilityId}.`) }
     : { status: 'ready', reasons: [] };
 }
 
 export async function refreshAgentReadiness(workspaceId: string, agentId: string): Promise<AgentDefinition | null> {
   const agent = await getAgentDefinition(workspaceId, agentId);
   if (!agent) return null;
-  return updateAgentReadiness(workspaceId, agentId, await computeAgentReadiness(agent));
+  return (await updateAgentReadiness(workspaceId, agentId, await computeAgentReadiness(agent))) || agent;
 }
 
 export async function computeWorkflowReadiness(workflow: WorkflowDefinitionForAccess): Promise<NonNullable<WorkflowDefinitionForAccess['readiness']>> {
@@ -109,7 +68,7 @@ export async function computeWorkflowReadiness(workflow: WorkflowDefinitionForAc
   });
   const eligibleMappings = mappings.filter((mapping) => {
     const agent = selectedById.get(mapping.agentId);
-    return Boolean(agent && mapping.agentVersion === agent.version);
+    return Boolean(agent);
   });
   const unmapped: string[] = [];
   for (const capabilityId of requested) {
@@ -118,29 +77,6 @@ export async function computeWorkflowReadiness(workflow: WorkflowDefinitionForAc
       unmapped.push(capabilityId);
       continue;
     }
-    let covered = true;
-    if (capabilityRequiresExactTarget(capabilityId)) {
-      covered = false;
-      for (const mapping of capabilityMappings) {
-        const agent = selectedById.get(mapping.agentId);
-        if (!agent || (!mapping.targetToolRefs.length && !mapping.nativeToolIds.length)) continue;
-        if (!mapping.targetIds.length) {
-          covered = true;
-          break;
-        }
-        for (const targetId of mapping.targetIds) {
-          const target = await repo.getTarget(workflow.workspaceId, targetId);
-          if (target
-            && targetAllowedByAgentScope(agent.targetScope, target)
-            && targetAllowedByMapping(mapping, target)) {
-            covered = true;
-            break;
-          }
-        }
-        if (covered) break;
-      }
-    }
-    if (!covered) unmapped.push(capabilityId);
   }
   if (unmapped.length > 0) {
     return {
@@ -152,5 +88,9 @@ export async function computeWorkflowReadiness(workflow: WorkflowDefinitionForAc
 }
 
 export async function refreshWorkflowReadiness(workflow: WorkflowDefinitionForAccess): Promise<WorkflowDefinitionForAccess | null> {
-  return updateWorkflowReadiness(workflow.workspaceId, workflow.id, await computeWorkflowReadiness(workflow));
+  return (await updateWorkflowReadiness(
+    workflow.workspaceId,
+    workflow.id,
+    await computeWorkflowReadiness(workflow)
+  )) || workflow;
 }

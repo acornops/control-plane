@@ -25,13 +25,12 @@ import {
 const PUBLIC_TEMPLATE_IDS: Record<string, string> = {
   kubernetesHealth: 'kubernetes-health-check',
   virtualMachineHealth: 'virtual-machine-health-check',
-  targetRemediation: 'target-remediation',
+  infrastructureRemediation: 'infrastructure-remediation',
   managedResponse: 'incident-investigation'
 };
 
 export async function listAutomationTemplateBundles(workspaceId?: string): Promise<Array<{
   id: string;
-  version: number;
   name: string;
   description: string;
   installMode: 'automatic' | 'opt_in';
@@ -60,7 +59,6 @@ export async function listAutomationTemplateBundles(workspaceId?: string): Promi
         : ['WORKFLOW_PREREQUISITES_UNAVAILABLE'];
     return {
       id: PUBLIC_TEMPLATE_IDS[template.key],
-      version: STARTER_BUNDLE.version,
       name: template.name,
       description: template.description,
       installMode: template.installMode,
@@ -109,7 +107,6 @@ export async function installAutomationTemplate(input: {
     const installation = await reserveTemplateInstallation({
       workspaceId: input.workspaceId,
       templateId: STARTER_BUNDLE.id,
-      templateVersion: STARTER_BUNDLE.version,
       installedBy: input.installedBy
     }, client);
     const recordIds = { ...(installation.recordIds || {}) };
@@ -146,7 +143,7 @@ export async function installAutomationTemplate(input: {
       category: 'run', eventType: 'automation.recommended_workflow_added.v1', operation: 'write',
       actorUserId: input.installedBy, objectType: 'workflow_recommendation', objectId: input.templateId,
       objectName: template.name, summary: 'Recommended workflow added',
-      metadata: { recommendationId: input.templateId, recommendationVersion: STARTER_BUNDLE.version, installMode: template.installMode }
+      metadata: { recommendationId: input.templateId, installMode: template.installMode }
     }, client);
     return { workflowId, alreadyInstalled: false };
   });
@@ -171,7 +168,7 @@ export async function activateAutomationTemplate(input: {
   const readiness = await computeWorkflowReadiness(workflow);
   if (readiness.status !== 'ready') throw new Error('AUTOMATION_TEMPLATE_PREREQUISITES_UNAVAILABLE');
   await db.query(
-    `UPDATE workflow_definitions SET status='active',version=version+1,updated_at=NOW()
+    `UPDATE workflow_definitions SET status='active',updated_at=NOW()
      WHERE workspace_id=$1 AND id=$2`,
     [input.workspaceId, workflow.id]
   );
@@ -180,7 +177,7 @@ export async function activateAutomationTemplate(input: {
     category: 'run', eventType: 'automation.recommended_workflow_activated.v1', operation: 'write',
     actorUserId: input.activatedBy, objectType: 'workflow_recommendation', objectId: input.templateId,
     objectName: workflow.name, summary: 'Recommended workflow activated',
-    metadata: { recommendationId: input.templateId, workflowId: workflow.id, workflowVersion: workflow.version + 1 }
+    metadata: { recommendationId: input.templateId, workflowId: workflow.id }
   });
   return { workflowId: workflow.id, status: 'active' };
 }

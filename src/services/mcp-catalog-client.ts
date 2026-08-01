@@ -1,5 +1,5 @@
 import { TargetType } from '../types/domain.js';
-import type { McpServerConfig } from './mcp-registry-client.js';
+import type { AgentMcpServerConfig, McpServerConfig, TargetMcpServerConfig } from './mcp-registry-client.js';
 import {
   createGatewayRequestOptions,
   fetchGateway,
@@ -121,7 +121,6 @@ export type ImportCatalogMcpServerInput = ImportCatalogMcpServerBaseInput & (
   | {
       scopeType: 'agent';
       agentId: string;
-      targetConstraints?: { targetTypes?: TargetType[]; targetIds?: string[] };
     }
   | {
       scopeType: 'target';
@@ -330,6 +329,12 @@ export async function getCatalogArtifact(
   return parseGatewayResponse<CatalogArtifactConfig>(response);
 }
 
+export function importCatalogMcpServer(
+  input: Extract<ImportCatalogMcpServerInput, { scopeType: 'agent' }>
+): Promise<AgentMcpServerConfig>;
+export function importCatalogMcpServer(
+  input: Extract<ImportCatalogMcpServerInput, { scopeType: 'target' }>
+): Promise<TargetMcpServerConfig>;
 export async function importCatalogMcpServer(
   input: ImportCatalogMcpServerInput
 ): Promise<McpServerConfig> {
@@ -341,11 +346,7 @@ export async function importCatalogMcpServer(
       }
     : {
         scope_type: 'agent' as const,
-        agent_id: input.agentId,
-        target_constraints: {
-          target_types: input.targetConstraints?.targetTypes ?? [],
-          target_ids: input.targetConstraints?.targetIds ?? []
-        }
+        agent_id: input.agentId
       };
   const response = await fetchGateway(
     '/api/v1/internal/catalog/imports',

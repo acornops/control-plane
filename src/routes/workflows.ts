@@ -3,7 +3,6 @@ import { authenticatedHandler, requireActor, requireUser } from '../auth/middlew
 import * as workflowsController from '../controllers/workflows-controller.js';
 import * as workflowSchedulesController from '../controllers/workflow-schedules-controller.js';
 import * as workflowExecutionsController from '../controllers/workflow-executions-controller.js';
-import * as workflowReportsController from '../controllers/workflow-reports-controller.js';
 import * as workflowWebhooksController from '../controllers/workflow-webhooks-controller.js';
 import * as catalogController from '../controllers/catalog-controller.js';
 import * as catalogSourcesController from '../controllers/catalog-sources-controller.js';
@@ -20,7 +19,6 @@ workflowsRouter.post('/workspaces/:workspaceId/workflow-schedules/preview', requ
 workflowsRouter.get('/workspaces/:workspaceId/workflow-webhooks', requireUser, authed(workflowWebhooksController.listWorkspaceWorkflowWebhooks));
 workflowsRouter.get('/workspaces/:workspaceId/workflow-executions', requireUser, authed(workflowExecutionsController.listWorkspaceWorkflowExecutions));
 workflowsRouter.post('/workspaces/:workspaceId/workflow-webhooks', requireUser, authed(workflowWebhooksController.createWorkspaceWorkflowWebhook));
-workflowsRouter.get('/workspaces/:workspaceId/approvals', requireUser, authed(workflowSchedulesController.listWorkspaceApprovalInbox));
 workflowsRouter.get('/workspaces/:workspaceId/workflow-options', requireUser, authed(workflowsController.listWorkflowOptions));
 workflowsRouter.get('/workspaces/:workspaceId/prompt-reference-types', requireUser, authed(promptReferencesController.listPromptReferenceTypes));
 workflowsRouter.get('/workspaces/:workspaceId/prompt-references/suggestions', requireUser, authed(promptReferencesController.suggestPromptReferences));
@@ -50,5 +48,3 @@ workflowsRouter.get('/workflow-executions/:executionId', requireActor(['user', '
 workflowsRouter.get('/workflow-executions/:executionId/stream', requireActor(['user', 'externalIntegration']), authed(workflowExecutionsController.streamWorkflowExecution));
 workflowsRouter.post('/workflow-executions/:executionId/cancel', requireUser, authed(workflowExecutionsController.cancelWorkflowExecution));
 workflowsRouter.post('/workflow-executions/:executionId/resume', requireUser, authed(workflowExecutionsController.resumeWorkflowExecutionController));
-workflowsRouter.get('/report-artifacts/:reportId', requireActor(['user', 'externalIntegration']), authed(workflowReportsController.getWorkflowReportMetadata));
-workflowsRouter.get('/report-artifacts/:reportId/download', requireActor(['user', 'externalIntegration']), authed(workflowReportsController.downloadWorkflowReport));

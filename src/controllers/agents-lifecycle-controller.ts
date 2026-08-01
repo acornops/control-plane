@@ -11,6 +11,7 @@ import {
 } from '../store/repository-agents.js';
 import {
   deleteAgentWithInstallationCleanup,
+  listActiveAgentConversationRunIds,
   listAgentWorkflowDependencies
 } from '../store/repository-automation-cleanup.js';
 import { toSingleParam } from '../utils/params.js';
@@ -43,7 +44,7 @@ export async function duplicateAgent(req: AuthenticatedRequest, res: Response, n
       workspaceId, category: 'run', eventType: 'agent.definition_duplicated.v1', operation: 'write',
       actorUserId: req.auth.userId, objectType: 'agent', objectId: duplicated.id,
       objectName: duplicated.name, summary: 'Agent definition duplicated as a custom draft',
-      metadata: { sourceAgentId: source.id, sourceAgentVersion: source.version, duplicatedAgentId: duplicated.id }
+      metadata: { sourceAgentId: source.id, duplicatedAgentId: duplicated.id }
     });
     incrementAutomationDefinitionMutation('agent', 'duplication', 'success');
     logger.info({
@@ -83,10 +84,21 @@ export async function deleteAgent(req: AuthenticatedRequest, res: Response, next
       } });
       return;
     }
-    for (const server of await listAgentMcpServers(workspaceId, agentId)) {
-      await deleteAgentMcpServer(workspaceId, agentId, server.id);
+    const activeRunIds = await listActiveAgentConversationRunIds(workspaceId, agentId);
+    if (activeRunIds.length > 0) {
+      res.status(409).json({ error: {
+        code: 'AGENT_HAS_ACTIVE_CONVERSATIONS',
+        message: 'Wait for active Agent conversation runs to finish or cancel them before deleting this Agent.',
+        retryable: false,
+        details: { runIds: activeRunIds }
+      } });
+      return;
     }
-    const deletion = await deleteAgentWithInstallationCleanup(workspaceId, agentId);
+    const deletion = await deleteAgentWithInstallationCleanup(workspaceId, agentId, async () => {
+      for (const server of await listAgentMcpServers(workspaceId, agentId)) {
+        await deleteAgentMcpServer(workspaceId, agentId, server.id);
+      }
+    });
     if (deletion.status === 'not_found') {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
       return;
@@ -100,11 +112,20 @@ export async function deleteAgent(req: AuthenticatedRequest, res: Response, next
       } });
       return;
     }
+    if (deletion.status === 'active_runs') {
+      res.status(409).json({ error: {
+        code: 'AGENT_HAS_ACTIVE_CONVERSATIONS',
+        message: 'Wait for active Agent conversation runs to finish or cancel them before deleting this Agent.',
+        retryable: false,
+        details: { runIds: deletion.runIds }
+      } });
+      return;
+    }
     await recordWorkspaceAuditEvent({
       workspaceId, category: 'run', eventType: 'agent.definition_deleted.v1', operation: 'write',
       actorUserId: req.auth.userId, objectType: 'agent', objectId: current.id,
       objectName: current.name, summary: 'Agent definition deleted',
-      metadata: { agentId: current.id, agentVersion: current.version }
+      metadata: { agentId: current.id }
     });
     incrementAutomationDefinitionMutation('agent', 'definition', 'success');
     res.status(204).send();

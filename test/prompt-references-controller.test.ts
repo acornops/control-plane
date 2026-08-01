@@ -24,39 +24,34 @@ describe('prompt reference controller', () => {
     assert.equal(Object.hasOwn(response.body as object, 'parameters'), false);
   });
 
-  it('treats legacy runtime placeholder syntax as plain authoring text', async () => {
+  it('treats legacy target placeholder syntax as plain authoring text', async () => {
     installWorkspace('viewer');
     const parameterOnly = await callController(resolvePromptReferences, createRequest(
       { workspaceId: 'workspace-1' },
-      {
-        prompt: 'Investigate {{target:target}}.',
-        requirements: [{
-          type: 'target',
-          minimum: 1,
-          maximum: 1,
-          requiredOperations: ['read']
-        }]
-      }
+      { prompt: 'Investigate {{target:target}}.' }
     ));
     assert.equal(parameterOnly.statusCode, 200);
-    assert.ok((parameterOnly.body as { blockers: Array<{ code: string }> }).blockers
-      .some((blocker) => blocker.code === 'PROMPT_REFERENCE_CARDINALITY'));
+    assert.deepEqual((parameterOnly.body as { blockers: unknown[] }).blockers, []);
 
     const twoParameters = await callController(resolvePromptReferences, createRequest(
       { workspaceId: 'workspace-1' },
-      {
-        prompt: 'Compare {{target:first_target}} with {{target:second_target}}.',
-        requirements: [{
-          type: 'target',
-          minimum: 1,
-          maximum: 1,
-          requiredOperations: ['read']
-        }]
-      }
+      { prompt: 'Compare {{target:first_target}} with {{target:second_target}}.' }
     ));
     assert.equal(twoParameters.statusCode, 200);
-    assert.ok((twoParameters.body as { blockers: Array<{ code: string }> }).blockers
-      .some((blocker) => blocker.code === 'PROMPT_REFERENCE_CARDINALITY'));
+    assert.deepEqual((twoParameters.body as { blockers: unknown[] }).blockers, []);
+
+    const retiredRequirement = await callController(resolvePromptReferences, createRequest(
+      { workspaceId: 'workspace-1' },
+      {
+        prompt: 'Investigate.',
+        requirements: [{ type: 'target', minimum: 1, maximum: 1, requiredOperations: ['read'] }]
+      }
+    ));
+    assert.equal(retiredRequirement.statusCode, 200);
+    assert.deepEqual(
+      (retiredRequirement.body as { blockers: Array<{ code: string }> }).blockers.map((blocker) => blocker.code),
+      ['PROMPT_REFERENCE_UNKNOWN_TYPE']
+    );
   });
 
   it('rejects unknown and malformed nested fields instead of coercing them', async () => {

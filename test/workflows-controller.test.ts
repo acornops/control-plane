@@ -64,15 +64,12 @@ describe('workflows controller', () => {
       selectedAgents,
       specialistAgent: selectedAgents[0],
       mappings: await listCapabilityRoutingMappings(workflow.workspaceId, { activeReviewedOnly: true }),
-      targetRoute: workflow.capabilityPolicy.semanticCapabilityIds.includes('target.diagnostics.read')
-        ? { id: workflow.workspaceId === 'workspace-1' ? 'cluster-1' : 'cluster-2', targetType: 'kubernetes' }
-        : undefined,
       actor: { userId: 'user-1', role, permissions: getWorkspacePermissions(role) },
       approvedContextGrants
     });
   }
 
-  it('creates and dispatches a target-scoped cluster triage run', async () => {
+  it('creates and dispatches a workspace-scoped infrastructure triage run', async () => {
     installWorkspace('operator');
 
     const executionDispatches: unknown[] = [];
@@ -85,20 +82,6 @@ describe('workflows controller', () => {
       if (url.includes('/api/v1/internal/mcp/servers?')) {
         return new Response(JSON.stringify([]), { status: 200 });
       }
-      if (url.includes('/api/v1/internal/mcp/tools?') && url.includes('target_id=cluster-1')) {
-        return new Response(JSON.stringify(['get_resource', 'get_resource_logs', 'list_resources'].map((name) => ({
-          name,
-          server_id: 'acornops-target-agent',
-          model_alias: name,
-          mcp_server_url: 'builtin://agentk',
-          timeout_ms: 10_000,
-          description: `${name} fixture`,
-          capability: 'read',
-          source: 'builtin',
-          input_schema: {},
-          enabled: true
-        }))), { status: 200 });
-      }
       if (url === `${config.EXECUTION_ENGINE_BASE_URL}/api/v1/runs` && init?.method === 'POST') {
         executionDispatches.push(JSON.parse(String(init.body)));
         return new Response(null, { status: 202 });
@@ -110,7 +93,7 @@ describe('workflows controller', () => {
       { workflowId: 'cluster-triage' },
       {
         workspaceId: 'workspace-1',
-        approvedContextGrants: ['workspace_metadata', 'target_inventory']
+        approvedContextGrants: ['workspace_metadata']
       }
     ));
     assert.equal(preview.statusCode, 200);
@@ -121,7 +104,7 @@ describe('workflows controller', () => {
       { workflowId: 'cluster-triage' },
       {
         workspaceId: 'workspace-1',
-        approvedContextGrants: ['workspace_metadata', 'target_inventory']
+        approvedContextGrants: ['workspace_metadata']
       }
     ));
     assert.equal(createdSession.statusCode, 201);
@@ -160,13 +143,13 @@ describe('workflows controller', () => {
     assert.equal(run.messageId, body.message_id);
     assert.equal(run.promptDigest, previewDigests.promptDigest);
     assert.equal(run.bindingDigest, previewDigests.bindingDigest);
-    assert.deepEqual(run.resourceBindings.map((binding) => binding.type), ['target']);
+    assert.deepEqual(run.resourceBindings, []);
     assert.deepEqual(run.compiledAccessScope.tools, [
       'get_resource',
       'get_resource_logs',
       'list_resources'
     ]);
-    assert.deepEqual(run.compiledAccessScope.contextGrants, ['target_inventory', 'workspace_metadata']);
+    assert.deepEqual(run.compiledAccessScope.contextGrants, ['workspace_metadata']);
     assert.equal((await listWorkflowMessages(sessionId)).length, 1);
     assert.equal(executionDispatches.length, 1);
     assert.deepEqual(executionDispatches[0], {
@@ -180,12 +163,9 @@ describe('workflows controller', () => {
       execution_id: body.executionId,
       workflow_session_id: sessionId,
       executor_role: 'specialist',
-      target_id: 'cluster-1',
-      target_type: 'kubernetes',
       attempt_number: 1,
       idempotency_key: run.idempotencyKey,
       agent_id: 'agent-cluster-triage',
-      agent_version: 2,
       requested_at: run.requestedAt
     });
 
@@ -267,7 +247,7 @@ describe('workflows controller', () => {
       capabilityPolicy: {
         mode: 'read_write',
         restrictionMode: 'restrict',
-        semanticCapabilityIds: ['target.diagnostics.read'],
+        semanticCapabilityIds: ['infrastructure.diagnostics.read'],
         contextGrants: ['workspace_metadata'],
         maxRuntimeSeconds: 900,
         retentionDays: 90,
@@ -306,7 +286,7 @@ describe('workflows controller', () => {
     installWorkspace('operator');
     const workflow = await getWorkflowDefinition('workspace-1', 'cluster-triage');
     assert.ok(workflow);
-    const compiledAccessScope = await compileScope(workflow, 'operator', ['workspace_metadata', 'target_inventory']);
+    const compiledAccessScope = await compileScope(workflow, 'operator', ['workspace_metadata']);
     const session = await createWorkflowSession({ workflow, createdBy: 'user-1', compiledAccessScope });
 
     const req = createRequest({ workflowId: workflow.id });
@@ -330,12 +310,12 @@ describe('workflows controller', () => {
     const sessionOne = await createWorkflowSession({
       workflow: workflowOne,
       createdBy: 'user-1',
-      compiledAccessScope: await compileScope(workflowOne, 'operator', ['workspace_metadata', 'target_inventory'])
+      compiledAccessScope: await compileScope(workflowOne, 'operator', ['workspace_metadata'])
     });
     await createWorkflowSession({
       workflow: workflowTwo,
       createdBy: 'user-1',
-      compiledAccessScope: await compileScope(workflowTwo, 'operator', ['workspace_metadata', 'target_inventory'])
+      compiledAccessScope: await compileScope(workflowTwo, 'operator', ['workspace_metadata'])
     });
 
     const response = await callController(listSessions, createRequest(
@@ -369,28 +349,29 @@ describe('workflows controller', () => {
 
   it('returns bounded structured MCP readiness failures for workflow messages', async () => {
     installWorkspace('operator');
-    await updateAgentMcpCapabilitySnapshot('workspace-1', 'agent-cluster-triage', {
+    const capabilitySnapshot: Parameters<typeof updateAgentMcpCapabilitySnapshot>[2] = {
       mcpServers: ['server-1'],
       mcpTools: [{ serverId: 'server-1', toolName: 'records.list' }],
       mcpInstallations: [{
         id: 'server-1', name: 'Records', url: 'https://mcp.example.test', enabled: true,
-        credentialMode: 'individual', revision: 1, targetConstraints: { targetTypes: [], targetIds: [] },
+        credentialMode: 'individual', revision: 1,
         tools: [{
           serverId: 'server-1', toolName: 'records.list', alias: 'records_list',
           capability: 'read', enabled: true, reviewState: 'approved',
           riskLevel: 'read_only', autoAllowed: false
         }]
       }]
-    }, 'user-1');
+    };
+    await updateAgentMcpCapabilitySnapshot('workspace-1', 'agent-cluster-triage', capabilitySnapshot, 'user-1');
     await db.query(
       `UPDATE capability_routing_mappings
-       SET agent_version=(SELECT version FROM agent_definitions WHERE workspace_id=$1 AND id=$2),
-           mcp_tools=$3
-       WHERE workspace_id=$1 AND agent_id=$2 AND capability_id='target.diagnostics.read'`,
+       SET mcp_tools=$3,review_state='reviewed',reviewed_by='user-1'
+       WHERE workspace_id=$1 AND agent_id=$2 AND capability_id='infrastructure.diagnostics.read'`,
       ['workspace-1', 'agent-cluster-triage', JSON.stringify([{
         serverId: 'server-1', toolName: 'records.list', alias: 'records_list', operation: 'read'
       }])]
     );
+    await updateAgentMcpCapabilitySnapshot('workspace-1', 'agent-cluster-triage', capabilitySnapshot, 'user-1');
     mock.method(globalThis, 'fetch', async (input, init) => {
       const url = new URL(String(input));
       if (url.pathname === '/api/v1/internal/mcp/tools' && init?.method === 'GET') {
@@ -418,7 +399,7 @@ describe('workflows controller', () => {
 
     const createdSession = await callController(createSession, createRequest(
       { workflowId: 'cluster-triage' },
-      { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata', 'target_inventory'] }
+      { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata'] }
     ));
     assert.equal(createdSession.statusCode, 201);
     const sessionId = (createdSession.body as { session: { id: string } }).session.id;

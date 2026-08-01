@@ -12,7 +12,6 @@ import { repo } from '../../store/repository.js';
 import { KUBERNETES_TARGET_TYPE } from '../../types/domain.js';
 import { toSingleParam } from '../../utils/params.js';
 import { mapGatewayError } from './common.js';
-import { disablePlatformTargetDiagnosticMappings } from '../../store/repository-capability-routing.js';
 
 export async function deleteCluster(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -55,8 +54,6 @@ export async function deleteCluster(req: AuthenticatedRequest, res: Response, ne
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Cluster not found', retryable: false } });
       return;
     }
-    await disablePlatformTargetDiagnosticMappings(workspaceId, clusterId, []);
-
     webhooks.emitPrepared(clusterDeletedWebhook);
     await recordWorkspaceAuditEvent({
       workspaceId,

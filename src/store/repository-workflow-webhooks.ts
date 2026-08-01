@@ -31,8 +31,6 @@ function mapWebhook(row: QueryResultRow): WorkflowWebhookRecord {
     id: row.id,
     workspaceId: row.workspace_id,
     workflowId: row.workflow_id,
-    workflowVersion: Number(row.workflow_version),
-    parameterSignature: row.parameter_signature,
     name: row.name,
     status: row.status,
     approvedContextGrants: Array.isArray(row.approved_context_grants) ? row.approved_context_grants : [],
@@ -72,8 +70,6 @@ export async function getWorkflowWebhook(webhookId: string): Promise<WorkflowWeb
 
 export async function createWorkflowWebhook(params: {
   workspaceId: string;
-  workflowVersion: number;
-  parameterSignature: string;
   actorUserId: string;
   input: WorkflowWebhookInput;
   secretCiphertext: string;
@@ -83,17 +79,15 @@ export async function createWorkflowWebhook(params: {
   const actor = actorMetadata(params.actorUserId);
   const result = await db.query(
     `INSERT INTO workflow_webhooks (
-       id,workspace_id,workflow_id,workflow_version,parameter_signature,name,status,
+       id,workspace_id,workflow_id,name,status,
        approved_context_grants,principal,secret_ciphertext,secret_key_id,created_by,updated_by
      ) VALUES (
-       $1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12::jsonb,$12::jsonb
+       $1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10::jsonb,$10::jsonb
      ) RETURNING *`,
     [
       id,
       params.workspaceId,
       params.input.workflowId,
-      params.workflowVersion,
-      params.parameterSignature,
       params.input.name.trim(),
       params.input.enabled === false ? 'paused' : 'enabled',
       JSON.stringify(params.input.approvedContextGrants || []),
@@ -108,10 +102,7 @@ export async function createWorkflowWebhook(params: {
 
 export async function updateWorkflowWebhookRecord(
   webhookId: string,
-  patch: WorkflowWebhookPatch & {
-    workflowVersion?: number;
-    parameterSignature?: string;
-  },
+  patch: WorkflowWebhookPatch,
   actorUserId: string
 ): Promise<WorkflowWebhookRecord | null> {
   const current = await getWorkflowWebhook(webhookId);
@@ -121,21 +112,17 @@ export async function updateWorkflowWebhookRecord(
     : current.status;
   const result = await db.query(
     `UPDATE workflow_webhooks
-     SET workflow_version=$2,
-         parameter_signature=$3,
-         name=$4,
-         status=$5,
-         approved_context_grants=$6::jsonb,
-         principal=$7::jsonb,
-         updated_by=$8::jsonb,
+     SET name=$2,
+         status=$3,
+         approved_context_grants=$4::jsonb,
+         principal=$5::jsonb,
+         updated_by=$6::jsonb,
          updated_at=NOW(),
-         last_error=CASE WHEN $5='enabled' THEN NULL ELSE last_error END
+         last_error=CASE WHEN $3='enabled' THEN NULL ELSE last_error END
      WHERE id=$1
      RETURNING *`,
     [
       webhookId,
-      patch.workflowVersion || current.workflowVersion,
-      patch.parameterSignature || current.parameterSignature,
       patch.name?.trim() || current.name,
       status,
       JSON.stringify(patch.approvedContextGrants || current.approvedContextGrants),

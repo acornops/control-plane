@@ -117,7 +117,7 @@ export async function receiveWorkflowWebhook(
     if (!workflow) {
       res.status(409).json({ error: {
         code: 'WEBHOOK_WORKFLOW_CHANGED',
-        message: 'The target workflow changed. Review and save this workflow webhook before retrying.',
+        message: 'The referenced workflow changed. Review and save this workflow webhook before retrying.',
         retryable: false
       } });
       return;

@@ -24,10 +24,6 @@ import {
   validateMcpPublicHeaders
 } from '../services/mcp-public-header-policy.js';
 import { getAgentDefinition } from '../store/repository-agents.js';
-import {
-  repo
-} from '../store/repository.js';
-import type { TargetType } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
 import { mapGatewayError } from './workspaces/common.js';
 
@@ -54,11 +50,6 @@ function invalid(res: Response, code: string, message: string): void {
   res.status(400).json({ error: { code, message, retryable: false } });
 }
 
-const agentTargetConstraintsSchema = z.object({
-  targetTypes: z.array(z.enum(['kubernetes', 'virtual_machine'])).max(16).optional(),
-  targetIds: z.array(z.string().trim().min(1)).max(200).optional()
-}).strict();
-
 const agentMcpCreateSchema = z.object({
   name: z.string().trim().min(1),
   url: z.string().trim().min(1),
@@ -67,8 +58,7 @@ const agentMcpCreateSchema = z.object({
   credentialMode: z.enum(['none', 'workspace', 'individual']).optional(),
   authHeaderName: z.string().min(1).optional(),
   authHeaderPrefix: z.string().optional(),
-  publicHeaders: z.record(z.string(), z.string()).optional(),
-  targetConstraints: agentTargetConstraintsSchema.optional()
+  publicHeaders: z.record(z.string(), z.string()).optional()
 }).strict().superRefine((value, context) => {
   const authType = value.authType || 'none';
   if (authType === 'none' && (value.authHeaderName !== undefined || value.authHeaderPrefix !== undefined)) {
@@ -101,8 +91,7 @@ const agentMcpUpdateSchema = z.object({
   authType: z.enum(['none', 'bearer_token', 'custom_header', 'oauth']).optional(),
   credentialMode: z.enum(['none', 'workspace', 'individual']).optional(),
   authHeaderName: z.string().min(1).optional(),
-  authHeaderPrefix: z.string().optional(),
-  targetConstraints: agentTargetConstraintsSchema.optional()
+  authHeaderPrefix: z.string().optional()
 }).strict().refine((value) => Object.keys(value).length > 0, 'At least one update field is required.');
 
 const agentMcpToolUpdateSchema = z.object({
@@ -126,31 +115,6 @@ async function agentContext(req: AuthenticatedRequest, res: Response, write = fa
     return null;
   }
   return { workspaceId, agentId, agent, authz };
-}
-
-async function constraints(
-  workspaceId: string,
-  agent: Awaited<ReturnType<typeof getAgentDefinition>> & {},
-  value: z.infer<typeof agentTargetConstraintsSchema> | undefined,
-  res: Response
-): Promise<{ targetTypes: TargetType[]; targetIds: string[] } | null> {
-  const targetTypes = value?.targetTypes || [];
-  const targetIds = value?.targetIds || [];
-  if (agent.targetScope.targetTypes?.length && targetTypes.some((type) => !agent.targetScope.targetTypes?.includes(type))) {
-    invalid(res, 'AGENT_MCP_TARGET_CONSTRAINT_INVALID', 'Target type constraints must stay within the Agent target scope.');
-    return null;
-  }
-  if (agent.targetScope.targetIds?.length && targetIds.some((id) => !agent.targetScope.targetIds?.includes(id))) {
-    invalid(res, 'AGENT_MCP_TARGET_CONSTRAINT_INVALID', 'Target ID constraints must stay within the Agent target scope.');
-    return null;
-  }
-  for (const targetId of targetIds) {
-    if (!(await repo.getTarget(workspaceId, targetId))) {
-      invalid(res, 'AGENT_MCP_TARGET_CONSTRAINT_INVALID', `Unknown target ID: ${targetId}`);
-      return null;
-    }
-  }
-  return { targetTypes: [...new Set(targetTypes)], targetIds: [...new Set(targetIds)] };
 }
 
 async function audit(req: AuthenticatedRequest, input: {
@@ -210,8 +174,6 @@ export async function createServer(req: AuthenticatedRequest, res: Response, nex
     const parsed = agentMcpCreateSchema.safeParse(raw);
     if (!parsed.success) return invalid(res, 'AGENT_MCP_INVALID', 'Invalid Agent MCP server payload.');
     const value = parsed.data;
-    const targetConstraints = await constraints(context.workspaceId, context.agent, value.targetConstraints, res);
-    if (!targetConstraints) return;
     const authType = value.authType === 'custom_header' ? 'custom_header'
       : value.authType === 'bearer_token' ? 'bearer_token' : 'none';
     const credentialMode = authType === 'none'
@@ -223,7 +185,6 @@ export async function createServer(req: AuthenticatedRequest, res: Response, nex
       name: value.name,
       url: value.url,
       enabled: value.enabled ?? true,
-      targetConstraints,
       credentialMode,
       auth: {
         type: authType,
@@ -253,10 +214,6 @@ export async function patchServer(req: AuthenticatedRequest, res: Response, next
     if (!removalOnly && !context.authz.can('manage_mcp')) {
       return void res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Adding or reconfiguring MCP capabilities requires manage_mcp.', retryable: false } });
     }
-    const targetConstraints = value.targetConstraints === undefined
-      ? undefined
-      : await constraints(context.workspaceId, context.agent, value.targetConstraints, res);
-    if (targetConstraints === null) return;
     const authType = value.authType === 'custom_header' ? 'custom_header'
       : value.authType === 'bearer_token' ? 'bearer_token'
         : value.authType === 'none' ? 'none' : undefined;
@@ -283,7 +240,6 @@ export async function patchServer(req: AuthenticatedRequest, res: Response, next
         name: inherited.name,
         url: inherited.source.endpoint,
         enabled: true,
-        targetConstraints: { targetTypes: [], targetIds: [] },
         auth: { type: 'none' },
         credentialMode: 'none'
       });
@@ -310,7 +266,6 @@ export async function patchServer(req: AuthenticatedRequest, res: Response, next
       name: value.name,
       enabled: value.enabled,
       expectedRevision: value.expectedRevision,
-      targetConstraints,
       auth: authType ? {
         type: authType,
         headerName: value.authHeaderName,

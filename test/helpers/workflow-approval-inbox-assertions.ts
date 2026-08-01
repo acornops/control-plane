@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { listWorkspaceApprovalInbox } from '../../src/controllers/workflow-schedules-controller.js';
+import { listWorkspaceApprovalInbox } from '../../src/controllers/workspace-approval-inbox-controller.js';
 import { repo } from '../../src/store/repository.js';
 import type { Run, RunToolApproval } from '../../src/types/domain.js';
 import type { WorkflowApprovalRecord, WorkflowRunRecord } from '../../src/store/repository-workflows.js';
@@ -28,7 +28,7 @@ export async function assertFocusedApprovalInboxFilters(input: {
   assert.deepEqual(
     (targetResponse.body as { items: Array<{ approvalId: string; source: string; runId: string }> }).items
       .map(({ approvalId, source, runId }) => ({ approvalId, source, runId })),
-    [{ approvalId: input.targetApproval.id, source: 'target_tool', runId: input.targetRun.id }]
+    [{ approvalId: input.targetApproval.id, source: 'interactive_tool', runId: input.targetRun.id }]
   );
 
   repo.listWorkspaceRunToolApprovals = async () => [];

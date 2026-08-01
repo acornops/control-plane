@@ -59,45 +59,44 @@ export async function installAutomationTemplateFixtures(
     for (const workspaceId of workspaceIds) {
       await client.query(
         `INSERT INTO agent_definitions (
-           workspace_id,id,name,avatar_emoji,description,instructions,status,provider_type,version,owner_user_id,created_by,
-           mcp_servers,tools,skills,context_grants,target_scope,approval_policy,trust_policy,mcp_tools,mcp_installations,
+           workspace_id,id,name,avatar_emoji,description,instructions,status,provider_type,owner_user_id,created_by,
+           mcp_servers,tools,skills,context_grants,approval_policy,trust_policy,mcp_tools,mcp_installations,
            permission_mode,skill_installations,origin,review_state,semantic_capability_ids,
            readiness_status,readiness_reasons
          ) VALUES
-         ($1,'agent-cluster-triage','Target Diagnostics','🔎','Collects target diagnostic evidence.','Stay inside the exact target scope.','active','internal',2,'user-1','user-1',
-          '["acornops-target-agent"]','["get_resource","get_resource_logs","list_resources"]','["acornops-observability"]','["target_inventory","workspace_metadata"]',
-          '{"type":"selected_target","targetTypes":["kubernetes","virtual_machine"]}',
+         ($1,'agent-cluster-triage','Infrastructure Diagnostics','🔎','Collects infrastructure diagnostic evidence.','Use only the environment identified by the request when calling relevant MCP tools.','active','internal','user-1','user-1',
+          '[]','[]','[]','["workspace_metadata"]',
           '{"mode":"before_write","writeToolsRequireApproval":true}','{"level":"restricted","allowExternalData":false}',
-          '[]','[]','read_only','[]','{"type":"template","templateId":"acornops-starter","templateVersion":1}','reviewed','["target.diagnostics.read"]','ready','[]'),
-         ($1,'agent-incident-reporter','Incident Reporter','📝','Creates evidence-backed incident reports.','Use only explicitly granted evidence.','active','internal',2,'user-1','user-1',
+          '[]','[]','read_only','[]','{"type":"template","templateId":"acornops-starter"}','reviewed','["infrastructure.diagnostics.read"]','ready','[]'),
+         ($1,'agent-incident-reporter','Incident Reporter','📝','Creates evidence-backed incident reports.','Use only explicitly granted evidence.','active','internal','user-1','user-1',
           '[]','["prompt.resources.read","reports.pdf.generate"]','[]','[]',
-          '{"type":"workspace"}','{"mode":"before_write","writeToolsRequireApproval":true}','{"level":"restricted","allowExternalData":false}',
-          '[]','[]','read_only','[]','{"type":"template","templateId":"acornops-starter","templateVersion":1}','reviewed','["incident.report.generate"]','ready','[]')`,
+          '{"mode":"before_write","writeToolsRequireApproval":true}','{"level":"restricted","allowExternalData":false}',
+          '[]','[]','read_only','[]','{"type":"template","templateId":"acornops-starter"}','reviewed','["incident.report.generate"]','ready','[]')`,
         [workspaceId]
       );
       await client.query(
         `INSERT INTO capability_routing_mappings (
-           workspace_id,id,capability_id,version,agent_id,agent_version,status,review_state,priority,target_types,target_ids,
-           mcp_tools,native_tool_ids,skill_ids,context_grants,created_by,reviewed_by,target_tool_refs
+           workspace_id,id,capability_id,agent_id,status,review_state,priority,
+           mcp_tools,native_tool_ids,skill_ids,context_grants,created_by,reviewed_by
          ) VALUES
-         ($1,'route-target-diagnostics','target.diagnostics.read',1,'agent-cluster-triage',2,'active','reviewed',10,
-          '["kubernetes","virtual_machine"]','[]','[]','["get_resource","get_resource_logs","list_resources"]','["acornops-observability"]','["target_inventory","workspace_metadata"]','user-1','user-1',
-          '[{"serverId":"acornops-target-agent","toolName":"list_resources","alias":"list_resources","operation":"read"},{"serverId":"acornops-target-agent","toolName":"get_resource","alias":"get_resource","operation":"read"},{"serverId":"acornops-target-agent","toolName":"get_resource_logs","alias":"get_resource_logs","operation":"read"}]'),
-         ($1,'route-incident-report','incident.report.generate',1,'agent-incident-reporter',2,'active','reviewed',10,
-          '[]','[]','[]','["prompt.resources.read","reports.pdf.generate"]','[]','[]','user-1','user-1','[]')`,
+         ($1,'route-target-diagnostics','infrastructure.diagnostics.read','agent-cluster-triage','active','reviewed',10,
+          '[{"serverId":"targets","toolName":"list_resources","alias":"list_resources","operation":"read"},{"serverId":"targets","toolName":"get_resource","alias":"get_resource","operation":"read"},{"serverId":"targets","toolName":"get_resource_logs","alias":"get_resource_logs","operation":"read"}]',
+          '[]','[]','["workspace_metadata"]','user-1','user-1'),
+         ($1,'route-incident-report','incident.report.generate','agent-incident-reporter','active','reviewed',10,
+          '[]','["prompt.resources.read","reports.pdf.generate"]','[]','[]','user-1','user-1')`,
         [workspaceId]
       );
       await client.query(
          `INSERT INTO workflow_definitions (
-           workspace_id,id,version,template_id,name,description,status,tags,required_permissions,created_by,
+           workspace_id,id,template_id,name,description,status,tags,required_permissions,created_by,
            readiness_status,readiness_reasons,origin,prompt,agent_ids,capability_policy
          ) VALUES
-         ($1,'cluster-triage',3,'acornops-starter','Target diagnostics','Inspect one explicitly selected target.','active','["target"]','["read_workspace_data"]','user-1',
-          'ready','[]','{"type":"template","templateId":"acornops-starter","templateVersion":1}',
-          'Inspect the target named in the request and summarize findings.','["agent-cluster-triage"]',
-          '{"mode":"read_only","restrictionMode":"restrict","semanticCapabilityIds":["target.diagnostics.read"],"contextGrants":["workspace_metadata","target_inventory"],"maxRuntimeSeconds":900,"retentionDays":90,"approvalRequirements":[]}'),
-         ($1,'incident-report-pdf',3,'acornops-starter','Incident report','Generate a report from selected chats.','active','["incident"]',
-          '["read_workspace_data"]','user-1','ready','[]','{"type":"template","templateId":"acornops-starter","templateVersion":1}',
+         ($1,'cluster-triage','acornops-starter','Infrastructure diagnostics','Inspect one explicitly identified environment.','active','["diagnostics"]','["read_workspace_data"]','user-1',
+          'ready','[]','{"type":"template","templateId":"acornops-starter"}',
+          'Inspect the infrastructure named in the request and summarize findings.','["agent-cluster-triage"]',
+          '{"mode":"read_only","restrictionMode":"restrict","semanticCapabilityIds":["infrastructure.diagnostics.read"],"contextGrants":["workspace_metadata"],"maxRuntimeSeconds":900,"retentionDays":90,"approvalRequirements":[]}'),
+         ($1,'incident-report-pdf','acornops-starter','Incident report','Generate a report from selected chats.','active','["incident"]',
+          '["read_workspace_data"]','user-1','ready','[]','{"type":"template","templateId":"acornops-starter"}',
           'Generate an incident report from the incident context named in the request with provenance.','["agent-incident-reporter"]',
           '{"mode":"read_only","restrictionMode":"inherit","semanticCapabilityIds":[],"contextGrants":[],"maxRuntimeSeconds":900,"retentionDays":90,"approvalRequirements":["Before generating the report"]}')`,
         [workspaceId]

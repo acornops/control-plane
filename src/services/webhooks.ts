@@ -97,8 +97,9 @@ function recordRunLifecycleAudit(eventType: WebhookEventType, run: Run): void {
     metadata: {
       sessionId: run.sessionId,
       messageId: run.messageId,
-      targetId: run.targetId,
-      targetType: run.targetType,
+      ...(run.conversationKind === 'agent_chat'
+        ? { conversationKind: 'agent_chat', agentId: run.agentId }
+        : { targetId: run.targetId, targetType: run.targetType }),
       status: run.status,
       ...(run.startedAt ? { startedAt: run.startedAt } : {}),
       ...(run.endedAt ? { endedAt: run.endedAt } : {}),
@@ -115,20 +116,22 @@ export function emitRunStatusTransition(previous: Run, next: Run | null): void {
   void recordRunStatusChangedActivity(previous, next);
 
   if (previous.status !== 'running' && next.status === 'running' && !previous.startedAt) {
-    webhooks.emit({
-      type: 'run.started.v1',
-      workspaceId: next.workspaceId,
-      clusterId: next.targetType === KUBERNETES_TARGET_TYPE ? next.targetId : undefined,
-      targetId: next.targetId,
-      targetType: next.targetType,
-      subject: { type: 'run', id: next.id },
-      data: {
-        sessionId: next.sessionId,
-        messageId: next.messageId,
-        status: next.status,
-        startedAt: next.startedAt || null
-      }
-    });
+    if (next.targetId && next.targetType) {
+      webhooks.emit({
+        type: 'run.started.v1',
+        workspaceId: next.workspaceId,
+        clusterId: next.targetType === KUBERNETES_TARGET_TYPE ? next.targetId : undefined,
+        targetId: next.targetId,
+        targetType: next.targetType,
+        subject: { type: 'run', id: next.id },
+        data: {
+          sessionId: next.sessionId,
+          messageId: next.messageId,
+          status: next.status,
+          startedAt: next.startedAt || null
+        }
+      });
+    }
     recordRunLifecycleAudit('run.started.v1', next);
   }
 
@@ -139,24 +142,26 @@ export function emitRunStatusTransition(previous: Run, next: Run | null): void {
         : next.status === 'failed'
           ? 'run.failed.v1'
           : 'run.cancelled.v1';
-    webhooks.emit({
-      type: eventType,
-      workspaceId: next.workspaceId,
-      clusterId: next.targetType === KUBERNETES_TARGET_TYPE ? next.targetId : undefined,
-      targetId: next.targetId,
-      targetType: next.targetType,
-      subject: { type: 'run', id: next.id },
-      data: {
-        sessionId: next.sessionId,
-        messageId: next.messageId,
-        status: next.status,
-        startedAt: next.startedAt || null,
-        endedAt: next.endedAt || null,
-        errorCode: next.errorCode || null,
-        errorMessage: next.errorMessage || null,
-        usage: next.usage || null
-      }
-    });
+    if (next.targetId && next.targetType) {
+      webhooks.emit({
+        type: eventType,
+        workspaceId: next.workspaceId,
+        clusterId: next.targetType === KUBERNETES_TARGET_TYPE ? next.targetId : undefined,
+        targetId: next.targetId,
+        targetType: next.targetType,
+        subject: { type: 'run', id: next.id },
+        data: {
+          sessionId: next.sessionId,
+          messageId: next.messageId,
+          status: next.status,
+          startedAt: next.startedAt || null,
+          endedAt: next.endedAt || null,
+          errorCode: next.errorCode || null,
+          errorMessage: next.errorMessage || null,
+          usage: next.usage || null
+        }
+      });
+    }
     recordRunLifecycleAudit(eventType, next);
   }
 }

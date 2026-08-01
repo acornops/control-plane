@@ -1,19 +1,18 @@
-import type { WorkspaceCapability, WorkspacePermissions } from '../auth/authorization.js';
+import type { WorkspaceCapability } from '../auth/authorization.js';
 import type { WorkspaceAuditOperation } from './domain.js';
 import type { AgentDefinition, AutomationReadinessStatus, McpToolRef, RunPermissionMode, RunPrincipalRef } from './agents.js';
 import type { DefinitionOrigin } from './agents.js';
-import type { TargetType } from './domain.js';
 import type { PromptResourceBinding } from './prompt-resources.js';
 import type { CapabilityRoutingMapping } from './capability-routing.js';
+import type { CapabilityAccessActor, CapabilityAccessMode, CapabilityRestrictionMode } from './capability-access.js';
 
 export type WorkflowStatus = 'active' | 'draft' | 'paused';
 export type WorkflowExecutionMode = 'direct' | 'coordinated';
-export type WorkflowCapabilityMode = 'read_only' | 'read_write';
-export type WorkflowCapabilityRestrictionMode = 'inherit' | 'restrict';
+export type WorkflowCapabilityMode = CapabilityAccessMode;
+export type WorkflowCapabilityRestrictionMode = CapabilityRestrictionMode;
 export type WorkflowContextGrant =
   | 'workspace_metadata'
   | 'audit_events'
-  | 'target_inventory'
   | string;
 
 export interface WorkflowCapabilityPolicy {
@@ -29,7 +28,6 @@ export interface WorkflowCapabilityPolicy {
 export interface WorkflowDefinitionForAccess {
   id: string;
   workspaceId: string;
-  version: number;
   origin: DefinitionOrigin;
   name: string;
   description?: string;
@@ -59,11 +57,8 @@ export interface WorkflowOption {
   disabled?: boolean;
   disabledReason?: string;
   provenance?: {
-    source: 'workspace' | 'target' | 'agent';
+    source: 'workspace' | 'agent';
     provider?: 'github' | 'gitlab';
-    targetId?: string;
-    targetName?: string;
-    targetType?: TargetType;
     serverId?: string;
     toolName?: string;
     agentId?: string;
@@ -102,32 +97,18 @@ export interface WorkflowSchedulePreview {
   errors: Array<{ field: string; message: string }>;
 }
 
-export interface WorkflowAccessActor {
-  userId: string;
-  role: string;
-  permissions: WorkspacePermissions;
-}
+export type WorkflowAccessActor = CapabilityAccessActor;
 
 export interface WorkflowJwtClaimPreview {
   scope: { type: 'workspace' };
   workflow_id: string;
-  workflow_version: number;
   executor_role: WorkflowExecutorRole;
   agent_id?: string;
-  agent_version?: number;
   trigger_id?: string;
   permissions: {
     allowed_tools: string[];
     allowed_tool_refs: Array<{ server_id: string; tool_name: string }>;
     allowed_tool_operations: Record<string, WorkspaceAuditOperation>;
-    allowed_target_tool_routes: Array<{
-      alias: string;
-      server_id: string;
-      tool_name: string;
-      operation: WorkspaceAuditOperation;
-      target_id: string;
-      target_type: 'kubernetes' | 'virtual_machine';
-    }>;
     context_grants: string[];
     resource_bindings: Array<{
       binding_id: string;
@@ -145,18 +126,15 @@ export type WorkflowExecutorRole = 'coordinator' | 'specialist';
 export type WorkflowExecutor =
   | {
       role: 'coordinator';
-      profileVersion: number;
     }
   | {
       role: 'specialist';
       agentId: string;
-      agentVersion: number;
     };
 
 export interface CompiledWorkflowAccessScope {
   workflowId: string;
   workspaceId: string;
-  workflowVersion: number;
   actor: {
     userId: string;
     role: string;
@@ -168,8 +146,6 @@ export interface CompiledWorkflowAccessScope {
   grantedCapabilities: WorkspaceCapability[];
   mcpServers: string[];
   mcpTools: McpToolRef[];
-  targetToolRefs: McpToolRef[];
-  targetToolRoutes: WorkflowTargetToolRoute[];
   tools: string[];
   toolOperations: Record<string, WorkspaceAuditOperation>;
   nativeToolConfigs: Record<string, Record<string, unknown>>;
@@ -179,7 +155,6 @@ export interface CompiledWorkflowAccessScope {
   permissionMode: RunPermissionMode;
   principal: RunPrincipalRef;
   executor: WorkflowExecutor;
-  selectedAgents: Array<{ id: string; version: number }>;
   selectedAgentSnapshots: AgentDefinition[];
   routingMappingSnapshots: CapabilityRoutingMapping[];
   resourceBindings: PromptResourceBinding[];
@@ -188,15 +163,6 @@ export interface CompiledWorkflowAccessScope {
   resourceResolutionPhase: 'session_ceiling' | 'run_exact';
   coordinationFunctions: string[];
   jwtClaims: WorkflowJwtClaimPreview;
-}
-
-export interface WorkflowTargetToolRoute {
-  alias: string;
-  serverId: string;
-  toolName: string;
-  operation: WorkspaceAuditOperation;
-  targetId: string;
-  targetType: 'kubernetes' | 'virtual_machine';
 }
 
 export type WorkflowCapabilityPreviewStatus = 'ready' | 'blocked';
@@ -210,7 +176,7 @@ export interface WorkflowCapabilityToolPreview {
   label: string;
   description?: string;
   access: 'read' | 'write';
-  source: 'target' | 'mcp' | 'builtin';
+  source: 'mcp' | 'builtin';
   serverId?: string;
   serverIds?: string[];
 }
@@ -245,7 +211,6 @@ export type WorkflowMcpRequirementPreview = WorkflowMcpRequirementPreviewBase & 
 
 export interface WorkflowCapabilitiesPreview {
   workflowId: string;
-  workflowVersion: number;
   promptDigest: string;
   bindingDigest: string;
   mode: WorkflowCapabilityMode;
@@ -288,15 +253,10 @@ export interface WorkflowScheduleRecord {
   id: string;
   workspaceId: string;
   workflowId: string;
-  workflowVersion: number;
-  /** Deprecated persistence-only column retained until a schema migration removes it. */
-  parameterSignature: string;
   name: string;
   status: WorkflowScheduleStatus;
   cron: string;
   timezone: string;
-  /** Deprecated persistence-only column retained until a schema migration removes it. */
-  inputs: Record<string, string>;
   approvedContextGrants: string[];
   principal: WorkflowSchedulePrincipal;
   createdBy: WorkflowScheduleActorMetadata;
@@ -341,9 +301,6 @@ export interface WorkflowWebhookRecord {
   id: string;
   workspaceId: string;
   workflowId: string;
-  workflowVersion: number;
-  /** Deprecated persistence-only column retained until a schema migration removes it. */
-  parameterSignature: string;
   name: string;
   status: WorkflowWebhookStatus;
   approvedContextGrants: string[];
@@ -389,7 +346,7 @@ export type WorkflowExecutionStatus =
 export type WorkflowExecutionOrigin =
   | {
       schemaVersion: 1;
-      kind: 'manual' | 'external_integration' | 'agent_chat';
+      kind: 'manual' | 'external_integration';
       label: string;
     }
   | {
@@ -416,15 +373,11 @@ export interface WorkflowExecutionSummary {
   workflow: {
     id: string;
     name: string;
-    version: number;
   };
   status: WorkflowExecutionStatus;
   origin: WorkflowExecutionOrigin;
   rootRun?: {
     id: string;
-    targetId?: string;
-    targetName?: string;
-    targetType?: 'kubernetes' | 'virtual_machine';
     requestedAt: string;
     startedAt?: string;
     endedAt?: string;
@@ -434,36 +387,4 @@ export interface WorkflowExecutionSummary {
   startedAt?: string;
   endedAt?: string;
   updatedAt: string;
-}
-
-export interface WorkflowActivitySummary {
-  openCount: number;
-  attentionCount: number;
-  totalCount: number;
-  openExecution?: WorkflowExecutionSummary;
-  latestExecution?: WorkflowExecutionSummary;
-}
-
-export interface WorkflowApprovalInboxRow {
-  approvalId: string;
-  runId: string;
-  source: 'target_tool' | 'workflow_gate' | 'workflow_tool';
-  workflowId?: string;
-  targetId?: string;
-  targetType?: string;
-  summary: string;
-  toolName: string;
-  requestedBy?: string;
-  expiresAt: string;
-  status: 'pending' | 'approved' | 'rejected' | 'expired';
-  decision?: 'approved' | 'rejected';
-  decidedBy?: string;
-  decidedAt?: string;
-  requestedAt: string;
-}
-
-export interface WorkflowApprovalInboxResponse {
-  items: WorkflowApprovalInboxRow[];
-  pendingCount: number;
-  nextCursor?: string;
 }

@@ -11,7 +11,7 @@ import {
   getExactMcpReadinessReportForToolFiltering,
   isDegradableInteractiveMcpFailure,
   type McpReadinessReport
-} from './workflow-readiness.js';
+} from './mcp-readiness.js';
 
 export interface InteractiveMcpToolAvailability {
   resolution: TargetRunToolResolution;

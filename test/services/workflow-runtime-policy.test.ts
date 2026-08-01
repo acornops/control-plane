@@ -13,12 +13,12 @@ describe('workflow runtime policy', () => {
     const effective = effectiveWorkflowRuntimePolicy();
     assert.deepEqual(effective, {
       maxRuntimeSeconds: Math.max(1, Math.floor(config.ASSISTANT_MAX_RUNTIME_MS / 1000)),
-      retentionDays: config.TARGET_CHAT_REPORT_RETENTION_DAYS
+      retentionDays: config.GENERATED_DOCUMENT_RETENTION_DAYS
     });
     assert.deepEqual(withEffectiveWorkflowRuntimePolicy({
       mode: 'read_write',
       restrictionMode: 'restrict',
-      semanticCapabilityIds: ['target.remediation.write'],
+      semanticCapabilityIds: ['infrastructure.remediation.write'],
       contextGrants: [],
       maxRuntimeSeconds: 1,
       retentionDays: 365,
@@ -26,7 +26,7 @@ describe('workflow runtime policy', () => {
     }), {
       mode: 'read_write',
       restrictionMode: 'restrict',
-      semanticCapabilityIds: ['target.remediation.write'],
+      semanticCapabilityIds: ['infrastructure.remediation.write'],
       contextGrants: [],
       ...effective,
       approvalRequirements: ['Approve writes']

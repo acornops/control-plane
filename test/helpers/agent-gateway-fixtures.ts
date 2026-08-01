@@ -214,13 +214,13 @@ export function installAgentRepoMocks(agents: AgentFixture[]): {
 export async function connectAgent(gateway: AgentGateway, input: AgentFixture): Promise<FakeWebSocket> {
   const internal = gateway as unknown as {
     handleConnection(ws: WebSocket, request: IncomingMessage): void;
-    handleMessage(ws: WebSocket, raw: WebSocket.RawData, agentKeyHeader: string, agentVersion: string): Promise<void>;
+    handleMessage(ws: WebSocket, raw: WebSocket.RawData, agentKeyHeader: string, connectorVersion: string): Promise<void>;
   };
   const ws = new FakeWebSocket();
   internal.handleConnection(ws as unknown as WebSocket, {
     headers: {
       'x-agent-key': input.agentKey,
-      'x-agent-version': 'agent-test'
+      'x-connector-version': 'agentk/test'
     }
   } as IncomingMessage);
   await internal.handleMessage(
@@ -238,7 +238,7 @@ export async function connectAgent(gateway: AgentGateway, input: AgentFixture): 
       }
     })),
     input.agentKey,
-    'agent-test'
+    'agentk/test'
   );
   const response = JSON.parse(ws.sent.at(-1) || '{}') as { result?: { targetId?: string; targetType?: string } };
   assert.equal(response.result?.targetId, input.clusterId);
@@ -258,13 +258,13 @@ export async function connectAgent(gateway: AgentGateway, input: AgentFixture): 
 
 export async function sendAgentMessage(gateway: AgentGateway, ws: FakeWebSocket, payload: unknown): Promise<void> {
   const internal = gateway as unknown as {
-    handleMessage(ws: WebSocket, raw: WebSocket.RawData, agentKeyHeader: string, agentVersion: string): Promise<void>;
+    handleMessage(ws: WebSocket, raw: WebSocket.RawData, agentKeyHeader: string, connectorVersion: string): Promise<void>;
   };
   await internal.handleMessage(
     ws as unknown as WebSocket,
     Buffer.from(JSON.stringify(payload)),
     '',
-    'agent-test'
+    'agentk/test'
   );
 }
 

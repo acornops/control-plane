@@ -11,6 +11,24 @@ const externalUserHeader = {
 
 export function buildClusterPaths(): Record<string, unknown> {
   return {
+      '/api/v1/workspaces/{workspaceId}/kubernetes-rbac-additions': {
+        get: {
+          tags: ['workspaces'],
+          summary: 'List governed Kubernetes RBAC onboarding additions',
+          description: 'Returns an empty versioned catalog until governed RBAC additions are supported end-to-end.',
+          security: [{ userSession: [] }],
+          parameters: [{
+            in: 'path',
+            name: 'workspaceId',
+            required: true,
+            schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID }
+          }],
+          responses: {
+            '200': { description: 'Versioned RBAC addition catalog. The current catalog is empty.' },
+            '403': { description: 'The caller cannot manage targets in this workspace.' }
+          }
+        }
+      },
       '/api/v1/workspaces/{workspaceId}/kubernetes-clusters': {
         get: {
           tags: ['workspaces'],

@@ -6,7 +6,7 @@ export interface AgentOwnerRecord {
   instanceId: string;
   connectionId: string;
   workspaceId: string;
-  agentVersion?: string;
+  connectorVersion?: string;
   updatedAt: string;
 }
 
@@ -64,7 +64,7 @@ function parseAgentOwnerRecord(value: string | null): AgentOwnerRecord | undefin
       instanceId: record.instanceId,
       connectionId: record.connectionId,
       workspaceId: record.workspaceId,
-      agentVersion: typeof record.agentVersion === 'string' ? record.agentVersion : undefined,
+      connectorVersion: typeof record.connectorVersion === 'string' ? record.connectorVersion : undefined,
       updatedAt: record.updatedAt
     };
   } catch {
@@ -76,14 +76,14 @@ export async function claimAgentOwner(input: {
   clusterId: string;
   connectionId: string;
   workspaceId: string;
-  agentVersion?: string;
+  connectorVersion?: string;
 }): Promise<void> {
   if (!distributedRoutingEnabled()) return;
   const record: AgentOwnerRecord = {
     instanceId: config.CONTROL_PLANE_INSTANCE_ID,
     connectionId: input.connectionId,
     workspaceId: input.workspaceId,
-    agentVersion: input.agentVersion,
+    connectorVersion: input.connectorVersion,
     updatedAt: new Date().toISOString()
   };
   await redis.set(agentOwnerKey(input.clusterId), JSON.stringify(record), 'EX', config.CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS);

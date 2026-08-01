@@ -4,6 +4,7 @@ import { autoTriageInstructionsFitLimit } from '../utils/auto-triage-instruction
 import { TARGET_TYPES } from './domain.js';
 import { runEventSchema, runEventsBatchSchema } from './run-events-contract.js';
 import { webhookUrlSchema } from './webhook-contracts.js';
+export { internalMcpToolCallSchema } from './internal-mcp-contracts.js';
 export {
   adminWorkspaceDefaultCreateSchema,
   adminWorkspaceDefaultDeleteSchema,
@@ -221,12 +222,6 @@ export const updateTargetAutoTriageSchema = z.object({
 export const startExistingAutoTriageInvestigationsSchema = z.object({
   expectedSettingsRevision: z.number().int().min(1)
 }).strict();
-
-export const internalMcpToolCallSchema = z.object({
-  name: z.string().min(1),
-  arguments: z.record(z.unknown()).optional().default({}),
-  toolCallId: z.string().min(1).max(256).optional()
-});
 
 export const internalToolingSyncSchema = z
   .object({

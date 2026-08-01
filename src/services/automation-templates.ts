@@ -31,7 +31,6 @@ interface AgentTemplate {
   instructions: string;
   semanticCapabilityIds: string[];
   nativeToolIds?: string[];
-  targetConstraints?: { targetTypes: Array<'kubernetes' | 'virtual_machine'>; targetIds: string[] };
 }
 
 export interface WorkflowTemplate {
@@ -52,7 +51,6 @@ export interface WorkflowTemplate {
 
 interface AutomationTemplateBundle {
   id: string;
-  version: number;
   name: string;
   description: string;
   agents: AgentTemplate[];
@@ -60,29 +58,27 @@ interface AutomationTemplateBundle {
 }
 
 export const STARTER_AUTOMATION_TEMPLATE_ID = 'acornops-starter';
-export const STARTER_AUTOMATION_TEMPLATE_VERSION = 7;
 
 async function upsertStarterNativeToolMapping(
   client: PoolClient,
   workspaceId: string,
   agentId: string,
-  agentVersion: number,
   toolId: string,
   installedBy: string
 ): Promise<void> {
   const tool = getWorkspaceNativeTool(toolId);
   if (!tool) throw new Error(`Unknown starter native tool ${toolId}`);
   await client.query(
-    `INSERT INTO capability_routing_mappings (
-       workspace_id,id,capability_id,version,agent_id,agent_version,status,review_state,priority,
-       target_types,target_ids,mcp_tools,native_tool_ids,skill_ids,context_grants,created_by,reviewed_by
-     ) VALUES ($1,$2,$3,1,$4,$5,'active','reviewed',100,'[]','[]','[]',$6,'[]',$7,$8,$8)
+     `INSERT INTO capability_routing_mappings (
+       workspace_id,id,capability_id,agent_id,status,review_state,priority,
+       mcp_tools,native_tool_ids,skill_ids,context_grants,created_by,reviewed_by
+     ) VALUES ($1,$2,$3,$4,'active','reviewed',100,'[]',$5,'[]',$6,$7,$7)
      ON CONFLICT (workspace_id,id) DO UPDATE SET
-       capability_id=EXCLUDED.capability_id,agent_version=EXCLUDED.agent_version,status='active',review_state='reviewed',
+       capability_id=EXCLUDED.capability_id,status='active',review_state='reviewed',
        native_tool_ids=EXCLUDED.native_tool_ids,
        context_grants=EXCLUDED.context_grants,reviewed_by=EXCLUDED.reviewed_by,
-       version=capability_routing_mappings.version+1,updated_at=NOW()`,
-    [workspaceId, `native:${agentId}:${tool.id}`, tool.semanticCapabilityId, agentId, agentVersion,
+       updated_at=NOW()`,
+    [workspaceId, `native:${agentId}:${tool.id}`, tool.semanticCapabilityId, agentId,
      JSON.stringify([tool.id]),
      JSON.stringify(tool.requiredContextGrant ? [tool.requiredContextGrant] : []), installedBy]
   );
@@ -90,46 +86,43 @@ async function upsertStarterNativeToolMapping(
 
 export const STARTER_BUNDLE: AutomationTemplateBundle = {
   id: STARTER_AUTOMATION_TEMPLATE_ID,
-  version: STARTER_AUTOMATION_TEMPLATE_VERSION,
   name: 'AcornOps workspace defaults',
-  description: 'Kubernetes and virtual-machine Agents with target tools, health checks, and opt-in remediation and incident investigation.',
+  description: 'Kubernetes and virtual-machine Agents with MCP tools, health checks, and opt-in remediation and incident investigation.',
   agents: [
     {
       key: 'kubernetesAgent',
       name: 'Kubernetes Agent',
       avatarEmoji: '☸️',
-      description: 'Investigates and safely operates Kubernetes targets identified in the request.',
-      instructions: 'Use the target identified by the request when calling target tools. Do not guess when a target name is ambiguous. Use live target evidence, distinguish observations from inferences, require approval before every write, verify changes, and provide rollback guidance.',
+      description: 'Investigates and safely operates Kubernetes environments identified in the request.',
+      instructions: 'Use the environment identified by the request when calling relevant MCP tools. Do not guess when a resource name is ambiguous. Use live evidence, distinguish observations from inferences, require approval before every write, verify changes, and provide rollback guidance.',
       semanticCapabilityIds: [
         'prompt.resources.read',
         'reports.pdf.generate',
-        'target.diagnostics.read',
-        'target.remediation.write'
+        'infrastructure.diagnostics.read',
+        'infrastructure.remediation.write'
       ],
-      nativeToolIds: ['prompt.resources.read', 'reports.pdf.generate'],
-      targetConstraints: { targetTypes: ['kubernetes'], targetIds: [] }
+      nativeToolIds: ['prompt.resources.read', 'reports.pdf.generate']
     },
     {
       key: 'virtualMachineAgent',
       name: 'Virtual Machine Agent',
       avatarEmoji: '🖥️',
-      description: 'Investigates Linux virtual-machine targets identified in the request.',
-      instructions: 'Use the target identified by the request when calling target tools. Do not guess when a target name is ambiguous. Use live target evidence, distinguish observations from inferences, preserve provenance, disclose missing inputs, and do not make changes.',
+      description: 'Investigates Linux virtual machines identified in the request.',
+      instructions: 'Use the machine identified by the request when calling relevant MCP tools. Do not guess when a resource name is ambiguous. Use live evidence, distinguish observations from inferences, preserve provenance, disclose missing inputs, and do not make changes.',
       semanticCapabilityIds: [
         'prompt.resources.read',
         'reports.pdf.generate',
-        'target.diagnostics.read'
+        'infrastructure.diagnostics.read'
       ],
-      nativeToolIds: ['prompt.resources.read', 'reports.pdf.generate'],
-      targetConstraints: { targetTypes: ['virtual_machine'], targetIds: [] }
+      nativeToolIds: ['prompt.resources.read', 'reports.pdf.generate']
     }
   ],
   workflows: [
     {
       key: 'kubernetesHealth',
       name: 'Kubernetes health check',
-      description: 'Inspect available Kubernetes targets for workload failures, warning events, resource pressure, and relevant logs.',
-      prompt: "Assess the available Kubernetes targets' current health without making changes. Use the Kubernetes Agent's target tools where relevant. Inspect workload readiness and availability, pod restarts, warning events, resource pressure, and relevant recent logs. Cite the exact target and evidence for each finding, distinguish observations from inferences, call out unavailable evidence, and finish with prioritized safe next actions.",
+      description: 'Inspect available Kubernetes environments for workload failures, warning events, resource pressure, and relevant logs.',
+      prompt: "Assess the available Kubernetes environments' current health without making changes. Use the Kubernetes Agent's MCP tools where relevant. Inspect workload readiness and availability, pod restarts, warning events, resource pressure, and relevant recent logs. Cite the exact environment and evidence for each finding, distinguish observations from inferences, call out unavailable evidence, and finish with prioritized safe next actions.",
       agentKeys: ['kubernetesAgent'],
       semanticCapabilityIds: [],
       capabilityMode: 'read_only',
@@ -138,15 +131,15 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       setupSteps: []
     },
     {
-      key: 'targetRemediation',
-      name: 'Target remediation',
-      description: 'Diagnose and safely change a Kubernetes target named in the request with approval-gated writes.',
-      prompt: 'Diagnose the Kubernetes target named in this request using live evidence. If the target is missing or ambiguous, explain what is needed instead of guessing. Propose the smallest safe remediation, request approval before each mutation, verify the result, and summarize rollback guidance.',
+      key: 'infrastructureRemediation',
+      name: 'Infrastructure remediation',
+      description: 'Diagnose and safely change a Kubernetes environment named in the request with approval-gated writes.',
+      prompt: 'Diagnose the Kubernetes environment named in this request using live evidence. If the environment is missing or ambiguous, explain what is needed instead of guessing. Propose the smallest safe remediation, request approval before each mutation, verify the result, and summarize rollback guidance.',
       agentKeys: ['kubernetesAgent'],
-      semanticCapabilityIds: ['target.diagnostics.read', 'target.remediation.write'],
+      semanticCapabilityIds: ['infrastructure.diagnostics.read', 'infrastructure.remediation.write'],
       capabilityMode: 'read_write',
       restrictionMode: 'restrict',
-      approvalRequirements: ['Before every write-capable target tool'],
+      approvalRequirements: ['Before every write-capable MCP tool'],
       status: 'paused',
       installMode: 'opt_in',
       setupSteps: ['Add paused workflow', 'Review approval-gated tools', 'Activate']
@@ -155,7 +148,7 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       key: 'virtualMachineHealth',
       name: 'Virtual machine health check',
       description: 'Inspect available Linux VMs for host pressure, degraded services, suspicious processes or listeners, and relevant logs.',
-      prompt: "Assess the available Linux virtual machines' current health without making changes. Use the Virtual Machine Agent's target tools where relevant. Inspect the host summary, filesystem pressure, top processes, network listeners, degraded systemd services, and relevant allowlisted journal logs. Cite the exact target and evidence for each finding, distinguish observations from inferences, call out unavailable evidence, and finish with prioritized safe next actions.",
+      prompt: "Assess the available Linux virtual machines' current health without making changes. Use the Virtual Machine Agent's MCP tools where relevant. Inspect the host summary, filesystem pressure, top processes, network listeners, degraded systemd services, and relevant allowlisted journal logs. Cite the exact machine and evidence for each finding, distinguish observations from inferences, call out unavailable evidence, and finish with prioritized safe next actions.",
       agentKeys: ['virtualMachineAgent'],
       semanticCapabilityIds: [],
       capabilityMode: 'read_only',
@@ -167,10 +160,10 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
     {
       key: 'managedResponse',
       name: 'Incident investigation',
-      description: 'Coordinate diagnostics and incident reporting from targets and context named in the request.',
-      prompt: 'Investigate the targets and incident context named in this request. Do not guess when a target is missing or ambiguous. Produce a provenance-preserving report with findings and safe next actions.',
+      description: 'Coordinate diagnostics and incident reporting from infrastructure and context named in the request.',
+      prompt: 'Investigate the infrastructure and incident context named in this request. Do not guess when a resource is missing or ambiguous. Produce a provenance-preserving report with findings and safe next actions.',
       agentKeys: ['kubernetesAgent', 'virtualMachineAgent'],
-      semanticCapabilityIds: ['prompt.resources.read', 'reports.pdf.generate', 'target.diagnostics.read'],
+      semanticCapabilityIds: ['prompt.resources.read', 'reports.pdf.generate', 'infrastructure.diagnostics.read'],
       capabilityMode: 'read_only',
       restrictionMode: 'restrict',
       status: 'paused',
@@ -212,47 +205,10 @@ function agentDefinitionOrigin(): DefinitionOrigin {
   return { type: 'manual' };
 }
 
-async function deletePendingStarterDefinitions(client: PoolClient, workspaceId: string): Promise<void> {
-  const workflowRows = await client.query<{ id: string }>(
-    `SELECT id FROM workflow_definitions
-     WHERE workspace_id=$1
-       AND origin->>'type'='template'
-       AND origin->>'templateId'=$2
-       AND origin->>'templateVersion'=$3`,
-    [workspaceId, STARTER_BUNDLE.id, String(STARTER_BUNDLE.version)]
-  );
-  const workflowIds = workflowRows.rows.map((row) => row.id);
-  if (workflowIds.length > 0) {
-    await client.query(
-      'DELETE FROM workflow_schedules WHERE workspace_id=$1 AND workflow_id=ANY($2::text[])',
-      [workspaceId, workflowIds]
-    );
-    await client.query(
-      'DELETE FROM workflow_sessions WHERE workspace_id=$1 AND workflow_id=ANY($2::text[])',
-      [workspaceId, workflowIds]
-    );
-    await client.query(
-      'DELETE FROM workflow_definitions WHERE workspace_id=$1 AND id=ANY($2::text[])',
-      [workspaceId, workflowIds]
-    );
-  }
-  await client.query(
-    `DELETE FROM agent_definitions
-     WHERE workspace_id=$1
-       AND origin->>'type'='template'
-       AND origin->>'templateId'=$2
-       AND origin->>'templateVersion'=$3`,
-    [workspaceId, STARTER_BUNDLE.id, String(STARTER_BUNDLE.version)]
-  );
-}
-
 export async function insertStarterAgent(
   client: PoolClient,
   input: { workspaceId: string; installedBy: string; template: AgentTemplate }
 ): Promise<string> {
-  const targetScope = input.template.targetConstraints
-    ? { type: 'selected_target' as const, targetTypes: input.template.targetConstraints.targetTypes }
-    : { type: 'workspace' as const };
   const agent = await createAgentThroughDefinitionServiceInTransaction(client, {
     workspaceId: input.workspaceId,
     name: input.template.name,
@@ -264,7 +220,6 @@ export async function insertStarterAgent(
     origin: agentDefinitionOrigin(),
     reviewState: 'reviewed',
     providerType: 'internal',
-    targetScope,
     approvalPolicy: { mode: 'before_write', writeToolsRequireApproval: true },
     trustPolicy: { level: 'restricted', allowExternalData: false },
     permissionMode: 'ask_before_changes',
@@ -272,7 +227,7 @@ export async function insertStarterAgent(
     tools: input.template.nativeToolIds || []
   });
   for (const toolId of input.template.nativeToolIds || []) {
-    await upsertStarterNativeToolMapping(client, input.workspaceId, agent.id, agent.version, toolId, input.installedBy);
+    await upsertStarterNativeToolMapping(client, input.workspaceId, agent.id, toolId, input.installedBy);
   }
   return agent.id;
 }
@@ -312,14 +267,12 @@ export async function provisionStarterAutomationInTransaction(
   const reserved = await reserveTemplateInstallation({
     workspaceId: input.workspaceId,
     templateId: STARTER_BUNDLE.id,
-    templateVersion: STARTER_BUNDLE.version,
     installedBy: input.installedBy
   }, client);
   if (reserved.state === 'complete') {
     return { installation: reserved, alreadySeeded: true };
   }
 
-  await deletePendingStarterDefinitions(client, input.workspaceId);
   const agentIds: Record<string, string> = {};
   for (const template of STARTER_BUNDLE.agents.filter((agent) => AUTOMATIC_AGENT_KEYS.has(agent.key))) {
     agentIds[template.key] = await insertStarterAgent(client, {
@@ -363,7 +316,6 @@ export async function provisionStarterAutomationInTransaction(
     summary: 'Default workflows created',
     metadata: {
       defaultSetId: STARTER_BUNDLE.id,
-      defaultSetVersion: STARTER_BUNDLE.version,
       visibleAgentCount: Object.keys(agentIds).length,
       workflowCount: Object.keys(workflowIds).length
     }
@@ -407,7 +359,6 @@ function recordSeedSuccess(input: { workspaceId: string; alreadySeeded: boolean 
   logger.info({
     workspaceId: input.workspaceId,
     templateId: STARTER_BUNDLE.id,
-    templateVersion: STARTER_BUNDLE.version,
     outcome: 'success',
     visibleAgentCount: AUTOMATIC_AGENT_KEYS.size,
     workflowCount: AUTOMATIC_WORKFLOW_TEMPLATES.length
@@ -420,7 +371,6 @@ export function recordStarterAutomationSeedFailure(workspaceId: string, error: u
     err: error,
     workspaceId,
     templateId: STARTER_BUNDLE.id,
-    templateVersion: STARTER_BUNDLE.version,
     outcome: 'failure'
   }, 'Starter automation seed failed');
 }

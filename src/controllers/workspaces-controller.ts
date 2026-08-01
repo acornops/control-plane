@@ -333,6 +333,8 @@ export {
   updateCluster
 } from './workspaces/kubernetes-cluster-controller.js';
 
+export { listKubernetesRbacAdditions } from './workspaces/kubernetes-rbac-additions-controller.js';
+
 export {
   deleteCluster
 } from './workspaces/kubernetes-cluster-delete-controller.js';

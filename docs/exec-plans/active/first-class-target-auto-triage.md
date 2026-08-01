@@ -9,7 +9,7 @@ retention, workflow, and execution-engine behavior remain authoritative.
 
 ## Constraints
 
-- Keep workflow issue triggers unchanged and independent.
+- Keep outbound issue webhooks unchanged and independent.
 - Reuse target sessions, runs, tools, approvals, cancellation, audit, and
   retention instead of adding a parallel remediation domain.
 - Default the feature to disabled with warning severity and target-following

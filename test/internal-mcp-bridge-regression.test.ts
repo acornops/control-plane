@@ -18,7 +18,7 @@ import { digestBindings, digestPrompt } from '../src/services/prompt-resources/r
 import { repo } from '../src/store/repository.js';
 import { getAgentDefinition } from '../src/store/repository-agents.js';
 import { listCapabilityRoutingMappings } from '../src/store/repository-capability-routing.js';
-import { getWorkflowReport } from '../src/store/repository-workflow-reports.js';
+import { getGeneratedDocument } from '../src/store/repository-generated-documents.js';
 import {
   createWorkflowExecution,
   createWorkflowSession,
@@ -133,7 +133,7 @@ describe('internal MCP and native-tool regressions', () => {
     assert.equal(normalizeTargetAgentToolResult(envelope, 'virtual_machine'), envelope);
   });
 
-  it('routes an exact specialist Workflow target tool through AgentK with pinned run identity', async () => {
+  it('routes a specialist Workflow Targets MCP call through AgentK with call-time target identity', async () => {
     const workflow = await getWorkflowDefinition('workspace-1', 'cluster-triage');
     const specialist = await getAgentDefinition('workspace-1', 'agent-cluster-triage');
     assert.ok(workflow);
@@ -143,9 +143,8 @@ describe('internal MCP and native-tool regressions', () => {
       selectedAgents: [specialist],
       specialistAgent: specialist,
       mappings: await listCapabilityRoutingMappings('workspace-1', { activeReviewedOnly: true }),
-      targetRoute: { id: 'cluster-1', targetType: 'kubernetes' },
       actor,
-      approvedContextGrants: ['workspace_metadata', 'target_inventory']
+      approvedContextGrants: ['workspace_metadata']
     });
     const session = await createWorkflowSession({ workflow, createdBy: actor.userId, compiledAccessScope });
     const created = await createWorkflowExecution({
@@ -157,8 +156,6 @@ describe('internal MCP and native-tool regressions', () => {
       bindingDigest: digestBindings([]),
       resourceBindings: [],
       resolvedAt: new Date().toISOString(),
-      targetId: 'cluster-1',
-      targetType: 'kubernetes',
       specialistSnapshot: specialist
     });
     const run = await updateWorkflowRun(created.run.id, { status: 'running' });
@@ -182,17 +179,18 @@ describe('internal MCP and native-tool regressions', () => {
       workspaceId: run.workspaceId,
       sessionId: run.workflowSessionId,
       scopeType: 'workspace',
-      targetId: run.targetId,
-      targetType: run.targetType,
       executionId: run.executionId,
       executorRole: 'specialist',
       agentId: specialist.id,
-      agentVersion: specialist.version,
       allowedTools: ['list_resources'],
+      allowedToolRefs: [{ serverId: 'targets', toolName: 'list_resources' }],
       allowedToolOperations: { list_resources: 'read' },
       contextGrants: []
     }, {
       name: 'list_resources',
+      targetId: 'cluster-1',
+      targetType: 'kubernetes',
+      toolRef: { server_id: 'targets', tool_name: 'list_resources' },
       arguments: { kind: 'Pod' },
       toolCallId: 'call-1'
     });
@@ -238,7 +236,6 @@ describe('internal MCP and native-tool regressions', () => {
       executionId: run.executionId,
       executorRole: 'specialist',
       agentId: specialist.id,
-      agentVersion: specialist.version,
       allowedTools: ['reports.pdf.generate'],
       allowedToolOperations: { 'reports.pdf.generate': 'read' },
       contextGrants: []
@@ -258,11 +255,11 @@ describe('internal MCP and native-tool regressions', () => {
       reportId
     );
     const persisted = await db.query<{ count: string }>(
-      'SELECT COUNT(*) AS count FROM workflow_reports WHERE run_id=$1 AND tool_call_id=$2',
+      'SELECT COUNT(*) AS count FROM generated_documents WHERE workflow_run_id=$1 AND tool_call_id=$2',
       [run.id, 'report-call-1']
     );
     assert.equal(Number(persisted.rows[0].count), 1);
-    assert.ok(await getWorkflowReport(reportId));
+    assert.ok(await getGeneratedDocument(reportId));
   });
 
   it('keeps target-chat native PDF artifacts idempotent and rejects inactive runs', async () => {
@@ -302,4 +299,5 @@ describe('internal MCP and native-tool regressions', () => {
     assert.equal(inactive.statusCode, 409);
     assert.equal((inactive.body as { error: { code: string } }).error.code, 'RUN_NOT_ACTIVE');
   });
+
 });

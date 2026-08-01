@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type { PoolClient, QueryResultRow } from 'pg';
 import { db } from '../infra/db.js';
-import type { AgentDefinition, AgentVersionSnapshot } from '../types/agents.js';
+import type { AgentDefinition } from '../types/agents.js';
+import { markCapabilityMappingsForAgentReview } from './repository-capability-routing.js';
 import type {
   AgentDefinitionUpdate,
   CreateAgentDefinitionInput
 } from './repository-agent-types.js';
+import { withTransaction } from './repository-transaction.js';
 
 export type {
   AgentDefinitionUpdate,
@@ -29,47 +31,17 @@ function slug(value: string, fallback: string): string {
     .slice(0, 48) || fallback;
 }
 
-function cloneAgent(agent: AgentDefinition): AgentDefinition {
-  const mcpServers = agent.mcpServers || [];
-  const mcpTools = agent.mcpTools || [];
-  const mcpInstallations = agent.mcpInstallations || [];
-  const skillInstallations = agent.skillInstallations || [];
+function capabilityConfiguration(agent: AgentDefinition): unknown {
   return {
-    ...agent,
-    origin: { ...agent.origin },
-    mcpServers: [...mcpServers],
-    mcpTools: mcpTools.map((tool) => ({ ...tool })),
-    mcpInstallations: mcpInstallations.map((installation) => ({
-      ...installation,
-      targetConstraints: {
-        targetTypes: [...(installation.targetConstraints?.targetTypes || [])],
-        targetIds: [...(installation.targetConstraints?.targetIds || [])]
-      },
-      provenance: installation.provenance ? { ...installation.provenance } : undefined,
-      tools: installation.tools.map((tool) => ({ ...tool }))
-    })),
-    tools: [...agent.tools],
-    nativeToolConfigs: structuredClone(agent.nativeToolConfigs || {}),
-    skills: [...agent.skills],
-    skillInstallations: skillInstallations.map((installation) => ({
-      ...installation,
-      source: { ...installation.source },
-      files: installation.files.map((file) => ({ ...file }))
-    })),
-    contextGrants: [...(agent.contextGrants || [])],
-    targetScope: {
-      type: agent.targetScope.type,
-      ...(agent.targetScope.targetTypes ? { targetTypes: [...agent.targetScope.targetTypes] } : {}),
-      ...(agent.targetScope.targetIds ? { targetIds: [...agent.targetScope.targetIds] } : {})
-    },
-    approvalPolicy: { ...agent.approvalPolicy },
-    trustPolicy: { ...agent.trustPolicy },
-    permissionMode: agent.permissionMode || 'ask_before_changes',
-    semanticCapabilityIds: [...(agent.semanticCapabilityIds || [])],
-    workflowUsage: { ...agent.workflowUsage },
-    readiness: agent.readiness
-      ? { status: agent.readiness.status, reasons: [...agent.readiness.reasons] }
-      : { status: 'needs_setup', reasons: ['Agent version predates capability readiness snapshots.'] }
+    mcpServers: agent.mcpServers,
+    mcpTools: agent.mcpTools,
+    mcpInstallations: agent.mcpInstallations,
+    tools: agent.tools,
+    nativeToolConfigs: agent.nativeToolConfigs,
+    skills: agent.skills,
+    skillInstallations: agent.skillInstallations,
+    contextGrants: agent.contextGrants,
+    semanticCapabilityIds: agent.semanticCapabilityIds
   };
 }
 
@@ -82,21 +54,16 @@ async function mapAgent(row: AgentRow): Promise<AgentDefinition> {
     id: row.id, workspaceId: row.workspace_id, name: row.name, avatarEmoji: row.avatar_emoji || '🤖', description: row.description || undefined,
     instructions: row.instructions, status: row.status,
     origin: row.origin || { type: 'manual' }, reviewState: row.review_state || 'reviewed',
-    providerType: row.provider_type, version: row.version, ownerUserId: row.owner_user_id,
+    providerType: row.provider_type, ownerUserId: row.owner_user_id,
     createdBy: row.created_by, createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)!,
     mcpServers: row.mcp_servers || [], mcpTools: row.mcp_tools || [],
     mcpInstallations: row.mcp_installations || [], tools: row.tools || [],
     nativeToolConfigs: row.native_tool_configs || {}, skills: row.skills || [],
     skillInstallations: row.skill_installations || [],
-    contextGrants: row.context_grants || [], targetScope: row.target_scope,
+    contextGrants: row.context_grants || [],
     approvalPolicy: row.approval_policy, trustPolicy: row.trust_policy,
     permissionMode: row.permission_mode || 'ask_before_changes',
     semanticCapabilityIds: row.semantic_capability_ids || [],
-    workflowUsage: {
-      workflowRunCount: Number(row.workflow_run_count || 0),
-      lastRunAt: iso(row.last_workflow_run_at),
-      lastStatus: row.last_workflow_status || undefined
-    },
     readiness: { status: row.readiness_status || 'needs_setup', reasons: row.readiness_reasons || [] }
   };
   return agent;
@@ -104,22 +71,8 @@ async function mapAgent(row: AgentRow): Promise<AgentDefinition> {
 
 export async function listAgentDefinitions(workspaceId: string, options: { includeInactive?: boolean } = {}): Promise<AgentDefinition[]> {
   const result = await db.query<AgentRow>(
-    `SELECT agent.*,
-       COALESCE(usage.workflow_run_count, 0) AS workflow_run_count,
-       usage.last_workflow_run_at,
-       usage.last_workflow_status
+    `SELECT agent.*
      FROM agent_definitions agent
-     LEFT JOIN LATERAL (
-       SELECT COUNT(*) OVER () AS workflow_run_count,
-              run.requested_at AS last_workflow_run_at,
-              run.status AS last_workflow_status
-       FROM workflow_runs run
-       WHERE run.workspace_id=agent.workspace_id
-         AND run.agent_id=agent.id
-         AND run.executor_role='specialist'
-       ORDER BY run.requested_at DESC,run.id DESC
-       LIMIT 1
-     ) usage ON TRUE
      WHERE agent.workspace_id=$1 ${options.includeInactive ? '' : "AND agent.status='active'"}
      ORDER BY agent.updated_at DESC,agent.id`,
     [workspaceId]
@@ -133,22 +86,8 @@ export async function getAgentDefinition(
   queryable: Queryable = db
 ): Promise<AgentDefinition | null> {
   const result = await queryable.query<AgentRow>(
-    `SELECT agent.*,
-       COALESCE(usage.workflow_run_count, 0) AS workflow_run_count,
-       usage.last_workflow_run_at,
-       usage.last_workflow_status
+    `SELECT agent.*
      FROM agent_definitions agent
-     LEFT JOIN LATERAL (
-       SELECT COUNT(*) OVER () AS workflow_run_count,
-              run.requested_at AS last_workflow_run_at,
-              run.status AS last_workflow_status
-       FROM workflow_runs run
-       WHERE run.workspace_id=agent.workspace_id
-         AND run.agent_id=agent.id
-         AND run.executor_role='specialist'
-       ORDER BY run.requested_at DESC,run.id DESC
-       LIMIT 1
-     ) usage ON TRUE
      WHERE agent.workspace_id=$1 AND agent.id=$2`,
     [workspaceId, agentId]
   );
@@ -177,7 +116,6 @@ export async function createAgentDefinition(
     origin: input.origin || { type: 'manual' },
     reviewState: input.reviewState || 'reviewed',
     providerType: input.providerType || 'internal',
-    version: 1,
     ownerUserId: input.ownerUserId,
     createdBy: input.createdBy,
     createdAt: now,
@@ -190,24 +128,22 @@ export async function createAgentDefinition(
     skills: uniqueSorted(input.skills),
     skillInstallations: input.skillInstallations || [],
     contextGrants: uniqueSorted(input.contextGrants),
-    targetScope: input.targetScope || { type: 'workspace' },
     approvalPolicy: input.approvalPolicy || { mode: 'before_write', writeToolsRequireApproval: true },
     trustPolicy: input.trustPolicy || { level: 'restricted', allowExternalData: false },
     permissionMode: input.permissionMode || 'ask_before_changes',
     semanticCapabilityIds: uniqueSorted(input.semanticCapabilityIds),
-    workflowUsage: { workflowRunCount: 0 },
     readiness: { status: 'needs_setup', reasons: ['Readiness has not been evaluated against the live capability catalog.'] }
   };
   const result = await queryable.query<AgentRow>(
     `INSERT INTO agent_definitions (
-      workspace_id,id,name,description,instructions,status,origin,review_state,provider_type,version,owner_user_id,created_by,
-      mcp_servers,mcp_tools,mcp_installations,tools,native_tool_configs,skills,skill_installations,context_grants,target_scope,approval_policy,trust_policy,
+      workspace_id,id,name,description,instructions,status,origin,review_state,provider_type,owner_user_id,created_by,
+      mcp_servers,mcp_tools,mcp_installations,tools,native_tool_configs,skills,skill_installations,context_grants,approval_policy,trust_policy,
       permission_mode,semantic_capability_ids,avatar_emoji,readiness_status,readiness_reasons
-     ) VALUES ($1,$2,$3,$4,$5,'active',$6,$7,$8,1,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,'needs_setup',$25) RETURNING *`,
+     ) VALUES ($1,$2,$3,$4,$5,'active',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,'needs_setup',$24) RETURNING *`,
     [input.workspaceId, id, agent.name, agent.description || null, agent.instructions, agent.origin, agent.reviewState, agent.providerType,
      agent.ownerUserId, agent.createdBy, JSON.stringify(agent.mcpServers), JSON.stringify(agent.mcpTools), JSON.stringify(agent.mcpInstallations),
      JSON.stringify(agent.tools), JSON.stringify(agent.nativeToolConfigs), JSON.stringify(agent.skills), JSON.stringify(agent.skillInstallations), JSON.stringify(agent.contextGrants),
-     agent.targetScope, agent.approvalPolicy, agent.trustPolicy, agent.permissionMode, JSON.stringify(agent.semanticCapabilityIds), agent.avatarEmoji,
+     agent.approvalPolicy, agent.trustPolicy, agent.permissionMode, JSON.stringify(agent.semanticCapabilityIds), agent.avatarEmoji,
      JSON.stringify(agent.readiness.reasons)]
   );
   return mapAgent(result.rows[0]);
@@ -227,12 +163,12 @@ export async function duplicateAgentDefinition(
   const inheritedSkills = source.skills.filter((skill) => !installedSkillIds.has(skill));
   const result = await db.query<AgentRow>(
     `INSERT INTO agent_definitions (
-       workspace_id,id,name,description,instructions,status,origin,review_state,provider_type,version,
-       owner_user_id,created_by,mcp_servers,mcp_tools,mcp_installations,tools,native_tool_configs,skills,skill_installations,context_grants,target_scope,
+       workspace_id,id,name,description,instructions,status,origin,review_state,provider_type,
+       owner_user_id,created_by,mcp_servers,mcp_tools,mcp_installations,tools,native_tool_configs,skills,skill_installations,context_grants,
        approval_policy,trust_policy,permission_mode,semantic_capability_ids,avatar_emoji,readiness_status,readiness_reasons
      ) VALUES (
-       $1,$2,$3,$4,$5,'draft',$6,'draft',$7,1,$8,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
-       'needs_setup',$23
+       $1,$2,$3,$4,$5,'draft',$6,'draft',$7,$8,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
+       'needs_setup',$22
      ) RETURNING *`,
     [
       workspaceId,
@@ -251,7 +187,6 @@ export async function duplicateAgentDefinition(
       JSON.stringify(uniqueSorted(inheritedSkills)),
       '[]',
       JSON.stringify(uniqueSorted(source.contextGrants)),
-      source.targetScope,
       source.approvalPolicy,
       source.trustPolicy,
       source.permissionMode,
@@ -264,48 +199,52 @@ export async function duplicateAgentDefinition(
 }
 
 export async function updateAgentDefinition(workspaceId: string, agentId: string, patch: AgentDefinitionUpdate): Promise<AgentDefinition | null> {
-  const current = await getAgentDefinition(workspaceId, agentId);
-  if (!current) return null;
-  const updated: AgentDefinition = {
-    ...current,
-    name: patch.name?.trim() || current.name,
-    avatarEmoji: patch.avatarEmoji || current.avatarEmoji,
-    description: typeof patch.description === 'string' ? patch.description.trim() : current.description,
-    instructions: patch.instructions?.trim() || current.instructions,
-    status: patch.status || current.status,
-    reviewState: patch.reviewState || current.reviewState,
-    providerType: patch.providerType || current.providerType,
-    ownerUserId: patch.ownerUserId || current.ownerUserId,
-    mcpServers: patch.mcpServers ? uniqueSorted(patch.mcpServers) : current.mcpServers,
-    mcpTools: patch.mcpTools || current.mcpTools,
-    mcpInstallations: patch.mcpInstallations || current.mcpInstallations,
-    tools: patch.tools ? uniqueSorted(patch.tools) : current.tools,
-    nativeToolConfigs: patch.nativeToolConfigs
-      ? structuredClone(patch.nativeToolConfigs)
-      : current.nativeToolConfigs,
-    skills: patch.skills ? uniqueSorted(patch.skills) : current.skills,
-    skillInstallations: patch.skillInstallations || current.skillInstallations,
-    contextGrants: patch.contextGrants ? uniqueSorted(patch.contextGrants) : current.contextGrants,
-    targetScope: patch.targetScope || current.targetScope,
-    approvalPolicy: patch.approvalPolicy || current.approvalPolicy,
-    trustPolicy: patch.trustPolicy || current.trustPolicy,
-    permissionMode: patch.permissionMode || current.permissionMode,
-    semanticCapabilityIds: patch.semanticCapabilityIds ? uniqueSorted(patch.semanticCapabilityIds) : current.semanticCapabilityIds,
-    version: current.version + 1,
-    updatedAt: nowIso()
-  };
-  const result = await db.query<AgentRow>(
-    `UPDATE agent_definitions SET name=$3,description=$4,instructions=$5,status=$6,review_state=$7,provider_type=$8,
-      owner_user_id=$9,mcp_servers=$10,mcp_tools=$11,mcp_installations=$12,tools=$13,native_tool_configs=$14,skills=$15,skill_installations=$16,context_grants=$17,target_scope=$18,
-      approval_policy=$19,trust_policy=$20,permission_mode=$21,semantic_capability_ids=$22,avatar_emoji=$23,version=version+1,updated_at=NOW()
-     WHERE workspace_id=$1 AND id=$2 RETURNING *`,
-    [workspaceId, agentId, updated.name, updated.description || null, updated.instructions, updated.status,
-     updated.reviewState, updated.providerType, updated.ownerUserId, JSON.stringify(updated.mcpServers), JSON.stringify(updated.mcpTools),
-     JSON.stringify(updated.mcpInstallations), JSON.stringify(updated.tools), JSON.stringify(updated.nativeToolConfigs), JSON.stringify(updated.skills), JSON.stringify(updated.skillInstallations),
-     JSON.stringify(updated.contextGrants), updated.targetScope, updated.approvalPolicy, updated.trustPolicy,
-     updated.permissionMode, JSON.stringify(updated.semanticCapabilityIds), updated.avatarEmoji]
-  );
-  return result.rowCount ? mapAgent(result.rows[0]) : null;
+  return withTransaction(async (client) => {
+    const current = await getAgentDefinition(workspaceId, agentId, client);
+    if (!current) return null;
+    const updated: AgentDefinition = {
+      ...current,
+      name: patch.name?.trim() || current.name,
+      avatarEmoji: patch.avatarEmoji || current.avatarEmoji,
+      description: typeof patch.description === 'string' ? patch.description.trim() : current.description,
+      instructions: patch.instructions?.trim() || current.instructions,
+      status: patch.status || current.status,
+      reviewState: patch.reviewState || current.reviewState,
+      providerType: patch.providerType || current.providerType,
+      ownerUserId: patch.ownerUserId || current.ownerUserId,
+      mcpServers: patch.mcpServers ? uniqueSorted(patch.mcpServers) : current.mcpServers,
+      mcpTools: patch.mcpTools || current.mcpTools,
+      mcpInstallations: patch.mcpInstallations || current.mcpInstallations,
+      tools: patch.tools ? uniqueSorted(patch.tools) : current.tools,
+      nativeToolConfigs: patch.nativeToolConfigs
+        ? structuredClone(patch.nativeToolConfigs)
+        : current.nativeToolConfigs,
+      skills: patch.skills ? uniqueSorted(patch.skills) : current.skills,
+      skillInstallations: patch.skillInstallations || current.skillInstallations,
+      contextGrants: patch.contextGrants ? uniqueSorted(patch.contextGrants) : current.contextGrants,
+      approvalPolicy: patch.approvalPolicy || current.approvalPolicy,
+      trustPolicy: patch.trustPolicy || current.trustPolicy,
+      permissionMode: patch.permissionMode || current.permissionMode,
+      semanticCapabilityIds: patch.semanticCapabilityIds ? uniqueSorted(patch.semanticCapabilityIds) : current.semanticCapabilityIds,
+      updatedAt: nowIso()
+    };
+    const result = await client.query<AgentRow>(
+      `UPDATE agent_definitions SET name=$3,description=$4,instructions=$5,status=$6,review_state=$7,provider_type=$8,
+        owner_user_id=$9,mcp_servers=$10,mcp_tools=$11,mcp_installations=$12,tools=$13,native_tool_configs=$14,skills=$15,skill_installations=$16,context_grants=$17,
+        approval_policy=$18,trust_policy=$19,permission_mode=$20,semantic_capability_ids=$21,avatar_emoji=$22,
+        updated_at=GREATEST(NOW(),updated_at + INTERVAL '1 millisecond')
+       WHERE workspace_id=$1 AND id=$2 RETURNING *`,
+      [workspaceId, agentId, updated.name, updated.description || null, updated.instructions, updated.status,
+       updated.reviewState, updated.providerType, updated.ownerUserId, JSON.stringify(updated.mcpServers), JSON.stringify(updated.mcpTools),
+       JSON.stringify(updated.mcpInstallations), JSON.stringify(updated.tools), JSON.stringify(updated.nativeToolConfigs), JSON.stringify(updated.skills), JSON.stringify(updated.skillInstallations),
+       JSON.stringify(updated.contextGrants), updated.approvalPolicy, updated.trustPolicy,
+       updated.permissionMode, JSON.stringify(updated.semanticCapabilityIds), updated.avatarEmoji]
+    );
+    if (JSON.stringify(capabilityConfiguration(current)) !== JSON.stringify(capabilityConfiguration(updated))) {
+      await markCapabilityMappingsForAgentReview(workspaceId, agentId, client);
+    }
+    return result.rowCount ? mapAgent(result.rows[0]) : null;
+  });
 }
 
 export async function updateAgentSkillCapabilitySnapshot(
@@ -314,14 +253,19 @@ export async function updateAgentSkillCapabilitySnapshot(
   skills: string[],
   skillInstallations: AgentDefinition['skillInstallations']
 ): Promise<AgentDefinition | null> {
-  const result = await db.query(
-    `UPDATE agent_definitions
-     SET skills=$3,skill_installations=$4,version=version+1,updated_at=NOW()
-     WHERE workspace_id=$1 AND id=$2
-     RETURNING id`,
-    [workspaceId, agentId, JSON.stringify(uniqueSorted(skills)), JSON.stringify(skillInstallations)]
-  );
-  return result.rowCount ? getAgentDefinition(workspaceId, agentId) : null;
+  return withTransaction(async (client) => {
+    const result = await client.query(
+      `UPDATE agent_definitions
+       SET skills=$3,skill_installations=$4,
+           updated_at=GREATEST(NOW(),updated_at + INTERVAL '1 millisecond')
+       WHERE workspace_id=$1 AND id=$2
+         AND (skills IS DISTINCT FROM $3::jsonb OR skill_installations IS DISTINCT FROM $4::jsonb)
+       RETURNING id`,
+      [workspaceId, agentId, JSON.stringify(uniqueSorted(skills)), JSON.stringify(skillInstallations)]
+    );
+    if (result.rowCount) await markCapabilityMappingsForAgentReview(workspaceId, agentId, client);
+    return getAgentDefinition(workspaceId, agentId, client);
+  });
 }
 
 export async function updateAgentMcpCapabilitySnapshot(
@@ -336,13 +280,16 @@ export async function updateAgentMcpCapabilitySnapshot(
     await client.query(`SELECT set_config('acornops.actor_user_id', $1, true)`, [updatedBy]);
     const result = await client.query(
       `UPDATE agent_definitions
-       SET mcp_servers=$3,mcp_tools=$4,mcp_installations=$5,version=version+1,updated_at=NOW()
+       SET mcp_servers=$3,mcp_tools=$4,mcp_installations=$5,
+           updated_at=GREATEST(NOW(),updated_at + INTERVAL '1 millisecond')
        WHERE workspace_id=$1 AND id=$2
+         AND (mcp_servers IS DISTINCT FROM $3::jsonb OR mcp_tools IS DISTINCT FROM $4::jsonb
+           OR mcp_installations IS DISTINCT FROM $5::jsonb)
        RETURNING id`,
       [workspaceId, agentId, JSON.stringify(snapshot.mcpServers), JSON.stringify(snapshot.mcpTools), JSON.stringify(snapshot.mcpInstallations)]
     );
+    if (result.rowCount) await markCapabilityMappingsForAgentReview(workspaceId, agentId, client);
     await client.query('COMMIT');
-    if (!result.rowCount) return null;
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -359,53 +306,14 @@ export async function updateAgentReadiness(
 ): Promise<AgentDefinition | null> {
   const result = await db.query(
     `UPDATE agent_definitions
-     SET readiness_status=$3,readiness_reasons=$4,updated_at=NOW()
-     WHERE workspace_id=$1 AND id=$2 RETURNING id`,
+     SET readiness_status=$3,readiness_reasons=$4,
+         updated_at=GREATEST(NOW(),updated_at + INTERVAL '1 millisecond')
+     WHERE workspace_id=$1 AND id=$2
+       AND (readiness_status IS DISTINCT FROM $3 OR readiness_reasons IS DISTINCT FROM $4::jsonb)
+     RETURNING id`,
     [workspaceId, agentId, readiness.status, JSON.stringify(readiness.reasons)]
   );
   return result.rowCount ? getAgentDefinition(workspaceId, agentId) : null;
-}
-
-export async function createAgentVersionSnapshot(workspaceId: string, agentId: string, createdBy: string): Promise<AgentVersionSnapshot | null> {
-  const agent = await getAgentDefinition(workspaceId, agentId);
-  if (!agent) return null;
-  const version: AgentVersionSnapshot = {
-    id: randomUUID(),
-    agentId,
-    workspaceId,
-    version: agent.version,
-    snapshot: cloneAgent(agent),
-    createdBy,
-    createdAt: nowIso()
-  };
-  await db.query(
-    'INSERT INTO agent_versions (workspace_id,agent_id,id,version,snapshot,created_by,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-    [workspaceId, agentId, version.id, version.version, version.snapshot, createdBy, version.createdAt]
-  );
-  return version;
-}
-
-export async function listAgentVersionSnapshots(workspaceId: string, agentId: string): Promise<AgentVersionSnapshot[]> {
-  const result = await db.query<AgentRow>(
-    'SELECT * FROM agent_versions WHERE workspace_id=$1 AND agent_id=$2 ORDER BY created_at DESC,id DESC', [workspaceId, agentId]
-  );
-  return result.rows.map((row) => ({ id: row.id, agentId: row.agent_id, workspaceId: row.workspace_id,
-    version: row.version, snapshot: row.snapshot, createdBy: row.created_by, createdAt: iso(row.created_at)! }));
-}
-
-export async function restoreAgentVersionSnapshot(workspaceId: string, agentId: string, versionId: string): Promise<AgentDefinition | null> {
-  const current = await getAgentDefinition(workspaceId, agentId);
-  if (!current) return null;
-  const result = await db.query<AgentRow>('SELECT snapshot FROM agent_versions WHERE workspace_id=$1 AND agent_id=$2 AND id=$3', [workspaceId, agentId, versionId]);
-  if (!result.rowCount) return null;
-  const restored: AgentDefinition = {
-    ...result.rows[0].snapshot,
-    id: current.id,
-    workspaceId,
-    version: current.version + 1,
-    updatedAt: nowIso()
-  };
-  return updateAgentDefinition(workspaceId, agentId, restored);
 }
 
 export function resetAgentRepositoryForTests(): void {}

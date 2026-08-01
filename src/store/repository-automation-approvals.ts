@@ -21,8 +21,6 @@ export interface AutomationRunApproval {
   id: string;
   workspaceId: string;
   runId: string;
-  targetId?: string;
-  targetType?: string;
   approvalKind: AutomationApprovalKind;
   toolCallId: string;
   toolName: string;
@@ -57,8 +55,6 @@ export interface AutomationRunContinuation {
 export interface CreateAutomationRunApprovalInput {
   workspaceId: string;
   runId: string;
-  targetId?: string;
-  targetType?: string;
   approvalKind: AutomationApprovalKind;
   toolCallId: string;
   toolName: string;
@@ -86,8 +82,6 @@ function mapApproval(row: QueryResultRow): AutomationRunApproval {
     id: row.id,
     workspaceId: row.workspace_id,
     runId: row.run_id,
-    targetId: row.target_id || undefined,
-    targetType: row.target_type || undefined,
     approvalKind: row.approval_kind,
     toolCallId: row.tool_call_id,
     toolName: row.tool_name,
@@ -149,14 +143,13 @@ export async function insertAutomationRunApproval(
 ): Promise<AutomationRunApproval> {
   const inserted = await client.query<QueryResultRow>(
     `INSERT INTO workflow_run_approvals (
-       id,workspace_id,run_id,target_id,target_type,approval_kind,
+       id,workspace_id,run_id,approval_kind,
        tool_call_id,tool_name,server_id,server_tool_name,requested_tool_alias,arguments_digest,
        summary,arguments,requested_by,expires_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$8,$11,$12,$13::jsonb,$14,$15)
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$6,$9,$10,$11::jsonb,$12,$13)
      ON CONFLICT (run_id,tool_call_id) DO NOTHING
      RETURNING *`,
-    [randomUUID(), input.workspaceId, input.runId,
-     input.targetId || null, input.targetType || null, input.approvalKind, input.toolCallId,
+    [randomUUID(), input.workspaceId, input.runId, input.approvalKind, input.toolCallId,
      input.toolName, input.toolRef?.serverId || null, input.toolRef?.toolName || null,
      input.toolRef ? canonicalJsonSha256(input.arguments || {}) : null,
      input.summary, JSON.stringify(input.arguments || {}), input.requestedBy || null, input.expiresAt]
@@ -175,8 +168,6 @@ export async function insertAutomationRunApproval(
     : undefined;
   const sameRequest = approval.workspaceId === input.workspaceId
     && approval.runId === input.runId
-    && approval.targetId === input.targetId
-    && approval.targetType === input.targetType
     && approval.approvalKind === input.approvalKind
     && approval.toolCallId === input.toolCallId
     && approval.toolName === input.toolName

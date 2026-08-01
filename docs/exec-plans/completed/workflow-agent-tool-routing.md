@@ -7,7 +7,7 @@ Remove workflow-level target binding. A workflow selects Agents and inherits the
 ## Constraints
 
 - Preserve exact server/tool/target authorization at the gateway.
-- Keep existing target-scoped chat runs compatible and allow coordinated delegations with or without an exact target.
+- Keep target-scoped chat runs separate from Workflow execution and keep coordinated delegation target-free.
 - Do not expose target selection, candidates, or setup state as workflow concepts.
 - Keep Kubernetes and virtual-machine routing target-neutral at shared boundaries.
 
@@ -26,7 +26,7 @@ Remove workflow-level target binding. A workflow selects Agents and inherits the
 - Compiled every reviewed target-tool mapping inside the assigned specialist Agent's scope.
 - Added `target_id` to the model-facing schema only for target MCP tools and routed it in the execution engine.
 - Signed every allowed target route into the run token and verified the exact route in llm-gateway.
-- Made coordinator `targetBinding` optional. Exact bindings still narrow a child run; targetless children inherit the selected specialist's eligible capability routes.
+- Restricted coordinator delegation to capability, task prompt, and required/optional status; the control plane selects an eligible specialist without a target binding.
 - Bound write approvals to the chosen route while keeping `target_id` out of the downstream MCP arguments.
 
 ## Validation log
@@ -44,5 +44,5 @@ Remove workflow-level target binding. A workflow selects Agents and inherits the
 - Fresh and existing built-in workflows launch without selecting a target.
 - Target MCP calls work only for a signed target route chosen by `target_id`.
 - Workflow APIs and console contain no target-binding status or fields.
-- Coordinated workflows can delegate non-target tasks without inventing a target.
+- Coordinated workflows delegate capability-scoped tasks without target fields.
 - Cross-repository contract checks and relevant tests pass.

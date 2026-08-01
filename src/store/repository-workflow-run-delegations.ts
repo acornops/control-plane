@@ -33,8 +33,6 @@ export async function createDelegatedWorkflowRun(params: {
   compiledAccessScope: CompiledWorkflowAccessScope;
   toolCallId: string;
   capabilityId: string;
-  targetId?: string;
-  targetType?: string;
   taskPrompt: string;
   required: boolean;
   maxConcurrentChildren: number;
@@ -54,8 +52,6 @@ export async function createDelegatedWorkflowRun(params: {
     if (existing.rowCount) {
       const run = mapRun(existing.rows[0], []);
       const same = run.delegationCapabilityId === params.capabilityId
-        && run.targetId === params.targetId
-        && run.targetType === params.targetType
         && run.prompt === params.taskPrompt
         && run.delegationRequired === params.required;
       if (!same) throw new WorkflowDelegationConflictError('DELEGATION_IDEMPOTENCY_CONFLICT');
@@ -89,7 +85,6 @@ export async function createDelegatedWorkflowRun(params: {
     const snapshot: WorkflowRunRecord['executorSnapshot'] = {
       role: 'specialist',
       agentId: params.specialist.id,
-      agentVersion: params.specialist.version,
       agent: params.specialist
     };
     const result = await client.query<Row>(
@@ -97,12 +92,12 @@ export async function createDelegatedWorkflowRun(params: {
          id,execution_id,workspace_id,workflow_id,workflow_session_id,message_id,created_by,status,
          compiled_access_scope,llm_provider,llm_model,llm_reasoning_summary_mode,llm_reasoning_effort,
          requested_at,attempt_number,executor_role,parent_run_id,delegation_call_id,
-         delegation_capability_id,delegation_required,agent_id,agent_version,executor_snapshot,
-         target_id,target_type,idempotency_key,prompt_text,prompt_digest,binding_digest,
+         delegation_capability_id,delegation_required,agent_id,executor_snapshot,
+         idempotency_key,prompt_text,prompt_digest,binding_digest,
          resource_bindings,resolved_at
        ) VALUES (
          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),1,'specialist',$14,$15,$16,$17,
-         $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28
+         $18,$19,$20,$21,$22,$23,$24,$25
        ) RETURNING *`,
       [
         runId, params.parent.executionId, params.parent.workspaceId, params.parent.workflowId,
@@ -110,8 +105,7 @@ export async function createDelegatedWorkflowRun(params: {
         params.compiledAccessScope, params.parent.llmProvider || null, params.parent.llmModel || null,
         params.parent.llmReasoningSummaryMode || null, params.parent.llmReasoningEffort || null,
         params.parent.id, params.toolCallId, params.capabilityId, params.required,
-        params.specialist.id, params.specialist.version, snapshot, params.targetId || null, params.targetType || null,
-        idempotencyKey, params.taskPrompt, digestPrompt(params.taskPrompt), params.parent.bindingDigest,
+        params.specialist.id, snapshot, idempotencyKey, params.taskPrompt, digestPrompt(params.taskPrompt), params.parent.bindingDigest,
         JSON.stringify(params.parent.resourceBindings), params.parent.resolvedAt
       ]
     );
@@ -150,8 +144,6 @@ export async function createDelegatedWorkflowRun(params: {
         agentId: run.agentId || null,
         attemptNumber: run.attemptNumber,
         capabilityId: run.delegationCapabilityId,
-        targetId: run.targetId || null,
-        targetType: run.targetType || null,
         required: run.delegationRequired,
         status: run.status
       }

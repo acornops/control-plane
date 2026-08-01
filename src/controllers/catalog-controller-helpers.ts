@@ -12,10 +12,9 @@ import {
   InvalidMcpPublicHeadersError,
   validateMcpPublicHeaders
 } from '../services/mcp-public-header-policy.js';
-import { isTargetType, type TargetType } from '../types/domain.js';
+import { type TargetType } from '../types/domain.js';
 import { mapGatewayError } from './workspaces/common.js';
 
-const targetTypeSchema = z.string().refine(isTargetType, 'Unsupported target type.').transform((value) => value as TargetType);
 const catalogArtifactLocatorSchema = z.object({
   artifactId: z.string().trim().min(1).optional(),
   sourceId: z.string().trim().min(1).optional(),
@@ -32,11 +31,7 @@ const catalogImportBaseBodySchema = z.object({
   enabled: z.boolean().optional(),
   publicHeaders: z.record(z.string()).optional(),
   endpointConfiguration: z.record(z.string()).optional(),
-  credentialMode: z.enum(['none', 'workspace', 'individual']).optional(),
-  targetConstraints: z.object({
-    targetTypes: z.array(targetTypeSchema).optional(),
-    targetIds: z.array(z.string().trim().min(1)).optional()
-  }).strict().optional()
+  credentialMode: z.enum(['none', 'workspace', 'individual']).optional()
 }).strict();
 const catalogReimportBodySchema = catalogImportBaseBodySchema.extend({
   expectedRevision: z.number().int().min(1)
@@ -163,7 +158,6 @@ export function parseCatalogImportBody(body: unknown, reimport = false): {
   publicHeaders?: Record<string, string>;
   endpointConfiguration?: Record<string, string>;
   credentialMode?: 'none' | 'workspace' | 'individual';
-  targetConstraints?: { targetTypes: TargetType[]; targetIds: string[] };
   expectedRevision?: number;
 } | null {
   const schema = reimport ? catalogReimportBodySchema : catalogImportBaseBodySchema;
@@ -182,10 +176,6 @@ export function parseCatalogImportBody(body: unknown, reimport = false): {
     publicHeaders,
     endpointConfiguration: value.endpointConfiguration,
     credentialMode: value.credentialMode,
-    targetConstraints: {
-      targetTypes: [...new Set(value.targetConstraints?.targetTypes ?? [])],
-      targetIds: [...new Set(value.targetConstraints?.targetIds ?? [])]
-    },
     ...('expectedRevision' in value && typeof value.expectedRevision === 'number'
       ? { expectedRevision: value.expectedRevision }
       : {})

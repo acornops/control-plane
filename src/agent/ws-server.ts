@@ -332,10 +332,10 @@ export class AgentGateway {
 
   private handleConnection(ws: WebSocket, request: IncomingMessage): void {
     const agentKeyHeader = String(request.headers['x-agent-key'] || '');
-    const agentVersion = String(request.headers['x-agent-version'] || 'unknown');
+    const connectorVersion = String(request.headers['x-connector-version'] || '').trim();
     const remoteAddress = request.socket?.remoteAddress || 'unknown';
 
-    logger.info({ agentVersion }, 'Agent websocket connected');
+    logger.info({ connectorVersionPresent: connectorVersion.length > 0 }, 'Agent websocket connected');
 
     const handshakeTimer = setTimeout(() => {
       if (!getAgentConnectionForWebSocket(ws) && ws.readyState === WebSocket.OPEN) {
@@ -346,7 +346,7 @@ export class AgentGateway {
     this.handshakeTimers.set(ws, handshakeTimer);
 
     ws.on('message', (raw) => {
-      this.handleMessage(ws, raw, agentKeyHeader, agentVersion, remoteAddress).catch((err) => {
+      this.handleMessage(ws, raw, agentKeyHeader, connectorVersion, remoteAddress).catch((err) => {
         logger.error({ err }, 'Failed to handle agent message');
       });
     });
@@ -400,7 +400,7 @@ export class AgentGateway {
     ws: WebSocket,
     raw: WebSocket.RawData,
     agentKeyHeader: string,
-    agentVersion: string,
+    connectorVersion: string,
     remoteAddress = 'unknown'
   ): Promise<void> {
     const authenticated = Boolean(getAgentConnectionForWebSocket(ws));
@@ -466,7 +466,7 @@ export class AgentGateway {
         requestId,
         params: message.params || {},
         agentKeyHeader,
-        agentVersion
+        connectorVersion
       });
       if (getAgentConnectionForWebSocket(ws)) {
         this.clearHandshakeTimer(ws);

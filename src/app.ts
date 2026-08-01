@@ -17,6 +17,8 @@ import { checkRedisHealth } from './infra/redis.js';
 import { logger } from './logger.js';
 import { renderControlPlaneMetrics } from './metrics.js';
 import { agentsRouter } from './routes/agents.js';
+import { approvalsRouter } from './routes/approvals.js';
+import { artifactsRouter } from './routes/artifacts.js';
 import { adminRouter } from './routes/admin.js';
 import { adminAuthRouter } from './routes/admin-auth.js';
 import { authRouter } from './routes/auth.js';
@@ -124,6 +126,8 @@ export function createApp() {
 
   app.use('/api/v1', authRouter);
   app.use('/api/v1', agentsRouter);
+  app.use('/api/v1', approvalsRouter);
+  app.use('/api/v1', artifactsRouter);
   app.use('/api/v1', workspacesRouter);
   app.use('/api/v1', webhooksRouter);
   app.use('/api/v1', sessionsRouter);

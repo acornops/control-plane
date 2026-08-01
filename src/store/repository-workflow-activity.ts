@@ -2,7 +2,6 @@ import type { QueryResultRow } from 'pg';
 
 import { db } from '../infra/db.js';
 import type {
-  WorkflowActivitySummary,
   WorkflowExecutionOrigin,
   WorkflowExecutionStatus,
   WorkflowExecutionSummary
@@ -21,7 +20,6 @@ export interface WorkflowExecutionListOptions {
   state?: 'all' | 'open' | 'attention' | 'completed' | 'failed' | 'cancelled';
   origin?: 'manual' | 'external_integration' | 'schedule' | 'webhook';
   workflowId?: string;
-  sourceIssueId?: string;
   search?: string;
   signature?: string;
 }
@@ -38,17 +36,13 @@ export function mapWorkflowExecutionSummary(row: QueryResultRow): WorkflowExecut
     workspaceId: row.workspace_id,
     workflow: {
       id: row.workflow_id,
-      name: typeof workflowSnapshot.name === 'string' ? workflowSnapshot.name : row.workflow_id,
-      version: Number(row.workflow_version)
+      name: typeof workflowSnapshot.name === 'string' ? workflowSnapshot.name : row.workflow_id
     },
     status: row.status as WorkflowExecutionStatus,
     origin: row.origin_snapshot as WorkflowExecutionOrigin,
     ...(row.root_run_id ? {
       rootRun: {
         id: row.root_run_id,
-        ...(row.root_target_id ? { targetId: row.root_target_id } : {}),
-        ...(row.root_target_name ? { targetName: row.root_target_name } : {}),
-        ...(row.root_target_type ? { targetType: row.root_target_type } : {}),
         requestedAt: iso(row.root_requested_at)!,
         ...(row.root_started_at ? { startedAt: iso(row.root_started_at) } : {}),
         ...(row.root_ended_at ? { endedAt: iso(row.root_ended_at) } : {})
@@ -65,19 +59,13 @@ export function mapWorkflowExecutionSummary(row: QueryResultRow): WorkflowExecut
 const summarySelect = `
   SELECT execution.*,
          root.id AS root_run_id,
-         root.target_id AS root_target_id,
-         root.target_name AS root_target_name,
-         root.target_type AS root_target_type,
          root.requested_at AS root_requested_at,
          root.started_at AS root_started_at,
          root.ended_at AS root_ended_at
     FROM workflow_executions execution
     LEFT JOIN LATERAL (
-      SELECT run.id,run.target_id,target.name AS target_name,run.target_type,
-             run.requested_at,run.started_at,run.ended_at
+      SELECT run.id,run.requested_at,run.started_at,run.ended_at
         FROM workflow_runs run
-        LEFT JOIN targets target
-          ON target.id=run.target_id AND target.workspace_id=execution.workspace_id
        WHERE run.execution_id=execution.id AND run.parent_run_id IS NULL
        ORDER BY run.attempt_number DESC,run.id DESC
        LIMIT 1
@@ -108,59 +96,6 @@ export async function listWorkflowExecutionSummariesByIds(
   }));
 }
 
-export async function getWorkflowActivityByIssueIds(
-  workspaceId: string,
-  issueIds: string[]
-): Promise<Map<string, WorkflowActivitySummary>> {
-  if (issueIds.length === 0) return new Map();
-  const result = await db.query<{
-    issue_id: string;
-    total_count: number;
-    open_count: number;
-    attention_count: number;
-    latest_execution_id: string;
-    open_execution_id: string | null;
-  }>(
-    `SELECT source_id AS issue_id,
-            COUNT(*)::int AS total_count,
-            COUNT(*) FILTER (
-              WHERE status NOT IN ('completed','failed','cancelled')
-            )::int AS open_count,
-            COUNT(*) FILTER (
-              WHERE status IN ('waiting_for_approval','needs_review')
-            )::int AS attention_count,
-            (ARRAY_AGG(id ORDER BY created_at DESC,id DESC))[1] AS latest_execution_id,
-            (ARRAY_AGG(id ORDER BY created_at DESC,id DESC) FILTER (
-              WHERE status NOT IN ('completed','failed','cancelled')
-            ))[1] AS open_execution_id
-       FROM workflow_executions
-      WHERE workspace_id=$1
-        AND source_type='issue'
-        AND source_id=ANY($2::text[])
-      GROUP BY source_id`,
-    [workspaceId, issueIds]
-  );
-  const executionIds = [...new Set(result.rows.flatMap((row) => [
-    row.latest_execution_id,
-    row.open_execution_id
-  ].filter((value): value is string => Boolean(value))))];
-  const executions = await listWorkflowExecutionSummariesByIds(executionIds);
-  return new Map(result.rows.map((row) => [
-    row.issue_id,
-    {
-      totalCount: Number(row.total_count),
-      openCount: Number(row.open_count),
-      attentionCount: Number(row.attention_count),
-      ...(row.open_execution_id && executions.get(row.open_execution_id)
-        ? { openExecution: executions.get(row.open_execution_id) }
-        : {}),
-      ...(executions.get(row.latest_execution_id)
-        ? { latestExecution: executions.get(row.latest_execution_id) }
-        : {})
-    }
-  ]));
-}
-
 export async function listWorkspaceWorkflowExecutions(
   workspaceId: string,
   options: WorkflowExecutionListOptions
@@ -184,9 +119,6 @@ export async function listWorkspaceWorkflowExecutions(
   }
   if (options.origin) add("execution.origin_snapshot->>'kind'=?", options.origin);
   if (options.workflowId) add('execution.workflow_id=?', options.workflowId);
-  if (options.sourceIssueId) {
-    add("execution.source_type='issue' AND execution.source_id=?", options.sourceIssueId);
-  }
   if (options.search) {
     add(`POSITION(LOWER(?) IN LOWER(CONCAT_WS(
       ' ',
@@ -194,10 +126,7 @@ export async function listWorkspaceWorkflowExecutions(
       execution.workflow_id,
       execution.workflow_snapshot->>'name',
       execution.origin_snapshot->>'label',
-      execution.origin_snapshot#>>'{source,label}',
-      execution.source_id,
-      root.target_id,
-      root.target_name
+      execution.origin_snapshot#>>'{source,label}'
     ))) > 0`, options.search);
   }
   if (options.cursor) {

@@ -437,6 +437,7 @@ async function processStoppingJob(job: TargetAutoTriageJob): Promise<void> {
   }
   const approvals = await repo.expirePendingRunToolApprovalsForRun(run.id);
   for (const approval of approvals) {
+    if (!approval.targetId || !approval.targetType) continue;
     await recordTargetChatActivityEvent({
       workspaceId: approval.workspaceId,
       targetId: approval.targetId,

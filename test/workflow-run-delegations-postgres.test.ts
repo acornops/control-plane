@@ -70,13 +70,13 @@ async function coordinatedRoot() {
   const workflow = await createWorkflowDefinition({
     workspaceId: 'workspace-1',
     name: 'Coordinated delegation probe',
-    prompt: 'Inspect the selected target.',
+    prompt: 'Inspect the infrastructure.',
     agentIds: agents.map((agent) => agent.id),
     capabilityPolicy: {
       mode: 'read_only',
       restrictionMode: 'restrict',
-      semanticCapabilityIds: ['target.diagnostics.read'],
-      contextGrants: ['workspace_metadata', 'target_inventory'],
+      semanticCapabilityIds: ['infrastructure.diagnostics.read'],
+      contextGrants: ['workspace_metadata'],
       maxRuntimeSeconds: 300,
       retentionDays: 30,
       approvalRequirements: []
@@ -91,15 +91,14 @@ async function coordinatedRoot() {
     selectedAgents: agents,
     mappings,
     actor,
-    approvedContextGrants: ['workspace_metadata', 'target_inventory']
+    approvedContextGrants: ['workspace_metadata']
   });
   const rootScope = compileWorkflowAccessScope({
     workflow,
     selectedAgents: agents,
     mappings,
     actor,
-    approvedContextGrants: ['workspace_metadata', 'target_inventory'],
-    targetRoute: { id: 'cluster-1', targetType: 'kubernetes' }
+    approvedContextGrants: ['workspace_metadata']
   });
   const session = await createWorkflowSession({
     workflow,
@@ -110,13 +109,11 @@ async function coordinatedRoot() {
     workflow,
     session,
     compiledAccessScope: rootScope,
-    content: 'Inspect the selected target.',
-    promptDigest: digestPrompt('Inspect the selected target.'),
+    content: 'Inspect the infrastructure.',
+    promptDigest: digestPrompt('Inspect the infrastructure.'),
     bindingDigest: digestBindings([]),
     resourceBindings: [],
-    resolvedAt: new Date().toISOString(),
-    targetId: 'cluster-1',
-    targetType: 'kubernetes'
+    resolvedAt: new Date().toISOString()
   });
   const parent = await updateWorkflowRun(created.run.id, { status: 'running' });
   assert.ok(parent);
@@ -132,7 +129,7 @@ async function coordinatedRoot() {
     capabilityPolicy: {
       ...workflow.capabilityPolicy,
       restrictionMode: 'restrict' as const,
-      semanticCapabilityIds: ['target.diagnostics.read']
+      semanticCapabilityIds: ['infrastructure.diagnostics.read']
     }
   };
   const childScope = compileWorkflowAccessScope({
@@ -142,8 +139,7 @@ async function coordinatedRoot() {
     delegatedSpecialist: true,
     mappings: mappings.filter((mapping) => mapping.agentId === specialist.id),
     actor,
-    approvedContextGrants: ['workspace_metadata', 'target_inventory'],
-    targetRoute: { id: 'cluster-1', targetType: 'kubernetes' }
+    approvedContextGrants: ['workspace_metadata']
   });
   return { parent, specialist, childScope };
 }
@@ -156,9 +152,7 @@ function delegationInput(
     specialist: setup.specialist,
     compiledAccessScope: setup.childScope,
     toolCallId,
-    capabilityId: 'target.diagnostics.read',
-    targetId: 'cluster-1',
-    targetType: 'kubernetes',
+    capabilityId: 'infrastructure.diagnostics.read',
     taskPrompt: `Inspect the target for ${toolCallId}.`,
     required: true,
     maxConcurrentChildren: 4,
@@ -331,14 +325,12 @@ describe('delegated Workflow run persistence', () => {
     const approval = await createAutomationRunApproval({
       workspaceId: child.run.workspaceId,
       runId: child.run.id,
-      targetId: child.run.targetId,
-      targetType: child.run.targetType,
       approvalKind: 'tool_write',
       toolCallId: 'cancelled-write',
       toolName: 'restart_workload',
-      toolRef: { serverId: 'acornops-target-agent', toolName: 'restart_workload' },
+      toolRef: { serverId: 'targets', toolName: 'restart_workload' },
       summary: 'This approval should be invalidated by cancellation.',
-      arguments: {},
+      arguments: { target_id: 'cluster-1', target_type: 'kubernetes' },
       requestedBy: actor.userId,
       expiresAt: new Date(Date.now() + 900_000).toISOString(),
       continuationState: { cursor: 'before-cancelled-write' }

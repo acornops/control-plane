@@ -20,7 +20,6 @@ import {
   validateMcpPublicHeaders
 } from '../../services/mcp-public-header-policy.js';
 import { targetWebhookScope } from '../../services/target-webhook-scope.js';
-import { pauseSchedulesForTargetIndividualCredentials } from '../../services/target-mcp-schedule-impact.js';
 import { webhooks } from '../../services/webhooks.js';
 import { repo } from '../../store/repository.js';
 import { TargetType } from '../../types/domain.js';
@@ -285,15 +284,6 @@ export async function updateTargetMcpServerForTarget(req: AuthenticatedRequest, 
         serverId,
         changedFields
       );
-    }
-    if (previous?.credential_mode === 'workspace' && server.credential_mode === 'individual') {
-      await pauseSchedulesForTargetIndividualCredentials({
-        workspaceId,
-        targetId,
-        serverId,
-        serverName: server.server_name,
-        actorUserId: req.auth.userId
-      });
     }
     res.status(200).json(toPublicMcpServerConfig(server));
   } catch (err) {

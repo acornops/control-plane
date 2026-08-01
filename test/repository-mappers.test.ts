@@ -213,7 +213,7 @@ describe('repository mappers', () => {
       last_seen_at: null,
       last_heartbeat_at: null,
       last_connection_id: null,
-      last_agent_version: null,
+      last_connector_version: null,
       capabilities: null
     };
 

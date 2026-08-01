@@ -61,9 +61,8 @@ async function createDirectRoot(approvalRequirements: string[] = []) {
     selectedAgents: [specialist],
     specialistAgent: specialist,
     mappings: await listCapabilityRoutingMappings('workspace-1', { activeReviewedOnly: true }),
-    targetRoute: { id: 'cluster-1', targetType: 'kubernetes' },
     actor,
-    approvedContextGrants: ['workspace_metadata', 'target_inventory']
+    approvedContextGrants: ['workspace_metadata']
   });
   const session = await createWorkflowSession({ workflow, createdBy: actor.userId, compiledAccessScope });
   return createWorkflowExecution({
@@ -75,8 +74,6 @@ async function createDirectRoot(approvalRequirements: string[] = []) {
     bindingDigest: digestBindings([]),
     resourceBindings: [],
     resolvedAt: new Date().toISOString(),
-    targetId: 'cluster-1',
-    targetType: 'kubernetes',
     specialistSnapshot: specialist
   });
 }
@@ -122,14 +119,12 @@ describe('durable Workflow run approvals', () => {
     const approval = await createAutomationRunApproval({
       workspaceId: created.run.workspaceId,
       runId: created.run.id,
-      targetId: 'cluster-1',
-      targetType: 'kubernetes',
       approvalKind: 'tool_write',
       toolCallId: 'tool-call-1',
       toolName: 'restart_workload',
-      toolRef: { serverId: 'acornops-target-agent', toolName: 'restart_workload' },
+      toolRef: { serverId: 'targets', toolName: 'restart_workload' },
       summary: 'Restart the approved workload.',
-      arguments: { namespace: 'default', name: 'api' },
+      arguments: { target_id: 'cluster-1', target_type: 'kubernetes', namespace: 'default', name: 'api' },
       requestedBy: actor.userId,
       expiresAt: new Date(Date.now() + 900_000).toISOString(),
       continuationState: { cursor: 'before-tool-call' }
@@ -137,14 +132,12 @@ describe('durable Workflow run approvals', () => {
     const replay = await createAutomationRunApproval({
       workspaceId: created.run.workspaceId,
       runId: created.run.id,
-      targetId: 'cluster-1',
-      targetType: 'kubernetes',
       approvalKind: 'tool_write',
       toolCallId: 'tool-call-1',
       toolName: 'restart_workload',
-      toolRef: { serverId: 'acornops-target-agent', toolName: 'restart_workload' },
+      toolRef: { serverId: 'targets', toolName: 'restart_workload' },
       summary: 'Restart the approved workload.',
-      arguments: { namespace: 'default', name: 'api' },
+      arguments: { target_id: 'cluster-1', target_type: 'kubernetes', namespace: 'default', name: 'api' },
       requestedBy: actor.userId,
       expiresAt: new Date(Date.now() + 900_000).toISOString(),
       continuationState: { cursor: 'before-tool-call' }
@@ -154,14 +147,12 @@ describe('durable Workflow run approvals', () => {
       createAutomationRunApproval({
         workspaceId: created.run.workspaceId,
         runId: created.run.id,
-        targetId: 'cluster-1',
-        targetType: 'kubernetes',
         approvalKind: 'tool_write',
         toolCallId: 'tool-call-1',
         toolName: 'restart_workload',
-        toolRef: { serverId: 'acornops-target-agent', toolName: 'restart_workload' },
+        toolRef: { serverId: 'targets', toolName: 'restart_workload' },
         summary: 'Restart the approved workload.',
-        arguments: { namespace: 'other', name: 'api' },
+        arguments: { target_id: 'cluster-1', target_type: 'kubernetes', namespace: 'other', name: 'api' },
         requestedBy: actor.userId,
         expiresAt: new Date(Date.now() + 900_000).toISOString(),
         continuationState: { cursor: 'before-tool-call' }
@@ -221,14 +212,12 @@ describe('durable Workflow run approvals', () => {
     await createAutomationRunApproval({
       workspaceId: created.run.workspaceId,
       runId: created.run.id,
-      targetId: 'cluster-1',
-      targetType: 'kubernetes',
       approvalKind: 'tool_write',
       toolCallId: 'workflow-write-1',
       toolName: 'restart_workload',
-      toolRef: { serverId: 'acornops-target-agent', toolName: 'restart_workload' },
+      toolRef: { serverId: 'targets', toolName: 'restart_workload' },
       summary: 'Approve the exact target mutation.',
-      arguments: {},
+      arguments: { target_id: 'cluster-1', target_type: 'kubernetes' },
       requestedBy: actor.userId,
       expiresAt: new Date(Date.now() - 1_000).toISOString(),
       continuationState: { cursor: 'before-workflow-write' }

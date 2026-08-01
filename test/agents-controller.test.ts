@@ -2,13 +2,10 @@ import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, it, mock } from 'node:test';
 import {
   createAgent,
-  createAgentVersion,
   deleteAgent,
   duplicateAgent,
   getAgent,
-  listAgentVersions,
   listAgents,
-  restoreAgentVersion,
   updateAgent,
 } from '../src/controllers/agents-controller.js';
 import { repo } from '../src/store/repository.js';
@@ -119,25 +116,12 @@ describe('agents controller', () => {
     assert.equal(availability.statusCode, 200);
     assert.equal((availability.body as { agent: { status: string } }).agent.status, 'disabled');
 
-    const versioned = await callController(createAgentVersion, createRequest(
-      { agentId: 'agent-cluster-triage' },
-      { workspaceId: 'workspace-1' }
-    ));
-    assert.equal(versioned.statusCode, 201);
-    const versionId = (versioned.body as { version: { id: string } }).version.id;
-
     const changedAgain = await callController(updateAgent, createRequest(
       { agentId: 'agent-cluster-triage' },
       { workspaceId: 'workspace-1', instructions: 'A later workspace-owned revision.' }
     ));
     assert.equal(changedAgain.statusCode, 200);
-
-    const restored = await callController(restoreAgentVersion, createRequest(
-      { agentId: 'agent-cluster-triage', versionId },
-      { workspaceId: 'workspace-1' }
-    ));
-    assert.equal(restored.statusCode, 200);
-    assert.equal((restored.body as { agent: { instructions: string } }).agent.instructions, 'Replace system instructions.');
+    assert.equal((changedAgain.body as { agent: { instructions: string } }).agent.instructions, 'A later workspace-owned revision.');
 
     const deleted = await callController(deleteAgent, createRequest(
       { agentId: 'agent-cluster-triage' },
@@ -147,7 +131,7 @@ describe('agents controller', () => {
     assert.equal((deleted.body as { error: { code: string } }).error.code, 'AGENT_ASSIGNED_TO_WORKFLOWS');
     assert.deepEqual(
       (deleted.body as { error: { details: { workflows: Array<{ id: string; relation: string }> } } }).error.details.workflows,
-      [{ id: 'cluster-triage', name: 'Target diagnostics', relation: 'selected_agent' }]
+      [{ id: 'cluster-triage', name: 'Infrastructure diagnostics', relation: 'selected_agent' }]
     );
 
     const duplicated = await callController(duplicateAgent, createRequest(
@@ -161,15 +145,14 @@ describe('agents controller', () => {
     assert.equal(duplicatedAgent.avatarEmoji, '🔎');
   });
 
-  it('enriches agent responses with workflow usage and derived capability rows', async () => {
+  it('returns Agent capabilities without reverse Workflow projections', async () => {
     installWorkspace('admin');
     const created = await callController(createAgent, createRequest(
       { workspaceId: 'workspace-1' },
       {
         name: 'Cluster specialist', instructions: 'Inspect the selected cluster.',
         contextGrants: ['workspace_metadata'],
-        targetScope: { type: 'selected_target', targetTypes: ['kubernetes'] },
-        semanticCapabilityIds: ['target.diagnostics.read']
+        semanticCapabilityIds: ['infrastructure.diagnostics.read']
       }
     ));
     assert.equal(created.statusCode, 201);
@@ -181,7 +164,7 @@ describe('agents controller', () => {
       agentIds: [agentId],
       requiredPermissions: ['create_read_only_runs'],
       capabilityPolicy: {
-        mode: 'read_only', restrictionMode: 'restrict', semanticCapabilityIds: ['target.diagnostics.read'],
+        mode: 'read_only', restrictionMode: 'restrict', semanticCapabilityIds: ['infrastructure.diagnostics.read'],
         contextGrants: [], maxRuntimeSeconds: 300, retentionDays: 7, approvalRequirements: []
       },
       createdBy: 'user-1'
@@ -190,11 +173,11 @@ describe('agents controller', () => {
     const listed = await callController(listAgents, createRequest({ workspaceId: 'workspace-1' }));
     assert.equal(listed.statusCode, 200);
     const listAgent = (listed.body as {
-      items: Array<{ id: string; workflowsUsingAgent?: string[]; capabilities?: Array<{ source: string; resourceScope: string }> }>;
+      items: Array<{ id: string; semanticCapabilityIds: string[]; capabilities?: Array<{ source: string; resourceScope: string }> }>;
     }).items.find((agent) => agent.id === agentId);
     assert.ok(listAgent);
-    assert.ok(listAgent.workflowsUsingAgent?.includes('Cluster incident workflow'));
-    assert.ok(listAgent.capabilities?.some((capability) => capability.source === 'target' && capability.resourceScope === 'kubernetes'));
+    assert.ok(listAgent.semanticCapabilityIds.includes('infrastructure.diagnostics.read'));
+    assert.equal(listAgent.capabilities?.some((capability) => capability.source === 'target'), false);
     assert.ok(listAgent.capabilities?.some((capability) => capability.source === 'context' && capability.resourceScope === 'workspace_metadata'));
 
     const fetched = await callController(getAgent, createRequest(
@@ -202,7 +185,7 @@ describe('agents controller', () => {
       { workspaceId: 'workspace-1' }
     ));
     assert.equal(fetched.statusCode, 200);
-    assert.ok((fetched.body as { agent: { workflowsUsingAgent?: string[] } }).agent.workflowsUsingAgent?.includes('Cluster incident workflow'));
+    assert.equal('workflowsUsingAgent' in (fetched.body as { agent: object }).agent, false);
   });
 
   it('requires manage_agents before creating custom agents', async () => {
@@ -217,7 +200,7 @@ describe('agents controller', () => {
     assert.equal((response.body as { error: { code: string } }).error.code, 'FORBIDDEN');
   });
 
-  it('creates, updates, and versions custom agents for managers', async () => {
+  it('creates and updates custom agents for managers', async () => {
     installWorkspace('admin');
     const auditEvents: string[] = [];
     repo.insertWorkspaceAuditEvent = async (event) => {
@@ -249,8 +232,7 @@ describe('agents controller', () => {
     ));
 
     assert.equal(created.statusCode, 201);
-    const agent = (created.body as { agent: { id: string; avatarEmoji: string; version: number; status: string; providerType: string; trustPolicy: { level: string; allowExternalData: boolean } } }).agent;
-    assert.equal(agent.version, 1);
+    const agent = (created.body as { agent: { id: string; avatarEmoji: string; status: string; providerType: string; trustPolicy: { level: string; allowExternalData: boolean } } }).agent;
     assert.equal(agent.avatarEmoji, '🚀');
     assert.equal(agent.status, 'active');
     assert.equal(agent.providerType, 'internal');
@@ -265,46 +247,11 @@ describe('agents controller', () => {
       }
     ));
     assert.equal(patched.statusCode, 200);
-    assert.equal((patched.body as { agent: { avatarEmoji: string; version: number } }).agent.version, 2);
     assert.equal((patched.body as { agent: { avatarEmoji: string } }).agent.avatarEmoji, '🧭');
-
-    const version = await callController(createAgentVersion, createRequest(
-      { agentId: agent.id },
-      { workspaceId: 'workspace-1' }
-    ));
-    assert.equal(version.statusCode, 201);
-    assert.equal((version.body as { version: { version: number } }).version.version, 2);
-
-    const changedAfterSnapshot = await callController(updateAgent, createRequest(
-      { agentId: agent.id },
-      { workspaceId: 'workspace-1', avatarEmoji: '📦' }
-    ));
-    assert.equal(changedAfterSnapshot.statusCode, 200);
-    assert.equal((changedAfterSnapshot.body as { agent: { avatarEmoji: string } }).agent.avatarEmoji, '📦');
-
-    const versions = await callController(listAgentVersions, createRequest(
-      { agentId: agent.id },
-      { workspaceId: 'workspace-1' }
-    ));
-    assert.equal(versions.statusCode, 200);
-    assert.equal((versions.body as { items: Array<{ version: number }> }).items.length, 1);
-    assert.equal((versions.body as { items: Array<{ version: number }> }).items[0].version, 2);
-    const versionId = (versions.body as { items: Array<{ id: string }> }).items[0].id;
-
-    const restored = await callController(restoreAgentVersion, createRequest(
-      { agentId: agent.id, versionId },
-      { workspaceId: 'workspace-1' }
-    ));
-    assert.equal(restored.statusCode, 200);
-    assert.equal((restored.body as { agent: { avatarEmoji: string; version: number } }).agent.version, 4);
-    assert.equal((restored.body as { agent: { avatarEmoji: string } }).agent.avatarEmoji, '🧭');
 
     assert.deepEqual(auditEvents, [
       'agent.definition_created.v1',
-      'agent.definition_updated.v1',
-      'agent.version_snapshot_created.v1',
-      'agent.definition_updated.v1',
-      'agent.version_restored.v1'
+      'agent.definition_updated.v1'
     ]);
 
     const fetched = await callController(getAgent, createRequest(
@@ -327,32 +274,6 @@ describe('agents controller', () => {
 
     assert.equal(response.statusCode, 400);
     assert.equal((response.body as { error: { code: string } }).error.code, 'AGENT_AVATAR_EMOJI_INVALID');
-  });
-
-  it('lists agent version snapshots newest first', async () => {
-    installWorkspace('admin');
-
-    const created = await callController(createAgent, createRequest(
-      { workspaceId: 'workspace-1' },
-      { name: 'Versioned helper', instructions: 'Handle versioned work.' }
-    ));
-    assert.equal(created.statusCode, 201);
-    const agentId = (created.body as { agent: { id: string } }).agent.id;
-
-    await callController(createAgentVersion, createRequest({ agentId }, { workspaceId: 'workspace-1' }));
-    await callController(updateAgent, createRequest(
-      { agentId },
-      { workspaceId: 'workspace-1', instructions: 'Handle versioned work with more context.' }
-    ));
-    await callController(createAgentVersion, createRequest({ agentId }, { workspaceId: 'workspace-1' }));
-
-    const versions = await callController(listAgentVersions, createRequest(
-      { agentId },
-      { workspaceId: 'workspace-1' }
-    ));
-
-    assert.equal(versions.statusCode, 200);
-    assert.deepEqual((versions.body as { items: Array<{ version: number }> }).items.map((version) => version.version), [2, 1]);
   });
 
   it('deletes only unassigned custom agents', async () => {

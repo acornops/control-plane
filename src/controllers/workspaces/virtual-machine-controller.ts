@@ -17,7 +17,6 @@ import { VIRTUAL_MACHINE_TARGET_TYPE } from '../../types/domain.js';
 import type { TargetSummary } from '../../types/domain.js';
 import { generateAgentKey, hashSecret } from '../../utils/crypto.js';
 import { toSingleParam } from '../../utils/params.js';
-import { disablePlatformTargetDiagnosticMappings } from '../../store/repository-capability-routing.js';
 import {
   CursorMismatchError,
   decodeCursor,
@@ -228,7 +227,6 @@ export async function deleteVirtualMachine(req: AuthenticatedRequest, res: Respo
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Virtual machine not found', retryable: false } });
       return;
     }
-    await disablePlatformTargetDiagnosticMappings(workspaceId, vmId, []);
     await recordWorkspaceAuditEvent({
       workspaceId,
       category: 'target',

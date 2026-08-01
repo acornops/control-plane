@@ -4,7 +4,6 @@ import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { config } from '../config.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
-import { EMPTY_WORKFLOW_INPUT_SIGNATURE } from '../services/workflow-template.js';
 import {
   createWorkflowWebhook,
   deleteWorkflowWebhookRecord,
@@ -17,7 +16,7 @@ import {
   getWorkflowExecutionSummary,
   listWorkflowExecutionSummariesByIds
 } from '../store/repository-workflow-activity.js';
-import { getWorkflowDefinition, isAgentChatCarrier } from '../store/repository-workflows.js';
+import { getWorkflowDefinition } from '../store/repository-workflows.js';
 import type { WorkflowWebhookRecord } from '../types/workflows.js';
 import { encryptWebhookSecret, generateWebhookSecret } from '../utils/crypto.js';
 import { toSingleParam } from '../utils/params.js';
@@ -152,7 +151,7 @@ export async function createWorkspaceWorkflowWebhook(
       return;
     }
     const workflow = await getWorkflowDefinition(workspaceId, workflowId);
-    if (!workflow || isAgentChatCarrier(workflow)) {
+    if (!workflow) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
       return;
     }
@@ -196,8 +195,6 @@ export async function createWorkspaceWorkflowWebhook(
     const secret = generateWebhookSecret();
     const webhook = await createWorkflowWebhook({
       workspaceId,
-      workflowVersion: workflow.version,
-      parameterSignature: EMPTY_WORKFLOW_INPUT_SIGNATURE,
       actorUserId: req.auth.userId,
       input: {
         workflowId,
@@ -257,7 +254,7 @@ export async function updateWorkflowWebhook(
       return;
     }
     const workflow = await getWorkflowDefinition(current.workspaceId, current.workflowId);
-    if (!workflow || isAgentChatCarrier(workflow)) {
+    if (!workflow) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
       return;
     }
@@ -304,8 +301,6 @@ export async function updateWorkflowWebhook(
     const updated = await updateWorkflowWebhookRecord(
       webhookId,
       {
-        workflowVersion: workflow.version,
-        parameterSignature: EMPTY_WORKFLOW_INPUT_SIGNATURE,
         name,
         enabled: typeof body.enabled === 'boolean' ? body.enabled : undefined,
         approvedContextGrants

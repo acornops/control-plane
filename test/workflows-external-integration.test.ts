@@ -3,7 +3,7 @@ import { after, afterEach, beforeEach, describe, it, mock } from 'node:test';
 import { createSession, listWorkflows, postMessage } from '../src/controllers/workflows-controller.js';
 import { decideRunApproval } from '../src/controllers/runs-controller.js';
 import { getWorkflowExecution } from '../src/controllers/workflow-executions-controller.js';
-import { getWorkflowReportMetadata } from '../src/controllers/workflow-reports-controller.js';
+import { getGeneratedDocumentMetadata } from '../src/controllers/generated-documents-controller.js';
 import { repo } from '../src/store/repository.js';
 import {
   resetWorkflowRepositoryForTests,
@@ -30,7 +30,7 @@ import {
 } from './helpers/automation-database-fixtures.js';
 import { listWorkflowExecutionEvents } from '../src/store/repository-workflow-execution-events.js';
 import { recordWorkflowRunEvents } from '../src/services/workflow-execution-events.js';
-import { createWorkflowReport } from '../src/store/repository-workflow-reports.js';
+import { createWorkflowDocument } from '../src/store/repository-generated-documents.js';
 import { createAutomationRunApproval } from '../src/store/repository-automation-approvals.js';
 import {
   assertExternalApprovalListSanitized,
@@ -58,7 +58,7 @@ describe('workflow external integration access', () => {
     });
     const readWriteResponse = await callController(createSession, createExternalIntegrationRequest(
       { workflowId: 'cluster-triage' },
-      { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata', 'target_inventory'] }
+      { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata'] }
     ));
     assert.equal(readWriteResponse.statusCode, 403);
     assert.match((readWriteResponse.body as { error: { message: string } }).error.message, /does not permit/);
@@ -81,7 +81,7 @@ describe('workflow external integration access', () => {
     await updateWorkflowDefinitionScope('workspace-1', 'cluster-triage', { status: 'paused' });
     const pausedResponse = await callController(createSession, createExternalIntegrationRequest(
       { workflowId: 'cluster-triage' },
-      { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata', 'target_inventory'] }
+      { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata'] }
     ));
     assert.equal(pausedResponse.statusCode, 403);
     assert.equal((pausedResponse.body as { error: { code: string } }).error.code, 'WORKFLOW_NOT_AVAILABLE_FOR_EXTERNAL_INTEGRATION');
@@ -103,7 +103,7 @@ describe('workflow external integration access', () => {
     });
     const missingCapabilityResponse = await callController(createSession, createExternalIntegrationRequest(
       { workflowId: 'cluster-triage' },
-      { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata', 'target_inventory'] }
+      { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata'] }
     ));
     assert.equal(missingCapabilityResponse.statusCode, 403);
     assert.equal((missingCapabilityResponse.body as { error: { code: string } }).error.code, 'WORKFLOW_NOT_AVAILABLE_FOR_EXTERNAL_INTEGRATION');
@@ -113,12 +113,11 @@ describe('workflow external integration access', () => {
       { workflowId: 'cluster-triage' },
       { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata'] }
     ));
-    assert.equal(missingGrantResponse.statusCode, 409);
-    assert.equal((missingGrantResponse.body as { error: { code: string } }).error.code, 'WORKFLOW_CONTEXT_GRANT_DENIED');
+    assert.equal(missingGrantResponse.statusCode, 201);
 
     const extraGrantResponse = await callController(createSession, createExternalIntegrationRequest(
       { workflowId: 'cluster-triage' },
-      { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata', 'target_inventory', 'audit_events'] }
+      { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata', 'audit_events'] }
     ));
     assert.equal(extraGrantResponse.statusCode, 400);
     assert.equal((extraGrantResponse.body as { error: { code: string } }).error.code, 'WORKFLOW_CONTEXT_GRANT_UNKNOWN');
@@ -130,7 +129,7 @@ describe('workflow external integration access', () => {
       { workflowId: 'cluster-triage' },
       {
         workspaceId: 'workspace-1',
-        approvedContextGrants: ['workspace_metadata', 'target_inventory']
+        approvedContextGrants: ['workspace_metadata']
       }
     ));
     assert.equal(sessionResponse.statusCode, 201);
@@ -236,10 +235,6 @@ describe('workflow external integration access', () => {
       createExternalIntegrationRequest({ executionId: secondBody.executionId })
     );
     assert.equal(secondExecutionResponse.statusCode, 200);
-    assert.equal(
-      (secondExecutionResponse.body as { execution: { workflowVersion: number } }).execution.workflowVersion,
-      3
-    );
     const firstRun = await getWorkflowRun(firstBody.run_id);
     assert.ok(firstRun);
     assert.deepEqual(firstRun.resourceBindings, []);
@@ -344,7 +339,7 @@ describe('workflow external integration access', () => {
       assert.equal(serializedBrowserExecution.includes(privateField), false);
     }
 
-    const report = await createWorkflowReport({
+    const report = await createWorkflowDocument({
       workspaceId: 'workspace-1',
       executionId: firstBody.executionId,
       runId: firstBody.run_id,
@@ -354,7 +349,7 @@ describe('workflow external integration access', () => {
       retentionDays: 30,
       toolCallId: 'external-report-1'
     });
-    const ownedReport = await callController(getWorkflowReportMetadata, createExternalIntegrationRequest({
+    const ownedReport = await callController(getGeneratedDocumentMetadata, createExternalIntegrationRequest({
       reportId: report.id
     }));
     assert.equal(ownedReport.statusCode, 200);
@@ -362,7 +357,7 @@ describe('workflow external integration access', () => {
     assert.equal(JSON.stringify(ownedReport.body).includes('private provenance'), false);
     const otherLinkReportRequest = createExternalIntegrationRequest({ reportId: report.id });
     otherLinkReportRequest.auth.credential.linkId = 'link-2';
-    const hiddenReport = await callController(getWorkflowReportMetadata, otherLinkReportRequest);
+    const hiddenReport = await callController(getGeneratedDocumentMetadata, otherLinkReportRequest);
     assert.equal(hiddenReport.statusCode, 404);
 
     const approved = await callController(decideRunApproval, withWriteCapability(createExternalIntegrationRequest(

@@ -25,7 +25,7 @@ import { decideTroubleshootingRunApproval } from './troubleshooting-run-approval
 import { externalIntegrationOwnsWorkflowExecution } from './workflow-execution-access.js';
 import {
   publicRunEvent,
-  publicTroubleshootingRun,
+  publicConversationRun,
   publicWorkflowRun
 } from './external-run-public.js';
 import { approvalsForRequest, isExternalIntegrationRequest } from './run-external-integration.js';
@@ -61,7 +61,7 @@ export async function getRun(req: AuthenticatedRequest, res: Response, next: Nex
     }
 
     res.status(200).json(isExternalIntegrationRequest(req)
-      ? publicTroubleshootingRun(run, await externalIntegrationOwnsTroubleshootingRun(req, run.id))
+      ? publicConversationRun(run, await externalIntegrationOwnsTroubleshootingRun(req, run.id))
       : run);
   } catch (err) {
     next(err);
@@ -163,20 +163,22 @@ export async function cancelRun(req: AuthenticatedRequest, res: Response, next: 
       return;
     }
 
-    webhooks.emit({
-      type: 'run.cancel_requested.v1',
-      workspaceId: run.workspaceId,
-      clusterId: run.targetType === KUBERNETES_TARGET_TYPE ? run.targetId : undefined,
-      targetId: run.targetId,
-      targetType: run.targetType,
-      subject: { type: 'run', id: run.id },
-      data: {
-        sessionId: run.sessionId,
-        messageId: run.messageId,
-        previousStatus: run.status,
-        requestedBy: req.auth.userId
-      }
-    });
+    if (run.targetId && run.targetType) {
+      webhooks.emit({
+        type: 'run.cancel_requested.v1',
+        workspaceId: run.workspaceId,
+        clusterId: run.targetType === KUBERNETES_TARGET_TYPE ? run.targetId : undefined,
+        targetId: run.targetId,
+        targetType: run.targetType,
+        subject: { type: 'run', id: run.id },
+        data: {
+          sessionId: run.sessionId,
+          messageId: run.messageId,
+          previousStatus: run.status,
+          requestedBy: req.auth.userId
+        }
+      });
+    }
     await recordWorkspaceAuditEvent({
       workspaceId: run.workspaceId,
       category: 'run',

@@ -229,7 +229,7 @@ const envSchema = z.object({
   REPORT_SOURCE_MAX_BYTES: z.coerce.number().int().positive().default(262144),
   REPORT_PDF_MAX_BYTES: z.coerce.number().int().positive().default(5242880),
   REPORT_RENDER_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
-  TARGET_CHAT_REPORT_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+  GENERATED_DOCUMENT_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
 
   INTERNAL_TRANSPORT_TLS_ENABLED: envBoolean(false),
   INTERNAL_TRANSPORT_TLS_REQUIRE_CLIENT_CERT: envBoolean(true),

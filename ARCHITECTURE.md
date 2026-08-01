@@ -9,7 +9,7 @@ The control plane is the authoritative backend for:
 5. execution-engine orchestration
 6. run-scoped gateway token issuance
 
-Kubernetes clusters and Linux/systemd virtual machines are active target types. The persistence and shared workflow core use targets, while Kubernetes-specific lifecycle, namespace scope, and pod logs stay under `/kubernetes-clusters` APIs and VM-specific lifecycle, host inventory, metrics, and logs stay under `/virtual-machines` APIs. Shared MCP, session, and run paths remain target-scoped and capability-driven.
+Kubernetes clusters and Linux/systemd virtual machines are active target types. Target persistence uses a common target model, while Kubernetes-specific lifecycle, namespace scope, and pod logs stay under `/kubernetes-clusters` APIs and VM-specific lifecycle, host inventory, metrics, and logs stay under `/virtual-machines` APIs. Target chat remains target-scoped; Agent conversations and Workflow execution use their own identities and may reach targets only through call-time arguments to the generic Targets MCP tools.
 
 ## High-Level Diagram
 
@@ -162,16 +162,16 @@ flowchart TD
 
 ## Workflow Execution Model
 
-Workflows are the only runnable automation aggregate. Agents are reusable
-specialist capability profiles; they contribute pinned instructions, tools,
-skills, MCP installations, context grants, and policy, but never own or start a
-run.
+Workflows are the runnable automation aggregate. Agents are independently
+chat-capable specialist profiles and are also reusable by Workflows. Agent chat
+uses conversation runs; Workflow execution uses the separate Workflow run
+model below.
 
 Every executor invocation is a `workflow_runs` row attached to one
 `workflow_executions` occurrence:
 
 - a direct Workflow has one root `specialist` run with a pinned Agent snapshot;
-- a coordinated Workflow has one root `coordinator` run with a versioned,
+- a coordinated Workflow has one root `coordinator` run with a stable,
   code-owned coordinator profile and no Agent identity;
 - delegated work is a child `specialist` run whose `parent_run_id` identifies
   the coordinator root and whose delegation call ID provides idempotency.
@@ -181,8 +181,9 @@ root may finalize the execution and append the final assistant message.
 Coordinator runs receive only internal delegate and await functions. Child
 specialist scopes are compiled as least-privilege intersections of the pinned
 Workflow authorization envelope, the selected Agent snapshot, and one semantic
-capability. Target-aware tools remain independently constrained by signed,
-per-target routes selected at tool invocation time.
+capability. The generic `targets` MCP facade selects and validates a workspace
+target only from `target_id` and `target_type` supplied at tool invocation time;
+neither Workflows nor Agents persist a target binding.
 
 Root retries create a new root attempt and child graph. Approval continuation
 resumes the same run. Cancellation traverses every nonterminal run in the

@@ -252,8 +252,8 @@ export function buildPlatformNativeTargetToolItems(
     id: tool.id,
     label: tool.title,
     enabled: settingsByToolId.get(tool.id)?.enabled ?? true,
-    toggleable: tool.targetToggleable === true,
-    description: tool.targetCatalogDescription || tool.description,
+    toggleable: tool.userToggleable === true,
+    description: tool.catalogDescription || tool.description,
     origin: 'platform_native',
     capability: tool.approvalOperation,
     runtimeKind: 'function',
@@ -266,7 +266,7 @@ export function buildPlatformNativeTargetToolItems(
       authorizationClass: tool.authorizationClass
     },
     permissions: {
-      canEdit: tool.targetToggleable === true && canEdit
+      canEdit: tool.userToggleable === true && canEdit
     }
   }));
 }
@@ -342,7 +342,7 @@ export async function listTargetTools(
       repo.getTargetToolSetting(targetId, WEB_SEARCH_TOOL_ID),
       config.TARGET_INSIGHTS_ENABLED ? repo.getTargetToolSetting(targetId, TARGET_INSIGHTS_TOOL_ID) : Promise.resolve(null),
       Promise.all(targetChatNativeTools
-        .filter((tool) => tool.targetToggleable)
+        .filter((tool) => tool.userToggleable)
         .map(async (tool) => [tool.id, await repo.getTargetToolSetting(targetId, tool.id)] as const)),
       repo.getWorkspaceAiSettings(workspaceId)
     ]);
@@ -390,7 +390,7 @@ export async function updateTargetToolSettings(
     }
     const platformNativeTool = getWorkspaceNativeTool(toolId);
     const isToggleablePlatformNativeTool = Boolean(
-      platformNativeTool?.invocationScopes.includes('target_chat') && platformNativeTool.targetToggleable
+      platformNativeTool?.invocationScopes.includes('target_chat') && platformNativeTool.userToggleable
     );
     if (toolId !== WEB_SEARCH_TOOL_ID && toolId !== TARGET_INSIGHTS_TOOL_ID && !isToggleablePlatformNativeTool) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Tool not found', retryable: false } });

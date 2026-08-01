@@ -9,7 +9,6 @@ import {
 } from '../src/controllers/workflow-schedules-controller.js';
 import { db } from '../src/infra/db.js';
 import { pauseSchedulesForAgentIndividualCredentials } from '../src/services/agent-mcp-schedule-impact.js';
-import { pauseSchedulesForTargetIndividualCredentials } from '../src/services/target-mcp-schedule-impact.js';
 import { runWorkflowScheduleTick } from '../src/services/workflow-scheduler.js';
 import {
   callController,
@@ -44,9 +43,7 @@ after(closeAutomationDatabaseFixtures);
 async function installExactMcpRequirement(): Promise<void> {
   await db.query(
     `UPDATE capability_routing_mappings
-     SET mcp_tools=$3::jsonb,
-         target_ids='["cluster-1"]'::jsonb,
-         target_tool_refs='[{"serverId":"builtin-server-1","toolName":"list_resources","alias":"list_resources","operation":"read"}]'::jsonb
+     SET mcp_tools=$3::jsonb
      WHERE workspace_id=$1 AND id=$2`,
     [
       'workspace-1',
@@ -55,6 +52,11 @@ async function installExactMcpRequirement(): Promise<void> {
         serverId: 'server-1',
         toolName: 'records.list',
         alias: 'records.list',
+        operation: 'read'
+      }, {
+        serverId: 'targets',
+        toolName: 'list_resources',
+        alias: 'list_resources',
         operation: 'read'
       }])
     ]
@@ -69,7 +71,7 @@ function scheduleInput(enabled = true): Record<string, unknown> {
     timezone: 'UTC',
     enabled,
     principal: { type: 'user', id: 'user-1' },
-    approvedContextGrants: ['workspace_metadata', 'target_inventory']
+    approvedContextGrants: ['workspace_metadata']
   };
 }
 
@@ -184,15 +186,13 @@ describe('workflow schedule MCP readiness', () => {
       workspace_id: 'workspace-1',
       principal: { type: 'user', id: 'user-1' },
       tool_refs: [
-        { server_id: 'server-1', tool_name: 'records.list' },
-        { server_id: 'builtin-server-1', tool_name: 'list_resources' }
+        { server_id: 'server-1', tool_name: 'records.list' }
       ]
     }, {
       workspace_id: 'workspace-1',
       principal: { type: 'user', id: 'user-1' },
       tool_refs: [
-        { server_id: 'server-1', tool_name: 'records.list' },
-        { server_id: 'builtin-server-1', tool_name: 'list_resources' }
+        { server_id: 'server-1', tool_name: 'records.list' }
       ]
     }]);
     const listed = await callController(
@@ -227,8 +227,7 @@ describe('workflow schedule MCP readiness', () => {
     const schedule = (created.body as { schedule: { id: string; nextRunAt: string } }).schedule;
     await db.query(
       `UPDATE workflow_definitions
-       SET prompt=$3,
-           version=version+1
+       SET prompt=$3
        WHERE workspace_id=$1 AND id=$2`,
       ['workspace-1', 'cluster-triage', 'x'.repeat(32_769)]
     );
@@ -306,46 +305,4 @@ describe('workflow schedule MCP readiness', () => {
     assert.equal(audit?.metadata?.serverId, 'server-1');
   });
 
-  it('immediately pauses enabled schedules when a target server changes to individual credentials', async () => {
-    installWorkspace('admin');
-    mock.method(globalThis, 'fetch', async () => createReadyMcpReadinessResponse());
-    const enabled = await callController(
-      createWorkflowScheduleForWorkspace,
-      createRequest({ workspaceId: 'workspace-1' }, scheduleInput())
-    );
-    assert.equal(enabled.statusCode, 201);
-    const enabledId = (enabled.body as { schedule: { id: string } }).schedule.id;
-    mock.restoreAll();
-    await installExactMcpRequirement();
-    mock.method(globalThis, 'fetch', async (input, init) => {
-      const url = String(input);
-      if (url.endsWith('/api/v1/internal/mcp/connections/readiness') && init?.method === 'POST') {
-        return new Response(JSON.stringify({ ready: false, failures: [{
-          server_id: 'builtin-server-1',
-          tool_name: 'list_resources',
-          code: 'MCP_CONNECTION_MISSING',
-          action: 'connect_mcp_server'
-        }] }), { status: 200 });
-      }
-      return new Response(`unexpected request: ${url}`, { status: 500 });
-    });
-
-    const pausedIds = await pauseSchedulesForTargetIndividualCredentials({
-      workspaceId: 'workspace-1',
-      targetId: 'cluster-1',
-      serverId: 'builtin-server-1',
-      serverName: 'AcornOps Kubernetes Tools',
-      actorUserId: 'user-1'
-    });
-
-    assert.deepEqual(pausedIds, [enabledId]);
-    const listed = await callController(
-      listWorkspaceWorkflowSchedules,
-      createRequest({ workspaceId: 'workspace-1' })
-    );
-    const paused = (listed.body as { items: Array<{ id: string; status: string; lastError?: string }> }).items
-      .find((schedule) => schedule.id === enabledId);
-    assert.equal(paused?.status, 'paused');
-    assert.match(paused?.lastError || '', /AcornOps Kubernetes Tools now uses individual credentials/);
-  });
 });

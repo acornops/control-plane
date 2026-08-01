@@ -43,13 +43,13 @@ for (const audience of ['public', 'admin']) {
   }
   const lineCount = serialized.split('\n').length - 1;
   combinedLineCount += lineCount;
-  const lineLimit = audience === 'admin' ? 4200 : 28600;
+  const lineLimit = audience === 'admin' ? 4200 : 28700;
   if (lineCount > lineLimit) {
     throw new Error(`${audience} OpenAPI document has ${lineCount} lines; expected at most ${lineLimit}`);
   }
   console.log(`${audience} OpenAPI document passed coverage checks (${pathCount} paths, ${schemaCount} schemas).`);
 }
 
-if (combinedLineCount > 32600) {
-  throw new Error(`Combined generated OpenAPI has ${combinedLineCount} lines; expected at most 32600`);
+if (combinedLineCount > 32900) {
+  throw new Error(`Combined generated OpenAPI has ${combinedLineCount} lines; expected at most 32900`);
 }

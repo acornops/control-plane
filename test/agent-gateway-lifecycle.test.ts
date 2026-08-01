@@ -217,14 +217,14 @@ describe('agent gateway lifecycle', () => {
         ws: WebSocket,
         raw: WebSocket.RawData,
         agentKeyHeader: string,
-        agentVersion: string,
+        connectorVersion: string,
         remoteAddress?: string
       ): Promise<void>;
     };
     internal.handleConnection(ws as unknown as WebSocket, {
       headers: {
         'x-agent-key': 'agent-key',
-        'x-agent-version': 'agent-test'
+        'x-connector-version': 'agentk/test'
       },
       socket: { remoteAddress: '203.0.113.10' }
     } as never);
@@ -243,7 +243,7 @@ describe('agent gateway lifecycle', () => {
         }
       }))),
       'agent-key',
-      'agent-test',
+      'agentk/test',
       '203.0.113.10'
     );
 
@@ -278,14 +278,14 @@ describe('agent gateway lifecycle', () => {
         ws: WebSocket,
         raw: WebSocket.RawData,
         agentKeyHeader: string,
-        agentVersion: string,
+        connectorVersion: string,
         remoteAddress?: string
       ): Promise<void>;
     };
     internal.handleConnection(ws as unknown as WebSocket, {
       headers: {
         'x-agent-key': 'agent-key-other',
-        'x-agent-version': 'agent-test'
+        'x-connector-version': 'agentk/test'
       },
       socket: { remoteAddress: '203.0.113.11' }
     } as never);
@@ -305,7 +305,7 @@ describe('agent gateway lifecycle', () => {
         }
       })),
       'agent-key-other',
-      'agent-test',
+      'agentk/test',
       '203.0.113.11'
     );
 
@@ -330,14 +330,14 @@ describe('agent gateway lifecycle', () => {
         ws: WebSocket,
         raw: WebSocket.RawData,
         agentKeyHeader: string,
-        agentVersion: string,
+        connectorVersion: string,
         remoteAddress?: string
       ): Promise<void>;
     };
     internal.handleConnection(ws as unknown as WebSocket, {
       headers: {
         'x-agent-key': 'agent-key-claimed',
-        'x-agent-version': 'agent-test'
+        'x-connector-version': 'agentk/test'
       },
       socket: { remoteAddress: '203.0.113.12' }
     } as never);
@@ -356,7 +356,7 @@ describe('agent gateway lifecycle', () => {
         }
       })),
       'agent-key-claimed',
-      'agent-test',
+      'agentk/test',
       '203.0.113.12'
     );
 

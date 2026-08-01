@@ -120,17 +120,17 @@ test('prompt and binding digests are deterministic', async () => {
 });
 
 test('cardinality can be deferred without dropping provider authorization requirements', async () => {
-  const provider = new ContractProvider('target');
+  const provider = new ContractProvider('artifact');
   const registry = new PromptResourceRegistry().register(provider);
   const requirements = [{
-    type: 'target',
+    type: 'artifact',
     minimum: 2,
     maximum: 2,
     requiredOperations: ['write'],
     constraints: { targetIds: ['one'] }
   }];
   const resolved = await registry.resolve(
-    'Inspect @target[One].',
+    'Inspect @artifact[One].',
     { ...context, requirements },
     { enforceCardinality: false, includeImplicit: false }
   );
@@ -141,19 +141,19 @@ test('cardinality can be deferred without dropping provider authorization requir
 });
 
 test('ID resolution enforces the same authorization and binding invariants as label resolution', async () => {
-  const provider = new ContractProvider('target');
+  const provider = new ContractProvider('artifact');
   const registry = new PromptResourceRegistry().register(provider);
   const requirements = [{
-    type: 'target',
+    type: 'artifact',
     minimum: 1,
     maximum: 1,
     requiredOperations: ['write']
   }];
-  const resolved = await registry.resolveById('target', 'target-1', {
+  const resolved = await registry.resolveById('artifact', 'artifact-1', {
     ...context,
     requirements
   });
-  assert.equal(resolved.binding.resourceId, 'target-1');
+  assert.equal(resolved.binding.resourceId, 'artifact-1');
   assert.deepEqual(resolved.binding.operations, ['write']);
   assert.deepEqual(provider.authorizationContexts[0]?.requirements, requirements);
 
@@ -169,9 +169,9 @@ test('ID resolution enforces the same authorization and binding invariants as la
       };
     }
   }
-  const invalidRegistry = new PromptResourceRegistry().register(new InvalidBindingProvider('target'));
+  const invalidRegistry = new PromptResourceRegistry().register(new InvalidBindingProvider('artifact'));
   await assert.rejects(
-    invalidRegistry.resolveById('target', 'target-1', { ...context, requirements }),
+    invalidRegistry.resolveById('artifact', 'artifact-1', { ...context, requirements }),
     (error) => error instanceof PromptResourceProviderError
       && error.code === 'PROMPT_REFERENCE_DENIED'
   );
@@ -185,9 +185,9 @@ test('ID resolution enforces the same authorization and binding invariants as la
     }
   }
   const invalidCandidateRegistry = new PromptResourceRegistry()
-    .register(new InvalidCandidateProvider('target'));
+    .register(new InvalidCandidateProvider('artifact'));
   await assert.rejects(
-    invalidCandidateRegistry.resolveById('target', 'target-1', { ...context, requirements }),
+    invalidCandidateRegistry.resolveById('artifact', 'artifact-1', { ...context, requirements }),
     (error) => error instanceof PromptResourceProviderError
       && error.code === 'PROMPT_REFERENCE_DENIED'
   );

@@ -6,7 +6,7 @@ export async function upsertTargetAgentRegistration(reg: TargetAgentRegistration
   await db.query(
     `INSERT INTO target_agent_registrations (
        target_id, workspace_id, agent_key_hash, key_version, last_seen_at, last_heartbeat_at,
-       last_connection_id, last_agent_version, capabilities
+       last_connection_id, last_connector_version, capabilities
      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
      ON CONFLICT (target_id) DO UPDATE
      SET workspace_id = EXCLUDED.workspace_id,
@@ -15,7 +15,7 @@ export async function upsertTargetAgentRegistration(reg: TargetAgentRegistration
          last_seen_at = EXCLUDED.last_seen_at,
          last_heartbeat_at = EXCLUDED.last_heartbeat_at,
          last_connection_id = EXCLUDED.last_connection_id,
-         last_agent_version = EXCLUDED.last_agent_version,
+         last_connector_version = EXCLUDED.last_connector_version,
          capabilities = EXCLUDED.capabilities`,
     [
       reg.targetId,
@@ -25,7 +25,7 @@ export async function upsertTargetAgentRegistration(reg: TargetAgentRegistration
       reg.lastSeenAt || null,
       reg.lastHeartbeatAt || null,
       reg.lastConnectionId || null,
-      reg.lastAgentVersion || null,
+      reg.lastConnectorVersion || null,
       JSON.stringify(reg.capabilities || null)
     ]
   );
@@ -92,21 +92,21 @@ export async function rotateTargetAgentKey(
 
 export async function updateTargetAgentSeen(
   targetId: string,
-  data: { lastSeenAt?: string; lastHeartbeatAt?: string; lastConnectionId?: string; lastAgentVersion?: string }
+  data: { lastSeenAt?: string; lastHeartbeatAt?: string; lastConnectionId?: string; lastConnectorVersion?: string }
 ): Promise<void> {
   await db.query(
     `UPDATE target_agent_registrations
      SET last_seen_at = COALESCE($2, last_seen_at),
          last_heartbeat_at = COALESCE($3, last_heartbeat_at),
          last_connection_id = COALESCE($4, last_connection_id),
-         last_agent_version = COALESCE($5, last_agent_version)
+         last_connector_version = COALESCE($5, last_connector_version)
      WHERE target_id = $1`,
     [
       targetId,
       data.lastSeenAt ?? null,
       data.lastHeartbeatAt ?? null,
       data.lastConnectionId ?? null,
-      data.lastAgentVersion ?? null
+      data.lastConnectorVersion ?? null
     ]
   );
 }

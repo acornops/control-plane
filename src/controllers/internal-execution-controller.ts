@@ -29,7 +29,7 @@ import {
   shouldReconcileFailedRunCommit,
   summarizeRunEventCounts
 } from './internal-execution-events.js';
-import { commitTargetAssistantFinalMessage } from './internal-target-run-commit.js';
+import { commitInteractiveAssistantFinalMessage } from './internal-target-run-commit.js';
 export { bootstrap } from './internal-execution-bootstrap.js';
 export { summarizeRunEventCounts } from './internal-execution-events.js';
 export { getWorkflowRunContext } from './internal-automation-context-controller.js';
@@ -78,7 +78,7 @@ export async function getSessionContext(req: Request, res: Response, next: NextF
     const messagesPage = await repo.listMessages(sessionId);
     let insightSnippets: Awaited<ReturnType<typeof repo.searchTargetInsightsSnippets>> = [];
     let insightsRetrievalStatus: TargetInsightsRetrievalStatus = config.TARGET_INSIGHTS_ENABLED ? 'skipped' : 'disabled';
-    if (config.TARGET_INSIGHTS_ENABLED && run) {
+    if (config.TARGET_INSIGHTS_ENABLED && run && session.conversationKind !== 'agent_chat' && session.targetId) {
       try {
         const setting = await repo.getTargetToolSetting(session.targetId, TARGET_INSIGHTS_TOOL_ID);
         if (setting?.enabled ?? true) {
@@ -120,7 +120,7 @@ export async function getSessionContext(req: Request, res: Response, next: NextF
       ],
       summaries: [],
       attachments: [],
-      target_insights: {
+      ...(session.conversationKind === 'target_chat' ? { target_insights: {
         retrieval_status: insightsRetrievalStatus,
         snippets: insightSnippets.map((snippet) => ({
           entry_id: snippet.entryId,
@@ -132,7 +132,7 @@ export async function getSessionContext(req: Request, res: Response, next: NextF
           score: snippet.score,
           updated_at: snippet.updatedAt
         }))
-      }
+      } } : {})
     };
 
     res.status(200).json(context);
@@ -437,7 +437,7 @@ export async function commitRun(req: Request, res: Response, next: NextFunction)
     if (isTerminalRunStatus(run.status)) {
       if (shouldReconcileFailedRunCommit(run.status, req.body.status, Boolean(run.assistantMessage))) {
         const committedContent = String(assistantMessage?.content || '').trim();
-        await commitTargetAssistantFinalMessage(
+        await commitInteractiveAssistantFinalMessage(
           run,
           req.body.status,
           committedContent || buildTerminalFailureMessage('failed', run.errorMessage)
@@ -470,10 +470,10 @@ export async function commitRun(req: Request, res: Response, next: NextFunction)
 
     const committedContent = String(assistantMessage?.content || '').trim();
     if (committedContent) {
-      await commitTargetAssistantFinalMessage(run, req.body.status, committedContent);
+      await commitInteractiveAssistantFinalMessage(run, req.body.status, committedContent);
     } else if (req.body.status === 'failed' || req.body.status === 'cancelled') {
       const failureMessage = buildTerminalFailureMessage(req.body.status, updatedRun?.errorMessage || run.errorMessage);
-      await commitTargetAssistantFinalMessage(run, req.body.status, failureMessage);
+      await commitInteractiveAssistantFinalMessage(run, req.body.status, failureMessage);
     }
 
     res.status(200).json({ status: 'ok' });

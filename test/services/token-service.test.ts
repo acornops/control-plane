@@ -78,7 +78,6 @@ describe('gateway token service', () => {
       allowed_providers: ['anthropic', 'gemini'],
       allowed_tools: ['get_resource', 'get_resource_logs'],
       allowed_tool_refs: [],
-      allowed_target_tool_routes: [],
       allowed_native_tools: [],
       allowed_tool_operations: {
         get_resource: 'read',
@@ -140,97 +139,6 @@ describe('gateway token service', () => {
     assert.deepEqual(claims.allowedToolOperations, { get_pods: 'read' });
     assert.equal(claims.maxOutputTokens, 1024);
     assert.deepEqual(claims.allowedModels, ['gpt-4.1-mini']);
-  });
-
-  it('signs and verifies workflow run-scope tokens without a synthetic target', async () => {
-    const token = await gatewayTokenService.signRunScopeToken({
-      runId: 'run-workflow',
-      workspaceId: 'ws-workflow',
-      scopeType: 'workspace',
-      workflowId: 'workflow-1',
-      executionId: 'workflow-execution-1',
-      workflowSessionId: 'workflow-session-1',
-      executorRole: 'specialist',
-      agentId: 'agent-cluster-triage',
-      agentVersion: 7,
-      triggerId: 'trigger-manual-1',
-      sessionId: 'workflow-session-1',
-      principal: { type: 'service_identity', id: 'service-workflow-1' },
-      allowedProviders: ['openai'],
-      allowedTools: ['mcp.tools.list', 'audit.events.search', 'inspect_target'],
-      allowedToolRefs: [{ serverId: 'target-tools', toolName: 'inspect' }],
-      allowedTargetToolRoutes: [{
-        alias: 'inspect_target', serverId: 'target-tools', toolName: 'inspect', operation: 'read',
-        targetId: 'vm-1', targetType: 'virtual_machine'
-      }],
-      allowedToolOperations: {
-        'mcp.tools.list': 'read',
-        'audit.events.search': 'read'
-      },
-      contextGrants: ['audit_events', 'workspace_metadata'],
-      maxOutputTokens: 1024,
-      allowedModels: ['gpt-4.1-mini']
-    } as never);
-    const jwks = await gatewayTokenService.getJwks();
-    const verification = await jwtVerify(
-      token,
-      createLocalJWKSet(jwks as JSONWebKeySet),
-      {
-        issuer: config.GATEWAY_TOKEN_ISSUER,
-        audience: config.GATEWAY_TOKEN_AUDIENCE
-      }
-    );
-
-    assert.equal(verification.payload.sub, 'run:run-workflow');
-    assert.equal(verification.payload.run_id, 'run-workflow');
-    assert.equal(verification.payload.workspace_id, 'ws-workflow');
-    assert.equal(verification.payload.target_id, undefined);
-    assert.equal(verification.payload.target_type, undefined);
-    assert.equal(verification.payload.session_id, 'workflow-session-1');
-    assert.deepEqual(verification.payload.scope, { type: 'workspace' });
-    assert.equal(verification.payload.workflow_id, 'workflow-1');
-    assert.equal(verification.payload.execution_id, 'workflow-execution-1');
-    assert.equal(verification.payload.executor_role, 'specialist');
-    assert.equal(verification.payload.workflow_session_id, 'workflow-session-1');
-    assert.equal(verification.payload.agent_id, 'agent-cluster-triage');
-    assert.equal(verification.payload.agent_version, 7);
-    assert.equal(verification.payload.trigger_id, 'trigger-manual-1');
-    assert.deepEqual(verification.payload.permissions, {
-      allowed_providers: ['openai'],
-      allowed_tools: ['mcp.tools.list', 'audit.events.search', 'inspect_target'],
-      allowed_tool_refs: [{ server_id: 'target-tools', tool_name: 'inspect' }],
-      allowed_target_tool_routes: [{
-        alias: 'inspect_target', server_id: 'target-tools', tool_name: 'inspect', operation: 'read',
-        target_id: 'vm-1', target_type: 'virtual_machine'
-      }],
-      allowed_native_tools: [],
-      allowed_tool_operations: {
-        'mcp.tools.list': 'read',
-        'audit.events.search': 'read'
-      },
-      context_grants: ['audit_events', 'workspace_metadata'],
-      max_output_tokens: 1024,
-      allowed_models: ['gpt-4.1-mini'],
-      resource_bindings: []
-    });
-
-    const claims = await gatewayTokenService.verifyRunScopeToken(token);
-
-    assert.equal(claims.scopeType, 'workspace');
-    assert.equal(claims.workflowId, 'workflow-1');
-    assert.equal(claims.executionId, 'workflow-execution-1');
-    assert.equal(claims.executorRole, 'specialist');
-    assert.equal(claims.workflowSessionId, 'workflow-session-1');
-    assert.equal(claims.agentId, 'agent-cluster-triage');
-    assert.equal(claims.agentVersion, 7);
-    assert.equal(claims.triggerId, 'trigger-manual-1');
-    assert.equal(claims.targetId, undefined);
-    assert.equal(claims.targetType, undefined);
-    assert.deepEqual(claims.contextGrants, ['audit_events', 'workspace_metadata']);
-    assert.deepEqual(claims.allowedTargetToolRoutes, [{
-      alias: 'inspect_target', serverId: 'target-tools', toolName: 'inspect', operation: 'read',
-      targetId: 'vm-1', targetType: 'virtual_machine'
-    }]);
   });
 
   it('signs and verifies complete generic resource bindings against the canonical digest', async () => {
@@ -335,6 +243,50 @@ describe('gateway token service', () => {
     await assert.rejects(() => service.verifyRunScopeToken(token), /subject must match run_id/);
   });
 
+  it('rejects target tokens carrying Agent or Workflow identity', async () => {
+    const active = generateKeyPairSync('rsa', { modulusLength: 2048, publicExponent: 0x10001 });
+    const serviceConfig: AppConfig = {
+      ...config,
+      GATEWAY_SIGNING_KID: 'target-boundary-kid',
+      GATEWAY_SIGNING_PRIVATE_KEY_PEM: active.privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
+      GATEWAY_SIGNING_PRIVATE_KEY_PEM_B64: undefined
+    };
+    const service = new GatewayTokenService(serviceConfig);
+    const now = Math.floor(Date.now() / 1000);
+    const sign = (extra: Record<string, unknown>) => new SignJWT({
+      iss: serviceConfig.GATEWAY_TOKEN_ISSUER,
+      aud: serviceConfig.GATEWAY_TOKEN_AUDIENCE,
+      sub: 'run:target-run-1',
+      iat: now,
+      exp: now + 300,
+      run_id: 'target-run-1',
+      workspace_id: 'ws-1',
+      target_id: 'cluster-1',
+      target_type: 'kubernetes',
+      session_id: 'target-session-1',
+      principal: { type: 'user', id: 'user-1' },
+      permissions: {
+        allowed_providers: [],
+        allowed_tools: [],
+        allowed_models: [],
+        max_output_tokens: null
+      },
+      ...extra
+    })
+      .setProtectedHeader({ alg: 'RS256', typ: 'JWT', kid: serviceConfig.GATEWAY_SIGNING_KID })
+      .sign(active.privateKey);
+
+    for (const extra of [
+      { agent_id: 'agent-1' },
+      { workflow_id: 'workflow-1' }
+    ]) {
+      await assert.rejects(
+        () => sign(extra).then((token) => service.verifyRunScopeToken(token)),
+        /must not contain Agent or Workflow identity/
+      );
+    }
+  });
+
   it('publishes a usable JWKS and defaults optional permission claims', async () => {
     const jwks = await gatewayTokenService.getJwks();
     const [publicKey] = jwks.keys;
@@ -368,7 +320,6 @@ describe('gateway token service', () => {
       allowed_providers: ['openai'],
       allowed_tools: ['list_resources'],
       allowed_tool_refs: [],
-      allowed_target_tool_routes: [],
       allowed_native_tools: [],
       allowed_tool_operations: {},
       max_output_tokens: null,

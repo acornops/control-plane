@@ -59,9 +59,6 @@ agentsRouter.get('/agents/:agentId', requireUser, publicAgentVisibility, authed(
 agentsRouter.post('/agents/:agentId/duplicate', requireUser, publicAgentVisibility, authed(agentsLifecycleController.duplicateAgent));
 agentsRouter.patch('/agents/:agentId', requireUser, publicAgentVisibility, authed(agentsController.updateAgent));
 agentsRouter.delete('/agents/:agentId', requireUser, publicAgentVisibility, authed(agentsLifecycleController.deleteAgent));
-agentsRouter.get('/agents/:agentId/versions', requireUser, publicAgentVisibility, authed(agentsController.listAgentVersions));
-agentsRouter.post('/agents/:agentId/versions', requireUser, publicAgentVisibility, authed(agentsController.createAgentVersion));
-agentsRouter.post('/agents/:agentId/versions/:versionId/restore', requireUser, publicAgentVisibility, authed(agentsController.restoreAgentVersion));
 agentsRouter.get('/agent-conversations/:conversationId', requireUser, authed(agentConversationsController.getAgentConversation));
 agentsRouter.delete('/agent-conversations/:conversationId', requireUser, authed(agentConversationsController.deleteAgentConversation));
 agentsRouter.patch('/agent-conversations/:conversationId/access', requireUser, authed(agentConversationsController.changeAgentConversationAccess));

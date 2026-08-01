@@ -12,25 +12,17 @@ import {
   normalizeSearchQuery,
   parseBoundedLimit
 } from '../../utils/pagination.js';
-import { getWorkflowActivityByIssueIds } from '../../store/repository-workflow-activity.js';
 
 async function issueActivities(
   workspaceId: string,
   issueIds: string[],
-  retryPermissions: { readOnly: boolean; writeCapable: boolean },
-  includeWorkflowActivity = true
+  retryPermissions: { readOnly: boolean; writeCapable: boolean }
 ) {
-  const [workflow, automatic] = await Promise.all([
-    includeWorkflowActivity
-      ? getWorkflowActivityByIssueIds(workspaceId, issueIds)
-      : Promise.resolve(new Map()),
-    repo.autoTriage.getAutomaticInvestigationActivityByIssueIds(
-      workspaceId,
-      issueIds,
-      retryPermissions
-    )
-  ]);
-  return { workflow, automatic };
+  return repo.autoTriage.getAutomaticInvestigationActivityByIssueIds(
+    workspaceId,
+    issueIds,
+    retryPermissions
+  );
 }
 
 const issueStatuses = new Set(['active', 'recovering', 'resolved', 'all']);
@@ -103,15 +95,13 @@ export async function listWorkspaceIssues(req: AuthenticatedRequest, res: Respon
         writeCapable: req.auth.credential.type !== 'external_integration'
           && authz.can('manage_targets')
           && authz.can('create_read_write_runs')
-      },
-      req.auth.credential.type !== 'external_integration'
+      }
     );
     res.status(200).json({
       ...page,
       items: page.items.map((item) => ({
         ...item,
-        ...(activity.workflow.has(item.id) ? { workflowActivity: activity.workflow.get(item.id) } : {}),
-        ...(activity.automatic.has(item.id) ? { automaticInvestigation: activity.automatic.get(item.id) } : {})
+        ...(activity.has(item.id) ? { automaticInvestigation: activity.get(item.id) } : {})
       }))
     });
   } catch (err) {
@@ -168,15 +158,13 @@ export async function listTargetIssues(req: AuthenticatedRequest, res: Response,
         writeCapable: req.auth.credential.type !== 'external_integration'
           && authz.can('manage_targets')
           && authz.can('create_read_write_runs')
-      },
-      req.auth.credential.type !== 'external_integration'
+      }
     );
     res.status(200).json({
       ...page,
       items: page.items.map((item) => ({
         ...item,
-        ...(activity.workflow.has(item.id) ? { workflowActivity: activity.workflow.get(item.id) } : {}),
-        ...(activity.automatic.has(item.id) ? { automaticInvestigation: activity.automatic.get(item.id) } : {})
+        ...(activity.has(item.id) ? { automaticInvestigation: activity.get(item.id) } : {})
       }))
     });
   } catch (err) {
@@ -220,13 +208,11 @@ export async function getTargetIssue(req: AuthenticatedRequest, res: Response, n
         writeCapable: req.auth.credential.type !== 'external_integration'
           && authz.can('manage_targets')
           && authz.can('create_read_write_runs')
-      },
-      req.auth.credential.type !== 'external_integration'
+      }
     );
     res.status(200).json({
       ...issue,
-      ...(activity.workflow.has(issue.id) ? { workflowActivity: activity.workflow.get(issue.id) } : {}),
-      ...(activity.automatic.has(issue.id) ? { automaticInvestigation: activity.automatic.get(issue.id) } : {})
+      ...(activity.has(issue.id) ? { automaticInvestigation: activity.get(issue.id) } : {})
     });
   } catch (err) {
     next(err);

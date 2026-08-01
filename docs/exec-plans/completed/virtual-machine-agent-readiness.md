@@ -7,10 +7,10 @@ without weakening the strict Agent readiness contract.
 
 ## Decisions
 
-- Remove `target.remediation.write` from the starter VM Agent because
+- Remove `infrastructure.remediation.write` from the starter VM Agent because
   `restart_service` is optional and disabled in a default AgentV installation.
 - Keep all default AgentV diagnostic tools enabled through
-  `target.diagnostics.read`.
+  `infrastructure.diagnostics.read`.
 - Keep `restart_service` enabled in the target MCP catalog when AgentV actually
   advertises it, but require an administrator to grant VM remediation explicitly
   before a workspace Agent can use it.

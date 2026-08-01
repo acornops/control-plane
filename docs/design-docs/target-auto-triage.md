@@ -36,7 +36,7 @@ or a separate recovery-policy system.
 - Investigation history uses linked issue scope, object, severity, and current
   assistant status instead of a redundant origin label. The console derives a
   bounded browser-local unseen count from existing session creation timestamps.
-- Workflow issue events and webhook behavior remain independent and unchanged.
+- Outbound issue webhooks remain independent and unchanged.
 
 ## Write Policy
 
@@ -52,8 +52,8 @@ started runs therefore do not change when settings are edited.
 
 ## Lifecycle and Recovery
 
-Issue persistence evaluates eligibility independently from generic Workflow
-triggers. A durable job is unique by issue ID and lifecycle version. The worker
+Issue persistence evaluates eligibility without invoking Workflow execution.
+A durable job is unique by issue ID and lifecycle version. The worker
 has a dedicated timer and error boundary that does not consult the Automation
 runtime mode or share a Workflow scheduler tick. Each process avoids overlapping
 its own ticks; multiple replicas coordinate through expiring leases, admit no

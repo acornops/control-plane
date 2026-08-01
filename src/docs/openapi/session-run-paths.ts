@@ -115,7 +115,10 @@ export function buildSessionRunPaths(): Record<string, unknown> {
           summary: 'Delete a troubleshooting session',
           security: [{ userSession: [] }],
           parameters: [{ in: 'path', name: 'sessionId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_SESSION_ID } }],
-          responses: { '204': { description: 'Session deleted.' } }
+          responses: {
+            '204': { description: 'Session deleted.' },
+            '409': { description: 'The session still has an active run.' }
+          }
         }
       },
       '/api/v1/sessions/{sessionId}/messages': {

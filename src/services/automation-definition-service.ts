@@ -22,7 +22,7 @@ import { pruneTemplateInstallationRecordReference } from '../store/repository-au
 import { withTransaction } from '../store/repository-transaction.js';
 import { refreshAgentReadiness, refreshWorkflowReadiness } from './automation-readiness.js';
 import { resolveWorkflowRouting, WorkflowSelectionError } from './workflow-coordinator.js';
-import { reconcileTargetDiagnosticsForAgent } from './target-diagnostics-capability.js';
+import { reconcileInfrastructureCapabilityMappingsForAgent } from './infrastructure-capability-mappings.js';
 
 export type CreateWorkflowMutationInput = Omit<
   CreateWorkflowDefinitionInput,
@@ -56,7 +56,7 @@ async function validateAgentInput(
 export async function createAgentThroughDefinitionService(input: CreateAgentDefinitionInput): Promise<AgentDefinition> {
   await validateAgentInput(input);
   const created = await createAgentDefinition(input);
-  await reconcileTargetDiagnosticsForAgent(created);
+  await reconcileInfrastructureCapabilityMappingsForAgent(created);
   return (await refreshAgentReadiness(created.workspaceId, created.id)) || created;
 }
 
@@ -65,7 +65,9 @@ export async function createAgentThroughDefinitionServiceInTransaction(
   input: CreateAgentDefinitionInput
 ): Promise<AgentDefinition> {
   await validateAgentInput(input, undefined, client);
-  return createAgentDefinition(input, client);
+  const created = await createAgentDefinition(input, client);
+  await reconcileInfrastructureCapabilityMappingsForAgent(created, client);
+  return created;
 }
 
 export async function updateAgentThroughDefinitionService(
@@ -78,7 +80,7 @@ export async function updateAgentThroughDefinitionService(
   await validateAgentInput({ ...patch, workspaceId }, current);
   const updated = await updateAgentDefinition(workspaceId, agentId, patch);
   if (!updated) return null;
-  await reconcileTargetDiagnosticsForAgent(updated);
+  await reconcileInfrastructureCapabilityMappingsForAgent(updated);
   const refreshed = (await refreshAgentReadiness(workspaceId, agentId)) || updated;
   await Promise.all((await listWorkflowDefinitions(workspaceId))
     .filter((workflow) => workflow.agentIds.includes(agentId))

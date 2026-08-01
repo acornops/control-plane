@@ -64,6 +64,7 @@ export async function recordTargetChatActivityEvent(params: {
 
 export function recordRunStatusChangedActivity(previous: Run, next: Run | null): Promise<TargetChatActivityEvent | null | undefined> {
   if (!next || previous.status === next.status) return Promise.resolve(undefined);
+  if (next.conversationKind === 'agent_chat' || !next.targetId || !next.targetType) return Promise.resolve(undefined);
   return recordTargetChatActivityEvent({
     workspaceId: next.workspaceId,
     targetId: next.targetId,
@@ -89,7 +90,8 @@ export function recordApprovalActivity(
   type: Extract<TargetChatActivityEventType, 'approval.requested' | 'approval.decided' | 'approval.expired'>,
   sessionId: string,
   messageId?: string
-): Promise<TargetChatActivityEvent | null> {
+): Promise<TargetChatActivityEvent | null | undefined> {
+  if (!approval.targetId || !approval.targetType) return Promise.resolve(undefined);
   return recordTargetChatActivityEvent({
     workspaceId: approval.workspaceId,
     targetId: approval.targetId,

@@ -91,7 +91,7 @@ describe('workflow retry state machine', () => {
       resourceBindings: [binding],
       promptDigest: 'prompt-digest-new',
       bindingDigest: 'binding-digest-new',
-      executor: { role: 'specialist', agentId: 'agent-2', agentVersion: 4 }
+      executor: { role: 'specialist', agentId: 'agent-2' }
     } as unknown as CompiledWorkflowAccessScope;
 
     const result = await resumeWorkflowExecution('execution-1', 'user-2', {
@@ -100,9 +100,7 @@ describe('workflow retry state machine', () => {
       workflowSessionId: 'session-1',
       messageId: 'message-1',
       executorRole: 'specialist',
-      specialistSnapshot: { id: 'agent-2', version: 4 } as never,
-      targetId: 'target-2',
-      targetType: 'virtual_machine',
+      specialistSnapshot: { id: 'agent-2' } as never,
       compiledAccessScope,
       prompt: 'Retry with @chat[Incident room].',
       promptDigest: 'prompt-digest-new',
@@ -116,14 +114,14 @@ describe('workflow retry state machine', () => {
     assert.equal(runInsert[5], 2);
     assert.equal(runInsert[6], 'specialist');
     assert.equal(runInsert[7], 'agent-2');
-    assert.equal(runInsert[12], 'execution-1:prompt-digest-new:binding-digest-new:root:2');
-    assert.equal(runInsert[15], 'waiting_for_approval');
-    assert.equal(runInsert[16], compiledAccessScope);
-    assert.equal(runInsert[21], 'Retry with @chat[Incident room].');
-    assert.equal(runInsert[22], 'prompt-digest-new');
-    assert.equal(runInsert[23], 'binding-digest-new');
-    assert.deepEqual(JSON.parse(String(runInsert[24])), [binding]);
-    assert.equal(runInsert[25], '2026-07-20T10:00:00.000Z');
+    assert.equal(runInsert[9], 'execution-1:prompt-digest-new:binding-digest-new:root:2');
+    assert.equal(runInsert[12], 'waiting_for_approval');
+    assert.equal(runInsert[13], compiledAccessScope);
+    assert.equal(runInsert[18], 'Retry with @chat[Incident room].');
+    assert.equal(runInsert[19], 'prompt-digest-new');
+    assert.equal(runInsert[20], 'binding-digest-new');
+    assert.deepEqual(JSON.parse(String(runInsert[21])), [binding]);
+    assert.equal(runInsert[22], '2026-07-20T10:00:00.000Z');
     assert(approvalInsert);
     assert.deepEqual(executionUpdate, ['execution-1', 'waiting_for_approval']);
   });

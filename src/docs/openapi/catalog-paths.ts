@@ -27,11 +27,7 @@ const importBody = {
       credentialMode: { type: 'string', enum: ['none', 'workspace', 'individual'] },
       publicHeaders: { type: 'object', additionalProperties: { type: 'string' } },
       endpointConfiguration: { type: 'object', additionalProperties: { type: 'string' } },
-      expectedRevision: { type: 'integer', minimum: 1, description: 'Required only for explicit reimport.' },
-      targetConstraints: { type: 'object', properties: {
-        targetTypes: { type: 'array', items: { type: 'string', enum: ['kubernetes', 'virtual_machine'] } },
-        targetIds: { type: 'array', items: { type: 'string' } }
-      }, additionalProperties: false }
+      expectedRevision: { type: 'integer', minimum: 1, description: 'Required only for explicit reimport.' }
     }, additionalProperties: false
   } } }
 };
@@ -89,15 +85,7 @@ const manualAgentMcpBody = {
       credentialMode: { type: 'string', enum: ['none', 'workspace', 'individual'], description: 'Required for authenticated installations. Defaults to individual.' },
       authHeaderName: { type: 'string' },
       authHeaderPrefix: { type: 'string' },
-      publicHeaders: { type: 'object', additionalProperties: { type: 'string' } },
-      targetConstraints: {
-        type: 'object',
-        properties: {
-          targetTypes: { type: 'array', items: { type: 'string', enum: ['kubernetes', 'virtual_machine'] } },
-          targetIds: { type: 'array', items: { type: 'string', format: 'uuid' } }
-        },
-        additionalProperties: false
-      }
+      publicHeaders: { type: 'object', additionalProperties: { type: 'string' } }
     },
     additionalProperties: false
   } } }
@@ -115,15 +103,7 @@ const manualAgentMcpUpdateBody = {
       authType: { type: 'string', enum: ['none', 'bearer_token', 'custom_header', 'oauth'] },
       credentialMode: { type: 'string', enum: ['none', 'workspace', 'individual'] },
       authHeaderName: { type: 'string', minLength: 1 },
-      authHeaderPrefix: { type: 'string' },
-      targetConstraints: {
-        type: 'object',
-        properties: {
-          targetTypes: { type: 'array', maxItems: 16, items: { type: 'string', enum: ['kubernetes', 'virtual_machine'] } },
-          targetIds: { type: 'array', maxItems: 200, items: { type: 'string', minLength: 1 } }
-        },
-        additionalProperties: false
-      }
+      authHeaderPrefix: { type: 'string' }
     },
     additionalProperties: false
   } } }
@@ -294,7 +274,7 @@ export function buildCatalogPaths(): Record<string, unknown> {
       post: { tags: ['catalog'], summary: 'Install a pinned catalog MCP server on one Agent', description: 'Requires both manage_agents and manage_mcp. Repeating an identical import is idempotent; upgrades require explicit reimport.', security: [{ userSession: [] }], parameters: [workspaceId, agentId], requestBody: importBody, responses: { '201': { description: 'Agent MCP installation created.' }, '409': { description: 'Explicit reimport is required for a changed version, digest, or endpoint.' } } }
     },
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/import': {
-      post: { tags: ['catalog'], summary: 'Install a pinned catalog MCP server on one target', description: 'Requires manage_mcp. The server resolves workspace ownership and target type; browser-supplied target type and Agent target constraints are rejected. Credential ownership must be supported by the selected endpoint.', security: [{ userSession: [] }], parameters: [workspaceId, targetId], requestBody: importBody, responses: { '201': { description: 'Target MCP installation created.' }, '409': { description: 'Explicit reimport is required for a changed version, digest, or endpoint.' } } }
+      post: { tags: ['catalog'], summary: 'Install a pinned catalog MCP server on one target', description: 'Requires manage_mcp. The server resolves workspace ownership and target type; browser-supplied routing fields are rejected. Credential ownership must be supported by the selected endpoint.', security: [{ userSession: [] }], parameters: [workspaceId, targetId], requestBody: importBody, responses: { '201': { description: 'Target MCP installation created.' }, '409': { description: 'Explicit reimport is required for a changed version, digest, or endpoint.' } } }
     },
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/reimport': {
       post: { tags: ['catalog'], summary: 'Explicitly reimport a pinned catalog MCP server on one target', description: 'Requires manage_mcp. The existing target installation ID is retained and expectedRevision protects against stale updates.', security: [{ userSession: [] }], parameters: targetConnection, requestBody: importBody, responses: { '200': { description: 'Target MCP installation reimported.' }, '409': { description: 'Revision or provenance conflict.' } } }

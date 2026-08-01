@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
-import { config } from '../config.js';
 import { db } from '../infra/db.js';
 import { ChatSession, Message, Run } from '../types/domain.js';
 import type { AssistantReference } from '../types/assistant-references.js';
@@ -21,6 +20,12 @@ import { createRunSkillSnapshotInTransaction } from './repository-run-skill-snap
 import { RunRequestProvenance } from './repository-run-provenance.js';
 import { scheduleTargetInsightsCheckpointJobForSessionActivity } from './repository-target-insights-checkpoints.js';
 import { sessionSelect } from './repository-session-select.js';
+import {
+  conversationExpiry,
+  conversationRunSelect,
+  deleteConversationSession,
+  findConversationRunByClientMessageId
+} from './repository-conversation-runtime.js';
 
 export {
   addRun,
@@ -30,18 +35,6 @@ export {
   getRunEvents,
   updateRun
 } from './repository-runs.js';
-
-const runSelect = `
-  SELECT r.*, t.target_type
-  FROM runs r
-  JOIN targets t ON t.id = r.target_id
-`;
-
-function calculateSessionExpiry(baseDate: Date = new Date()): string {
-  const expiresAt = new Date(baseDate);
-  expiresAt.setUTCDate(expiresAt.getUTCDate() + config.CONVERSATION_RETENTION_DAYS);
-  return expiresAt.toISOString();
-}
 
 export async function addSession(
     workspaceId: string,
@@ -61,7 +54,7 @@ export async function addSession(
     const id = randomUUID();
     const nowDate = new Date();
     const now = nowDate.toISOString();
-    const expiresAt = calculateSessionExpiry(nowDate);
+    const expiresAt = conversationExpiry(nowDate);
     const result = await (options?.transactionClient || db).query(
       `WITH inserted AS (
          INSERT INTO sessions (
@@ -169,29 +162,12 @@ export async function getSession(sessionId: string, includeDeleted = false): Pro
     if (!result.rowCount) return null;
     return mapSession(result.rows[0]);
   }
-export async function deleteSession(sessionId: string): Promise<boolean> {
-    const result = await db.query<{ deleted: boolean }>(
-      `WITH deleted_session AS (
-         UPDATE sessions
-            SET status = 'deleted',
-                deleted_at = NOW(),
-                updated_at = NOW()
-          WHERE id = $1
-            AND deleted_at IS NULL
-        RETURNING id
-       ),
-       cleared_job_link AS (
-         UPDATE target_auto_triage_jobs job
-            SET session_id = NULL,
-                updated_at = NOW()
-           FROM deleted_session deleted
-          WHERE job.session_id = deleted.id
-        RETURNING job.id
-       )
-       SELECT EXISTS (SELECT 1 FROM deleted_session) AS deleted`,
-      [sessionId]
-    );
-    return result.rows[0]?.deleted === true;
+export async function deleteSession(sessionId: string) {
+    return deleteConversationSession({
+      sessionId,
+      conversationKind: 'target_chat',
+      clearTargetAutoTriageLink: true
+    });
   }
 export async function purgeExpiredOrDeletedSessions(limit = 500): Promise<number> {
     const result = await db.query(
@@ -222,7 +198,7 @@ export async function addMessage(
     const id = randomUUID();
     const nowDate = new Date();
     const now = nowDate.toISOString();
-    const expiresAt = calculateSessionExpiry(nowDate);
+    const expiresAt = conversationExpiry(nowDate);
     const result = await db.query(
       `WITH inserted AS (
          INSERT INTO messages (id, session_id, run_id, role, kind, content, metadata, created_by, client_message_id, created_at)
@@ -280,37 +256,13 @@ export async function updateMessageRunId(messageId: string, runId: string): Prom
     await db.query('UPDATE messages SET run_id = $2 WHERE id = $1', [messageId, runId]);
   }
 export async function findRunByClientMessageId(sessionId: string, clientMessageId: string): Promise<CreateRunFromMessageResult | null> {
-    const messageResult = await db.query(
-      `SELECT *
-       FROM messages
-       WHERE session_id = $1
-         AND client_message_id = $2
-         AND kind = 'user'
-       LIMIT 1`,
-      [sessionId, clientMessageId]
-    );
-    if (!messageResult.rowCount) {
-      return null;
-    }
-    const message = mapMessage(messageResult.rows[0] as MessageRow);
-    if (!message.runId) {
-      return null;
-    }
-    const runResult = await db.query(`${runSelect} WHERE r.id = $1 LIMIT 1`, [message.runId]);
-    if (!runResult.rowCount) {
-      return null;
-    }
-    return {
-      message,
-      run: mapRun(runResult.rows[0] as RunRow),
-      idempotent: true
-    };
+    return findConversationRunByClientMessageId(db, sessionId, clientMessageId);
   }
 export async function createRunFromUserMessage(params: {
     sessionId: string;
     workspaceId: string;
     targetId: string;
-    targetType: Run['targetType'];
+    targetType: NonNullable<Run['targetType']>;
     content: string;
     toolAccessMode: Run['toolAccessMode'];
     llmProvider: Run['llmProvider'];
@@ -327,36 +279,8 @@ export async function createRunFromUserMessage(params: {
     transactionClient?: PoolClient;
   }): Promise<CreateRunFromMessageResult> {
     const create = async (client: PoolClient): Promise<CreateRunFromMessageResult> => {
-      const findExistingByClientMessageId = async (): Promise<CreateRunFromMessageResult | null> => {
-        if (!params.clientMessageId) return null;
-        const existingMessageResult = await client.query(
-          `SELECT * FROM messages
-           WHERE session_id = $1
-             AND client_message_id = $2
-             AND kind = 'user'
-           LIMIT 1`,
-          [params.sessionId, params.clientMessageId]
-        );
-        if (!existingMessageResult.rowCount) {
-          return null;
-        }
-        const existingMessage = mapMessage(existingMessageResult.rows[0] as MessageRow);
-        if (!existingMessage.runId) {
-          return null;
-        }
-        const existingRunResult = await client.query(`${runSelect} WHERE r.id = $1 LIMIT 1`, [existingMessage.runId]);
-        if (!existingRunResult.rowCount) {
-          return null;
-        }
-        return {
-          message: existingMessage,
-          run: mapRun(existingRunResult.rows[0] as RunRow),
-          idempotent: true
-        };
-      };
-
       if (params.clientMessageId) {
-        const existing = await findExistingByClientMessageId();
+        const existing = await findConversationRunByClientMessageId(client, params.sessionId, params.clientMessageId);
         if (existing) {
           return existing;
         }
@@ -364,7 +288,7 @@ export async function createRunFromUserMessage(params: {
 
       const nowDate = new Date();
       const now = nowDate.toISOString();
-      const expiresAt = calculateSessionExpiry(nowDate);
+      const expiresAt = conversationExpiry(nowDate);
       const messageId = randomUUID();
       const runId = randomUUID();
 
@@ -402,7 +326,7 @@ export async function createRunFromUserMessage(params: {
       } catch (error) {
         const pgError = error as { code?: string };
         if (pgError?.code === '23505' && params.clientMessageId) {
-          const existing = await findExistingByClientMessageId();
+          const existing = await findConversationRunByClientMessageId(client, params.sessionId, params.clientMessageId);
           if (existing) {
             return existing;
           }
@@ -485,7 +409,7 @@ export async function upsertAssistantFinalMessage(sessionId: string, runId: stri
     return withTransaction(async (client) => {
       const nowDate = new Date();
       const now = nowDate.toISOString();
-      const expiresAt = calculateSessionExpiry(nowDate);
+      const expiresAt = conversationExpiry(nowDate);
       const existingResult = await client.query(
         `SELECT *
          FROM messages

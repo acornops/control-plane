@@ -296,7 +296,7 @@ describe('internal execution bootstrap audit metadata', () => {
     ]);
   });
 
-  it('bootstraps cluster triage with target scope and only built-in tools', async () => {
+  it('bootstraps cluster triage with generic Targets MCP tools and no target binding', async () => {
     const workflow = await getWorkflowDefinition('workspace-1', 'cluster-triage');
     assert.ok(workflow);
     const agents = await listAgentDefinitions(workflow.workspaceId);
@@ -310,13 +310,12 @@ describe('internal execution bootstrap audit metadata', () => {
       selectedAgents,
       specialistAgent: specialist,
       mappings: await listCapabilityRoutingMappings(workflow.workspaceId, { activeReviewedOnly: true }),
-      targetRoute: { id: 'cluster-primary', targetType: 'kubernetes' },
       actor: {
         userId: 'user-1',
         role: 'operator',
         permissions: getWorkspacePermissions('operator')
       },
-      approvedContextGrants: ['workspace_metadata', 'target_inventory']
+      approvedContextGrants: ['workspace_metadata']
     });
     const session = await createWorkflowSession({
       workflow,
@@ -331,8 +330,6 @@ describe('internal execution bootstrap audit metadata', () => {
       bindingDigest: digestBindings([]),
       resourceBindings: [],
       resolvedAt: new Date().toISOString(),
-      targetId: 'cluster-primary',
-      targetType: 'kubernetes',
       specialistSnapshot: specialist,
       llmProvider: 'gemini',
       llmModel: 'gemini-2.0-flash',
@@ -365,11 +362,10 @@ describe('internal execution bootstrap audit metadata', () => {
         execution_id: string;
         executor_role: string;
         workflow_session_id: string;
-        target_id?: string;
-        target_type?: string;
       };
       context: { endpoint: string };
-      routing: { target_scoped: boolean; workflow_scoped: boolean };
+      routing: { workflow_scoped: boolean };
+      skills?: { entries: Array<{ skill_id: string; source: string }> };
       tools: { allowed_tools: string[]; gateway: { token: string } };
     };
 
@@ -379,11 +375,9 @@ describe('internal execution bootstrap audit metadata', () => {
     assert.equal(body.scope.execution_id, run.executionId);
     assert.equal(body.scope.executor_role, 'specialist');
     assert.equal(body.scope.workflow_session_id, created.execution.workflowSessionId);
-    assert.equal(body.scope.target_id, 'cluster-primary');
-    assert.equal(body.scope.target_type, 'kubernetes');
     assert.equal(body.context.endpoint, `/internal/v1/runs/${run.id}/context`);
-    assert.equal(body.routing.target_scoped, true);
     assert.equal(body.routing.workflow_scoped, true);
+    assert.equal(body.skills, undefined);
     assert.deepEqual(body.tools.allowed_tools, [
       'get_resource',
       'get_resource_logs',
@@ -394,9 +388,9 @@ describe('internal execution bootstrap audit metadata', () => {
     assert.equal(claims.scopeType, 'workspace');
     assert.equal(claims.executionId, run.executionId);
     assert.equal(claims.executorRole, 'specialist');
-    assert.equal(claims.targetId, 'cluster-primary');
-    assert.equal(claims.targetType, 'kubernetes');
-    assert.deepEqual(claims.contextGrants, ['target_inventory', 'workspace_metadata']);
+    assert.equal(claims.targetId, undefined);
+    assert.equal(claims.targetType, undefined);
+    assert.deepEqual(claims.contextGrants, ['workspace_metadata']);
   });
 
   it('maps workspace AI credential status failures during bootstrap', async () => {

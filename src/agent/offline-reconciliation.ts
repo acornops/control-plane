@@ -26,7 +26,7 @@ export async function markConnectionOfflineIfUnowned(clusterId: string, conn: Ag
     subject: { type: 'agent', id: clusterId },
     data: {
       connectionId: conn.connectionId,
-      agentVersion: conn.agentVersion || null
+      connectorVersion: conn.connectorVersion || null
     }
   });
   if (cluster?.status !== 'offline') {

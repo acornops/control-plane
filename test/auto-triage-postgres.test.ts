@@ -400,7 +400,7 @@ describe('target auto-triage persistence', () => {
     assert.equal(reconciled.length, 1);
     assert.equal(reconciled[0].status, 'completed');
 
-    assert.equal(await repo.deleteSession(first.session.id), true);
+    assert.deepEqual(await repo.deleteSession(first.session.id), { status: 'deleted' });
     const deletedLink = await db.query<{
       session_id: string | null;
       session_created_at: Date | string | null;

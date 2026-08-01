@@ -144,8 +144,8 @@ describe('workflows management controller', () => {
       retentionPolicies: Array<{ value: string }>;
       sourceAvailability: Record<string, { status: string }>;
     };
-    assert.ok(body.mcpServers.some((option) => option.value === 'acornops-target-agent'));
-    assert.ok(body.mcpTools.some((option) => option.value === 'get_resource'));
+    assert.ok(body.mcpServers.some((option) => option.value === 'github'));
+    assert.ok(body.mcpTools.some((option) => option.value === 'github.repositories.read'));
     assert.ok(body.mcpTools.some((option) => option.value === 'reports.pdf.generate'));
     assert.ok(body.skills.some((option) => option.value === 'acornops-observability'));
     assert.ok(body.outputFormats.some((option) => option.value === 'pdf'));
@@ -153,7 +153,7 @@ describe('workflows management controller', () => {
       String(Math.max(1, Math.floor(config.ASSISTANT_MAX_RUNTIME_MS / 1000)))
     ]);
     assert.deepEqual(body.retentionPolicies.map((option) => option.value), [
-      String(config.TARGET_CHAT_REPORT_RETENTION_DAYS)
+      String(config.GENERATED_DOCUMENT_RETENTION_DAYS)
     ]);
   });
 
@@ -203,7 +203,7 @@ describe('workflows management controller', () => {
       workflow.capabilityPolicy.maxRuntimeSeconds,
       Math.max(1, Math.floor(config.ASSISTANT_MAX_RUNTIME_MS / 1000))
     );
-    assert.equal(workflow.capabilityPolicy.retentionDays, config.TARGET_CHAT_REPORT_RETENTION_DAYS);
+    assert.equal(workflow.capabilityPolicy.retentionDays, config.GENERATED_DOCUMENT_RETENTION_DAYS);
 
     const defaulted = await callController(createWorkflow, createRequest(
       { workspaceId: 'workspace-1' },
@@ -221,7 +221,7 @@ describe('workflows management controller', () => {
       semanticCapabilityIds: [],
       contextGrants: ['workspace_metadata'],
       maxRuntimeSeconds: Math.max(1, Math.floor(config.ASSISTANT_MAX_RUNTIME_MS / 1000)),
-      retentionDays: config.TARGET_CHAT_REPORT_RETENTION_DAYS,
+      retentionDays: config.GENERATED_DOCUMENT_RETENTION_DAYS,
       approvalRequirements: []
     });
     assert.deepEqual(defaultedWorkflow.requiredPermissions, ['read_workspace_data']);

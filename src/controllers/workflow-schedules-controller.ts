@@ -16,8 +16,7 @@ import {
   validateWorkflowScheduleTimezone
 } from '../store/repository-workflow-schedules.js';
 import {
-  getWorkflowDefinition,
-  isAgentChatCarrier
+  getWorkflowDefinition
 } from '../store/repository-workflows.js';
 import {
   getWorkflowExecutionSummary,
@@ -31,11 +30,10 @@ import { toSingleParam } from '../utils/params.js';
 import { PromptResourceProviderError } from '../services/prompt-resources/errors.js';
 import {
   compileWorkflowPrompt,
-  EMPTY_WORKFLOW_INPUT_SIGNATURE,
   WorkflowTemplateValidationError
 } from '../services/workflow-template.js';
 import { getWorkflowScheduleMcpReadinessReport } from '../services/workflow-schedule-readiness.js';
-import { publicMcpReadinessError } from '../services/workflow-readiness.js';
+import { publicMcpReadinessError } from '../services/mcp-readiness.js';
 import { WorkflowAccessDeniedError } from '../services/workflow-access.js';
 import { respondWorkflowAccessError } from './workflow-public.js';
 
@@ -47,13 +45,8 @@ function publicSchedule(
   schedule: WorkflowScheduleRecord,
   latestExecution: Awaited<ReturnType<typeof getWorkflowExecutionSummary>> = null
 ) {
-  const {
-    parameterSignature: _parameterSignature,
-    inputs: _inputs,
-    ...result
-  } = schedule;
   return {
-    ...result,
+    ...schedule,
     latestExecution
   };
 }
@@ -88,7 +81,7 @@ export async function previewWorkflowSchedule(req: AuthenticatedRequest, res: Re
     }
     const workflow = workflowId ? await getWorkflowDefinition(workspaceId, workflowId) : null;
     if (!workflowId) errors.push({ field: 'workflowId', message: 'Choose a workflow.' });
-    else if (!workflow || isAgentChatCarrier(workflow)) errors.push({ field: 'workflowId', message: 'Workflow was not found in this workspace.' });
+    else if (!workflow) errors.push({ field: 'workflowId', message: 'Workflow was not found in this workspace.' });
     if (!cron) errors.push({ field: 'cron', message: 'Choose a frequency or enter a cron expression.' });
     else if (!validateWorkflowScheduleCron(cron)) errors.push({ field: 'cron', message: 'Use a valid five-field cron expression.' });
     if (!timezone) errors.push({ field: 'timezone', message: 'Choose a timezone.' });
@@ -248,7 +241,7 @@ export async function createWorkflowScheduleForWorkspace(req: AuthenticatedReque
       return;
     }
     const workflow = await getWorkflowDefinition(workspaceId, String(body.workflowId));
-    if (!workflow || isAgentChatCarrier(workflow)) {
+    if (!workflow) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
       return;
     }
@@ -273,8 +266,6 @@ export async function createWorkflowScheduleForWorkspace(req: AuthenticatedReque
     }
     const schedule = await createWorkflowSchedule({
       workspaceId,
-      workflowVersion: workflow.version,
-      parameterSignature: EMPTY_WORKFLOW_INPUT_SIGNATURE,
       actorUserId: req.auth.userId,
       input: {
         workflowId: workflow.id,
@@ -296,7 +287,7 @@ export async function createWorkflowScheduleForWorkspace(req: AuthenticatedReque
       objectId: schedule.id,
       objectName: schedule.name,
       summary: 'Workflow schedule created',
-      metadata: { workflowId: schedule.workflowId, workflowVersion: schedule.workflowVersion, status: schedule.status }
+      metadata: { workflowId: schedule.workflowId, status: schedule.status }
     });
     res.status(201).json({ schedule: publicSchedule(schedule) });
   } catch (err) {
@@ -350,7 +341,7 @@ export async function updateWorkflowSchedule(req: AuthenticatedRequest, res: Res
     }
     const workflowId = typeof body.workflowId === 'string' ? body.workflowId.trim() : current.workflowId;
     const workflow = await getWorkflowDefinition(current.workspaceId, workflowId);
-    if (!workflow || isAgentChatCarrier(workflow)) {
+    if (!workflow) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
       return;
     }
@@ -395,8 +386,6 @@ export async function updateWorkflowSchedule(req: AuthenticatedRequest, res: Res
       scheduleId,
       {
         workflowId,
-        workflowVersion: workflow.version,
-        parameterSignature: EMPTY_WORKFLOW_INPUT_SIGNATURE,
         name: typeof body.name === 'string' ? body.name : undefined,
         enabled: typeof body.enabled === 'boolean' ? body.enabled : undefined,
         status: body.status === 'enabled' || body.status === 'paused' ? body.status : undefined,
@@ -478,5 +467,3 @@ export async function deleteWorkflowSchedule(req: AuthenticatedRequest, res: Res
     next(err);
   }
 }
-
-export { listWorkspaceApprovalInbox } from './workflow-approval-inbox-controller.js';

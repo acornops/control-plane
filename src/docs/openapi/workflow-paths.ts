@@ -169,7 +169,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       post: {
         tags: ['workflows'],
         summary: 'Create a workspace workflow definition',
-        description: 'Creates a Workflow V2 definition from one or more active reviewed specialist Agent IDs. One Agent produces a specialist root run; multiple Agents produce a coordinator root with delegated specialist children. Selection order has no meaning and executionMode is derived. Requires manage_workflows.',
+        description: 'Creates a Workflow definition from one or more active reviewed specialist Agent IDs. One Agent produces a specialist root run; multiple Agents produce a coordinator root with delegated specialist children. Selection order has no meaning and executionMode is derived. Requires manage_workflows.',
         security: [{ userSession: [] }],
         parameters: [workspaceIdParameter],
         requestBody: workflowCreateBody,
@@ -267,7 +267,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       get: {
         tags: ['workflows'],
         summary: 'List workspace approval inbox',
-        description: 'Normalizes target write-tool approvals and workflow approval gates into a single workspace inbox. pendingCount is the total pending count across both sources before pagination and is independent of the requested status filter. Decisions remain on the run-scoped approval decision endpoint.',
+        description: 'Normalizes interactive tool approvals and workflow approval gates into a single workspace inbox. pendingCount is the total pending count across both sources before pagination and is independent of the requested status filter. Decisions remain on the run-scoped approval decision endpoint.',
         security: [{ userSession: [] }],
         parameters: [
           workspaceIdParameter,
@@ -316,7 +316,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       post: {
         tags: ['workflows'],
         summary: 'Duplicate a workflow as a custom draft',
-        description: 'Copies the effective definition only. Runs, sessions, schedules, workflow webhooks, activity, and version history are not copied.',
+        description: 'Copies the effective definition only. Runs, sessions, schedules, workflow webhooks, and activity are not copied.',
         security: [{ userSession: [] }],
         parameters: [workflowIdParameter],
         requestBody: {
@@ -345,7 +345,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       post: {
         tags: ['workflows'],
         summary: 'Preview the effective workflow capability scope',
-        description: 'Compiles a non-reserving, secret-free snapshot of semantic capabilities, eligible targets, exact effective tools, direct MCP attachments, skills, and approval requirements. The stored target type is authoritative. Requires read_workspace_data and the same run-creation capability as launch. Dispatch always recompiles and remains authoritative.',
+        description: 'Compiles a non-reserving, secret-free snapshot of semantic capabilities, exact effective tools, direct MCP attachments, skills, and approval requirements. Requires read_workspace_data and the same run-creation capability as launch. Dispatch always recompiles and remains authoritative.',
         security: [{ userSession: [] }],
         parameters: [workflowIdParameter],
         requestBody: workflowCapabilitiesPreviewBody,
@@ -441,7 +441,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
         responses: {
           '202': { description: 'Workflow run accepted.', headers: { 'X-Example-Run-Id': { schema: { type: 'string', example: EXAMPLE_RUN_ID } } } },
           '409': {
-            description: 'Workflow version, target, or exact MCP readiness is unavailable. MCP conflicts include bounded structured installation and tool failures.',
+            description: 'Workflow or exact MCP readiness is unavailable. MCP conflicts include bounded structured installation and tool failures.',
             content: { 'application/json': { schema: {
               oneOf: [
                 { $ref: '#/components/schemas/ErrorResponse' },
@@ -468,7 +468,6 @@ export function buildWorkflowPaths(): Record<string, unknown> {
           { in: 'query', name: 'state', required: false, schema: { type: 'string', enum: ['all', 'open', 'attention', 'completed', 'failed', 'cancelled'] } },
           { in: 'query', name: 'origin', required: false, schema: { type: 'string', enum: ['manual', 'external_integration', 'schedule', 'webhook'] } },
           { in: 'query', name: 'workflowId', required: false, schema: { type: 'string' } },
-          { in: 'query', name: 'sourceIssueId', required: false, schema: { type: 'string' } },
           { in: 'query', name: 'search', required: false, schema: { type: 'string', maxLength: 200 } },
           { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } },
           { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100 } }

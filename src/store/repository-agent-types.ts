@@ -21,7 +21,6 @@ export interface CreateAgentDefinitionInput {
   contextGrants?: string[];
   approvalPolicy?: AgentDefinition['approvalPolicy'];
   trustPolicy?: AgentDefinition['trustPolicy'];
-  targetScope?: AgentDefinition['targetScope'];
   permissionMode?: AgentDefinition['permissionMode'];
   semanticCapabilityIds?: string[];
 }
@@ -45,7 +44,6 @@ export interface AgentDefinitionUpdate {
   contextGrants?: string[];
   approvalPolicy?: AgentDefinition['approvalPolicy'];
   trustPolicy?: AgentDefinition['trustPolicy'];
-  targetScope?: AgentDefinition['targetScope'];
   permissionMode?: AgentDefinition['permissionMode'];
   semanticCapabilityIds?: string[];
 }

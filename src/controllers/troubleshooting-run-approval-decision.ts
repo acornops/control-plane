@@ -111,21 +111,23 @@ export async function decideTroubleshootingRunApproval(
   }
 
   await recordApprovalActivity(decided, 'approval.decided', run.sessionId, run.messageId);
-  webhooks.emit({
-    type: 'run.tool_approval_decided.v1',
-    workspaceId: run.workspaceId,
-    clusterId: decided.targetType === KUBERNETES_TARGET_TYPE ? decided.targetId : undefined,
-    targetId: decided.targetId,
-    targetType: decided.targetType,
-    subject: { type: 'tool_approval', id: decided.id },
-    data: {
-      runId: run.id,
-      sessionId: run.sessionId,
-      decision: decided.decision || decided.status,
-      status: decided.status,
-      decidedBy: req.auth.userId
-    }
-  });
+  if (decided.targetId && decided.targetType) {
+    webhooks.emit({
+      type: 'run.tool_approval_decided.v1',
+      workspaceId: run.workspaceId,
+      clusterId: decided.targetType === KUBERNETES_TARGET_TYPE ? decided.targetId : undefined,
+      targetId: decided.targetId,
+      targetType: decided.targetType,
+      subject: { type: 'tool_approval', id: decided.id },
+      data: {
+        runId: run.id,
+        sessionId: run.sessionId,
+        decision: decided.decision || decided.status,
+        status: decided.status,
+        decidedBy: req.auth.userId
+      }
+    });
+  }
   const auditActor = runAuditActor(req);
   await recordWorkspaceAuditEvent({
     workspaceId: run.workspaceId,

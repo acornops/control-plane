@@ -1,5 +1,5 @@
 import type { WorkspacePermissions } from '../auth/authorization.js';
-import type { WorkspaceAuditOperation, TargetType } from './domain.js';
+import type { WorkspaceAuditOperation } from './domain.js';
 
 export type AgentStatus = 'active' | 'disabled' | 'draft';
 export type AgentReviewState = 'draft' | 'reviewed';
@@ -8,12 +8,8 @@ export type AutomationReadinessStatus = 'ready' | 'needs_setup' | 'blocked';
 export type RunPermissionMode = 'read_only' | 'ask_before_changes' | 'auto_allowed_changes';
 
 export interface DefinitionOrigin {
-  type: 'template' | 'manual' | 'agent_chat';
+  type: 'template' | 'manual';
   templateId?: string;
-  templateVersion?: number;
-  agentId?: string;
-  agentVersion?: number;
-  systemManaged?: boolean;
 }
 
 export interface RunPrincipalRef {
@@ -33,7 +29,6 @@ export interface AgentMcpInstallationSnapshot {
   enabled: boolean;
   credentialMode: 'none' | 'workspace' | 'individual';
   revision: number;
-  targetConstraints: { targetTypes: TargetType[]; targetIds: string[] };
   provenance?: { sourceId: string; artifactName: string; version: string; digest: string; importedAt: string };
   tools: Array<McpToolRef & {
     alias: string;
@@ -78,20 +73,8 @@ export interface AgentTrustPolicy {
   allowExternalData: boolean;
 }
 
-export interface AgentTargetScope {
-  type: 'workspace' | 'selected_target';
-  targetTypes?: TargetType[];
-  targetIds?: string[];
-}
-
-export interface AgentWorkflowUsage {
-  workflowRunCount: number;
-  lastRunAt?: string;
-  lastStatus?: 'queued' | 'dispatching' | 'running' | 'waiting_for_approval' | 'needs_review' | 'completed' | 'failed' | 'cancelled';
-}
-
 export interface AgentCapability {
-  source: 'builtin_tool' | 'mcp_tool' | 'skill' | 'context' | 'target';
+  source: 'builtin_tool' | 'mcp_tool' | 'skill' | 'context';
   providerAgentId?: string;
   resourceType: string;
   resourceScope: string;
@@ -111,7 +94,6 @@ export interface AgentDefinition {
   origin: DefinitionOrigin;
   reviewState: AgentReviewState;
   providerType: AgentProviderType;
-  version: number;
   ownerUserId: string;
   createdBy: string;
   createdAt: string;
@@ -124,12 +106,10 @@ export interface AgentDefinition {
   skills: string[];
   skillInstallations: AgentSkillInstallationSnapshot[];
   contextGrants: string[];
-  targetScope: AgentTargetScope;
   approvalPolicy: AgentApprovalPolicy;
   trustPolicy: AgentTrustPolicy;
   permissionMode: RunPermissionMode;
   semanticCapabilityIds: string[];
-  workflowUsage: AgentWorkflowUsage;
   readiness: {
     status: AutomationReadinessStatus;
     reasons: string[];
@@ -138,18 +118,7 @@ export interface AgentDefinition {
 
 export type AgentDefinitionResponse = AgentDefinition & {
   capabilities: AgentCapability[];
-  workflowsUsingAgent: string[];
 };
-
-export interface AgentVersionSnapshot {
-  id: string;
-  agentId: string;
-  workspaceId: string;
-  version: number;
-  snapshot: AgentDefinition;
-  createdBy: string;
-  createdAt: string;
-}
 
 export interface AgentAccessActor {
   userId: string;

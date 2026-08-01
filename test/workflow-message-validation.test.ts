@@ -27,7 +27,7 @@ test('workflow messages reject malformed optional client request IDs before disp
     { workflowId: 'cluster-triage' },
     {
       workspaceId: 'workspace-1',
-      approvedContextGrants: ['workspace_metadata', 'target_inventory']
+      approvedContextGrants: ['workspace_metadata']
     }
   ));
   assert.equal(createdSession.statusCode, 201);

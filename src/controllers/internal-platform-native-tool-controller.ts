@@ -36,7 +36,11 @@ export async function callPlatformNativeTool(req: Request, res: Response, next: 
       return;
     }
 
-    const invocationScope = workflowRun ? 'workflow' : 'target_chat';
+    const invocationScope = workflowRun
+      ? 'workflow'
+      : targetRun?.conversationKind === 'agent_chat'
+        ? 'agent_chat'
+        : 'target_chat';
     if (!tool.invocationScopes.includes(invocationScope)) {
       res.status(403).json({ error: {
         code: 'WORKSPACE_NATIVE_TOOL_SCOPE_DENIED',
@@ -47,6 +51,10 @@ export async function callPlatformNativeTool(req: Request, res: Response, next: 
     }
     if (workflowRun && !workflowRun.compiledAccessScope.tools.includes(toolId)) {
       res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Tool is not permitted for this workflow run', retryable: false } });
+      return;
+    }
+    if (targetRun?.conversationKind === 'agent_chat' && !targetRun.compiledAccessScope?.tools.includes(toolId)) {
+      res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Tool is not permitted for this Agent chat run', retryable: false } });
       return;
     }
     if (!ACTIVE_TOOL_RUN_STATUSES.has(run.status)) {

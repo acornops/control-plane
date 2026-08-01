@@ -3,7 +3,7 @@ import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { config } from '../config.js';
 import { isConfiguredGitImportSource } from '../config-git-imports.js';
-import { getTargetSkillBundleStorageLimitErrors, normalizeTargetSkillBundle } from '../services/target-skills.js';
+import { getSkillBundleStorageLimitErrors, normalizeSkillBundle } from '../services/skill-bundles.js';
 import { syncAgentSkillCapabilitySnapshot } from '../services/agent-skill-capabilities.js';
 import { GitSkillImportError, resolveGitSkill } from '../services/git-skill-import.js';
 import { respondGitSkillImportError } from './workspaces/git-skill-import-controller.js';
@@ -67,8 +67,8 @@ function source(input: unknown, fallback: AgentSkillInstallationSnapshot['source
 }
 
 function normalizedBundle(input: unknown, res: Response) {
-  const bundle = normalizeTargetSkillBundle(Array.isArray(input) ? input : []);
-  const limitErrors = getTargetSkillBundleStorageLimitErrors(bundle);
+  const bundle = normalizeSkillBundle(Array.isArray(input) ? input : []);
+  const limitErrors = getSkillBundleStorageLimitErrors(bundle);
   if (limitErrors.length) {
     fail(res, 400, 'INVALID_SKILL_BUNDLE_LIMIT', 'Skill bundle exceeds storage limits.', { validationErrors: limitErrors });
     return null;

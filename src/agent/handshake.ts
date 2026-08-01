@@ -16,7 +16,7 @@ export async function handleAgentHandshake(input: {
   requestId: string | number;
   params: Record<string, unknown>;
   agentKeyHeader: string;
-  agentVersion: string;
+  connectorVersion: string;
 }): Promise<void> {
   const suppliedKey = String((input.params.agentKey as string | undefined) || '');
   const effectiveKey = suppliedKey || input.agentKeyHeader;
@@ -46,14 +46,19 @@ export async function handleAgentHandshake(input: {
   const allowedTools = [...new Set(advertisedTools.map((tool) => tool.name))];
 
   const expectedAgentType = targetType === VIRTUAL_MACHINE_TARGET_TYPE ? 'agentv' : 'agentk';
-  if (!targetId || !isTargetType(targetType) || agentType !== expectedAgentType || (keyTargetId && targetId !== keyTargetId)) {
+  const connectorVersionValid = input.connectorVersion.startsWith(`${expectedAgentType}/`)
+    && /^agent[kv]\/[^\s/]{1,127}$/.test(input.connectorVersion);
+  if (!targetId || !isTargetType(targetType) || agentType !== expectedAgentType
+    || !connectorVersionValid || (keyTargetId && targetId !== keyTargetId)) {
     const reason = !targetId
       ? 'missing_target_id'
       : !isTargetType(targetType)
         ? 'invalid_target_type'
         : agentType !== expectedAgentType
           ? 'invalid_agent_type'
-          : 'key_target_mismatch';
+          : !connectorVersionValid
+            ? 'invalid_connector_version'
+            : 'key_target_mismatch';
     logger.warn({ reason, targetId, targetType, agentType, expectedAgentType }, 'Rejected agent handshake contract');
     input.ws.send(JSON.stringify(createErrorResponse(input.requestId, 401, 'Invalid agent key')));
     input.ws.close(1008, 'Invalid agent key');
@@ -80,7 +85,7 @@ export async function handleAgentHandshake(input: {
   await repo.updateTargetAgentSeen(reg.targetId, {
     lastSeenAt: now,
     lastHeartbeatAt: now,
-    lastAgentVersion: input.agentVersion
+    lastConnectorVersion: input.connectorVersion
   });
 
   const target = targetType === KUBERNETES_TARGET_TYPE
@@ -99,7 +104,7 @@ export async function handleAgentHandshake(input: {
     clusterId: target.id,
     connectionId,
     workspaceId: target.workspaceId,
-    agentVersion: input.agentVersion
+    connectorVersion: input.connectorVersion
   });
   await repo.updateTargetAgentSeen(target.id, { lastConnectionId: connectionId });
 
@@ -141,7 +146,7 @@ export async function handleAgentHandshake(input: {
     targetType,
     workspaceId: target.workspaceId,
     keyVersion: reg.keyVersion,
-    agentVersion: input.agentVersion,
+    connectorVersion: input.connectorVersion,
     ownerRefreshInterval
   });
 
@@ -154,7 +159,7 @@ export async function handleAgentHandshake(input: {
     subject: { type: 'agent', id: target.id },
     data: {
       connectionId,
-      agentVersion: input.agentVersion,
+      connectorVersion: input.connectorVersion,
       capabilities: supportedCapabilities
     }
   });

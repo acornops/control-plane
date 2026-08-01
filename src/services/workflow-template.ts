@@ -5,8 +5,10 @@ import type {
 import type { WorkflowDefinitionForAccess } from '../types/workflows.js';
 import {
   digestBindings,
-  digestPrompt
+  digestPrompt,
+  promptResourceRegistry
 } from './prompt-resources/index.js';
+import { PromptResourceProviderError } from './prompt-resources/errors.js';
 
 export {
   MAX_WORKFLOW_RESOURCE_BINDINGS,
@@ -15,7 +17,6 @@ export {
 
 export const MAX_WORKFLOW_PROMPT_LENGTH = 32_768;
 /** Deprecated database columns still require a stable 64-character value. */
-export const EMPTY_WORKFLOW_INPUT_SIGNATURE = digestPrompt('[]');
 
 export interface WorkflowTemplateError {
   code: 'WORKFLOW_TEMPLATE_PROMPT_TOO_LONG';
@@ -124,5 +125,28 @@ export async function compileWorkflowFollowUp(input: {
       `Follow-up content exceeds the ${MAX_WORKFLOW_PROMPT_LENGTH} character limit.`
     );
   }
-  return plainPrompt(content);
+  const contextResolution = await promptResourceRegistry.resolve('', {
+    workspaceId: input.workflow.workspaceId,
+    actorUserId: input.actorUserId,
+    workflowId: input.workflow.id,
+    workflowSessionId: input.workflowSessionId,
+    initiatingMessageId: input.initiatingMessageId,
+    source: 'implicit',
+    mode: 'launch',
+    requirements: []
+  }, {
+    enforceCardinality: false,
+    includeImplicit: true
+  });
+  if (contextResolution.blockers.length > 0) {
+    const first = contextResolution.blockers[0];
+    throw new PromptResourceProviderError(first.code, first.message, first.retryable);
+  }
+  return {
+    content,
+    bindings: contextResolution.bindings,
+    promptDigest: digestPrompt(content),
+    bindingDigest: digestBindings(contextResolution.bindings),
+    resolvedAt: contextResolution.resolvedAt
+  };
 }

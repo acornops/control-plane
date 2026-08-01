@@ -1,52 +1,53 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { CapabilityRoutingMapping } from '../../src/types/capability-routing.js';
+import { directWorkflowAttachments } from '../../src/services/workflow-capability-preview.js';
+import type { AgentDefinition } from '../../src/types/agents.js';
 import type { CompiledWorkflowAccessScope } from '../../src/types/workflows.js';
-import { narrowWorkflowScopeToTargetTools } from '../../src/services/workflow-capability-preview.js';
-import type { TargetRunToolResolution } from '../../src/services/target-run-tool-resolution.js';
 
-const targetMapping: CapabilityRoutingMapping = {
-  id: 'mapping-1', workspaceId: 'workspace-1', capabilityId: 'target.diagnostics.read', version: 1,
-  agentId: 'agent-target', agentVersion: 2, status: 'active', reviewState: 'reviewed', priority: 10,
-  targetTypes: ['kubernetes'], targetIds: ['kube-1'], mcpTools: [], nativeToolIds: [], skillIds: [], contextGrants: [],
-  targetToolRefs: [{ serverId: 'builtin-target', toolName: 'query_logs', alias: 'query_logs', operation: 'read' }],
-  createdBy: 'system', createdAt: '', updatedAt: ''
-};
-
-describe('workflow target tool narrowing', () => {
-  it('keeps exact delegated runs aligned across scope, routes, and JWT refs', () => {
-    const scope = {
-      tools: ['direct_tool', 'query_logs'],
-      toolOperations: { direct_tool: 'read', query_logs: 'read' },
-      mcpTools: [{ serverId: 'direct-server', toolName: 'direct_tool' }],
-      targetToolRefs: targetMapping.targetToolRefs,
-      targetToolRoutes: [{
-        alias: 'query_logs', serverId: 'builtin-target', toolName: 'query_logs', operation: 'read',
-        targetId: 'kube-1', targetType: 'kubernetes'
+describe('Workflow direct attachment preview', () => {
+  it('derives only exact Agent-owned MCP, native-tool, and skill attachments', () => {
+    const agent = {
+      mcpInstallations: [{
+        id: 'server-1',
+        name: 'Records',
+        enabled: true,
+        tools: [{
+          serverId: 'server-1', toolName: 'records.list', alias: 'records_list',
+          description: 'List records.', capability: 'read', enabled: true,
+          reviewState: 'approved'
+        }, {
+          serverId: 'server-1', toolName: 'records.write', alias: 'records_write',
+          capability: 'write', enabled: true, reviewState: 'pending'
+        }]
       }],
-      jwtClaims: { permissions: {
-        allowed_tools: ['direct_tool', 'query_logs'], allowed_tool_refs: [], allowed_tool_operations: {},
-        allowed_target_tool_routes: [], context_grants: [], resource_bindings: []
-      } }
+      skillInstallations: [{ id: 'skill-1', name: 'Audit records' }]
+    } as unknown as AgentDefinition;
+    const scope = {
+      mcpServers: ['server-1'],
+      mcpTools: [{ serverId: 'server-1', toolName: 'records.list' }],
+      tools: ['records_list', 'workspace.metadata.read', 'target_status'],
+      toolOperations: {
+        records_list: 'read',
+        'workspace.metadata.read': 'read',
+        target_status: 'read'
+      },
+      enabledSkills: ['skill-1']
     } as unknown as CompiledWorkflowAccessScope;
-    const resolution = {
-      allowedToolNames: ['query_logs'],
-      allowedToolRefs: [{ serverId: 'builtin-target', toolName: 'query_logs' }],
-      allowedToolOperations: { query_logs: 'read' },
-      allowedToolSpecs: [{ name: 'query_logs', server_id: 'builtin-target', tool_name: 'query_logs', description: 'Read logs', input_schema: {}, capability: 'read' }],
-      previewItems: [{ id: 'query_logs', name: 'query_logs', description: 'Read logs', capability: 'read', runtimeKind: 'function', source: 'builtin' }]
-    } as TargetRunToolResolution;
 
-    const narrowed = narrowWorkflowScopeToTargetTools({ scope, mappings: [targetMapping], resolution });
-
-    assert.deepEqual(narrowed.scope.targetToolRefs, [{ serverId: 'builtin-target', toolName: 'query_logs' }]);
-    assert.deepEqual(narrowed.scope.targetToolRoutes, [{
-      alias: 'query_logs', serverId: 'builtin-target', toolName: 'query_logs', operation: 'read',
-      targetId: 'kube-1', targetType: 'kubernetes'
-    }]);
-    assert.deepEqual(narrowed.scope.jwtClaims.permissions.allowed_tool_refs, [
-      { server_id: 'direct-server', tool_name: 'direct_tool' },
-      { server_id: 'builtin-target', tool_name: 'query_logs' }
-    ]);
+    assert.deepEqual(directWorkflowAttachments({
+      agent,
+      scope,
+      excludedToolNames: ['target_status']
+    }), {
+      tools: [{
+        id: 'records_list', name: 'records_list', label: 'records.list',
+        description: 'List records.', access: 'read', source: 'mcp', serverId: 'server-1'
+      }, {
+        id: 'workspace.metadata.read', name: 'workspace.metadata.read',
+        label: 'workspace.metadata.read', access: 'read', source: 'builtin'
+      }],
+      mcpServers: [{ id: 'server-1', name: 'Records' }],
+      skills: [{ id: 'skill-1', name: 'Audit records' }]
+    });
   });
 });

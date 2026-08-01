@@ -27,14 +27,9 @@ export interface McpToolConfig {
   risk_level?: 'read_only' | 'non_destructive_write' | 'high_risk' | 'destructive';
   auto_allowed?: boolean;
 }
-export interface McpServerConfig {
+export interface McpServerBaseConfig {
   id: string;
   workspace_id: string;
-  target_id?: string | null;
-  agent_id?: string | null;
-  scope_type?: 'agent' | 'target';
-  target_type?: TargetType | 'agent' | null;
-  target_constraints?: { target_types?: TargetType[]; target_ids?: string[] };
   server_name: string;
   server_url: string;
   enabled: boolean;
@@ -59,6 +54,17 @@ export interface McpServerConfig {
   revision?: number;
 }
 
+export type AgentMcpServerConfig = McpServerBaseConfig & {
+  scope_type: 'agent';
+  agent_id: string;
+};
+
+export type TargetMcpServerConfig = McpServerBaseConfig & {
+  scope_type: 'target';
+};
+
+export type McpServerConfig = AgentMcpServerConfig | TargetMcpServerConfig;
+
 export type PublicMcpServerConfig = McpServerConfig & CapabilityProvenance;
 
 export function toPublicMcpServerConfig(server: McpServerConfig): PublicMcpServerConfig {
@@ -79,10 +85,8 @@ export interface McpServerConnectionTestResult {
   discovered_tools: string[];
   error?: string | null;
 }
-export interface UpsertTargetMcpServerInput {
+interface McpServerCreateInput {
   workspaceId: string;
-  targetId: string;
-  targetType: TargetType;
   name: string;
   url: string;
   enabled?: boolean;
@@ -109,10 +113,8 @@ export interface UpsertTargetMcpServerInput {
     autoAllowed?: boolean;
   }>;
 }
-export interface UpdateTargetMcpServerInput {
+interface McpServerUpdateInput {
   workspaceId: string;
-  targetId: string;
-  targetType: TargetType;
   serverId: string;
   url?: string;
   name?: string;
@@ -143,6 +145,16 @@ export interface UpdateTargetMcpServerInput {
   removeTools?: string[];
 }
 
+export interface UpsertTargetMcpServerInput extends McpServerCreateInput {
+  targetId: string;
+  targetType: TargetType;
+}
+
+export interface UpdateTargetMcpServerInput extends McpServerUpdateInput {
+  targetId: string;
+  targetType: TargetType;
+}
+
 export type McpDestination =
   | { kind: 'agent'; id: string }
   | { kind: 'target'; id: string; targetType: TargetType };
@@ -152,9 +164,7 @@ export function buildGatewayMcpDestinationQuery(workspaceId: string, destination
     ? new URLSearchParams({
       workspace_id: workspaceId,
       scope_type: 'agent',
-      agent_id: destination.id,
-      target_id: destination.id,
-      target_type: 'agent'
+      agent_id: destination.id
     })
     : new URLSearchParams({
       workspace_id: workspaceId,
@@ -272,8 +282,11 @@ export async function listTargetMcpServers(
   workspaceId: string,
   targetId: string,
   targetType: TargetType
-): Promise<McpServerConfig[]> {
-  return listMcpServersForDestination(workspaceId, { kind: 'target', id: targetId, targetType });
+): Promise<TargetMcpServerConfig[]> {
+  return listMcpServersForDestination(
+    workspaceId,
+    { kind: 'target', id: targetId, targetType }
+  ) as Promise<TargetMcpServerConfig[]>;
 }
 
 export async function listTargetMcpTools(
@@ -288,7 +301,7 @@ export async function listTargetMcpTools(
   return listMcpToolsForDestination(workspaceId, { kind: 'target', id: targetId, targetType }, options);
 }
 
-export async function createTargetMcpServer(input: UpsertTargetMcpServerInput): Promise<McpServerConfig> {
+export async function createTargetMcpServer(input: UpsertTargetMcpServerInput): Promise<TargetMcpServerConfig> {
   const body = {
     workspace_id: input.workspaceId,
     target_id: input.targetId,
@@ -307,10 +320,10 @@ export async function createTargetMcpServer(input: UpsertTargetMcpServerInput): 
   };
 
   const response = await fetchGateway('/api/v1/internal/mcp/servers', createRequestOptions('POST', body));
-  return parseOrThrow<McpServerConfig>(response);
+  return parseOrThrow<TargetMcpServerConfig>(response);
 }
 
-export async function updateTargetMcpServer(input: UpdateTargetMcpServerInput): Promise<McpServerConfig> {
+export async function updateTargetMcpServer(input: UpdateTargetMcpServerInput): Promise<TargetMcpServerConfig> {
   const body = {
     server_name: input.name,
     server_url: input.url,
@@ -328,7 +341,7 @@ export async function updateTargetMcpServer(input: UpdateTargetMcpServerInput): 
     `/api/v1/internal/mcp/servers/${encodeURIComponent(input.serverId)}?${buildGatewayMcpDestinationQuery(input.workspaceId, { kind: 'target', id: input.targetId, targetType: input.targetType }).toString()}`,
     createRequestOptions('PATCH', body)
   );
-  return parseOrThrow<McpServerConfig>(response);
+  return parseOrThrow<TargetMcpServerConfig>(response);
 }
 
 export async function deleteTargetMcpServer(
@@ -381,22 +394,23 @@ export async function updateTargetTool(
   );
 }
 
-export interface UpsertAgentMcpServerInput extends Omit<UpsertTargetMcpServerInput, 'targetId' | 'targetType'> {
+export interface UpsertAgentMcpServerInput extends McpServerCreateInput {
   agentId: string;
-  targetConstraints?: { targetTypes?: TargetType[]; targetIds?: string[] };
   integrationProfileId?: string;
   integrationProfileVersion?: number;
   configurationAttested?: boolean;
 }
 
-export interface UpdateAgentMcpServerInput extends Omit<UpdateTargetMcpServerInput, 'targetId' | 'targetType'> {
+export interface UpdateAgentMcpServerInput extends McpServerUpdateInput {
   agentId: string;
   expectedRevision?: number;
-  targetConstraints?: { targetTypes?: TargetType[]; targetIds?: string[] };
 }
 
-export async function listAgentMcpServers(workspaceId: string, agentId: string): Promise<McpServerConfig[]> {
-  return listMcpServersForDestination(workspaceId, { kind: 'agent', id: agentId });
+export async function listAgentMcpServers(workspaceId: string, agentId: string): Promise<AgentMcpServerConfig[]> {
+  return listMcpServersForDestination(
+    workspaceId,
+    { kind: 'agent', id: agentId }
+  ) as Promise<AgentMcpServerConfig[]>;
 }
 
 export async function listAgentMcpTools(
@@ -407,15 +421,11 @@ export async function listAgentMcpTools(
   return listMcpToolsForDestination(workspaceId, { kind: 'agent', id: agentId }, options);
 }
 
-export async function createAgentMcpServer(input: UpsertAgentMcpServerInput): Promise<McpServerConfig> {
+export async function createAgentMcpServer(input: UpsertAgentMcpServerInput): Promise<AgentMcpServerConfig> {
   const response = await fetchGateway('/api/v1/internal/mcp/servers', createRequestOptions('POST', {
     workspace_id: input.workspaceId,
     scope_type: 'agent',
     agent_id: input.agentId,
-    target_constraints: {
-      target_types: input.targetConstraints?.targetTypes ?? [],
-      target_ids: input.targetConstraints?.targetIds ?? []
-    },
     server_name: input.name,
     server_url: input.url,
     enabled: input.enabled ?? true,
@@ -431,10 +441,10 @@ export async function createAgentMcpServer(input: UpsertAgentMcpServerInput): Pr
     configuration_attested: input.configurationAttested ?? false,
     tools: []
   }));
-  return parseOrThrow<McpServerConfig>(response);
+  return parseOrThrow<AgentMcpServerConfig>(response);
 }
 
-export async function updateAgentMcpServer(input: UpdateAgentMcpServerInput): Promise<McpServerConfig> {
+export async function updateAgentMcpServer(input: UpdateAgentMcpServerInput): Promise<AgentMcpServerConfig> {
   const response = await fetchGateway(
     `/api/v1/internal/mcp/servers/${encodeURIComponent(input.serverId)}?${buildGatewayMcpDestinationQuery(input.workspaceId, { kind: 'agent', id: input.agentId }).toString()}`,
     createRequestOptions('PATCH', {
@@ -446,14 +456,10 @@ export async function updateAgentMcpServer(input: UpdateAgentMcpServerInput): Pr
       auth_header_name: input.auth?.headerName,
       auth_header_prefix: input.auth?.headerPrefix,
       expected_revision: input.expectedRevision,
-      target_constraints: input.targetConstraints ? {
-        target_types: input.targetConstraints.targetTypes ?? [],
-        target_ids: input.targetConstraints.targetIds ?? []
-      } : undefined,
       remove_tools: input.removeTools || []
     })
   );
-  return parseOrThrow<McpServerConfig>(response);
+  return parseOrThrow<AgentMcpServerConfig>(response);
 }
 
 export async function deleteAgentMcpServer(workspaceId: string, agentId: string, serverId: string): Promise<void> {

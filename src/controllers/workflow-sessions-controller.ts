@@ -3,7 +3,6 @@ import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import {
   getWorkflowDefinition,
-  isAgentChatCarrier,
   listWorkflowRunsForSession,
   listWorkflowSessions
 } from '../store/repository-workflows.js';
@@ -33,7 +32,7 @@ export async function listSessions(
     const workflowId = toSingleParam(req.params.workflowId);
     if (!(await requireWorkspaceDataRead(req, res, workspaceId))) return;
     const workflow = await getWorkflowDefinition(workspaceId, workflowId);
-    if (!workflow || isAgentChatCarrier(workflow)) {
+    if (!workflow) {
       return void res.status(404).json({ error: {
         code: 'NOT_FOUND',
         message: 'Workflow not found',
@@ -45,13 +44,10 @@ export async function listSessions(
         id: session.id,
         workspaceId: session.workspaceId,
         workflowId: session.workflowId,
-        workflowVersion: session.workflowVersion,
         createdBy: session.createdBy,
         launchedAt: session.launchedAt,
         createdAt: session.createdAt,
-        workflowSnapshot: session.workflowSnapshot
-          ? publicWorkflowDefinition(session.workflowSnapshot)
-          : undefined,
+        workflowSnapshot: publicWorkflowDefinition(session.workflowSnapshot),
         runs: (await listWorkflowRunsForSession(session.id)).map((run) => publicWorkflowRun(run, true))
       })))
     });

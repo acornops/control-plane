@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { NextFunction, Response } from 'express';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import {
@@ -6,60 +7,77 @@ import {
 } from '../auth/workspace-authorization.js';
 import {
   agentConversationPolicyAllowsAccess,
+  compileAgentConversationRunScope,
+  compileAgentConversationMessage,
   defaultAgentConversationAccessMode,
-  pinnedAgentCapabilityRevocation,
-  prepareAgentConversation
+  MAX_AGENT_CONVERSATION_MESSAGE_LENGTH
 } from '../services/agent-chat.js';
+import { CapabilityAccessDeniedError } from '../services/capability-access-errors.js';
+import { getExactMcpReadinessReport, publicMcpReadinessError } from '../services/mcp-readiness.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
+import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
 import { getAgentDefinition } from '../store/repository-agents.js';
 import {
-  createWorkflowSession,
+  addAgentConversationSession,
+  AgentConversationStateConflictError,
+  createAgentConversationRunFromUserMessage,
   deleteAgentConversationSession,
-  getWorkflowSession,
+  listAgentConversationMessages,
+  listAgentConversationRuns,
   listAgentConversationSessions,
-  listWorkflowMessages,
-  listWorkflowRunsForSession,
   setAgentConversationAccessMode
-} from '../store/repository-workflows.js';
+} from '../store/repository-agent-conversations.js';
+import { repo } from '../store/repository.js';
+import type { ChatSession } from '../types/domain.js';
+import type { AgentDefinition } from '../types/agents.js';
 import { toSingleParam } from '../utils/params.js';
-import { publicWorkflowRun } from './external-run-public.js';
-import { postMessage as postWorkflowMessage } from './workflows-controller.js';
+import { publicConversationRun } from './external-run-public.js';
+import { enqueueInteractiveRunDispatch } from './run-controller-helpers.js';
+import { runRequestProvenance } from './run-actor.js';
+import { rejectUnavailableInteractiveLlm } from './interactive-llm-validation.js';
 
-function publicConversation(session: Awaited<ReturnType<typeof getWorkflowSession>>) {
-  if (!session) return null;
-  const pinnedAgent = session.compiledAccessScope.selectedAgentSnapshots[0];
+function agentConversationAccessMode(session: ChatSession): 'read_only' | 'read_write' {
+  if (session.conversationKind !== 'agent_chat'
+    || (session.preferredAccessMode !== 'read_only' && session.preferredAccessMode !== 'read_write')) {
+    throw new Error('Agent conversation is missing its access mode');
+  }
+  return session.preferredAccessMode;
+}
+
+function publicConversation(session: ChatSession, agent: AgentDefinition) {
   return {
     id: session.id,
     workspaceId: session.workspaceId,
     agentId: session.agentId,
-    agentVersion: pinnedAgent?.version,
-    permissionMode: pinnedAgent?.permissionMode,
-    title: pinnedAgent?.name || 'Agent conversation',
+    permissionMode: agent.permissionMode,
+    title: session.title,
     createdBy: session.createdBy,
-    accessMode: session.accessMode,
+    accessMode: agentConversationAccessMode(session),
     launchedAt: session.launchedAt,
-    createdAt: session.createdAt
+    createdAt: session.createdAt,
+    expiresAt: session.expiresAt,
+    status: session.status
   };
 }
 
-async function loadConversationResponse(session: NonNullable<Awaited<ReturnType<typeof getWorkflowSession>>>) {
+async function loadConversationResponse(session: ChatSession, agent: AgentDefinition) {
   const [messages, runs] = await Promise.all([
-    listWorkflowMessages(session.id),
-    listWorkflowRunsForSession(session.id)
+    listAgentConversationMessages(session.id),
+    listAgentConversationRuns(session.id)
   ]);
   return {
-    conversation: publicConversation(session),
+    conversation: publicConversation(session, agent),
     messages,
-    runs: runs.map((run) => publicWorkflowRun(run, true))
+    runs: runs.map((run) => ({
+      ...publicConversationRun(run, true),
+      events: run.events
+    }))
   };
 }
 
-async function requireAgentConversation(
-  req: AuthenticatedRequest,
-  res: Response
-) {
-  const session = await getWorkflowSession(toSingleParam(req.params.conversationId));
-  if (!session || session.conversationOrigin !== 'agent_chat') {
+async function requireAgentConversation(req: AuthenticatedRequest, res: Response): Promise<ChatSession | null> {
+  const session = await repo.getSession(toSingleParam(req.params.conversationId));
+  if (!session || session.conversationKind !== 'agent_chat') {
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent conversation not found', retryable: false } });
     return null;
   }
@@ -72,11 +90,12 @@ export async function listAgentConversations(req: AuthenticatedRequest, res: Res
     const workspaceId = toSingleParam(req.params.workspaceId);
     const agentId = toSingleParam(req.params.agentId);
     if (!(await requireWorkspaceDataRead(req, res, workspaceId))) return;
-    if (!(await getAgentDefinition(workspaceId, agentId))) {
+    const agent = await getAgentDefinition(workspaceId, agentId);
+    if (!agent) {
       return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
     }
     const sessions = await listAgentConversationSessions(workspaceId, agentId);
-    res.status(200).json({ items: sessions.map(publicConversation) });
+    res.status(200).json({ items: sessions.map((session) => publicConversation(session, agent)) });
   } catch (error) {
     next(error);
   }
@@ -111,22 +130,12 @@ export async function createAgentConversation(req: AuthenticatedRequest, res: Re
         retryable: false
       } });
     }
-    const prepared = await prepareAgentConversation({
-      agent,
-      actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions }
-    });
-    const compiledAccessScope = accessMode === 'read_write'
-      ? prepared.capabilityCeiling
-      : prepared.readScope;
-    const session = await createWorkflowSession({
-      workflow: prepared.workflow,
-      createdBy: req.auth.userId,
-      compiledAccessScope,
-      conversationOrigin: 'agent_chat',
+    const session = await addAgentConversationSession({
+      workspaceId,
       agentId,
-      accessMode,
-      agentChatReadScope: prepared.readScope,
-      agentChatCapabilityCeiling: prepared.capabilityCeiling
+      createdBy: req.auth.userId,
+      title: agent.name,
+      preferredAccessMode: accessMode
     });
     await recordWorkspaceAuditEvent({
       workspaceId,
@@ -138,9 +147,9 @@ export async function createAgentConversation(req: AuthenticatedRequest, res: Re
       objectId: session.id,
       objectName: agent.name,
       summary: `Agent conversation created with ${accessMode} access`,
-      metadata: { agentId, agentVersion: agent.version, accessMode, permissionMode: agent.permissionMode }
+      metadata: { agentId, accessMode, permissionMode: agent.permissionMode }
     });
-    res.status(201).json(await loadConversationResponse(session));
+    res.status(201).json(await loadConversationResponse(session, agent));
   } catch (error) {
     next(error);
   }
@@ -150,7 +159,13 @@ export async function getAgentConversation(req: AuthenticatedRequest, res: Respo
   try {
     const session = await requireAgentConversation(req, res);
     if (!session) return;
-    res.status(200).json(await loadConversationResponse(session));
+    const agent = session.agentId ? await getAgentDefinition(session.workspaceId, session.agentId) : null;
+    if (!agent) {
+      return void res.status(404).json({ error: {
+        code: 'NOT_FOUND', message: 'Agent conversation not found', retryable: false
+      } });
+    }
+    res.status(200).json(await loadConversationResponse(session, agent));
   } catch (error) {
     next(error);
   }
@@ -170,7 +185,18 @@ export async function deleteAgentConversation(req: AuthenticatedRequest, res: Re
     if (!(await requireWorkspaceCapability(
       req, res, session.workspaceId, 'delete_sessions', 'No permission to delete Agent conversations'
     ))) return;
-    await deleteAgentConversationSession(session.id);
+    const deletion = await deleteAgentConversationSession(session.id);
+    if (deletion.status === 'active_runs') {
+      return void res.status(409).json({ error: {
+        code: 'AGENT_CONVERSATION_RUN_ACTIVE',
+        message: 'Wait for active runs to finish or cancel them before deleting this conversation.',
+        retryable: false,
+        details: { runIds: deletion.runIds }
+      } });
+    }
+    if (deletion.status === 'not_found') {
+      return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent conversation not found', retryable: false } });
+    }
     await recordWorkspaceAuditEvent({
       workspaceId: session.workspaceId,
       category: 'session',
@@ -179,7 +205,7 @@ export async function deleteAgentConversation(req: AuthenticatedRequest, res: Re
       actorUserId: req.auth.userId,
       objectType: 'agent_conversation',
       objectId: session.id,
-      objectName: session.compiledAccessScope.selectedAgentSnapshots[0]?.name || 'Agent conversation',
+      objectName: session.title,
       summary: 'Agent conversation deleted',
       metadata: { agentId: session.agentId }
     });
@@ -208,15 +234,16 @@ export async function changeAgentConversationAccess(req: AuthenticatedRequest, r
         retryable: false
       } });
     }
-    const pinnedAgent = session.agentChatCapabilityCeiling?.selectedAgentSnapshots[0]
-      || session.compiledAccessScope.selectedAgentSnapshots[0];
-    if (
-      pinnedAgent
-      && !agentConversationPolicyAllowsAccess(pinnedAgent.permissionMode, accessMode)
-    ) {
+    const agent = session.agentId ? await getAgentDefinition(session.workspaceId, session.agentId) : null;
+    if (!agent) {
+      return void res.status(409).json({ error: {
+        code: 'AGENT_CHAT_NOT_READY', message: 'Agent is no longer available.', retryable: false
+      } });
+    }
+    if (!agentConversationPolicyAllowsAccess(agent.permissionMode, accessMode)) {
       return void res.status(409).json({ error: {
         code: 'AGENT_CONVERSATION_POLICY_READ_ONLY',
-        message: 'This Agent conversation is read-only by its pinned Agent policy.',
+        message: 'This Agent currently permits read-only conversations.',
         retryable: false
       } });
     }
@@ -224,6 +251,7 @@ export async function changeAgentConversationAccess(req: AuthenticatedRequest, r
     if (!(await requireWorkspaceCapability(
       req, res, session.workspaceId, requiredCapability, 'No permission to change Agent conversation access'
     ))) return;
+    const previousAccessMode = agentConversationAccessMode(session);
     const updated = await setAgentConversationAccessMode(session.id, accessMode);
     if (!updated) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent conversation not found', retryable: false } });
     await recordWorkspaceAuditEvent({
@@ -234,11 +262,11 @@ export async function changeAgentConversationAccess(req: AuthenticatedRequest, r
       actorUserId: req.auth.userId,
       objectType: 'agent_conversation',
       objectId: session.id,
-      objectName: session.compiledAccessScope.selectedAgentSnapshots[0]?.name || 'Agent conversation',
+      objectName: session.title,
       summary: `Agent conversation access changed to ${accessMode}`,
-      metadata: { agentId: session.agentId, previousAccessMode: session.accessMode, accessMode }
+      metadata: { agentId: session.agentId, previousAccessMode, accessMode }
     });
-    res.status(200).json({ conversation: publicConversation(updated) });
+    res.status(200).json({ conversation: publicConversation(updated, agent) });
   } catch (error) {
     next(error);
   }
@@ -258,30 +286,136 @@ export async function postAgentConversationMessage(req: AuthenticatedRequest, re
     const content = typeof req.body?.content === 'string' ? req.body.content.trim() : '';
     if (!content) {
       return void res.status(400).json({ error: {
-        code: 'AGENT_CONVERSATION_MESSAGE_REQUIRED',
-        message: 'content is required.',
+        code: 'AGENT_CONVERSATION_MESSAGE_REQUIRED', message: 'content is required.', retryable: false
+      } });
+    }
+    if (content.length > MAX_AGENT_CONVERSATION_MESSAGE_LENGTH) {
+      return void res.status(400).json({ error: {
+        code: 'AGENT_CONVERSATION_MESSAGE_TOO_LONG',
+        message: `content must not exceed ${MAX_AGENT_CONVERSATION_MESSAGE_LENGTH} characters.`,
         retryable: false
       } });
     }
-    const currentAgent = session.agentId
-      ? await getAgentDefinition(session.workspaceId, session.agentId)
-      : null;
-    const revoked = pinnedAgentCapabilityRevocation(session.agentChatCapabilityCeiling || session.compiledAccessScope, currentAgent);
-    if (revoked.length > 0) {
-      return void res.status(409).json({ error: {
-        code: 'AGENT_CHAT_CAPABILITY_REVOKED',
-        message: 'A capability pinned to this conversation is no longer available. Start a new conversation.',
-        retryable: false,
-        details: { reasons: revoked.slice(0, 8) }
+    const suppliedClientRequestId = Object.prototype.hasOwnProperty.call(req.body || {}, 'clientRequestId');
+    const clientRequestId = typeof req.body?.clientRequestId === 'string' ? req.body.clientRequestId.trim() : '';
+    if (suppliedClientRequestId && (!clientRequestId || clientRequestId.length > 128)) {
+      return void res.status(400).json({ error: {
+        code: 'AGENT_CONVERSATION_CLIENT_REQUEST_ID_INVALID',
+        message: 'clientRequestId must be a non-empty string of at most 128 characters.',
+        retryable: false
       } });
     }
-    res.locals.agentConversationAuthorized = session.id;
-    req.params.sessionId = session.id;
-    req.body = session.launchedAt
-      ? { kind: 'follow_up', content, clientRequestId: req.body?.clientRequestId }
-      : { kind: 'launch', content, clientRequestId: req.body?.clientRequestId };
-    await postWorkflowMessage(req, res, next);
+    if (clientRequestId) {
+      const existing = await repo.findRunByClientMessageId(session.id, clientRequestId);
+      if (existing) {
+        return void res.status(202).json({
+          message_id: existing.message.id,
+          run_id: existing.run.id,
+          status: existing.run.status
+        });
+      }
+    }
+    const authz = await requireWorkspaceDataRead(req, res, session.workspaceId, 'No access to Agent conversation');
+    if (!authz) return;
+    const accessMode = agentConversationAccessMode(session);
+    const requiredCapability = accessMode === 'read_write'
+      ? 'create_read_write_runs'
+      : 'create_read_only_runs';
+    if (!authz.can(requiredCapability)) {
+      return void res.status(403).json({ error: {
+        code: 'FORBIDDEN', message: 'No permission to create a run with this conversation access mode.', retryable: false
+      } });
+    }
+    const agent = session.agentId ? await getAgentDefinition(session.workspaceId, session.agentId) : null;
+    if (!agent || agent.status !== 'active' || agent.readiness.status !== 'ready') {
+      return void res.status(409).json({ error: {
+        code: 'AGENT_CHAT_NOT_READY',
+        message: agent?.readiness.reasons[0] || 'Agent is no longer ready for chat.',
+        retryable: false
+      } });
+    }
+    if (!agentConversationPolicyAllowsAccess(agent.permissionMode, accessMode)) {
+      return void res.status(409).json({ error: {
+        code: 'AGENT_CONVERSATION_POLICY_READ_ONLY',
+        message: 'The Agent policy now permits read-only runs. Change this conversation to read-only to continue.',
+        retryable: false
+      } });
+    }
+    const resolution = compileAgentConversationMessage(content);
+    const compiledScope = await compileAgentConversationRunScope({
+      agent,
+      actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
+      accessMode,
+      promptDigest: resolution.promptDigest,
+      bindingDigest: resolution.bindingDigest,
+      resourceBindings: resolution.bindings
+    });
+    const readiness = await getExactMcpReadinessReport(
+      session.workspaceId,
+      compiledScope.principal,
+      compiledScope.mcpTools
+    );
+    if (readiness.errors.length > 0) {
+      return void res.status(409).json({ error: publicMcpReadinessError(readiness) });
+    }
+    const llm = await resolveWorkspaceLlmSettings(session.workspaceId);
+    if (rejectUnavailableInteractiveLlm(res, llm, {
+      credentialMessage: 'Configure an AI provider credential before starting an Agent run.'
+    })) return;
+    const created = await createAgentConversationRunFromUserMessage({
+      sessionId: session.id,
+      workspaceId: session.workspaceId,
+      agent,
+      content: resolution.content,
+      toolAccessMode: accessMode,
+      compiledAccessScope: compiledScope,
+      llmProvider: llm.provider,
+      llmModel: llm.model,
+      llmReasoningSummaryMode: llm.reasoning.summary_mode,
+      llmReasoningEffort: llm.reasoning.effort,
+      clientMessageId: clientRequestId || undefined,
+      principal: { type: 'user', id: req.auth.userId },
+      requestProvenance: runRequestProvenance(req),
+      createdBy: req.auth.userId
+    });
+    if (!created.idempotent) {
+      enqueueInteractiveRunDispatch(created.run);
+      await recordWorkspaceAuditEvent({
+        workspaceId: session.workspaceId,
+        category: 'run',
+        eventType: 'agent.conversation_run_created.v1',
+        operation: 'write',
+        actorUserId: req.auth.userId,
+        objectType: 'run',
+        objectId: created.run.id,
+        objectName: agent.name,
+        summary: 'Agent conversation run created',
+        metadata: {
+          conversationId: session.id,
+          agentId: agent.id,
+          accessMode
+        }
+      });
+    }
+    res.status(202).json({
+      message_id: created.message.id,
+      run_id: created.run.id,
+      status: created.run.status
+    });
   } catch (error) {
+    if (error instanceof AgentConversationStateConflictError) {
+      return void res.status(409).json({ error: {
+        code: 'AGENT_CONVERSATION_CHANGED', message: error.message, retryable: true
+      } });
+    }
+    if (error instanceof CapabilityAccessDeniedError) {
+      const permissionDenied = error.code === 'CAPABILITY_PERMISSION_DENIED';
+      return void res.status(permissionDenied ? 403 : 409).json({ error: {
+        code: permissionDenied ? 'FORBIDDEN' : 'AGENT_CHAT_NOT_READY',
+        message: error.message,
+        retryable: !permissionDenied
+      } });
+    }
     next(error);
   }
 }

@@ -169,7 +169,7 @@ export function buildWorkflowWebhookPaths(): Record<string, unknown> {
             content: { 'application/json': { schema: { $ref: '#/components/schemas/WorkflowWebhookAccepted' } } }
           },
           '401': { description: 'Timestamp or signature invalid.' },
-          '409': { description: 'Target workflow changed after the webhook was saved.' },
+          '409': { description: 'The workflow changed after the webhook was saved.' },
           '413': { description: 'Payload exceeds 256 KiB.' },
           '429': { description: 'Per-webhook request or accepted-event rate exceeded.' }
         }

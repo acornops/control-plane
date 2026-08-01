@@ -94,7 +94,6 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
     Issue: {
       type: 'object',
       properties: {
-        workflowActivity: schemaRef('WorkflowActivitySummary'),
         automaticInvestigation: schemaRef('AutomaticInvestigationSummary')
       },
       additionalProperties: true

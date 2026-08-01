@@ -127,19 +127,16 @@ test('availability expansion and inherited IDs are bounded', () => {
 });
 
 test('workspace initialization stores a detached snapshot without promotion bookkeeping', () => {
-  const migration = readFileSync(
-    new URL('../migrations/control-plane/003_workspace_defaults.sql', import.meta.url),
+  const schema = readFileSync(
+    new URL('../migrations/control-plane/001_initial_schema.sql', import.meta.url),
     'utf8'
   );
-  const enabledStateMigration = readFileSync(
-    new URL('../migrations/control-plane/005_workspace_default_enabled_state.sql', import.meta.url),
-    'utf8'
-  );
-  assert.match(migration, /CREATE TABLE workspace_initial_defaults/);
-  assert.match(enabledStateMigration, /ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT TRUE/);
-  assert.match(migration, /workspace_id TEXT NOT NULL REFERENCES workspaces\(id\) ON DELETE CASCADE/);
-  assert.doesNotMatch(migration, /workspace_default_promotions/);
-  assert.doesNotMatch(migration, /workspace_initial_defaults[\s\S]+REFERENCES workspace_defaults/);
+  assert.match(schema, /CREATE TABLE workspace_initial_defaults/);
+  assert.match(schema, /enabled boolean DEFAULT true NOT NULL/);
+  assert.match(schema, /workspace_initial_defaults_workspace_id_fkey[\s\S]+REFERENCES workspaces\(id\) ON DELETE CASCADE/);
+  assert.doesNotMatch(schema, /workspace_default_promotions/);
+  const initialDefaultsTable = schema.match(/CREATE TABLE workspace_initial_defaults \(([\s\S]*?)\n\);/)?.[1] || '';
+  assert.doesNotMatch(initialDefaultsTable, /REFERENCES workspace_defaults/);
   const repository = readFileSync(
     new URL('../src/store/repository-workspace-defaults.ts', import.meta.url),
     'utf8'
@@ -190,7 +187,6 @@ test('materialized Agent defaults become normal workspace-owned items', () => {
     workspace_id: 'workspace-1',
     agent_id: 'agent-1',
     scope_type: 'agent',
-    target_type: 'agent',
     server_name: 'Platform MCP',
     server_url: 'https://mcp.example.com/service',
     enabled: true,

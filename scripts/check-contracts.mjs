@@ -53,6 +53,7 @@ const publicHeaderVectors = read('docs/contracts/mcp-public-header-vectors.json'
 const authController = read('src/controllers/auth-controller.ts');
 const contracts = [
   read('src/types/contracts.ts'),
+  read('src/types/internal-mcp-contracts.ts'),
   read('src/types/webhook-contracts.ts')
 ].join('\n');
 const runEventsContract = read('src/types/run-events-contract.ts');

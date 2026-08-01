@@ -8,10 +8,8 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
       properties: {
         id: { type: 'string' }, modelAlias: { type: 'string' },
         title: { type: 'string' }, description: { type: 'string' },
-        targetCatalogDescription: { type: 'string' },
-        targetToggleable: { type: 'boolean' },
         semanticCapabilityId: { type: 'string' },
-        invocationScopes: { type: 'array', items: { type: 'string', enum: ['workflow', 'target_chat'] } },
+        invocationScopes: { type: 'array', items: { type: 'string', enum: ['workflow', 'agent_chat'] } },
         authorizationClass: { type: 'string', enum: ['prompt_resource', 'internal_artifact', 'external_http_read'] },
         auditOperation: { type: 'string', enum: ['read', 'write'] },
         approvalOperation: { type: 'string', enum: ['read', 'write'] },
@@ -27,7 +25,7 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
     },
     AgentDefinition: {
       type: 'object',
-      required: ['id', 'workspaceId', 'name', 'avatarEmoji', 'instructions', 'status', 'origin', 'reviewState', 'providerType', 'version', 'ownerUserId', 'createdBy', 'nativeToolConfigs', 'workflowUsage'],
+      required: ['id', 'workspaceId', 'name', 'avatarEmoji', 'instructions', 'status', 'origin', 'reviewState', 'providerType', 'ownerUserId', 'createdBy', 'nativeToolConfigs'],
       properties: {
         id: { type: 'string' },
         workspaceId: { type: 'string' },
@@ -36,10 +34,9 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         description: { type: 'string' },
         instructions: { type: 'string' },
         status: { type: 'string', enum: ['active', 'disabled', 'draft'] },
-        origin: { type: 'object', required: ['type'], properties: { type: { type: 'string', enum: ['template', 'manual'] }, templateId: { type: 'string' }, templateVersion: { type: 'integer', minimum: 1 } }, additionalProperties: false },
+        origin: { type: 'object', required: ['type'], properties: { type: { type: 'string', enum: ['template', 'manual'] }, templateId: { type: 'string' } }, additionalProperties: false },
         reviewState: { type: 'string', enum: ['draft', 'reviewed'] },
         providerType: { type: 'string', enum: ['internal', 'external'] },
-        version: { type: 'integer' },
         ownerUserId: { type: 'string' },
         createdBy: { type: 'string' },
         mcpServers: stringArray,
@@ -54,26 +51,11 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         skills: stringArray,
         skillInstallations: { type: 'array', items: schemaRef('AgentSkill') },
         contextGrants: stringArray,
-        targetScope: jsonObject,
         approvalPolicy: jsonObject,
         trustPolicy: jsonObject,
         permissionMode: { type: 'string', enum: ['read_only', 'ask_before_changes', 'auto_allowed_changes'] },
         semanticCapabilityIds: stringArray,
         capabilities: { type: 'array', items: schemaRef('AgentCapability') },
-        workflowsUsingAgent: stringArray,
-        workflowUsage: {
-          type: 'object',
-          required: ['workflowRunCount'],
-          properties: {
-            workflowRunCount: { type: 'integer', minimum: 0 },
-            lastRunAt: dateTime,
-            lastStatus: {
-              type: 'string',
-              enum: ['queued', 'dispatching', 'running', 'waiting_for_approval', 'needs_review', 'completed', 'failed', 'cancelled']
-            }
-          },
-          additionalProperties: false
-        },
         readiness: {
           type: 'object',
           required: ['status', 'reasons'],
@@ -88,7 +70,7 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
       type: 'object',
       required: ['source', 'resourceType', 'resourceScope', 'operation', 'requiresApproval'],
       properties: {
-        source: { type: 'string', enum: ['builtin_tool', 'mcp_tool', 'skill', 'context', 'target'] },
+        source: { type: 'string', enum: ['builtin_tool', 'mcp_tool', 'skill', 'context'] },
         providerAgentId: { type: 'string' },
         resourceType: { type: 'string' },
         resourceScope: { type: 'string' },
@@ -112,7 +94,6 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         contextGrants: stringArray,
         approvalPolicy: jsonObject,
         trustPolicy: jsonObject,
-        targetScope: jsonObject,
         permissionMode: { type: 'string', enum: ['read_only', 'ask_before_changes', 'auto_allowed_changes'] },
         semanticCapabilityIds: stringArray
       },
@@ -128,20 +109,6 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: false
     },
-    AgentVersionSnapshot: {
-      type: 'object',
-      required: ['id', 'agentId', 'workspaceId', 'version', 'snapshot', 'createdBy', 'createdAt'],
-      properties: {
-        id: { type: 'string' },
-        agentId: { type: 'string' },
-        workspaceId: { type: 'string' },
-        version: { type: 'integer' },
-        snapshot: schemaRef('AgentDefinition'),
-        createdBy: { type: 'string' },
-        createdAt: dateTime
-      },
-      additionalProperties: true
-    },
     AgentList: {
       type: 'object',
       required: ['items'],
@@ -154,18 +121,29 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
     },
     AgentConversationSummary: {
       type: 'object',
-      required: ['id', 'workspaceId', 'agentId', 'agentVersion', 'permissionMode', 'title', 'createdBy', 'accessMode', 'createdAt'],
+      required: ['id', 'workspaceId', 'agentId', 'permissionMode', 'title', 'createdBy', 'accessMode', 'createdAt', 'expiresAt', 'status'],
       properties: {
         id: { type: 'string', format: 'uuid' },
         workspaceId: { type: 'string', format: 'uuid' },
         agentId: { type: 'string' },
-        agentVersion: { type: 'integer', minimum: 1 },
         permissionMode: { type: 'string', enum: ['read_only', 'ask_before_changes', 'auto_allowed_changes'] },
         title: { type: 'string' },
         createdBy: { type: 'string', format: 'uuid' },
         accessMode: { type: 'string', enum: ['read_only', 'read_write'] },
         launchedAt: dateTime,
-        createdAt: dateTime
+        createdAt: dateTime,
+        expiresAt: dateTime,
+        status: { type: 'string', enum: ['open', 'archived'] }
+      },
+      additionalProperties: false
+    },
+    AgentConversationMessageAccepted: {
+      type: 'object',
+      required: ['message_id', 'run_id', 'status'],
+      properties: {
+        message_id: { type: 'string', format: 'uuid' },
+        run_id: { type: 'string', format: 'uuid' },
+        status: { type: 'string' }
       },
       additionalProperties: false
     },
@@ -181,6 +159,30 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: true
     },
+    AgentConversationRun: {
+      type: 'object',
+      required: [
+        'id', 'workspaceId', 'agentId', 'sessionId', 'messageId',
+        'toolAccessMode', 'status', 'requestedAt', 'startedAt', 'endedAt', 'errorCode', 'events'
+      ],
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        workspaceId: { type: 'string', format: 'uuid' },
+        agentId: { type: 'string' },
+        sessionId: { type: 'string', format: 'uuid' },
+        messageId: { type: 'string', format: 'uuid' },
+        toolAccessMode: { type: 'string', enum: ['read_only', 'read_write'] },
+        status: { type: 'string' },
+        requestedAt: dateTime,
+        startedAt: { type: ['string', 'null'], format: 'date-time' },
+        endedAt: { type: ['string', 'null'], format: 'date-time' },
+        errorCode: { type: ['string', 'null'] },
+        assistantMessage: jsonObject,
+        usage: jsonObject,
+        events: { type: 'array', items: schemaRef('RunEvent') }
+      },
+      additionalProperties: false
+    },
     AgentConversationList: {
       type: 'object',
       required: ['items'],
@@ -195,7 +197,7 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
       properties: {
         conversation: schemaRef('AgentConversationSummary'),
         messages: { type: 'array', items: schemaRef('AgentConversationMessage') },
-        runs: { type: 'array', items: jsonObject }
+        runs: { type: 'array', items: schemaRef('AgentConversationRun') }
       },
       additionalProperties: false
     },
@@ -206,16 +208,6 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         conversation: schemaRef('AgentConversationSummary')
       },
       additionalProperties: false
-    },
-    AgentVersionResponse: {
-      type: 'object',
-      required: ['version'],
-      properties: { version: schemaRef('AgentVersionSnapshot') }
-    },
-    AgentVersionList: {
-      type: 'object',
-      required: ['items'],
-      properties: { items: { type: 'array', items: schemaRef('AgentVersionSnapshot') } }
     },
     AgentTestResponse: {
       type: 'object',
@@ -228,10 +220,9 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
     },
     AutomationTemplateSummary: {
       type: 'object',
-      required: ['id', 'version', 'name', 'description', 'installMode', 'installationStatus', 'setupSteps', 'blockerCodes'],
+      required: ['id', 'name', 'description', 'installMode', 'installationStatus', 'setupSteps', 'blockerCodes'],
       properties: {
         id: { type: 'string' },
-        version: { type: 'integer', minimum: 1 },
         name: { type: 'string' },
         description: { type: 'string' },
         installMode: { type: 'string', enum: ['automatic', 'opt_in'] },
@@ -244,11 +235,10 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
     },
     AutomationTemplateInstallation: {
       type: 'object',
-      required: ['workspaceId', 'templateId', 'templateVersion', 'state', 'installedBy', 'recordIds', 'installedAt'],
+      required: ['workspaceId', 'templateId', 'state', 'installedBy', 'recordIds', 'installedAt'],
       properties: {
         workspaceId: { type: 'string' },
         templateId: { type: 'string' },
-        templateVersion: { type: 'integer', minimum: 1 },
         state: { type: 'string', enum: ['pending', 'complete'] },
         installedBy: { type: 'string' },
         recordIds: { type: 'object', additionalProperties: { type: 'string' } },

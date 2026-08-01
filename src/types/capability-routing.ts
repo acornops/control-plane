@@ -1,5 +1,5 @@
 import type { McpToolRef } from './agents.js';
-import type { TargetType, WorkspaceAuditOperation } from './domain.js';
+import type { WorkspaceAuditOperation } from './domain.js';
 
 export type CapabilityMappingReviewState = 'draft' | 'reviewed';
 export type CapabilityMappingStatus = 'active' | 'disabled';
@@ -17,16 +17,11 @@ export interface CapabilityRoutingMapping {
   id: string;
   workspaceId: string;
   capabilityId: string;
-  version: number;
   agentId: string;
-  agentVersion: number;
   status: CapabilityMappingStatus;
   reviewState: CapabilityMappingReviewState;
   priority: number;
-  targetTypes: TargetType[];
-  targetIds: string[];
   mcpTools: CapabilityMappingToolRef[];
-  targetToolRefs: CapabilityMappingToolRef[];
   nativeToolIds: string[];
   skillIds: string[];
   contextGrants: string[];
@@ -39,7 +34,6 @@ export interface CapabilityRoutingMapping {
 export interface CompiledCapabilityResources {
   capabilityIds: string[];
   mcpTools: CapabilityMappingToolRef[];
-  targetToolRefs: CapabilityMappingToolRef[];
   nativeToolIds: string[];
   skillIds: string[];
   contextGrants: string[];

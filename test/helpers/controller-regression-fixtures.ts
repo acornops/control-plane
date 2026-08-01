@@ -1,6 +1,6 @@
 import { mock } from 'node:test';
 import { repo } from '../../src/store/repository.js';
-import { configureWorkflowOptionsCatalogLoaderForTests } from '../../src/store/repository-workflow-options.js';
+import { configureCapabilityOptionsCatalogLoaderForTests } from '../../src/store/repository-capability-options.js';
 import { effectiveWorkflowRuntimePolicy } from '../../src/services/workflow-runtime-policy.js';
 import type { WorkflowMcpServerRecord } from '../../src/store/repository-workflows.js';
 import type {
@@ -83,14 +83,6 @@ const canonicalWorkflowMcpServers: Array<Omit<WorkflowMcpServerRecord, 'workspac
     { name: 'github.prs.create', title: 'Create pull requests', capability: 'write', enabled: true }
   ]
 }, {
-  id: 'acornops-target-agent', scope: 'workspace', name: 'Cluster agent', url: 'builtin://cluster-agent', enabled: true,
-  authType: 'none', credentialConfigured: false, publicHeaders: {}, status: 'connected', createdBy: 'test',
-  tools: [
-    { name: 'get_resource', title: 'Get resource', capability: 'read', enabled: true },
-    { name: 'get_resource_logs', title: 'Get resource logs', capability: 'read', enabled: true },
-    { name: 'list_resources', title: 'List resources', capability: 'read', enabled: true }
-  ]
-}, {
   id: 'workspace-chat', scope: 'workspace', name: 'Workspace chat', url: 'builtin://workspace-chat', enabled: true,
   authType: 'none', credentialConfigured: false, publicHeaders: {}, status: 'connected', createdBy: 'test',
   tools: [{ name: 'prompt.resources.read', title: 'Read prompt resources', capability: 'read', enabled: true }]
@@ -101,7 +93,7 @@ const canonicalWorkflowMcpServers: Array<Omit<WorkflowMcpServerRecord, 'workspac
 }];
 
 export function restoreControllerRegressionState(): void {
-  configureWorkflowOptionsCatalogLoaderForTests();
+  configureCapabilityOptionsCatalogLoaderForTests();
   repo.getWorkspaceSummaryForUser = originals.getWorkspaceSummaryForUser;
   repo.getWorkspaceRole = originals.getWorkspaceRole;
   repo.getCluster = originals.getCluster;
@@ -245,16 +237,15 @@ export function installWorkspace(role: Role | null): void {
     publicHeaders: { ...server.publicHeaders },
     tools: server.tools.map((tool) => ({ ...tool }))
   }]));
-  configureWorkflowOptionsCatalogLoaderForTests(async (_workspaceId) => {
-    const servers = [...mcpServers.values()].filter((server) => server.id === 'acornops-target-agent');
+  configureCapabilityOptionsCatalogLoaderForTests(async (_workspaceId) => {
+    const servers = [...mcpServers.values()].filter((server) => server.id === 'github');
     const runtimePolicy = effectiveWorkflowRuntimePolicy();
     return {
       mcpServers: servers.map((server) => ({ value: server.id, label: server.name, disabled: !server.enabled })),
       skills: [
         { value: 'acornops-observability', label: 'AcornOps observability' },
         { value: 'acornops-cross-repo-change', label: 'Cross-repo change' },
-        { value: 'acornops-open-pr', label: 'Open PR' },
-        { value: 'acornops-target-boundary-design', label: 'Target boundary design' }
+        { value: 'acornops-open-pr', label: 'Open PR' }
       ],
       mcpTools: [
         ...servers.flatMap((server) => server.tools.map((tool) => ({

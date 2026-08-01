@@ -28,14 +28,14 @@ describe('control-plane ownership and leases', () => {
       clusterId: 'cluster-1',
       connectionId: 'conn-1',
       workspaceId: 'workspace-1',
-      agentVersion: 'agent-test'
+      connectorVersion: 'agent-test'
     });
 
     assert.deepEqual(await getAgentOwner('cluster-1'), {
       instanceId: 'cp-test-a',
       connectionId: 'conn-1',
       workspaceId: 'workspace-1',
-      agentVersion: 'agent-test',
+      connectorVersion: 'agent-test',
       updatedAt: (await getAgentOwner('cluster-1'))?.updatedAt
     });
     assert.equal(await refreshAgentOwner('cluster-1', 'wrong-conn'), false);
@@ -52,13 +52,13 @@ describe('control-plane ownership and leases', () => {
       clusterId: 'cluster-stolen',
       connectionId: 'conn-old',
       workspaceId: 'workspace-1',
-      agentVersion: 'agent-test'
+      connectorVersion: 'agent-test'
     });
     setOwner(store, 'cluster-stolen', {
       instanceId: 'cp-test-b',
       connectionId: 'conn-new',
       workspaceId: 'workspace-1',
-      agentVersion: 'agent-new',
+      connectorVersion: 'agent-new',
       updatedAt: '2026-05-19T00:01:00.000Z'
     });
 
@@ -67,7 +67,7 @@ describe('control-plane ownership and leases', () => {
       instanceId: 'cp-test-b',
       connectionId: 'conn-new',
       workspaceId: 'workspace-1',
-      agentVersion: 'agent-new',
+      connectorVersion: 'agent-new',
       updatedAt: '2026-05-19T00:01:00.000Z'
     });
   });

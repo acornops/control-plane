@@ -1,28 +1,29 @@
 import { createPrivateKey, createPublicKey, generateKeyPairSync, randomUUID, type KeyObject } from 'node:crypto';
 import { createLocalJWKSet, exportJWK, jwtVerify, SignJWT, type JSONWebKeySet, type JWK, type JWTPayload } from 'jose';
 import { type AppConfig, config } from '../config.js';
-import { isTargetType, type TargetType, type WorkspaceAuditOperation } from '../types/domain.js';
-import type { PromptResourceBinding } from '../types/prompt-resources.js';
+import { isTargetType, type WorkspaceAuditOperation } from '../types/domain.js';
+import type {
+  McpToolRef,
+  NativeToolPermission,
+  RunPermissionMode,
+  RunPrincipalRef,
+  RunScopeClaims,
+  RunScopeType,
+  VerifiedRunScopeClaims
+} from './run-scope-claims.js';
 import { createResourceBindingClaims, readResourceBindingClaims } from './token-resource-bindings.js';
-
-export type RunScopeType = 'target' | 'workspace';
-
-export interface NativeToolPermission {
-  id: string;
-  config: Record<string, unknown>;
-}
-
-export interface McpToolRef {
-  serverId: string;
-  toolName: string;
-}
-
-export interface TargetToolRoutePermission extends McpToolRef {
-  alias: string;
-  operation: WorkspaceAuditOperation;
-  targetId: string;
-  targetType: TargetType;
-}
+export type {
+  AgentChatRunScopeClaims,
+  McpToolRef,
+  NativeToolPermission,
+  RunPermissionMode,
+  RunPrincipalRef,
+  RunScopeClaims,
+  RunScopeType,
+  TargetRunScopeClaims,
+  VerifiedRunScopeClaims,
+  WorkflowRunScopeClaims
+} from './run-scope-claims.js';
 
 export interface ApprovalReceiptClaims {
   approvalId: string;
@@ -35,78 +36,6 @@ export interface ApprovalReceiptClaims {
   argumentsDigest: string;
 }
 
-export interface RunPrincipalRef {
-  type: 'user' | 'service_identity';
-  id: string;
-}
-
-export type RunPermissionMode = 'read_only' | 'ask_before_changes' | 'auto_allowed_changes';
-
-interface BaseRunScopeClaims {
-  runId: string;
-  workspaceId: string;
-  sessionId: string;
-  userId?: string;
-  principal?: RunPrincipalRef;
-  permissionMode?: RunPermissionMode;
-  allowedProviders: string[];
-  allowedTools: string[];
-  allowedToolRefs?: McpToolRef[];
-  allowedTargetToolRoutes?: TargetToolRoutePermission[];
-  allowedNativeTools?: NativeToolPermission[];
-  allowedToolOperations?: Record<string, WorkspaceAuditOperation>;
-  maxOutputTokens?: number;
-  allowedModels?: string[];
-  resourceBindings?: PromptResourceBinding[];
-  bindingDigest?: string;
-}
-
-type VerifiedResourceBindingClaim = PromptResourceBinding;
-
-export interface TargetRunScopeClaims extends BaseRunScopeClaims {
-  scopeType?: 'target';
-  targetId: string;
-  targetType: TargetType;
-  agentId?: string;
-  agentVersion?: number;
-}
-
-export interface WorkflowRunScopeClaims extends BaseRunScopeClaims {
-  scopeType: 'workspace';
-  workflowId: string;
-  executionId: string;
-  workflowSessionId: string;
-  executorRole: 'coordinator' | 'specialist';
-  agentId?: string;
-  agentVersion?: number;
-  triggerId?: string;
-  contextGrants?: string[];
-  targetId?: string;
-  targetType?: TargetType;
-}
-
-export type RunScopeClaims = TargetRunScopeClaims | WorkflowRunScopeClaims;
-
-export interface VerifiedRunScopeClaims extends BaseRunScopeClaims {
-  subject: string;
-  tokenId?: string;
-  scopeType: RunScopeType;
-  allowedNativeTools: NativeToolPermission[];
-  targetId?: string;
-  targetType?: TargetType;
-  workflowId?: string;
-  executionId?: string;
-  workflowSessionId?: string;
-  executorRole?: 'coordinator' | 'specialist';
-  agentId?: string;
-  agentVersion?: number;
-  triggerId?: string;
-  contextGrants: string[];
-  principal: RunPrincipalRef;
-  permissionMode: RunPermissionMode;
-  resourceBindings: VerifiedResourceBindingClaim[];
-  bindingDigest?: string;
-}
 
 interface KeyMaterial {
   privateKey: KeyObject;
@@ -264,31 +193,6 @@ function mcpToolRefsClaim(value: unknown): McpToolRef[] {
   });
 }
 
-function targetToolRoutesClaim(value: unknown): TargetToolRoutePermission[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value)) throw new Error('Gateway token permission allowed_target_tool_routes must be an array');
-  return value.map((entry) => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      throw new Error('Gateway token target tool routes must be objects');
-    }
-    const item = entry as Record<string, unknown>;
-    if (typeof item.alias !== 'string' || typeof item.server_id !== 'string'
-      || typeof item.tool_name !== 'string' || typeof item.target_id !== 'string'
-      || typeof item.target_type !== 'string' || !isTargetType(item.target_type)
-      || (item.operation !== 'read' && item.operation !== 'write')) {
-      throw new Error('Gateway token target tool route is invalid');
-    }
-    return {
-      alias: item.alias,
-      serverId: item.server_id,
-      toolName: item.tool_name,
-      targetId: item.target_id,
-      targetType: item.target_type,
-      operation: item.operation
-    };
-  });
-}
-
 function principalClaim(value: unknown, userId?: string): RunPrincipalRef {
   if (value === undefined || value === null) {
     if (userId) return { type: 'user', id: userId };
@@ -323,9 +227,13 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
     throw new Error('Gateway token subject must match run_id');
   }
   const rawScope = payload.scope;
-  const scopeType: RunScopeType =
-    rawScope && typeof rawScope === 'object' && !Array.isArray(rawScope) && (rawScope as { type?: unknown }).type === 'workspace'
-      ? 'workspace'
+  const rawScopeType = rawScope && typeof rawScope === 'object' && !Array.isArray(rawScope)
+    ? (rawScope as { type?: unknown }).type
+    : undefined;
+  const scopeType: RunScopeType = rawScopeType === 'workspace'
+    ? 'workspace'
+    : rawScopeType === 'agent_chat'
+      ? 'agent_chat'
       : 'target';
   const permissions = payload.permissions;
   if (!permissions || typeof permissions !== 'object' || Array.isArray(permissions)) {
@@ -344,7 +252,6 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
     subject,
     tokenId: typeof payload.jti === 'string' ? payload.jti : undefined,
     runId,
-    scopeType,
     workspaceId,
     sessionId: stringClaim(payload, 'session_id'),
     userId,
@@ -353,7 +260,6 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
     allowedProviders: stringArrayClaim(permissionObject.allowed_providers, 'allowed_providers'),
     allowedTools: stringArrayClaim(permissionObject.allowed_tools, 'allowed_tools'),
     allowedToolRefs: mcpToolRefsClaim(permissionObject.allowed_tool_refs),
-    allowedTargetToolRoutes: targetToolRoutesClaim(permissionObject.allowed_target_tool_routes),
     allowedNativeTools: nativeToolPermissionsClaim(permissionObject.allowed_native_tools),
     allowedToolOperations: toolOperationMapClaim(permissionObject.allowed_tool_operations),
     allowedModels: stringArrayClaim(permissionObject.allowed_models, 'allowed_models'),
@@ -366,33 +272,45 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
   };
 
   if (scopeType === 'workspace') {
-    const targetType = optionalStringClaim(payload, 'target_type');
-    if (targetType !== undefined && !isTargetType(targetType)) {
-      throw new Error('Gateway token claim target_type is unsupported');
+    if (payload.target_id !== undefined || payload.target_type !== undefined) {
+      throw new Error('Workflow tokens must not contain target identity claims');
     }
     const executorRole = stringClaim(payload, 'executor_role');
     if (executorRole !== 'coordinator' && executorRole !== 'specialist') {
       throw new Error('Gateway token claim executor_role is unsupported');
     }
     const agentId = optionalStringClaim(payload, 'agent_id');
-    const agentVersion = optionalNumberClaim(payload, 'agent_version');
-    if (executorRole === 'coordinator' && (agentId || agentVersion !== undefined)) {
+    if (executorRole === 'coordinator' && agentId) {
       throw new Error('Coordinator Workflow tokens must not contain Agent identity claims');
     }
-    if (executorRole === 'specialist' && (!agentId || agentVersion === undefined)) {
+    if (executorRole === 'specialist' && !agentId) {
       throw new Error('Specialist Workflow tokens require Agent identity claims');
     }
     return {
       ...baseClaims,
+      scopeType: 'workspace',
       workflowId: stringClaim(payload, 'workflow_id'),
       executionId: stringClaim(payload, 'execution_id'),
       workflowSessionId: stringClaim(payload, 'workflow_session_id'),
       executorRole,
       agentId,
-      agentVersion,
-      triggerId: optionalStringClaim(payload, 'trigger_id'),
-      targetId: optionalStringClaim(payload, 'target_id'),
-      targetType
+      triggerId: optionalStringClaim(payload, 'trigger_id')
+    };
+  }
+
+  if (scopeType === 'agent_chat') {
+    for (const field of [
+      'target_id', 'target_type', 'workflow_id', 'execution_id',
+      'workflow_session_id', 'executor_role', 'trigger_id'
+    ]) {
+      if (payload[field] !== undefined && payload[field] !== null) {
+        throw new Error('Agent chat tokens must not contain target or Workflow identity claims');
+      }
+    }
+    return {
+      ...baseClaims,
+      scopeType: 'agent_chat',
+      agentId: stringClaim(payload, 'agent_id')
     };
   }
 
@@ -400,12 +318,19 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
   if (!isTargetType(targetType)) {
     throw new Error('Gateway token claim target_type is unsupported');
   }
+  for (const field of [
+    'workflow_id', 'execution_id', 'workflow_session_id',
+    'executor_role', 'agent_id', 'trigger_id'
+  ]) {
+    if (payload[field] !== undefined && payload[field] !== null) {
+      throw new Error('Target tokens must not contain Agent or Workflow identity claims');
+    }
+  }
   return {
     ...baseClaims,
+    scopeType: 'target',
     targetId: stringClaim(payload, 'target_id'),
-    targetType,
-    agentId: optionalStringClaim(payload, 'agent_id'),
-    agentVersion: optionalNumberClaim(payload, 'agent_version')
+    targetType
   };
 }
 
@@ -431,14 +356,6 @@ export class GatewayTokenService {
         server_id: ref.serverId,
         tool_name: ref.toolName
       })),
-      allowed_target_tool_routes: (input.allowedTargetToolRoutes || []).map((route) => ({
-        alias: route.alias,
-        server_id: route.serverId,
-        tool_name: route.toolName,
-        operation: route.operation,
-        target_id: route.targetId,
-        target_type: route.targetType
-      })),
       allowed_native_tools: input.allowedNativeTools || [],
       allowed_tool_operations: input.allowedToolOperations || {},
       max_output_tokens: input.maxOutputTokens ?? null,
@@ -449,7 +366,7 @@ export class GatewayTokenService {
       input.bindingDigest,
       input.workspaceId
     ));
-    if (input.scopeType === 'workspace') {
+    if (input.scopeType === 'workspace' || input.scopeType === 'agent_chat') {
       permissionPayload.context_grants = input.contextGrants || [];
     }
 
@@ -472,10 +389,10 @@ export class GatewayTokenService {
     };
 
     if (input.scopeType === 'workspace') {
-      if (input.executorRole === 'coordinator' && (input.agentId || input.agentVersion !== undefined)) {
+      if (input.executorRole === 'coordinator' && input.agentId) {
         throw new Error('Coordinator Workflow tokens must not contain Agent identity claims');
       }
-      if (input.executorRole === 'specialist' && (!input.agentId || input.agentVersion === undefined)) {
+      if (input.executorRole === 'specialist' && !input.agentId) {
         throw new Error('Specialist Workflow tokens require Agent identity claims');
       }
       payload.scope = { type: 'workspace' };
@@ -486,23 +403,18 @@ export class GatewayTokenService {
       if (input.agentId) {
         payload.agent_id = input.agentId;
       }
-      if (typeof input.agentVersion === 'number') {
-        payload.agent_version = input.agentVersion;
-      }
       if (input.triggerId) {
         payload.trigger_id = input.triggerId;
       }
-      if (input.targetId) {
-        payload.target_id = input.targetId;
+    } else if (input.scopeType === 'agent_chat') {
+      if (!input.agentId) {
+        throw new Error('Agent chat tokens require Agent identity');
       }
-      if (input.targetType) {
-        payload.target_type = input.targetType;
-      }
+      payload.scope = { type: 'agent_chat' };
+      payload.agent_id = input.agentId;
     } else {
       payload.target_id = input.targetId;
       payload.target_type = input.targetType;
-      if (input.agentId) payload.agent_id = input.agentId;
-      if (typeof input.agentVersion === 'number') payload.agent_version = input.agentVersion;
     }
 
     return new SignJWT(payload)

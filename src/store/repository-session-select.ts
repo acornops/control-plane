@@ -9,7 +9,7 @@ export const sessionSelect = `
          latest_run.llm_model AS last_llm_model,
          latest_run.llm_reasoning_effort AS last_llm_reasoning_effort
   FROM sessions s
-  JOIN targets t ON t.id = s.target_id
+  LEFT JOIN targets t ON t.id = s.target_id
   LEFT JOIN users u ON u.id = s.created_by
   LEFT JOIN target_issues linked_issue ON linked_issue.id = s.linked_issue_id
   LEFT JOIN LATERAL (

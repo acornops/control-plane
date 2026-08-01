@@ -60,7 +60,7 @@
   agent-key rotation behavior
 - Internal execution auth or llm-gateway admin auth
 - Cross-workspace, cross-target, or cross-cluster data access logic
-- Agent/Workflow version, executor role, parent run, target, context-grant,
+- Agent/Workflow snapshots, executor role, parent run, target, context-grant,
   tool-operation, approval, or idempotency claims
 
 ## Authorization
@@ -106,9 +106,10 @@
 - AgentK redacts ConfigMap `data` and `binaryData` values before complete-result
   artifact handling; guarded patch evidence exposes only bounded key metadata
   and `data` value fingerprints.
-- Every automation callback and tool call must bind the workspace, Agent
-  version, Workflow execution, step attempt, target, exact tool operation,
-  approved context grants, and approval state from signed server claims.
+- Every automation callback and tool call must bind the workspace, Workflow
+  execution, step attempt, assigned Agent where applicable, exact tool
+  operation, approved context grants, and approval state from signed server
+  claims.
 
 ## Automatic Investigations
 

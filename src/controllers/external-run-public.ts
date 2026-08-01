@@ -41,9 +41,9 @@ export function publicRunEvent(event: RunEvent): RunEvent {
 
 export function publicWorkflowExecutionEvent(event: WorkflowExecutionStreamEvent): WorkflowExecutionStreamEvent {
   const allowedFields = event.type === 'execution_created'
-    ? new Set(['workflowId', 'workflowVersion', 'status', 'triggerType'])
+    ? new Set(['workflowId', 'status', 'triggerType'])
     : event.type === 'run_created'
-      ? new Set(['attemptNumber', 'status', 'targetId', 'targetType'])
+      ? new Set(['attemptNumber', 'status'])
       : event.type === 'approval_requested' || event.type === 'approval_decided'
         ? new Set(['approvalKind', 'toolName', 'summary', 'status', 'decision', 'expiresAt'])
         : event.type === 'execution_status_changed'
@@ -70,9 +70,7 @@ export function publicWorkflowRun(run: WorkflowRunRecord, includeOutput: boolean
     attemptNumber: run.attemptNumber,
     executorRole: run.executorRole,
     parentRunId: run.parentRunId || null,
-    ...(run.executorRole === 'specialist' ? { agentId: run.agentId, agentVersion: run.agentVersion } : {}),
-    targetId: run.targetId || null,
-    targetType: run.targetType || null,
+    ...(run.executorRole === 'specialist' ? { agentId: run.agentId } : {}),
     messageId: includeOutput ? run.messageId : undefined,
     status: run.status,
     requestedAt: run.requestedAt,
@@ -84,12 +82,13 @@ export function publicWorkflowRun(run: WorkflowRunRecord, includeOutput: boolean
   };
 }
 
-export function publicTroubleshootingRun(run: Run, includeOutput: boolean): Record<string, unknown> {
+export function publicConversationRun(run: Run, includeOutput: boolean): Record<string, unknown> {
   return {
     id: run.id,
     workspaceId: run.workspaceId,
-    targetId: run.targetId,
-    targetType: run.targetType,
+    ...(run.conversationKind === 'target_chat'
+      ? { targetId: run.targetId, targetType: run.targetType }
+      : { agentId: run.agentId }),
     sessionId: includeOutput ? run.sessionId : undefined,
     messageId: includeOutput ? run.messageId : undefined,
     toolAccessMode: run.toolAccessMode,

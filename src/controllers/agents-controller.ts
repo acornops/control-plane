@@ -4,11 +4,8 @@ import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/wo
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import {
   createAgentDefinition,
-  createAgentVersionSnapshot,
   getAgentDefinition,
-  listAgentDefinitions,
-  listAgentVersionSnapshots,
-  restoreAgentVersionSnapshot
+  listAgentDefinitions
 } from '../store/repository-agents.js';
 import type { AgentDefinition } from '../types/agents.js';
 import { toSingleParam } from '../utils/params.js';
@@ -22,7 +19,6 @@ import {
   collectAgentOptionErrors,
   normalizeAgentAvatarEmoji,
   normalizeApprovalPolicy,
-  normalizeTargetScope,
   normalizeTrustPolicy,
   requireAgentWorkspaceId,
   stringList,
@@ -108,14 +104,12 @@ export async function createAgent(req: AuthenticatedRequest, res: Response, next
     const providerType: AgentDefinition['providerType'] = body.providerType === 'external' ? 'external' : 'internal';
     const approvalPolicy = normalizeApprovalPolicy(body.approvalPolicy);
     const trustPolicy = normalizeTrustPolicy(body.trustPolicy, providerType);
-    const targetScope = normalizeTargetScope(body.targetScope);
     const agentInput = {
       providerType,
       tools: [],
       contextGrants: stringList(body.contextGrants),
       approvalPolicy,
-      trustPolicy,
-      targetScope
+      trustPolicy
     };
     const optionErrors = await collectAgentOptionErrors(workspaceId, agentInput);
     if (optionErrors.length > 0) {
@@ -136,7 +130,6 @@ export async function createAgent(req: AuthenticatedRequest, res: Response, next
       contextGrants: agentInput.contextGrants,
       approvalPolicy,
       trustPolicy,
-      targetScope,
       permissionMode: body.permissionMode === 'read_only'
         || body.permissionMode === 'ask_before_changes'
         || body.permissionMode === 'auto_allowed_changes'
@@ -154,7 +147,7 @@ export async function createAgent(req: AuthenticatedRequest, res: Response, next
       objectId: agent.id,
       objectName: agent.name,
       summary: 'Agent definition created',
-      metadata: { agentId: agent.id, agentVersion: agent.version }
+      metadata: { agentId: agent.id }
     });
     res.status(201).json({ agent: await agentResponse(agent) });
   } catch (err) {
@@ -193,8 +186,7 @@ export async function updateAgent(req: AuthenticatedRequest, res: Response, next
     const updated = await updateAgentThroughDefinitionService(workspaceId, current.id, {
       ...patch,
       trustPolicy: patch.trustPolicy ? normalizeTrustPolicy(patch.trustPolicy, providerType) : patch.providerType === 'external' ? normalizeTrustPolicy(undefined, 'external') : undefined,
-      approvalPolicy: patch.approvalPolicy ? normalizeApprovalPolicy(patch.approvalPolicy) : undefined,
-      targetScope: patch.targetScope
+      approvalPolicy: patch.approvalPolicy ? normalizeApprovalPolicy(patch.approvalPolicy) : undefined
     });
     if (!updated) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
@@ -204,83 +196,6 @@ export async function updateAgent(req: AuthenticatedRequest, res: Response, next
     res.status(200).json({ agent: await agentResponse(updated) });
   } catch (err) {
     if (err instanceof DefinitionValidationError) return definitionValidationError(res, err);
-    next(err);
-  }
-}
-
-export async function createAgentVersion(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const workspaceId = requireAgentWorkspaceId(req, res);
-    if (!workspaceId) return;
-    const authz = await requireWorkspaceCapability(req, res, workspaceId, 'manage_agents', 'No permission to manage agents');
-    if (!authz) return;
-    const agentId = toSingleParam(req.params.agentId);
-    const agent = await getAgentDefinition(workspaceId, agentId);
-    if (!agent) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
-      return;
-    }
-    const version = await createAgentVersionSnapshot(workspaceId, agentId, req.auth.userId);
-    if (!version) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
-      return;
-    }
-    await auditAgentDefinitionMutation(req, agent, 'agent.version_snapshot_created.v1', 'Agent version snapshot created', { snapshotId: version.id });
-    res.status(201).json({ version });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function listAgentVersions(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const workspaceId = requireAgentWorkspaceId(req, res);
-    if (!workspaceId) return;
-    const authz = await requireWorkspaceDataRead(req, res, workspaceId);
-    if (!authz) return;
-    const agent = await getAgentDefinition(workspaceId, toSingleParam(req.params.agentId));
-    if (!agent) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
-      return;
-    }
-    const q = normalizeSearchQuery(req.query.q);
-    const signature = makeQuerySignature({ workspaceId, agentId: agent.id, q });
-    const rows = (await listAgentVersionSnapshots(workspaceId, agent.id))
-      .filter((version) => containsSearchText([version.version, version.createdBy, version.createdAt], q));
-    res.status(200).json(pageArray(rows, {
-      limit: parseBoundedLimit(req.query.limit), cursor: req.query.cursor, signature
-    }));
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function restoreAgentVersion(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const workspaceId = requireAgentWorkspaceId(req, res);
-    if (!workspaceId) return;
-    const authz = await requireWorkspaceCapability(req, res, workspaceId, 'manage_agents', 'No permission to manage agents');
-    if (!authz) return;
-    const agentId = toSingleParam(req.params.agentId);
-    const agent = await getAgentDefinition(workspaceId, agentId);
-    if (!agent) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
-      return;
-    }
-    const restored = await restoreAgentVersionSnapshot(
-      workspaceId,
-      agentId,
-      toSingleParam(req.params.versionId)
-    );
-    if (!restored) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent version not found', retryable: false } });
-      return;
-    }
-    await auditAgentDefinitionMutation(req, restored, 'agent.version_restored.v1', 'Agent version restored', {
-      restoredVersionId: toSingleParam(req.params.versionId)
-    });
-    res.status(200).json({ agent: await agentResponse(restored) });
-  } catch (err) {
     next(err);
   }
 }

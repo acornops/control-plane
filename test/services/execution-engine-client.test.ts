@@ -24,11 +24,16 @@ function createRun(overrides: Partial<Run> = {}): Run {
   return {
     id: 'run-1',
     workspaceId: 'ws-1',
+    conversationKind: 'target_chat',
     targetId: 'cluster-1',
     targetType: 'kubernetes',
     clusterId: 'cluster-1',
     sessionId: 'session-1',
     messageId: 'message-1',
+    llmProvider: 'openai',
+    llmModel: 'gpt-4.1-mini',
+    llmReasoningSummaryMode: 'off',
+    llmReasoningEffort: 'off',
     toolAccessMode: 'read_only',
     status: 'queued',
     requestedAt: '2026-05-25T00:00:00.000Z',
@@ -45,7 +50,7 @@ function createWorkflowRun(overrides: Partial<WorkflowRunRecord> = {}): Workflow
     workflowSessionId: 'workflow-session-1',
     attemptNumber: 1,
     executorRole: 'coordinator',
-    executorSnapshot: { role: 'coordinator', profileVersion: 1, instructions: 'Coordinate.' },
+    executorSnapshot: { role: 'coordinator', instructions: 'Coordinate.' },
     idempotencyKey: 'workflow-execution-1:root:1',
     messageId: 'workflow-message-1',
     createdBy: 'user-1',
@@ -53,7 +58,6 @@ function createWorkflowRun(overrides: Partial<WorkflowRunRecord> = {}): Workflow
     compiledAccessScope: {
       workflowId: 'workspace-tool-exposure-audit',
       workspaceId: 'ws-1',
-      workflowVersion: 1,
       actor: { userId: 'user-1', role: 'operator' },
       mode: 'read_only',
       requiredPermissions: ['read_workspace_data', 'create_read_only_runs'],
@@ -67,7 +71,6 @@ function createWorkflowRun(overrides: Partial<WorkflowRunRecord> = {}): Workflow
       jwtClaims: {
         scope: { type: 'workspace' },
         workflow_id: 'workspace-tool-exposure-audit',
-        workflow_version: 1,
         executor_role: 'coordinator',
         permissions: {
           allowed_tools: ['audit.events.search'],
@@ -123,6 +126,7 @@ describe('execution engine client', () => {
     assert.equal(headers.get('authorization'), 'Bearer dispatch-token');
     assert.deepEqual(JSON.parse(String(fetchCall.init?.body)), {
       contract_version: 2,
+      scope_type: 'target',
       run_id: 'run-1',
       workspace_id: 'ws-1',
       target_id: 'cluster-1',
@@ -176,6 +180,53 @@ describe('execution engine client', () => {
     });
   });
 
+  it('dispatches direct Agent chat without target or Workflow identity fields', async () => {
+    mutableConfig.EXECUTION_ENGINE_BASE_URL = 'https://engine.example.com';
+    mutableConfig.EXECUTION_ENGINE_DISPATCH_TOKEN = 'dispatch-token';
+    let fetchCall: { init?: RequestInit } | undefined;
+    mock.method(globalThis, 'fetch', async (_input, init) => {
+      fetchCall = { init };
+      return new Response(null, { status: 202 });
+    });
+
+    await dispatchRunToExecutionEngine(createRun({
+      conversationKind: 'agent_chat',
+      targetId: undefined,
+      targetType: undefined,
+      clusterId: undefined,
+      agentId: 'agent-incident-analyst',
+      sessionId: 'agent-conversation-1'
+    }));
+
+    assert.deepEqual(JSON.parse(String(fetchCall?.init?.body)), {
+      contract_version: 2,
+      scope_type: 'agent_chat',
+      run_id: 'run-1',
+      workspace_id: 'ws-1',
+      agent_id: 'agent-incident-analyst',
+      session_id: 'agent-conversation-1',
+      message_id: 'message-1',
+      requested_at: '2026-05-25T00:00:00.000Z'
+    });
+  });
+
+  it('rejects malformed interactive dispatch scopes before transport', async () => {
+    await assert.rejects(
+      dispatchRunToExecutionEngine(createRun({ targetId: undefined })),
+      /Target-chat dispatch requires a target identity and type/
+    );
+    await assert.rejects(
+      dispatchRunToExecutionEngine(createRun({
+        conversationKind: 'agent_chat',
+        targetId: undefined,
+        targetType: undefined,
+        clusterId: undefined,
+        agentId: undefined
+      })),
+      /Agent-chat dispatch requires an Agent identity/
+    );
+  });
+
   it('includes explicit delegated agent metadata in workspace-scoped execution requests', async () => {
     mutableConfig.EXECUTION_ENGINE_BASE_URL = 'https://engine.example.com';
     mutableConfig.EXECUTION_ENGINE_DISPATCH_TOKEN = 'dispatch-token';
@@ -198,21 +249,18 @@ describe('execution engine client', () => {
       executorRole: 'specialist',
       parentRunId: 'workflow-root-1',
       agentId: 'agent-cluster-triage',
-      agentVersion: 4,
       executorSnapshot: {
         role: 'specialist',
         agentId: 'agent-cluster-triage',
-        agentVersion: 4,
         agent: {} as never
       },
       compiledAccessScope: {
         ...createWorkflowRun().compiledAccessScope,
-        executor: { role: 'specialist', agentId: 'agent-cluster-triage', agentVersion: 4 },
+        executor: { role: 'specialist', agentId: 'agent-cluster-triage' },
         jwtClaims: {
           ...createWorkflowRun().compiledAccessScope.jwtClaims,
           executor_role: 'specialist',
-          agent_id: 'agent-cluster-triage',
-          agent_version: 4
+          agent_id: 'agent-cluster-triage'
         }
       }
     }));
@@ -233,7 +281,6 @@ describe('execution engine client', () => {
       attempt_number: 1,
       idempotency_key: 'workflow-execution-1:root:1',
       agent_id: 'agent-cluster-triage',
-      agent_version: 4,
       requested_at: '2026-05-25T00:00:00.000Z'
     });
   });

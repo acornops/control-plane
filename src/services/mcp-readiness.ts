@@ -1,11 +1,11 @@
 import type { RunPrincipalRef } from '../types/agents.js';
-import type { TargetSummary } from '../types/domain.js';
 import type { CompiledWorkflowAccessScope } from '../types/workflows.js';
 import {
   checkMcpReadiness,
   type McpReadinessFailureCode,
   type McpReadinessResult
 } from './mcp-registry-client.js';
+import { isPlatformOwnedMcpServer } from './workspace-mcp-tool-specs.js';
 
 export type McpReadinessAction = 'connect_mcp_server' | 'verify_mcp_server';
 
@@ -159,11 +159,12 @@ export async function getExactMcpReadinessReportForToolFiltering(
   principal: RunPrincipalRef,
   refs: Array<{ serverId: string; toolName: string }>
 ): Promise<McpReadinessReport> {
-  if (refs.length === 0) return { errors: [], failures: [] };
+  const remoteRefs = refs.filter((ref) => !isPlatformOwnedMcpServer(ref.serverId));
+  if (remoteRefs.length === 0) return { errors: [], failures: [] };
   const result = await checkMcpReadiness({
     workspaceId,
     principal,
-    toolRefs: refs
+    toolRefs: remoteRefs
   });
   return mcpReadinessReportForFailures(result.failures.map(publicReadinessFailure));
 }
@@ -178,11 +179,10 @@ export async function getExactMcpReadinessErrors(
 
 export async function getWorkflowCapabilityReadinessReport(
   workspaceId: string,
-  scope: CompiledWorkflowAccessScope,
-  target?: TargetSummary,
+  scope: Pick<CompiledWorkflowAccessScope, 'mcpTools'>,
   context: { actorUserId?: string; principal?: RunPrincipalRef } = {}
 ): Promise<McpReadinessReport> {
-  const exactToolRefs = [...(scope.mcpTools || [])]
+  const exactToolRefs = (scope.mcpTools || [])
     .filter((ref, index, refs) => refs.findIndex((candidate) => (
       candidate.serverId === ref.serverId && candidate.toolName === ref.toolName
     )) === index);
@@ -205,14 +205,12 @@ export async function getWorkflowCapabilityReadinessReport(
 
 export async function getWorkflowCapabilityReadinessErrors(
   workspaceId: string,
-  scope: CompiledWorkflowAccessScope,
-  target?: TargetSummary,
+  scope: Pick<CompiledWorkflowAccessScope, 'mcpTools'>,
   context: { actorUserId?: string; principal?: RunPrincipalRef } = {}
 ): Promise<string[]> {
   return (await getWorkflowCapabilityReadinessReport(
     workspaceId,
     scope,
-    target,
     context
   )).errors;
 }

@@ -66,14 +66,14 @@ describe('AgentV handshake', () => {
         ws: WebSocket,
         raw: WebSocket.RawData,
         agentKeyHeader: string,
-        agentVersion: string,
+        connectorVersion: string,
         remoteAddress?: string
       ): Promise<void>;
     };
     internal.handleConnection(ws as unknown as WebSocket, {
       headers: {
         'x-agent-key': 'agent-key-vm',
-        'x-agent-version': 'agentv-test'
+        'x-connector-version': 'agentv/test'
       },
       socket: { remoteAddress: '203.0.113.13' }
     } as never);
@@ -103,7 +103,7 @@ describe('AgentV handshake', () => {
         }
       })),
       'agent-key-vm',
-      'agentv-test',
+      'agentv/test',
       '203.0.113.13'
     );
 

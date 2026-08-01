@@ -10,7 +10,6 @@ interface InitialWorkflowEventInput {
     workspaceId: string;
     workflowId: string;
     workflowSessionId: string;
-    workflowVersion: number;
     status: string;
     triggerType: string;
   };
@@ -21,8 +20,6 @@ interface InitialWorkflowEventInput {
     agentId?: string;
     attemptNumber: number;
     status: string;
-    targetId?: string;
-    targetType?: string;
   };
   approvals: Array<{
     id: string;
@@ -47,7 +44,6 @@ export async function insertInitialWorkflowExecutionEvents(
     payload: {
       workflowId: execution.workflowId,
       workflowSessionId: execution.workflowSessionId,
-      workflowVersion: execution.workflowVersion,
       status: execution.status,
       triggerType: execution.triggerType
     }
@@ -64,9 +60,7 @@ export async function insertInitialWorkflowExecutionEvents(
       parentRunId: run.parentRunId || null,
       agentId: run.agentId || null,
       attemptNumber: run.attemptNumber,
-      status: run.status,
-      targetId: run.targetId || null,
-      targetType: run.targetType || null
+      status: run.status
     }
   });
   if (runCreated) events.push(runCreated);

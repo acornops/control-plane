@@ -49,12 +49,8 @@ describe('prompt resource provider contract', () => {
       };
       const authorization: PromptResourceAuthorization = {
         operations: ['read'],
-        contextMode: descriptor.type === 'target'
-          ? 'routing_only'
-          : descriptor.implicit ? 'inline' : 'tool',
-        ...(descriptor.type === 'target'
-          ? { providerData: { targetType: 'kubernetes' } }
-          : descriptor.implicit ? { providerData: { throughMessageId: 'message-1' } } : {})
+        contextMode: descriptor.implicit ? 'inline' : 'tool',
+        ...(descriptor.implicit ? { providerData: { throughMessageId: 'message-1' } } : {})
       };
       const bound = await provider.bind(candidate, authorization, context);
       assert.equal(bound.type, descriptor.type);
@@ -78,24 +74,5 @@ describe('prompt resource provider contract', () => {
       (error: unknown) => error instanceof PromptResourceProviderError
         && error.code === 'PROMPT_REFERENCE_UNAVAILABLE'
     );
-  });
-
-  it('projects an exact target route only from target provider data', async () => {
-    const provider = promptResourceRegistry.provider('target')!;
-    const descriptor = provider.descriptor();
-    const bound = await provider.bind({
-      type: descriptor.type,
-      id: 'target-1',
-      label: 'Production',
-      provider: descriptor.provider,
-      availability: 'available'
-    }, {
-      operations: ['read'],
-      contextMode: 'routing_only',
-      providerData: { targetType: 'kubernetes' }
-    }, context);
-    assert.deepEqual(provider.projectRuntime({ ...bound, bindingId: 'prb_target' }), {
-      targetRoute: { id: 'target-1', targetType: 'kubernetes' }
-    });
   });
 });

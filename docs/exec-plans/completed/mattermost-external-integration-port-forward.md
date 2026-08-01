@@ -5,7 +5,7 @@
 Port the control-plane side of Ryan Goh's four cumulative external-integration
 pull requests (#9, #10, #11, and #13) onto the current architecture through
 the shared `temp-main` integration branch. Preserve Ryan's original commits and
-authorship while adapting their behavior to current Workflow V2, target,
+authorship while adapting their behavior to the current Workflow runtime, target,
 authentication, webhook, migration, and OpenAPI contracts.
 
 Central tracking: acornops/acornops#12.
@@ -18,7 +18,7 @@ Central tracking: acornops/acornops#12.
 - Preserve explicit `requireUser` and `requireExternalIntegrationClient`
   boundaries. Add linked external actors only to routes required by the bot and
   keep workspace, target, capability, and token-scope authorization fail-closed.
-- Preserve Workflow V2 `capabilityPolicy`, prompt-resource binding, catalog
+- Preserve the current Workflow `capabilityPolicy`, prompt-resource binding, catalog
   readiness, compiled scopes, coordination/delegation, target-tool narrowing,
   OIDC admission/logout/prelinks, AgentV contracts, and PDF artifact retention.
 - Fold unreleased table or column additions into
@@ -106,7 +106,7 @@ Central tracking: acornops/acornops#12.
   older step/policy execution model. Active read-write or approval-gated
   Workflows require `create_read_write_runs`; active ungated read-only
   Workflows continue to require `create_read_only_runs`. Every external
-  Workflow message uses current Workflow V2 typed prompt resolution and exact
+  Workflow message uses the current typed prompt resolution and exact
   compiled scope, while its session remains pinned to the original definition
   and the current definition must still be active and authorized.
 - 2026-07-22, Wave 4: Persisted exact integration link/client provenance for
@@ -117,11 +117,11 @@ Central tracking: acornops/acornops#12.
   may still reject after write revocation while workspace read access remains.
 - 2026-07-22, Wave 4: Replaced legacy step-index events with durable execution,
   entry-run, approval, accepted run-event, and terminal transition records.
-  Browser execution detail retains the current rich Workflow V2 response;
+  Browser execution detail retains the current rich Workflow response;
   linked integrations receive a deliberately sanitized workspace-readable DTO
   and replayable SSE stream. Stable external `clientRequestId` values are
   required, race-safe, and return the exact persisted run scope on retries.
-- 2026-07-22, Wave 4: Kept current Workflow V2 coordination, principal,
+- 2026-07-22, Wave 4: Kept current Workflow coordination, principal,
   capability routing, target-tool narrowing, report-artifact routes, and
   greenfield migration policy. Extracted focused approval-inbox and execution
   stream metric modules to stay within repository harness budgets.
@@ -153,7 +153,7 @@ Central tracking: acornops/acornops#12.
   bot defect to be fixed in its own repository: strict Workflow message bodies
   accept only `content` and `clientRequestId`; launch inputs, grants, and target
   resource references must therefore be represented in content. Session creation
-  fixes only the workspace, Workflow version, and approved context grants.
+  fixes only the workspace, stored Workflow snapshot, and approved context grants.
 - 2026-07-23, production sweep: Replaced the OIDC logout test's module-load-time
   60-second session with a fresh fixture per case. The enlarged suite had made
   that otherwise unrelated test expire before execution; production logout

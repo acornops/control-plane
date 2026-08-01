@@ -6,19 +6,15 @@ import {
   requireWorkspaceCapability,
   requireWorkspaceDataRead
 } from '../auth/workspace-authorization.js';
-import { dispatchRunToExecutionEngine } from '../services/execution-engine-client.js';
-import { isModelAllowedForProvider } from '../services/llm-policy.js';
 import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
 import { recordTargetChatActivityEvent } from '../services/target-chat-activity-events.js';
-import { emitRunStatusTransition, webhooks } from '../services/webhooks.js';
+import { webhooks } from '../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
 import { repo } from '../store/repository.js';
-import { runtime } from '../store/runtime.js';
 import {
   ChatSession,
   KUBERNETES_TARGET_TYPE,
-  Run,
   TargetType,
   VIRTUAL_MACHINE_TARGET_TYPE
 } from '../types/domain.js';
@@ -35,47 +31,8 @@ import { runAuditActor, runRequestProvenance } from './run-actor.js';
 import { acceptedMessageResponse, parseRequestedLlmSelection } from './session-llm-selection.js';
 import { resolveReadySessionAssistantReferences } from './session-assistant-references.js';
 import { resolveSessionMessageAccess } from './session-message-access.js';
-function enqueueRunDispatch(run: Run): void {
-  queueMicrotask(async () => {
-    try {
-      let currentRun = (await repo.updateRun(run.id, { status: 'dispatching' })) || run;
-      await dispatchRunToExecutionEngine(run);
-      const updatedRun = await repo.updateRun(run.id, {
-        status: 'running',
-        startedAt: new Date().toISOString()
-      });
-      emitRunStatusTransition(currentRun, updatedRun);
-    } catch (err) {
-      const errMessage = err instanceof Error ? err.message : 'Unknown dispatch failure';
-      const previousRun = (await repo.getRun(run.id)) || run;
-      const updatedRun = await repo.updateRun(run.id, {
-        status: 'failed',
-        errorCode: 'DISPATCH_FAILED',
-        errorMessage: errMessage,
-        endedAt: new Date().toISOString()
-      });
-      emitRunStatusTransition(previousRun, updatedRun);
-      const accepted = await repo.appendRunEvents(run.id, [
-        {
-          schema_version: 1,
-          run_id: run.id,
-          seq: 1,
-          ts: new Date().toISOString(),
-          type: 'run_failed',
-          payload: {
-            code: 'DISPATCH_FAILED',
-            message: errMessage,
-            retryable: true
-          }
-        }
-      ]);
-      const buffered = runtime.appendRunEvents(run.id, accepted);
-      for (const event of buffered) {
-        runtime.runStreams.emit(`run:${run.id}`, { event });
-      }
-    }
-  });
-}
+import { enqueueInteractiveRunDispatch } from './run-controller-helpers.js';
+import { rejectUnavailableInteractiveLlm } from './interactive-llm-validation.js';
 async function requireSessionTargetAccess(
   req: AuthenticatedRequest,
   res: Response,
@@ -106,6 +63,10 @@ async function requireRunnableSessionTarget(
   res: Response,
   session: ChatSession
 ): Promise<{ targetId: string; targetType: TargetType; clusterId?: string } | null> {
+  if (session.conversationKind === 'agent_chat' || !session.targetId) {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Target session not found', retryable: false } });
+    return null;
+  }
   const target = await repo.getTarget(session.workspaceId, session.targetId);
   if (!target) {
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Target not found for session', retryable: false } });
@@ -218,7 +179,7 @@ export async function listSessions(req: AuthenticatedRequest, res: Response, nex
 export async function getSession(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const session = await repo.getSession(toSingleParam(req.params.sessionId));
-    if (!session) {
+    if (!session || session.conversationKind === 'agent_chat') {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Session not found', retryable: false } });
       return;
     }
@@ -233,7 +194,7 @@ export async function listMessages(req: AuthenticatedRequest, res: Response, nex
   try {
     const sessionId = toSingleParam(req.params.sessionId);
     const session = await repo.getSession(sessionId);
-    if (!session) {
+    if (!session || session.conversationKind === 'agent_chat') {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Session not found', retryable: false } });
       return;
     }
@@ -261,7 +222,7 @@ export async function deleteSession(req: AuthenticatedRequest, res: Response, ne
   try {
     const sessionId = toSingleParam(req.params.sessionId);
     const session = await repo.getSession(sessionId);
-    if (!session) {
+    if (!session || session.conversationKind === 'agent_chat') {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Session not found', retryable: false } });
       return;
     }
@@ -281,14 +242,27 @@ export async function deleteSession(req: AuthenticatedRequest, res: Response, ne
       return;
     }
 
+    if (!session.targetId) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Target session not found', retryable: false } });
+      return;
+    }
     const target = await repo.getTarget(session.workspaceId, session.targetId);
     if (!target) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Target not found for session', retryable: false } });
       return;
     }
 
-    const deleted = await repo.deleteSession(session.id);
-    if (!deleted) {
+    const deletion = await repo.deleteSession(session.id);
+    if (deletion.status === 'active_runs') {
+      res.status(409).json({ error: {
+        code: 'SESSION_HAS_ACTIVE_RUNS',
+        message: 'Wait for active runs to finish or cancel them before deleting this session.',
+        retryable: false,
+        details: { runIds: deletion.runIds }
+      } });
+      return;
+    }
+    if (deletion.status === 'not_found') {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Session not found', retryable: false } });
       return;
     }
@@ -340,7 +314,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
   try {
     const sessionId = toSingleParam(req.params.sessionId);
     const session = await repo.getSession(sessionId);
-    if (!session) {
+    if (!session || session.conversationKind === 'agent_chat') {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Session not found', retryable: false } });
       return;
     }
@@ -384,46 +358,9 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       return;
     }
     const llmSettings = await resolveWorkspaceLlmSettings(session.workspaceId, requestedLlm);
-    if (!llmSettings.allowedProviders.includes(llmSettings.provider)) {
-      res.status(400).json({
-        error: {
-          code: 'PROVIDER_NOT_ALLOWED',
-          message: 'The workspace AI provider is not enabled by this deployment.',
-          retryable: false
-        }
-      });
-      return;
-    }
-    if (!llmSettings.allowedModels.includes(llmSettings.model)) {
-      res.status(400).json({
-        error: {
-          code: 'MODEL_NOT_ALLOWED',
-          message: 'The workspace AI model is not allowed by this deployment.',
-          retryable: false
-        }
-      });
-      return;
-    }
-    if (!isModelAllowedForProvider(llmSettings.provider, llmSettings.model, llmSettings.allowedProviderModels)) {
-      res.status(400).json({
-        error: {
-          code: 'MODEL_NOT_ALLOWED',
-          message: 'The workspace AI model is not available for the selected provider.',
-          retryable: false
-        }
-      });
-      return;
-    }
-    if (!llmSettings.credentialConfigured) {
-      res.status(400).json({
-        error: {
-          code: 'AI_PROVIDER_CREDENTIAL_MISSING',
-          message: 'Configure an AI provider API key in AI Settings before starting an assistant run.',
-          retryable: false
-        }
-      });
-      return;
-    }
+    if (rejectUnavailableInteractiveLlm(res, llmSettings, {
+      credentialMessage: 'Configure an AI provider API key in AI Settings before starting an assistant run.'
+    })) return;
     const created = await repo.createRunFromUserMessage({
       sessionId: session.id,
       workspaceId: session.workspaceId,
@@ -522,7 +459,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
           assistantReferences: assistantReferences.map((reference) => ({ kind: reference.kind, id: reference.id }))
         }
       });
-      enqueueRunDispatch(created.run);
+      enqueueInteractiveRunDispatch(created.run);
     }
     res.status(202).json(acceptedMessageResponse(created.message.id, created.run));
   } catch (err) {

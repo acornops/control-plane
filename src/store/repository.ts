@@ -174,7 +174,7 @@ import * as repositoryWebhookOutbox from './repository-webhook-outbox.js';
 import {
   getTarget as getTargetRecord,
   listTargets as listTargetsRecord,
-  listWorkflowTargetSnapshot as listWorkflowTargetSnapshotRecord
+  listWorkspaceTargetSnapshot as listWorkspaceTargetSnapshotRecord
 } from './repository-targets.js';
 import {
   insertWorkspaceAuditEvent as insertWorkspaceAuditEventRecord,
@@ -324,7 +324,7 @@ export class Repository {
 
   listClusters = listClustersRecord;
 
-  listTargets = listTargetsRecord; listWorkflowTargetSnapshot = listWorkflowTargetSnapshotRecord;
+  listTargets = listTargetsRecord; listWorkspaceTargetSnapshot = listWorkspaceTargetSnapshotRecord;
 
   getTarget = getTargetRecord;
 

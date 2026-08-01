@@ -66,22 +66,6 @@ describe('external integration Workflow launch', () => {
         return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse('workspace-1')), { status: 200 });
       }
       if (isMcpReadinessRequest(input, init)) return createReadyMcpReadinessResponse();
-      if (url.includes('/api/v1/internal/mcp/tools?') && url.includes('target_id=cluster-1')) {
-        return new Response(JSON.stringify(
-          ['get_resource', 'get_resource_logs', 'list_resources'].map((name) => ({
-            name,
-            server_id: 'acornops-target-agent',
-            model_alias: name,
-            mcp_server_url: 'builtin://agentk',
-            timeout_ms: 10_000,
-            description: `${name} fixture`,
-            capability: 'read',
-            source: 'builtin',
-            input_schema: {},
-            enabled: true
-          }))
-        ), { status: 200 });
-      }
       if (url === `${config.EXECUTION_ENGINE_BASE_URL}/api/v1/runs` && init?.method === 'POST') {
         executionDispatches.push(JSON.parse(String(init.body)));
         return new Response(null, { status: 202 });
@@ -93,7 +77,7 @@ describe('external integration Workflow launch', () => {
       { workflowId: 'cluster-triage' },
       {
         workspaceId: 'workspace-1',
-        approvedContextGrants: ['workspace_metadata', 'target_inventory']
+        approvedContextGrants: ['workspace_metadata']
       }
     ));
     assert.equal(sessionResponse.statusCode, 201);

@@ -62,17 +62,17 @@ describe('development target seed', () => {
         if (sql.includes('INSERT INTO agent_definitions')) {
           const values = params || [];
           const row = {
-            workspace_id: values[0], id: values[1], name: values[2], avatar_emoji: values[23], description: values[3],
+            workspace_id: values[0], id: values[1], name: values[2], avatar_emoji: values[22], description: values[3],
             instructions: values[4], status: 'active', origin: values[5],
-            review_state: values[6], provider_type: values[7], version: 1,
+            review_state: values[6], provider_type: values[7],
             owner_user_id: values[8], created_by: values[9], mcp_servers: JSON.parse(String(values[10])),
             mcp_tools: JSON.parse(String(values[11])), mcp_installations: JSON.parse(String(values[12])),
             tools: JSON.parse(String(values[13])), native_tool_configs: JSON.parse(String(values[14])),
             skills: JSON.parse(String(values[15])), skill_installations: JSON.parse(String(values[16])),
-            context_grants: JSON.parse(String(values[17])), target_scope: values[18],
-            approval_policy: values[19], trust_policy: values[20], permission_mode: values[21],
-            semantic_capability_ids: JSON.parse(String(values[22])),
-            readiness_status: 'needs_setup', readiness_reasons: JSON.parse(String(values[24])),
+            context_grants: JSON.parse(String(values[17])),
+            approval_policy: values[18], trust_policy: values[19], permission_mode: values[20],
+            semantic_capability_ids: JSON.parse(String(values[21])),
+            readiness_status: 'needs_setup', readiness_reasons: JSON.parse(String(values[23])),
             created_at: new Date(), updated_at: new Date()
           };
           agentRows.set(String(values[1]), row);
@@ -82,10 +82,21 @@ describe('development target seed', () => {
           const row = agentRows.get(String(params?.[1]));
           return { rowCount: row ? 1 : 0, rows: row ? [row] : [] };
         }
+        if (sql.includes('INSERT INTO capability_routing_mappings') && sql.includes('RETURNING *')) {
+          const values = params || [];
+          return { rowCount: 1, rows: [{
+            workspace_id: values[0], id: values[1], capability_id: values[2],
+            agent_id: values[3], status: values[4], review_state: values[5],
+            priority: values[6], mcp_tools: JSON.parse(String(values[7])),
+            native_tool_ids: JSON.parse(String(values[8])), skill_ids: JSON.parse(String(values[9])),
+            context_grants: JSON.parse(String(values[10])), created_by: values[11],
+            reviewed_by: values[12], created_at: new Date(), updated_at: new Date()
+          }] };
+        }
         if (sql.includes('INSERT INTO workflow_definitions')) {
           const values = params || [];
           const row = {
-            workspace_id: values[0], id: values[1], version: 1, origin: values[2], name: values[3],
+            workspace_id: values[0], id: values[1], origin: values[2], name: values[3],
             description: values[4], status: values[5], prompt: values[6],
             agent_ids: JSON.parse(String(values[7])),
             capability_policy: values[8], tags: JSON.parse(String(values[9])),
@@ -110,7 +121,6 @@ describe('development target seed', () => {
           return { rowCount: 1, rows: [{
             workspace_id: DEVELOPMENT_WORKSPACE_ID,
             template_id: 'acornops-starter',
-            template_version: 1,
             state: 'pending',
             installed_by: 'owner-user',
             record_ids: {},
@@ -121,7 +131,6 @@ describe('development target seed', () => {
           return { rowCount: 1, rows: [{
             workspace_id: DEVELOPMENT_WORKSPACE_ID,
             template_id: 'acornops-starter',
-            template_version: 1,
             state: 'complete',
             installed_by: 'owner-user',
             record_ids: params?.[2] || {},
@@ -150,6 +159,8 @@ describe('development target seed', () => {
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workspace_initial_defaults')).length, 1);
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workspace_initial_default_skill_files')).length, 1);
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO agent_definitions')).length, 2);
+    assert.equal(transactionQueries.filter(({ sql }) =>
+      sql.includes('INSERT INTO capability_routing_mappings') && sql.includes('RETURNING *')).length, 3);
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workflow_definitions')).length, 2);
     assert.deepEqual(
       [...agentRows.values()].map((row) => row.name).sort(),
@@ -160,10 +171,10 @@ describe('development target seed', () => {
       [1, 1]
     );
     const kubernetesWorkflow = [...workflowRows.values()].find((row) => row.name === 'Kubernetes health check');
-    assert.match(String(kubernetesWorkflow?.prompt), /available Kubernetes targets.*target tools/);
+    assert.match(String(kubernetesWorkflow?.prompt), /available Kubernetes environments.*MCP tools/);
     assert.equal(
       kubernetesWorkflow?.description,
-      'Inspect available Kubernetes targets for workload failures, warning events, resource pressure, and relevant logs.'
+      'Inspect available Kubernetes environments for workload failures, warning events, resource pressure, and relevant logs.'
     );
     const virtualMachineWorkflow = [...workflowRows.values()].find((row) => row.name === 'Virtual machine health check');
     assert.match(String(virtualMachineWorkflow?.prompt), /filesystem pressure.*degraded systemd services/);

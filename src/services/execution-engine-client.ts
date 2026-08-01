@@ -6,12 +6,19 @@ import { internalFetch } from './internal-http-client.js';
 import { workflowRunAgentClaims } from './workflow-run-agent-claims.js';
 
 export async function dispatchRunToExecutionEngine(run: Run): Promise<void> {
+  if (run.conversationKind === 'agent_chat' && !run.agentId) {
+    throw new Error('Agent-chat dispatch requires an Agent identity');
+  }
+  if (run.conversationKind === 'target_chat' && (!run.targetId || !run.targetType)) {
+    throw new Error('Target-chat dispatch requires a target identity and type');
+  }
   const payload = {
     contract_version: 2,
+    ...(run.conversationKind === 'agent_chat'
+      ? { scope_type: 'agent_chat', agent_id: run.agentId }
+      : { scope_type: 'target', target_id: run.targetId, target_type: run.targetType }),
     run_id: run.id,
     workspace_id: run.workspaceId,
-    target_id: run.targetId,
-    target_type: run.targetType,
     session_id: run.sessionId,
     message_id: run.messageId,
     requested_at: run.requestedAt
@@ -59,10 +66,7 @@ export async function dispatchWorkflowRunToExecutionEngine(run: WorkflowRunRecor
     ...(run.parentRunId ? { parent_run_id: run.parentRunId } : {}),
     attempt_number: run.attemptNumber,
     idempotency_key: run.idempotencyKey,
-    ...(run.targetId ? { target_id: run.targetId } : {}),
-    ...(run.targetType ? { target_type: run.targetType } : {}),
     ...(agentClaims.agentId ? { agent_id: agentClaims.agentId } : {}),
-    ...(agentClaims.agentVersion ? { agent_version: agentClaims.agentVersion } : {}),
     ...(agentClaims.triggerId ? { trigger_id: agentClaims.triggerId } : {}),
     requested_at: run.requestedAt
   };

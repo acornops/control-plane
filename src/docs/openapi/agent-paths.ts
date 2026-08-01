@@ -62,7 +62,7 @@ export function buildAgentPaths(): Record<string, unknown> {
     '/api/v1/workspaces/{workspaceId}/agents/{agentId}/native-tools/{toolId}': {
       put: {
         tags: ['agents'], summary: 'Grant a workspace-native tool to a specialist Agent',
-        description: 'Transactionally grants or updates a workspace-native tool, its optional validated configuration, the Agent version, reviewed routing mappings, semantic ceiling, and dependent readiness. Requires manage_agents; manage_mcp is not required.',
+        description: 'Transactionally grants or updates a workspace-native tool, its optional validated configuration, reviewed routing mappings, semantic ceiling, and dependent readiness. Requires manage_agents; manage_mcp is not required.',
         security: [{ userSession: [] }], parameters: [workspaceIdParameter, agentIdPathParameter, nativeToolIdPathParameter],
         requestBody: {
           required: false,
@@ -135,7 +135,7 @@ export function buildAgentPaths(): Record<string, unknown> {
       get: {
         tags: ['agents'],
         summary: 'List Agent conversations',
-        description: 'Workspace-readable manual conversations for one Agent. System workflow carriers are never returned.',
+        description: 'Workspace-readable manual conversations for one Agent, backed by the interactive conversation runtime.',
         security: [{ userSession: [] }],
         parameters: [workspaceIdParameter, agentIdPathParameter],
         responses: {
@@ -147,7 +147,7 @@ export function buildAgentPaths(): Record<string, unknown> {
       post: {
         tags: ['agents'],
         summary: 'Create an Agent conversation',
-        description: 'Creates a console-only single-Agent conversation with a pinned Agent revision, permissionMode, and capability ceiling. Access defaults to the intersection of the pinned Agent policy and the creator run permissions.',
+        description: 'Creates a single-Agent interactive conversation. Access defaults to the intersection of the current Agent policy and the creator run permissions; each message resolves the current Agent and pins the effective definition and scope on its run.',
         security: [{ userSession: [] }],
         parameters: [workspaceIdParameter, agentIdPathParameter],
         responses: {
@@ -178,7 +178,8 @@ export function buildAgentPaths(): Record<string, unknown> {
         parameters: [agentConversationIdPathParameter],
         responses: {
           '204': { description: 'Conversation deleted.' },
-          '403': { description: 'Creator ownership or delete_sessions is required.' }
+          '403': { description: 'Creator ownership or delete_sessions is required.' },
+          '409': { description: 'The conversation still has an active run.' }
         }
       }
     },
@@ -186,7 +187,7 @@ export function buildAgentPaths(): Record<string, unknown> {
       patch: {
         tags: ['agents'],
         summary: 'Change Agent conversation access mode',
-        description: 'Only the creator may change access. read_write requires creator permission and a pinned Agent policy that allows writes; the pinned capability ceiling remains unchanged.',
+        description: 'Only the creator may change access. read_write requires creator permission and a current Agent policy that allows writes; effective run authority is recomputed for each message.',
         security: [{ userSession: [] }],
         parameters: [agentConversationIdPathParameter],
         requestBody: {
@@ -205,7 +206,7 @@ export function buildAgentPaths(): Record<string, unknown> {
         responses: {
           '200': { description: 'Conversation access changed.' },
           '403': { description: 'Creator ownership and the matching run capability are required.' },
-          '409': { description: 'The pinned Agent policy is read-only.' }
+          '409': { description: 'The current Agent policy is read-only or the Agent is unavailable.' }
         }
       }
     },
@@ -213,7 +214,7 @@ export function buildAgentPaths(): Record<string, unknown> {
       post: {
         tags: ['agents'],
         summary: 'Continue an Agent conversation',
-        description: 'Only the creator may dispatch a message. Revoked pinned capabilities fail closed and newly added capabilities are excluded.',
+        description: 'Only the creator may dispatch a message. The current Agent definition and actor permissions are resolved for each run, then pinned immutably on that run.',
         security: [{ userSession: [] }],
         parameters: [agentConversationIdPathParameter],
         requestBody: {
@@ -224,8 +225,8 @@ export function buildAgentPaths(): Record<string, unknown> {
                 type: 'object',
                 required: ['content'],
                 properties: {
-                  content: { type: 'string', minLength: 1 },
-                  clientRequestId: { type: 'string', format: 'uuid' }
+                  content: { type: 'string', minLength: 1, maxLength: 32768 },
+                  clientRequestId: { type: 'string', minLength: 1, maxLength: 128 }
                 },
                 additionalProperties: false
               }
@@ -233,9 +234,9 @@ export function buildAgentPaths(): Record<string, unknown> {
           }
         },
         responses: {
-          '202': { description: 'Agent conversation message accepted through workflow execution.' },
+          '202': { description: 'Agent conversation message accepted as an interactive run.' },
           '403': { description: 'Only the creator may continue the conversation.' },
-          '409': { description: 'A pinned capability was revoked or runtime readiness failed.' }
+          '409': { description: 'The Agent is unavailable, its policy no longer permits the requested access, or runtime readiness failed.' }
         }
       }
     },
@@ -280,7 +281,7 @@ export function buildAgentPaths(): Record<string, unknown> {
         responses: {
           '204': { description: 'Agent deleted.' },
           '403': { description: 'Requires manage_agents.' },
-          '409': { description: 'The Agent is still assigned to one or more dependent workflows.' }
+          '409': { description: 'The Agent is still assigned to dependent workflows or has active direct-conversation runs.' }
         }
       }
     },
@@ -288,7 +289,7 @@ export function buildAgentPaths(): Record<string, unknown> {
       post: {
         tags: ['agents'],
         summary: 'Duplicate an agent as a manual draft',
-        description: 'Copies the effective definition only. Runs, triggers, activity, schedules, version history, and origin attribution are not copied.',
+        description: 'Copies the effective definition only. Runs, triggers, activity, schedules, and origin attribution are not copied.',
         security: [{ userSession: [] }],
         parameters: [agentIdPathParameter],
         requestBody: {
@@ -316,47 +317,6 @@ export function buildAgentPaths(): Record<string, unknown> {
         responses: {
           '200': { description: 'Sanitized runtime mode, queue, run, trigger, approval, template readiness, and report-source diagnostics.' },
           '403': { description: 'Requires read_workspace_data.' }
-        }
-      }
-    },
-    '/api/v1/agents/{agentId}/versions': {
-      get: {
-        tags: ['agents'],
-        summary: 'List saved agent version snapshots',
-        security: [{ userSession: [] }],
-        parameters: [agentIdPathParameter, agentWorkspaceIdQueryParameter,
-          { in: 'query', name: 'q', required: false, schema: { type: 'string' } },
-          { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100 } },
-          { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } }],
-        responses: {
-          '200': { description: 'Agent version snapshots.' },
-          '403': { description: 'Requires read_workspace_data.' }
-        }
-      },
-      post: {
-        tags: ['agents'],
-        summary: 'Snapshot the current agent version',
-        security: [{ userSession: [] }],
-        parameters: [agentIdPathParameter],
-        requestBody: agentWorkspaceBody,
-        responses: {
-          '201': { description: 'Agent version snapshot created.' }
-        }
-      }
-    },
-    '/api/v1/agents/{agentId}/versions/{versionId}/restore': {
-      post: {
-        tags: ['agents'],
-        summary: 'Restore a saved agent version snapshot',
-        security: [{ userSession: [] }],
-        parameters: [
-          agentIdPathParameter,
-          { in: 'path', name: 'versionId', required: true, schema: { type: 'string' } }
-        ],
-        requestBody: agentWorkspaceBody,
-        responses: {
-          '200': { description: 'Agent restored from snapshot as a new current version.' },
-          '403': { description: 'Requires manage_agents.' }
         }
       }
     },
