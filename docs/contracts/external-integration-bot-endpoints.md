@@ -357,8 +357,8 @@ Post later thread replies as ordinary follow-ups:
 }
 ```
 
-`{{...}}` has no template meaning in follow-up content. Explicit concrete
-`@type[label]` references retain their normal behavior.
+`{{...}}` has no template meaning in follow-up content. Plain-text
+`@target[Target name]` mentions create no resource binding.
 
 Response:
 

@@ -500,11 +500,6 @@
           "approvedContextGrants[]?",
           "no workflowId, status, or principal"
         ],
-        "promptReferenceResolve": [
-          "prompt",
-          "workflowId?",
-          "requirements[]?"
-        ],
         "catalogImport": [
           "artifact",
           "version",
@@ -732,30 +727,6 @@
         ],
         "workflowDefinition": [
           "saved prompt without runtime parameters"
-        ],
-        "promptReferenceDescriptor": [
-          "type",
-          "displayName",
-          "description",
-          "icon",
-          "placeholderLabel",
-          "availability",
-          "unavailableReason?",
-          "minimum",
-          "maximum",
-          "allowPinnedReferences",
-          "provider",
-          "providerVersion"
-        ],
-        "promptReferenceResolution": [
-          "prompt",
-          "promptDigest",
-          "bindingDigest",
-          "tokens[]",
-          "candidates[]",
-          "bindings[]",
-          "blockers[]",
-          "resolvedAt"
         ],
         "generatedDocument": [
           "id",

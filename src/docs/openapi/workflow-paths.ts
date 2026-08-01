@@ -186,35 +186,6 @@ export function buildWorkflowPaths(): Record<string, unknown> {
         responses: { '200': { description: 'Workflow option catalog.' } }
       }
     },
-    '/api/v1/workspaces/{workspaceId}/prompt-reference-types': {
-      get: {
-        tags: ['prompt resources'], summary: 'List prompt reference providers',
-        description: 'Returns registry descriptors, including unavailable providers and bounded reasons. Implicit providers are not author-selectable.',
-        security: [{ userSession: [] }], parameters: [workspaceIdParameter], responses: { '200': { description: 'Registered prompt reference descriptors.' } }
-      }
-    },
-    '/api/v1/workspaces/{workspaceId}/prompt-references/suggestions': {
-      get: {
-        tags: ['prompt resources'], summary: 'Suggest prompt resource candidates',
-        description: 'Returns same-workspace candidates from one registered provider. Candidate IDs are preview data, never launch authority.',
-        security: [{ userSession: [] }], parameters: [workspaceIdParameter,
-          { in: 'query', name: 'type', required: true, schema: { type: 'string' } },
-          { in: 'query', name: 'q', required: false, schema: { type: 'string' } },
-          { in: 'query', name: 'workflowId', required: false, schema: { type: 'string' } },
-          { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } },
-          { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 50 } }],
-        responses: { '200': { description: 'Prompt resource candidates.' } }
-      }
-    },
-    '/api/v1/workspaces/{workspaceId}/prompt-references/resolve': {
-      post: {
-        tags: ['prompt resources'], summary: 'Preview prompt resource resolution',
-        description: 'Authoring-only preview that parses concrete @type[label] references. Run creation always resolves and authorizes again.',
-        security: [{ userSession: [] }], parameters: [workspaceIdParameter],
-        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['prompt'], properties: { prompt: { type: 'string', maxLength: 32768 }, workflowId: { type: 'string' }, requirements: { type: 'array', items: { $ref: '#/components/schemas/PromptResourceRequirement' } } }, additionalProperties: false } } } },
-        responses: { '200': { description: 'Parsed concrete references, candidate status, binding preview, and blockers.' } }
-      }
-    },
     '/api/v1/workspaces/{workspaceId}/workflow-schedules': {
       get: {
         tags: ['workflows'],

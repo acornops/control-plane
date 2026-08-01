@@ -277,36 +277,6 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: false
     },
-    PromptReferenceTypeDescriptor: {
-      type: 'object',
-      required: ['type', 'displayName', 'description', 'icon', 'placeholderLabel', 'availability', 'minimum', 'maximum', 'allowPinnedReferences', 'provider', 'providerVersion'],
-      properties: {
-        type: { type: 'string', pattern: '^[a-z][a-z0-9_-]{0,63}$' },
-        displayName: { type: 'string' }, description: { type: 'string' }, icon: { type: 'string' }, placeholderLabel: { type: 'string' },
-        availability: { type: 'string', enum: ['available', 'unavailable'] }, unavailableReason: { type: 'string' },
-        minimum: { type: 'integer', minimum: 0 }, maximum: { type: 'integer', minimum: 0, maximum: 64 },
-        allowPinnedReferences: { type: 'boolean' }, implicit: { type: 'boolean' }, provider: { type: 'string' }, providerVersion: { type: 'string' }
-      },
-      additionalProperties: false
-    },
-    PromptReferenceTypeList: { type: 'object', required: ['items'], properties: { items: { type: 'array', items: schemaRef('PromptReferenceTypeDescriptor') } }, additionalProperties: false },
-    PromptResourceCandidate: {
-      type: 'object', required: ['type', 'id', 'label', 'provider', 'availability'],
-      properties: { type: { type: 'string' }, id: { type: 'string' }, label: { type: 'string' }, description: { type: 'string' }, provider: { type: 'string' }, availability: { type: 'string', enum: ['available', 'unavailable'] }, unavailableReason: { type: 'string' }, metadata: jsonObject },
-      additionalProperties: false
-    },
-    PromptResourceCandidateList: { type: 'object', required: ['items'], properties: { items: { type: 'array', items: schemaRef('PromptResourceCandidate') } }, additionalProperties: false },
-    PromptReferenceResolution: {
-      type: 'object', required: ['prompt', 'promptDigest', 'bindingDigest', 'tokens', 'candidates', 'bindings', 'blockers', 'resolvedAt'],
-      properties: {
-        prompt: { type: 'string' }, promptDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' }, bindingDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
-        tokens: { type: 'array', items: { type: 'object', required: ['type', 'label', 'start', 'end'], properties: { type: { type: 'string' }, label: { type: 'string' }, start: { type: 'integer' }, end: { type: 'integer' } }, additionalProperties: false } },
-        candidates: { type: 'array', items: { oneOf: [schemaRef('PromptResourceCandidate'), { type: 'null' }] } },
-        bindings: { type: 'array', items: jsonObject },
-        blockers: { type: 'array', items: { type: 'object', required: ['code', 'message', 'retryable'], properties: { code: { type: 'string' }, message: { type: 'string' }, tokenIndex: { type: 'integer' }, type: { type: 'string' }, retryable: { type: 'boolean' } }, additionalProperties: false } },
-        resolvedAt: dateTime
-      }, additionalProperties: false
-    },
     WorkspaceApprovalInbox: {
       type: 'object',
       required: ['items', 'pendingCount'],

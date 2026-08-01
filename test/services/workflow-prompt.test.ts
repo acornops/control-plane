@@ -66,3 +66,16 @@ test('workflow follow-up rejects oversized ordinary text', async () => {
       && error.message.includes('32768')
   );
 });
+
+test('workflow follow-up keeps target mentions as plain text without bindings', async () => {
+  const compiled = await compileWorkflowFollowUp({
+    workflow: textWorkflow('Saved instructions.'),
+    content: 'Check @target[Production API] for errors.',
+    actorUserId: 'user-1',
+    workflowSessionId: 'session-1',
+    initiatingMessageId: 'message-1'
+  });
+
+  assert.equal(compiled.content, 'Check @target[Production API] for errors.');
+  assert.deepEqual(compiled.bindings, []);
+});

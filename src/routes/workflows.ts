@@ -6,7 +6,6 @@ import * as workflowExecutionsController from '../controllers/workflow-execution
 import * as workflowWebhooksController from '../controllers/workflow-webhooks-controller.js';
 import * as catalogController from '../controllers/catalog-controller.js';
 import * as catalogSourcesController from '../controllers/catalog-sources-controller.js';
-import * as promptReferencesController from '../controllers/prompt-references-controller.js';
 
 export const workflowsRouter = Router();
 const authed = authenticatedHandler;
@@ -20,9 +19,6 @@ workflowsRouter.get('/workspaces/:workspaceId/workflow-webhooks', requireUser, a
 workflowsRouter.get('/workspaces/:workspaceId/workflow-executions', requireUser, authed(workflowExecutionsController.listWorkspaceWorkflowExecutions));
 workflowsRouter.post('/workspaces/:workspaceId/workflow-webhooks', requireUser, authed(workflowWebhooksController.createWorkspaceWorkflowWebhook));
 workflowsRouter.get('/workspaces/:workspaceId/workflow-options', requireUser, authed(workflowsController.listWorkflowOptions));
-workflowsRouter.get('/workspaces/:workspaceId/prompt-reference-types', requireUser, authed(promptReferencesController.listPromptReferenceTypes));
-workflowsRouter.get('/workspaces/:workspaceId/prompt-references/suggestions', requireUser, authed(promptReferencesController.suggestPromptReferences));
-workflowsRouter.post('/workspaces/:workspaceId/prompt-references/resolve', requireUser, authed(promptReferencesController.resolvePromptReferences));
 workflowsRouter.get('/workspaces/:workspaceId/catalog/sources', requireUser, authed(catalogController.listWorkspaceCatalogSources));
 workflowsRouter.post('/workspaces/:workspaceId/catalog/sources', requireUser, authed(catalogController.createWorkspaceCatalogSource));
 workflowsRouter.patch('/workspaces/:workspaceId/catalog/sources/:sourceId', requireUser, authed(catalogSourcesController.updateWorkspaceCatalogSource));

@@ -5,10 +5,8 @@ import type {
 import type { WorkflowDefinitionForAccess } from '../types/workflows.js';
 import {
   digestBindings,
-  digestPrompt,
-  promptResourceRegistry
+  digestPrompt
 } from './prompt-resources/index.js';
-import { PromptResourceProviderError } from './prompt-resources/errors.js';
 
 export {
   MAX_WORKFLOW_RESOURCE_BINDINGS,
@@ -99,28 +97,5 @@ export async function compileWorkflowFollowUp(input: {
       `Follow-up content exceeds the ${MAX_WORKFLOW_PROMPT_LENGTH} character limit.`
     );
   }
-  const contextResolution = await promptResourceRegistry.resolve('', {
-    workspaceId: input.workflow.workspaceId,
-    actorUserId: input.actorUserId,
-    workflowId: input.workflow.id,
-    workflowSessionId: input.workflowSessionId,
-    initiatingMessageId: input.initiatingMessageId,
-    source: 'implicit',
-    mode: 'launch',
-    requirements: []
-  }, {
-    enforceCardinality: false,
-    includeImplicit: true
-  });
-  if (contextResolution.blockers.length > 0) {
-    const first = contextResolution.blockers[0];
-    throw new PromptResourceProviderError(first.code, first.message, first.retryable);
-  }
-  return {
-    content,
-    bindings: contextResolution.bindings,
-    promptDigest: digestPrompt(content),
-    bindingDigest: digestBindings(contextResolution.bindings),
-    resolvedAt: contextResolution.resolvedAt
-  };
+  return plainPrompt(content);
 }
