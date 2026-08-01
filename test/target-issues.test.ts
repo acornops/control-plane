@@ -73,6 +73,8 @@ describe('target issue derivation', () => {
     assert.equal(new Set(observations.map((observation) => observation.fingerprint)).size, 1);
     assert(observations.every((observation) => observation.objectName === 'backup.service'));
     assert(observations.every((observation) => observation.issueType === 'vm_service_unhealthy'));
+    assert(observations.every((observation) => observation.title === 'Service backup.service failed'));
+    assert(observations.every((observation) => observation.summary === 'Latest VM snapshot reports service backup.service as failed (failed).'));
   });
 
   it('treats VM failed service state casing as critical', () => {
@@ -87,6 +89,7 @@ describe('target issue derivation', () => {
 
     assert.equal(observations.length, 1);
     assert.equal(observations[0].severity, 'critical');
+    assert.equal(observations[0].title, 'Service api.service failed');
     assert.equal(observations[0].reason, 'Failed');
   });
 });

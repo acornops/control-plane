@@ -99,6 +99,36 @@ describe('virtual machine metric history normalization', () => {
     });
   });
 
+  it('maps snake-case AgentV snapshot values through stored metric history', () => {
+    const summary = summarizeVirtualMachineSnapshotMetrics({
+      data: {
+        host_summary: {
+          load: { one: 0.1, five: 0.2, fifteen: 0.3 },
+          cpu: { usage_percent: 5 },
+          memory: { total_bytes: 1024, available_bytes: 256, used_bytes: 768, used_percent: 75 },
+          swap: { total_bytes: 2048, free_bytes: 1536, used_bytes: 512, used_percent: 25 }
+        },
+        filesystems: [
+          { filesystem: '/dev/vda1', mount: '/', total_bytes: 1000, used_bytes: 300, free_bytes: 700, used_percent: 30 }
+        ]
+      }
+    } as never);
+
+    assert(summary);
+    const point = mapVirtualMachineMetricHistoryPoint(createMetricPoint(summary));
+    assert.equal(point.cpuUsagePercent, 5);
+    assert.equal(point.memoryUsedBytes, 768);
+    assert.equal(point.memoryTotalBytes, 1024);
+    assert.equal(point.memoryFreeBytes, null);
+    assert.equal(point.memoryUsedPercent, 75);
+    assert.equal(point.swapUsedBytes, 512);
+    assert.equal(point.swapTotalBytes, 2048);
+    assert.equal(point.swapUsedPercent, 25);
+    assert.equal(point.rootDiskUsedBytes, 300);
+    assert.equal(point.rootDiskTotalBytes, 1000);
+    assert.equal(point.rootDiskUsedPercent, 30);
+  });
+
   it('chooses the highest-utilization disk when no explicit root mount exists', () => {
     const point = mapVirtualMachineMetricHistoryPoint(createMetricPoint({
       disks: [
