@@ -45,9 +45,13 @@ function hasValidUsage(used: number | null, total: number | null): boolean {
   return used !== null && total !== null && total > 0 && used <= total;
 }
 
+function aliasedMetricValue(value: Record<string, unknown> | null, camelCaseKey: string, snakeCaseKey: string): unknown {
+  return value?.[camelCaseKey] ?? value?.[snakeCaseKey];
+}
+
 function usageBytes(value: Record<string, unknown> | null): { usedBytes: number | null; totalBytes: number | null } {
-  const usedBytes = nonNegativeNumber(value?.usedBytes);
-  const totalBytes = nonNegativeNumber(value?.totalBytes);
+  const usedBytes = nonNegativeNumber(aliasedMetricValue(value, 'usedBytes', 'used_bytes'));
+  const totalBytes = nonNegativeNumber(aliasedMetricValue(value, 'totalBytes', 'total_bytes'));
   return usedBytes !== null && totalBytes !== null && usedBytes > totalBytes
     ? { usedBytes: null, totalBytes }
     : { usedBytes, totalBytes };
@@ -61,14 +65,17 @@ function loadAverageAt(value: unknown, index: number): number | null {
 function chooseRootDisk(disks: unknown): Record<string, unknown> | null {
   if (!Array.isArray(disks)) return null;
   const candidates = disks.map(record).filter((disk): disk is Record<string, unknown> => Boolean(disk));
-  const validCandidates = candidates.filter((disk) => hasValidUsage(nonNegativeNumber(disk.usedBytes), nonNegativeNumber(disk.totalBytes)));
+  const validCandidates = candidates.filter((disk) => hasValidUsage(
+    nonNegativeNumber(aliasedMetricValue(disk, 'usedBytes', 'used_bytes')),
+    nonNegativeNumber(aliasedMetricValue(disk, 'totalBytes', 'total_bytes'))
+  ));
   const explicitRoot = validCandidates.find((disk) => disk.mount === '/' || disk.mountpoint === '/');
   if (explicitRoot) return explicitRoot;
 
   let highest: { disk: Record<string, unknown>; ratio: number } | null = null;
   for (const disk of validCandidates) {
-    const usedBytes = nonNegativeNumber(disk.usedBytes) as number;
-    const totalBytes = nonNegativeNumber(disk.totalBytes) as number;
+    const usedBytes = nonNegativeNumber(aliasedMetricValue(disk, 'usedBytes', 'used_bytes')) as number;
+    const totalBytes = nonNegativeNumber(aliasedMetricValue(disk, 'totalBytes', 'total_bytes')) as number;
     const ratio = usedBytes / totalBytes;
     if (!highest || ratio > highest.ratio) highest = { disk, ratio };
   }
@@ -83,9 +90,9 @@ export function mapVirtualMachineMetricHistoryPoint(
   const rootDisk = chooseRootDisk(point.metrics.disks);
   const memoryUsage = usageBytes(memory);
   const swapBytes = usageBytes(swap);
-  const memoryFreeBytes = nonNegativeNumber(memory?.freeBytes);
-  const rootDiskUsedBytes = nonNegativeNumber(rootDisk?.usedBytes);
-  const rootDiskTotalBytes = nonNegativeNumber(rootDisk?.totalBytes);
+  const memoryFreeBytes = nonNegativeNumber(aliasedMetricValue(memory, 'freeBytes', 'free_bytes'));
+  const rootDiskUsedBytes = nonNegativeNumber(aliasedMetricValue(rootDisk, 'usedBytes', 'used_bytes'));
+  const rootDiskTotalBytes = nonNegativeNumber(aliasedMetricValue(rootDisk, 'totalBytes', 'total_bytes'));
 
   return {
     timestamp: point.timestamp,

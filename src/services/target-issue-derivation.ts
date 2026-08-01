@@ -418,7 +418,9 @@ export function deriveVirtualMachineIssueObservations(
     if (name) serviceStates.set(name, service);
     if (!name || !/failed|degraded/i.test(`${activeState} ${subState}`)) continue;
     const severity: TargetIssueSeverity = normalizedActiveState === 'failed' ? 'critical' : 'warning';
-    const title = `Service ${name} is ${activeState}`;
+    const title = normalizedActiveState === 'failed'
+      ? `Service ${name} failed`
+      : `Service ${name} is ${activeState}`;
     const summary = `Latest VM snapshot reports service ${name} as ${activeState}${subState ? ` (${subState})` : ''}.`;
     observations.push({
       targetId: vm.id,
@@ -449,11 +451,16 @@ export function deriveVirtualMachineIssueObservations(
     const reason = text(finding.code, 'finding');
     const serviceLike = /service|systemd/i.test(objectKind);
     const issueType = serviceLike ? 'vm_service_unhealthy' : 'vm_host_finding';
-    const title = text(finding.summary, 'VM issue');
-    const summary = text(finding.summary, 'VM diagnostic issue');
     const matchingService = serviceLike ? serviceStates.get(objectName) : undefined;
-    const activeState = text(matchingService?.active_state, reason);
+    const failedServiceFinding = serviceLike && reason.toUpperCase() === 'SERVICE_FAILED';
+    const activeState = text(matchingService?.active_state, failedServiceFinding ? 'failed' : reason);
     const subState = text(matchingService?.sub_state, activeState);
+    const title = failedServiceFinding
+      ? `Service ${objectName} failed`
+      : text(finding.summary, 'VM issue');
+    const summary = failedServiceFinding
+      ? `Latest VM snapshot reports service ${objectName} as ${activeState}${subState ? ` (${subState})` : ''}.`
+      : text(finding.summary, 'VM diagnostic issue');
     observations.push({
       targetId: vm.id,
       workspaceId: vm.workspaceId,
