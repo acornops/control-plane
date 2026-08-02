@@ -2,7 +2,6 @@ import type { WorkspaceCapability } from '../auth/authorization.js';
 import type { AgentDefinition, RunPrincipalRef } from '../types/agents.js';
 import type { CapabilityRoutingMapping } from '../types/capability-routing.js';
 import type { WorkspaceAuditOperation } from '../types/domain.js';
-import type { PromptResourceBinding } from '../types/prompt-resources.js';
 import type {
   CompiledWorkflowAccessScope,
   WorkflowAccessActor,
@@ -21,9 +20,6 @@ export interface CompileWorkflowAccessInput {
   specialistAgent?: AgentDefinition;
   mappings: CapabilityRoutingMapping[];
   actor: WorkflowAccessActor;
-  resourceBindings?: PromptResourceBinding[];
-  promptDigest?: string;
-  bindingDigest?: string;
   triggerId?: string;
   principal?: RunPrincipalRef;
   delegatedSpecialist?: boolean;
@@ -143,8 +139,6 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
   const executor = specialist
     ? { role: 'specialist' as const, agentId: specialist.id }
     : { role: 'coordinator' as const };
-  const executorResourceBindings = coordinator ? [] : [...(input.resourceBindings || [])];
-
   return {
     workflowId: input.workflow.id,
     workspaceId: input.workflow.workspaceId,
@@ -168,10 +162,6 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
     executor,
     selectedAgentSnapshots: specialist ? [specialist] : [],
     routingMappingSnapshots: coordinator ? input.mappings : [],
-    resourceBindings: executorResourceBindings,
-    promptDigest: input.promptDigest,
-    bindingDigest: input.bindingDigest,
-    resourceResolutionPhase: 'run_exact',
     coordinationFunctions: coordinator ? [...COORDINATOR_FUNCTIONS] : [],
     jwtClaims: {
       scope: { type: 'workspace' },
@@ -182,15 +172,7 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
       permissions: {
         allowed_tools: effectiveTools,
         allowed_tool_refs: effectiveRefs.map((ref) => ({ server_id: ref.serverId, tool_name: ref.toolName })),
-        allowed_tool_operations: toolOperations,
-        resource_bindings: executorResourceBindings.map((binding) => ({
-          binding_id: binding.bindingId,
-          type: binding.type,
-          resource_id: binding.resourceId,
-          provider: binding.provider,
-          operations: binding.operations
-        })),
-        binding_digest: input.bindingDigest
+        allowed_tool_operations: toolOperations
       }
     }
   };
@@ -223,8 +205,6 @@ export function compileWorkflowSessionCeiling(
     executor,
     selectedAgentSnapshots: input.selectedAgents,
     routingMappingSnapshots: input.mappings,
-    resourceBindings: [],
-    resourceResolutionPhase: 'session_ceiling',
     coordinationFunctions: executor.role === 'coordinator' ? [...COORDINATOR_FUNCTIONS] : [],
     jwtClaims: {
       scope: { type: 'workspace' },
@@ -232,7 +212,7 @@ export function compileWorkflowSessionCeiling(
       executor_role: executor.role,
       ...(specialist ? { agent_id: specialist.id } : {}),
       permissions: {
-        allowed_tools: [], allowed_tool_refs: [], allowed_tool_operations: {}, resource_bindings: []
+        allowed_tools: [], allowed_tool_refs: [], allowed_tool_operations: {}
       }
     }
   };

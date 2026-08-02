@@ -76,10 +76,10 @@ async function insertActivityExecution(input: {
     `INSERT INTO workflow_runs (
        id,execution_id,workspace_id,workflow_id,workflow_session_id,message_id,created_by,status,
        compiled_access_scope,requested_at,started_at,ended_at,attempt_number,executor_role,
-       agent_id,executor_snapshot,idempotency_key,resolved_at
+       agent_id,executor_snapshot,idempotency_key
      ) VALUES (
        $1,$2,$3,'cluster-triage',$4,$5,'user-1',$6,'{}'::jsonb,$7,$7,$8,1,'specialist',
-       'agent-cluster-triage','{"role":"specialist"}'::jsonb,$9,$7
+       'agent-cluster-triage','{"role":"specialist"}'::jsonb,$9
      )`,
     [
       runId,

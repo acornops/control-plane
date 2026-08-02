@@ -6,6 +6,12 @@ import {
   removeServer
 } from '../src/controllers/agent-mcp-controller.js';
 import {
+  getTargetAccess,
+  putTargetAccess
+} from '../src/controllers/agent-target-access-controller.js';
+import { config } from '../src/config.js';
+import { db } from '../src/infra/db.js';
+import {
   callController,
   createRequest,
   installWorkspace,
@@ -20,6 +26,16 @@ import {
 beforeEach(async () => {
   await resetAutomationDatabaseFixtures();
   await installAutomationTemplateFixtures(['workspace-1']);
+  await db.query(
+    `UPDATE agent_definitions
+     SET mcp_installations=$1
+     WHERE workspace_id='workspace-1' AND id='agent-cluster-triage'`,
+    [JSON.stringify([{
+      id: '11111111-1111-4111-8111-111111111111',
+      name: 'AcornOps Targets',
+      url: config.BUILTIN_TARGET_MCP_SERVER_URL
+    }])]
+  );
   installWorkspace('admin');
 });
 afterEach(() => {
@@ -71,6 +87,88 @@ function params() {
 }
 
 describe('Agent Targets MCP management boundary', () => {
+  it('reads and persists normalized Agent target access', async () => {
+    const initial = await callController(getTargetAccess, createRequest(params()));
+    assert.equal(initial.statusCode, 200);
+    assert.deepEqual((initial.body as { policy: unknown }).policy, { mode: 'all', targetIds: [] });
+    assert.deepEqual(
+      (initial.body as { targets: Array<{ id: string }> }).targets.map((target) => target.id),
+      ['cluster-1']
+    );
+
+    const updated = await callController(putTargetAccess, createRequest(params(), {
+      mode: 'allowlist',
+      targetIds: [' cluster-1 ', 'cluster-1']
+    }));
+    assert.equal(updated.statusCode, 200);
+    assert.deepEqual((updated.body as { policy: unknown }).policy, {
+      mode: 'allowlist',
+      targetIds: ['cluster-1']
+    });
+
+    const persisted = await db.query<{ target_access_policy: unknown }>(
+      `SELECT target_access_policy
+       FROM agent_definitions
+       WHERE workspace_id='workspace-1' AND id='agent-cluster-triage'`
+    );
+    assert.deepEqual(persisted.rows[0].target_access_policy, {
+      mode: 'allowlist',
+      targetIds: ['cluster-1']
+    });
+  });
+
+  it('rejects target IDs outside the Agent workspace', async () => {
+    const response = await callController(putTargetAccess, createRequest(params(), {
+      mode: 'denylist',
+      targetIds: ['cluster-2']
+    }));
+    assert.equal(response.statusCode, 400);
+    assert.equal(
+      (response.body as { error: { code: string } }).error.code,
+      'AGENT_TARGET_ACCESS_TARGET_INVALID'
+    );
+  });
+
+  it('omits deleted target IDs from the effective settings response', async () => {
+    await db.query(
+      `UPDATE agent_definitions
+       SET target_access_policy=$1
+       WHERE workspace_id='workspace-1' AND id='agent-cluster-triage'`,
+      [JSON.stringify({ mode: 'denylist', targetIds: ['cluster-1', 'deleted-target'] })]
+    );
+
+    const response = await callController(getTargetAccess, createRequest(params()));
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual((response.body as { policy: unknown }).policy, {
+      mode: 'denylist',
+      targetIds: ['cluster-1']
+    });
+  });
+
+  it('allows workspace readers to inspect settings but not update them', async () => {
+    installWorkspace('viewer');
+    const read = await callController(getTargetAccess, createRequest(params()));
+    const write = await callController(putTargetAccess, createRequest(params(), {
+      mode: 'all',
+      targetIds: []
+    }));
+    assert.equal(read.statusCode, 200);
+    assert.equal(write.statusCode, 403);
+  });
+
+  it('rejects unknown policy fields', async () => {
+    const response = await callController(putTargetAccess, createRequest(params(), {
+      mode: 'all',
+      targetIds: [],
+      workflowId: 'workflow-1'
+    }));
+    assert.equal(response.statusCode, 400);
+    assert.equal(
+      (response.body as { error: { code: string } }).error.code,
+      'AGENT_TARGET_ACCESS_INVALID'
+    );
+  });
+
   it('rejects connection, deletion, and no-op revision mutations', async () => {
     const gateway = mock.method(globalThis, 'fetch', async () => Response.json([builtinServer()]));
 

@@ -58,9 +58,7 @@ function run(agentSnapshot: AgentDefinition, overrides: Partial<Run> = {}): Run 
     enabledSkills: agentSnapshot.skillInstallations.filter((skill) => skill.enabled).map((skill) => skill.id),
     mode: 'read_only',
     permissionMode: 'read_only',
-    principal: { type: 'user', id: 'user-1' },
-    resourceBindings: [],
-    resourceResolutionPhase: 'run_exact'
+    principal: { type: 'user', id: 'user-1' }
   } as unknown as CompiledAgentChatAccessScope;
   return {
     id: 'run-1',
@@ -143,12 +141,9 @@ describe('Agent chat contract', () => {
     assert.equal(agentConversationPolicyAllowsAccess('auto_allowed_changes', 'read_write'), true);
   });
 
-  it('normalizes each message into an exact empty-resource binding snapshot', () => {
+  it('normalizes each message', () => {
     const compiled = compileAgentConversationMessage('Cafe\u0301');
     assert.equal(compiled.content, 'Café');
-    assert.deepEqual(compiled.bindings, []);
-    assert.match(compiled.promptDigest, /^[a-f0-9]{64}$/);
-    assert.match(compiled.bindingDigest, /^[a-f0-9]{64}$/);
   });
 
   it('keeps an Agent usable when optional MCP capabilities have no current tool mapping', () => {

@@ -1,12 +1,10 @@
 import type { WorkspaceCapability } from '../auth/authorization.js';
 import type { AgentDefinition } from '../types/agents.js';
 import type { CompiledAgentChatAccessScope } from '../types/agent-chat.js';
-import type { PromptResourceBinding } from '../types/prompt-resources.js';
 import type { CapabilityAccessActor } from '../types/capability-access.js';
 import { listCapabilityRoutingMappings } from '../store/repository-capability-routing.js';
 import { compileAgentCapabilityProjection } from './agent-capability-access.js';
 import { CapabilityAccessDeniedError } from './capability-access-errors.js';
-import { digestBindings, digestPrompt } from './prompt-resources/index.js';
 import { resolveCapabilityRoutingMappings } from './capability-routing-resolution.js';
 
 export function defaultAgentConversationAccessMode(
@@ -30,9 +28,6 @@ export async function compileAgentConversationRunScope(input: {
   agent: AgentDefinition;
   actor: CapabilityAccessActor;
   accessMode: 'read_only' | 'read_write';
-  resourceBindings: PromptResourceBinding[];
-  promptDigest: string;
-  bindingDigest: string;
 }): Promise<CompiledAgentChatAccessScope> {
   const requiredCapability: WorkspaceCapability = input.accessMode === 'read_write'
     ? 'create_read_write_runs'
@@ -69,10 +64,7 @@ export async function compileAgentConversationRunScope(input: {
     approvalGates: input.accessMode === 'read_write'
       && input.agent.permissionMode !== 'auto_allowed_changes'
       ? ['tool_write']
-      : [],
-    resourceBindings: input.resourceBindings,
-    promptDigest: input.promptDigest,
-    bindingDigest: input.bindingDigest
+      : []
   });
   return {
     agentId: input.agent.id,
@@ -88,12 +80,7 @@ export async function compileAgentConversationRunScope(input: {
 export const MAX_AGENT_CONVERSATION_MESSAGE_LENGTH = 32_768;
 
 export function compileAgentConversationMessage(content: string) {
-  const normalizedContent = content.normalize('NFC');
-  const bindings: PromptResourceBinding[] = [];
   return {
-    content: normalizedContent,
-    bindings,
-    promptDigest: digestPrompt(normalizedContent),
-    bindingDigest: digestBindings(bindings)
+    content: content.normalize('NFC')
   };
 }

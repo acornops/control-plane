@@ -50,8 +50,7 @@ describe('Workflow gateway token service', () => {
       allowed_native_tools: [],
       allowed_tool_operations: { 'mcp.tools.list': 'read', 'audit.events.search': 'read' },
       max_output_tokens: 1024,
-      allowed_models: ['gpt-4.1-mini'],
-      resource_bindings: []
+      allowed_models: ['gpt-4.1-mini']
     });
 
     const claims = await gatewayTokenService.verifyRunScopeToken(token);

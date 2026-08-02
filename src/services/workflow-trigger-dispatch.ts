@@ -16,7 +16,6 @@ import {
 } from './workflow-access.js';
 import { emitWorkflowExecutionEvents } from './workflow-execution-events.js';
 import { isModelAllowedForProvider } from './llm-policy.js';
-import { PromptResourceProviderError } from './prompt-resources/index.js';
 import { resolveRunPrincipal } from './run-principal.js';
 import { getWorkflowCapabilityReadinessErrors } from './mcp-readiness.js';
 import {
@@ -103,14 +102,11 @@ export async function dispatchWorkflowTrigger(
   let compiledAccessScope;
   let sessionAccessScope;
   let specialistAgent: AgentDefinition | undefined;
-  let resolution;
+  let compiledPrompt;
 
   try {
-    resolution = await compileWorkflowPrompt({
-      workflow,
-      actorUserId: runtimeSubject.userId,
-      initiatingMessageId: messageId,
-      source: 'trigger'
+    compiledPrompt = compileWorkflowPrompt({
+      workflow
     });
     const snapshot = await resolveWorkflowRoutingSnapshot(workflow);
     const { readiness, selectedAgents, mappings } = snapshot;
@@ -135,15 +131,11 @@ export async function dispatchWorkflowTrigger(
       specialistAgent,
       mappings,
       actor: runtimeSubject,
-      principal: trigger.principal,
-      resourceBindings: resolution.bindings,
-      promptDigest: resolution.promptDigest,
-      bindingDigest: resolution.bindingDigest
+      principal: trigger.principal
     });
   } catch (error) {
     if (
       error instanceof WorkflowAccessDeniedError
-      || error instanceof PromptResourceProviderError
       || error instanceof WorkflowPromptValidationError
     ) {
       return {
@@ -190,7 +182,7 @@ export async function dispatchWorkflowTrigger(
     session,
     compiledAccessScope,
     messageId,
-    content: resolution.content,
+    content: compiledPrompt.content,
     triggerType: trigger.triggerType,
     triggerId: trigger.id,
     occurrenceKey: trigger.occurrenceKey,
@@ -207,10 +199,6 @@ export async function dispatchWorkflowTrigger(
           label: trigger.name,
           webhookId: trigger.id
         },
-    promptDigest: resolution.promptDigest,
-    bindingDigest: resolution.bindingDigest,
-    resourceBindings: resolution.bindings,
-    resolvedAt: resolution.resolvedAt,
     markSessionLaunched: true,
     specialistSnapshot: specialistAgent,
     llmProvider: aiSettings.provider,

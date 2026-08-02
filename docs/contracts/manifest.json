@@ -149,11 +149,16 @@
         "agentOnlyAdditions": ["native_tools", "mcp_servers", "mcp_tools", "skills"],
         "runtimeToolIdentity": "McpToolRef{serverId,toolName}"
       },
+      "agentTargetsMcpAccess": {
+        "owner": "Target access policy belongs to the Agent's built-in Targets MCP server and is inherited by every Agent run context.",
+        "modes": ["all", "allowlist", "denylist"],
+        "enforcement": "The control plane filters list_targets and rejects denied target IDs before target lookup. Workflows do not own or override target access."
+      },
       "workflowRuntimeLimits": {
         "authority": "ASSISTANT_MAX_RUNTIME_MS is the only workflow execution limit and GENERATED_DOCUMENT_RETENTION_DAYS is the only generated-document retention policy.",
         "mutationContract": "Workflow mutations accept no capability, context, permission, approval, runtime, or retention policy. Deployment runtime and retention configuration remains authoritative.",
         "options": "Workflow option catalogs expose assignable Agents only.",
-        "capabilities": "Workflow capability mode is derived from assigned Agents; prompt context is authorized through explicit resource bindings."
+        "capabilities": "Workflow capability mode and target access are inherited from assigned Agents without Workflow-level overrides."
       },
       "workflowCapabilityPreview": {
         "path": "POST /api/v1/workflows/{workflowId}/capabilities-preview",
@@ -163,7 +168,6 @@
           "ready",
           "blocked"
         ],
-        "digests": "Responses include promptDigest and bindingDigest from the exact runtime-parameter compilation used for an accepted launch.",
         "mcpAuthRequirements": "Every credentialed MCP server in the compiled Agent scope emits mcpRequirements[].{serverId,serverName,authType,owningAgent.{id,name},connectionState,authRequirement.{scope,credentialLabel,requiredInformation[].{name,description}},action}; generic connection metadata and guidance only, never provider profiles, URLs, headers, or credential values",
         "privacy": "Responses expose bounded reason codes and explicit capability-preview metadata only; compiled scopes, credentials, URLs, headers, tool arguments, input schemas, private connection state, and internal coordinator identity are excluded.",
         "mutation": "Preview creates no session, execution, run, approval, or audit record. Dispatch recompiles an internal authoritative scope that is never returned by the public API."
@@ -956,7 +960,6 @@
         "assistant?.{targetType?,instructions}",
         "policy.{max_runtime_ms,max_output_tokens,budget_cents,max_steps,max_tool_calls,max_duplicate_tool_calls}",
         "context.{endpoint,max_context_tokens}",
-        "resources.{prompt_digest,binding_digest,resolved_at,bindings[].{binding_id,type,resource_id,provider,provider_version,workspace_id,label_snapshot,source,operations,context_mode,provider_data?}}",
         "llm.{provider,model,temperature,mode,reasoning.{summary_mode,effort},gateway.{url,token,request_timeout_ms}}",
         "tools.{tool_registry_version,allowed_tools,allowed_tool_refs[].{server_id,tool_name},native_tools,platform_functions[].{id,model_alias},tool_specs[].{server_id?,tool_ref?},referenced_tools[].{name,label,server_id?,tool_name?},write_unavailable_reason?,gateway.{url,token},confirmation_required_for_write,approval_timeout_seconds}",
         "skills?.{contract_version,entries[].{ref,skill_id,name,description,file_count,total_bytes},referenced_refs[],load_endpoint}",
@@ -970,7 +973,6 @@
         "target_insights.retrieval_status",
         "target_insights.snippets[]"
       ],
-      "promptResourceIntegrity": "The execution engine rejects duplicate bindings, oversized or malformed claims, and any binding array whose canonical SHA-256 digest differs from resources.binding_digest.",
       "eventFrameFields": [
         "schema_version",
         "run_id",
@@ -1278,8 +1280,6 @@
         "allowed_tool_refs[].tool_name",
         "allowed_native_tools",
         "allowed_tool_operations?",
-        "resource_bindings[].{binding_id,type,resource_id,provider,provider_version,workspace_id,label_snapshot,source,operations,context_mode,provider_data?}",
-        "binding_digest",
         "max_output_tokens"
       ],
       "runJwtNonTargetScopeFields": [

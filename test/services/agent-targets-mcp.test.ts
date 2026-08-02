@@ -11,6 +11,10 @@ import {
   AgentTargetsMcpExecutionError,
   executeAgentTargetsMcpTool
 } from '../../src/services/agent-targets-mcp-executor.js';
+import {
+  normalizeAgentTargetAccessPolicy,
+  targetAllowedByAgentPolicy
+} from '../../src/services/agent-target-access.js';
 import { repo } from '../../src/store/repository.js';
 
 afterEach(() => mock.restoreAll());
@@ -50,12 +54,12 @@ describe('Agent Targets MCP server', () => {
     assert.equal(mapped.canToggle, true);
   });
 
-  it('lists the full workspace target inventory without an Agent target binding', async () => {
+  it('lists the full workspace target inventory when the Agent allows all targets', async () => {
     mock.method(repo, 'listTargets', async (workspaceId, options) => {
       assert.equal(workspaceId, 'workspace-1');
       assert.equal(options.targetType, 'kubernetes');
       assert.equal(options.limit, 10);
-      assert.equal('allowedTargetIds' in options, false);
+      assert.equal(options.targetAccess, undefined);
       return {
         items: [{
           id: 'cluster-1', workspaceId, targetType: 'kubernetes', name: 'Production',
@@ -73,6 +77,61 @@ describe('Agent Targets MCP server', () => {
       (result.structuredContent as { items: Array<{ id: string }> }).items.map((item) => item.id),
       ['cluster-1']
     );
+  });
+
+  it('passes allowlist and denylist policies into the target query', async () => {
+    const observed: unknown[] = [];
+    mock.method(repo, 'listTargets', async (_workspaceId, options) => {
+      observed.push(options.targetAccess);
+      return { items: [], nextCursor: undefined };
+    });
+    await executeAgentTargetsMcpTool({
+      workspaceId: 'workspace-1',
+      toolName: 'list_targets',
+      arguments: {},
+      targetAccessPolicy: { mode: 'allowlist', targetIds: ['cluster-1'] }
+    });
+    await executeAgentTargetsMcpTool({
+      workspaceId: 'workspace-1',
+      toolName: 'list_targets',
+      arguments: {},
+      targetAccessPolicy: { mode: 'denylist', targetIds: ['cluster-2'] }
+    });
+    assert.deepEqual(observed, [
+      { mode: 'allowlist', targetIds: ['cluster-1'] },
+      { mode: 'denylist', targetIds: ['cluster-2'] }
+    ]);
+  });
+
+  it('normalizes target access defensively before enforcement', () => {
+    assert.deepEqual(normalizeAgentTargetAccessPolicy({
+      mode: 'allowlist',
+      targetIds: [' target-b ', 'target-a', 'target-a']
+    }), { mode: 'allowlist', targetIds: ['target-a', 'target-b'] });
+    assert.deepEqual(normalizeAgentTargetAccessPolicy({
+      mode: 'all',
+      targetIds: ['ignored']
+    }), { mode: 'all', targetIds: [] });
+    assert.equal(targetAllowedByAgentPolicy({ mode: 'allowlist', targetIds: [] }, 'target-1'), false);
+    assert.equal(targetAllowedByAgentPolicy({ mode: 'denylist', targetIds: [] }, 'target-1'), true);
+  });
+
+  it('does not query denied target IDs', async () => {
+    const getTarget = mock.method(repo, 'getTarget', async () => {
+      throw new Error('denied target lookup reached the repository');
+    });
+    await assert.rejects(
+      executeAgentTargetsMcpTool({
+        workspaceId: 'workspace-1',
+        toolName: 'get_target',
+        arguments: { target_id: 'cluster-2' },
+        targetAccessPolicy: { mode: 'allowlist', targetIds: ['cluster-1'] }
+      }),
+      (error: unknown) => error instanceof AgentTargetsMcpExecutionError
+        && error.code === 'TARGET_NOT_FOUND'
+        && error.message === 'Target not found or unavailable to this Agent.'
+    );
+    assert.equal(getTarget.mock.callCount(), 0);
   });
 
   it('rejects unknown arguments before querying', async () => {

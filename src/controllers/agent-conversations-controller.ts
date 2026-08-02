@@ -341,14 +341,11 @@ export async function postAgentConversationMessage(req: AuthenticatedRequest, re
         retryable: false
       } });
     }
-    const resolution = compileAgentConversationMessage(content);
+    const compiledMessage = compileAgentConversationMessage(content);
     const compiledScope = await compileAgentConversationRunScope({
       agent,
       actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
-      accessMode,
-      promptDigest: resolution.promptDigest,
-      bindingDigest: resolution.bindingDigest,
-      resourceBindings: resolution.bindings
+      accessMode
     });
     const readiness = await getExactMcpReadinessReport(
       session.workspaceId,
@@ -366,7 +363,7 @@ export async function postAgentConversationMessage(req: AuthenticatedRequest, re
       sessionId: session.id,
       workspaceId: session.workspaceId,
       agent,
-      content: resolution.content,
+      content: compiledMessage.content,
       toolAccessMode: accessMode,
       compiledAccessScope: compiledScope,
       llmProvider: llm.provider,

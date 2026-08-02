@@ -13,7 +13,6 @@ import { AgentToolCallError, AgentUnavailableError } from '../src/agent/types.js
 import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { db } from '../src/infra/db.js';
 import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
-import { digestBindings, digestPrompt } from '../src/services/prompt-resources/registry.js';
 import { repo } from '../src/store/repository.js';
 import { getAgentDefinition } from '../src/store/repository-agents.js';
 import { listCapabilityRoutingMappings } from '../src/store/repository-capability-routing.js';
@@ -150,10 +149,6 @@ describe('internal MCP and native-tool regressions', () => {
       session,
       compiledAccessScope,
       content: 'Generate an incident report.',
-      promptDigest: digestPrompt('Generate an incident report.'),
-      bindingDigest: digestBindings([]),
-      resourceBindings: [],
-      resolvedAt: new Date().toISOString(),
       specialistSnapshot: specialist
     });
     const run = await updateWorkflowRun(created.run.id, { status: 'running' });

@@ -76,6 +76,7 @@ CREATE TABLE agent_definitions (
     mcp_servers jsonb DEFAULT '[]'::jsonb NOT NULL,
     tools jsonb DEFAULT '[]'::jsonb NOT NULL,
     native_tool_configs jsonb DEFAULT '{}'::jsonb NOT NULL,
+    target_access_policy jsonb DEFAULT '{"mode":"all","targetIds":[]}'::jsonb NOT NULL,
     skills jsonb DEFAULT '[]'::jsonb NOT NULL,
     approval_policy jsonb NOT NULL,
     trust_policy jsonb NOT NULL,
@@ -96,6 +97,7 @@ CREATE TABLE agent_definitions (
     CONSTRAINT agent_definitions_mcp_servers_check CHECK ((jsonb_typeof(mcp_servers) = 'array'::text)),
     CONSTRAINT agent_definitions_mcp_tools_check CHECK ((jsonb_typeof(mcp_tools) = 'array'::text)),
     CONSTRAINT agent_definitions_native_tool_configs_check CHECK ((jsonb_typeof(native_tool_configs) = 'object'::text)),
+    CONSTRAINT agent_definitions_target_access_policy_check CHECK (((jsonb_typeof(target_access_policy) = 'object'::text) AND ((target_access_policy ->> 'mode'::text) = ANY (ARRAY['all'::text, 'allowlist'::text, 'denylist'::text])) AND (jsonb_typeof((target_access_policy -> 'targetIds'::text)) = 'array'::text))),
     CONSTRAINT agent_definitions_permission_mode_check CHECK ((permission_mode = ANY (ARRAY['read_only'::text, 'ask_before_changes'::text, 'auto_allowed_changes'::text]))),
     CONSTRAINT agent_definitions_provider_type_check CHECK ((provider_type = ANY (ARRAY['internal'::text, 'external'::text]))),
     CONSTRAINT agent_definitions_review_state_check CHECK ((review_state = ANY (ARRAY['draft'::text, 'reviewed'::text]))),
@@ -1038,17 +1040,12 @@ CREATE TABLE workflow_executions (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     prompt_text text DEFAULT ''::text NOT NULL,
-    prompt_digest text DEFAULT ''::text NOT NULL,
-    binding_digest text DEFAULT ''::text NOT NULL,
-    resource_bindings jsonb DEFAULT '[]'::jsonb NOT NULL,
-    resolved_at timestamp with time zone DEFAULT now() NOT NULL,
     request_actor_type text DEFAULT 'user'::text NOT NULL,
     request_external_integration_link_id text,
     request_external_integration_client_id text,
     CONSTRAINT workflow_executions_client_request_fingerprint_check CHECK ((((client_request_id IS NULL) AND (client_request_fingerprint IS NULL)) OR ((client_request_id IS NOT NULL) AND (client_request_fingerprint ~ '^[0-9a-f]{64}$'::text)))),
     CONSTRAINT workflow_executions_origin_snapshot_check CHECK ((jsonb_typeof(origin_snapshot) = 'object'::text)),
     CONSTRAINT workflow_executions_request_actor_provenance_check CHECK ((((request_actor_type = 'user'::text) AND (request_external_integration_link_id IS NULL) AND (request_external_integration_client_id IS NULL)) OR ((request_actor_type = 'external_integration'::text) AND (request_external_integration_link_id IS NOT NULL) AND (request_external_integration_client_id IS NOT NULL)))),
-    CONSTRAINT workflow_executions_resource_bindings_check CHECK ((jsonb_typeof(resource_bindings) = 'array'::text)),
     CONSTRAINT workflow_executions_source_check CHECK ((((source_type IS NULL) AND (source_id IS NULL)) OR ((source_type = 'webhook'::text) AND (source_id IS NOT NULL)))),
     CONSTRAINT workflow_executions_workflow_snapshot_check CHECK ((jsonb_typeof(workflow_snapshot) = 'object'::text))
 );
@@ -1159,17 +1156,12 @@ CREATE TABLE workflow_runs (
     cancellation_requested_at timestamp with time zone,
     uncertain_write boolean DEFAULT false NOT NULL,
     prompt_text text DEFAULT ''::text NOT NULL,
-    prompt_digest text DEFAULT ''::text NOT NULL,
-    binding_digest text DEFAULT ''::text NOT NULL,
-    resource_bindings jsonb DEFAULT '[]'::jsonb NOT NULL,
-    resolved_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT workflow_runs_assistant_message_check CHECK (((assistant_message IS NULL) OR (jsonb_typeof(assistant_message) = 'object'::text))),
     CONSTRAINT workflow_runs_attempt_number_check CHECK ((attempt_number > 0)),
     CONSTRAINT workflow_runs_compiled_access_scope_check CHECK ((jsonb_typeof(compiled_access_scope) = 'object'::text)),
     CONSTRAINT workflow_runs_executor_role_check CHECK ((executor_role = ANY (ARRAY['coordinator'::text, 'specialist'::text]))),
     CONSTRAINT workflow_runs_executor_shape_check CHECK ((((executor_role = 'coordinator'::text) AND (parent_run_id IS NULL) AND (agent_id IS NULL) AND (delegation_call_id IS NULL) AND (delegation_capability_id IS NULL) AND (delegation_required IS NULL)) OR ((executor_role = 'specialist'::text) AND (agent_id IS NOT NULL) AND (((parent_run_id IS NULL) AND (delegation_call_id IS NULL) AND (delegation_capability_id IS NULL) AND (delegation_required IS NULL)) OR ((parent_run_id IS NOT NULL) AND (attempt_number = 1) AND (delegation_call_id IS NOT NULL) AND (delegation_capability_id IS NOT NULL) AND (delegation_required IS NOT NULL)))))),
-    CONSTRAINT workflow_runs_executor_snapshot_check CHECK (((jsonb_typeof(executor_snapshot) = 'object'::text) AND ((executor_snapshot ->> 'role'::text) = executor_role))),
-    CONSTRAINT workflow_runs_resource_bindings_check CHECK ((jsonb_typeof(resource_bindings) = 'array'::text))
+    CONSTRAINT workflow_runs_executor_snapshot_check CHECK (((jsonb_typeof(executor_snapshot) = 'object'::text) AND ((executor_snapshot ->> 'role'::text) = executor_role)))
 );
 
 CREATE TABLE workflow_schedules (
@@ -1211,9 +1203,7 @@ CREATE TABLE workflow_sessions (
     request_external_integration_link_id text,
     request_external_integration_client_id text,
     launched_at timestamp with time zone,
-    launch_resource_inputs jsonb DEFAULT '{}'::jsonb NOT NULL,
     CONSTRAINT workflow_sessions_compiled_access_scope_check CHECK ((jsonb_typeof(compiled_access_scope) = 'object'::text)),
-    CONSTRAINT workflow_sessions_launch_resource_inputs_check CHECK ((jsonb_typeof(launch_resource_inputs) = 'object'::text)),
     CONSTRAINT workflow_sessions_request_actor_provenance_check CHECK ((((request_actor_type = 'user'::text) AND (request_external_integration_link_id IS NULL) AND (request_external_integration_client_id IS NULL)) OR ((request_actor_type = 'external_integration'::text) AND (request_external_integration_link_id IS NOT NULL) AND (request_external_integration_client_id IS NOT NULL)))),
     CONSTRAINT workflow_sessions_workflow_snapshot_check CHECK ((jsonb_typeof(workflow_snapshot) = 'object'::text))
 );
@@ -2020,7 +2010,6 @@ CREATE UNIQUE INDEX workflow_runs_delegation_call_unique ON workflow_runs USING 
 
 CREATE INDEX workflow_runs_parent_status_idx ON workflow_runs USING btree (parent_run_id, status, requested_at, id) WHERE (parent_run_id IS NOT NULL);
 
-CREATE INDEX workflow_runs_prompt_digest_idx ON workflow_runs USING btree (workspace_id, prompt_digest, requested_at DESC);
 
 CREATE UNIQUE INDEX workflow_runs_root_attempt_unique ON workflow_runs USING btree (execution_id, attempt_number) WHERE (parent_run_id IS NULL);
 

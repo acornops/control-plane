@@ -68,6 +68,11 @@ export interface AgentTrustPolicy {
   allowExternalData: boolean;
 }
 
+export interface AgentTargetAccessPolicy {
+  mode: 'all' | 'allowlist' | 'denylist';
+  targetIds: string[];
+}
+
 export interface AgentCapability {
   source: 'builtin_tool' | 'mcp_tool' | 'skill';
   providerAgentId?: string;
@@ -97,6 +102,7 @@ export interface AgentDefinition {
   mcpInstallations: AgentMcpInstallationSnapshot[];
   tools: string[];
   nativeToolConfigs: Record<string, Record<string, unknown>>;
+  targetAccessPolicy?: AgentTargetAccessPolicy;
   skills: string[];
   skillInstallations: AgentSkillInstallationSnapshot[];
   approvalPolicy: AgentApprovalPolicy;

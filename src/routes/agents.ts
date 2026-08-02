@@ -13,6 +13,7 @@ import * as automationTemplatesController from '../controllers/automation-templa
 import { requirePublicAgentRoute } from '../controllers/public-agent-visibility.js';
 import * as agentNativeToolsController from '../controllers/agent-native-tools-controller.js';
 import * as agentConversationsController from '../controllers/agent-conversations-controller.js';
+import * as agentTargetAccessController from '../controllers/agent-target-access-controller.js';
 
 export const agentsRouter = Router();
 const authed = authenticatedHandler;
@@ -36,6 +37,8 @@ agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/mcp/servers', requir
 agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/mcp/servers/import', requireUser, publicAgentVisibility, authed(importAgentCatalogMcpServer));
 agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/reimport', requireUser, publicAgentVisibility, authed(reimportAgentCatalogMcpServer));
 agentsRouter.get('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/tools', requireUser, publicAgentVisibility, authed(agentMcpController.listTools));
+agentsRouter.get('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/target-access', requireUser, publicAgentVisibility, authed(agentTargetAccessController.getTargetAccess));
+agentsRouter.put('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/target-access', requireUser, publicAgentVisibility, authed(agentTargetAccessController.putTargetAccess));
 agentsRouter.patch('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/tools/:toolName', requireUser, publicAgentVisibility, authed(agentMcpController.patchTool));
 agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/test-connection', requireUser, publicAgentVisibility, authed(agentMcpController.testServer));
 agentsRouter.patch('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId', requireUser, publicAgentVisibility, authed(agentMcpController.patchServer));

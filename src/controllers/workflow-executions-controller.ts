@@ -317,11 +317,7 @@ export async function resumeWorkflowExecutionController(req: AuthenticatedReques
           ? previous.executorSnapshot.agent
           : undefined,
         compiledAccessScope: pinnedScope,
-        prompt,
-        promptDigest: previous.promptDigest,
-        bindingDigest: previous.bindingDigest,
-        resourceBindings: previous.resourceBindings,
-        resolvedAt: previous.resolvedAt
+        prompt
       });
       res.status(202).json({ executionId: id, runId: resumed.runId, status: resumed.status });
     } catch (err) {

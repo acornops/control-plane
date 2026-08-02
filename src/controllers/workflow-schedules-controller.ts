@@ -27,7 +27,6 @@ import type { WorkflowScheduleRecord } from '../types/workflows.js';
 import { resolveRunPrincipal } from '../services/run-principal.js';
 import type { WorkflowSchedulePrincipal } from '../types/workflows.js';
 import { toSingleParam } from '../utils/params.js';
-import { PromptResourceProviderError } from '../services/prompt-resources/errors.js';
 import {
   compileWorkflowPrompt,
   WorkflowPromptValidationError
@@ -86,30 +85,28 @@ export async function previewWorkflowSchedule(req: AuthenticatedRequest, res: Re
     else if (!validateWorkflowScheduleCron(cron)) errors.push({ field: 'cron', message: 'Use a valid five-field cron expression.' });
     if (!timezone) errors.push({ field: 'timezone', message: 'Choose a timezone.' });
     else if (!validateWorkflowScheduleTimezone(timezone)) errors.push({ field: 'timezone', message: 'Choose a recognized IANA timezone.' });
-    let resolution: Awaited<ReturnType<typeof compileWorkflowPrompt>> | undefined;
+    let promptIsValid = false;
     if (workflow) {
       try {
-        resolution = await compileWorkflowPrompt({
-          workflow,
-          actorUserId: req.auth.userId,
-          source: 'trigger'
+        compileWorkflowPrompt({
+          workflow
         });
+        promptIsValid = true;
       } catch (error) {
-        if (error instanceof WorkflowPromptValidationError || error instanceof PromptResourceProviderError) {
+        if (error instanceof WorkflowPromptValidationError) {
           errors.push({ field: 'workflowId', message: error.message });
         } else {
           throw error;
         }
       }
     }
-    if (body.enabled !== false && workflow && principal && runtimeSubject && resolution && errors.length === 0) {
+    if (body.enabled !== false && workflow && principal && runtimeSubject && promptIsValid && errors.length === 0) {
       try {
         const readiness = await getWorkflowScheduleMcpReadinessReport({
           workspaceId,
           workflow,
           actor: runtimeSubject,
-          principal,
-          resolution
+          principal
         });
         if (readiness.errors.length > 0) {
           errors.push({
@@ -233,18 +230,15 @@ export async function createWorkflowScheduleForWorkspace(req: AuthenticatedReque
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
       return;
     }
-    const resolution = await compileWorkflowPrompt({
-      workflow,
-      actorUserId: principal.id,
-      source: 'trigger'
+    compileWorkflowPrompt({
+      workflow
     });
     if (body.enabled !== false) {
       const readiness = await getWorkflowScheduleMcpReadinessReport({
         workspaceId,
         workflow,
         actor: runtimeSubject,
-        principal,
-        resolution
+        principal
       });
       if (readiness.errors.length > 0) {
         res.status(409).json({ error: publicMcpReadinessError(readiness) });
@@ -284,10 +278,6 @@ export async function createWorkflowScheduleForWorkspace(req: AuthenticatedReque
         retryable: false,
         details: { errors: err.errors }
       } });
-      return;
-    }
-    if (err instanceof PromptResourceProviderError) {
-      res.status(409).json({ error: { code: err.code, message: err.message, retryable: err.retryable } });
       return;
     }
     if (err instanceof WorkflowAccessDeniedError) {
@@ -342,10 +332,8 @@ export async function updateWorkflowSchedule(req: AuthenticatedRequest, res: Res
       res.status(403).json({ error: { code: 'WORKFLOW_SCHEDULE_PRINCIPAL_INVALID', message: 'The schedule user is not active or authorized in this workspace.', retryable: false } });
       return;
     }
-    const resolution = await compileWorkflowPrompt({
-      workflow,
-      actorUserId: principal.id,
-      source: 'trigger'
+    compileWorkflowPrompt({
+      workflow
     });
     const nextStatus = body.status === 'enabled' || body.status === 'paused'
       ? body.status
@@ -357,8 +345,7 @@ export async function updateWorkflowSchedule(req: AuthenticatedRequest, res: Res
         workspaceId: current.workspaceId,
         workflow,
         actor: runtimeSubject,
-        principal,
-        resolution
+        principal
       });
       if (readiness.errors.length > 0) {
         res.status(409).json({ error: publicMcpReadinessError(readiness) });
@@ -402,10 +389,6 @@ export async function updateWorkflowSchedule(req: AuthenticatedRequest, res: Res
         retryable: false,
         details: { errors: err.errors }
       } });
-      return;
-    }
-    if (err instanceof PromptResourceProviderError) {
-      res.status(409).json({ error: { code: err.code, message: err.message, retryable: err.retryable } });
       return;
     }
     if (err instanceof WorkflowAccessDeniedError) {

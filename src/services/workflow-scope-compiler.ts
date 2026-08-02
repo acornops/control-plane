@@ -15,10 +15,7 @@ import type {
 export async function compileWorkflowScope(input: {
   workflow: WorkflowDefinitionForAccess;
   actor: WorkflowAccessActor;
-  resourceBindings?: CompiledWorkflowAccessScope['resourceBindings'];
-  promptDigest?: string;
-  bindingDigest?: string;
-  resolutionPhase?: 'session_ceiling' | 'run_exact';
+  sessionCeiling?: boolean;
 }): Promise<{
   scope: CompiledWorkflowAccessScope;
   selectedAgents: AgentDefinition[];
@@ -33,7 +30,7 @@ export async function compileWorkflowScope(input: {
       readiness.reasons.slice(0, 4).join(' ') || 'Selected workflow Agents are not ready.'
     );
   }
-  if (input.resolutionPhase === 'session_ceiling') {
+  if (input.sessionCeiling) {
     return {
       selectedAgents,
       specialistAgent,
@@ -56,10 +53,7 @@ export async function compileWorkflowScope(input: {
       selectedAgents,
       specialistAgent,
       mappings,
-      actor: input.actor,
-      resourceBindings: input.resourceBindings,
-      promptDigest: input.promptDigest,
-      bindingDigest: input.bindingDigest
+      actor: input.actor
     })
   };
 }

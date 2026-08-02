@@ -60,6 +60,8 @@ export function schemaForOperation(method: string, path: string, statusCode: str
     'PATCH /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}': 'AgentMcpServerResponse',
     'POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/test-connection': 'AgentMcpConnectionTestResponse',
     'GET /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/tools': 'AgentMcpToolList',
+    'GET /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/target-access': 'AgentTargetAccessSettings',
+    'PUT /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/target-access': 'AgentTargetAccessSettings',
     'PATCH /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/tools/{toolName}': 'AgentMcpToolResponse',
     'GET /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/connection': 'McpConnectionResponse',
     'PUT /api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/connection': 'McpConnectionResponse',

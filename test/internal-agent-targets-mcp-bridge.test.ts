@@ -9,7 +9,6 @@ import {
   AGENT_TARGETS_MCP_SERVER_NAME,
   agentTargetsMcpTools
 } from '../src/services/agent-targets-mcp-catalog.js';
-import { digestBindings, digestPrompt } from '../src/services/prompt-resources/registry.js';
 import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
 import { repo } from '../src/store/repository.js';
 import { getAgentDefinition } from '../src/store/repository-agents.js';
@@ -88,6 +87,7 @@ describe('internal Agent Targets MCP bridge', () => {
     const specialist = {
       ...persistedSpecialist,
       semanticCapabilityIds: [],
+      targetAccessPolicy: { mode: 'allowlist' as const, targetIds: [] },
       mcpServers: [serverId],
       mcpTools: installation.tools.map((tool) => ({
         serverId,
@@ -121,10 +121,6 @@ describe('internal Agent Targets MCP bridge', () => {
       session,
       compiledAccessScope: scopeWithForgedAlias,
       content: 'Check which production targets are healthy.',
-      promptDigest: digestPrompt('Check which production targets are healthy.'),
-      bindingDigest: digestBindings([]),
-      resourceBindings: [],
-      resolvedAt: new Date().toISOString(),
       specialistSnapshot: specialist
     });
     const run = await updateWorkflowRun(created.run.id, { status: 'running' });
@@ -161,7 +157,7 @@ describe('internal Agent Targets MCP bridge', () => {
     assert.deepEqual(
       (response.body as { structuredContent: { items: Array<{ id: string }> } })
         .structuredContent.items.map((target) => target.id),
-      ['cluster-1']
+      []
     );
     assert.equal(targetAgentCall.mock.callCount(), 0);
 

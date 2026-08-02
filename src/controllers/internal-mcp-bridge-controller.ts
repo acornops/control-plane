@@ -176,7 +176,12 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
       }
       const startedAt = Date.now();
       try {
-        const result = await executeAgentTargetsMcpTool({ workspaceId, toolName, arguments: args });
+        const result = await executeAgentTargetsMcpTool({
+          workspaceId,
+          toolName,
+          arguments: args,
+          targetAccessPolicy: agentSnapshot!.targetAccessPolicy
+        });
         await recordWorkspaceAuditEvent({
           workspaceId,
           category: 'tool',

@@ -13,11 +13,9 @@ import { getWorkflowCapabilityReadinessReport } from '../services/mcp-readiness.
 import { getWorkflowDefinition } from '../store/repository-workflows.js';
 import type { AgentDefinition } from '../types/agents.js';
 import type { WorkflowAccessActor, WorkflowCapabilitiesPreview, WorkflowCapabilityPreviewReasonCode, WorkflowCapabilityToolPreview } from '../types/workflows.js';
-import type { PromptResourceBinding } from '../types/prompt-resources.js';
 import { toSingleParam } from '../utils/params.js';
 import { respondWorkflowAccessError } from './workflow-public.js';
 import { getMcpConnection, listAgentMcpServers, type McpServerConfig } from '../services/mcp-registry-client.js';
-import { PromptResourceProviderError } from '../services/prompt-resources/errors.js';
 import { summarizeWorkflowAgents } from '../services/workflow-derived-capabilities.js';
 import {
   compileWorkflowPrompt,
@@ -32,9 +30,6 @@ function requestWorkspaceId(req: AuthenticatedRequest): string | null {
 async function compilePreviewScope(input: {
   workflow: NonNullable<Awaited<ReturnType<typeof getWorkflowDefinition>>>;
   actor: WorkflowAccessActor;
-  resourceBindings: PromptResourceBinding[];
-  promptDigest: string;
-  bindingDigest: string;
   routingSnapshot: WorkflowRoutingSnapshot;
 }) {
   const { readiness, selectedAgents, specialistAgent, mappings } = input.routingSnapshot;
@@ -46,8 +41,7 @@ async function compilePreviewScope(input: {
     selectedAgents,
     mappings,
     scope: compileWorkflowAccessScope({
-      workflow: input.workflow, specialistAgent, selectedAgents, mappings, actor: input.actor,
-      resourceBindings: input.resourceBindings, promptDigest: input.promptDigest, bindingDigest: input.bindingDigest
+      workflow: input.workflow, specialistAgent, selectedAgents, mappings, actor: input.actor
     })
   };
 }
@@ -124,8 +118,6 @@ export async function genericMcpAuthRequirements(input: {
 
 function responseBody(input: {
   workflow: NonNullable<Awaited<ReturnType<typeof getWorkflowDefinition>>>;
-  promptDigest: string;
-  bindingDigest: string;
   status: WorkflowCapabilitiesPreview['status'];
   reasonCodes?: WorkflowCapabilityPreviewReasonCode[];
   scope?: ReturnType<typeof compileWorkflowAccessScope>;
@@ -143,8 +135,6 @@ function responseBody(input: {
   const approvalRequirements = input.scope?.approvalGates || [];
   return {
     workflowId: input.workflow.id,
-    promptDigest: input.promptDigest,
-    bindingDigest: input.bindingDigest,
     mode: input.scope?.mode || 'read_only',
     semanticCapabilityIds: input.scope?.semanticCapabilityIds || input.semanticCapabilityIds || [],
     checkedAt: new Date().toISOString(),
@@ -181,16 +171,10 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
       ? 'create_read_write_runs'
       : 'create_read_only_runs';
     if (!authz.can(requiredCapability)) return void res.status(403).json({ error: { code: 'FORBIDDEN', message: 'No permission to preview this workflow run.', retryable: false } });
-    const referenceResolution = await compileWorkflowPrompt({
-      workflow,
-      actorUserId: req.auth.userId
-    });
+    compileWorkflowPrompt({ workflow });
     const compiled = await compilePreviewScope({
       workflow,
       actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
-      resourceBindings: referenceResolution.bindings,
-      promptDigest: referenceResolution.promptDigest,
-      bindingDigest: referenceResolution.bindingDigest,
       routingSnapshot
     });
     const scope = compiled.scope;
@@ -206,8 +190,6 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
     metricStatus = readiness.errors.length ? 'blocked' : 'ready';
     const response = responseBody({
       workflow,
-      promptDigest: referenceResolution.promptDigest,
-      bindingDigest: referenceResolution.bindingDigest,
       status: metricStatus,
       reasonCodes,
       scope,
@@ -226,13 +208,6 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
         message: error.message,
         retryable: false,
         details: { errors: error.errors }
-      } });
-    }
-    if (error instanceof PromptResourceProviderError) {
-      return void res.status(409).json({ error: {
-        code: error.code,
-        message: error.message,
-        retryable: error.retryable
       } });
     }
     logger.warn({ workflowId: toSingleParam(req.params.workflowId), status: 'error' }, 'Workflow capability preview failed');

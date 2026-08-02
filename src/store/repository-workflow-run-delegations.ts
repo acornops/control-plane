@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { QueryResultRow } from 'pg';
 import { db } from '../infra/db.js';
-import { digestPrompt } from '../services/prompt-resources/index.js';
 import type { AgentDefinition } from '../types/agents.js';
 import type { CompiledWorkflowAccessScope } from '../types/workflows.js';
 import { insertWorkflowRunApprovals } from './repository-workflow-run-approvals.js';
@@ -93,11 +92,10 @@ export async function createDelegatedWorkflowRun(params: {
          compiled_access_scope,llm_provider,llm_model,llm_reasoning_summary_mode,llm_reasoning_effort,
          requested_at,attempt_number,executor_role,parent_run_id,delegation_call_id,
          delegation_capability_id,delegation_required,agent_id,executor_snapshot,
-         idempotency_key,prompt_text,prompt_digest,binding_digest,
-         resource_bindings,resolved_at
+         idempotency_key,prompt_text
        ) VALUES (
          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),1,'specialist',$14,$15,$16,$17,
-         $18,$19,$20,$21,$22,$23,$24,$25
+         $18,$19,$20,$21
        ) RETURNING *`,
       [
         runId, params.parent.executionId, params.parent.workspaceId, params.parent.workflowId,
@@ -105,8 +103,7 @@ export async function createDelegatedWorkflowRun(params: {
         params.compiledAccessScope, params.parent.llmProvider || null, params.parent.llmModel || null,
         params.parent.llmReasoningSummaryMode || null, params.parent.llmReasoningEffort || null,
         params.parent.id, params.toolCallId, params.capabilityId, params.required,
-        params.specialist.id, snapshot, idempotencyKey, params.taskPrompt, digestPrompt(params.taskPrompt), params.parent.bindingDigest,
-        JSON.stringify(params.parent.resourceBindings), params.parent.resolvedAt
+        params.specialist.id, snapshot, idempotencyKey, params.taskPrompt
       ]
     );
     const run = mapRun(result.rows[0], []);

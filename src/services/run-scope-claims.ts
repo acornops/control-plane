@@ -1,5 +1,4 @@
 import type { TargetType, WorkspaceAuditOperation } from '../types/domain.js';
-import type { PromptResourceBinding } from '../types/prompt-resources.js';
 
 export type RunScopeType = 'target' | 'agent_chat' | 'workspace';
 
@@ -34,8 +33,6 @@ interface BaseRunScopeClaims {
   allowedToolOperations?: Record<string, WorkspaceAuditOperation>;
   maxOutputTokens?: number;
   allowedModels?: string[];
-  resourceBindings?: PromptResourceBinding[];
-  bindingDigest?: string;
 }
 
 export interface TargetRunScopeClaims extends BaseRunScopeClaims {
@@ -67,8 +64,6 @@ interface VerifiedBaseRunScopeClaims extends BaseRunScopeClaims {
   allowedNativeTools: NativeToolPermission[];
   principal: RunPrincipalRef;
   permissionMode: RunPermissionMode;
-  resourceBindings: PromptResourceBinding[];
-  bindingDigest?: string;
 }
 
 export interface VerifiedTargetRunScopeClaims extends VerifiedBaseRunScopeClaims {

@@ -10,7 +10,6 @@ import {
   compileWorkflowAccessScope,
   compileWorkflowSessionCeiling
 } from '../src/services/workflow-access.js';
-import { digestBindings, digestPrompt } from '../src/services/prompt-resources/registry.js';
 import { runAutomationOutboxTick } from '../src/services/automation-outbox-worker.js';
 import { getAgentDefinition } from '../src/store/repository-agents.js';
 import {
@@ -97,11 +96,7 @@ async function coordinatedRoot() {
     workflow,
     session,
     compiledAccessScope: rootScope,
-    content: 'Inspect the infrastructure.',
-    promptDigest: digestPrompt('Inspect the infrastructure.'),
-    bindingDigest: digestBindings([]),
-    resourceBindings: [],
-    resolvedAt: new Date().toISOString()
+    content: 'Inspect the infrastructure.'
   });
   const parent = await updateWorkflowRun(created.run.id, { status: 'running' });
   assert.ok(parent);

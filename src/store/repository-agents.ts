@@ -58,6 +58,7 @@ async function mapAgent(row: AgentRow): Promise<AgentDefinition> {
     mcpServers: row.mcp_servers || [], mcpTools: row.mcp_tools || [],
     mcpInstallations: row.mcp_installations || [], tools: row.tools || [],
     nativeToolConfigs: row.native_tool_configs || {}, skills: row.skills || [],
+    targetAccessPolicy: row.target_access_policy || { mode: 'all', targetIds: [] },
     skillInstallations: row.skill_installations || [],
     approvalPolicy: row.approval_policy, trustPolicy: row.trust_policy,
     permissionMode: row.permission_mode || 'ask_before_changes',
@@ -132,6 +133,7 @@ export async function createAgentDefinition(
     mcpInstallations: input.mcpInstallations || [],
     tools: uniqueSorted(input.tools),
     nativeToolConfigs: structuredClone(input.nativeToolConfigs || {}),
+    targetAccessPolicy: { mode: 'all', targetIds: [] },
     skills: uniqueSorted(input.skills),
     skillInstallations: input.skillInstallations || [],
     approvalPolicy: input.approvalPolicy || { mode: 'before_write', writeToolsRequireApproval: true },
@@ -171,10 +173,11 @@ export async function duplicateAgentDefinition(
     `INSERT INTO agent_definitions (
        workspace_id,id,name,description,instructions,status,review_state,provider_type,
        owner_user_id,created_by,mcp_servers,mcp_tools,mcp_installations,tools,native_tool_configs,skills,skill_installations,
-       approval_policy,trust_policy,permission_mode,semantic_capability_ids,avatar_emoji,readiness_status,readiness_reasons
+       approval_policy,trust_policy,permission_mode,semantic_capability_ids,avatar_emoji,readiness_status,readiness_reasons,
+       target_access_policy
      ) VALUES (
        $1,$2,$3,$4,$5,'draft','draft',$6,$7,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
-       'needs_setup',$20
+       'needs_setup',$20,$21
      ) RETURNING *`,
     [
       workspaceId,
@@ -196,7 +199,8 @@ export async function duplicateAgentDefinition(
       source.permissionMode,
       JSON.stringify(source.semanticCapabilityIds),
       source.avatarEmoji,
-      JSON.stringify(['Readiness has not been evaluated against the live capability catalog.'])
+      JSON.stringify(['Readiness has not been evaluated against the live capability catalog.']),
+      JSON.stringify(source.targetAccessPolicy || { mode: 'all', targetIds: [] })
     ]
   );
   return mapAgent(result.rows[0]);
@@ -315,6 +319,22 @@ export async function updateAgentReadiness(
        AND (readiness_status IS DISTINCT FROM $3 OR readiness_reasons IS DISTINCT FROM $4::jsonb)
      RETURNING id`,
     [workspaceId, agentId, readiness.status, JSON.stringify(readiness.reasons)]
+  );
+  return result.rowCount ? getAgentDefinition(workspaceId, agentId) : null;
+}
+
+export async function updateAgentTargetAccessPolicy(
+  workspaceId: string,
+  agentId: string,
+  targetAccessPolicy: AgentDefinition['targetAccessPolicy']
+): Promise<AgentDefinition | null> {
+  const result = await db.query(
+    `UPDATE agent_definitions
+     SET target_access_policy=$3,
+         updated_at=GREATEST(NOW(),updated_at + INTERVAL '1 millisecond')
+     WHERE workspace_id=$1 AND id=$2
+     RETURNING id`,
+    [workspaceId, agentId, JSON.stringify(targetAccessPolicy)]
   );
   return result.rowCount ? getAgentDefinition(workspaceId, agentId) : null;
 }

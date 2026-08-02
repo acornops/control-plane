@@ -1,7 +1,6 @@
 import type { WorkspaceCapability } from '../auth/authorization.js';
 import type { WorkspaceAuditOperation } from './domain.js';
 import type { AgentDefinition, AutomationReadinessStatus, McpToolRef, RunPermissionMode, RunPrincipalRef } from './agents.js';
-import type { PromptResourceBinding } from './prompt-resources.js';
 import type { CapabilityRoutingMapping } from './capability-routing.js';
 import type { CapabilityAccessActor, CapabilityAccessMode, CapabilityRestrictionMode } from './capability-access.js';
 
@@ -78,14 +77,6 @@ export interface WorkflowJwtClaimPreview {
     allowed_tools: string[];
     allowed_tool_refs: Array<{ server_id: string; tool_name: string }>;
     allowed_tool_operations: Record<string, WorkspaceAuditOperation>;
-    resource_bindings: Array<{
-      binding_id: string;
-      type: string;
-      resource_id: string;
-      provider: string;
-      operations: string[];
-    }>;
-    binding_digest?: string;
   };
 }
 
@@ -124,10 +115,6 @@ export interface CompiledWorkflowAccessScope {
   executor: WorkflowExecutor;
   selectedAgentSnapshots: AgentDefinition[];
   routingMappingSnapshots: CapabilityRoutingMapping[];
-  resourceBindings: PromptResourceBinding[];
-  promptDigest?: string;
-  bindingDigest?: string;
-  resourceResolutionPhase: 'session_ceiling' | 'run_exact';
   coordinationFunctions: string[];
   jwtClaims: WorkflowJwtClaimPreview;
 }
@@ -178,8 +165,6 @@ export type WorkflowMcpRequirementPreview = WorkflowMcpRequirementPreviewBase & 
 
 export interface WorkflowCapabilitiesPreview {
   workflowId: string;
-  promptDigest: string;
-  bindingDigest: string;
   mode: WorkflowCapabilityMode;
   semanticCapabilityIds: string[];
   checkedAt: string;

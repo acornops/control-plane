@@ -105,20 +105,6 @@ describe('coordinated Workflow schedules', () => {
     assert.equal(persisted.rows[0].executor_role, 'coordinator');
     assert.deepEqual(persisted.rows[0].run_selected_agents, []);
     assert.equal(persisted.rows[0].ceiling_selected_agents.length, 2);
-    const invalidDelegation = await callController(delegateSpecialist, createRequest(
-      { runId: persisted.rows[0].run_id },
-      {
-        toolCallId: 'invalid-scheduled-delegation',
-        capabilityId: 'infrastructure.diagnostics.read',
-        taskPrompt: 'Inspect the scheduled infrastructure.',
-        resourceBinding: { resourceId: 'resource-1' }
-      }
-    ));
-    assert.equal(invalidDelegation.statusCode, 400);
-    assert.equal(
-      (invalidDelegation.body as { error: { code: string } }).error.code,
-      'DELEGATION_REQUEST_INVALID'
-    );
     const delegated = await callController(delegateSpecialist, createRequest(
       { runId: persisted.rows[0].run_id },
       {
