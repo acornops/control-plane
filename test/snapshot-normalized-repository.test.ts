@@ -5,6 +5,7 @@ import {
   upsertClusterSnapshot
 } from '../src/store/repository-kubernetes-clusters.js';
 import {
+  listClusterSnapshotSummaries,
   listClusterSnapshotResources
 } from '../src/store/repository-kubernetes-inventory.js';
 
@@ -13,6 +14,37 @@ afterEach(() => {
 });
 
 describe('normalized snapshot repository reads', () => {
+  it('derives legacy node readiness from normalized inventory when the stored summary predates the field', async () => {
+    mock.method(db, 'query', async (sql: string, params: unknown[]) => {
+      assert.match(sql, /LEFT JOIN LATERAL/);
+      assert.match(sql, /inventory_ready_node_count/);
+      assert.deepEqual(params, [['cluster-1']]);
+      return {
+        rowCount: 1,
+        rows: [{
+          cluster_id: 'cluster-1',
+          workspace_id: 'workspace-1',
+          snapshot_ts: '2026-08-02T12:46:27.264Z',
+          inventory_count: 12,
+          finding_count: 0,
+          critical_finding_count: 0,
+          summary: {
+            namespaceCount: 2,
+            nodeCount: 1,
+            resourceFamilyCounts: { workloads: 7, network: 3, storage: 1, cluster: 1 },
+            resourceKindCounts: { Node: 1 }
+          },
+          inventory_node_count: 1,
+          inventory_ready_node_count: 1
+        }]
+      };
+    });
+
+    const summaries = await listClusterSnapshotSummaries(['cluster-1']);
+
+    assert.equal(summaries.get('cluster-1')?.summary.readyNodeCount, 1);
+  });
+
   it('queries resource rows with SQL filters and sort-key pagination', async () => {
     mock.method(db, 'query', async (sql: string, params: unknown[]) => {
       assert.match(sql, /FROM target_inventory_items r/);

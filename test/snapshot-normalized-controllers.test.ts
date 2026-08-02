@@ -325,6 +325,7 @@ describe('normalized snapshot controller reads', () => {
             criticalFindingCount: 1,
             namespaceCount: 3,
             nodeCount: 2,
+            readyNodeCount: 1,
             resourceFamilyCounts: {
               workloads: 4,
               network: 1,

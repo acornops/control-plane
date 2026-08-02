@@ -36,6 +36,7 @@ export interface SnapshotClusterSummary {
   criticalFindingCount: number;
   namespaceCount: number;
   nodeCount: number;
+  readyNodeCount?: number;
   resourceFamilyCounts: Record<ResourceFamily, number>;
   resourceKindCounts: Record<string, number>;
 }
@@ -429,6 +430,7 @@ export function summarizeSnapshotItems(
     criticalFindingCount: findings.filter((finding) => finding.severity === 'critical').length,
     namespaceCount: resources.filter((resource) => resource.kind === 'Namespace').length,
     nodeCount: resources.filter((resource) => resource.kind === 'Node').length,
+    readyNodeCount: resources.filter((resource) => resource.kind === 'Node' && resource.status?.toLowerCase() === 'ready').length,
     resourceFamilyCounts,
     resourceKindCounts
   };

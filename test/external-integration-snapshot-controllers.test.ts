@@ -117,6 +117,7 @@ describe('external integration normalized snapshot reads', () => {
             criticalFindingCount: 0,
             namespaceCount: 1,
             nodeCount: 1,
+            readyNodeCount: 0,
             resourceFamilyCounts: {
               workloads: 2,
               network: 1,
@@ -149,6 +150,7 @@ describe('external integration normalized snapshot reads', () => {
           criticalFindingCount: 0,
           namespaceCount: 1,
           nodeCount: 1,
+          readyNodeCount: 0,
           resourceFamilyCounts: {
             workloads: 2,
             network: 1,

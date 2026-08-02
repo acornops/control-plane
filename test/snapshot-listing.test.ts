@@ -109,6 +109,7 @@ describe('snapshot listing findings', () => {
       criticalFindingCount: 1,
       namespaceCount: 1,
       nodeCount: 1,
+      readyNodeCount: 1,
       resourceFamilyCounts: {
         workloads: 1,
         network: 1,

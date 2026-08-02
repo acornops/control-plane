@@ -412,7 +412,7 @@
       ],
       "snapshotFields": [
         "latestSnapshot.{clusterId,workspaceId,timestamp}",
-        "summary.{resourceCount,findingCount,criticalFindingCount,namespaceCount,nodeCount,resourceFamilyCounts,resourceKindCounts}",
+        "summary.{resourceCount,findingCount,criticalFindingCount,namespaceCount,nodeCount,readyNodeCount,resourceFamilyCounts,resourceKindCounts}",
         "virtualMachine.latestSnapshot.{targetId,workspaceId,timestamp}",
         "virtualMachine.summary.{inventoryCount,findingCount,criticalFindingCount,serviceCount,processCount,listenerCount,logCount}",
         "GET /api/v1/workspaces/{workspaceId}/issues",

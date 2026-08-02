@@ -579,6 +579,7 @@ Representative cluster:
     "criticalFindingCount": 1,
     "namespaceCount": 8,
     "nodeCount": 5,
+    "readyNodeCount": 5,
     "resourceFamilyCounts": {
       "workloads": 60,
       "network": 20,

@@ -22,6 +22,7 @@ const emptySnapshotSummary: SnapshotClusterSummary = {
   criticalFindingCount: 0,
   namespaceCount: 0,
   nodeCount: 0,
+  readyNodeCount: undefined,
   resourceFamilyCounts: {
     workloads: 0,
     network: 0,
