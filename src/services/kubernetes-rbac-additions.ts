@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
+// Historical immutable snapshots may contain verbs for removed AgentK tools.
 export const KUBERNETES_RBAC_ADDITION_VERBS = ['get', 'list', 'watch', 'create', 'patch', 'delete'] as const;
 
 export const kubernetesRbacAdditionResourceSchema = z.object({

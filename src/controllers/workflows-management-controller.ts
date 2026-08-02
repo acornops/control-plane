@@ -11,18 +11,9 @@ import {
 } from '../services/automation-definition-service.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import {
-  effectiveWorkflowRuntimePolicy,
-  manualWorkflowCapabilityPolicy,
-  manualWorkflowRequiredPermissions,
-  withEffectiveWorkflowRuntimePolicy
-} from '../services/workflow-runtime-policy.js';
-import {
   getWorkflowDefinition
 } from '../store/repository-workflows.js';
-import type {
-  WorkflowCapabilityPolicy,
-  WorkflowDefinitionForAccess
-} from '../types/workflows.js';
+import type { WorkflowDefinitionForAccess } from '../types/workflows.js';
 import { toSingleParam } from '../utils/params.js';
 import { publicWorkflowDefinition } from './workflow-public.js';
 import {
@@ -49,46 +40,12 @@ function workflowAgentIds(value: unknown): string[] | null {
   return value.map((item) => (item as string).trim());
 }
 
-const workflowCapabilityPolicyBodySchema = z.object({
-  mode: z.enum(['read_only', 'read_write']).optional(),
-  restrictionMode: z.enum(['inherit', 'restrict']).optional(),
-  semanticCapabilityIds: stringListSchema.optional(),
-  contextGrants: stringListSchema.optional(),
-  approvalRequirements: stringListSchema.optional()
-}).strict();
-
-function capabilityPolicy(value: unknown, fallback?: WorkflowCapabilityPolicy): WorkflowCapabilityPolicy {
-  const parsed = workflowCapabilityPolicyBodySchema.safeParse(value ?? {});
-  if (!parsed.success) {
-    throw new DefinitionValidationError(
-      'INVALID_REQUEST',
-      parsed.error.issues[0]?.message || 'Invalid workflow capability policy.'
-    );
-  }
-  const body = parsed.data;
-  const defaults = fallback || manualWorkflowCapabilityPolicy();
-  return {
-    mode: body.mode ?? defaults.mode,
-    restrictionMode: body.restrictionMode ?? defaults.restrictionMode,
-    semanticCapabilityIds: body.semanticCapabilityIds === undefined
-      ? defaults.semanticCapabilityIds
-      : strings(body.semanticCapabilityIds),
-    contextGrants: body.contextGrants === undefined ? defaults.contextGrants : strings(body.contextGrants),
-    ...effectiveWorkflowRuntimePolicy(),
-    approvalRequirements: body.approvalRequirements === undefined
-      ? defaults.approvalRequirements
-      : strings(body.approvalRequirements)
-  };
-}
-
 const workflowAuthoringBodySchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
   prompt: z.string().optional(),
   agentIds: z.array(nonEmptyStringSchema).min(1).optional(),
-  capabilityPolicy: workflowCapabilityPolicyBodySchema.optional(),
   tags: stringListSchema.optional(),
-  requiredPermissions: stringListSchema.optional(),
   status: z.enum(['active', 'draft', 'paused']).optional()
 }).strict();
 
@@ -183,11 +140,7 @@ export async function createWorkflow(req: AuthenticatedRequest, res: Response, n
       description: typeof body.description === 'string' ? body.description : undefined,
       prompt,
       agentIds,
-      capabilityPolicy: capabilityPolicy(body.capabilityPolicy),
       tags: strings(body.tags),
-      requiredPermissions: (body.requiredPermissions === undefined
-        ? manualWorkflowRequiredPermissions()
-        : strings(body.requiredPermissions)) as WorkflowDefinitionForAccess['requiredPermissions'],
       createdBy: req.auth.userId,
       status: body.status === 'active' || body.status === 'paused' ? body.status : 'draft'
     });
@@ -214,9 +167,7 @@ export async function duplicateWorkflow(req: AuthenticatedRequest, res: Response
       description: source.description,
       prompt: source.prompt,
       agentIds: source.agentIds,
-      capabilityPolicy: withEffectiveWorkflowRuntimePolicy(source.capabilityPolicy),
       tags: source.tags,
-      requiredPermissions: source.requiredPermissions,
       createdBy: req.auth.userId,
       status: 'draft'
     });
@@ -253,9 +204,7 @@ export async function updateWorkflow(req: AuthenticatedRequest, res: Response, n
       status: body.status === 'active' || body.status === 'paused' || body.status === 'draft' ? body.status : undefined,
       prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
       agentIds,
-      capabilityPolicy: body.capabilityPolicy === undefined ? undefined : capabilityPolicy(body.capabilityPolicy, current.capabilityPolicy),
-      tags: body.tags === undefined ? undefined : strings(body.tags),
-      requiredPermissions: body.requiredPermissions === undefined ? undefined : strings(body.requiredPermissions) as WorkflowDefinitionForAccess['requiredPermissions']
+      tags: body.tags === undefined ? undefined : strings(body.tags)
     });
     if (!updated) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
     await audit(req, updated, 'workflow.definition_updated.v2', 'Workflow definition updated');

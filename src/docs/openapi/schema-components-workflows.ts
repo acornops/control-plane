@@ -21,31 +21,9 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: false
     },
-    WorkflowCapabilityPolicy: {
-      type: 'object',
-      required: ['mode', 'restrictionMode', 'semanticCapabilityIds', 'contextGrants', 'maxRuntimeSeconds', 'retentionDays', 'approvalRequirements'],
-      properties: {
-        mode: { type: 'string', enum: ['read_only', 'read_write'] },
-        restrictionMode: { type: 'string', enum: ['inherit', 'restrict'], description: 'inherit resolves the selected Agents current combined ceiling. restrict uses semanticCapabilityIds as an explicit subset, including an intentionally empty subset.' },
-        semanticCapabilityIds: { ...stringArray, description: 'Must be empty when restrictionMode is inherit.' },
-        contextGrants: stringArray,
-        maxRuntimeSeconds: {
-          type: 'integer',
-          minimum: 1,
-          description: 'Effective deployment-wide execution limit. Workflow mutations cannot override this value.'
-        },
-        retentionDays: {
-          type: 'integer',
-          minimum: 1,
-          description: 'Effective deployment-wide report retention period. Workflow mutations cannot override this value.'
-        },
-        approvalRequirements: stringArray
-      },
-      additionalProperties: false
-    },
     WorkflowDefinition: {
       type: 'object',
-      required: ['id', 'workspaceId', 'name', 'status', 'prompt', 'agentIds', 'executionMode', 'capabilityPolicy', 'requiredPermissions', 'createdBy'],
+      required: ['id', 'workspaceId', 'name', 'status', 'prompt', 'agentIds', 'executionMode', 'createdBy'],
       properties: {
         id: workflowId,
         workspaceId: uuid,
@@ -55,9 +33,7 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         prompt: { type: 'string' },
         agentIds: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', minLength: 1 } },
         executionMode: { type: 'string', enum: ['direct', 'coordinated'], readOnly: true },
-        capabilityPolicy: schemaRef('WorkflowCapabilityPolicy'),
         tags: stringArray,
-        requiredPermissions: stringArray,
         createdBy: { type: 'string' },
         createdAt: dateTime,
         updatedAt: dateTime,
@@ -188,14 +164,7 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
     WorkflowOptionsCatalog: {
       type: 'object',
       properties: {
-        mcpServers: { type: 'array', items: schemaRef('WorkflowOption') },
-        mcpTools: { type: 'array', items: schemaRef('WorkflowOption') },
-        skills: { type: 'array', items: schemaRef('WorkflowOption') },
         agents: { type: 'array', items: schemaRef('WorkflowOption') },
-        outputFormats: { type: 'array', items: schemaRef('WorkflowOption') },
-        approvalPolicies: { type: 'array', items: schemaRef('WorkflowOption') },
-        runtimeLimits: { type: 'array', items: schemaRef('WorkflowOption') },
-        retentionPolicies: { type: 'array', items: schemaRef('WorkflowOption') },
         sourceAvailability: {
           type: 'object',
           additionalProperties: {
@@ -396,7 +365,7 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         workflowRunId: { type: 'string' },
         conversationRunId: { type: 'string' },
         toolCallId: { type: 'string' },
-        mediaType: { type: 'string', enum: ['application/pdf'] },
+        mediaType: { type: 'string', enum: ['application/pdf', 'text/markdown'] },
         title: { type: 'string' },
         sourceSizeBytes: { type: 'integer', minimum: 0 },
         retentionExpiresAt: dateTime,

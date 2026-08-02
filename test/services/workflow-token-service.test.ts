@@ -20,7 +20,7 @@ describe('Workflow gateway token service', () => {
       principal: { type: 'service_identity', id: 'service-workflow-1' },
       allowedProviders: ['openai'],
       allowedTools: ['mcp.tools.list', 'audit.events.search', 'inspect'],
-      allowedToolRefs: [{ serverId: 'targets', toolName: 'inspect' }],
+      allowedToolRefs: [{ serverId: 'server-observability', toolName: 'inspect' }],
       allowedToolOperations: {
         'mcp.tools.list': 'read',
         'audit.events.search': 'read'
@@ -47,7 +47,7 @@ describe('Workflow gateway token service', () => {
     assert.deepEqual(verification.payload.permissions, {
       allowed_providers: ['openai'],
       allowed_tools: ['mcp.tools.list', 'audit.events.search', 'inspect'],
-      allowed_tool_refs: [{ server_id: 'targets', tool_name: 'inspect' }],
+      allowed_tool_refs: [{ server_id: 'server-observability', tool_name: 'inspect' }],
       allowed_native_tools: [],
       allowed_tool_operations: { 'mcp.tools.list': 'read', 'audit.events.search': 'read' },
       context_grants: ['audit_events', 'workspace_metadata'],
@@ -67,6 +67,6 @@ describe('Workflow gateway token service', () => {
     assert.equal(claims.targetId, undefined);
     assert.equal(claims.targetType, undefined);
     assert.deepEqual(claims.contextGrants, ['audit_events', 'workspace_metadata']);
-    assert.deepEqual(claims.allowedToolRefs, [{ serverId: 'targets', toolName: 'inspect' }]);
+    assert.deepEqual(claims.allowedToolRefs, [{ serverId: 'server-observability', toolName: 'inspect' }]);
   });
 });

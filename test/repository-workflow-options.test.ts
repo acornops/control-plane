@@ -12,25 +12,11 @@ function result<T>(rows: T[]) {
 }
 
 describe('workflow option catalog repository', () => {
-  it('loads tools, skills, and MCP servers from active Agent-owned capabilities', async () => {
+  it('loads only assignable Agents for Workflow authoring', async () => {
     const observedWorkspaceIds: unknown[] = [];
     mock.method(db, 'query', async (sql: string, params?: unknown[]) => {
       if (params?.length) observedWorkspaceIds.push(params[0]);
-      if (sql.includes('FROM agent_definitions') && sql.includes('mcp_installations')) {
-        return result([{
-          id: 'agent-1', name: 'Agent one', description: 'Durable agent', status: 'active',
-          tools: ['list_resources'], skills: ['acornops-observability'], mcp_servers: ['generic-mcp'],
-          mcp_installations: [{
-            id: 'generic-mcp', name: 'Generic MCP', enabled: true,
-            tools: [{
-              serverId: 'generic-mcp', toolName: 'records.list', alias: 'generic-mcp.records.list',
-              capability: 'read', enabled: true, reviewState: 'approved'
-            }]
-          }],
-          skill_installations: [{ id: 'shared-skill', name: 'Shared skill', description: 'Agent skill', enabled: true }]
-        }]);
-      }
-      if (sql.includes('FROM agent_definitions') && !sql.includes('mcp_installations')) {
+      if (sql.includes('FROM agent_definitions')) {
         return result([{ id: 'agent-1', name: 'Agent one', description: 'Durable agent', status: 'disabled' }]);
       }
       return result([]);
@@ -39,21 +25,15 @@ describe('workflow option catalog repository', () => {
     const catalog = await getCapabilityOptionsCatalog('workspace-1');
 
     assert(observedWorkspaceIds.every((workspaceId) => workspaceId === 'workspace-1'));
-    assert.equal(catalog.mcpServers[0].value, 'generic-mcp');
-    assert.equal(catalog.mcpServers[0].disabled, false);
-    assert.equal(catalog.mcpServers[0].provenance?.source, 'agent');
-    assert.deepEqual(catalog.mcpServers.map((server) => server.value), ['generic-mcp']);
-    assert.deepEqual(catalog.mcpTools.map((tool) => tool.value), [
-      'list_resources', 'generic-mcp.records.list'
-    ]);
     assert.equal(catalog.agents[0].disabled, true);
-    assert.deepEqual(catalog.skills.map((skill) => skill.value), ['shared-skill', 'acornops-observability']);
-    assert(Object.values(catalog.sourceAvailability).every((source) => source.status === 'available'));
+    assert.deepEqual(Object.keys(catalog.sourceAvailability), ['agents']);
+    assert.equal(catalog.sourceAvailability.agents.status, 'available');
+    assert.deepEqual(Object.keys(catalog).sort(), ['agents', 'sourceAvailability']);
   });
 
   it('isolates source query failures and distinguishes empty from unavailable', async () => {
     mock.method(db, 'query', async (sql: string) => {
-      if (sql.includes('FROM agent_definitions') && sql.includes('mcp_installations')) {
+      if (sql.includes('FROM agent_definitions')) {
         const error = new Error('database unavailable') as Error & { code: string };
         error.code = '57P01';
         throw error;
@@ -63,11 +43,10 @@ describe('workflow option catalog repository', () => {
 
     const catalog = await getCapabilityOptionsCatalog('workspace-empty');
 
-    assert.equal(catalog.sourceAvailability.mcpServers.status, 'error');
-    assert.equal(catalog.sourceAvailability.mcpServers.errorCode, 'DATABASE_57P01');
-    assert.equal(catalog.sourceAvailability.mcpServers.retryable, true);
-    assert.equal(catalog.sourceAvailability.agents.status, 'empty');
-    assert.deepEqual(catalog.mcpServers, []);
+    assert.equal(catalog.sourceAvailability.agents.status, 'error');
+    assert.equal(catalog.sourceAvailability.agents.errorCode, 'DATABASE_57P01');
+    assert.equal(catalog.sourceAvailability.agents.retryable, true);
+    assert.deepEqual(catalog.agents, []);
   });
 
   it('keeps catalog reads free of lazy template or skill seeding', async () => {

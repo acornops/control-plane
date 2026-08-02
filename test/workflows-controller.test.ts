@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, it, mock } from 'node:test';
-import { decideRunApproval, getRun, listRunApprovals, listRunEvents } from '../src/controllers/runs-controller.js';
+import { getRun, listRunApprovals, listRunEvents } from '../src/controllers/runs-controller.js';
 import { config } from '../src/config.js';
 import {
   createSession,
@@ -13,10 +13,7 @@ import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
 import { runAutomationOutboxTick } from '../src/services/automation-outbox-worker.js';
 import {
-  createWorkflowDefinition,
-  createWorkflowRun,
   createWorkflowSession,
-  createWorkflowUserMessage,
   getWorkflowDefinition,
   getWorkflowRun,
   listWorkflowRunApprovals,
@@ -144,11 +141,7 @@ describe('workflows controller', () => {
     assert.equal(run.promptDigest, previewDigests.promptDigest);
     assert.equal(run.bindingDigest, previewDigests.bindingDigest);
     assert.deepEqual(run.resourceBindings, []);
-    assert.deepEqual(run.compiledAccessScope.tools, [
-      'get_resource',
-      'get_resource_logs',
-      'list_resources'
-    ]);
+    assert.deepEqual(run.compiledAccessScope.tools, []);
     assert.deepEqual(run.compiledAccessScope.contextGrants, ['workspace_metadata']);
     assert.equal((await listWorkflowMessages(sessionId)).length, 1);
     assert.equal(executionDispatches.length, 1);
@@ -223,63 +216,14 @@ describe('workflows controller', () => {
       run_id: string;
       status: string;
     };
-    assert.equal(body.status, 'waiting_for_approval');
+    assert.equal(body.status, 'queued');
     assert.equal('compiledAccessScope' in body, false);
     const run = await getWorkflowRun(body.run_id);
     assert.ok(run);
     assert.equal(run.targetId, undefined);
-    assert.deepEqual(run.compiledAccessScope.tools, [
-      'prompt.resources.read',
-      'reports.pdf.generate'
-    ]);
+    assert.deepEqual(run.compiledAccessScope.tools, ['documents.create']);
     assert.deepEqual(run.compiledAccessScope.contextGrants, []);
-    assert.deepEqual((await listWorkflowRunApprovals(body.run_id)).map((approval) => approval.status), ['pending']);
-  });
-
-  it('exposes workflow approval gates through public run approval routes and records decisions', async () => {
-    installWorkspace('admin');
-    const workflow = await createWorkflowDefinition({
-      workspaceId: 'workspace-1',
-      name: 'Read write workflow',
-      prompt: 'Inspect the target and run the explicitly approved operation.',
-      agentIds: ['agent-cluster-triage'],
-      requiredPermissions: ['read_workspace_data', 'create_read_write_runs'],
-      capabilityPolicy: {
-        mode: 'read_write',
-        restrictionMode: 'restrict',
-        semanticCapabilityIds: ['infrastructure.diagnostics.read'],
-        contextGrants: ['workspace_metadata'],
-        maxRuntimeSeconds: 900,
-        retentionDays: 90,
-        approvalRequirements: ['Before writing workspace registry']
-      },
-      createdBy: 'user-1'
-    });
-    const compiledAccessScope = await compileScope(workflow, 'admin', ['workspace_metadata']);
-    const session = await createWorkflowSession({ workflow, createdBy: 'user-1', compiledAccessScope });
-    const message = await createWorkflowUserMessage({ session, content: 'Run write workflow' });
-    const run = await createWorkflowRun({ session, message });
-
-    const approvalsResponse = await callController(listRunApprovals, createRequest({ runId: run.id }));
-    assert.equal(approvalsResponse.statusCode, 200);
-    const approvals = approvalsResponse.body as Array<{ id: string; status: string; toolName: string; summary: string }>;
-    assert.equal(approvals.length, 1);
-    const approval = approvals.find((candidate) => candidate.summary.includes('Before writing workspace registry'));
-    assert.ok(approval);
-    assert.equal(approval.status, 'pending');
-    assert.equal(approval.toolName, 'workflow.approval_gate');
-
-    const decidedResponse = await callController(decideRunApproval, createRequest(
-      { runId: run.id, approvalId: approval.id },
-      { decision: 'approved' }
-    ));
-    assert.equal(decidedResponse.statusCode, 200);
-    assert.equal((decidedResponse.body as { status: string; decision: string }).status, 'approved');
-    assert.equal((decidedResponse.body as { decision: string }).decision, 'approved');
-
-    const refreshedResponse = await callController(listRunApprovals, createRequest({ runId: run.id }));
-    const refreshed = refreshedResponse.body as Array<{ id: string; status: string }>;
-    assert.equal(refreshed.find((candidate) => candidate.id === approval.id)?.status, 'approved');
+    assert.deepEqual(await listWorkflowRunApprovals(body.run_id), []);
   });
 
   it('lists workflow sessions with workspaceId from query on GET requests without a body', async () => {

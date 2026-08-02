@@ -4,7 +4,6 @@ import {
   compileWorkflowSessionCeiling,
   WorkflowAccessDeniedError
 } from './workflow-access.js';
-import { resolveEffectiveWorkflowCapabilityIds } from './workflow-capability-policy.js';
 import { listCapabilityRoutingMappings } from '../store/repository-capability-routing.js';
 import { getAgentDefinition } from '../store/repository-agents.js';
 import type { CapabilityRoutingMapping } from '../types/capability-routing.js';
@@ -45,7 +44,7 @@ export async function compileWorkflowScope(input: {
     );
   }
   const specialistAgent = input.workflow.executionMode === 'direct' ? selectedAgents[0] : undefined;
-  const effectiveCapabilityIds = resolveEffectiveWorkflowCapabilityIds(input.workflow.capabilityPolicy, selectedAgents);
+  const effectiveCapabilityIds = [...new Set(selectedAgents.flatMap((agent) => agent.semanticCapabilityIds))];
   const mappings = await listCapabilityRoutingMappings(input.workflow.workspaceId, {
     activeReviewedOnly: true,
     capabilityIds: effectiveCapabilityIds

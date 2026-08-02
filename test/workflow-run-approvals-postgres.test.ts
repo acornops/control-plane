@@ -10,11 +10,9 @@ import {
   AutomationApprovalConflictError,
   createAutomationRunApproval,
   decideAutomationRunApproval,
-  decideAutomationRunApprovalOutcome,
   expirePendingAutomationRunApprovals,
   getAutomationRunApproval,
   getAutomationRunContinuation,
-  listAutomationRunApprovals,
   startAutomationApprovalExecution
 } from '../src/store/repository-automation-approvals.js';
 import { listCapabilityRoutingMappings } from '../src/store/repository-capability-routing.js';
@@ -43,19 +41,11 @@ beforeEach(async () => {
 });
 after(closeAutomationDatabaseFixtures);
 
-async function createDirectRoot(approvalRequirements: string[] = []) {
-  const storedWorkflow = await getWorkflowDefinition('workspace-1', 'cluster-triage');
+async function createDirectRoot() {
+  const workflow = await getWorkflowDefinition('workspace-1', 'cluster-triage');
   const specialist = await getAgentDefinition('workspace-1', 'agent-cluster-triage');
-  assert.ok(storedWorkflow);
+  assert.ok(workflow);
   assert.ok(specialist);
-  const workflow = {
-    ...storedWorkflow,
-    capabilityPolicy: {
-      ...storedWorkflow.capabilityPolicy,
-      mode: 'read_write' as const,
-      approvalRequirements
-    }
-  };
   const compiledAccessScope = compileWorkflowAccessScope({
     workflow,
     selectedAgents: [specialist],
@@ -79,32 +69,6 @@ async function createDirectRoot(approvalRequirements: string[] = []) {
 }
 
 describe('durable Workflow run approvals', () => {
-  it('creates a pre-step approval, run, and outbox atomically and decides concurrent retries once', async () => {
-    const created = await createDirectRoot(['Approve this Workflow run']);
-    assert.equal(created.run.status, 'waiting_for_approval');
-    const approvals = await listAutomationRunApprovals(created.run.id);
-    assert.equal(approvals.length, 1);
-    assert.equal(approvals[0].approvalKind, 'pre_step');
-    assert.equal(approvals[0].status, 'pending');
-    const outbox = await db.query<{ status: string; source_id: string }>(
-      'SELECT status,source_id FROM automation_dispatch_outbox WHERE run_id=$1',
-      [created.run.id]
-    );
-    assert.deepEqual(outbox.rows, [{ status: 'pending', source_id: created.execution.id }]);
-
-    const concurrent = await Promise.all([
-      decideAutomationRunApprovalOutcome(approvals[0].id, 'approved', actor.userId),
-      decideAutomationRunApprovalOutcome(approvals[0].id, 'approved', actor.userId)
-    ]);
-    assert.equal(concurrent.filter((outcome) => outcome?.transitioned).length, 1);
-    assert.deepEqual(concurrent.map((outcome) => outcome?.approval.status), ['approved', 'approved']);
-    const conflict = await decideAutomationRunApprovalOutcome(approvals[0].id, 'rejected', actor.userId);
-    assert.equal(conflict?.transitioned, false);
-    assert.equal(conflict?.approval.decision, 'approved');
-    await applyAutomationApprovalOutcome(concurrent[0]!.approval);
-    assert.equal((await getWorkflowRun(created.run.id))?.status, 'queued');
-  });
-
   it('marks duplicate write execution starts as needs_review and resumes through the logical execution', async () => {
     const created = await createDirectRoot();
     await updateWorkflowRun(created.run.id, { status: 'running' });
@@ -122,7 +86,7 @@ describe('durable Workflow run approvals', () => {
       approvalKind: 'tool_write',
       toolCallId: 'tool-call-1',
       toolName: 'restart_workload',
-      toolRef: { serverId: 'targets', toolName: 'restart_workload' },
+      toolRef: { serverId: 'server-operations', toolName: 'restart_workload' },
       summary: 'Restart the approved workload.',
       arguments: { target_id: 'cluster-1', target_type: 'kubernetes', namespace: 'default', name: 'api' },
       requestedBy: actor.userId,
@@ -135,7 +99,7 @@ describe('durable Workflow run approvals', () => {
       approvalKind: 'tool_write',
       toolCallId: 'tool-call-1',
       toolName: 'restart_workload',
-      toolRef: { serverId: 'targets', toolName: 'restart_workload' },
+      toolRef: { serverId: 'server-operations', toolName: 'restart_workload' },
       summary: 'Restart the approved workload.',
       arguments: { target_id: 'cluster-1', target_type: 'kubernetes', namespace: 'default', name: 'api' },
       requestedBy: actor.userId,
@@ -150,7 +114,7 @@ describe('durable Workflow run approvals', () => {
         approvalKind: 'tool_write',
         toolCallId: 'tool-call-1',
         toolName: 'restart_workload',
-        toolRef: { serverId: 'targets', toolName: 'restart_workload' },
+        toolRef: { serverId: 'server-operations', toolName: 'restart_workload' },
         summary: 'Restart the approved workload.',
         arguments: { target_id: 'cluster-1', target_type: 'kubernetes', namespace: 'other', name: 'api' },
         requestedBy: actor.userId,
@@ -215,7 +179,7 @@ describe('durable Workflow run approvals', () => {
       approvalKind: 'tool_write',
       toolCallId: 'workflow-write-1',
       toolName: 'restart_workload',
-      toolRef: { serverId: 'targets', toolName: 'restart_workload' },
+      toolRef: { serverId: 'server-operations', toolName: 'restart_workload' },
       summary: 'Approve the exact target mutation.',
       arguments: { target_id: 'cluster-1', target_type: 'kubernetes' },
       requestedBy: actor.userId,

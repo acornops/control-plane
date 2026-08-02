@@ -100,13 +100,7 @@ const expectedAgentkBuiltinToolNames = [
   'scale_workload',
   'patch_workload',
   'patch_resource',
-  'patch_configmap',
-  'get_custom_resource',
-  'list_custom_resources',
-  'watch_custom_resources',
-  'create_custom_resource',
-  'patch_custom_resource',
-  'delete_custom_resource'
+  'patch_configmap'
 ];
 
 const gatewayCanonicalVectorsPath = path.resolve(
@@ -381,7 +375,7 @@ for (const builtinConfigNeedle of [
 }
 
 expectIncludes(internalMcpBridgeController, 'res.locals.gatewayRunClaims', 'Builtin MCP run token claims');
-expectIncludes(internalMcpBridgeController, 'isToolAllowedByRunToken(toolName, claims.allowedTools)', 'Builtin MCP allowed-tool check');
+expectIncludes(internalMcpBridgeController, 'isToolAllowedByRunToken(authorizedToolName, claims.allowedTools)', 'Builtin MCP allowed-tool check');
 expectIncludes(internalMcpBridgeController, 'operationForToolCall(claims, toolName)', 'Builtin MCP audit operation classification');
 expectIncludes(internalMcpBridgeController, 'stableAgentRequestId(claims.runId, req.body.toolCallId)', 'Stable AgentK operation id forwarding');
 expectIncludes(contracts, 'toolCallId: z.string().min(1).max(256).optional()', 'Builtin MCP tool call id contract');

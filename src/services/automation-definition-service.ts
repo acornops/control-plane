@@ -22,7 +22,7 @@ import { pruneTemplateInstallationRecordReference } from '../store/repository-au
 import { withTransaction } from '../store/repository-transaction.js';
 import { refreshAgentReadiness, refreshWorkflowReadiness } from './automation-readiness.js';
 import { resolveWorkflowRouting, WorkflowSelectionError } from './workflow-coordinator.js';
-import { reconcileInfrastructureCapabilityMappingsForAgent } from './infrastructure-capability-mappings.js';
+import { syncAgentTargetsBuiltInTools } from './agent-targets-mcp-sync.js';
 
 export type CreateWorkflowMutationInput = Omit<
   CreateWorkflowDefinitionInput,
@@ -56,8 +56,8 @@ async function validateAgentInput(
 export async function createAgentThroughDefinitionService(input: CreateAgentDefinitionInput): Promise<AgentDefinition> {
   await validateAgentInput(input);
   const created = await createAgentDefinition(input);
-  await reconcileInfrastructureCapabilityMappingsForAgent(created);
-  return (await refreshAgentReadiness(created.workspaceId, created.id)) || created;
+  const targetsMcp = await syncAgentTargetsBuiltInTools(created.workspaceId, created.id);
+  return (await refreshAgentReadiness(created.workspaceId, created.id)) || targetsMcp.agent || created;
 }
 
 export async function createAgentThroughDefinitionServiceInTransaction(
@@ -65,9 +65,7 @@ export async function createAgentThroughDefinitionServiceInTransaction(
   input: CreateAgentDefinitionInput
 ): Promise<AgentDefinition> {
   await validateAgentInput(input, undefined, client);
-  const created = await createAgentDefinition(input, client);
-  await reconcileInfrastructureCapabilityMappingsForAgent(created, client);
-  return created;
+  return createAgentDefinition(input, client);
 }
 
 export async function updateAgentThroughDefinitionService(
@@ -80,8 +78,8 @@ export async function updateAgentThroughDefinitionService(
   await validateAgentInput({ ...patch, workspaceId }, current);
   const updated = await updateAgentDefinition(workspaceId, agentId, patch);
   if (!updated) return null;
-  await reconcileInfrastructureCapabilityMappingsForAgent(updated);
-  const refreshed = (await refreshAgentReadiness(workspaceId, agentId)) || updated;
+  const targetsMcp = await syncAgentTargetsBuiltInTools(workspaceId, agentId);
+  const refreshed = (await refreshAgentReadiness(workspaceId, agentId)) || targetsMcp.agent || updated;
   await Promise.all((await listWorkflowDefinitions(workspaceId))
     .filter((workflow) => workflow.agentIds.includes(agentId))
     .map((workflow) => refreshWorkflowReadiness(workflow)));
@@ -102,8 +100,7 @@ async function createWorkflowInTransaction(
   try {
     const routing = await resolveWorkflowRouting(client, {
       workspaceId: input.workspaceId,
-      agentIds: input.agentIds,
-      capabilityPolicy: input.capabilityPolicy
+      agentIds: input.agentIds
     });
     const created = await createWorkflowDefinition({
       ...input,
@@ -139,20 +136,14 @@ export async function updateWorkflowThroughDefinitionService(
     );
     const current = await getWorkflowDefinition(workspaceId, workflowId, client);
     if (!current) return null;
-    const capabilityPolicy = {
-      ...current.capabilityPolicy,
-      ...patch.capabilityPolicy
-    };
     try {
       const routing = await resolveWorkflowRouting(client, {
         workspaceId,
-        agentIds: patch.agentIds || current.agentIds,
-        capabilityPolicy
+        agentIds: patch.agentIds || current.agentIds
       });
       const result = await updateWorkflowDefinitionScope(workspaceId, workflowId, {
         ...patch,
         agentIds: routing.agentIds,
-        capabilityPolicy
       }, client);
       return result;
     } catch (error) {

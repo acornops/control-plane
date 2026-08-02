@@ -67,15 +67,7 @@ const workflowAuthoringProperties = {
   status: { type: 'string', enum: ['active', 'draft', 'paused'] },
   prompt: { type: 'string' },
   agentIds: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', minLength: 1 } },
-  capabilityPolicy: { type: 'object', properties: {
-    mode: { type: 'string', enum: ['read_only', 'read_write'] },
-    restrictionMode: { type: 'string', enum: ['inherit', 'restrict'] },
-    semanticCapabilityIds: { type: 'array', items: { type: 'string' } },
-    contextGrants: { type: 'array', items: { type: 'string' } },
-    approvalRequirements: { type: 'array', items: { type: 'string' } }
-  }, additionalProperties: false },
-  tags: { type: 'array', items: { type: 'string' } },
-  requiredPermissions: { type: 'array', items: { type: 'string' } }
+  tags: { type: 'array', items: { type: 'string' } }
 };
 
 const workflowMutationBody = {
@@ -180,9 +172,9 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       get: {
         tags: ['workflows'],
         summary: 'List server-compiled workflow options',
-        description: 'Returns workflow options. Runtime and retention policy lists contain the single effective deployment-wide value. When agentId is supplied, MCP servers, exact tool references, and skills are limited to that Agent’s installed capability ceiling. The endpoint never exposes catalog installation actions.',
+        description: 'Returns the active and inactive specialist Agents available for Workflow assignment. Tools, MCP servers, skills, context, permissions, and approval behavior are owned by Agents and are not authorable Workflow options.',
         security: [{ userSession: [] }],
-        parameters: [workspaceIdParameter, { in: 'query', name: 'agentId', required: false, schema: { type: 'string' } }],
+        parameters: [workspaceIdParameter],
         responses: { '200': { description: 'Workflow option catalog.' } }
       }
     },
@@ -481,16 +473,19 @@ export function buildWorkflowPaths(): Record<string, unknown> {
     },
     '/api/v1/report-artifacts/{reportId}': {
       get: {
-        tags: ['runs', 'workflows'], summary: 'Get report artifact metadata', security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+        tags: ['runs', 'workflows'], summary: 'Get generated document metadata', security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
         parameters: [externalUserHeader, { in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
-        responses: { '200': { description: 'Report metadata without report source or PDF bytes.' } }
+        responses: { '200': { description: 'Document metadata without source or artifact bytes.' } }
       }
     },
     '/api/v1/report-artifacts/{reportId}/download': {
       get: {
-        tags: ['runs', 'workflows'], summary: 'Render and stream a report artifact', security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
+        tags: ['runs', 'workflows'], summary: 'Render and stream a generated document', security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
         parameters: [externalUserHeader, { in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
-        responses: { '200': { description: 'Freshly rendered PDF stream.', content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } } } }
+        responses: { '200': { description: 'PDF or Markdown document stream.', content: {
+          'application/pdf': { schema: { type: 'string', format: 'binary' } },
+          'text/markdown': { schema: { type: 'string' } }
+        } } }
       }
     }
   };

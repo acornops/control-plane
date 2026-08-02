@@ -5,6 +5,7 @@ import { logger } from '../logger.js';
 import { incrementAutomationDefinitionMutation } from '../metrics.js';
 import { deleteAgentMcpServer, listAgentMcpServers } from '../services/mcp-registry-client.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
+import { syncAgentTargetsBuiltInTools } from '../services/agent-targets-mcp-sync.js';
 import {
   duplicateAgentDefinition,
   getAgentDefinition
@@ -51,7 +52,8 @@ export async function duplicateAgent(req: AuthenticatedRequest, res: Response, n
       workspaceId, agentId: source.id, duplicatedAgentId: duplicated.id, actorUserId: req.auth.userId,
       resource: 'agent', operation: 'duplication', outcome: 'success'
     }, 'Duplicated automation definition');
-    res.status(201).json({ agent: await agentResponse(duplicated) });
+    const targetsMcp = await syncAgentTargetsBuiltInTools(workspaceId, duplicated.id);
+    res.status(201).json({ agent: await agentResponse(targetsMcp.agent || duplicated) });
   } catch (error) {
     incrementAutomationDefinitionMutation('agent', 'duplication', 'failure');
     logger.error({

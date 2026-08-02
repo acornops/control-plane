@@ -80,6 +80,16 @@ export async function listAgentDefinitions(workspaceId: string, options: { inclu
   return Promise.all(result.rows.map((row) => mapAgent(row)));
 }
 
+export async function listAgentDefinitionRefs(): Promise<Array<{ workspaceId: string; agentId: string }>> {
+  const result = await db.query<{ workspace_id: string; id: string }>(
+    `SELECT workspace_id,id
+     FROM agent_definitions
+     WHERE status='active'
+     ORDER BY workspace_id,id`
+  );
+  return result.rows.map((row) => ({ workspaceId: row.workspace_id, agentId: row.id }));
+}
+
 export async function getAgentDefinition(
   workspaceId: string,
   agentId: string,

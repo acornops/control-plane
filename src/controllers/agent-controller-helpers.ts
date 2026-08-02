@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
-import { getCapabilityOptionsCatalog } from '../store/repository-capability-options.js';
+import { getAgentCapabilityOptionsCatalog } from '../store/repository-capability-options.js';
 import type { AgentDefinitionUpdate } from '../store/repository-agent-types.js';
 import type { AgentCapability, AgentDefinition, AgentDefinitionResponse } from '../types/agents.js';
 
@@ -113,7 +113,7 @@ export function normalizeTrustPolicy(value: unknown, providerType: AgentDefiniti
 }
 
 export async function collectAgentOptionErrors(workspaceId: string, input: Partial<AgentDefinition>): Promise<string[]> {
-  const options = await getCapabilityOptionsCatalog(workspaceId);
+  const options = await getAgentCapabilityOptionsCatalog(workspaceId);
   const servers = new Map(options.mcpServers.map((option) => [option.value, option]));
   const tools = new Map(options.mcpTools.map((option) => [option.value, option]));
   const skills = new Map(options.skills.map((option) => [option.value, option]));

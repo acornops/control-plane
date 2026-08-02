@@ -87,15 +87,20 @@ export async function listWorkflows(req: AuthenticatedRequest, res: Response, ne
     if (!authz) return;
     const q = normalizeSearchQuery(req.query.q);
     const signature = makeQuerySignature({ workspaceId, q });
-    const rows = (await listWorkflowDefinitions(workspaceId))
-      .filter((workflow) => !isExternalIntegrationRequest(req) || isExternallyRunnableWorkflow(workflow, authz))
+    const definitions = await listWorkflowDefinitions(workspaceId);
+    const externallyRunnable = isExternalIntegrationRequest(req)
+      ? new Set((await Promise.all(definitions.map(async (workflow) => (
+          await isExternallyRunnableWorkflow(workflow, authz) ? workflow.id : null
+        )))).filter((id): id is string => Boolean(id)))
+      : null;
+    const rows = definitions
+      .filter((workflow) => !externallyRunnable || externallyRunnable.has(workflow.id))
       .filter((workflow) => containsSearchText([
         workflow.name,
         workflow.description,
         workflow.prompt,
         workflow.status,
-        ...workflow.agentIds,
-        ...workflow.capabilityPolicy.semanticCapabilityIds
+        ...workflow.agentIds
       ], q));
     res.status(200).json(pageArray(rows.map(publicWorkflowDefinition), {
       limit: parseBoundedLimit(req.query.limit),
@@ -116,7 +121,7 @@ export async function getWorkflow(req: AuthenticatedRequest, res: Response, next
     const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
     if (isExternalIntegrationRequest(req)) {
-      const blocker = externalWorkflowBlocker(workflow, authz);
+      const blocker = await externalWorkflowBlocker(workflow, authz);
       if (blocker) {
         return void res.status(403).json({ error: {
           code: 'WORKFLOW_NOT_AVAILABLE_FOR_EXTERNAL_INTEGRATION',
@@ -150,7 +155,7 @@ export async function createSession(req: AuthenticatedRequest, res: Response, ne
     const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
     if (isExternalIntegrationRequest(req)) {
-      const blocker = externalWorkflowBlocker(workflow, authz);
+      const blocker = await externalWorkflowBlocker(workflow, authz);
       if (blocker) {
         return void res.status(403).json({ error: {
           code: 'WORKFLOW_NOT_AVAILABLE_FOR_EXTERNAL_INTEGRATION',
@@ -158,7 +163,7 @@ export async function createSession(req: AuthenticatedRequest, res: Response, ne
           retryable: false
         } });
       }
-      const grantValidation = validateApprovedContextGrants(workflow, approvedContextGrants(req));
+      const grantValidation = await validateApprovedContextGrants(workflow, approvedContextGrants(req));
       if (grantValidation.extra.length > 0) {
         return void res.status(400).json({ error: {
           code: 'WORKFLOW_CONTEXT_GRANT_UNKNOWN',
@@ -230,7 +235,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
     const workflow = session.workflowSnapshot || currentWorkflow;
     if (!workflow) return void res.status(409).json({ error: { code: 'WORKFLOW_DEFINITION_UNAVAILABLE', message: 'Workflow definition is unavailable.', retryable: false } });
     if (isExternalIntegrationRequest(req)) {
-      const blocker = currentWorkflow ? externalWorkflowBlocker(currentWorkflow, authz) : 'External integrations can only run active workflows.';
+      const blocker = currentWorkflow ? await externalWorkflowBlocker(currentWorkflow, authz) : 'External integrations can only run active workflows.';
       if (blocker) {
         return void res.status(403).json({ error: {
           code: 'WORKFLOW_NOT_AVAILABLE_FOR_EXTERNAL_INTEGRATION',
@@ -239,8 +244,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
         } });
       }
     }
-    const requiredCapability = workflow.capabilityPolicy.mode === 'read_write'
-      || (isExternalIntegrationRequest(req) && workflow.capabilityPolicy.approvalRequirements.length > 0)
+    const requiredCapability = session.compiledAccessScope.mode === 'read_write'
       ? 'create_read_write_runs'
       : 'create_read_only_runs';
     if (!(await requireWorkspaceCapability(req, res, session.workspaceId, requiredCapability, 'No permission to create workflow runs'))) return;

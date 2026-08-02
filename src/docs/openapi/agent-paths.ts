@@ -23,7 +23,7 @@ const agentConversationIdPathParameter = {
 
 const nativeToolIdPathParameter = {
   in: 'path', name: 'toolId', required: true,
-  schema: { type: 'string', example: 'reports.pdf.generate' }
+  schema: { type: 'string', example: 'documents.create' }
 };
 
 const agentWorkspaceIdQueryParameter = {

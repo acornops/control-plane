@@ -87,7 +87,7 @@ export function compileAgentCapabilityProjection(input: {
     .filter((ref, index, refs) => refs.findIndex((candidate) => (
       candidate.serverId === ref.serverId && candidate.toolName === ref.toolName
     )) === index);
-  const nativeToolIds = input.delegatedSpecialist ? [] : uniqueSorted([
+  const nativeToolIds = uniqueSorted([
     ...(inheritAgentAttachments ? input.agent.tools : []),
     ...mappingAttachments.flatMap((mapping) => mapping.nativeToolIds)
   ]);

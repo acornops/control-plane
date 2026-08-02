@@ -5,7 +5,6 @@ import { logger } from '../logger.js';
 import { incrementWorkflowCapabilityPreviewBlocker, observeWorkflowCapabilityPreview } from '../metrics.js';
 import { computeWorkflowReadiness } from '../services/automation-readiness.js';
 import { directWorkflowAttachments } from '../services/workflow-capability-preview.js';
-import { resolveEffectiveWorkflowCapabilityIds } from '../services/workflow-capability-policy.js';
 import { compileWorkflowAccessScope, WorkflowAccessDeniedError } from '../services/workflow-access.js';
 import { getWorkflowCapabilityReadinessReport } from '../services/mcp-readiness.js';
 import { getAgentDefinition } from '../store/repository-agents.js';
@@ -17,11 +16,11 @@ import { toSingleParam } from '../utils/params.js';
 import { respondWorkflowAccessError } from './workflow-public.js';
 import { getMcpConnection, listAgentMcpServers, type McpServerConfig } from '../services/mcp-registry-client.js';
 import { PromptResourceProviderError } from '../services/prompt-resources/errors.js';
+import { summarizeWorkflowAgents } from '../services/workflow-derived-capabilities.js';
 import {
   compileWorkflowPrompt,
   WorkflowPromptValidationError
 } from '../services/workflow-prompt.js';
-import { resolveWorkspaceMcpToolSpecs } from '../services/workspace-mcp-tool-specs.js';
 
 function requestWorkspaceId(req: AuthenticatedRequest): string | null {
   const raw = req.body?.workspaceId || req.query.workspaceId;
@@ -50,7 +49,7 @@ async function compilePreviewScope(input: {
     .filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
   const specialistAgent = input.workflow.executionMode === 'direct' ? selectedAgents[0] : undefined;
   if (selectedAgents.length !== input.workflow.agentIds.length) throw new WorkflowAccessDeniedError('WORKFLOW_AGENT_SCOPE_DENIED', 'Workflow routing for the selected Agents is unavailable.');
-  const capabilityIds = resolveEffectiveWorkflowCapabilityIds(input.workflow.capabilityPolicy, selectedAgents);
+  const capabilityIds = summarizeWorkflowAgents(selectedAgents).semanticCapabilityIds;
   const mappings = await listCapabilityRoutingMappings(input.workflow.workspaceId, { activeReviewedOnly: true, capabilityIds });
   return {
     specialistAgent,
@@ -152,13 +151,13 @@ function responseBody(input: {
   const write = tools.filter((tool) => tool.access === 'write');
   const directMcpServers = input.directMcpServers || [];
   const enabledSkills = input.enabledSkills || [];
-  const approvalRequirements = input.scope?.approvalGates || input.workflow.capabilityPolicy.approvalRequirements;
+  const approvalRequirements = input.scope?.approvalGates || [];
   return {
     workflowId: input.workflow.id,
     promptDigest: input.promptDigest,
     bindingDigest: input.bindingDigest,
-    mode: input.workflow.capabilityPolicy.mode,
-    semanticCapabilityIds: input.scope?.semanticCapabilityIds || input.semanticCapabilityIds || input.workflow.capabilityPolicy.semanticCapabilityIds,
+    mode: input.scope?.mode || 'read_only',
+    semanticCapabilityIds: input.scope?.semanticCapabilityIds || input.semanticCapabilityIds || [],
     checkedAt: new Date().toISOString(),
     status: input.status,
     reasonCodes: input.reasonCodes || [],
@@ -188,7 +187,11 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
     if (!workflow) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
     const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
-    const requiredCapability = workflow.capabilityPolicy.mode === 'read_write' ? 'create_read_write_runs' : 'create_read_only_runs';
+    const selectedForAuthorization = (await Promise.all(workflow.agentIds.map((agentId) => getAgentDefinition(workspaceId, agentId))))
+      .filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
+    const requiredCapability = summarizeWorkflowAgents(selectedForAuthorization).mode === 'read_write'
+      ? 'create_read_write_runs'
+      : 'create_read_only_runs';
     if (!authz.can(requiredCapability)) return void res.status(403).json({ error: { code: 'FORBIDDEN', message: 'No permission to preview this workflow run.', retryable: false } });
     const referenceResolution = await compileWorkflowPrompt({
       workflow,
@@ -203,29 +206,13 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
       bindingDigest: referenceResolution.bindingDigest
     });
     const scope = compiled.scope;
-    const workspaceMcpSpecs = await resolveWorkspaceMcpToolSpecs({
-      workspaceId,
-      runId: `workflow-preview:${workflow.id}`,
-      mode: scope.mode,
-      refs: scope.mcpTools
-    });
-    const workspaceMcpAliases = new Set(workspaceMcpSpecs.map((tool) => tool.name));
-    const workspaceMcpTools: WorkflowCapabilityToolPreview[] = workspaceMcpSpecs.map((tool) => ({
-      id: tool.name,
-      name: tool.name,
-      label: tool.tool_name,
-      description: tool.description,
-      access: tool.capability,
-      source: 'mcp',
-      serverId: tool.server_id
-    }));
     const readiness = await getWorkflowCapabilityReadinessReport(workspaceId, scope, { principal: scope.principal });
     const attachments = compiled.specialistAgent
-      ? directWorkflowAttachments({ agent: compiled.specialistAgent, scope, excludedToolNames: workspaceMcpAliases })
+      ? directWorkflowAttachments({ agent: compiled.specialistAgent, scope })
       : { tools: [], mcpServers: [], skills: [] };
     const genericAuthRequirements = await genericMcpAuthRequirements({ workspaceId, userId: req.auth.userId, agents: compiled.selectedAgents, scope });
     const mcpRequirements = genericAuthRequirements;
-    const tools = [...workspaceMcpTools, ...attachments.tools].filter((tool, index, values) => values.findIndex((candidate) => candidate.id === tool.id && candidate.source === tool.source) === index);
+    const tools = attachments.tools;
     const reasonCodes: WorkflowCapabilityPreviewReasonCode[] = readiness.errors.length ? ['MCP_CONNECTION_UNAVAILABLE'] : [];
     reasonCodes.forEach(incrementWorkflowCapabilityPreviewBlocker);
     metricStatus = readiness.errors.length ? 'blocked' : 'ready';

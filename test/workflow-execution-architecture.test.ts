@@ -44,8 +44,8 @@ const targetToolSync = readFileSync(
   new URL('../src/services/target-built-in-tool-sync.ts', import.meta.url),
   'utf8'
 );
-const workspaceMcpSpecs = readFileSync(
-  new URL('../src/services/workspace-mcp-tool-specs.ts', import.meta.url),
+const agentTargetsCatalog = readFileSync(
+  new URL('../src/services/agent-targets-mcp-catalog.ts', import.meta.url),
   'utf8'
 );
 
@@ -150,8 +150,8 @@ describe('unified Workflow execution architecture', () => {
   it('keeps target inventory and connector lifecycle out of Agent and Workflow readiness', () => {
     assert.doesNotMatch(targetToolSync, /refreshAgentReadiness|refreshWorkflowReadiness/);
     assert.doesNotMatch(targetToolSync, /repository-agents|repository-workflows/);
-    assert.doesNotMatch(workspaceMcpSpecs, /listWorkspaceTargetSnapshot|resolveTargetRunTools/);
-    assert.match(workspaceMcpSpecs, /TARGETS_MCP_CATALOG/);
+    assert.match(agentTargetsCatalog, /AGENT_TARGETS_MCP_TOOL_NAMES/);
+    assert.doesNotMatch(agentTargetsCatalog, /targetConstraints|targetScope/);
   });
 
   it('retries from the prior immutable root scope instead of current Agent definitions', () => {

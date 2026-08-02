@@ -98,10 +98,9 @@ describe('development target seed', () => {
             workspace_id: values[0], id: values[1], name: values[2],
             description: values[3], status: values[4], prompt: values[5],
             agent_ids: JSON.parse(String(values[6])),
-            capability_policy: values[7], tags: JSON.parse(String(values[8])),
-            required_permissions: JSON.parse(String(values[9])),
-            created_by: values[10], readiness_status: values[11],
-            readiness_reasons: JSON.parse(String(values[12])),
+            tags: JSON.parse(String(values[7])),
+            created_by: values[8], readiness_status: values[9],
+            readiness_reasons: JSON.parse(String(values[10])),
             created_at: new Date(), updated_at: new Date()
           };
           workflowRows.set(String(values[1]), row);
@@ -158,8 +157,10 @@ describe('development target seed', () => {
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workspace_initial_defaults')).length, 1);
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workspace_initial_default_skill_files')).length, 1);
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO agent_definitions')).length, 2);
-    assert.equal(transactionQueries.filter(({ sql }) =>
-      sql.includes('INSERT INTO capability_routing_mappings') && sql.includes('RETURNING *')).length, 3);
+    const nativeToolMappings = transactionQueries.filter(({ sql }) =>
+      sql.includes('INSERT INTO capability_routing_mappings') && sql.includes('native_tool_ids'));
+    assert.equal(nativeToolMappings.length, 2);
+    assert(nativeToolMappings.every(({ params }) => String(params[1]).startsWith('native:')));
     assert.equal(transactionQueries.filter(({ sql }) => sql.includes('INSERT INTO workflow_definitions')).length, 2);
     assert.deepEqual(
       [...agentRows.values()].map((row) => row.name).sort(),

@@ -139,20 +139,3 @@ export async function upsertPlatformCapabilityRoutingMapping(input: Omit<
   );
   return mapRow(result.rows[0]);
 }
-
-export async function disablePlatformTargetsMcpMappingsForAgent(
-  workspaceId: string,
-  agentId: string,
-  keepIds: string[],
-  queryable: Pick<import('pg').PoolClient, 'query'> = db
-): Promise<number> {
-  const result = await queryable.query(
-    `UPDATE capability_routing_mappings
-     SET status='disabled',updated_at=NOW()
-     WHERE workspace_id=$1 AND agent_id=$2 AND capability_id=ANY($4::text[])
-       AND created_by='platform:targets-mcp'
-       AND NOT (id=ANY($3::text[])) AND status='active'`,
-    [workspaceId, agentId, keepIds, ['infrastructure.diagnostics.read', 'infrastructure.remediation.write']]
-  );
-  return result.rowCount || 0;
-}

@@ -93,11 +93,11 @@ describe('target native tool controller', () => {
         }
       },
       {
-        id: 'reports.pdf.generate',
-        label: 'Generate PDF report',
+        id: 'documents.create',
+        label: 'Create document',
         enabled: true,
         toggleable: true,
-        description: 'Create a provenance-linked PDF incident report from the current assistant conversation and available evidence.',
+        description: 'Create a provenance-linked PDF or Markdown document from the current assistant conversation and available evidence.',
         origin: 'platform_native',
         capability: 'read',
         runtimeKind: 'function',

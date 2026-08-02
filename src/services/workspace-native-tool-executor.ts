@@ -10,7 +10,6 @@ import type { WorkflowRunRecord } from '../store/repository-workflows.js';
 import type { Run } from '../types/domain.js';
 import { config } from '../config.js';
 import { getWorkspaceNativeTool } from './workspace-native-tools.js';
-import { digestBindings, digestPrompt, promptResourceRegistry } from './prompt-resources/index.js';
 import {
   assertFetchUrlAllowed,
   FETCH_TOOL_ID,
@@ -27,73 +26,19 @@ export class WorkspaceNativeToolExecutionError extends Error {
   }
 }
 
-function strings(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean)
-    : [];
-}
-
-async function readPromptResources(run: WorkflowRunRecord, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  if (digestPrompt(run.prompt) !== run.promptDigest
-    || digestBindings(run.compiledAccessScope.resourceBindings) !== run.bindingDigest) {
-    throw new WorkspaceNativeToolExecutionError(
-      'PROMPT_RESOURCE_INTEGRITY_FAILED',
-      'The run prompt resource snapshot failed integrity verification.',
-      409
-    );
-  }
-  const bindingIds = [...new Set(strings(args.bindingIds))];
-  if (bindingIds.length === 0 || bindingIds.length > 20) {
-    throw new WorkspaceNativeToolExecutionError('PROMPT_RESOURCE_INPUT_INVALID', 'Provide between 1 and 20 binding IDs.');
-  }
-  const bindings = bindingIds.map((bindingId) => {
-    const binding = run.compiledAccessScope.resourceBindings.find((candidate) => candidate.bindingId === bindingId);
-    if (!binding) throw new WorkspaceNativeToolExecutionError('PROMPT_RESOURCE_NOT_GRANTED', 'A requested binding is not granted to this run.', 403);
-    if (binding.contextMode !== 'tool') {
-      throw new WorkspaceNativeToolExecutionError('PROMPT_RESOURCE_NOT_READABLE', 'A requested binding is not tool-readable.', 403);
-    }
-    if (!binding.operations.includes('read')) {
-      throw new WorkspaceNativeToolExecutionError('PROMPT_RESOURCE_NOT_READABLE', 'A requested binding does not grant read access.', 403);
-    }
-    return binding;
-  });
-  const maximumBytes = 256 * 1024;
-  const perResourceBytes = Math.max(4_096, Math.floor(maximumBytes / bindings.length));
-  const resources: Array<Record<string, unknown>> = [];
-  let aggregateBytes = 0;
-  for (const binding of bindings) {
-    const provider = promptResourceRegistry.provider(binding.type);
-    if (!provider || provider.descriptor().provider !== binding.provider || !provider.loadContext) {
-      throw new WorkspaceNativeToolExecutionError('PROMPT_RESOURCE_READER_UNAVAILABLE', 'A requested binding cannot provide readable context.', 409);
-    }
-    const context = await provider.loadContext(binding, { runId: run.id, maximumBytes: perResourceBytes });
-    if (Buffer.byteLength(JSON.stringify(context), 'utf8') > perResourceBytes) {
-      throw new WorkspaceNativeToolExecutionError('PROMPT_RESOURCE_RESULT_TOO_LARGE', 'A prompt resource exceeded its context limit.', 413);
-    }
-    const result = {
-      bindingId: binding.bindingId,
-      provider: binding.provider,
-      resourceId: binding.resourceId,
-      labelSnapshot: binding.labelSnapshot,
-      retrievedAt: new Date().toISOString(),
-      context
-    };
-    aggregateBytes += Buffer.byteLength(JSON.stringify(result), 'utf8');
-    if (aggregateBytes > maximumBytes) break;
-    resources.push(result);
-  }
-  return { resources, truncated: resources.length < bindings.length };
-}
-
-async function generatePdf(
+async function createDocument(
   run: WorkflowRunRecord | Run,
   args: Record<string, unknown>,
   toolCallId: string
 ): Promise<Record<string, unknown>> {
   const title = typeof args.title === 'string' ? args.title.trim() : '';
   const markdown = typeof args.markdown === 'string' ? args.markdown : '';
+  const format = args.format === undefined ? 'pdf' : args.format;
   if (!title || title.length > 200 || !markdown) {
-    throw new WorkspaceNativeToolExecutionError('REPORT_SOURCE_INVALID', 'A title and non-empty markdown source are required.');
+    throw new WorkspaceNativeToolExecutionError('DOCUMENT_SOURCE_INVALID', 'A title and non-empty markdown source are required.');
+  }
+  if (format !== 'pdf' && format !== 'markdown') {
+    throw new WorkspaceNativeToolExecutionError('DOCUMENT_FORMAT_INVALID', 'Document format must be pdf or markdown.');
   }
   const workflowRun = 'executionId' in run;
   const retentionDays = config.GENERATED_DOCUMENT_RETENTION_DAYS;
@@ -101,17 +46,18 @@ async function generatePdf(
     ? args.provenance as Record<string, unknown>
     : {};
   if (Buffer.byteLength(JSON.stringify(provenance), 'utf8') > 32_768) {
-    throw new WorkspaceNativeToolExecutionError('REPORT_PROVENANCE_TOO_LARGE', 'Report provenance exceeds the allowed size.', 413);
+    throw new WorkspaceNativeToolExecutionError('DOCUMENT_PROVENANCE_TOO_LARGE', 'Document provenance exceeds the allowed size.', 413);
   }
-  let report: GeneratedDocumentRecord;
+  let document: GeneratedDocumentRecord;
   try {
-    report = workflowRun
+    document = workflowRun
       ? await createWorkflowDocument({
           workspaceId: run.workspaceId,
           executionId: run.executionId,
           runId: run.id,
           toolCallId,
           title,
+          mediaType: format === 'pdf' ? 'application/pdf' : 'text/markdown',
           source: { markdown },
           provenance: {
             ...provenance,
@@ -127,6 +73,7 @@ async function generatePdf(
           conversationRunId: run.id,
           toolCallId,
           title,
+          mediaType: format === 'pdf' ? 'application/pdf' : 'text/markdown',
           source: { markdown },
           provenance: {
             ...provenance,
@@ -142,25 +89,28 @@ async function generatePdf(
   } catch (error) {
     if (error instanceof GeneratedDocumentError) {
       const status = error.code === 'REPORT_RENDER_TIMEOUT' ? 504 : 413;
-      throw new WorkspaceNativeToolExecutionError(error.code, 'The report could not be created within artifact limits.', status);
+      throw new WorkspaceNativeToolExecutionError(error.code, 'The document could not be created within artifact limits.', status);
     }
     throw error;
   }
   return {
-    reportId: report.id,
-    title: report.title,
-    mediaType: report.mediaType,
-    sourceSizeBytes: report.sourceSizeBytes,
-    retentionExpiresAt: report.retentionExpiresAt,
-    downloadUrl: `/api/v1/report-artifacts/${encodeURIComponent(report.id)}/download`
+    documentId: document.id,
+    title: document.title,
+    mediaType: document.mediaType,
+    sourceSizeBytes: document.sourceSizeBytes,
+    retentionExpiresAt: document.retentionExpiresAt,
+    downloadUrl: `/api/v1/report-artifacts/${encodeURIComponent(document.id)}/download`
   };
 }
 
 async function fetchExternalUrl(
-  run: WorkflowRunRecord,
+  run: WorkflowRunRecord | Run,
   args: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
   try {
+    if (!run.compiledAccessScope) {
+      throw new WorkspaceNativeToolExecutionError('RUN_SCOPE_INVALID', 'The run is missing its compiled Agent capability scope.', 409);
+    }
     const { url: rawUrl } = normalizeFetchToolInput(args);
     const config = normalizeFetchToolConfig(run.compiledAccessScope.nativeToolConfigs?.[FETCH_TOOL_ID]);
     const canonicalUrl = assertFetchUrlAllowed(rawUrl, config);
@@ -212,27 +162,17 @@ export async function executeWorkspaceNativeTool(input: {
   const startedAt = Date.now();
   try {
     let result: Record<string, unknown>;
-    if (tool.id === 'prompt.resources.read') {
-      if (!('executionId' in input.run)) {
+    if (tool.id === FETCH_TOOL_ID) {
+      if (!('executionId' in input.run) && input.run.conversationKind !== 'agent_chat') {
         throw new WorkspaceNativeToolExecutionError(
           'WORKSPACE_NATIVE_TOOL_SCOPE_DENIED',
-          'Reading prompt resources is available only to workflow runs.',
-          403
-        );
-      }
-      result = await readPromptResources(input.run, input.arguments);
-    }
-    else if (tool.id === FETCH_TOOL_ID) {
-      if (!('executionId' in input.run)) {
-        throw new WorkspaceNativeToolExecutionError(
-          'WORKSPACE_NATIVE_TOOL_SCOPE_DENIED',
-          'Fetch is available only to workflow runs.',
+          'Fetch is available only to Agent-owned runs.',
           403
         );
       }
       result = await fetchExternalUrl(input.run, input.arguments);
     }
-    else if (tool.id === 'reports.pdf.generate') result = await generatePdf(input.run, input.arguments, input.toolCallId);
+    else if (tool.id === 'documents.create') result = await createDocument(input.run, input.arguments, input.toolCallId);
     else throw new WorkspaceNativeToolExecutionError('NATIVE_TOOL_NOT_IMPLEMENTED', 'Native tool is not implemented.', 501);
 
     await recordWorkspaceAuditEvent({

@@ -128,11 +128,6 @@ describe('agents controller', () => {
       name: 'Cluster incident workflow',
       prompt: 'Inspect the selected cluster.',
       agentIds: [agentId],
-      requiredPermissions: ['create_read_only_runs'],
-      capabilityPolicy: {
-        mode: 'read_only', restrictionMode: 'restrict', semanticCapabilityIds: ['infrastructure.diagnostics.read'],
-        contextGrants: [], maxRuntimeSeconds: 300, retentionDays: 7, approvalRequirements: []
-      },
       createdBy: 'user-1'
     });
 
@@ -285,11 +280,6 @@ describe('agents controller', () => {
       name: 'Assigned helper workflow',
       prompt: 'Run the assigned helper.',
       agentIds: [agentId],
-      requiredPermissions: ['create_read_only_runs'],
-      capabilityPolicy: {
-        mode: 'read_only', restrictionMode: 'restrict', semanticCapabilityIds: [], contextGrants: [],
-        maxRuntimeSeconds: 300, retentionDays: 7, approvalRequirements: []
-      },
       createdBy: 'user-1'
     });
 

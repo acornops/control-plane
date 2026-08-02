@@ -42,7 +42,7 @@ describe('external integration Workflow launch', () => {
     assert.equal(listResponse.statusCode, 200);
     assert.deepEqual((listResponse.body as {
       items: Array<{ id: string }>;
-    }).items.map((item) => item.id), ['cluster-triage']);
+    }).items.map((item) => item.id), ['cluster-triage', 'incident-report-pdf']);
 
     const detailReq = createExternalIntegrationRequest({ workflowId: 'cluster-triage' });
     detailReq.query = { workspaceId: 'workspace-1' };

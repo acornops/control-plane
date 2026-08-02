@@ -84,13 +84,9 @@ const canonicalWorkflowMcpServers: Array<Omit<WorkflowMcpServerRecord, 'workspac
     { name: 'github.prs.create', title: 'Create pull requests', capability: 'write', enabled: true }
   ]
 }, {
-  id: 'workspace-chat', scope: 'workspace', name: 'Workspace chat', url: 'builtin://workspace-chat', enabled: true,
-  authType: 'none', credentialConfigured: false, publicHeaders: {}, status: 'connected', createdBy: 'test',
-  tools: [{ name: 'prompt.resources.read', title: 'Read prompt resources', capability: 'read', enabled: true }]
-}, {
   id: 'artifact-writer', scope: 'workspace', name: 'Artifact writer', url: 'builtin://artifacts', enabled: true,
   authType: 'none', credentialConfigured: false, publicHeaders: {}, status: 'connected', createdBy: 'test',
-  tools: [{ name: 'reports.pdf.generate', title: 'Generate PDF', capability: 'write', enabled: true }]
+  tools: [{ name: 'documents.create', title: 'Create document', capability: 'write', enabled: true }]
 }];
 
 export function restoreControllerRegressionState(): void {
@@ -253,10 +249,12 @@ export function installWorkspace(role: Role | null): void {
         ...servers.flatMap((server) => server.tools.map((tool) => ({
           value: tool.name, label: tool.title, disabled: !server.enabled || !tool.enabled
         }))),
-        { value: 'prompt.resources.read', label: 'Read prompt resources' },
-        { value: 'reports.pdf.generate', label: 'Generate incident report PDF' }
+        { value: 'documents.create', label: 'Create document' }
       ],
-      agents: [],
+      agents: [
+        { value: 'agent-cluster-triage', label: 'Infrastructure Diagnostics' },
+        { value: 'agent-incident-reporter', label: 'Incident Reporter' }
+      ],
       outputFormats: [{ value: 'pdf', label: 'PDF' }, { value: 'markdown', label: 'Markdown' }],
       approvalPolicies: [],
       runtimeLimits: [{ value: String(runtimePolicy.maxRuntimeSeconds), label: 'Deployment limit' }],

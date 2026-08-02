@@ -4,7 +4,6 @@ import { logger } from '../logger.js';
 import { incrementWorkflowCatalogSource } from '../metrics.js';
 import type {
   WorkflowCatalogSourceAvailability,
-  WorkflowCatalogSourceName,
   WorkflowOption,
   WorkflowOptionsCatalog
 } from '../types/workflows.js';
@@ -16,7 +15,21 @@ type CatalogSourceResult = {
 };
 
 type CatalogLoader = () => Promise<CatalogSourceResult>;
-type CatalogLoaderOverride = (workspaceId: string) => Promise<WorkflowOptionsCatalog>;
+type AgentCatalogSourceName = 'mcpServers' | 'mcpTools' | 'skills' | 'agents';
+
+export interface AgentCapabilityOptionsCatalog {
+  mcpServers: WorkflowOption[];
+  mcpTools: WorkflowOption[];
+  skills: WorkflowOption[];
+  agents: WorkflowOption[];
+  outputFormats: WorkflowOption[];
+  approvalPolicies: WorkflowOption[];
+  runtimeLimits: WorkflowOption[];
+  retentionPolicies: WorkflowOption[];
+  sourceAvailability: Record<AgentCatalogSourceName, WorkflowCatalogSourceAvailability>;
+}
+
+type CatalogLoaderOverride = (workspaceId: string) => Promise<AgentCapabilityOptionsCatalog>;
 
 let catalogLoaderOverride: CatalogLoaderOverride | undefined;
 
@@ -57,7 +70,7 @@ function safeErrorCode(error: unknown): string {
 
 async function runSource(
   workspaceId: string,
-  source: WorkflowCatalogSourceName,
+  source: AgentCatalogSourceName,
   loader: CatalogLoader
 ): Promise<CatalogSourceResult> {
   const startedAt = performance.now();
@@ -162,7 +175,7 @@ async function loadAgents(workspaceId: string): Promise<CatalogSourceResult> {
   return { options, availability: availability(options, 'No specialist agents are available.') };
 }
 
-export async function getCapabilityOptionsCatalog(workspaceId: string, agentId?: string): Promise<WorkflowOptionsCatalog> {
+export async function getAgentCapabilityOptionsCatalog(workspaceId: string, agentId?: string): Promise<AgentCapabilityOptionsCatalog> {
   if (catalogLoaderOverride) return catalogLoaderOverride(workspaceId);
   const capabilities = loadAgentCapabilities(workspaceId, agentId);
   const [mcpServers, mcpTools, skills, agents] = await Promise.all([
@@ -200,4 +213,13 @@ export async function getCapabilityOptionsCatalog(workspaceId: string, agentId?:
       agents: agents.availability
     }
   };
+}
+
+export async function getCapabilityOptionsCatalog(workspaceId: string): Promise<WorkflowOptionsCatalog> {
+  if (catalogLoaderOverride) {
+    const catalog = await catalogLoaderOverride(workspaceId);
+    return { agents: catalog.agents, sourceAvailability: { agents: catalog.sourceAvailability.agents } };
+  }
+  const agents = await runSource(workspaceId, 'agents', () => loadAgents(workspaceId));
+  return { agents: agents.options, sourceAvailability: { agents: agents.availability } };
 }

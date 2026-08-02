@@ -21,7 +21,6 @@ import {
   listAgentWorkflowDependencies
 } from '../src/store/repository-automation-cleanup.js';
 import { listTemplateInstallations } from '../src/store/repository-automation-templates.js';
-import { upsertPlatformCapabilityRoutingMapping } from '../src/store/repository-capability-routing.js';
 import { getAgentDefinition } from '../src/store/repository-agents.js';
 import { getWorkflowDefinition } from '../src/store/repository-workflows.js';
 import {
@@ -62,40 +61,16 @@ describe('Workflow and Agent template foundations', () => {
       'Virtual Machine Agent'
     ]);
     assert.deepEqual([...agents.rows[0].semantic_capability_ids].sort(), [
-      'prompt.resources.read',
-      'reports.pdf.generate',
+      'documents.create',
       'infrastructure.diagnostics.read',
       'infrastructure.remediation.write'
     ].sort());
     assert.deepEqual([...agents.rows[1].semantic_capability_ids].sort(), [
-      'prompt.resources.read',
-      'reports.pdf.generate',
+      'documents.create',
       'infrastructure.diagnostics.read'
     ].sort());
-    assert.equal(agents.rows.every((agent) => (
-      agent.tools.includes('prompt.resources.read') && agent.tools.includes('reports.pdf.generate')
-    )), true);
+    assert.equal(agents.rows.every((agent) => agent.tools.includes('documents.create')), true);
     const virtualMachineAgent = agents.rows[1];
-    await upsertPlatformCapabilityRoutingMapping({
-      id: 'vm-read-only-diagnostics',
-      workspaceId: 'workspace-provisioned',
-      capabilityId: 'infrastructure.diagnostics.read',
-      agentId: virtualMachineAgent.id,
-      status: 'active',
-      reviewState: 'reviewed',
-      priority: 10,
-      mcpTools: [{
-        serverId: 'targets',
-        toolName: 'get_host_summary',
-        alias: 'get_host_summary',
-        operation: 'read'
-      }],
-      nativeToolIds: [],
-      skillIds: [],
-      contextGrants: [],
-      createdBy: 'platform:test',
-      reviewedBy: 'platform:test'
-    });
     assert.deepEqual(
       (await refreshAgentReadiness('workspace-provisioned', virtualMachineAgent.id))?.readiness,
       { status: 'ready', reasons: [] }

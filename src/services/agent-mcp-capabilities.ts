@@ -5,15 +5,16 @@ import type { AgentMcpInstallationSnapshot } from '../types/agents.js';
 
 export function toAgentMcpServer(server: AgentMcpServerConfig) {
   const inherited = 'inherited' in server && server.inherited === true;
+  const isSystem = server.provenance_type === 'builtin';
   return {
     id: server.id,
     name: server.server_name,
     url: server.server_url,
     type: 'mcp' as const,
     enabled: server.enabled,
-    isSystem: false,
-    canDelete: !inherited,
-    canEditConnection: !inherited,
+    isSystem,
+    canDelete: !inherited && !isSystem,
+    canEditConnection: !inherited && !isSystem,
     canToggle: true,
     inherited,
     authType: server.auth_type,

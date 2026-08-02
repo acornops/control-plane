@@ -35,6 +35,7 @@ import {
 import { getWorkflowScheduleMcpReadinessReport } from '../services/workflow-schedule-readiness.js';
 import { publicMcpReadinessError } from '../services/mcp-readiness.js';
 import { WorkflowAccessDeniedError } from '../services/workflow-access.js';
+import { resolveWorkflowAgentCapabilities } from '../services/workflow-derived-capabilities.js';
 import { respondWorkflowAccessError } from './workflow-public.js';
 
 function objectBody(req: AuthenticatedRequest): Record<string, unknown> {
@@ -101,7 +102,7 @@ export async function previewWorkflowSchedule(req: AuthenticatedRequest, res: Re
           throw error;
         }
       }
-      const allowedGrants = new Set(workflow.capabilityPolicy.contextGrants);
+      const allowedGrants = new Set((await resolveWorkflowAgentCapabilities(workflow)).contextGrants);
       for (const grant of approvedContextGrants) {
         if (!allowedGrants.has(grant)) errors.push({ field: 'approvedContextGrants', message: `Context grant ${grant} is not used by this workflow.` });
       }
@@ -160,17 +161,16 @@ function principalRef(value: unknown): WorkflowSchedulePrincipal | undefined {
 }
 
 async function scheduleSummary(items: WorkflowScheduleRecord[]) {
-  const workflowBySchedule = new Map(await Promise.all(items.map(async (item) => [
-    item.id,
-    await getWorkflowDefinition(item.workspaceId, item.workflowId)
-  ] as const)));
+  const workflowBySchedule = new Map(await Promise.all(items.map(async (item) => {
+    const workflow = await getWorkflowDefinition(item.workspaceId, item.workflowId);
+    return [item.id, workflow ? await resolveWorkflowAgentCapabilities(workflow) : null] as const;
+  })));
   return {
     total: items.length,
     active: items.filter((item) => item.status === 'enabled').length,
     paused: items.filter((item) => item.status === 'paused').length,
     approvalGated: items.filter((item) => {
-      const workflow = workflowBySchedule.get(item.id);
-      return Boolean(workflow?.capabilityPolicy.approvalRequirements.length);
+      return workflowBySchedule.get(item.id)?.mode === 'read_write';
     }).length,
     nextRunAt: items
       .filter((item) => item.status === 'enabled' && item.nextRunAt)

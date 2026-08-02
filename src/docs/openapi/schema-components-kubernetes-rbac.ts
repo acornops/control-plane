@@ -17,7 +17,8 @@ export function buildKubernetesRbacSchemas(): Record<string, JsonSchema> {
           minItems: 1,
           maxItems: 6,
           uniqueItems: true,
-          items: { type: 'string', enum: ['get', 'list', 'watch', 'create', 'patch', 'delete'] }
+          items: { type: 'string', enum: ['get', 'list', 'watch', 'create', 'patch', 'delete'] },
+          description: 'Historical snapshots may contain watch, create, or delete; current AgentK installs render only get, list, and patch.'
         }
       },
       additionalProperties: false

@@ -5,14 +5,8 @@ import { normalizeToolCapability } from '../src/services/target-run-tool-resolut
 import { agentGateway } from '../src/agent/ws-server.js';
 import { webhooks, type WebhookEventInput } from '../src/services/webhooks.js';
 import { gatewayTokenService } from '../src/services/token-service.js';
-import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
-import { digestBindings, digestPrompt } from '../src/services/prompt-resources/registry.js';
-import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { repo } from '../src/store/repository.js';
-import { createWorkflowExecution, createWorkflowSession, getWorkflowDefinition } from '../src/store/repository-workflows.js';
 import { runtime } from '../src/store/runtime.js';
-import { listAgentDefinitions } from '../src/store/repository-agents.js';
-import { listCapabilityRoutingMappings } from '../src/store/repository-capability-routing.js';
 import {
   callController,
   createRequest,
@@ -154,15 +148,15 @@ describe('internal execution bootstrap audit metadata', () => {
       run_id: 'run-1',
       user_id: 'user-1'
     });
-    assert.deepEqual(tools.allowed_tools, ['query_logs', 'restart_service', 'acornops_generate_pdf_report']);
+    assert.deepEqual(tools.allowed_tools, ['query_logs', 'restart_service', 'acornops_create_document']);
     assert.deepEqual(tools.native_tools, [{
       id: 'web_search',
       config: { domainFilters: { allowedDomains: [], blockedDomains: [] } }
     }]);
     assert.deepEqual(tools.platform_functions, [
-      { id: 'reports.pdf.generate', model_alias: 'acornops_generate_pdf_report' }
+      { id: 'documents.create', model_alias: 'acornops_create_document' }
     ]);
-    assert.ok(tools.tool_specs.some((tool) => tool.name === 'acornops_generate_pdf_report'));
+    assert.ok(tools.tool_specs.some((tool) => tool.name === 'acornops_create_document'));
     const claims = await gatewayTokenService.verifyRunScopeToken(tools.gateway.token);
     assert.deepEqual(claims.allowedNativeTools, [{
       id: 'web_search',
@@ -190,7 +184,7 @@ describe('internal execution bootstrap audit metadata', () => {
     const tools = (response.body as { tools: { allowed_tools: string[]; write_unavailable_reason: string | null } }).tools;
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(tools.allowed_tools, ['query_logs', 'acornops_generate_pdf_report']);
+    assert.deepEqual(tools.allowed_tools, ['query_logs', 'acornops_create_document']);
     assert.equal(tools.write_unavailable_reason, 'run_read_only');
   });
 
@@ -214,7 +208,7 @@ describe('internal execution bootstrap audit metadata', () => {
     const tools = (response.body as { tools: { allowed_tools: string[]; write_unavailable_reason: string | null } }).tools;
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(tools.allowed_tools, ['query_logs', 'acornops_generate_pdf_report']);
+    assert.deepEqual(tools.allowed_tools, ['query_logs', 'acornops_create_document']);
     assert.equal(tools.write_unavailable_reason, 'agent_write_disabled');
   });
 
@@ -309,107 +303,10 @@ describe('internal execution bootstrap audit metadata', () => {
     const tools = (response.body as { tools: { allowed_tools: string[]; tool_specs: unknown[] } }).tools;
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(tools.allowed_tools, ['acornops_generate_pdf_report']);
+    assert.deepEqual(tools.allowed_tools, ['acornops_create_document']);
     assert.deepEqual((tools.tool_specs as Array<{ name: string }>).map((tool) => tool.name), [
-      'acornops_generate_pdf_report'
+      'acornops_create_document'
     ]);
-  });
-
-  it('bootstraps cluster triage with generic Targets MCP tools and no target binding', async () => {
-    const workflow = await getWorkflowDefinition('workspace-1', 'cluster-triage');
-    assert.ok(workflow);
-    const agents = await listAgentDefinitions(workflow.workspaceId);
-    const selectedAgents = workflow.agentIds
-      .map((agentId) => agents.find((candidate) => candidate.id === agentId))
-      .filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
-    assert.equal(selectedAgents.length, workflow.agentIds.length);
-    const specialist = selectedAgents[0];
-    const compiledAccessScope = compileWorkflowAccessScope({
-      workflow,
-      selectedAgents,
-      specialistAgent: specialist,
-      mappings: await listCapabilityRoutingMappings(workflow.workspaceId, { activeReviewedOnly: true }),
-      actor: {
-        userId: 'user-1',
-        role: 'operator',
-        permissions: getWorkspacePermissions('operator')
-      },
-      approvedContextGrants: ['workspace_metadata']
-    });
-    const session = await createWorkflowSession({
-      workflow,
-      createdBy: 'user-1',
-      compiledAccessScope
-    });
-    const created = await createWorkflowExecution({
-      workflow,
-      session,
-      content: 'Triage the primary cluster.',
-      promptDigest: digestPrompt('Triage the primary cluster.'),
-      bindingDigest: digestBindings([]),
-      resourceBindings: [],
-      resolvedAt: new Date().toISOString(),
-      specialistSnapshot: specialist,
-      llmProvider: 'gemini',
-      llmModel: 'gemini-2.0-flash',
-      llmReasoningSummaryMode: 'off',
-      llmReasoningEffort: 'off'
-    });
-    const run = created.run;
-
-    repo.getWorkspaceAiSettings = async () => null;
-    mock.method(globalThis, 'fetch', async (input) => {
-      const url = String(input);
-      if (url.includes('/api/v1/internal/mcp/tools?')) {
-        return new Response(JSON.stringify([
-          { name: 'list_resources', server_id: 'acornops-target-agent', model_alias: 'list_resources', mcp_server_url: 'http://control-plane:8081/internal/v1/mcp', timeout_ms: 10000, capability: 'read', source: 'builtin', input_schema: { type: 'object' }, enabled: true },
-          { name: 'get_resource', server_id: 'acornops-target-agent', model_alias: 'get_resource', mcp_server_url: 'http://control-plane:8081/internal/v1/mcp', timeout_ms: 10000, capability: 'read', source: 'builtin', input_schema: { type: 'object' }, enabled: true },
-          { name: 'get_resource_logs', server_id: 'acornops-target-agent', model_alias: 'get_resource_logs', mcp_server_url: 'http://control-plane:8081/internal/v1/mcp', timeout_ms: 10000, capability: 'read', source: 'builtin', input_schema: { type: 'object' }, enabled: true }
-        ]), { status: 200 });
-      }
-      if (isWorkspaceAiCredentialStatusRequest(input)) {
-        return new Response(JSON.stringify(createWorkspaceAiCredentialStatusResponse()), { status: 200 });
-      }
-      return new Response('unexpected request', { status: 500 });
-    });
-
-    const response = await callController(bootstrap, createRequest({ runId: run.id }));
-    const body = response.body as {
-      scope: {
-        type: string;
-        workflow_id: string;
-        execution_id: string;
-        executor_role: string;
-        workflow_session_id: string;
-      };
-      context: { endpoint: string };
-      routing: { workflow_scoped: boolean };
-      skills?: { entries: Array<{ skill_id: string; source: string }> };
-      tools: { allowed_tools: string[]; gateway: { token: string } };
-    };
-
-    assert.equal(response.statusCode, 200);
-    assert.equal(body.scope.type, 'workspace');
-    assert.equal(body.scope.workflow_id, 'cluster-triage');
-    assert.equal(body.scope.execution_id, run.executionId);
-    assert.equal(body.scope.executor_role, 'specialist');
-    assert.equal(body.scope.workflow_session_id, created.execution.workflowSessionId);
-    assert.equal(body.context.endpoint, `/internal/v1/runs/${run.id}/context`);
-    assert.equal(body.routing.workflow_scoped, true);
-    assert.equal(body.skills, undefined);
-    assert.deepEqual(body.tools.allowed_tools, [
-      'get_resource',
-      'get_resource_logs',
-      'list_resources'
-    ]);
-
-    const claims = await gatewayTokenService.verifyRunScopeToken(body.tools.gateway.token);
-    assert.equal(claims.scopeType, 'workspace');
-    assert.equal(claims.executionId, run.executionId);
-    assert.equal(claims.executorRole, 'specialist');
-    assert.equal(claims.targetId, undefined);
-    assert.equal(claims.targetType, undefined);
-    assert.deepEqual(claims.contextGrants, ['workspace_metadata']);
   });
 
   it('maps workspace AI credential status failures during bootstrap', async () => {

@@ -45,7 +45,7 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedToolNames, ['query_logs', 'acornops_generate_pdf_report']);
+    assert.deepEqual(result.allowedToolNames, ['query_logs', 'acornops_create_document']);
     assert.deepEqual(result.allowedToolRefs, [{
       serverId: '00000000-0000-4000-8000-000000000001',
       toolName: 'query_logs'
@@ -54,7 +54,7 @@ describe('target run tool resolution', () => {
       { id: 'web_search', config: { domainFilters: { allowedDomains: [], blockedDomains: [] } } }
     ]);
     assert.deepEqual(result.platformFunctions, [
-      { id: 'reports.pdf.generate', modelAlias: 'acornops_generate_pdf_report' }
+      { id: 'documents.create', modelAlias: 'acornops_create_document' }
     ]);
     assert.equal(result.writeUnavailableReason, 'run_read_only');
     assert.deepEqual(result.summary, {
@@ -136,7 +136,7 @@ describe('target run tool resolution', () => {
     assert.equal(filtered.previewItems.some((item) => item.name.includes('repository_status')), false);
     assert.deepEqual(filtered.allowedToolOperations, {
       query_logs: 'read',
-      acornops_generate_pdf_report: 'read'
+      acornops_create_document: 'read'
     });
     assert.equal(filtered.summary.totalAllowed, resolved.summary.totalAllowed - 1);
   });
@@ -158,10 +158,10 @@ describe('target run tool resolution', () => {
       config: { domainFilters: { allowedDomains: [], blockedDomains: [] } }
     }]);
     assert.deepEqual(result.platformFunctions, [
-      { id: 'reports.pdf.generate', modelAlias: 'acornops_generate_pdf_report' }
+      { id: 'documents.create', modelAlias: 'acornops_create_document' }
     ]);
-    assert.deepEqual(result.previewItems.map((item) => item.name), ['acornops_generate_pdf_report', 'target_insights', 'web_search']);
-    assert.deepEqual(result.allowedToolNames, ['acornops_generate_pdf_report']);
+    assert.deepEqual(result.previewItems.map((item) => item.name), ['acornops_create_document', 'target_insights', 'web_search']);
+    assert.deepEqual(result.allowedToolNames, ['acornops_create_document']);
     assert.equal(result.summary.nativeAllowed, 1);
     assert.equal(result.summary.totalAllowed, 3);
   });
@@ -185,7 +185,7 @@ describe('target run tool resolution', () => {
       assert.equal(result.previewItems.some((item) => item.name === 'web_search'), false);
       assert.equal(result.summary.nativeAllowed, 0);
       assert.deepEqual(result.platformFunctions, [
-        { id: 'reports.pdf.generate', modelAlias: 'acornops_generate_pdf_report' }
+        { id: 'documents.create', modelAlias: 'acornops_create_document' }
       ]);
     } finally {
       config.LLM_PROVIDER_OPENAI_API_SURFACE = previousSurface;
@@ -214,7 +214,7 @@ describe('target run tool resolution', () => {
     });
 
     assert.deepEqual(result.allowedNativeTools, []);
-    assert.deepEqual(result.previewItems.map((item) => item.name), ['acornops_generate_pdf_report', 'target_insights']);
+    assert.deepEqual(result.previewItems.map((item) => item.name), ['acornops_create_document', 'target_insights']);
     assert.equal(result.summary.nativeAllowed, 0);
   });
 
@@ -237,12 +237,12 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedToolNames, ['query_logs', 'restart_service', 'acornops_generate_pdf_report']);
+    assert.deepEqual(result.allowedToolNames, ['query_logs', 'restart_service', 'acornops_create_document']);
     assert.equal(result.writeUnavailableReason, null);
     assert.deepEqual(result.allowedToolOperations, {
       query_logs: 'read',
       restart_service: 'write',
-      acornops_generate_pdf_report: 'read'
+      acornops_create_document: 'read'
     });
     const writeSpec = result.allowedToolSpecs.find((tool) => tool.name === 'restart_service');
     assert.equal(writeSpec?.description, 'Execute tool "restart_service" for target diagnostics.');
@@ -279,9 +279,9 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedToolNames, ['a_read', 'overridden_read', 'z_write', 'acornops_generate_pdf_report']);
-    assert.deepEqual(result.allowedToolSpecs.map((tool) => tool.name), ['a_read', 'a_read', 'overridden_read', 'z_write', 'z_write', 'acornops_generate_pdf_report']);
-    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['a_read', 'acornops_generate_pdf_report', 'overridden_read', 'target_insights', 'web_search', 'z_write']);
+    assert.deepEqual(result.allowedToolNames, ['a_read', 'overridden_read', 'z_write', 'acornops_create_document']);
+    assert.deepEqual(result.allowedToolSpecs.map((tool) => tool.name), ['a_read', 'a_read', 'overridden_read', 'z_write', 'z_write', 'acornops_create_document']);
+    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['a_read', 'acornops_create_document', 'overridden_read', 'target_insights', 'web_search', 'z_write']);
     assert.equal(result.summary.configuredWrite, 2);
     assert.equal(result.summary.excludedWrite, 0);
   });
@@ -302,9 +302,9 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedToolNames, ['query_logs', 'acornops_generate_pdf_report']);
-    assert.deepEqual(result.allowedToolSpecs.map((tool) => tool.name), ['query_logs', 'acornops_generate_pdf_report']);
-    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['acornops_generate_pdf_report', 'query_logs', 'target_insights', 'web_search']);
+    assert.deepEqual(result.allowedToolNames, ['query_logs', 'acornops_create_document']);
+    assert.deepEqual(result.allowedToolSpecs.map((tool) => tool.name), ['query_logs', 'acornops_create_document']);
+    assert.deepEqual(result.previewItems.map((tool) => tool.name), ['acornops_create_document', 'query_logs', 'target_insights', 'web_search']);
   });
 
   it('filters write tools when the agent does not advertise write capability', async () => {
@@ -319,7 +319,7 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedToolNames, ['query_logs', 'acornops_generate_pdf_report']);
+    assert.deepEqual(result.allowedToolNames, ['query_logs', 'acornops_create_document']);
     assert.equal(result.writeUnavailableReason, 'agent_write_disabled');
     assert.equal(result.summary.excludedWrite, 1);
   });
@@ -339,7 +339,7 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedToolNames, ['query_logs', 'restart_service', 'acornops_generate_pdf_report']);
+    assert.deepEqual(result.allowedToolNames, ['query_logs', 'restart_service', 'acornops_create_document']);
     assert.deepEqual(result.allowedNativeTools, []);
     assert.equal(result.summary.nativeAllowed, 0);
   });
@@ -396,7 +396,7 @@ describe('target run tool resolution', () => {
       runId: 'run-1'
     });
 
-    assert.deepEqual(result.allowedToolNames, ['synced_logs', 'acornops_generate_pdf_report']);
+    assert.deepEqual(result.allowedToolNames, ['synced_logs', 'acornops_create_document']);
     assert.equal(toolListCalls, 3);
   });
 });

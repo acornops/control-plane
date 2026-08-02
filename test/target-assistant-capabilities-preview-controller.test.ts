@@ -61,7 +61,7 @@ describe('target assistant capabilities preview controller', () => {
     assert.equal(body.toolSummary.totalAllowed, 4);
     assert.equal(body.toolSummary.writeAllowed, 0);
     assert.equal(body.skillSummary.totalAvailable, 1);
-    assert.deepEqual(body.tools.map((item) => item.id), ['reports.pdf.generate', 'query_logs', 'target_insights', 'web_search']);
+    assert.deepEqual(body.tools.map((item) => item.id), ['documents.create', 'query_logs', 'target_insights', 'web_search']);
     assert.equal(body.tools.some((item) => Object.prototype.hasOwnProperty.call(item, 'input_schema')), false);
     assert.deepEqual(body.skills, [
       {

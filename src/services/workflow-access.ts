@@ -9,7 +9,6 @@ import type {
   WorkflowDefinitionForAccess
 } from '../types/workflows.js';
 import { COORDINATOR_FUNCTIONS } from './coordination-functions.js';
-import { resolveEffectiveWorkflowCapabilityIds } from './workflow-capability-policy.js';
 import { getWorkspaceNativeTool } from './workspace-native-tools.js';
 import { WorkflowAccessDeniedError } from './capability-access-errors.js';
 
@@ -38,17 +37,20 @@ function uniqueSorted(values: Iterable<string>): string[] {
     .sort((left, right) => left.localeCompare(right));
 }
 
-function requiredRunCapability(workflow: WorkflowDefinitionForAccess): WorkspaceCapability {
-  return workflow.capabilityPolicy.mode === 'read_write' ? 'create_read_write_runs' : 'create_read_only_runs';
+function capabilityModeForAgents(agents: AgentDefinition[]): 'read_only' | 'read_write' {
+  return agents.some((agent) => agent.permissionMode !== 'read_only') ? 'read_write' : 'read_only';
 }
 
-function requiredPermissionsFor(workflow: WorkflowDefinitionForAccess): WorkspaceCapability[] {
-  return uniqueSorted([...workflow.requiredPermissions, requiredRunCapability(workflow)]) as WorkspaceCapability[];
+function requiredPermissionsFor(agents: AgentDefinition[]): WorkspaceCapability[] {
+  const runCapability = capabilityModeForAgents(agents) === 'read_write'
+    ? 'create_read_write_runs'
+    : 'create_read_only_runs';
+  return [runCapability];
 }
 
 function workflowToolOperation(
   tool: string,
-  mode: WorkflowDefinitionForAccess['capabilityPolicy']['mode']
+  mode: 'read_only' | 'read_write'
 ): WorkspaceAuditOperation {
   if (mode === 'read_only') return 'read';
   const operation = tool.split('.').at(-1)?.toLowerCase() || '';
@@ -75,34 +77,13 @@ function assertSelectedAgents(input: CompileWorkflowAccessInput): void {
   }
 }
 
-function mappingsForSpecialist(
-  input: CompileWorkflowAccessInput,
-  specialist: AgentDefinition,
-  capabilityIds: string[]
-): CapabilityRoutingMapping[] {
-  return capabilityIds.flatMap((capabilityId) => {
-    const mappings = input.mappings.filter((candidate) => (
-      candidate.capabilityId === capabilityId
-      && candidate.agentId === specialist.id
-      && candidate.status === 'active'
-      && candidate.reviewState === 'reviewed'
-    ));
-    if (mappings.length === 0) {
-      throw new WorkflowAccessDeniedError(
-        'WORKFLOW_CAPABILITY_MAPPING_UNAVAILABLE',
-        `No active reviewed mapping is available for ${capabilityId}.`
-      );
-    }
-    return mappings;
-  });
-}
-
 function validateCommon(input: CompileWorkflowAccessInput): {
   requiredPermissions: WorkspaceCapability[];
   requestedContext: string[];
   principal: RunPrincipalRef;
 } {
-  const requiredPermissions = requiredPermissionsFor(input.workflow);
+  assertSelectedAgents(input);
+  const requiredPermissions = requiredPermissionsFor(input.selectedAgents);
   const missingPermissions = requiredPermissions.filter((permission) => !input.actor.permissions[permission]);
   if (missingPermissions.length) {
     throw new WorkflowAccessDeniedError(
@@ -111,8 +92,7 @@ function validateCommon(input: CompileWorkflowAccessInput): {
       { missingPermissions }
     );
   }
-  assertSelectedAgents(input);
-  const requestedContext = uniqueSorted(input.workflow.capabilityPolicy.contextGrants);
+  const requestedContext = uniqueSorted(input.selectedAgents.flatMap((agent) => agent.contextGrants));
   const approved = new Set(input.approvedContextGrants);
   const missingContextGrants = requestedContext.filter((grant) => !approved.has(grant));
   if (missingContextGrants.length) {
@@ -133,11 +113,9 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
   const { requiredPermissions, requestedContext, principal } = validateCommon(input);
   const coordinator = !input.specialistAgent;
   const specialist = input.specialistAgent;
-  const effectiveCapabilityIds = resolveEffectiveWorkflowCapabilityIds(input.workflow.capabilityPolicy, input.selectedAgents);
-  const mappings = specialist ? mappingsForSpecialist(input, specialist, effectiveCapabilityIds) : [];
-  const inheritAgentAttachments = Boolean(specialist)
-    && input.workflow.capabilityPolicy.restrictionMode === 'inherit';
-  const directMcpTools = inheritAgentAttachments
+  const effectiveCapabilityIds = uniqueSorted((specialist ? [specialist] : input.selectedAgents)
+    .flatMap((agent) => agent.semanticCapabilityIds));
+  const directMcpTools = specialist
     ? specialist!.mcpInstallations.flatMap((installation) => {
       if (!installation.enabled) return [];
         return installation.tools
@@ -150,15 +128,12 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
           }));
       })
     : [];
-  const mcpTools = [...directMcpTools, ...mappings.flatMap((mapping) => mapping.mcpTools)]
+  const mcpTools = directMcpTools
     .filter((ref, index, refs) => refs.findIndex((candidate) => (
       candidate.serverId === ref.serverId && candidate.toolName === ref.toolName
     )) === index);
-  const nativeToolIds = coordinator || input.delegatedSpecialist ? [] : uniqueSorted([
-    ...(inheritAgentAttachments ? specialist!.tools : []),
-    ...mappings.flatMap((mapping) => mapping.nativeToolIds)
-  ]);
-  const mode = input.workflow.capabilityPolicy.mode;
+  const nativeToolIds = coordinator ? [] : uniqueSorted(specialist!.tools);
+  const mode = specialist ? capabilityModeForAgents([specialist]) : 'read_only';
   const tools = uniqueSorted([
     ...mcpTools.map((ref) => ref.alias),
     ...nativeToolIds
@@ -177,8 +152,7 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
   const effectiveRefs = mcpTools.filter((ref) => mode === 'read_write' || ref.operation === 'read');
   const contextGrants = uniqueSorted([
     ...requestedContext,
-    ...(inheritAgentAttachments ? specialist!.contextGrants : []),
-    ...mappings.flatMap((mapping) => mapping.contextGrants)
+    ...(specialist?.contextGrants || [])
   ]);
   const permissionMode = mode === 'read_only' || !specialist || specialist.permissionMode === 'read_only'
     ? 'read_only'
@@ -195,7 +169,7 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
     actor: { userId: input.actor.userId, role: input.actor.role },
     mode,
     semanticCapabilityIds: coordinator ? [] : effectiveCapabilityIds,
-    capabilityRestrictionMode: input.workflow.capabilityPolicy.restrictionMode,
+    capabilityRestrictionMode: 'inherit',
     requiredPermissions,
     grantedCapabilities: requiredPermissions,
     mcpServers: uniqueSorted(effectiveRefs.map((ref) => ref.serverId)),
@@ -204,18 +178,15 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
     toolOperations,
     nativeToolConfigs,
     enabledSkills: coordinator ? [] : uniqueSorted([
-      ...(inheritAgentAttachments
-        ? specialist!.skillInstallations.filter((skill) => skill.enabled).map((skill) => skill.id)
-        : []),
-      ...mappings.flatMap((mapping) => mapping.skillIds)
+      ...specialist!.skillInstallations.filter((skill) => skill.enabled).map((skill) => skill.id)
     ]),
     contextGrants: executorContextGrants,
-    approvalGates: uniqueSorted(input.workflow.capabilityPolicy.approvalRequirements),
+    approvalGates: [],
     permissionMode,
     principal,
     executor,
     selectedAgentSnapshots: specialist ? [specialist] : [],
-    routingMappingSnapshots: coordinator ? [] : input.mappings,
+    routingMappingSnapshots: coordinator ? input.mappings : [],
     resourceBindings: executorResourceBindings,
     promptDigest: input.promptDigest,
     bindingDigest: input.bindingDigest,
@@ -257,18 +228,18 @@ export function compileWorkflowSessionCeiling(
     workflowId: input.workflow.id,
     workspaceId: input.workflow.workspaceId,
     actor: { userId: input.actor.userId, role: input.actor.role },
-    mode: input.workflow.capabilityPolicy.mode,
-    semanticCapabilityIds: resolveEffectiveWorkflowCapabilityIds(input.workflow.capabilityPolicy, input.selectedAgents),
-    capabilityRestrictionMode: input.workflow.capabilityPolicy.restrictionMode,
+    mode: capabilityModeForAgents(input.selectedAgents),
+    semanticCapabilityIds: uniqueSorted(input.selectedAgents.flatMap((agent) => agent.semanticCapabilityIds)),
+    capabilityRestrictionMode: 'inherit',
     requiredPermissions,
     grantedCapabilities: requiredPermissions,
     mcpServers: [], mcpTools: [], tools: [], toolOperations: {},
     nativeToolConfigs: {}, enabledSkills: [],
     contextGrants: requestedContext,
-    approvalGates: uniqueSorted(input.workflow.capabilityPolicy.approvalRequirements),
-    permissionMode: input.workflow.capabilityPolicy.mode === 'read_only' || !specialist
-      ? 'read_only'
-      : specialist.permissionMode,
+    approvalGates: [],
+    permissionMode: specialist
+      ? specialist.permissionMode
+      : capabilityModeForAgents(input.selectedAgents) === 'read_only' ? 'read_only' : 'ask_before_changes',
     principal,
     executor,
     selectedAgentSnapshots: input.selectedAgents,

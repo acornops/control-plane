@@ -5,7 +5,6 @@ import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
 import { isModelAllowedForProvider } from '../services/llm-policy.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
 import { WEB_SEARCH_TOOL_ID } from '../services/provider-native-tool-ids.js';
-import { resolveWorkspaceMcpToolSpecs } from '../services/workspace-mcp-tool-specs.js';
 import { gatewayTokenService } from '../services/token-service.js';
 import { workflowRunAgentClaims } from '../services/workflow-run-agent-claims.js';
 import { repo } from '../store/repository.js';
@@ -68,13 +67,6 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
       && workflowMcpRefKeys.has(`${tool.serverId}\u0000${tool.toolName}`));
   });
   const workflowRemoteAliases = new Set(workflowMcpTools.map((tool) => tool.alias));
-  const workspaceMcpToolSpecs = await resolveWorkspaceMcpToolSpecs({
-    workspaceId: run.workspaceId,
-    runId: run.id,
-    mode: run.compiledAccessScope.mode,
-    refs: workflowMcpRefs
-  });
-  const workspaceMcpAliases = new Set(workspaceMcpToolSpecs.map((tool) => tool.name));
   const workspaceNativeToolDefinitions = (run.parentRunId ? [] : run.compiledAccessScope.tools)
     .map((toolId) => getWorkspaceNativeTool(toolId))
     .filter((tool): tool is NonNullable<typeof tool> => Boolean(tool));
@@ -84,7 +76,6 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
   );
   let allowedToolNames = run.compiledAccessScope.tools.filter((tool) => (
     !workflowRemoteAliases.has(tool)
-    && !workspaceMcpAliases.has(tool)
     && !workspaceNativeToolIds.has(tool)
     && !providerNativeToolIds.has(tool)
   ));
@@ -128,12 +119,6 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     });
   }
 
-  for (const tool of workspaceMcpToolSpecs) {
-    allowedToolNames.push(tool.name);
-    allowedToolOperations[tool.name] = tool.capability;
-    allowedToolSpecs.push(tool);
-    allowedToolRefs.push({ serverId: tool.server_id, toolName: tool.tool_name });
-  }
   for (const tool of workflowMcpTools) {
     allowedToolNames.push(tool.alias);
     allowedToolOperations[tool.alias] = tool.capability === 'write' ? 'write' : 'read';

@@ -142,16 +142,8 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
       badRequest(res, 'DELEGATION_CONTEXT_DENIED', 'The specialist requires context outside the parent scope.', 403);
       return;
     }
-    const delegatedWorkflow: WorkflowDefinitionForAccess = {
-      ...workflow,
-      capabilityPolicy: {
-        ...workflow.capabilityPolicy,
-        restrictionMode: 'restrict',
-        semanticCapabilityIds: [capabilityId]
-      }
-    };
     const compiledScope = compileWorkflowAccessScope({
-      workflow: delegatedWorkflow,
+      workflow,
       selectedAgents: agents,
       specialistAgent: selected.agent,
       delegatedSpecialist: true,

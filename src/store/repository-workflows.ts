@@ -1,10 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { PoolClient, QueryResultRow } from 'pg';
 import { db } from '../infra/db.js';
-import type {
-  WorkflowCapabilityPolicy,
-  WorkflowDefinitionForAccess
-} from '../types/workflows.js';
+import type { WorkflowDefinitionForAccess } from '../types/workflows.js';
 import { resetWorkflowRunRepositoryForTests } from './repository-workflow-runs.js';
 
 export type {
@@ -55,9 +52,7 @@ export interface WorkflowDefinitionUpdate {
   status?: WorkflowDefinitionForAccess['status'];
   prompt?: string;
   agentIds?: string[];
-  capabilityPolicy?: Partial<WorkflowCapabilityPolicy>;
   tags?: string[];
-  requiredPermissions?: WorkflowDefinitionForAccess['requiredPermissions'];
 }
 
 export interface CreateWorkflowDefinitionInput {
@@ -66,9 +61,7 @@ export interface CreateWorkflowDefinitionInput {
   description?: string;
   prompt: string;
   agentIds: string[];
-  capabilityPolicy: WorkflowCapabilityPolicy;
   tags?: string[];
-  requiredPermissions?: WorkflowDefinitionForAccess['requiredPermissions'];
   createdBy: string;
   status?: WorkflowDefinitionForAccess['status'];
 }
@@ -82,22 +75,6 @@ function uniqueSorted(values: string[] = []): string[] {
     .sort((left, right) => left.localeCompare(right));
 }
 
-function normalizeCapabilityPolicy(policy: WorkflowCapabilityPolicy): WorkflowCapabilityPolicy {
-  if (!policy || (policy.restrictionMode !== 'inherit' && policy.restrictionMode !== 'restrict')) {
-    throw new Error('Workflow capability policy must include a valid restrictionMode');
-  }
-  const restrictionMode = policy.restrictionMode;
-  return {
-    mode: policy.mode,
-    restrictionMode,
-    semanticCapabilityIds: restrictionMode === 'inherit' ? [] : uniqueSorted(policy.semanticCapabilityIds),
-    contextGrants: uniqueSorted(policy.contextGrants),
-    maxRuntimeSeconds: policy.maxRuntimeSeconds,
-    retentionDays: policy.retentionDays,
-    approvalRequirements: uniqueSorted(policy.approvalRequirements)
-  };
-}
-
 function mapWorkflowDefinition(row: WorkflowRow): WorkflowDefinitionForAccess {
   return {
     id: row.id,
@@ -108,9 +85,7 @@ function mapWorkflowDefinition(row: WorkflowRow): WorkflowDefinitionForAccess {
     prompt: row.prompt,
     agentIds: row.agent_ids || [],
     executionMode: (row.agent_ids || []).length > 1 ? 'coordinated' : 'direct',
-    capabilityPolicy: normalizeCapabilityPolicy(row.capability_policy),
     tags: row.tags || [],
-    requiredPermissions: row.required_permissions || [],
     createdBy: row.created_by,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
@@ -148,7 +123,6 @@ export async function createWorkflowDefinition(
   queryable: Queryable = db
 ): Promise<WorkflowDefinitionForAccess> {
   const slug = input.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'workflow';
-  const capabilityPolicy = normalizeCapabilityPolicy(input.capabilityPolicy);
   const agentIds = uniqueSorted(input.agentIds);
   const readiness = {
     status: 'needs_setup',
@@ -157,8 +131,8 @@ export async function createWorkflowDefinition(
   const result = await queryable.query<WorkflowRow>(
     `INSERT INTO workflow_definitions (
        workspace_id,id,name,description,status,prompt,agent_ids,
-       capability_policy,tags,required_permissions,created_by,readiness_status,readiness_reasons
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+       tags,created_by,readiness_status,readiness_reasons
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
     [
       input.workspaceId,
       `${slug}-${randomUUID().slice(0, 8)}`,
@@ -167,9 +141,7 @@ export async function createWorkflowDefinition(
       input.status || 'draft',
       input.prompt.trim(),
       JSON.stringify(agentIds),
-      capabilityPolicy,
       JSON.stringify(uniqueSorted(input.tags)),
-      JSON.stringify(uniqueSorted(input.requiredPermissions || []) as WorkflowDefinitionForAccess['requiredPermissions']),
       input.createdBy,
       readiness.status,
       JSON.stringify(readiness.reasons)
@@ -192,9 +164,7 @@ export async function duplicateWorkflowDefinition(
     description: source.description,
     prompt: source.prompt,
     agentIds: source.agentIds,
-    capabilityPolicy: source.capabilityPolicy,
     tags: source.tags,
-    requiredPermissions: source.requiredPermissions,
     createdBy,
     status: 'draft'
   });
@@ -208,15 +178,11 @@ export async function updateWorkflowDefinitionScope(
 ): Promise<WorkflowDefinitionForAccess | null> {
   const current = await getWorkflowDefinition(workspaceId, workflowId, queryable);
   if (!current) return null;
-  const capabilityPolicy = normalizeCapabilityPolicy({
-    ...current.capabilityPolicy,
-    ...update.capabilityPolicy
-  });
   const result = await queryable.query<WorkflowRow>(
     `UPDATE workflow_definitions SET
        name=$3,description=$4,status=$5,prompt=$6,agent_ids=$7,
-       capability_policy=$8,tags=$9,required_permissions=$10,
-       readiness_status='needs_setup',readiness_reasons=$11,updated_at=NOW()
+       tags=$8,
+       readiness_status='needs_setup',readiness_reasons=$9,updated_at=NOW()
      WHERE workspace_id=$1 AND id=$2 RETURNING *`,
     [
       workspaceId,
@@ -226,9 +192,7 @@ export async function updateWorkflowDefinitionScope(
       update.status || current.status,
       update.prompt?.trim() || current.prompt,
       JSON.stringify(update.agentIds ? uniqueSorted(update.agentIds) : current.agentIds),
-      capabilityPolicy,
       JSON.stringify(update.tags ? uniqueSorted(update.tags) : current.tags || []),
-      JSON.stringify(update.requiredPermissions ? uniqueSorted(update.requiredPermissions) : current.requiredPermissions),
       JSON.stringify(['Readiness has not been evaluated against the live capability catalog.'])
     ]
   );

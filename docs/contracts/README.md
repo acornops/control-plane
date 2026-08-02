@@ -77,7 +77,7 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Roles with `permissions.manage_tools` may mutate MCP per-tool enablement and non-Target-Insights built-in tool settings.
 - Kubernetes clusters and VMs own their target-scoped MCP servers, skills, and tools through their connector runtime. Workspace Agents are independent capability profiles and have no persistent target scope.
 - Direct Agent conversations use the neutral interactive run lifecycle and issue an `agent_chat` run scope bound to the Agent identity; they do not create Workflow definitions, sessions, executions, or runs.
-- Target-chat run tokens reject Agent and Workflow identity claims. Agent and Workflow scopes select targets only through arguments to a granted generic Targets MCP tool.
+- Target-chat run tokens reject Agent and Workflow identity claims. Agents discover workspace targets through their installed, platform-managed AcornOps Targets MCP server.
 - Experimental target auto-triage is a revisioned target setting, not a workflow feature.
   Qualifying issue lifecycles enqueue one durable automatic investigation,
   existing issues require an explicit bulk-start request, and the system actor
@@ -89,8 +89,9 @@ The control plane owns the platform API boundary. Keep this README as a short in
   namespaces and independently control cluster-scoped issues; virtual-machine
   settings remain target-wide.
 - Workspace specialist Agents own Agent-scoped MCP and skill installations;
-  the starter Kubernetes and VM Agents are ordinary target-independent profiles
-  that may receive generic Targets MCP tools.
+  the starter Kubernetes and VM Agents are ordinary target-independent profiles.
+  Every Agent receives the platform-managed AcornOps Targets MCP server, whose
+  three read-only tools can be enabled or disabled in the management console.
   Catalog imports are MCP-only, return secret-free DTOs, and never accept a
   browser-supplied target type as authoritative.
 - The control plane owns code-defined workspace-native tools. `manage_agents`
@@ -101,9 +102,9 @@ The control plane owns the platform API boundary. Keep this README as a short in
   into the run snapshot, and the control plane enforces DNS-pinned SSRF,
   redirect, media-type, timeout, and response-size limits without logging URL
   queries or response bodies.
-  `reports.pdf.generate` supports workflows and target chat; it executes in the
-  control plane without crossing a target adapter. Delegated specialist child
-  runs reject workspace-native tools. PDF artifact creation is read-only-run safe but
+  `documents.create` supports workflows and target chat; it executes in the
+  control plane without crossing a target adapter. Direct and delegated
+  specialist runs inherit it from their pinned Agent snapshot. Document creation is read-only-run safe but
   write-audited. Execution snapshots expose workspace-native functions through
   provider-safe aliases in `platform_functions`; `native_tools` and gateway JWT
   `allowed_native_tools` remain reserved for provider-native capabilities such
@@ -122,19 +123,13 @@ The control plane owns the platform API boundary. Keep this README as a short in
   `executionMode`; the strict request schema rejects all unknown fields with the
   standard invalid-request response.
 - Workflows do not select, bind, or persist targets. They inherit the assigned
-  Agents' reviewed tool ceiling. Generic Targets MCP tools accept `target_id` and
-  `target_type` only at invocation time; the gateway authorizes the exact
-  `targets` server/tool reference signed into the run token, then resolves the
-  selected target's built-in connector tool. A prompt may name a target, but target interpretation is deliberately
-  model-driven and an unavailable or ambiguous target fails only if the model
-  attempts the corresponding tool call.
-- Manual workflow policy defaults are server-owned. The console may send the
-  selected `restrictionMode` and semantic subset, while omitted mode, context,
-  permissions, and approvals default to read-only workspace metadata access.
-  `ASSISTANT_MAX_RUNTIME_MS` is the only execution limit and
-  `GENERATED_DOCUMENT_RETENTION_DAYS` is the only generated-document retention
-  policy. Mutations reject per-workflow timing fields; responses and
-  workflow options expose the effective deployment values.
+  Agents' complete reviewed capability ceiling. Each pinned Agent may expose
+  its own built-in AcornOps Targets MCP installation. The gateway authorizes
+  the exact Agent server/tool reference and the control plane executes the
+  server's three workspace-scoped awareness tools without synthesizing target
+  connector tools or rebinding arguments. Workflow definitions have no
+  capability, context, permission, approval, timing, or retention policy fields;
+  the Workflow options endpoint exposes only assignable Agents.
 - Virtual-machine registration and key rotation preserve their response shape,
   but generated install instructions use the validated
   `CONTROL_PLANE_BASE_URL` and a literal heredoc so credential values are not
@@ -143,14 +138,11 @@ The control plane owns the platform API boundary. Keep this README as a short in
   `agentk/<release>` or `agentv/<release>` respectively. The handshake rejects
   missing, mismatched, whitespace-containing, or nested values and persists the
   accepted value as the target registration's `last_connector_version`.
-- Selected Agents jointly bound the workflow semantic capability ceiling.
-  `restrictionMode=inherit` resolves their current combined ceiling and
-  requires an empty semantic list. `restrictionMode=restrict` uses an explicit
-  subset, including an intentionally empty subset. Stored definitions always
-  contain the final restriction field, and mutations reject unknown policy fields.
-  Readiness requires active, reviewed exact mappings from the selected set, and
-  later Agent disablement or review loss blocks future runs without changing
-  pinned runs.
+- Selected Agents jointly define the Workflow capability ceiling. Direct runs
+  pin the selected specialist's tools, MCP installations, skills, context, and
+  permission mode. Coordinated runs pin the selected Agent set and delegate with
+  each specialist's exact capability snapshot. Later Agent disablement or review
+  loss blocks future runs without changing pinned runs.
 - Workflow capability preview uses the same workspace-data and run-creation
   authorization as launch. It reports semantic capabilities separately from
   direct attachments and reports target MCP tools inherited from the assigned
@@ -252,13 +244,13 @@ The control plane owns the platform API boundary. Keep this README as a short in
   `ASSISTANT_REFERENCE_INVALID` instead of silently dropping stale references.
 - Agent handshake responses always include a complete `sessionPolicy`; AgentK rejects tool calls until it is installed.
 - The Kubernetes built-in catalog contains `list_resources`, `get_resource`,
-  `get_resource_logs`, `restart_workload`, `scale_workload`, and
-  `patch_workload`, `patch_resource`, `patch_configmap`,
-  `get_custom_resource`, `list_custom_resources`, `watch_custom_resources`,
-  `create_custom_resource`, `patch_custom_resource`, and
-  `delete_custom_resource`. Custom-resource tools are limited to the immutable
+  `get_resource_logs`, `restart_workload`, `scale_workload`, `patch_workload`,
+  `patch_resource`, and `patch_configmap`. Custom resources
+  use the same list, get, and patch tools and are limited to the immutable
   RBAC additions snapshot selected at cluster onboarding; read-only access
-  permits configured reads, while writes retain the standard write-approval path.
+  permits configured get and list operations, while patches retain the standard
+  write-approval path. Historical snapshots may contain watch, create, or delete,
+  but current AgentK installations do not render those permissions.
 - AgentK advertises every registered tool. Discovery is intentionally broader
   than execution authorization: session, run, local write, patch-kind,
   environment, ConfigMap, namespace, and Kubernetes RBAC policy remain

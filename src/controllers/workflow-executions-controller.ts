@@ -278,9 +278,6 @@ export async function resumeWorkflowExecutionController(req: AuthenticatedReques
       res.status(409).json({ error: { code: 'WORKFLOW_DEFINITION_UNAVAILABLE', message: 'Workflow definition is unavailable.', retryable: false } });
       return;
     }
-    const mode = workflow.capabilityPolicy.mode === 'read_write' ? 'create_read_write_runs' : 'create_read_only_runs';
-    const authz = await requireWorkspaceCapability(req, res, row.workspace_id, mode, 'No permission to resume workflow execution');
-    if (!authz) return;
     if (!['failed', 'needs_review'].includes(row.status)) {
       res.status(409).json({ error: { code: 'WORKFLOW_EXECUTION_NOT_RESUMABLE', message: 'Workflow execution is not resumable.', retryable: false } });
       return;
@@ -297,6 +294,9 @@ export async function resumeWorkflowExecutionController(req: AuthenticatedReques
       return;
     }
     const pinnedScope = previous.compiledAccessScope;
+    const mode = pinnedScope.mode === 'read_write' ? 'create_read_write_runs' : 'create_read_only_runs';
+    const authz = await requireWorkspaceCapability(req, res, row.workspace_id, mode, 'No permission to resume workflow execution');
+    if (!authz) return;
     const mcpReadiness = await getWorkflowCapabilityReadinessReport(
       row.workspace_id,
       pinnedScope,

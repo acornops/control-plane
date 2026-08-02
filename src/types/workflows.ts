@@ -14,16 +14,6 @@ export type WorkflowContextGrant =
   | 'audit_events'
   | string;
 
-export interface WorkflowCapabilityPolicy {
-  mode: WorkflowCapabilityMode;
-  restrictionMode: WorkflowCapabilityRestrictionMode;
-  semanticCapabilityIds: string[];
-  contextGrants: WorkflowContextGrant[];
-  maxRuntimeSeconds: number;
-  retentionDays: number;
-  approvalRequirements: string[];
-}
-
 export interface WorkflowDefinitionForAccess {
   id: string;
   workspaceId: string;
@@ -33,9 +23,7 @@ export interface WorkflowDefinitionForAccess {
   prompt: string;
   agentIds: string[];
   executionMode: WorkflowExecutionMode;
-  capabilityPolicy: WorkflowCapabilityPolicy;
   tags?: string[];
-  requiredPermissions: WorkspaceCapability[];
   createdBy: string;
   createdAt?: string;
   updatedAt?: string;
@@ -62,11 +50,7 @@ export interface WorkflowOption {
   };
 }
 
-export type WorkflowCatalogSourceName =
-  | 'mcpServers'
-  | 'mcpTools'
-  | 'skills'
-  | 'agents';
+export type WorkflowCatalogSourceName = 'agents';
 
 export interface WorkflowCatalogSourceAvailability {
   status: 'available' | 'empty' | 'unavailable' | 'error';
@@ -76,14 +60,7 @@ export interface WorkflowCatalogSourceAvailability {
 }
 
 export interface WorkflowOptionsCatalog {
-  mcpServers: WorkflowOption[];
-  mcpTools: WorkflowOption[];
-  skills: WorkflowOption[];
   agents: WorkflowOption[];
-  outputFormats: WorkflowOption[];
-  approvalPolicies: WorkflowOption[];
-  runtimeLimits: WorkflowOption[];
-  retentionPolicies: WorkflowOption[];
   sourceAvailability: Record<WorkflowCatalogSourceName, WorkflowCatalogSourceAvailability>;
 }
 

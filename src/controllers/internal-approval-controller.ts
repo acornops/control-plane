@@ -23,33 +23,6 @@ import { getWorkflowRun } from '../store/repository-workflows.js';
 import { KUBERNETES_TARGET_TYPE } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
 import { resolveAgentChatRunTools } from '../services/agent-chat-run-tools.js';
-import { TARGETS_MCP_SERVER_ID } from '../services/targets-mcp.js';
-import type { TargetType } from '../types/domain.js';
-
-type TargetsMcpSelection =
-  | { kind: 'not_applicable' }
-  | { kind: 'invalid' }
-  | { kind: 'valid'; targetId: string; targetType: TargetType };
-
-export async function resolveTargetsMcpSelection(input: {
-  workspaceId: string;
-  serverId: string;
-  arguments: Record<string, unknown> | undefined;
-}): Promise<TargetsMcpSelection> {
-  if (input.serverId !== TARGETS_MCP_SERVER_ID) return { kind: 'not_applicable' };
-  const targetId = typeof input.arguments?.target_id === 'string'
-    ? input.arguments.target_id
-    : '';
-  const targetType = input.arguments?.target_type === 'kubernetes'
-    || input.arguments?.target_type === 'virtual_machine'
-    ? input.arguments.target_type
-    : undefined;
-  if (!targetId || !targetType) return { kind: 'invalid' };
-  const target = await repo.getTarget(input.workspaceId, targetId);
-  return target?.targetType === targetType
-    ? { kind: 'valid', targetId, targetType }
-    : { kind: 'invalid' };
-}
 
 async function resolveAutomationRun(runId: string) {
   const workflowRun = await getWorkflowRun(runId);
@@ -83,15 +56,6 @@ export async function createToolApproval(req: Request, res: Response, next: Next
         ref.serverId === req.body.toolRef.serverId && ref.toolName === req.body.toolRef.toolName
       ))) {
         res.status(400).json({ error: { code: 'MCP_TOOL_REF_NOT_GRANTED', message: 'Run is not granted this exact MCP tool', retryable: false } });
-        return;
-      }
-      const targetSelection = await resolveTargetsMcpSelection({
-        workspaceId: automationRun.workspaceId,
-        serverId: req.body.toolRef.serverId,
-        arguments: req.body.arguments
-      });
-      if (targetSelection.kind === 'invalid') {
-        res.status(400).json({ error: { code: 'MCP_TARGET_INVALID', message: 'The target MCP call requires a valid workspace target.', retryable: false } });
         return;
       }
       if (!req.body.continuation) {
@@ -172,20 +136,11 @@ export async function createToolApproval(req: Request, res: Response, next: Next
       res.status(400).json({ error: { code: 'MCP_TOOL_REF_NOT_GRANTED', message: 'Run is not granted this exact MCP write tool', retryable: false } });
       return;
     }
-    const targetSelection = await resolveTargetsMcpSelection({
-      workspaceId: run.workspaceId,
-      serverId: req.body.toolRef.serverId,
-      arguments: req.body.arguments
-    });
-    if (targetSelection.kind === 'invalid') {
-      res.status(400).json({ error: { code: 'MCP_TARGET_INVALID', message: 'The target MCP call requires a valid workspace target.', retryable: false } });
-      return;
-    }
     const expiresAt = new Date(Date.now() + config.ASSISTANT_WRITE_CONFIRMATION_TIMEOUT_SECONDS * 1000).toISOString();
     const approval = await repo.createRunToolApproval({
       runId: run.id,
       workspaceId: run.workspaceId,
-      targetId: run.targetId || (targetSelection.kind === 'valid' ? targetSelection.targetId : undefined),
+      targetId: run.targetId,
       toolCallId: req.body.toolCallId,
       toolName: req.body.toolName,
       toolRef: req.body.toolRef,

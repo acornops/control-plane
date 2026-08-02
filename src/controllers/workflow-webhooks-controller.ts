@@ -4,6 +4,7 @@ import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { config } from '../config.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
+import { resolveWorkflowAgentCapabilities } from '../services/workflow-derived-capabilities.js';
 import {
   createWorkflowWebhook,
   deleteWorkflowWebhookRecord,
@@ -181,7 +182,7 @@ export async function createWorkspaceWorkflowWebhook(
       return;
     }
     const grantError = validateWorkflowWebhookContextGrants(
-      workflow.capabilityPolicy.contextGrants,
+      (await resolveWorkflowAgentCapabilities(workflow)).contextGrants,
       approvedContextGrants
     );
     if (grantError) {
@@ -287,7 +288,7 @@ export async function updateWorkflowWebhook(
       return;
     }
     const grantError = validateWorkflowWebhookContextGrants(
-      workflow.capabilityPolicy.contextGrants,
+      (await resolveWorkflowAgentCapabilities(workflow)).contextGrants,
       approvedContextGrants
     );
     if (grantError) {

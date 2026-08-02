@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, it, mock } from 'node:test';
-import { decideRunApproval } from '../src/controllers/runs-controller.js';
 import { config } from '../src/config.js';
 import {
   createWorkflowScheduleForWorkspace,
@@ -10,21 +9,13 @@ import {
   updateWorkflowSchedule
 } from '../src/controllers/workflow-schedules-controller.js';
 import { listWorkspaceApprovalInbox } from '../src/controllers/workspace-approval-inbox-controller.js';
-import { getWorkspacePermissions } from '../src/auth/authorization.js';
-import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
 import { runWorkflowScheduleTick } from '../src/services/workflow-scheduler.js';
 import { runAutomationOutboxTick } from '../src/services/automation-outbox-worker.js';
 import { db } from '../src/infra/db.js';
 import {
-  createWorkflowRun,
   createWorkflowDefinition,
-  createWorkflowSession,
-  createWorkflowUserMessage,
-  getWorkflowDefinition,
-  listWorkflowRunApprovals
+  getWorkflowDefinition
 } from '../src/store/repository-workflows.js';
-import { getAgentDefinition } from '../src/store/repository-agents.js';
-import { listCapabilityRoutingMappings } from '../src/store/repository-capability-routing.js';
 import type { Run, RunToolApproval } from '../src/types/domain.js';
 import {
   callController,
@@ -37,7 +28,6 @@ import {
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
 import { closeAutomationDatabaseFixtures, installAutomationTemplateFixtures, resetAutomationDatabaseFixtures } from './helpers/automation-database-fixtures.js';
-import { assertFocusedApprovalInboxFilters } from './helpers/workflow-approval-inbox-assertions.js';
 
 const mutableConfig = config as typeof config & { AUTOMATION_RUNTIME_MODE: 'off' | 'shadow' | 'canary' | 'on' };
 let originalRuntimeMode = config.AUTOMATION_RUNTIME_MODE;
@@ -325,64 +315,6 @@ describe('workflow schedules and approval inbox', () => {
     const schedule = (listed.body as { items: Array<{ id: string; status: string; lastStatus?: string }> }).items.find((item) => item.id === scheduleId);
     assert.equal(schedule?.status, 'paused');
     assert.equal(schedule?.lastStatus, 'auto_paused');
-  });
-
-  it('lists interactive approvals and Workflow approval gates in one workspace inbox', async () => {
-    installWorkspace('admin');
-    const workflow = await getWorkflowDefinition('workspace-1', 'cluster-triage');
-    assert.ok(workflow);
-    const selectedAgents = (await Promise.all(
-      workflow.agentIds.map((agentId) => getAgentDefinition('workspace-1', agentId))
-    )).filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
-    assert.equal(selectedAgents.length, workflow.agentIds.length);
-    const compiledAccessScope = compileWorkflowAccessScope({
-      workflow: {
-        ...workflow,
-        capabilityPolicy: {
-          ...workflow.capabilityPolicy,
-          mode: 'read_write',
-          approvalRequirements: ['Before running write-capable workflow automation']
-        }
-      },
-      selectedAgents,
-      specialistAgent: selectedAgents[0],
-      mappings: await listCapabilityRoutingMappings('workspace-1', { activeReviewedOnly: true }),
-      actor: {
-        userId: 'user-1',
-        role: 'admin',
-        permissions: getWorkspacePermissions('admin')
-      },
-      approvedContextGrants: ['workspace_metadata']
-    });
-    const session = await createWorkflowSession({ workflow: { ...workflow, capabilityPolicy: { ...workflow.capabilityPolicy, mode: 'read_write', approvalRequirements: ['Before running write-capable workflow automation'] } }, createdBy: 'user-1', compiledAccessScope });
-    const message = await createWorkflowUserMessage({ session, content: 'Run gated workflow' });
-    const run = await createWorkflowRun({ session, message });
-    const workflowApproval = (await listWorkflowRunApprovals(run.id))[0];
-
-    const targetApproval = createTargetRunApproval();
-    const targetRun = createTargetRun();
-    const { repo } = await import('../src/store/repository.js');
-    repo.listWorkspaceRunToolApprovals = async () => [targetApproval];
-    repo.countPendingWorkspaceRunToolApprovals = async (workspaceId: string) => workspaceId === 'workspace-1' ? 1 : 0;
-    repo.getRun = async (runId: string) => runId === targetRun.id ? targetRun : null;
-
-    const response = await callController(listWorkspaceApprovalInbox, createRequest({ workspaceId: 'workspace-1' }));
-
-    assert.equal(response.statusCode, 200);
-    const body = response.body as { pendingCount: number; items: Array<{ approvalId: string; source: string; runId: string; status: string }> };
-    assert.equal(body.pendingCount, 2);
-    assert.deepEqual(body.items.map((item) => item.source).sort(), ['interactive_tool', 'workflow_gate']);
-    assert.ok(body.items.some((item) => item.approvalId === workflowApproval.id && item.runId === run.id));
-    assert.ok(body.items.some((item) => item.approvalId === targetApproval.id && item.runId === targetRun.id));
-
-    await assertFocusedApprovalInboxFilters({ targetApproval, targetRun, workflowApproval, workflowRun: run });
-
-    mock.method(globalThis, 'fetch', async () => new Response(null, { status: 202 }));
-    const decided = await callController(decideRunApproval, createRequest(
-      { runId: run.id, approvalId: workflowApproval.id },
-      { decision: 'approved' }
-    ));
-    assert.equal(decided.statusCode, 200);
   });
 
   it('returns zero pending approvals when both normalized sources are empty', async () => {

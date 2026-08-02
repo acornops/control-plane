@@ -12,8 +12,7 @@ test('starter automation ships target-capable Agents without target bindings', (
   const kubernetes = STARTER_BUNDLE.agents[0];
   assert.equal('targetConstraints' in kubernetes, false);
   assert.deepEqual(kubernetes.semanticCapabilityIds, [
-    'prompt.resources.read',
-    'reports.pdf.generate',
+    'documents.create',
     'infrastructure.diagnostics.read',
     'infrastructure.remediation.write'
   ]);
@@ -21,26 +20,20 @@ test('starter automation ships target-capable Agents without target bindings', (
   const virtualMachine = STARTER_BUNDLE.agents[1];
   assert.equal('targetConstraints' in virtualMachine, false);
   assert.deepEqual(virtualMachine.semanticCapabilityIds, [
-    'prompt.resources.read',
-    'reports.pdf.generate',
+    'documents.create',
     'infrastructure.diagnostics.read'
   ]);
 
   assert.equal(STARTER_BUNDLE.agents.every((agent) => (
-    agent.nativeToolIds?.includes('prompt.resources.read')
-      && agent.nativeToolIds.includes('reports.pdf.generate')
+    agent.nativeToolIds?.includes('documents.create')
   )), true);
 });
 
 test('starter Workflows select the intended specialist Agents without target bindings', () => {
   const workflows = Object.fromEntries(STARTER_BUNDLE.workflows.map((workflow) => [workflow.key, workflow]));
   assert.deepEqual(workflows.kubernetesHealth.agentKeys, ['kubernetesAgent']);
-  assert.equal(workflows.kubernetesHealth.restrictionMode, 'inherit');
-  assert.deepEqual(workflows.kubernetesHealth.semanticCapabilityIds, []);
   assert.match(workflows.kubernetesHealth.prompt, /without making changes/);
   assert.deepEqual(workflows.virtualMachineHealth.agentKeys, ['virtualMachineAgent']);
-  assert.equal(workflows.virtualMachineHealth.restrictionMode, 'inherit');
-  assert.deepEqual(workflows.virtualMachineHealth.semanticCapabilityIds, []);
   assert.match(workflows.virtualMachineHealth.prompt, /without making changes/);
   assert.deepEqual(workflows.infrastructureRemediation.agentKeys, ['kubernetesAgent']);
   assert.deepEqual(workflows.managedResponse.agentKeys, ['kubernetesAgent', 'virtualMachineAgent']);

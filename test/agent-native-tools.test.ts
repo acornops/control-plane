@@ -85,7 +85,7 @@ describe('Agent workspace-native tool assignments', () => {
     await assert.doesNotReject(() => setAgentNativeToolAssignment({
       workspaceId: 'workspace-1',
       agentId: agent.id,
-      toolId: 'reports.pdf.generate',
+      toolId: 'documents.create',
       assigned: true,
       actorUserId: 'user-1'
     }));
@@ -98,17 +98,17 @@ describe('Agent workspace-native tool assignments', () => {
     const granted = await setAgentNativeToolAssignment({
       workspaceId: 'workspace-1',
       agentId: before.id,
-      toolId: 'reports.pdf.generate',
+      toolId: 'documents.create',
       assigned: true,
       actorUserId: 'user-1'
     });
-    assert.ok(granted.tools.includes('reports.pdf.generate'));
-    assert.ok(granted.semanticCapabilityIds.includes('reports.pdf.generate'));
+    assert.ok(granted.tools.includes('documents.create'));
+    assert.ok(granted.semanticCapabilityIds.includes('documents.create'));
     assert.equal(granted.readiness.status, 'ready');
 
     const afterGrantMappings = (await listCapabilityRoutingMappings('workspace-1'))
       .filter((mapping) => mapping.agentId === before.id);
-    const nativeMapping = afterGrantMappings.find((mapping) => mapping.nativeToolIds.includes('reports.pdf.generate'));
+    const nativeMapping = afterGrantMappings.find((mapping) => mapping.nativeToolIds.includes('documents.create'));
     assert.ok(nativeMapping);
     assert.equal(nativeMapping.reviewState, 'reviewed');
 
@@ -118,18 +118,18 @@ describe('Agent workspace-native tool assignments', () => {
     const revoked = await setAgentNativeToolAssignment({
       workspaceId: 'workspace-1',
       agentId: before.id,
-      toolId: 'reports.pdf.generate',
+      toolId: 'documents.create',
       assigned: false,
       actorUserId: 'user-1'
     });
-    assert.equal(revoked.tools.includes('reports.pdf.generate'), false);
-    assert.equal(revoked.semanticCapabilityIds.includes('reports.pdf.generate'), false);
+    assert.equal(revoked.tools.includes('documents.create'), false);
+    assert.equal(revoked.semanticCapabilityIds.includes('documents.create'), false);
     assert.equal(revoked.readiness.status, 'ready');
 
     const afterRevokeMappings = (await listCapabilityRoutingMappings('workspace-1'))
       .filter((mapping) => mapping.agentId === before.id);
     assert.equal(
-      afterRevokeMappings.find((mapping) => mapping.nativeToolIds.includes('reports.pdf.generate'))?.status,
+      afterRevokeMappings.find((mapping) => mapping.nativeToolIds.includes('documents.create'))?.status,
       'disabled'
     );
     assert.equal((await getWorkflowDefinition('workspace-1', 'cluster-triage'))?.readiness.status, 'ready');

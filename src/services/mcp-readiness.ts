@@ -5,7 +5,6 @@ import {
   type McpReadinessFailureCode,
   type McpReadinessResult
 } from './mcp-registry-client.js';
-import { isPlatformOwnedMcpServer } from './workspace-mcp-tool-specs.js';
 
 export type McpReadinessAction = 'connect_mcp_server' | 'verify_mcp_server';
 
@@ -159,12 +158,11 @@ export async function getExactMcpReadinessReportForToolFiltering(
   principal: RunPrincipalRef,
   refs: Array<{ serverId: string; toolName: string }>
 ): Promise<McpReadinessReport> {
-  const remoteRefs = refs.filter((ref) => !isPlatformOwnedMcpServer(ref.serverId));
-  if (remoteRefs.length === 0) return { errors: [], failures: [] };
+  if (refs.length === 0) return { errors: [], failures: [] };
   const result = await checkMcpReadiness({
     workspaceId,
     principal,
-    toolRefs: remoteRefs
+    toolRefs: refs
   });
   return mcpReadinessReportForFailures(result.failures.map(publicReadinessFailure));
 }

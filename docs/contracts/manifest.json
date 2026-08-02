@@ -141,25 +141,19 @@
         "catalogFields": ["version", "items[].{key,name,description?}"],
         "registrationField": "rbacAdditionKeys[]?",
         "resolution": "The control plane resolves selected keys against the effective future-onboarding catalog (Helm deployment baseline merged with admin upserts and disabled keys) and stores an immutable per-cluster snapshot. Later deployment or admin changes do not affect existing clusters; agent-key rotation reuses the stored snapshot.",
-        "accessMode": "read_only installs configured get, list, and watch; read_write also installs configured create, patch, and delete. Patch requires list.",
+        "accessMode": "read_only installs configured get and list; read_write also installs configured patch. Patch requires list.",
         "governance": "The management console exposes only deployment- or administrator-authored names and descriptions from the effective catalog; users cannot edit resources or verbs. Post-onboarding RBAC changes are outside AcornOps governance."
       },
       "workflowCapabilityCeiling": {
-        "rule": "A workflow selects one or more active reviewed specialist Agents. restrictionMode=inherit resolves their current combined ceiling at session creation; restrictionMode=restrict requires semanticCapabilityIds to be an explicit subset.",
-        "emptyRestrictionSemantics": "inherit requires an empty semanticCapabilityIds array. restrict may use an empty array to intentionally authorize no semantic capabilities. The console sends restrictionMode explicitly and stored definitions always contain the final field.",
-        "agentOnlyAdditions": [
-          "mcp_servers",
-          "mcp_tools",
-          "skills"
-        ],
+        "rule": "A workflow selects one or more active reviewed specialist Agents and derives its complete effective capability ceiling from those assigned Agent snapshots at session creation.",
+        "agentOnlyAdditions": ["native_tools", "mcp_servers", "mcp_tools", "skills", "context_grants"],
         "runtimeToolIdentity": "McpToolRef{serverId,toolName}"
       },
-      "workflowRuntimePolicy": {
+      "workflowRuntimeLimits": {
         "authority": "ASSISTANT_MAX_RUNTIME_MS is the only workflow execution limit and GENERATED_DOCUMENT_RETENTION_DAYS is the only generated-document retention policy.",
-        "mutationContract": "Workflow mutations reject maxRuntimeSeconds, retentionDays, and all other unknown capability-policy fields; deployment policy is authoritative.",
-        "response": "Workflow responses normalize maxRuntimeSeconds and retentionDays to effective deployment values.",
-        "options": "Workflow option catalogs expose one effective runtime limit and one effective retention policy.",
-        "manualDefaults": "When omitted, the server defaults manual workflows to read_only, inherit, workspace_metadata, read_workspace_data, and no approval requirements."
+        "mutationContract": "Workflow mutations accept no capability, context, permission, approval, runtime, or retention policy. Deployment runtime and retention configuration remains authoritative.",
+        "options": "Workflow option catalogs expose assignable Agents only.",
+        "capabilities": "Workflow capability mode and context are derived from assigned Agents."
       },
       "workflowCapabilityPreview": {
         "path": "POST /api/v1/workflows/{workflowId}/capabilities-preview",
@@ -176,24 +170,21 @@
       },
       "workspaceNativeToolContract": {
         "catalog": [
-          "prompt.resources.read",
           "http.fetch.get",
-          "reports.pdf.generate"
+          "documents.create"
         ],
         "modelAliases": {
-          "prompt.resources.read": "_acornops_read_prompt_resources",
           "http.fetch.get": "acornops_fetch",
-          "reports.pdf.generate": "acornops_generate_pdf_report"
+          "documents.create": "acornops_create_document"
         },
         "ownership": "Control-plane code owns workspace-native metadata, schemas, authorization class, audit operation, and execution.",
         "assignment": "manage_agents grants, updates, or revokes a tool on a specialist Agent and transactionally rebinds exact reviewed mappings and dependent readiness; optional code-validated config is accepted on PUT, revoke clears config, and bodyless grants remain valid for unconfigured tools; manage_mcp is not required.",
-        "invocationScopePolicy": "Workspace-native declarations carry invocationScopes. prompt.resources.read and http.fetch.get support workflow; reports.pdf.generate supports workflow, target_chat, and agent_chat; delegated specialist Workflow runs receive no workspace-native tools.",
-        "artifactSafety": "reports.pdf.generate is a control-plane-owned internal_artifact available to workflows, target chat, and Agent chat without crossing the target-adapter boundary. It is allowed in read-only runs without write approval, persisted as a write audit event, bounded, provenance-linked, authenticated, and idempotent by workflow or interactive run plus tool_call_id.",
-        "promptResources": "prompt.resources.read accepts binding IDs only and dispatches bounded reads through the providers authorized in the run's signed resource bindings.",
+        "invocationScopePolicy": "Workspace-native declarations carry invocationScopes. http.fetch.get is Agent-owned and supports Agent chat plus direct or delegated runs executed by that Agent; documents.create supports workflow, target_chat, and agent_chat.",
+        "artifactSafety": "documents.create is a control-plane-owned internal_artifact available to workflows, target chat, and Agent chat without crossing the target-adapter boundary. It is allowed in read-only runs without write approval, persisted as a write audit event, bounded, provenance-linked, authenticated, and idempotent by workflow or interactive run plus tool_call_id.",
         "fetchSafety": "http.fetch.get accepts only a concrete url and executes unauthenticated public HTTPS GET in the control plane against one to 20 run-snapshotted full-URL patterns. Wildcards are restricted to path/query. DNS is public-only and pinned, redirects and IP literals are blocked, timeout is 15 seconds, decompressed output is capped at 256 KiB, and only JSON or text is returned as untrusted external data. Audits and metrics omit full URLs, queries, and bodies.",
         "ui": "Agent Capabilities > Tools lists AcornOps native tools separately from MCP-discovered tools. Fetch configuration uses a GET-only repeatable full-URL drawer; grant, configuration update, and revoke require manage_agents only.",
-        "workflowUi": "Create defaults to inheritance after Agent selection. Advanced restriction supports narrowed and intentionally empty sets; review and readiness copy distinguish policy from effective capabilities.",
-        "artifactUi": "Workflow and target-chat assistant responses expose authenticated PDF download cards returned by reports.pdf.generate; Copy remains a separate response action."
+        "workflowUi": "Workflow creation selects Agents only. Capability review is read-only and derived from the assigned Agent profiles.",
+        "artifactUi": "Workflow and target-chat assistant responses expose authenticated PDF or Markdown download cards returned by documents.create; Copy remains a separate response action."
       },
       "workflowRoutingContract": {
         "request": "required unique non-empty agentIds; strict schema rejects every unknown field with INVALID_REQUEST",
@@ -324,7 +315,7 @@
         "ingressPath": "POST /api/v1/workflow-webhooks/{webhookId}/events",
         "authorization": "read_workspace_data lists workflow webhooks; manage_workflows creates, updates, deletes, and rotates secrets; ingress is authenticated only by the webhook HMAC",
         "webhookContract": "Any JSON object as event metadata plus X-AcornOps-Event-Id, X-AcornOps-Timestamp, and X-AcornOps-Signature=v1=<HMAC-SHA256(secret, timestamp.rawBody)>; metadata never changes the saved prompt; 256 KiB maximum, five-minute timestamp window, replay-protected, bounded request attempts, and 60 accepted events per webhook per minute",
-        "dispatchPolicy": "Every delivery recompiles the current saved workflow definition, user-principal authorization, capability mappings, MCP readiness, AI policy, approvals, and execution idempotency; configuration failures auto-pause the webhook",
+        "dispatchPolicy": "Every delivery recompiles the current saved workflow definition, assigned-Agent capabilities, user-principal authorization, MCP readiness, AI policy, and execution idempotency; configuration failures auto-pause the webhook",
         "secretPolicy": "Webhook secrets are encrypted at rest and returned only on creation or explicit rotation; rotation invalidates an already-verified request before durable acceptance"
       },
       "workflowActivityVisibility": {
@@ -1092,7 +1083,7 @@
         "workspace scope always identifies a Workflow executor run",
         "agent_chat scope identifies one direct Agent run, requires exact Agent identity, and forbids Workflow and top-level target identity",
         "coordinator runs forbid Agent identity; specialist runs require exact Agent identity",
-        "a Workflow remains workspace-scoped; target_id and target_type are selected and validated only when invoking an allowed generic targets MCP tool",
+        "a Workflow remains workspace-scoped; specialist runs may invoke only exact tools inherited from the selected Agent, including the Agent's built-in AcornOps Targets MCP installation",
         "idempotency_key is stable across at-least-once dispatch of one attempt"
       ]
     },
@@ -1309,7 +1300,7 @@
         "user_id? (required for individual MCP authorization)",
         "permissions.context_grants",
         "scope.type=agent_chat requires agent_id while forbidding Workflow and top-level target identity claims",
-        "Workflow and agent_chat target selection is call-time only and requires an exact allowed_tool_refs entry whose server_id is targets and whose tool_name equals the model tool name",
+        "Workflow and agent_chat MCP calls require the exact Agent server/tool pair in allowed_tool_refs; built-in AcornOps Targets calls use the same lookup without synthetic argument rebinding",
         "write tool calls receive a gateway-injected idempotencyKey derived from run_id and tool_call_id"
       ],
       "internalTransportSecurity": "HTTP by default; HTTPS/mTLS when Helm internalTransport.tls.enabled=true; admin/run-scoped bearer tokens remain required",
@@ -1360,19 +1351,13 @@
         "scale_workload",
         "patch_workload",
         "patch_resource",
-        "patch_configmap",
-        "get_custom_resource",
-        "list_custom_resources",
-        "watch_custom_resources",
-        "create_custom_resource",
-        "patch_custom_resource",
-        "delete_custom_resource"
+        "patch_configmap"
       ],
       "kubernetesRbacAdditions": {
         "installValue": "rbac.additions[]",
         "runtimeEnvironment": "ACORNOPS_AGENT_RBAC_ADDITIONS_JSON",
-        "verbs": ["get", "list", "watch", "create", "patch", "delete"],
-        "accessMode": "read-only grants configured get, list, and watch; read-write additionally grants configured create, patch, and delete",
+        "verbs": ["get", "list", "patch"],
+        "accessMode": "read-only grants configured get and list; read-write additionally grants configured patch",
         "patchBoundary": "JSON Patch add/replace/remove operations under /spec only, with UID and resourceVersion tests, Kubernetes dry-run, ordinary write approval, and post-write identity verification"
       },
       "toolAdvertisementPolicy": "Every registered AgentK tool is advertised and discoverable; session, run, local write, patch-kind, environment, ConfigMap, namespace, and Kubernetes RBAC policy remain fail-closed execution ceilings.",

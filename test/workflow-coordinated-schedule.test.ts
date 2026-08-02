@@ -66,16 +66,6 @@ describe('coordinated Workflow schedules', () => {
       name: 'Scheduled coordination',
       prompt: 'Inspect cluster-1 using a specialist.',
       agentIds: ['agent-cluster-triage', 'agent-incident-reporter'],
-      capabilityPolicy: {
-        mode: 'read_only',
-        restrictionMode: 'restrict',
-        semanticCapabilityIds: ['infrastructure.diagnostics.read'],
-        contextGrants: ['workspace_metadata'],
-        maxRuntimeSeconds: 300,
-        retentionDays: 30,
-        approvalRequirements: []
-      },
-      requiredPermissions: ['read_workspace_data'],
       createdBy: 'user-1',
       status: 'active'
     });

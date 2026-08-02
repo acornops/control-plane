@@ -72,16 +72,6 @@ async function coordinatedRoot() {
     name: 'Coordinated delegation probe',
     prompt: 'Inspect the infrastructure.',
     agentIds: agents.map((agent) => agent.id),
-    capabilityPolicy: {
-      mode: 'read_only',
-      restrictionMode: 'restrict',
-      semanticCapabilityIds: ['infrastructure.diagnostics.read'],
-      contextGrants: ['workspace_metadata'],
-      maxRuntimeSeconds: 300,
-      retentionDays: 30,
-      approvalRequirements: []
-    },
-    requiredPermissions: ['read_workspace_data'],
     createdBy: actor.userId,
     status: 'active'
   });
@@ -124,16 +114,8 @@ async function coordinatedRoot() {
   );
   const specialist = agents.find((agent) => agent.id === 'agent-cluster-triage');
   assert.ok(specialist);
-  const childWorkflow = {
-    ...workflow,
-    capabilityPolicy: {
-      ...workflow.capabilityPolicy,
-      restrictionMode: 'restrict' as const,
-      semanticCapabilityIds: ['infrastructure.diagnostics.read']
-    }
-  };
   const childScope = compileWorkflowAccessScope({
-    workflow: childWorkflow,
+    workflow,
     selectedAgents: agents,
     specialistAgent: specialist,
     delegatedSpecialist: true,
@@ -328,7 +310,7 @@ describe('delegated Workflow run persistence', () => {
       approvalKind: 'tool_write',
       toolCallId: 'cancelled-write',
       toolName: 'restart_workload',
-      toolRef: { serverId: 'targets', toolName: 'restart_workload' },
+      toolRef: { serverId: 'server-operations', toolName: 'restart_workload' },
       summary: 'This approval should be invalidated by cancellation.',
       arguments: { target_id: 'cluster-1', target_type: 'kubernetes' },
       requestedBy: actor.userId,

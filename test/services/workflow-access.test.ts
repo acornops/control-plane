@@ -26,8 +26,16 @@ function agent(id: string): AgentDefinition {
     createdAt: '2026-07-01T00:00:00.000Z',
     updatedAt: '2026-07-01T00:00:00.000Z',
     mcpServers: ['ops'],
-    mcpTools: [],
-    mcpInstallations: [],
+    mcpTools: [{ serverId: 'ops', toolName: 'events_search' }],
+    mcpInstallations: [{
+      id: 'ops', name: 'Operations', url: 'https://ops.example.test/mcp', enabled: true,
+      credentialMode: 'workspace', revision: 1,
+      tools: [{
+        serverId: 'ops', toolName: 'events_search', alias: 'events.search', description: 'Search events.',
+        inputSchema: { type: 'object' }, capability: 'read', enabled: true, reviewState: 'approved',
+        riskLevel: 'read_only', autoAllowed: true
+      }]
+    }],
     tools: ['workspace.metadata.read'],
     nativeToolConfigs: {},
     skills: [],
@@ -49,16 +57,6 @@ function workflow(agents: AgentDefinition[]): WorkflowDefinitionForAccess {
     prompt: 'Audit the workspace.',
     agentIds: agents.map((value) => value.id),
     executionMode: agents.length > 1 ? 'coordinated' : 'direct',
-    capabilityPolicy: {
-      mode: 'read_only',
-      restrictionMode: 'restrict',
-      semanticCapabilityIds: ['workspace.audit.read'],
-      contextGrants: ['workspace_metadata'],
-      maxRuntimeSeconds: 300,
-      retentionDays: 30,
-      approvalRequirements: []
-    },
-    requiredPermissions: ['read_workspace_data'],
     createdBy: 'owner-1'
   };
 }
@@ -117,34 +115,20 @@ describe('Workflow executor scope compiler', () => {
       ...agent('agent-vm'),
       semanticCapabilityIds: ['infrastructure.diagnostics.read']
     };
-    const definition = {
-      ...workflow([specialist]),
-      capabilityPolicy: {
-        ...workflow([specialist]).capabilityPolicy,
-        semanticCapabilityIds: ['infrastructure.diagnostics.read']
-      }
-    };
-    const routeMapping: CapabilityRoutingMapping = {
-      ...mapping(specialist),
-      capabilityId: 'infrastructure.diagnostics.read',
-      mcpTools: [{
-        serverId: 'targets', toolName: 'host_summary', alias: 'host_summary', operation: 'read'
-      }],
-      nativeToolIds: []
-    };
+    const definition = workflow([specialist]);
     const compiled = compileWorkflowAccessScope({
       workflow: definition,
       selectedAgents: [specialist],
       specialistAgent: specialist,
-      mappings: [routeMapping],
+      mappings: [],
       actor,
       approvedContextGrants: ['workspace_metadata']
     });
 
     assert.equal(compiled.resourceBindings.length, 0);
-    assert.deepEqual(compiled.mcpTools, [{ serverId: 'targets', toolName: 'host_summary' }]);
+    assert.deepEqual(compiled.mcpTools, [{ serverId: 'ops', toolName: 'events_search' }]);
     assert(compiled.jwtClaims.permissions.allowed_tool_refs.some((ref) => (
-      ref.server_id === 'targets' && ref.tool_name === 'host_summary'
+      ref.server_id === 'ops' && ref.tool_name === 'events_search'
     )));
   });
 
@@ -180,7 +164,7 @@ describe('Workflow executor scope compiler', () => {
     });
   });
 
-  it('inherits Agent MCP attachments independently from generic target tools', () => {
+  it('inherits every approved Agent MCP attachment', () => {
     const specialist = {
       ...agent('agent-target-mcp'),
       mcpInstallations: [{
@@ -199,10 +183,7 @@ describe('Workflow executor scope compiler', () => {
       }]
     };
     const compiled = compileWorkflowAccessScope({
-      workflow: { ...workflow([specialist]), capabilityPolicy: {
-        ...workflow([specialist]).capabilityPolicy,
-        restrictionMode: 'inherit'
-      } },
+      workflow: workflow([specialist]),
       selectedAgents: [specialist],
       specialistAgent: specialist,
       mappings: [mapping(specialist)],
@@ -212,8 +193,7 @@ describe('Workflow executor scope compiler', () => {
 
     assert(compiled.tools.includes('host_summary'));
     assert.deepEqual(compiled.mcpTools, [
-      { serverId: 'target-mcp', toolName: 'host_summary' },
-      { serverId: 'ops', toolName: 'events_search' }
+      { serverId: 'target-mcp', toolName: 'host_summary' }
     ]);
   });
 
@@ -264,12 +244,12 @@ describe('Workflow executor scope compiler', () => {
     assert.equal(ceiling.routingMappingSnapshots.length, 2);
     assert.deepEqual(child.executor, { role: 'specialist', agentId: 'agent-b' });
     assert.deepEqual(child.selectedAgentSnapshots.map((agent) => agent.id), ['agent-b']);
-    assert.deepEqual(child.routingMappingSnapshots.map((mapping) => mapping.agentId), ['agent-b']);
-    assert.deepEqual(child.tools, ['events.search']);
-    assert.equal(child.tools.includes('workspace.metadata.read'), false);
+    assert.deepEqual(child.routingMappingSnapshots, []);
+    assert.deepEqual(child.tools, ['events.search', 'workspace.metadata.read']);
+    assert.equal(child.tools.includes('workspace.metadata.read'), true);
   });
 
-  it('rejects inactive selected Agents and unavailable exact capability mappings', () => {
+  it('rejects inactive selected Agents without requiring Workflow-owned capability mappings', () => {
     const inactive = { ...agent('agent-a'), status: 'disabled' as const };
     assert.throws(
       () => compileWorkflowAccessScope({
@@ -284,18 +264,14 @@ describe('Workflow executor scope compiler', () => {
     );
 
     const specialist = agent('agent-a');
-    assert.throws(
-      () => compileWorkflowAccessScope({
-        workflow: workflow([specialist]),
-        selectedAgents: [specialist],
-        specialistAgent: specialist,
-        mappings: [],
-        actor,
-        approvedContextGrants: ['workspace_metadata']
-      }),
-      (error) => error instanceof WorkflowAccessDeniedError
-        && error.code === 'WORKFLOW_CAPABILITY_MAPPING_UNAVAILABLE'
-    );
+    assert.doesNotThrow(() => compileWorkflowAccessScope({
+      workflow: workflow([specialist]),
+      selectedAgents: [specialist],
+      specialistAgent: specialist,
+      mappings: [],
+      actor,
+      approvedContextGrants: ['workspace_metadata']
+    }));
   });
 
   it('selects only eligible pinned specialists by priority and then Agent ID', () => {

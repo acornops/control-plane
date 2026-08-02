@@ -48,14 +48,14 @@ describe('target native tool toggleability', () => {
     const response = await callController(
       updateTargetToolSettings,
       createRequest(
-        { workspaceId: 'workspace-1', targetId: 'cluster-1', toolId: 'reports.pdf.generate' },
+        { workspaceId: 'workspace-1', targetId: 'cluster-1', toolId: 'documents.create' },
         { enabled: false }
       )
     );
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(persisted, {
-      toolId: 'reports.pdf.generate',
+      toolId: 'documents.create',
       enabled: false,
       config: { authorizationClass: 'internal_artifact' }
     });
@@ -63,13 +63,13 @@ describe('target native tool toggleability', () => {
     assert.equal((response.body as { toggleable: boolean }).toggleable, true);
     assert.equal(
       (response.body as { description: string }).description,
-      'Create a provenance-linked PDF incident report from the current assistant conversation and available evidence.'
+      'Create a provenance-linked PDF or Markdown document from the current assistant conversation and available evidence.'
     );
   });
 
   it('excludes PDF report generation from target Assistant runs when disabled', async () => {
     installResolverRepoStubs();
-    repo.getTargetToolSetting = async (_targetId, toolId) => toolId === 'reports.pdf.generate'
+    repo.getTargetToolSetting = async (_targetId, toolId) => toolId === 'documents.create'
       ? {
           targetId: 'target-1',
           toolId,
@@ -89,7 +89,7 @@ describe('target native tool toggleability', () => {
     });
 
     assert.deepEqual(result.platformFunctions, []);
-    assert.equal(result.allowedToolNames.includes('acornops_generate_pdf_report'), false);
-    assert.equal(result.previewItems.some((item) => item.id === 'reports.pdf.generate'), false);
+    assert.equal(result.allowedToolNames.includes('acornops_create_document'), false);
+    assert.equal(result.previewItems.some((item) => item.id === 'documents.create'), false);
   });
 });

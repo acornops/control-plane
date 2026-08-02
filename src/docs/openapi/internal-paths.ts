@@ -55,7 +55,7 @@ export function buildInternalPaths(): Record<string, unknown> {
         security: [{ serviceToken: [] }],
         parameters: [
           { in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid' } },
-          { in: 'path', name: 'toolId', required: true, schema: { type: 'string', example: 'reports.pdf.generate' } }
+          { in: 'path', name: 'toolId', required: true, schema: { type: 'string', example: 'documents.create' } }
         ],
         requestBody: {
           required: true,

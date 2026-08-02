@@ -33,6 +33,7 @@ const map = (row: Row): GeneratedDocumentRecord => ({
 
 export async function createWorkflowDocument(input: {
   workspaceId: string; executionId: string; runId: string; title: string;
+  mediaType: 'application/pdf' | 'text/markdown';
   source: Record<string, unknown>; provenance: Record<string, unknown>; retentionDays: number;
   toolCallId: string;
 }): Promise<GeneratedDocumentRecord> {
@@ -41,33 +42,36 @@ export async function createWorkflowDocument(input: {
   const candidate: GeneratedDocumentRecord = {
     id: randomUUID(), workspaceId: input.workspaceId,
     workflowExecutionId: input.executionId, workflowRunId: input.runId,
-    toolCallId: input.toolCallId, mediaType: 'application/pdf', title: input.title,
+    toolCallId: input.toolCallId, mediaType: input.mediaType, title: input.title,
     source: input.source, provenance: input.provenance, sourceSizeBytes: sourceSize,
     retentionExpiresAt: new Date(Date.now() + input.retentionDays * 86_400_000).toISOString(),
     createdAt: new Date().toISOString()
   };
-  const renderStartedAt = Date.now();
-  try {
-    const bytes = renderGeneratedDocumentPdf(candidate);
-    observeAutomationPdfRender('success', Date.now() - renderStartedAt, bytes.length);
-  } catch (error) {
-    observeAutomationPdfRender('error', Date.now() - renderStartedAt);
-    throw error;
+  if (input.mediaType === 'application/pdf') {
+    const renderStartedAt = Date.now();
+    try {
+      const bytes = renderGeneratedDocumentPdf(candidate);
+      observeAutomationPdfRender('success', Date.now() - renderStartedAt, bytes.length);
+    } catch (error) {
+      observeAutomationPdfRender('error', Date.now() - renderStartedAt);
+      throw error;
+    }
   }
   const result = await db.query<Row>(
     `INSERT INTO generated_documents (
       id,workspace_id,workflow_execution_id,workflow_run_id,tool_call_id,media_type,title,source,provenance,source_size_bytes,retention_expires_at
-     ) VALUES ($1,$2,$3,$4,$5,'application/pdf',$6,$7,$8,$9,NOW()+($10::text||' days')::interval)
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW()+($11::text||' days')::interval)
      ON CONFLICT (workflow_run_id,tool_call_id) WHERE workflow_run_id IS NOT NULL AND tool_call_id IS NOT NULL
      DO UPDATE SET tool_call_id=EXCLUDED.tool_call_id RETURNING *`,
-    [candidate.id, input.workspaceId, input.executionId, input.runId, input.toolCallId, input.title, input.source,
-     input.provenance, sourceSize, input.retentionDays]
+    [candidate.id, input.workspaceId, input.executionId, input.runId, input.toolCallId, input.mediaType, input.title,
+     input.source, input.provenance, sourceSize, input.retentionDays]
   );
   return map(result.rows[0]);
 }
 
 export async function createConversationDocument(input: {
   workspaceId: string; conversationRunId: string; title: string;
+  mediaType: 'application/pdf' | 'text/markdown';
   source: Record<string, unknown>; provenance: Record<string, unknown>; retentionDays: number;
   toolCallId: string;
 }): Promise<GeneratedDocumentRecord> {
@@ -75,27 +79,29 @@ export async function createConversationDocument(input: {
   if (sourceSize > config.REPORT_SOURCE_MAX_BYTES) throw new GeneratedDocumentError('REPORT_SOURCE_TOO_LARGE');
   const candidate: GeneratedDocumentRecord = {
     id: randomUUID(), workspaceId: input.workspaceId, conversationRunId: input.conversationRunId,
-    toolCallId: input.toolCallId, mediaType: 'application/pdf', title: input.title,
+    toolCallId: input.toolCallId, mediaType: input.mediaType, title: input.title,
     source: input.source, provenance: input.provenance, sourceSizeBytes: sourceSize,
     retentionExpiresAt: new Date(Date.now() + input.retentionDays * 86_400_000).toISOString(),
     createdAt: new Date().toISOString()
   };
-  const renderStartedAt = Date.now();
-  try {
-    const bytes = renderGeneratedDocumentPdf(candidate);
-    observeAutomationPdfRender('success', Date.now() - renderStartedAt, bytes.length);
-  } catch (error) {
-    observeAutomationPdfRender('error', Date.now() - renderStartedAt);
-    throw error;
+  if (input.mediaType === 'application/pdf') {
+    const renderStartedAt = Date.now();
+    try {
+      const bytes = renderGeneratedDocumentPdf(candidate);
+      observeAutomationPdfRender('success', Date.now() - renderStartedAt, bytes.length);
+    } catch (error) {
+      observeAutomationPdfRender('error', Date.now() - renderStartedAt);
+      throw error;
+    }
   }
   const result = await db.query<Row>(
     `INSERT INTO generated_documents (
       id,workspace_id,workflow_execution_id,workflow_run_id,conversation_run_id,tool_call_id,media_type,title,source,provenance,source_size_bytes,retention_expires_at
-     ) VALUES ($1,$2,NULL,NULL,$3,$4,'application/pdf',$5,$6,$7,$8,NOW()+($9::text||' days')::interval)
+     ) VALUES ($1,$2,NULL,NULL,$3,$4,$5,$6,$7,$8,$9,NOW()+($10::text||' days')::interval)
      ON CONFLICT (conversation_run_id,tool_call_id) WHERE conversation_run_id IS NOT NULL AND tool_call_id IS NOT NULL
      DO UPDATE SET tool_call_id=EXCLUDED.tool_call_id RETURNING *`,
-    [candidate.id, input.workspaceId, input.conversationRunId, input.toolCallId, input.title, input.source,
-     input.provenance, sourceSize, input.retentionDays]
+    [candidate.id, input.workspaceId, input.conversationRunId, input.toolCallId, input.mediaType, input.title,
+     input.source, input.provenance, sourceSize, input.retentionDays]
   );
   return map(result.rows[0]);
 }

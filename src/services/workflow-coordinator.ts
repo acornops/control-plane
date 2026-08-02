@@ -1,9 +1,7 @@
 import type { PoolClient } from 'pg';
 import { getAgentDefinition } from '../store/repository-agents.js';
 import type { AgentDefinition } from '../types/agents.js';
-import type { WorkflowCapabilityPolicy } from '../types/workflows.js';
 import { incrementWorkflowRoutingOutcome } from '../metrics.js';
-import { capabilitiesOutsideAgentCeiling } from './workflow-capability-policy.js';
 
 export const WORKFLOW_COORDINATOR_INSTRUCTIONS =
   'Coordinate this Workflow by delegating each required semantic capability to a specialist. '
@@ -55,7 +53,6 @@ export async function resolveWorkflowRouting(
   input: {
     workspaceId: string;
     agentIds: string[];
-    capabilityPolicy: Pick<WorkflowCapabilityPolicy, 'restrictionMode' | 'semanticCapabilityIds'>;
   }
 ): Promise<WorkflowRoutingSelection> {
   const requestedMode = input.agentIds.length > 1 ? 'coordinated' : 'direct';
@@ -80,16 +77,6 @@ export async function resolveWorkflowRouting(
       );
     }
     selectedAgents.push(agent);
-  }
-
-  const outsideCeiling = capabilitiesOutsideAgentCeiling(input.capabilityPolicy, selectedAgents);
-  if (outsideCeiling.length > 0) {
-    incrementWorkflowRoutingOutcome(requestedMode, 'failure');
-    throw new WorkflowSelectionError(
-      'WORKFLOW_CAPABILITY_OUTSIDE_AGENT_CEILING',
-      'Workflow capabilities must be a subset of the selected Agents’ combined ceiling.',
-      outsideCeiling
-    );
   }
 
   incrementWorkflowRoutingOutcome(requestedMode, 'success');

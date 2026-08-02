@@ -980,18 +980,15 @@ CREATE TABLE workflow_definitions (
     description text,
     status text NOT NULL,
     tags jsonb DEFAULT '[]'::jsonb NOT NULL,
-    required_permissions jsonb DEFAULT '[]'::jsonb NOT NULL,
     created_by text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     readiness_status text DEFAULT 'needs_setup'::text NOT NULL,
     readiness_reasons jsonb DEFAULT '[]'::jsonb NOT NULL,
     prompt text NOT NULL,
-    capability_policy jsonb NOT NULL,
     agent_ids jsonb NOT NULL,
     CONSTRAINT workflow_definitions_agent_ids_check CHECK ((jsonb_typeof(agent_ids) = 'array'::text)),
     CONSTRAINT workflow_definitions_agent_ids_nonempty CHECK ((jsonb_array_length(agent_ids) > 0)),
-    CONSTRAINT workflow_definitions_required_permissions_check CHECK ((jsonb_typeof(required_permissions) = 'array'::text)),
     CONSTRAINT workflow_definitions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'draft'::text, 'paused'::text]))),
     CONSTRAINT workflow_definitions_tags_check CHECK ((jsonb_typeof(tags) = 'array'::text))
 );

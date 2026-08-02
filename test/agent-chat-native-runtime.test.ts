@@ -129,12 +129,12 @@ describe('Agent-chat native tools and approvals', () => {
       toolCallId: 'agent-report-1',
       arguments: { title: 'Agent report', markdown: '# Agent report' }
     };
-    const first = await callNative(runId, 'reports.pdf.generate', body);
-    const repeated = await callNative(runId, 'reports.pdf.generate', body);
+    const first = await callNative(runId, 'documents.create', body);
+    const repeated = await callNative(runId, 'documents.create', body);
     assert.equal(first.statusCode, 200);
     assert.equal(
-      (first.body as { structuredContent: { reportId: string } }).structuredContent.reportId,
-      (repeated.body as { structuredContent: { reportId: string } }).structuredContent.reportId
+      (first.body as { structuredContent: { documentId: string } }).structuredContent.documentId,
+      (repeated.body as { structuredContent: { documentId: string } }).structuredContent.documentId
     );
     const persisted = await db.query<{ count: string }>(
       'SELECT COUNT(*) AS count FROM generated_documents WHERE conversation_run_id=$1 AND tool_call_id=$2',

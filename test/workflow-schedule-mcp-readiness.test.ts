@@ -8,6 +8,7 @@ import {
   updateWorkflowSchedule
 } from '../src/controllers/workflow-schedules-controller.js';
 import { db } from '../src/infra/db.js';
+import { updateAgentMcpCapabilitySnapshot } from '../src/store/repository-agents.js';
 import { pauseSchedulesForAgentIndividualCredentials } from '../src/services/agent-mcp-schedule-impact.js';
 import { runWorkflowScheduleTick } from '../src/services/workflow-scheduler.js';
 import {
@@ -41,26 +42,28 @@ afterEach(() => {
 after(closeAutomationDatabaseFixtures);
 
 async function installExactMcpRequirement(): Promise<void> {
-  await db.query(
-    `UPDATE capability_routing_mappings
-     SET mcp_tools=$3::jsonb
-     WHERE workspace_id=$1 AND id=$2`,
-    [
-      'workspace-1',
-      'route-target-diagnostics',
-      JSON.stringify([{
+  await updateAgentMcpCapabilitySnapshot('workspace-1', 'agent-cluster-triage', {
+    mcpServers: ['server-1'],
+    mcpTools: [{ serverId: 'server-1', toolName: 'records.list' }],
+    mcpInstallations: [{
+      id: 'server-1',
+      name: 'Records',
+      url: 'https://mcp.example.test',
+      enabled: true,
+      credentialMode: 'individual',
+      revision: 1,
+      tools: [{
         serverId: 'server-1',
         toolName: 'records.list',
-        alias: 'records.list',
-        operation: 'read'
-      }, {
-        serverId: 'targets',
-        toolName: 'list_resources',
-        alias: 'list_resources',
-        operation: 'read'
-      }])
-    ]
-  );
+        alias: 'records_list',
+        capability: 'read',
+        enabled: true,
+        reviewState: 'approved',
+        riskLevel: 'read_only',
+        autoAllowed: false
+      }]
+    }]
+  }, 'user-1');
 }
 
 function scheduleInput(enabled = true): Record<string, unknown> {

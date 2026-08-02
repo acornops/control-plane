@@ -69,7 +69,7 @@ describe('external run public projections', () => {
       type: 'tool_approval_requested',
       payload: {
         approval_id: 'approval-1',
-        tool: 'reports.pdf.generate',
+        tool: 'documents.create',
         summary: 'Generate the approved report.',
         expires_at: '2026-07-23T00:15:00.000Z',
         arguments: { secret: 'must-not-leak' }
@@ -77,7 +77,7 @@ describe('external run public projections', () => {
     });
     assert.deepEqual(approval.payload, {
       approval_id: 'approval-1',
-      tool: 'reports.pdf.generate',
+      tool: 'documents.create',
       summary: 'Generate the approved report.',
       expires_at: '2026-07-23T00:15:00.000Z'
     });

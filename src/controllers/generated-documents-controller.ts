@@ -41,18 +41,22 @@ export async function getGeneratedDocumentMetadata(req: AuthenticatedRequest, re
 
 export async function downloadGeneratedDocument(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   const startedAt = Date.now();
+  let isPdf = false;
   try {
     const document = await getGeneratedDocument(toSingleParam(req.params.reportId));
     if (!document) { res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Document not found', retryable: false } }); return; }
     if (!(await canReadDocument(req, res, document))) return;
-    const bytes = renderGeneratedDocumentPdf(document);
-    observeAutomationPdfRender('success', Date.now() - startedAt, bytes.length);
-    res.setHeader('Content-Type', 'application/pdf');
+    isPdf = document.mediaType === 'application/pdf';
+    const bytes = isPdf
+      ? renderGeneratedDocumentPdf(document)
+      : Buffer.from(String(document.source.markdown || ''), 'utf8');
+    if (isPdf) observeAutomationPdfRender('success', Date.now() - startedAt, bytes.length);
+    res.setHeader('Content-Type', document.mediaType);
     res.setHeader('Content-Length', String(bytes.length));
-    res.setHeader('Content-Disposition', `attachment; filename="report-artifact-${document.id}.pdf"`);
+    res.setHeader('Content-Disposition', `attachment; filename="document-${document.id}.${isPdf ? 'pdf' : 'md'}"`);
     res.status(200).send(bytes);
   } catch (err) {
-    observeAutomationPdfRender('error', Date.now() - startedAt);
+    if (isPdf) observeAutomationPdfRender('error', Date.now() - startedAt);
     next(err);
   }
 }

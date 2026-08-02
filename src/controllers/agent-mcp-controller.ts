@@ -256,8 +256,23 @@ export async function patchServer(req: AuthenticatedRequest, res: Response, next
       res.status(200).json({ server: toAgentMcpServer(materialized) });
       return;
     }
+    const currentServer = (await listAgentMcpServers(context.workspaceId, context.agentId))
+      .find((item) => item.id === serverId);
+    if (!currentServer) {
+      return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'MCP server not found', retryable: false } });
+    }
+    if (currentServer.provenance_type === 'builtin') {
+      const fields = Object.keys(value);
+      if (value.enabled === undefined || fields.some((key) => key !== 'enabled' && key !== 'expectedRevision')) {
+        return void res.status(409).json({ error: {
+          code: 'BUILTIN_MCP_SERVER_MANAGED',
+          message: 'This built-in MCP server connection is managed by AcornOps; only enablement can be changed.',
+          retryable: false
+        } });
+      }
+    }
     const previousServer = credentialMode === 'individual'
-      ? (await listAgentMcpServers(context.workspaceId, context.agentId)).find((item) => item.id === serverId)
+      ? currentServer
       : undefined;
     const server = await updateAgentMcpServer({
       workspaceId: context.workspaceId,
@@ -297,6 +312,13 @@ export async function removeServer(req: AuthenticatedRequest, res: Response, nex
     const serverId = toSingleParam(req.params.serverId);
     const server = (await listAgentMcpServers(context.workspaceId, context.agentId)).find((item) => item.id === serverId);
     if (!server) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'MCP server not found', retryable: false } });
+    if (server.provenance_type === 'builtin') {
+      return void res.status(409).json({ error: {
+        code: 'BUILTIN_MCP_SERVER_MANAGED',
+        message: 'Built-in MCP servers are managed by AcornOps and cannot be deleted.',
+        retryable: false
+      } });
+    }
     await deleteAgentMcpServer(context.workspaceId, context.agentId, serverId);
     await syncAgentMcpCapabilitySnapshot(context.workspaceId, context.agentId, req.auth.userId);
     await audit(req, { workspaceId: context.workspaceId, agentId: context.agentId, serverId, serverName: server.server_name,
@@ -347,6 +369,18 @@ export async function patchTool(req: AuthenticatedRequest, res: Response, next: 
     const parsed = agentMcpToolUpdateSchema.safeParse(req.body);
     if (!parsed.success) return invalid(res, 'AGENT_MCP_TOOL_INVALID', 'Invalid Agent MCP tool payload.');
     const value = parsed.data;
+    const serverId = toSingleParam(req.params.serverId);
+    const server = (await listAgentMcpServers(context.workspaceId, context.agentId))
+      .find((item) => item.id === serverId);
+    if (!server) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'MCP server not found', retryable: false } });
+    if (server.provenance_type === 'builtin'
+      && Object.keys(value).some((key) => key !== 'enabled')) {
+      return void res.status(409).json({ error: {
+        code: 'BUILTIN_MCP_SERVER_MANAGED',
+        message: 'Built-in MCP tool definitions are managed by AcornOps; only enablement can be changed.',
+        retryable: false
+      } });
+    }
     const removalOnly = value.enabled === false && Object.keys(value).every((key) => key === 'enabled');
     if (!removalOnly && !context.authz.can('manage_mcp')) {
       return void res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Tool review and enablement require manage_mcp.', retryable: false } });
@@ -354,7 +388,7 @@ export async function patchTool(req: AuthenticatedRequest, res: Response, next: 
     const tool = await updateAgentMcpTool(
       context.workspaceId,
       context.agentId,
-      toSingleParam(req.params.serverId),
+      serverId,
       toSingleParam(req.params.toolName),
       {
         enabled: value.enabled,

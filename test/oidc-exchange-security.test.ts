@@ -12,6 +12,7 @@ import { redis } from '../src/infra/redis.js';
 import { logger } from '../src/logger.js';
 
 const mutableConfig = config as typeof config & {
+  OIDC_TOKEN_ENDPOINT_OVERRIDE?: string;
   OIDC_ISSUER_URL: string;
   OIDC_REDIRECT_URI: string;
   OIDC_TOKEN_ENDPOINT_AUTH_METHOD: 'client_secret_basic' | 'client_secret_post' | 'none';
@@ -43,12 +44,14 @@ async function withExchangeConfig<T>(issuer: string, run: () => Promise<T>): Pro
   const original = { ...config };
   try {
     mutableConfig.OIDC_ISSUER_URL = issuer;
+    mutableConfig.OIDC_TOKEN_ENDPOINT_OVERRIDE = undefined;
     mutableConfig.OIDC_REDIRECT_URI = 'https://ops.example.com/api/v1/auth/oidc/callback';
     mutableConfig.OIDC_TOKEN_ENDPOINT_AUTH_METHOD = 'none';
     mutableConfig.OIDC_USE_USERINFO = true;
     return await run();
   } finally {
     mutableConfig.OIDC_ISSUER_URL = original.OIDC_ISSUER_URL;
+    mutableConfig.OIDC_TOKEN_ENDPOINT_OVERRIDE = original.OIDC_TOKEN_ENDPOINT_OVERRIDE;
     mutableConfig.OIDC_REDIRECT_URI = original.OIDC_REDIRECT_URI;
     mutableConfig.OIDC_TOKEN_ENDPOINT_AUTH_METHOD = original.OIDC_TOKEN_ENDPOINT_AUTH_METHOD;
     mutableConfig.OIDC_USE_USERINFO = original.OIDC_USE_USERINFO;

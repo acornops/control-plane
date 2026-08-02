@@ -12,11 +12,10 @@ import {
 } from '../store/repository-automation-templates.js';
 import { withTransaction } from '../store/repository-transaction.js';
 import { getWorkflowDefinition } from '../store/repository-workflows.js';
-import type { WorkflowCapabilityMode } from '../types/workflows.js';
-import type { WorkflowCapabilityRestrictionMode, WorkflowStatus } from '../types/workflows.js';
+import type { WorkflowStatus } from '../types/workflows.js';
 import { refreshAgentReadiness, refreshWorkflowReadiness } from './automation-readiness.js';
-import { effectiveWorkflowRuntimePolicy } from './workflow-runtime-policy.js';
 import { getWorkspaceNativeTool } from './workspace-native-tools.js';
+import { syncAgentTargetsBuiltInTools } from './agent-targets-mcp-sync.js';
 import {
   createAgentThroughDefinitionServiceInTransaction,
   createWorkflowThroughDefinitionServiceInTransaction
@@ -38,11 +37,6 @@ export interface WorkflowTemplate {
   description: string;
   prompt: string;
   agentKeys: string[];
-  semanticCapabilityIds: string[];
-  capabilityMode: WorkflowCapabilityMode;
-  restrictionMode: WorkflowCapabilityRestrictionMode;
-  contextGrants?: string[];
-  approvalRequirements?: string[];
   status?: WorkflowStatus;
   installMode: 'automatic' | 'opt_in';
   setupSteps: string[];
@@ -95,12 +89,11 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       description: 'Investigates and safely operates Kubernetes environments identified in the request.',
       instructions: 'Use the environment identified by the request when calling relevant MCP tools. Do not guess when a resource name is ambiguous. Use live evidence, distinguish observations from inferences, require approval before every write, verify changes, and provide rollback guidance.',
       semanticCapabilityIds: [
-        'prompt.resources.read',
-        'reports.pdf.generate',
+        'documents.create',
         'infrastructure.diagnostics.read',
         'infrastructure.remediation.write'
       ],
-      nativeToolIds: ['prompt.resources.read', 'reports.pdf.generate']
+      nativeToolIds: ['documents.create']
     },
     {
       key: 'virtualMachineAgent',
@@ -109,11 +102,10 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       description: 'Investigates Linux virtual machines identified in the request.',
       instructions: 'Use the machine identified by the request when calling relevant MCP tools. Do not guess when a resource name is ambiguous. Use live evidence, distinguish observations from inferences, preserve provenance, disclose missing inputs, and do not make changes.',
       semanticCapabilityIds: [
-        'prompt.resources.read',
-        'reports.pdf.generate',
+        'documents.create',
         'infrastructure.diagnostics.read'
       ],
-      nativeToolIds: ['prompt.resources.read', 'reports.pdf.generate']
+      nativeToolIds: ['documents.create']
     }
   ],
   workflows: [
@@ -123,9 +115,6 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       description: 'Inspect available Kubernetes environments for workload failures, warning events, resource pressure, and relevant logs.',
       prompt: "Assess the available Kubernetes environments' current health without making changes. Use the Kubernetes Agent's MCP tools where relevant. Inspect workload readiness and availability, pod restarts, warning events, resource pressure, and relevant recent logs. Cite the exact environment and evidence for each finding, distinguish observations from inferences, call out unavailable evidence, and finish with prioritized safe next actions.",
       agentKeys: ['kubernetesAgent'],
-      semanticCapabilityIds: [],
-      capabilityMode: 'read_only',
-      restrictionMode: 'inherit',
       installMode: 'automatic',
       setupSteps: []
     },
@@ -135,10 +124,6 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       description: 'Diagnose and safely change a Kubernetes environment named in the request with approval-gated writes.',
       prompt: 'Diagnose the Kubernetes environment named in this request using live evidence. If the environment is missing or ambiguous, explain what is needed instead of guessing. Propose the smallest safe remediation, request approval before each mutation, verify the result, and summarize rollback guidance.',
       agentKeys: ['kubernetesAgent'],
-      semanticCapabilityIds: ['infrastructure.diagnostics.read', 'infrastructure.remediation.write'],
-      capabilityMode: 'read_write',
-      restrictionMode: 'restrict',
-      approvalRequirements: ['Before every write-capable MCP tool'],
       status: 'paused',
       installMode: 'opt_in',
       setupSteps: ['Add paused workflow', 'Review approval-gated tools', 'Activate']
@@ -149,9 +134,6 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       description: 'Inspect available Linux VMs for host pressure, degraded services, suspicious processes or listeners, and relevant logs.',
       prompt: "Assess the available Linux virtual machines' current health without making changes. Use the Virtual Machine Agent's MCP tools where relevant. Inspect the host summary, filesystem pressure, top processes, network listeners, degraded systemd services, and relevant allowlisted journal logs. Cite the exact machine and evidence for each finding, distinguish observations from inferences, call out unavailable evidence, and finish with prioritized safe next actions.",
       agentKeys: ['virtualMachineAgent'],
-      semanticCapabilityIds: [],
-      capabilityMode: 'read_only',
-      restrictionMode: 'inherit',
       status: 'active',
       installMode: 'automatic',
       setupSteps: []
@@ -162,9 +144,6 @@ export const STARTER_BUNDLE: AutomationTemplateBundle = {
       description: 'Coordinate diagnostics and incident reporting from infrastructure and context named in the request.',
       prompt: 'Investigate the infrastructure and incident context named in this request. Do not guess when a resource is missing or ambiguous. Produce a provenance-preserving report with findings and safe next actions.',
       agentKeys: ['kubernetesAgent', 'virtualMachineAgent'],
-      semanticCapabilityIds: ['prompt.resources.read', 'reports.pdf.generate', 'infrastructure.diagnostics.read'],
-      capabilityMode: 'read_only',
-      restrictionMode: 'restrict',
       status: 'paused',
       installMode: 'opt_in',
       setupSteps: ['Add paused workflow', 'Review coordinated access', 'Activate']
@@ -230,23 +209,13 @@ export async function insertStarterWorkflow(
   client: PoolClient,
   input: { workspaceId: string; installedBy: string; template: WorkflowTemplate; agentIds: Record<string, string> }
 ): Promise<string> {
-  const capabilityPolicy = {
-    mode: input.template.capabilityMode,
-    restrictionMode: input.template.restrictionMode,
-    semanticCapabilityIds: input.template.semanticCapabilityIds,
-    contextGrants: input.template.contextGrants || [],
-    ...effectiveWorkflowRuntimePolicy(),
-    approvalRequirements: input.template.approvalRequirements || []
-  };
   const workflow = await createWorkflowThroughDefinitionServiceInTransaction(client, {
     workspaceId: input.workspaceId,
     name: input.template.name,
     description: input.template.description,
     prompt: input.template.prompt,
     agentIds: input.template.agentKeys.map((key) => input.agentIds[key]),
-    capabilityPolicy,
     tags: [],
-    requiredPermissions: [],
     createdBy: input.installedBy,
     status: initialWorkflowTemplateStatus(input.template)
   });
@@ -322,7 +291,11 @@ export async function refreshStarterAutomationReadiness(
   const failures: Array<{ recordType: string; recordId: string; error: unknown }> = [];
   for (const [key, recordId] of Object.entries(installation.recordIds)) {
     try {
-      if (key.startsWith('agent:')) await refreshAgentReadiness(installation.workspaceId, recordId);
+      if (key.startsWith('agent:')) {
+        const synced = await syncAgentTargetsBuiltInTools(installation.workspaceId, recordId);
+        if (!synced.ok) throw new Error(synced.error || 'Agent Targets MCP synchronization failed');
+        await refreshAgentReadiness(installation.workspaceId, recordId);
+      }
     } catch (error) {
       failures.push({ recordType: 'agent', recordId, error });
     }

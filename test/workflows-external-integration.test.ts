@@ -5,6 +5,7 @@ import { decideRunApproval } from '../src/controllers/runs-controller.js';
 import { getWorkflowExecution } from '../src/controllers/workflow-executions-controller.js';
 import { getGeneratedDocumentMetadata } from '../src/controllers/generated-documents-controller.js';
 import { repo } from '../src/store/repository.js';
+import { updateAgentDefinition } from '../src/store/repository-agents.js';
 import {
   resetWorkflowRepositoryForTests,
   appendWorkflowRunEvents,
@@ -53,9 +54,8 @@ describe('workflow external integration access', () => {
   it('requires write capability for gated workflows and still rejects inactive workflows', async () => {
     installWorkspace('admin');
 
-    await updateWorkflowDefinitionScope('workspace-1', 'cluster-triage', {
-      capabilityPolicy: { mode: 'read_write' }
-    });
+    await updateAgentDefinition('workspace-1', 'agent-cluster-triage', { permissionMode: 'ask_before_changes' });
+    await updateAgentDefinition('workspace-1', 'agent-incident-reporter', { permissionMode: 'ask_before_changes' });
     const readWriteResponse = await callController(createSession, createExternalIntegrationRequest(
       { workflowId: 'cluster-triage' },
       { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata'] }
@@ -176,7 +176,7 @@ describe('workflow external integration access', () => {
     );
   });
 
-  it('creates fresh gated executions on replies and permits only exact-origin decisions', async () => {
+  it('creates fresh executions on replies and permits only exact-origin runtime decisions', async () => {
     installWorkspace('admin');
     installExternalWriteGrant();
     mock.method(globalThis, 'fetch', async (input) => {
@@ -249,6 +249,36 @@ describe('workflow external integration access', () => {
       type: 'run_started',
       payload: {}
     }]);
+    const firstApproval = await createAutomationRunApproval({
+      workspaceId: 'workspace-1',
+      sourceType: 'workflow',
+      sourceId: firstBody.executionId,
+      runId: firstBody.run_id,
+      approvalKind: 'tool_write',
+      toolCallId: 'external-origin-write-1',
+      toolName: 'documents.create',
+      toolRef: { serverId: 'acornops-workspace-native', toolName: 'documents.create' },
+      summary: 'Publish the first report.',
+      arguments: {},
+      requestedBy: 'user-1',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      continuationState: { cursor: 'first-origin' }
+    });
+    const secondApproval = await createAutomationRunApproval({
+      workspaceId: 'workspace-1',
+      sourceType: 'workflow',
+      sourceId: secondBody.executionId,
+      runId: secondBody.run_id,
+      approvalKind: 'tool_write',
+      toolCallId: 'external-origin-write-2',
+      toolName: 'documents.create',
+      toolRef: { serverId: 'acornops-workspace-native', toolName: 'documents.create' },
+      summary: 'Publish the follow-up report.',
+      arguments: {},
+      requestedBy: 'user-1',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      continuationState: { cursor: 'second-origin' }
+    });
     await recordWorkflowRunEvents({
       executionId: firstBody.executionId,
       workspaceId: 'workspace-1',
@@ -264,16 +294,14 @@ describe('workflow external integration access', () => {
     const executionEvents = await listWorkflowExecutionEvents(firstBody.executionId);
     assert.deepEqual(
       executionEvents.map((event) => event.type),
-      ['execution_created', 'run_created', 'approval_requested', 'run_event']
+      ['execution_created', 'run_created', 'run_event']
     );
     assert.equal(
       (executionEvents.at(-1)?.payload.runEvent as { type: string }).type,
       'run_started'
     );
-    const firstApproval = (await listWorkflowRunApprovals(firstBody.run_id))[0];
-    const secondApproval = (await listWorkflowRunApprovals(secondBody.run_id))[0];
-    assert.ok(firstApproval);
-    assert.ok(secondApproval);
+    assert.equal((await listWorkflowRunApprovals(firstBody.run_id))[0]?.id, firstApproval.id);
+    assert.equal((await listWorkflowRunApprovals(secondBody.run_id))[0]?.id, secondApproval.id);
     assert.notEqual(firstApproval.id, secondApproval.id);
 
     const otherLinkDecision = withWriteCapability(createExternalIntegrationRequest(
@@ -337,6 +365,7 @@ describe('workflow external integration access', () => {
       executionId: firstBody.executionId,
       runId: firstBody.run_id,
       title: 'Payments incident',
+      mediaType: 'application/pdf',
       source: { markdown: '# Private report source' },
       provenance: { internal: 'private provenance' },
       retentionDays: 30,
@@ -367,8 +396,8 @@ describe('workflow external integration access', () => {
       runId: firstBody.run_id,
       approvalKind: 'tool_write',
       toolCallId: 'external-runtime-write-1',
-      toolName: 'reports.pdf.generate',
-      toolRef: { serverId: 'acornops-workspace-native', toolName: 'reports.pdf.generate' },
+      toolName: 'documents.create',
+      toolRef: { serverId: 'acornops-workspace-native', toolName: 'documents.create' },
       summary: 'Publish the approved report.',
       arguments: { reportSource: 'private report source' },
       requestedBy: 'user-1',

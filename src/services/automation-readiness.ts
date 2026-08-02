@@ -3,7 +3,6 @@ import type { WorkflowDefinitionForAccess } from '../types/workflows.js';
 import { listCapabilityRoutingMappings } from '../store/repository-capability-routing.js';
 import { getAgentDefinition, updateAgentReadiness } from '../store/repository-agents.js';
 import { updateWorkflowReadiness } from '../store/repository-workflows.js';
-import { capabilitiesOutsideAgentCeiling, resolveEffectiveWorkflowCapabilityIds } from './workflow-capability-policy.js';
 
 function unique(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
@@ -13,22 +12,7 @@ export async function computeAgentReadiness(agent: AgentDefinition): Promise<Age
   if (agent.status !== 'active' || agent.reviewState !== 'reviewed') {
     return { status: 'blocked', reasons: ['Agent must be active and reviewed.'] };
   }
-  const mappings = await listCapabilityRoutingMappings(agent.workspaceId, {
-    activeReviewedOnly: true,
-    capabilityIds: agent.semanticCapabilityIds
-  });
-  const mapped = new Set(mappings
-    .filter((mapping) => mapping.agentId === agent.id)
-    .map((mapping) => mapping.capabilityId));
-  const missing: string[] = [];
-  for (const capabilityId of agent.semanticCapabilityIds) {
-    if (!mapped.has(capabilityId)) {
-      missing.push(capabilityId);
-    }
-  }
-  return missing.length > 0
-    ? { status: 'needs_setup', reasons: missing.map((capabilityId) => `No active reviewed capability mapping is configured for ${capabilityId}.`) }
-    : { status: 'ready', reasons: [] };
+  return { status: 'ready', reasons: [] };
 }
 
 export async function refreshAgentReadiness(workspaceId: string, agentId: string): Promise<AgentDefinition | null> {
@@ -55,11 +39,8 @@ export async function computeWorkflowReadiness(workflow: WorkflowDefinitionForAc
       reasons: unavailable.map((agentId) => `Selected Agent ${agentId} must remain an active, reviewed specialist.`)
     };
   }
-  const requested = resolveEffectiveWorkflowCapabilityIds(workflow.capabilityPolicy, selected);
-  const outside = capabilitiesOutsideAgentCeiling(workflow.capabilityPolicy, selected);
-  if (outside.length > 0) {
-    return { status: 'blocked', reasons: outside.map((capabilityId) => `Selected Agents do not include ${capabilityId}.`) };
-  }
+  if (workflow.executionMode === 'direct') return { status: 'ready', reasons: [] };
+  const requested = unique(selected.flatMap((agent) => agent.semanticCapabilityIds));
 
   const selectedById = new Map(selected.map((agent) => [agent.id, agent]));
   const mappings = await listCapabilityRoutingMappings(workflow.workspaceId, {

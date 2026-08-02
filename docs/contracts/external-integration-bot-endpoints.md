@@ -316,9 +316,8 @@ Content-Type: application/json
 }
 ```
 
-`approvedContextGrants` must exactly match the workflow context required for
-the run: use `capabilityPolicy.contextGrants` from the selected workflow
-definition. Missing grants return `WORKFLOW_CONTEXT_GRANT_DENIED`.
+`approvedContextGrants` must exactly match the union of context grants on the
+Agents assigned to the Workflow. Missing grants return `WORKFLOW_CONTEXT_GRANT_DENIED`.
 Unknown extra grants return `WORKFLOW_CONTEXT_GRANT_UNKNOWN`.
 
 Persist the returned `session.id` as the adapter's external-thread mapping.

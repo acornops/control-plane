@@ -11,7 +11,6 @@ import {
   BUILT_IN_ROLE_TEMPLATES,
   configureRoleTemplates
 } from '../src/auth/authorization.js';
-import { config } from '../src/config.js';
 import type { PublicWorkflowDefinition } from '../src/types/workflows.js';
 import {
   callController,
@@ -128,32 +127,20 @@ describe('workflows management controller', () => {
     assert.equal(response.statusCode, 403);
   });
 
-  it('returns server option catalogs for governed workflow capability authoring', async () => {
+  it('returns only the Agent catalog used for Workflow assignment', async () => {
     installWorkspace('admin');
 
     const response = await callController(listWorkflowOptions, createRequest({ workspaceId: 'workspace-1' }));
 
     assert.equal(response.statusCode, 200);
     const body = response.body as {
-      mcpServers: Array<{ value: string }>;
-      mcpTools: Array<{ value: string }>;
-      skills: Array<{ value: string }>;
-      outputFormats: Array<{ value: string }>;
-      runtimeLimits: Array<{ value: string }>;
-      retentionPolicies: Array<{ value: string }>;
-      sourceAvailability: Record<string, { status: string }>;
+      agents: Array<{ value: string }>;
+      sourceAvailability: { agents: { status: string } };
     };
-    assert.ok(body.mcpServers.some((option) => option.value === 'github'));
-    assert.ok(body.mcpTools.some((option) => option.value === 'github.repositories.read'));
-    assert.ok(body.mcpTools.some((option) => option.value === 'reports.pdf.generate'));
-    assert.ok(body.skills.some((option) => option.value === 'acornops-observability'));
-    assert.ok(body.outputFormats.some((option) => option.value === 'pdf'));
-    assert.deepEqual(body.runtimeLimits.map((option) => option.value), [
-      String(Math.max(1, Math.floor(config.ASSISTANT_MAX_RUNTIME_MS / 1000)))
-    ]);
-    assert.deepEqual(body.retentionPolicies.map((option) => option.value), [
-      String(config.GENERATED_DOCUMENT_RETENTION_DAYS)
-    ]);
+    assert.ok(body.agents.some((option) => option.value === 'agent-cluster-triage'));
+    assert.ok(body.agents.some((option) => option.value === 'agent-incident-reporter'));
+    assert.deepEqual(Object.keys(body).sort(), ['agents', 'sourceAvailability']);
+    assert.deepEqual(Object.keys(body.sourceAvailability), ['agents']);
   });
 
   it('lets owners create and delete workflow definitions', async () => {
@@ -181,14 +168,7 @@ describe('workflows management controller', () => {
         description: 'Generate a tailored incident report from selected chats.',
         prompt: 'Generate a report from the incident context named in the request.',
         agentIds: ['agent-incident-reporter'],
-        tags: ['incident', 'custom'],
-        capabilityPolicy: {
-          mode: 'read_only',
-          restrictionMode: 'restrict',
-          semanticCapabilityIds: ['incident.report.generate'],
-          contextGrants: [],
-          approvalRequirements: ['Before reading selected chats']
-        }
+        tags: ['incident', 'custom']
       }
     ));
 
@@ -196,33 +176,21 @@ describe('workflows management controller', () => {
     const workflow = (created.body as { workflow: PublicWorkflowDefinition & Record<string, unknown> }).workflow;
     assert.deepEqual(workflow.agentIds, ['agent-incident-reporter']);
     assert.equal(workflow.executionMode, 'direct');
-    assert.deepEqual(workflow.capabilityPolicy.semanticCapabilityIds, ['incident.report.generate']);
-    assert.equal(
-      workflow.capabilityPolicy.maxRuntimeSeconds,
-      Math.max(1, Math.floor(config.ASSISTANT_MAX_RUNTIME_MS / 1000))
-    );
-    assert.equal(workflow.capabilityPolicy.retentionDays, config.GENERATED_DOCUMENT_RETENTION_DAYS);
+    assert.equal('capabilityPolicy' in workflow, false);
+    assert.equal('requiredPermissions' in workflow, false);
 
     const defaulted = await callController(createWorkflow, createRequest(
       { workspaceId: 'workspace-1' },
       {
-        name: 'Defaulted workflow policy',
-        prompt: 'Use server-owned defaults.',
+        name: 'Agent-derived workflow',
+        prompt: 'Use the assigned Agent capabilities.',
         agentIds: ['agent-incident-reporter']
       }
     ));
     assert.equal(defaulted.statusCode, 201);
-    const defaultedWorkflow = (defaulted.body as { workflow: PublicWorkflowDefinition }).workflow;
-    assert.deepEqual(defaultedWorkflow.capabilityPolicy, {
-      mode: 'read_only',
-      restrictionMode: 'inherit',
-      semanticCapabilityIds: [],
-      contextGrants: ['workspace_metadata'],
-      maxRuntimeSeconds: Math.max(1, Math.floor(config.ASSISTANT_MAX_RUNTIME_MS / 1000)),
-      retentionDays: config.GENERATED_DOCUMENT_RETENTION_DAYS,
-      approvalRequirements: []
-    });
-    assert.deepEqual(defaultedWorkflow.requiredPermissions, ['read_workspace_data']);
+    const defaultedWorkflow = (defaulted.body as { workflow: PublicWorkflowDefinition & Record<string, unknown> }).workflow;
+    assert.equal('capabilityPolicy' in defaultedWorkflow, false);
+    assert.equal('requiredPermissions' in defaultedWorkflow, false);
 
     const coordinated = await callController(updateWorkflow, createRequest(
       { workflowId: workflow.id },
@@ -287,8 +255,8 @@ describe('workflows management controller', () => {
   it('rejects malformed nested workflow authoring fields instead of coercing them', async () => {
     installWorkspace('owner');
     const invalidBodies = [
-      { capabilityPolicy: { mode: 'unsafe' } },
-      { capabilityPolicy: { contextGrants: ['workspace_metadata', 42] } },
+      { capabilityPolicy: { mode: 'read_only' } },
+      { requiredPermissions: ['create_read_only_runs'] },
       { resourceRequirements: [{ type: 'chat', minimum: 1, maximum: 20, requiredOperations: ['read'], extra: true }] },
       { parameters: [{ key: 'format', type: 'text', required: true }] },
       { tags: ['valid', 42] }

@@ -10,8 +10,6 @@ import { resolveRunSkillSnapshots } from '../src/services/run-skill-snapshots.js
 import { targetToolSpecMatchesRoute } from '../src/services/target-run-tool-resolution.js';
 import { compileAgentCapabilityProjection } from '../src/services/agent-capability-access.js';
 import { agentChatRunSnapshotIsValid } from '../src/controllers/internal-agent-chat-bootstrap.js';
-import { resolveTargetsMcpSelection } from '../src/controllers/internal-approval-controller.js';
-import { repo } from '../src/store/repository.js';
 import type { CompiledAgentChatAccessScope } from '../src/types/agent-chat.js';
 import type { AgentDefinition } from '../src/types/agents.js';
 import type { CapabilityRoutingMapping } from '../src/types/capability-routing.js';
@@ -33,7 +31,7 @@ function agent(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
     mcpServers: ['server-1'],
     mcpTools: [{ serverId: 'server-1', toolName: 'incidents.read' }],
     mcpInstallations: [],
-    tools: ['reports.pdf.generate'],
+    tools: ['documents.create'],
     nativeToolConfigs: {},
     skills: ['incident-analysis'],
     skillInstallations: [],
@@ -168,51 +166,21 @@ describe('Agent chat contract', () => {
       approvalGates: []
     });
     assert.deepEqual(projection.semanticCapabilityIds, []);
-    assert(projection.tools.includes('reports.pdf.generate'));
-  });
-
-  it('validates generic Targets MCP approval targets at call time', async (context) => {
-    context.mock.method(repo, 'getTarget', async (workspaceId: string, targetId: string) => (
-      workspaceId === 'workspace-1' && targetId === 'cluster-1'
-        ? {
-            id: targetId,
-            workspaceId,
-            targetType: 'kubernetes' as const,
-            name: 'Cluster 1',
-            status: 'online' as const,
-            metadata: {},
-            createdAt: '2026-07-29T00:00:00.000Z',
-            updatedAt: '2026-07-29T00:00:00.000Z'
-          }
-        : null
-    ));
-    assert.deepEqual(await resolveTargetsMcpSelection({
-      workspaceId: 'workspace-1',
-      serverId: 'targets',
-      arguments: { target_id: 'cluster-1', target_type: 'kubernetes' }
-    }), { kind: 'valid', targetId: 'cluster-1', targetType: 'kubernetes' });
-    assert.deepEqual(await resolveTargetsMcpSelection({
-      workspaceId: 'workspace-2',
-      serverId: 'targets',
-      arguments: { target_id: 'cluster-1', target_type: 'kubernetes' }
-    }), { kind: 'invalid' });
-    assert.deepEqual(await resolveTargetsMcpSelection({
-      workspaceId: 'workspace-1',
-      serverId: 'targets',
-      arguments: { target_id: 'cluster-1', target_type: 'virtual_machine' }
-    }), { kind: 'invalid' });
+    assert(projection.tools.includes('documents.create'));
   });
 
   it('advertises only workspace-native tools that support Agent-chat invocation', async () => {
-    const snapshot = agent({ tools: ['http.fetch.get', 'reports.pdf.generate'] });
+    const snapshot = agent({ tools: ['http.fetch.get', 'documents.create'] });
     const resolved = await resolveAgentChatRunTools(run(snapshot));
     assert.deepEqual(resolved.platformFunctions, [{
-      id: 'reports.pdf.generate',
-      model_alias: 'acornops_generate_pdf_report'
+      id: 'http.fetch.get',
+      model_alias: 'acornops_fetch'
+    }, {
+      id: 'documents.create',
+      model_alias: 'acornops_create_document'
     }]);
-    assert(!resolved.allowedToolNames.includes('http.fetch.get'));
-    assert(!resolved.allowedToolNames.includes('acornops_fetch'));
-    assert(resolved.allowedToolNames.includes('acornops_generate_pdf_report'));
+    assert(resolved.allowedToolNames.includes('acornops_fetch'));
+    assert(resolved.allowedToolNames.includes('acornops_create_document'));
   });
 
   it('preserves pinned provider-native tool configuration', async () => {
@@ -259,7 +227,7 @@ describe('Agent chat contract', () => {
           alias: 'infrastructure_inventory',
           operation: 'read'
         }, {
-          serverId: 'targets',
+          serverId: 'server-resource-status',
           toolName: 'resource_status',
           alias: 'resource_status',
           operation: 'read'
@@ -278,7 +246,7 @@ describe('Agent chat contract', () => {
     assert.deepEqual(projection.mcpTools, [
       { serverId: 'server-observability', toolName: 'host_summary' },
       { serverId: 'inventory-mapping', toolName: 'inventory' },
-      { serverId: 'targets', toolName: 'resource_status' }
+      { serverId: 'server-resource-status', toolName: 'resource_status' }
     ]);
     assert(projection.tools.includes('host_summary'));
     assert(projection.tools.includes('resource_status'));

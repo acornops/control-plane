@@ -20,6 +20,7 @@ import { repo } from '../src/store/repository.js';
 
 const mutableConfig = config as typeof config & {
   MANAGEMENT_CONSOLE_BASE_URL: string;
+  OIDC_AUTHORIZATION_ENDPOINT_OVERRIDE?: string;
   OIDC_ISSUER_URL: string;
   OIDC_REDIRECT_URI: string;
   OIDC_TOKEN_ENDPOINT_AUTH_METHOD: 'client_secret_basic' | 'client_secret_post' | 'none';
@@ -224,12 +225,14 @@ describe('external integration link contract', () => {
 
   it('prevalidates external integration tokens before integration OIDC login returns to the console link route', async () => {
     const originalIssuer = config.OIDC_ISSUER_URL;
+    const originalAuthorizationEndpointOverride = config.OIDC_AUTHORIZATION_ENDPOINT_OVERRIDE;
     const originalRedirectUri = config.OIDC_REDIRECT_URI;
     const originalTokenAuthMethod = config.OIDC_TOKEN_ENDPOINT_AUTH_METHOD;
     const originalConsoleBaseUrl = config.MANAGEMENT_CONSOLE_BASE_URL;
     let stateRecord: Record<string, unknown> | undefined;
     try {
       mutableConfig.OIDC_ISSUER_URL = 'https://issuer-external-integration-link.example.com';
+      mutableConfig.OIDC_AUTHORIZATION_ENDPOINT_OVERRIDE = undefined;
       mutableConfig.OIDC_REDIRECT_URI = 'https://ops.example.com/api/v1/auth/oidc/callback';
       mutableConfig.OIDC_TOKEN_ENDPOINT_AUTH_METHOD = 'none';
       mutableConfig.MANAGEMENT_CONSOLE_BASE_URL = 'https://console.example.com';
@@ -257,6 +260,7 @@ describe('external integration link contract', () => {
       assert.equal(res.cookies.size, 1);
     } finally {
       mutableConfig.OIDC_ISSUER_URL = originalIssuer;
+      mutableConfig.OIDC_AUTHORIZATION_ENDPOINT_OVERRIDE = originalAuthorizationEndpointOverride;
       mutableConfig.OIDC_REDIRECT_URI = originalRedirectUri;
       mutableConfig.OIDC_TOKEN_ENDPOINT_AUTH_METHOD = originalTokenAuthMethod;
       mutableConfig.MANAGEMENT_CONSOLE_BASE_URL = originalConsoleBaseUrl;

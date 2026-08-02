@@ -17,16 +17,6 @@ function textWorkflow(prompt: string): WorkflowDefinitionForAccess {
     prompt,
     agentIds: ['agent-1'],
     executionMode: 'direct',
-    capabilityPolicy: {
-      mode: 'read_only',
-      restrictionMode: 'inherit',
-      semanticCapabilityIds: [],
-      contextGrants: [],
-      maxRuntimeSeconds: 900,
-      retentionDays: 30,
-      approvalRequirements: []
-    },
-    requiredPermissions: [],
     createdBy: 'user-1'
   };
 }

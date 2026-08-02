@@ -19,7 +19,6 @@ import { emitWorkflowExecutionEvents } from './workflow-execution-events.js';
 import { isModelAllowedForProvider } from './llm-policy.js';
 import { PromptResourceProviderError } from './prompt-resources/index.js';
 import { resolveRunPrincipal } from './run-principal.js';
-import { resolveEffectiveWorkflowCapabilityIds } from './workflow-capability-policy.js';
 import { getWorkflowCapabilityReadinessErrors } from './mcp-readiness.js';
 import {
   compileWorkflowPrompt,
@@ -128,7 +127,7 @@ export async function dispatchWorkflowTrigger(
     specialistAgent = workflow.executionMode === 'direct' ? selectedAgents[0] : undefined;
     const mappings = await listCapabilityRoutingMappings(trigger.workspaceId, {
       activeReviewedOnly: true,
-      capabilityIds: resolveEffectiveWorkflowCapabilityIds(workflow.capabilityPolicy, selectedAgents)
+      capabilityIds: [...new Set(selectedAgents.flatMap((agent) => agent.semanticCapabilityIds))]
     });
     sessionAccessScope = compileWorkflowSessionCeiling({
       workflow,

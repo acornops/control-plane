@@ -1,5 +1,4 @@
 import type { Run } from '../types/domain.js';
-import { resolveWorkspaceMcpToolSpecs } from './workspace-mcp-tool-specs.js';
 import { WEB_SEARCH_TOOL_ID } from './provider-native-tool-ids.js';
 import { getWorkspaceNativeTool } from './workspace-native-tools.js';
 
@@ -59,18 +58,6 @@ export async function resolveAgentChatRunTools(run: Run): Promise<{
       capability: tool.approvalOperation,
       input_schema: tool.inputSchema
     });
-  }
-
-  for (const tool of await resolveWorkspaceMcpToolSpecs({
-    workspaceId: run.workspaceId,
-    runId: run.id,
-    mode: scope.mode,
-    refs: scope.mcpTools
-  })) {
-    allowedToolNames.push(tool.name);
-    allowedToolOperations[tool.name] = tool.capability;
-    allowedToolRefs.push({ serverId: tool.server_id, toolName: tool.tool_name });
-    allowedToolSpecs.push(tool);
   }
 
   for (const tool of mcpTools) {

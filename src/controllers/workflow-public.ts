@@ -4,7 +4,6 @@ import type {
   PublicWorkflowDefinition,
   WorkflowDefinitionForAccess
 } from '../types/workflows.js';
-import { withEffectiveWorkflowRuntimePolicy } from '../services/workflow-runtime-policy.js';
 
 export function respondWorkflowAccessError(res: Response, error: WorkflowAccessDeniedError): void {
   res.status(error.code === 'WORKFLOW_PERMISSION_DENIED' ? 403 : 409).json({
@@ -23,8 +22,5 @@ export function respondWorkflowAccessError(res: Response, error: WorkflowAccessD
 export function publicWorkflowDefinition(
   workflow: WorkflowDefinitionForAccess
 ): PublicWorkflowDefinition {
-  return {
-    ...workflow,
-    capabilityPolicy: withEffectiveWorkflowRuntimePolicy(workflow.capabilityPolicy)
-  };
+  return { ...workflow };
 }

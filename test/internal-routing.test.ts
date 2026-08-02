@@ -197,14 +197,14 @@ describe('internal service routing', () => {
 
     await withTestServer(async (baseUrl) => {
       const publicResponse = await fetch(
-        `${baseUrl}/api/v1/runs/run-1/native-tools/reports.pdf.generate/call`,
+        `${baseUrl}/api/v1/runs/run-1/native-tools/documents.create/call`,
         { method: 'POST', headers, body }
       );
       assert.equal(publicResponse.status, 404);
       assert.equal(getRunCalled, false);
 
       const internalResponse = await fetch(
-        `${baseUrl}/internal/v1/runs/run-1/native-tools/reports.pdf.generate/call`,
+        `${baseUrl}/internal/v1/runs/run-1/native-tools/documents.create/call`,
         { method: 'POST', headers, body }
       );
       assert.equal(internalResponse.status, 404);

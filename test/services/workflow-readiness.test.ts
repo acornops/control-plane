@@ -115,27 +115,6 @@ describe('target MCP credential connection readiness', () => {
     assert.equal(readinessLookup, true);
   });
 
-  it('does not treat generic Targets MCP tools as user credential prerequisites', async () => {
-    let readinessLookup = false;
-    mock.method(globalThis, 'fetch', async () => {
-      readinessLookup = true;
-      return new Response(JSON.stringify({ ready: true, failures: [] }), { status: 200 });
-    });
-
-    const errors = await getWorkflowCapabilityReadinessErrors(
-      'workspace-1',
-      {
-        resourceBindings: [],
-        mcpTools: [{ serverId: 'targets', toolName: 'list_resources' }],
-        mcpServers: []
-      } as never,
-      { principal: { type: 'user', id: 'user-1' } }
-    );
-
-    assert.deepEqual(errors, []);
-    assert.equal(readinessLookup, false);
-  });
-
   it('bounds failure counts and identifiers and normalizes unexpected gateway codes', async () => {
     mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({
       ready: false,
