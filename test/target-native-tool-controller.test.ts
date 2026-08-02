@@ -97,7 +97,7 @@ describe('target native tool controller', () => {
         label: 'Create document',
         enabled: true,
         toggleable: true,
-        description: 'Create a provenance-linked PDF or Markdown document from the current assistant conversation and available evidence.',
+        description: 'Create a PDF or Markdown document.',
         origin: 'platform_native',
         capability: 'read',
         runtimeKind: 'function',

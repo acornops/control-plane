@@ -18,7 +18,7 @@ async function canReadDocument(req: AuthenticatedRequest, res: Response, documen
     ? await getWorkflowExecution(document.workflowExecutionId)
     : null;
   if (execution && externalIntegrationOwnsWorkflowExecution(req, execution)) return true;
-  res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Report not found', retryable: false } });
+  res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Document not found', retryable: false } });
   return false;
 }
 
@@ -26,16 +26,16 @@ function publicDocument(document: GeneratedDocumentRecord) {
   const { source: _source, provenance: _provenance, ...metadata } = document;
   return {
     ...metadata,
-    downloadUrl: `/api/v1/report-artifacts/${encodeURIComponent(document.id)}/download`
+    downloadUrl: `/api/v1/generated-documents/${encodeURIComponent(document.id)}/download`
   };
 }
 
 export async function getGeneratedDocumentMetadata(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const document = await getGeneratedDocument(toSingleParam(req.params.reportId));
+    const document = await getGeneratedDocument(toSingleParam(req.params.documentId));
     if (!document) { res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Document not found', retryable: false } }); return; }
     if (!(await canReadDocument(req, res, document))) return;
-    res.status(200).json({ report: publicDocument(document) });
+    res.status(200).json({ document: publicDocument(document) });
   } catch (err) { next(err); }
 }
 
@@ -43,7 +43,7 @@ export async function downloadGeneratedDocument(req: AuthenticatedRequest, res: 
   const startedAt = Date.now();
   let isPdf = false;
   try {
-    const document = await getGeneratedDocument(toSingleParam(req.params.reportId));
+    const document = await getGeneratedDocument(toSingleParam(req.params.documentId));
     if (!document) { res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Document not found', retryable: false } }); return; }
     if (!(await canReadDocument(req, res, document))) return;
     isPdf = document.mediaType === 'application/pdf';

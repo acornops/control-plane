@@ -180,7 +180,7 @@ export function schemaForOperation(method: string, path: string, statusCode: str
     'POST /api/v1/runs/{runId}/approvals/{approvalId}/decision': 'ApprovalDecision',
     'POST /api/v1/runs/{runId}/cancel': 'GenericAccepted',
     'GET /api/v1/runs/{runId}/events': 'RunEventPage',
-    'GET /api/v1/report-artifacts/{reportId}': 'ReportArtifactResponse',
+    'GET /api/v1/generated-documents/{documentId}': 'GeneratedDocumentResponse',
     'GET /internal/v1/runs/{runId}/context': 'WorkflowRunContext',
     'GET /admin/v1/me': 'AdminMe',
     'GET /admin/v1/system/readiness': 'AdminReadiness',

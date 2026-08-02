@@ -63,7 +63,7 @@ describe('target native tool toggleability', () => {
     assert.equal((response.body as { toggleable: boolean }).toggleable, true);
     assert.equal(
       (response.body as { description: string }).description,
-      'Create a provenance-linked PDF or Markdown document from the current assistant conversation and available evidence.'
+      'Create a PDF or Markdown document.'
     );
   });
 

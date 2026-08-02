@@ -360,7 +360,7 @@ describe('workflow external integration access', () => {
       assert.equal(serializedBrowserExecution.includes(privateField), false);
     }
 
-    const report = await createWorkflowDocument({
+    const document = await createWorkflowDocument({
       workspaceId: 'workspace-1',
       executionId: firstBody.executionId,
       runId: firstBody.run_id,
@@ -371,16 +371,18 @@ describe('workflow external integration access', () => {
       retentionDays: 30,
       toolCallId: 'external-report-1'
     });
-    const ownedReport = await callController(getGeneratedDocumentMetadata, createExternalIntegrationRequest({
-      reportId: report.id
+    const ownedDocument = await callController(getGeneratedDocumentMetadata, createExternalIntegrationRequest({
+      documentId: document.id
     }));
-    assert.equal(ownedReport.statusCode, 200);
-    assert.equal(JSON.stringify(ownedReport.body).includes('Private report source'), false);
-    assert.equal(JSON.stringify(ownedReport.body).includes('private provenance'), false);
-    const otherLinkReportRequest = createExternalIntegrationRequest({ reportId: report.id });
-    otherLinkReportRequest.auth.credential.linkId = 'link-2';
-    const hiddenReport = await callController(getGeneratedDocumentMetadata, otherLinkReportRequest);
-    assert.equal(hiddenReport.statusCode, 404);
+    assert.equal(ownedDocument.statusCode, 200);
+    assert.equal((ownedDocument.body as { document?: { id?: string } }).document?.id, document.id);
+    assert.equal('report' in (ownedDocument.body as Record<string, unknown>), false);
+    assert.equal(JSON.stringify(ownedDocument.body).includes('Private report source'), false);
+    assert.equal(JSON.stringify(ownedDocument.body).includes('private provenance'), false);
+    const otherLinkDocumentRequest = createExternalIntegrationRequest({ documentId: document.id });
+    otherLinkDocumentRequest.auth.credential.linkId = 'link-2';
+    const hiddenDocument = await callController(getGeneratedDocumentMetadata, otherLinkDocumentRequest);
+    assert.equal(hiddenDocument.statusCode, 404);
 
     const approved = await callController(decideRunApproval, withWriteCapability(createExternalIntegrationRequest(
       { runId: firstBody.run_id, approvalId: firstApproval.id },

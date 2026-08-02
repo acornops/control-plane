@@ -430,14 +430,15 @@ decision returns `409`; expired approvals cannot be revived. Browser-created,
 other-link/client, delegated specialist, scheduled, and system-triggered approvals
 fail closed.
 
-Report metadata and downloads are also exact-origin:
+Generated document metadata and downloads are also exact-origin:
 
 ```http
-GET {ACORNOPS_API_BASE_URL}/api/v1/report-artifacts/{reportId}
-GET {ACORNOPS_API_BASE_URL}/api/v1/report-artifacts/{reportId}/download
+GET {ACORNOPS_API_BASE_URL}/api/v1/generated-documents/{documentId}
+GET {ACORNOPS_API_BASE_URL}/api/v1/generated-documents/{documentId}/download
 ```
 
-The metadata response omits report source and provenance.
+The metadata response is `{ "document": { ... } }` and omits document source
+and provenance.
 
 ### Example Adapter Command Mapping
 

@@ -99,7 +99,7 @@ async function createDocument(
     mediaType: document.mediaType,
     sourceSizeBytes: document.sourceSizeBytes,
     retentionExpiresAt: document.retentionExpiresAt,
-    downloadUrl: `/api/v1/report-artifacts/${encodeURIComponent(document.id)}/download`
+    downloadUrl: `/api/v1/generated-documents/${encodeURIComponent(document.id)}/download`
   };
 }
 

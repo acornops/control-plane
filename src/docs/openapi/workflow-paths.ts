@@ -471,17 +471,17 @@ export function buildWorkflowPaths(): Record<string, unknown> {
         responses: { '202': { description: 'Resume attempt and dispatch intent committed.', content: { 'application/json': { schema: { type: 'object', properties: { executionId: { type: 'string' }, runId: { type: 'string' }, status: { type: 'string' } } } } } }, '409': { description: 'Execution is not resumable.' } }
       }
     },
-    '/api/v1/report-artifacts/{reportId}': {
+    '/api/v1/generated-documents/{documentId}': {
       get: {
         tags: ['runs', 'workflows'], summary: 'Get generated document metadata', security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
-        parameters: [externalUserHeader, { in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
+        parameters: [externalUserHeader, { in: 'path', name: 'documentId', required: true, schema: { type: 'string' } }],
         responses: { '200': { description: 'Document metadata without source or artifact bytes.' } }
       }
     },
-    '/api/v1/report-artifacts/{reportId}/download': {
+    '/api/v1/generated-documents/{documentId}/download': {
       get: {
         tags: ['runs', 'workflows'], summary: 'Render and stream a generated document', security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
-        parameters: [externalUserHeader, { in: 'path', name: 'reportId', required: true, schema: { type: 'string' } }],
+        parameters: [externalUserHeader, { in: 'path', name: 'documentId', required: true, schema: { type: 'string' } }],
         responses: { '200': { description: 'PDF or Markdown document stream.', content: {
           'application/pdf': { schema: { type: 'string', format: 'binary' } },
           'text/markdown': { schema: { type: 'string' } }

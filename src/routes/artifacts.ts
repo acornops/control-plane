@@ -5,12 +5,12 @@ import * as generatedDocumentsController from '../controllers/generated-document
 export const artifactsRouter = Router();
 
 artifactsRouter.get(
-  '/report-artifacts/:reportId',
+  '/generated-documents/:documentId',
   requireActor(['user', 'externalIntegration']),
   authenticatedHandler(generatedDocumentsController.getGeneratedDocumentMetadata)
 );
 artifactsRouter.get(
-  '/report-artifacts/:reportId/download',
+  '/generated-documents/:documentId/download',
   requireActor(['user', 'externalIntegration']),
   authenticatedHandler(generatedDocumentsController.downloadGeneratedDocument)
 );

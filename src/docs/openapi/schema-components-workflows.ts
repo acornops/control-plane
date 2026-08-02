@@ -355,7 +355,7 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: false
     },
-    ReportArtifact: {
+    GeneratedDocument: {
       type: 'object',
       required: ['id', 'workspaceId', 'mediaType', 'title', 'sourceSizeBytes', 'retentionExpiresAt', 'createdAt', 'downloadUrl'],
       properties: {
@@ -370,14 +370,14 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         sourceSizeBytes: { type: 'integer', minimum: 0 },
         retentionExpiresAt: dateTime,
         createdAt: dateTime,
-        downloadUrl: { type: 'string', pattern: '^/api/v1/report-artifacts/.+/download$' }
+        downloadUrl: { type: 'string', pattern: '^/api/v1/generated-documents/.+/download$' }
       },
       additionalProperties: false
     },
-    ReportArtifactResponse: {
+    GeneratedDocumentResponse: {
       type: 'object',
-      required: ['report'],
-      properties: { report: schemaRef('ReportArtifact') },
+      required: ['document'],
+      properties: { document: schemaRef('GeneratedDocument') },
       additionalProperties: false
     }
   };

@@ -253,7 +253,7 @@ export function buildPlatformNativeTargetToolItems(
     label: tool.title,
     enabled: settingsByToolId.get(tool.id)?.enabled ?? true,
     toggleable: tool.userToggleable === true,
-    description: tool.catalogDescription || tool.description,
+    description: tool.description,
     origin: 'platform_native',
     capability: tool.approvalOperation,
     runtimeKind: 'function',

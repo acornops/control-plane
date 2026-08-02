@@ -8,7 +8,6 @@ export interface WorkspaceNativeToolDefinition {
   modelAlias: string;
   title: string;
   description: string;
-  catalogDescription?: string;
   userToggleable?: boolean;
   semanticCapabilityId: string;
   invocationScopes: NativeToolInvocationScope[];
@@ -71,8 +70,7 @@ const WORKSPACE_NATIVE_TOOLS: WorkspaceNativeToolDefinition[] = [
     id: 'documents.create',
     modelAlias: 'acornops_create_document',
     title: 'Create document',
-    description: 'Call only when the user explicitly requests a document. Compose complete Markdown from the current run chat and available evidence, label unknown facts explicitly, then persist a bounded, provenance-linked PDF or Markdown artifact. Do not claim the document exists unless this function succeeds.',
-    catalogDescription: 'Create a provenance-linked PDF or Markdown document from the current assistant conversation and available evidence.',
+    description: 'Create a PDF or Markdown document.',
     userToggleable: true,
     semanticCapabilityId: 'documents.create',
     invocationScopes: ['workflow', 'target_chat', 'agent_chat'],
