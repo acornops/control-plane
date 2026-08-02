@@ -15,7 +15,6 @@ describe('Agent-chat gateway token service', () => {
       allowedTools: ['incident.search'],
       allowedToolRefs: [{ serverId: 'incidents', toolName: 'search' }],
       allowedToolOperations: { 'incident.search': 'read' },
-      contextGrants: ['workspace_metadata'],
       allowedModels: ['gpt-4.1-mini']
     });
     const claims = await gatewayTokenService.verifyRunScopeToken(token);
@@ -24,7 +23,6 @@ describe('Agent-chat gateway token service', () => {
     assert.equal(claims.agentId, 'agent-incident-analyst');
     assert.equal(claims.workflowId, undefined);
     assert.equal(claims.targetId, undefined);
-    assert.deepEqual(claims.contextGrants, ['workspace_metadata']);
   });
 
   it('requires an Agent identity at the signing boundary', async () => {

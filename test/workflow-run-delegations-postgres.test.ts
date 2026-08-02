@@ -81,14 +81,12 @@ async function coordinatedRoot() {
     selectedAgents: agents,
     mappings,
     actor,
-    approvedContextGrants: ['workspace_metadata']
   });
   const rootScope = compileWorkflowAccessScope({
     workflow,
     selectedAgents: agents,
     mappings,
     actor,
-    approvedContextGrants: ['workspace_metadata']
   });
   const session = await createWorkflowSession({
     workflow,
@@ -121,7 +119,6 @@ async function coordinatedRoot() {
     delegatedSpecialist: true,
     mappings: mappings.filter((mapping) => mapping.agentId === specialist.id),
     actor,
-    approvedContextGrants: ['workspace_metadata']
   });
   return { parent, specialist, childScope };
 }

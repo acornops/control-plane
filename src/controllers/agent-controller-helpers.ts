@@ -5,11 +5,6 @@ import { getAgentCapabilityOptionsCatalog } from '../store/repository-capability
 import type { AgentDefinitionUpdate } from '../store/repository-agent-types.js';
 import type { AgentCapability, AgentDefinition, AgentDefinitionResponse } from '../types/agents.js';
 
-const KNOWN_CONTEXT_GRANTS = new Set([
-  'workspace_metadata',
-  'audit_events'
-]);
-
 export function requireAgentWorkspaceId(req: AuthenticatedRequest, res: Response): string | null {
   const raw = req.body?.workspaceId || req.query.workspaceId;
   const workspaceId = typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
@@ -73,7 +68,6 @@ export function agentPatch(body: Record<string, unknown>): AgentDefinitionUpdate
     providerType: body.providerType === 'internal' || body.providerType === 'external' ? body.providerType : undefined,
     ownerUserId: typeof body.ownerUserId === 'string' ? body.ownerUserId : undefined,
     tools: stringList(body.tools),
-    contextGrants: stringList(body.contextGrants),
     approvalPolicy: body.approvalPolicy && typeof body.approvalPolicy === 'object' && !Array.isArray(body.approvalPolicy)
       ? body.approvalPolicy as AgentDefinition['approvalPolicy']
       : undefined,
@@ -134,9 +128,6 @@ export async function collectAgentOptionErrors(workspaceId: string, input: Parti
     if (!option) errors.push(`Unknown skill: ${skill}`);
     else if (option.disabled) errors.push(`Disabled skill: ${skill}`);
   }
-  for (const grant of input.contextGrants || []) {
-    if (!KNOWN_CONTEXT_GRANTS.has(grant)) errors.push(`Unknown context grant: ${grant}`);
-  }
   if (input.trustPolicy && input.trustPolicy.level !== 'restricted' && input.trustPolicy.level !== 'trusted') {
     errors.push('Unknown trust policy level.');
   }
@@ -169,9 +160,6 @@ function agentCapabilities(agent: AgentDefinition): AgentCapability[] {
   }
   for (const skill of agent.skills) {
     capabilities.push({ source: 'skill', resourceType: 'skill', resourceScope: skill, operation: 'read', requiresApproval: false });
-  }
-  for (const grant of agent.contextGrants) {
-    capabilities.push({ source: 'context', resourceType: 'context_grant', resourceScope: grant, operation: 'read', requiresApproval: grant !== 'workspace_metadata' });
   }
   if (writeRequiresApproval(agent)) {
     for (const tool of agent.tools.filter((tool) => tool.includes('.create') || tool.includes('.update') || tool.includes('.delete') || tool.includes('.write') || tool.includes('.generate'))) {

@@ -87,7 +87,6 @@ async function processDelivery(delivery: ClaimedWorkflowWebhookDelivery): Promis
       name: currentWebhook.name,
       workspaceId: delivery.workspaceId,
       workflowId: currentWebhook.workflowId,
-      approvedContextGrants: currentWebhook.approvedContextGrants,
       principal: currentWebhook.principal,
       triggerType: 'webhook',
       occurrenceKey: delivery.occurrenceKey

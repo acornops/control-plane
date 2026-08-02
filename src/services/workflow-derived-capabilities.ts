@@ -12,8 +12,7 @@ export function summarizeWorkflowAgents(agents: AgentDefinition[]) {
     mode: agents.some((agent) => agent.permissionMode !== 'read_only')
       ? 'read_write' as const
       : 'read_only' as const,
-    semanticCapabilityIds: uniqueSorted(agents.flatMap((agent) => agent.semanticCapabilityIds)),
-    contextGrants: uniqueSorted(agents.flatMap((agent) => agent.contextGrants))
+    semanticCapabilityIds: uniqueSorted(agents.flatMap((agent) => agent.semanticCapabilityIds))
   };
 }
 

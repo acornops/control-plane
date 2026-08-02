@@ -1,8 +1,10 @@
 import type { AgentDefinition } from '../types/agents.js';
+import type { CapabilityRoutingMapping } from '../types/capability-routing.js';
 import type { WorkflowDefinitionForAccess } from '../types/workflows.js';
 import { listCapabilityRoutingMappings } from '../store/repository-capability-routing.js';
 import { getAgentDefinition, updateAgentReadiness } from '../store/repository-agents.js';
 import { updateWorkflowReadiness } from '../store/repository-workflows.js';
+import { resolveCapabilityRoutingMappings } from './capability-routing-resolution.js';
 
 function unique(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
@@ -22,8 +24,25 @@ export async function refreshAgentReadiness(workspaceId: string, agentId: string
 }
 
 export async function computeWorkflowReadiness(workflow: WorkflowDefinitionForAccess): Promise<NonNullable<WorkflowDefinitionForAccess['readiness']>> {
+  return (await resolveWorkflowRoutingSnapshot(workflow)).readiness;
+}
+
+export interface WorkflowRoutingSnapshot {
+  readiness: NonNullable<WorkflowDefinitionForAccess['readiness']>;
+  selectedAgents: AgentDefinition[];
+  specialistAgent?: AgentDefinition;
+  mappings: CapabilityRoutingMapping[];
+}
+
+export async function resolveWorkflowRoutingSnapshot(
+  workflow: WorkflowDefinitionForAccess
+): Promise<WorkflowRoutingSnapshot> {
   if (workflow.agentIds.length === 0) {
-    return { status: 'blocked', reasons: ['WORKFLOW_AGENT_SELECTION_REQUIRED'] };
+    return {
+      readiness: { status: 'blocked', reasons: ['WORKFLOW_AGENT_SELECTION_REQUIRED'] },
+      selectedAgents: [],
+      mappings: []
+    };
   }
   const selected = (await Promise.all(
     workflow.agentIds.map((agentId) => getAgentDefinition(workflow.workspaceId, agentId))
@@ -35,37 +54,51 @@ export async function computeWorkflowReadiness(workflow: WorkflowDefinitionForAc
   )));
   if (unavailable.length > 0) {
     return {
-      status: 'blocked',
-      reasons: unavailable.map((agentId) => `Selected Agent ${agentId} must remain an active, reviewed specialist.`)
+      readiness: {
+        status: 'blocked',
+        reasons: unavailable.map((agentId) => `Selected Agent ${agentId} must remain an active, reviewed specialist.`)
+      },
+      selectedAgents: selected,
+      mappings: []
     };
   }
-  if (workflow.executionMode === 'direct') return { status: 'ready', reasons: [] };
+  const specialistAgent = workflow.executionMode === 'direct' ? selected[0] : undefined;
+  if (specialistAgent) {
+    return {
+      readiness: { status: 'ready', reasons: [] },
+      selectedAgents: selected,
+      specialistAgent,
+      mappings: []
+    };
+  }
   const requested = unique(selected.flatMap((agent) => agent.semanticCapabilityIds));
 
   const selectedById = new Map(selected.map((agent) => [agent.id, agent]));
-  const mappings = await listCapabilityRoutingMappings(workflow.workspaceId, {
+  const mappings = resolveCapabilityRoutingMappings(selected, await listCapabilityRoutingMappings(workflow.workspaceId, {
     activeReviewedOnly: true,
     capabilityIds: requested
-  });
-  const eligibleMappings = mappings.filter((mapping) => {
-    const agent = selectedById.get(mapping.agentId);
-    return Boolean(agent);
-  });
-  const unmapped: string[] = [];
-  for (const capabilityId of requested) {
-    const capabilityMappings = eligibleMappings.filter((mapping) => mapping.capabilityId === capabilityId);
-    if (!capabilityMappings.length) {
-      unmapped.push(capabilityId);
-      continue;
-    }
-  }
+  }));
+  const mappedCapabilityIds = new Set(mappings
+    .filter((mapping) => selectedById.has(mapping.agentId))
+    .map((mapping) => mapping.capabilityId));
+  const unmapped = requested.filter((capabilityId) => !mappedCapabilityIds.has(capabilityId));
   if (unmapped.length > 0) {
     return {
-      status: 'needs_setup',
-      reasons: unmapped.map((capabilityId) => `No selected specialist has an active reviewed mapping for ${capabilityId}.`)
+      readiness: {
+        status: 'needs_setup',
+        reasons: unmapped.map((capabilityId) => (
+          `Coordinated runs need an approved Agent route for ${capabilityId}. Review the assigned Agents' capabilities.`
+        ))
+      },
+      selectedAgents: selected,
+      mappings
     };
   }
-  return { status: 'ready', reasons: [] };
+  return {
+    readiness: { status: 'ready', reasons: [] },
+    selectedAgents: selected,
+    mappings
+  };
 }
 
 export async function refreshWorkflowReadiness(workflow: WorkflowDefinitionForAccess): Promise<WorkflowDefinitionForAccess | null> {

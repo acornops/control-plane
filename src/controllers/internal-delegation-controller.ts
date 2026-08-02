@@ -136,12 +136,6 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
       && mapping.status === 'active'
       && mapping.reviewState === 'reviewed'
     ));
-    if (selectedMappings.some((mapping) => (
-      mapping.contextGrants.some((grant) => !authorizationCeiling.contextGrants.includes(grant))
-    ))) {
-      badRequest(res, 'DELEGATION_CONTEXT_DENIED', 'The specialist requires context outside the parent scope.', 403);
-      return;
-    }
     const compiledScope = compileWorkflowAccessScope({
       workflow,
       selectedAgents: agents,
@@ -155,7 +149,6 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
           authorizationCeiling.requiredPermissions.map((permission) => [permission, true])
         ) as never
       },
-      approvedContextGrants: authorizationCeiling.contextGrants,
       principal: authorizationCeiling.principal,
       resourceBindings: parent.resourceBindings,
       promptDigest: parent.promptDigest,

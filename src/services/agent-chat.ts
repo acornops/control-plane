@@ -7,6 +7,7 @@ import { listCapabilityRoutingMappings } from '../store/repository-capability-ro
 import { compileAgentCapabilityProjection } from './agent-capability-access.js';
 import { CapabilityAccessDeniedError } from './capability-access-errors.js';
 import { digestBindings, digestPrompt } from './prompt-resources/index.js';
+import { resolveCapabilityRoutingMappings } from './capability-routing-resolution.js';
 
 export function defaultAgentConversationAccessMode(
   permissionMode: AgentDefinition['permissionMode'],
@@ -49,10 +50,10 @@ export async function compileAgentConversationRunScope(input: {
       'Agent must be active and reviewed before it can run.'
     );
   }
-  const mappings = await listCapabilityRoutingMappings(input.agent.workspaceId, {
+  const mappings = resolveCapabilityRoutingMappings([input.agent], await listCapabilityRoutingMappings(input.agent.workspaceId, {
     activeReviewedOnly: true,
     capabilityIds: input.agent.semanticCapabilityIds
-  });
+  }));
   const mappedCapabilityIds = new Set(mappings
     .filter((mapping) => mapping.agentId === input.agent.id)
     .map((mapping) => mapping.capabilityId));
@@ -65,7 +66,6 @@ export async function compileAgentConversationRunScope(input: {
     mode: input.accessMode,
     restrictionMode: 'inherit',
     effectiveCapabilityIds: availableCapabilityIds,
-    requestedContextGrants: input.agent.contextGrants,
     approvalGates: input.accessMode === 'read_write'
       && input.agent.permissionMode !== 'auto_allowed_changes'
       ? ['tool_write']

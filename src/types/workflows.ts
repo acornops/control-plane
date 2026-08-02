@@ -9,11 +9,6 @@ export type WorkflowStatus = 'active' | 'draft' | 'paused';
 export type WorkflowExecutionMode = 'direct' | 'coordinated';
 export type WorkflowCapabilityMode = CapabilityAccessMode;
 export type WorkflowCapabilityRestrictionMode = CapabilityRestrictionMode;
-export type WorkflowContextGrant =
-  | 'workspace_metadata'
-  | 'audit_events'
-  | string;
-
 export interface WorkflowDefinitionForAccess {
   id: string;
   workspaceId: string;
@@ -83,7 +78,6 @@ export interface WorkflowJwtClaimPreview {
     allowed_tools: string[];
     allowed_tool_refs: Array<{ server_id: string; tool_name: string }>;
     allowed_tool_operations: Record<string, WorkspaceAuditOperation>;
-    context_grants: string[];
     resource_bindings: Array<{
       binding_id: string;
       type: string;
@@ -124,7 +118,6 @@ export interface CompiledWorkflowAccessScope {
   toolOperations: Record<string, WorkspaceAuditOperation>;
   nativeToolConfigs: Record<string, Record<string, unknown>>;
   enabledSkills: string[];
-  contextGrants: string[];
   approvalGates: string[];
   permissionMode: RunPermissionMode;
   principal: RunPrincipalRef;
@@ -231,7 +224,6 @@ export interface WorkflowScheduleRecord {
   status: WorkflowScheduleStatus;
   cron: string;
   timezone: string;
-  approvedContextGrants: string[];
   principal: WorkflowSchedulePrincipal;
   createdBy: WorkflowScheduleActorMetadata;
   updatedBy: WorkflowScheduleActorMetadata;
@@ -252,7 +244,6 @@ export interface WorkflowScheduleInput {
   status?: WorkflowScheduleStatus;
   cron: string;
   timezone: string;
-  approvedContextGrants?: string[];
   principal: WorkflowSchedulePrincipal;
 }
 
@@ -264,7 +255,6 @@ export interface WorkflowSchedulePatch {
   status?: WorkflowScheduleStatus;
   cron?: string;
   timezone?: string;
-  approvedContextGrants?: string[];
   principal?: WorkflowSchedulePrincipal;
 }
 
@@ -277,7 +267,6 @@ export interface WorkflowWebhookRecord {
   workflowId: string;
   name: string;
   status: WorkflowWebhookStatus;
-  approvedContextGrants: string[];
   principal: WorkflowSchedulePrincipal;
   secretCiphertext: string;
   secretKeyId: string;
@@ -296,14 +285,12 @@ export interface WorkflowWebhookInput {
   workflowId: string;
   name: string;
   enabled?: boolean;
-  approvedContextGrants?: string[];
   principal: WorkflowSchedulePrincipal;
 }
 
 export interface WorkflowWebhookPatch {
   name?: string;
   enabled?: boolean;
-  approvedContextGrants?: string[];
 }
 
 export type WorkflowExecutionStatus =

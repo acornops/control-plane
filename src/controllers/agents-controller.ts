@@ -107,7 +107,6 @@ export async function createAgent(req: AuthenticatedRequest, res: Response, next
     const agentInput = {
       providerType,
       tools: [],
-      contextGrants: stringList(body.contextGrants),
       approvalPolicy,
       trustPolicy
     };
@@ -127,7 +126,6 @@ export async function createAgent(req: AuthenticatedRequest, res: Response, next
       reviewState: body.reviewState === 'draft' ? 'draft' : 'reviewed',
       providerType,
       tools: agentInput.tools,
-      contextGrants: agentInput.contextGrants,
       approvalPolicy,
       trustPolicy,
       permissionMode: body.permissionMode === 'read_only'
@@ -177,7 +175,7 @@ export async function updateAgent(req: AuthenticatedRequest, res: Response, next
       badRequest(res, 'AGENT_AVATAR_EMOJI_INVALID', 'Agent avatarEmoji must contain exactly one emoji.');
       return;
     }
-    const optionErrors = await collectAgentOptionErrors(workspaceId, { ...current, ...patch });
+    const optionErrors = await collectAgentOptionErrors(workspaceId, patch);
     if (optionErrors.length > 0) {
       badRequest(res, 'AGENT_OPTION_INVALID', 'Agent references unknown or disabled server-owned options.', optionErrors);
       return;

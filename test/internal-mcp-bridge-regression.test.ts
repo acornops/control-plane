@@ -143,7 +143,6 @@ describe('internal MCP and native-tool regressions', () => {
       specialistAgent: specialist,
       mappings: await listCapabilityRoutingMappings('workspace-1', { activeReviewedOnly: true }),
       actor,
-      approvedContextGrants: []
     });
     const session = await createWorkflowSession({ workflow, createdBy: actor.userId, compiledAccessScope });
     const created = await createWorkflowExecution({
@@ -169,7 +168,6 @@ describe('internal MCP and native-tool regressions', () => {
       agentId: specialist.id,
       allowedTools: ['documents.create'],
       allowedToolOperations: { 'documents.create': 'read' },
-      contextGrants: []
     };
     const body = {
       name: 'documents.create',

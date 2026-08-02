@@ -52,13 +52,11 @@ export interface WorkflowRunScopeClaims extends BaseRunScopeClaims {
   executorRole: 'coordinator' | 'specialist';
   agentId?: string;
   triggerId?: string;
-  contextGrants?: string[];
 }
 
 export interface AgentChatRunScopeClaims extends BaseRunScopeClaims {
   scopeType: 'agent_chat';
   agentId: string;
-  contextGrants?: string[];
 }
 
 export type RunScopeClaims = TargetRunScopeClaims | AgentChatRunScopeClaims | WorkflowRunScopeClaims;
@@ -67,7 +65,6 @@ interface VerifiedBaseRunScopeClaims extends BaseRunScopeClaims {
   subject: string;
   tokenId?: string;
   allowedNativeTools: NativeToolPermission[];
-  contextGrants: string[];
   principal: RunPrincipalRef;
   permissionMode: RunPermissionMode;
   resourceBindings: PromptResourceBinding[];

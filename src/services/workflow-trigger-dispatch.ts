@@ -1,15 +1,14 @@
 import { randomUUID } from 'node:crypto';
 
+import type { AgentDefinition } from '../types/agents.js';
 import type { WorkflowSchedulePrincipal } from '../types/workflows.js';
-import { getAgentDefinition } from '../store/repository-agents.js';
-import { listCapabilityRoutingMappings } from '../store/repository-capability-routing.js';
 import {
   createWorkflowExecution,
   createWorkflowSession,
   getWorkflowDefinition,
   getWorkflowExecutionByTriggerOccurrence
 } from '../store/repository-workflows.js';
-import { computeWorkflowReadiness } from './automation-readiness.js';
+import { resolveWorkflowRoutingSnapshot } from './automation-readiness.js';
 import {
   compileWorkflowAccessScope,
   compileWorkflowSessionCeiling,
@@ -31,7 +30,6 @@ export interface WorkflowTriggerDispatchInput {
   name: string;
   workspaceId: string;
   workflowId: string;
-  approvedContextGrants: string[];
   principal: WorkflowSchedulePrincipal;
   triggerType: 'schedule' | 'webhook';
   occurrenceKey: string;
@@ -104,7 +102,7 @@ export async function dispatchWorkflowTrigger(
   const sessionId = randomUUID();
   let compiledAccessScope;
   let sessionAccessScope;
-  let specialistAgent: NonNullable<Awaited<ReturnType<typeof getAgentDefinition>>> | undefined;
+  let specialistAgent: AgentDefinition | undefined;
   let resolution;
 
   try {
@@ -114,29 +112,22 @@ export async function dispatchWorkflowTrigger(
       initiatingMessageId: messageId,
       source: 'trigger'
     });
-    const readiness = await computeWorkflowReadiness(workflow);
+    const snapshot = await resolveWorkflowRoutingSnapshot(workflow);
+    const { readiness, selectedAgents, mappings } = snapshot;
     if (readiness.status !== 'ready') {
       throw new WorkflowAccessDeniedError(
         'WORKFLOW_CAPABILITY_MAPPING_UNAVAILABLE',
         readiness.reasons.slice(0, 4).join(' ') || 'Selected workflow Agents are not ready.'
       );
     }
-    const selectedAgents = (await Promise.all(workflow.agentIds.map((agentId) => (
-      getAgentDefinition(trigger.workspaceId, agentId)
-    )))).filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
-    specialistAgent = workflow.executionMode === 'direct' ? selectedAgents[0] : undefined;
-    const mappings = await listCapabilityRoutingMappings(trigger.workspaceId, {
-      activeReviewedOnly: true,
-      capabilityIds: [...new Set(selectedAgents.flatMap((agent) => agent.semanticCapabilityIds))]
-    });
+    specialistAgent = snapshot.specialistAgent;
     sessionAccessScope = compileWorkflowSessionCeiling({
       workflow,
       selectedAgents,
       specialistAgent,
       mappings,
       actor: runtimeSubject,
-      principal: trigger.principal,
-      approvedContextGrants: trigger.approvedContextGrants
+      principal: trigger.principal
     });
     compiledAccessScope = compileWorkflowAccessScope({
       workflow,
@@ -145,7 +136,6 @@ export async function dispatchWorkflowTrigger(
       mappings,
       actor: runtimeSubject,
       principal: trigger.principal,
-      approvedContextGrants: trigger.approvedContextGrants,
       resourceBindings: resolution.bindings,
       promptDigest: resolution.promptDigest,
       bindingDigest: resolution.bindingDigest

@@ -60,7 +60,7 @@
   agent-key rotation behavior
 - Internal execution auth or llm-gateway admin auth
 - Cross-workspace, cross-target, or cross-cluster data access logic
-- Agent/Workflow snapshots, executor role, parent run, target, context-grant,
+- Agent/Workflow snapshots, executor role, parent run, target, resource binding,
   tool-operation, approval, or idempotency claims
 
 ## Authorization
@@ -108,7 +108,7 @@
   and `data` value fingerprints.
 - Every automation callback and tool call must bind the workspace, Workflow
   execution, step attempt, assigned Agent where applicable, exact tool
-  operation, approved context grants, and approval state from signed server
+  operation, explicit resource bindings, and approval state from signed server
   claims.
 
 ## Automatic Investigations

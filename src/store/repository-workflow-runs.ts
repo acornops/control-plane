@@ -310,16 +310,16 @@ export async function createWorkflowExecution(params: {
       `INSERT INTO workflow_executions (
         id,workspace_id,workflow_id,workflow_session_id,message_id,created_by,trigger_type,
         trigger_id,occurrence_key,origin_snapshot,source_type,source_id,
-        client_request_id,client_request_fingerprint,status,workflow_snapshot,approved_context_grants,
+        client_request_id,client_request_fingerprint,status,workflow_snapshot,
         prompt_text,prompt_digest,binding_digest,resource_bindings,resolved_at,
         request_actor_type,request_external_integration_link_id,request_external_integration_client_id
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`,
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
       [executionId, params.workflow.workspaceId, params.workflow.id, params.session.id,
        messageId, params.session.createdBy, params.triggerType || 'manual', params.triggerId || null,
        params.occurrenceKey || null, JSON.stringify(origin), source?.kind || null, source?.id || null,
        params.clientRequestId || null, params.clientRequestFingerprint || null,
        approvalGates.length ? 'waiting_for_approval' : 'queued', params.workflow,
-       JSON.stringify(compiledAccessScope.contextGrants), params.content, params.promptDigest,
+       params.content, params.promptDigest,
        params.bindingDigest, JSON.stringify(params.resourceBindings), params.resolvedAt, provenance.actorType,
        provenance.externalIntegrationLinkId || null, provenance.externalIntegrationClientId || null]
     );

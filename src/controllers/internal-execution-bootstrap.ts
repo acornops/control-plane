@@ -175,7 +175,6 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     allowedToolRefs,
     allowedNativeTools,
     allowedToolOperations,
-    contextGrants: run.compiledAccessScope.contextGrants,
     maxOutputTokens,
     allowedModels,
     resourceBindings: run.compiledAccessScope.resourceBindings,

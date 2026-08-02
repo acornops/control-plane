@@ -52,7 +52,6 @@ async function createDirectRoot() {
     specialistAgent: specialist,
     mappings: await listCapabilityRoutingMappings('workspace-1', { activeReviewedOnly: true }),
     actor,
-    approvedContextGrants: ['workspace_metadata']
   });
   const session = await createWorkflowSession({ workflow, createdBy: actor.userId, compiledAccessScope });
   return createWorkflowExecution({

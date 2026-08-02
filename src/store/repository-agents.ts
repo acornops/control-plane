@@ -40,7 +40,6 @@ function capabilityConfiguration(agent: AgentDefinition): unknown {
     nativeToolConfigs: agent.nativeToolConfigs,
     skills: agent.skills,
     skillInstallations: agent.skillInstallations,
-    contextGrants: agent.contextGrants,
     semanticCapabilityIds: agent.semanticCapabilityIds
   };
 }
@@ -60,7 +59,6 @@ async function mapAgent(row: AgentRow): Promise<AgentDefinition> {
     mcpInstallations: row.mcp_installations || [], tools: row.tools || [],
     nativeToolConfigs: row.native_tool_configs || {}, skills: row.skills || [],
     skillInstallations: row.skill_installations || [],
-    contextGrants: row.context_grants || [],
     approvalPolicy: row.approval_policy, trustPolicy: row.trust_policy,
     permissionMode: row.permission_mode || 'ask_before_changes',
     semanticCapabilityIds: row.semantic_capability_ids || [],
@@ -136,7 +134,6 @@ export async function createAgentDefinition(
     nativeToolConfigs: structuredClone(input.nativeToolConfigs || {}),
     skills: uniqueSorted(input.skills),
     skillInstallations: input.skillInstallations || [],
-    contextGrants: uniqueSorted(input.contextGrants),
     approvalPolicy: input.approvalPolicy || { mode: 'before_write', writeToolsRequireApproval: true },
     trustPolicy: input.trustPolicy || { level: 'restricted', allowExternalData: false },
     permissionMode: input.permissionMode || 'ask_before_changes',
@@ -146,12 +143,12 @@ export async function createAgentDefinition(
   const result = await queryable.query<AgentRow>(
     `INSERT INTO agent_definitions (
       workspace_id,id,name,description,instructions,status,review_state,provider_type,owner_user_id,created_by,
-      mcp_servers,mcp_tools,mcp_installations,tools,native_tool_configs,skills,skill_installations,context_grants,approval_policy,trust_policy,
+      mcp_servers,mcp_tools,mcp_installations,tools,native_tool_configs,skills,skill_installations,approval_policy,trust_policy,
       permission_mode,semantic_capability_ids,avatar_emoji,readiness_status,readiness_reasons
-     ) VALUES ($1,$2,$3,$4,$5,'active',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,'needs_setup',$23) RETURNING *`,
+     ) VALUES ($1,$2,$3,$4,$5,'active',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,'needs_setup',$22) RETURNING *`,
     [input.workspaceId, id, agent.name, agent.description || null, agent.instructions, agent.reviewState, agent.providerType,
      agent.ownerUserId, agent.createdBy, JSON.stringify(agent.mcpServers), JSON.stringify(agent.mcpTools), JSON.stringify(agent.mcpInstallations),
-     JSON.stringify(agent.tools), JSON.stringify(agent.nativeToolConfigs), JSON.stringify(agent.skills), JSON.stringify(agent.skillInstallations), JSON.stringify(agent.contextGrants),
+     JSON.stringify(agent.tools), JSON.stringify(agent.nativeToolConfigs), JSON.stringify(agent.skills), JSON.stringify(agent.skillInstallations),
      agent.approvalPolicy, agent.trustPolicy, agent.permissionMode, JSON.stringify(agent.semanticCapabilityIds), agent.avatarEmoji,
      JSON.stringify(agent.readiness.reasons)]
   );
@@ -173,11 +170,11 @@ export async function duplicateAgentDefinition(
   const result = await db.query<AgentRow>(
     `INSERT INTO agent_definitions (
        workspace_id,id,name,description,instructions,status,review_state,provider_type,
-       owner_user_id,created_by,mcp_servers,mcp_tools,mcp_installations,tools,native_tool_configs,skills,skill_installations,context_grants,
+       owner_user_id,created_by,mcp_servers,mcp_tools,mcp_installations,tools,native_tool_configs,skills,skill_installations,
        approval_policy,trust_policy,permission_mode,semantic_capability_ids,avatar_emoji,readiness_status,readiness_reasons
      ) VALUES (
-       $1,$2,$3,$4,$5,'draft','draft',$6,$7,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
-       'needs_setup',$21
+       $1,$2,$3,$4,$5,'draft','draft',$6,$7,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
+       'needs_setup',$20
      ) RETURNING *`,
     [
       workspaceId,
@@ -194,7 +191,6 @@ export async function duplicateAgentDefinition(
       JSON.stringify(source.nativeToolConfigs),
       JSON.stringify(uniqueSorted(inheritedSkills)),
       '[]',
-      JSON.stringify(uniqueSorted(source.contextGrants)),
       source.approvalPolicy,
       source.trustPolicy,
       source.permissionMode,
@@ -229,7 +225,6 @@ export async function updateAgentDefinition(workspaceId: string, agentId: string
         : current.nativeToolConfigs,
       skills: patch.skills ? uniqueSorted(patch.skills) : current.skills,
       skillInstallations: patch.skillInstallations || current.skillInstallations,
-      contextGrants: patch.contextGrants ? uniqueSorted(patch.contextGrants) : current.contextGrants,
       approvalPolicy: patch.approvalPolicy || current.approvalPolicy,
       trustPolicy: patch.trustPolicy || current.trustPolicy,
       permissionMode: patch.permissionMode || current.permissionMode,
@@ -238,14 +233,14 @@ export async function updateAgentDefinition(workspaceId: string, agentId: string
     };
     const result = await client.query<AgentRow>(
       `UPDATE agent_definitions SET name=$3,description=$4,instructions=$5,status=$6,review_state=$7,provider_type=$8,
-        owner_user_id=$9,mcp_servers=$10,mcp_tools=$11,mcp_installations=$12,tools=$13,native_tool_configs=$14,skills=$15,skill_installations=$16,context_grants=$17,
-        approval_policy=$18,trust_policy=$19,permission_mode=$20,semantic_capability_ids=$21,avatar_emoji=$22,
+        owner_user_id=$9,mcp_servers=$10,mcp_tools=$11,mcp_installations=$12,tools=$13,native_tool_configs=$14,skills=$15,skill_installations=$16,
+        approval_policy=$17,trust_policy=$18,permission_mode=$19,semantic_capability_ids=$20,avatar_emoji=$21,
         updated_at=GREATEST(NOW(),updated_at + INTERVAL '1 millisecond')
        WHERE workspace_id=$1 AND id=$2 RETURNING *`,
       [workspaceId, agentId, updated.name, updated.description || null, updated.instructions, updated.status,
        updated.reviewState, updated.providerType, updated.ownerUserId, JSON.stringify(updated.mcpServers), JSON.stringify(updated.mcpTools),
        JSON.stringify(updated.mcpInstallations), JSON.stringify(updated.tools), JSON.stringify(updated.nativeToolConfigs), JSON.stringify(updated.skills), JSON.stringify(updated.skillInstallations),
-       JSON.stringify(updated.contextGrants), updated.approvalPolicy, updated.trustPolicy,
+       updated.approvalPolicy, updated.trustPolicy,
        updated.permissionMode, JSON.stringify(updated.semanticCapabilityIds), updated.avatarEmoji]
     );
     if (JSON.stringify(capabilityConfiguration(current)) !== JSON.stringify(capabilityConfiguration(updated))) {

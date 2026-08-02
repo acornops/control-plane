@@ -100,8 +100,7 @@ describe('workflow schedules and approval inbox', () => {
         workflowId: 'cluster-triage',
         name: 'Hourly triage',
         cron: '0 * * * *',
-        timezone: 'UTC',
-        approvedContextGrants: ['workspace_metadata']
+        timezone: 'UTC'
       }
     ));
 
@@ -119,8 +118,7 @@ describe('workflow schedules and approval inbox', () => {
         name: 'Weekday triage',
         cron: '0 9 * * 1-5',
         timezone: 'UTC',
-        principal: { type: 'user', id: 'user-1' },
-        approvedContextGrants: ['workspace_metadata']
+        principal: { type: 'user', id: 'user-1' }
       }
     ));
 
@@ -142,8 +140,7 @@ describe('workflow schedules and approval inbox', () => {
         workflowId: 'cluster-triage',
         cron: 'invalid',
         timezone: 'Not/AZone',
-        principal: { type: 'user', id: 'user-1' },
-        approvedContextGrants: ['unapproved_context']
+        principal: { type: 'user', id: 'user-1' }
       }
     ));
 
@@ -153,7 +150,6 @@ describe('workflow schedules and approval inbox', () => {
     assert.deepEqual(body.nextRunTimes, []);
     assert.ok(body.errors.some((error) => error.field === 'cron'));
     assert.ok(body.errors.some((error) => error.field === 'timezone'));
-    assert.ok(body.errors.some((error) => error.field === 'approvedContextGrants'));
   });
 
   it('creates, lists, pauses, and deletes workflow schedules for authorized users', async () => {
@@ -168,8 +164,7 @@ describe('workflow schedules and approval inbox', () => {
         cron: '0 * * * *',
         timezone: 'UTC',
         enabled: true,
-        principal: { type: 'user', id: 'user-1' },
-        approvedContextGrants: ['workspace_metadata']
+        principal: { type: 'user', id: 'user-1' }
       }
     ));
 
@@ -205,8 +200,7 @@ describe('workflow schedules and approval inbox', () => {
         name: 'Service schedule',
         cron: '0 * * * *',
         timezone: 'UTC',
-        principal: { type: 'service_identity', id: 'service-1' },
-        approvedContextGrants: []
+        principal: { type: 'service_identity', id: 'service-1' }
       }
     ));
 
@@ -241,8 +235,7 @@ describe('workflow schedules and approval inbox', () => {
         cron: '* * * * *',
         timezone: 'UTC',
         enabled: true,
-        principal: { type: 'user', id: 'user-1' },
-        approvedContextGrants: ['workspace_metadata']
+        principal: { type: 'user', id: 'user-1' }
       }
     ));
     const createdSchedule = (created.body as { schedule: { id: string; nextRunAt: string } }).schedule;
@@ -297,8 +290,7 @@ describe('workflow schedules and approval inbox', () => {
         cron: '* * * * *',
         timezone: 'UTC',
         enabled: true,
-        principal: { type: 'user', id: 'user-1' },
-        approvedContextGrants: ['workspace_metadata']
+        principal: { type: 'user', id: 'user-1' }
       }
     ));
     const createdSchedule = (created.body as { schedule: { id: string; nextRunAt: string } }).schedule;

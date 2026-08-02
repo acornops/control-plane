@@ -35,7 +35,6 @@ function agent(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
     nativeToolConfigs: {},
     skills: ['incident-analysis'],
     skillInstallations: [],
-    contextGrants: ['workspace.summary'],
     approvalPolicy: { mode: 'before_write', writeToolsRequireApproval: true },
     trustPolicy: { level: 'restricted', allowExternalData: false },
     permissionMode: 'ask_before_changes',
@@ -60,7 +59,6 @@ function run(agentSnapshot: AgentDefinition, overrides: Partial<Run> = {}): Run 
     mode: 'read_only',
     permissionMode: 'read_only',
     principal: { type: 'user', id: 'user-1' },
-    contextGrants: [],
     resourceBindings: [],
     resourceResolutionPhase: 'run_exact'
   } as unknown as CompiledAgentChatAccessScope;
@@ -119,7 +117,6 @@ function mapping(
     mcpTools: [],
     nativeToolIds: [],
     skillIds: [],
-    contextGrants: [],
     createdBy: 'user-1',
     createdAt: '2026-07-29T00:00:00.000Z',
     updatedAt: '2026-07-29T00:00:00.000Z',
@@ -162,7 +159,6 @@ describe('Agent chat contract', () => {
       mode: 'read_only',
       restrictionMode: 'inherit',
       effectiveCapabilityIds: [],
-      requestedContextGrants: [],
       approvalGates: []
     });
     assert.deepEqual(projection.semanticCapabilityIds, []);
@@ -233,13 +229,11 @@ describe('Agent chat contract', () => {
           operation: 'read'
         }],
         nativeToolIds: ['workspace.metadata.read'],
-        skillIds: ['infrastructure-diagnostics'],
-        contextGrants: ['infrastructure_inventory']
+        skillIds: ['infrastructure-diagnostics']
       })],
       mode: 'read_only',
       restrictionMode: 'inherit',
       effectiveCapabilityIds: ['incident.read'],
-      requestedContextGrants: [],
       approvalGates: []
     });
 
@@ -253,7 +247,6 @@ describe('Agent chat contract', () => {
     assert(projection.tools.includes('infrastructure_inventory'));
     assert(projection.tools.includes('workspace.metadata.read'));
     assert(projection.enabledSkills.includes('infrastructure-diagnostics'));
-    assert(projection.contextGrants.includes('infrastructure_inventory'));
   });
 
   it('does not synthesize unresolved capability aliases as generic tools', async () => {

@@ -27,7 +27,6 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
     name: schedule.name,
     workspaceId: schedule.workspaceId,
     workflowId: schedule.workflowId,
-    approvedContextGrants: schedule.approvedContextGrants,
     principal: schedule.principal,
     triggerType: 'schedule',
     occurrenceKey

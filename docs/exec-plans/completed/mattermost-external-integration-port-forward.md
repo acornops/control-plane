@@ -153,7 +153,7 @@ Central tracking: acornops/acornops#12.
   bot defect to be fixed in its own repository: strict Workflow message bodies
   accept only `content` and `clientRequestId`; launch inputs, grants, and target
   resource references must therefore be represented in content. Session creation
-  fixes only the workspace, stored Workflow snapshot, and approved context grants.
+  fixes only the workspace, stored Workflow snapshot, and run authorization ceiling.
 - 2026-07-23, production sweep: Replaced the OIDC logout test's module-load-time
   60-second session with a fresh fixture per case. The enlarged suite had made
   that otherwise unrelated test expire before execution; production logout

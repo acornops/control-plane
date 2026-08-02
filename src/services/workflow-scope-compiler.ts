@@ -1,11 +1,10 @@
-import { computeWorkflowReadiness } from './automation-readiness.js';
+import { resolveWorkflowRoutingSnapshot } from './automation-readiness.js';
 import {
   compileWorkflowAccessScope,
   compileWorkflowSessionCeiling,
   WorkflowAccessDeniedError
 } from './workflow-access.js';
-import { listCapabilityRoutingMappings } from '../store/repository-capability-routing.js';
-import { getAgentDefinition } from '../store/repository-agents.js';
+import type { AgentDefinition } from '../types/agents.js';
 import type { CapabilityRoutingMapping } from '../types/capability-routing.js';
 import type {
   CompiledWorkflowAccessScope,
@@ -16,39 +15,24 @@ import type {
 export async function compileWorkflowScope(input: {
   workflow: WorkflowDefinitionForAccess;
   actor: WorkflowAccessActor;
-  approvedContextGrants: string[];
   resourceBindings?: CompiledWorkflowAccessScope['resourceBindings'];
   promptDigest?: string;
   bindingDigest?: string;
   resolutionPhase?: 'session_ceiling' | 'run_exact';
 }): Promise<{
   scope: CompiledWorkflowAccessScope;
-  selectedAgents: Array<NonNullable<Awaited<ReturnType<typeof getAgentDefinition>>>>;
-  specialistAgent?: NonNullable<Awaited<ReturnType<typeof getAgentDefinition>>>;
+  selectedAgents: AgentDefinition[];
+  specialistAgent?: AgentDefinition;
   mappings: CapabilityRoutingMapping[];
 }> {
-  const readiness = await computeWorkflowReadiness(input.workflow);
+  const snapshot = await resolveWorkflowRoutingSnapshot(input.workflow);
+  const { readiness, selectedAgents, specialistAgent, mappings } = snapshot;
   if (readiness.status !== 'ready') {
     throw new WorkflowAccessDeniedError(
       'WORKFLOW_CAPABILITY_MAPPING_UNAVAILABLE',
       readiness.reasons.slice(0, 4).join(' ') || 'Selected workflow Agents are not ready.'
     );
   }
-  const selectedAgents = (await Promise.all(input.workflow.agentIds.map((agentId) => (
-    getAgentDefinition(input.workflow.workspaceId, agentId)
-  )))).filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
-  if (selectedAgents.length !== input.workflow.agentIds.length) {
-    throw new WorkflowAccessDeniedError(
-      'WORKFLOW_AGENT_SCOPE_DENIED',
-      'Workflow routing for the selected Agents is unavailable.'
-    );
-  }
-  const specialistAgent = input.workflow.executionMode === 'direct' ? selectedAgents[0] : undefined;
-  const effectiveCapabilityIds = [...new Set(selectedAgents.flatMap((agent) => agent.semanticCapabilityIds))];
-  const mappings = await listCapabilityRoutingMappings(input.workflow.workspaceId, {
-    activeReviewedOnly: true,
-    capabilityIds: effectiveCapabilityIds
-  });
   if (input.resolutionPhase === 'session_ceiling') {
     return {
       selectedAgents,
@@ -59,8 +43,7 @@ export async function compileWorkflowScope(input: {
         selectedAgents,
         specialistAgent,
         mappings,
-        actor: input.actor,
-        approvedContextGrants: input.approvedContextGrants
+        actor: input.actor
       })
     };
   }
@@ -74,7 +57,6 @@ export async function compileWorkflowScope(input: {
       specialistAgent,
       mappings,
       actor: input.actor,
-      approvedContextGrants: input.approvedContextGrants,
       resourceBindings: input.resourceBindings,
       promptDigest: input.promptDigest,
       bindingDigest: input.bindingDigest

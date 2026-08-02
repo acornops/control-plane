@@ -66,7 +66,6 @@ function createWorkflowRun(overrides: Partial<WorkflowRunRecord> = {}): Workflow
       tools: ['audit.events.search'],
       toolOperations: { 'audit.events.search': 'read' },
       enabledSkills: ['acornops-security-baseline'],
-      contextGrants: ['audit_events'],
       approvalGates: [],
       jwtClaims: {
         scope: { type: 'workspace' },
@@ -74,8 +73,7 @@ function createWorkflowRun(overrides: Partial<WorkflowRunRecord> = {}): Workflow
         executor_role: 'coordinator',
         permissions: {
           allowed_tools: ['audit.events.search'],
-          allowed_tool_operations: { 'audit.events.search': 'read' },
-          context_grants: ['audit_events']
+          allowed_tool_operations: { 'audit.events.search': 'read' }
         }
       }
     },

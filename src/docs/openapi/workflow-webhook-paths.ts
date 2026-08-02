@@ -40,8 +40,7 @@ const workflowWebhookBody = {
         properties: {
           workflowId: { type: 'string' },
           name: { type: 'string', minLength: 1, maxLength: 120 },
-          enabled: { type: 'boolean' },
-          approvedContextGrants: { type: 'array', items: { type: 'string' } }
+          enabled: { type: 'boolean' }
         },
         additionalProperties: false
       }
@@ -59,8 +58,7 @@ const workflowWebhookUpdateBody = {
         properties: {
           workspaceId: { type: 'string', format: 'uuid' },
           name: { type: 'string', minLength: 1, maxLength: 120 },
-          enabled: { type: 'boolean' },
-          approvedContextGrants: { type: 'array', items: { type: 'string' } }
+          enabled: { type: 'boolean' }
         },
         additionalProperties: false
       }

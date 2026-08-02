@@ -78,7 +78,6 @@ describe('coordinated Workflow schedules', () => {
         timezone: 'UTC',
         enabled: true,
         principal: { type: 'user', id: 'user-1' },
-        approvedContextGrants: ['workspace_metadata']
       }
     ));
     assert.equal(created.statusCode, 201);
@@ -152,7 +151,6 @@ describe('coordinated Workflow schedules', () => {
         timezone: 'UTC',
         status: 'enabled',
         principal: { type: 'user', id: 'user-1' },
-        approvedContextGrants: ['workspace_metadata']
       }
     });
     const scheduleId = created.id;

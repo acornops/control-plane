@@ -107,10 +107,9 @@ const workflowCapabilitiesPreviewBody = {
     'application/json': {
       schema: {
         type: 'object',
-        required: ['workspaceId', 'approvedContextGrants'],
+        required: ['workspaceId'],
         properties: {
-          workspaceId: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID },
-          approvedContextGrants: { type: 'array', items: { type: 'string' } }
+          workspaceId: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID }
         },
         additionalProperties: false
       }
@@ -132,7 +131,6 @@ const workflowScheduleBody = {
           enabled: { type: 'boolean' },
           cron: { type: 'string', example: '0 9 * * 1-5' },
           timezone: { type: 'string', example: 'UTC' },
-          approvedContextGrants: { type: 'array', items: { type: 'string' } },
           principal: { type: 'object', required: ['type', 'id'], properties: {
             type: { type: 'string', enum: ['user'] }, id: { type: 'string' }
           }, additionalProperties: false }
@@ -219,7 +217,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       post: {
         tags: ['workflows'],
         summary: 'Preview a workflow schedule',
-        description: 'Compiles the active saved workflow definition and validates context grants, cron, and timezone without creating or changing a schedule.',
+        description: 'Compiles the active saved workflow definition and validates cron and timezone without creating or changing a schedule.',
         security: [{ userSession: [] }],
         parameters: [workspaceIdParameter],
         requestBody: workflowScheduleBody,
@@ -343,8 +341,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
                 type: 'object',
                 required: ['workspaceId'],
                 properties: {
-                  workspaceId: { type: 'string', format: 'uuid' },
-                  approvedContextGrants: { type: 'array', items: { type: 'string' } }
+                  workspaceId: { type: 'string', format: 'uuid' }
                 },
                 additionalProperties: true
               }

@@ -49,8 +49,7 @@ after(closeAutomationDatabaseFixtures);
 describe('workflows controller', () => {
   async function compileScope(
     workflow: NonNullable<Awaited<ReturnType<typeof getWorkflowDefinition>>>,
-    role: 'operator' | 'admin',
-    approvedContextGrants: string[]
+    role: 'operator' | 'admin'
   ) {
     const selectedAgents = (await Promise.all(
       workflow.agentIds.map((agentId) => getAgentDefinition(workflow.workspaceId, agentId))
@@ -61,8 +60,7 @@ describe('workflows controller', () => {
       selectedAgents,
       specialistAgent: selectedAgents[0],
       mappings: await listCapabilityRoutingMappings(workflow.workspaceId, { activeReviewedOnly: true }),
-      actor: { userId: 'user-1', role, permissions: getWorkspacePermissions(role) },
-      approvedContextGrants
+      actor: { userId: 'user-1', role, permissions: getWorkspacePermissions(role) }
     });
   }
 
@@ -88,10 +86,7 @@ describe('workflows controller', () => {
 
     const preview = await callController(previewWorkflowCapabilities, createRequest(
       { workflowId: 'cluster-triage' },
-      {
-        workspaceId: 'workspace-1',
-        approvedContextGrants: ['workspace_metadata']
-      }
+      { workspaceId: 'workspace-1' }
     ));
     assert.equal(preview.statusCode, 200);
     const previewDigests = preview.body as { promptDigest: string; bindingDigest: string; status: string };
@@ -99,10 +94,7 @@ describe('workflows controller', () => {
 
     const createdSession = await callController(createSession, createRequest(
       { workflowId: 'cluster-triage' },
-      {
-        workspaceId: 'workspace-1',
-        approvedContextGrants: ['workspace_metadata']
-      }
+      { workspaceId: 'workspace-1' }
     ));
     assert.equal(createdSession.statusCode, 201);
     assert.equal(JSON.stringify(createdSession.body).includes('compiledAccessScope'), false);
@@ -142,7 +134,6 @@ describe('workflows controller', () => {
     assert.equal(run.bindingDigest, previewDigests.bindingDigest);
     assert.deepEqual(run.resourceBindings, []);
     assert.deepEqual(run.compiledAccessScope.tools, []);
-    assert.deepEqual(run.compiledAccessScope.contextGrants, ['workspace_metadata']);
     assert.equal((await listWorkflowMessages(sessionId)).length, 1);
     assert.equal(executionDispatches.length, 1);
     assert.deepEqual(executionDispatches[0], {
@@ -195,13 +186,13 @@ describe('workflows controller', () => {
 
     const preview = await callController(previewWorkflowCapabilities, createRequest(
       { workflowId: 'incident-report-pdf' },
-      { workspaceId: 'workspace-1', approvedContextGrants: [] }
+      { workspaceId: 'workspace-1' }
     ));
     assert.equal(preview.statusCode, 200);
 
     const createdSession = await callController(createSession, createRequest(
       { workflowId: 'incident-report-pdf' },
-      { workspaceId: 'workspace-1', approvedContextGrants: [] }
+      { workspaceId: 'workspace-1' }
     ));
     assert.equal(createdSession.statusCode, 201);
     const sessionId = (createdSession.body as { session: { id: string } }).session.id;
@@ -222,7 +213,6 @@ describe('workflows controller', () => {
     assert.ok(run);
     assert.equal(run.targetId, undefined);
     assert.deepEqual(run.compiledAccessScope.tools, ['documents.create']);
-    assert.deepEqual(run.compiledAccessScope.contextGrants, []);
     assert.deepEqual(await listWorkflowRunApprovals(body.run_id), []);
   });
 
@@ -230,7 +220,7 @@ describe('workflows controller', () => {
     installWorkspace('operator');
     const workflow = await getWorkflowDefinition('workspace-1', 'cluster-triage');
     assert.ok(workflow);
-    const compiledAccessScope = await compileScope(workflow, 'operator', ['workspace_metadata']);
+    const compiledAccessScope = await compileScope(workflow, 'operator');
     const session = await createWorkflowSession({ workflow, createdBy: 'user-1', compiledAccessScope });
 
     const req = createRequest({ workflowId: workflow.id });
@@ -254,12 +244,12 @@ describe('workflows controller', () => {
     const sessionOne = await createWorkflowSession({
       workflow: workflowOne,
       createdBy: 'user-1',
-      compiledAccessScope: await compileScope(workflowOne, 'operator', ['workspace_metadata'])
+      compiledAccessScope: await compileScope(workflowOne, 'operator')
     });
     await createWorkflowSession({
       workflow: workflowTwo,
       createdBy: 'user-1',
-      compiledAccessScope: await compileScope(workflowTwo, 'operator', ['workspace_metadata'])
+      compiledAccessScope: await compileScope(workflowTwo, 'operator')
     });
 
     const response = await callController(listSessions, createRequest(
@@ -342,7 +332,7 @@ describe('workflows controller', () => {
 
     const createdSession = await callController(createSession, createRequest(
       { workflowId: 'cluster-triage' },
-      { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata'] }
+      { workspaceId: 'workspace-1' }
     ));
     assert.equal(createdSession.statusCode, 201);
     const sessionId = (createdSession.body as { session: { id: string } }).session.id;

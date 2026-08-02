@@ -2,38 +2,16 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
-  constantTimeSignatureEqual,
-  validateWorkflowWebhookContextGrants
+  constantTimeSignatureEqual
 } from '../src/controllers/workflow-webhooks-controller.js';
 import {
   WORKFLOW_WEBHOOK_CREATE_FIELDS,
-  parseContextGrantList,
   unexpectedBodyField
 } from '../src/controllers/workflow-webhook-validation.js';
 import { signWebhookPayload } from '../src/utils/crypto.js';
 
 describe('workflow webhook validation', () => {
-  it('requires exactly the workflow context grants', () => {
-    assert.equal(validateWorkflowWebhookContextGrants(
-      ['workspace.summary'],
-      ['workspace.summary']
-    ), null);
-    assert.match(validateWorkflowWebhookContextGrants(
-      ['workspace.summary'],
-      []
-    ) || '', /Approve the workspace.summary/);
-    assert.match(validateWorkflowWebhookContextGrants(
-      ['workspace.summary'],
-      ['workspace.summary', 'target.secrets']
-    ) || '', /target.secrets is not used/);
-  });
-
-  it('rejects malformed grant lists and unknown mutation fields', () => {
-    assert.deepEqual(parseContextGrantList(undefined), []);
-    assert.deepEqual(parseContextGrantList(['workspace.summary']), ['workspace.summary']);
-    assert.equal(parseContextGrantList('workspace.summary'), null);
-    assert.equal(parseContextGrantList(['workspace.summary', 'workspace.summary']), null);
-    assert.equal(parseContextGrantList(['workspace.summary', 42]), null);
+  it('rejects unknown mutation fields', () => {
     assert.equal(
       unexpectedBodyField({ workflowId: 'workflow-1', principal: { id: 'user-2' } }, WORKFLOW_WEBHOOK_CREATE_FIELDS),
       'principal'

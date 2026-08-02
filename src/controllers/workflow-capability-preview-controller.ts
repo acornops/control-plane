@@ -3,13 +3,15 @@ import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { logger } from '../logger.js';
 import { incrementWorkflowCapabilityPreviewBlocker, observeWorkflowCapabilityPreview } from '../metrics.js';
-import { computeWorkflowReadiness } from '../services/automation-readiness.js';
+import {
+  resolveWorkflowRoutingSnapshot,
+  type WorkflowRoutingSnapshot
+} from '../services/automation-readiness.js';
 import { directWorkflowAttachments } from '../services/workflow-capability-preview.js';
 import { compileWorkflowAccessScope, WorkflowAccessDeniedError } from '../services/workflow-access.js';
 import { getWorkflowCapabilityReadinessReport } from '../services/mcp-readiness.js';
-import { getAgentDefinition } from '../store/repository-agents.js';
-import { listCapabilityRoutingMappings } from '../store/repository-capability-routing.js';
 import { getWorkflowDefinition } from '../store/repository-workflows.js';
+import type { AgentDefinition } from '../types/agents.js';
 import type { WorkflowAccessActor, WorkflowCapabilitiesPreview, WorkflowCapabilityPreviewReasonCode, WorkflowCapabilityToolPreview } from '../types/workflows.js';
 import type { PromptResourceBinding } from '../types/prompt-resources.js';
 import { toSingleParam } from '../utils/params.js';
@@ -27,37 +29,24 @@ function requestWorkspaceId(req: AuthenticatedRequest): string | null {
   return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
 }
 
-function approvedContextGrants(req: AuthenticatedRequest): string[] {
-  return Array.isArray(req.body.approvedContextGrants)
-    ? req.body.approvedContextGrants.filter((value: unknown): value is string => typeof value === 'string')
-    : [];
-}
-
 async function compilePreviewScope(input: {
   workflow: NonNullable<Awaited<ReturnType<typeof getWorkflowDefinition>>>;
   actor: WorkflowAccessActor;
-  approvedContextGrants: string[];
   resourceBindings: PromptResourceBinding[];
   promptDigest: string;
   bindingDigest: string;
+  routingSnapshot: WorkflowRoutingSnapshot;
 }) {
-  const readiness = await computeWorkflowReadiness(input.workflow);
+  const { readiness, selectedAgents, specialistAgent, mappings } = input.routingSnapshot;
   if (readiness.status !== 'ready') {
     throw new WorkflowAccessDeniedError('WORKFLOW_CAPABILITY_MAPPING_UNAVAILABLE', readiness.reasons.slice(0, 4).join(' ') || 'Selected workflow Agents are not ready.');
   }
-  const selectedAgents = (await Promise.all(input.workflow.agentIds.map((agentId) => getAgentDefinition(input.workflow.workspaceId, agentId))))
-    .filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
-  const specialistAgent = input.workflow.executionMode === 'direct' ? selectedAgents[0] : undefined;
-  if (selectedAgents.length !== input.workflow.agentIds.length) throw new WorkflowAccessDeniedError('WORKFLOW_AGENT_SCOPE_DENIED', 'Workflow routing for the selected Agents is unavailable.');
-  const capabilityIds = summarizeWorkflowAgents(selectedAgents).semanticCapabilityIds;
-  const mappings = await listCapabilityRoutingMappings(input.workflow.workspaceId, { activeReviewedOnly: true, capabilityIds });
   return {
     specialistAgent,
     selectedAgents,
     mappings,
     scope: compileWorkflowAccessScope({
       workflow: input.workflow, specialistAgent, selectedAgents, mappings, actor: input.actor,
-      approvedContextGrants: input.approvedContextGrants,
       resourceBindings: input.resourceBindings, promptDigest: input.promptDigest, bindingDigest: input.bindingDigest
     })
   };
@@ -66,7 +55,7 @@ async function compilePreviewScope(input: {
 export async function genericMcpAuthRequirements(input: {
   workspaceId: string;
   userId: string;
-  agents: NonNullable<Awaited<ReturnType<typeof getAgentDefinition>>>[];
+  agents: AgentDefinition[];
   scope: ReturnType<typeof compileWorkflowAccessScope>;
 }): Promise<WorkflowCapabilitiesPreview['mcpRequirements']> {
   const allowedServerIds = new Set(input.scope.mcpServers);
@@ -187,9 +176,8 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
     if (!workflow) return void res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workflow not found', retryable: false } });
     const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
-    const selectedForAuthorization = (await Promise.all(workflow.agentIds.map((agentId) => getAgentDefinition(workspaceId, agentId))))
-      .filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
-    const requiredCapability = summarizeWorkflowAgents(selectedForAuthorization).mode === 'read_write'
+    const routingSnapshot = await resolveWorkflowRoutingSnapshot(workflow);
+    const requiredCapability = summarizeWorkflowAgents(routingSnapshot.selectedAgents).mode === 'read_write'
       ? 'create_read_write_runs'
       : 'create_read_only_runs';
     if (!authz.can(requiredCapability)) return void res.status(403).json({ error: { code: 'FORBIDDEN', message: 'No permission to preview this workflow run.', retryable: false } });
@@ -200,10 +188,10 @@ export async function previewWorkflowCapabilities(req: AuthenticatedRequest, res
     const compiled = await compilePreviewScope({
       workflow,
       actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
-      approvedContextGrants: approvedContextGrants(req),
       resourceBindings: referenceResolution.bindings,
       promptDigest: referenceResolution.promptDigest,
-      bindingDigest: referenceResolution.bindingDigest
+      bindingDigest: referenceResolution.bindingDigest,
+      routingSnapshot
     });
     const scope = compiled.scope;
     const readiness = await getWorkflowCapabilityReadinessReport(workspaceId, scope, { principal: scope.principal });

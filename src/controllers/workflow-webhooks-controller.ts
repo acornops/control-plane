@@ -4,7 +4,6 @@ import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/workspace-authorization.js';
 import { config } from '../config.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
-import { resolveWorkflowAgentCapabilities } from '../services/workflow-derived-capabilities.js';
 import {
   createWorkflowWebhook,
   deleteWorkflowWebhookRecord,
@@ -29,9 +28,7 @@ import {
   WORKFLOW_WEBHOOK_CREATE_FIELDS,
   WORKFLOW_WEBHOOK_UPDATE_FIELDS,
   WORKFLOW_WEBHOOK_WORKSPACE_FIELDS,
-  parseContextGrantList,
-  unexpectedBodyField,
-  validateWorkflowWebhookContextGrants
+  unexpectedBodyField
 } from './workflow-webhook-validation.js';
 
 function objectBody(req: Request): Record<string, unknown> {
@@ -172,27 +169,6 @@ export async function createWorkspaceWorkflowWebhook(
       } });
       return;
     }
-    const approvedContextGrants = parseContextGrantList(body.approvedContextGrants);
-    if (!approvedContextGrants) {
-      res.status(400).json({ error: {
-        code: 'WORKFLOW_WEBHOOK_CONTEXT_GRANTS_INVALID',
-        message: 'approvedContextGrants must contain unique, non-empty strings.',
-        retryable: false
-      } });
-      return;
-    }
-    const grantError = validateWorkflowWebhookContextGrants(
-      (await resolveWorkflowAgentCapabilities(workflow)).contextGrants,
-      approvedContextGrants
-    );
-    if (grantError) {
-      res.status(400).json({ error: {
-        code: 'WORKFLOW_WEBHOOK_CONTEXT_GRANTS_INVALID',
-        message: grantError,
-        retryable: false
-      } });
-      return;
-    }
     const secret = generateWebhookSecret();
     const webhook = await createWorkflowWebhook({
       workspaceId,
@@ -201,7 +177,6 @@ export async function createWorkspaceWorkflowWebhook(
         workflowId,
         name,
         enabled: body.enabled !== false,
-        approvedContextGrants,
         principal: { type: 'user', id: req.auth.userId }
       },
       secretCiphertext: encryptWebhookSecret(secret),
@@ -276,35 +251,11 @@ export async function updateWorkflowWebhook(
       } });
       return;
     }
-    const approvedContextGrants = body.approvedContextGrants === undefined
-      ? current.approvedContextGrants
-      : parseContextGrantList(body.approvedContextGrants);
-    if (!approvedContextGrants) {
-      res.status(400).json({ error: {
-        code: 'WORKFLOW_WEBHOOK_CONTEXT_GRANTS_INVALID',
-        message: 'approvedContextGrants must contain unique, non-empty strings.',
-        retryable: false
-      } });
-      return;
-    }
-    const grantError = validateWorkflowWebhookContextGrants(
-      (await resolveWorkflowAgentCapabilities(workflow)).contextGrants,
-      approvedContextGrants
-    );
-    if (grantError) {
-      res.status(400).json({ error: {
-        code: 'WORKFLOW_WEBHOOK_CONTEXT_GRANTS_INVALID',
-        message: grantError,
-        retryable: false
-      } });
-      return;
-    }
     const updated = await updateWorkflowWebhookRecord(
       webhookId,
       {
         name,
-        enabled: typeof body.enabled === 'boolean' ? body.enabled : undefined,
-        approvedContextGrants
+        enabled: typeof body.enabled === 'boolean' ? body.enabled : undefined
       },
       req.auth.userId
     );
@@ -433,4 +384,3 @@ export {
   constantTimeSignatureEqual,
   receiveWorkflowWebhook
 } from './workflow-webhook-ingress-controller.js';
-export { validateWorkflowWebhookContextGrants } from './workflow-webhook-validation.js';

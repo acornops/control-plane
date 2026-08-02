@@ -7,7 +7,7 @@ derive their complete effective capability set from the Agents they assign.
 
 ## Decisions
 
-- Remove Workflow capability selection, restriction, context-grant, and
+- Remove Workflow capability selection, restriction, implicit data-access, and
   approval-policy fields. Execution governance comes from the selected Agent
   snapshots and workspace authorization.
 - Remove the prompt-resource reading native tool.

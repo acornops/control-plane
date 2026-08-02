@@ -25,7 +25,6 @@ describe('Workflow gateway token service', () => {
         'mcp.tools.list': 'read',
         'audit.events.search': 'read'
       },
-      contextGrants: ['audit_events', 'workspace_metadata'],
       maxOutputTokens: 1024,
       allowedModels: ['gpt-4.1-mini']
     });
@@ -50,7 +49,6 @@ describe('Workflow gateway token service', () => {
       allowed_tool_refs: [{ server_id: 'server-observability', tool_name: 'inspect' }],
       allowed_native_tools: [],
       allowed_tool_operations: { 'mcp.tools.list': 'read', 'audit.events.search': 'read' },
-      context_grants: ['audit_events', 'workspace_metadata'],
       max_output_tokens: 1024,
       allowed_models: ['gpt-4.1-mini'],
       resource_bindings: []
@@ -66,7 +64,6 @@ describe('Workflow gateway token service', () => {
     assert.equal(claims.triggerId, 'trigger-manual-1');
     assert.equal(claims.targetId, undefined);
     assert.equal(claims.targetType, undefined);
-    assert.deepEqual(claims.contextGrants, ['audit_events', 'workspace_metadata']);
     assert.deepEqual(claims.allowedToolRefs, [{ serverId: 'server-observability', toolName: 'inspect' }]);
   });
 });
