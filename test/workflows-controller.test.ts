@@ -89,8 +89,7 @@ describe('workflows controller', () => {
       { workspaceId: 'workspace-1' }
     ));
     assert.equal(preview.statusCode, 200);
-    const previewDigests = preview.body as { promptDigest: string; bindingDigest: string; status: string };
-    assert.equal(previewDigests.status, 'ready');
+    assert.equal((preview.body as { status: string }).status, 'ready');
 
     const createdSession = await callController(createSession, createRequest(
       { workflowId: 'cluster-triage' },
@@ -130,9 +129,8 @@ describe('workflows controller', () => {
     assert.equal(run.status, 'running');
     assert.equal(run.workflowSessionId, sessionId);
     assert.equal(run.messageId, body.message_id);
-    assert.equal(run.promptDigest, previewDigests.promptDigest);
-    assert.equal(run.bindingDigest, previewDigests.bindingDigest);
-    assert.deepEqual(run.resourceBindings, []);
+    assert.equal('bindingDigest' in run, false);
+    assert.equal('resourceBindings' in run, false);
     assert.deepEqual(run.compiledAccessScope.tools, []);
     assert.equal((await listWorkflowMessages(sessionId)).length, 1);
     assert.equal(executionDispatches.length, 1);

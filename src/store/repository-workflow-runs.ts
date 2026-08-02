@@ -8,8 +8,6 @@ import type {
   WorkflowExecutionOrigin
 } from '../types/workflows.js';
 import type { AgentDefinition } from '../types/agents.js';
-import type { PromptResourceBinding } from '../types/prompt-resources.js';
-import { digestBindings, digestPrompt } from '../services/prompt-resources/index.js';
 import { withTransaction } from './repository-transaction.js';
 import type { RunRequestProvenance } from './repository-run-provenance.js';
 import type { WorkflowExecutionStreamEvent } from './repository-workflow-execution-events.js';
@@ -51,10 +49,6 @@ export interface WorkflowRunRecord {
   status: RunStatus | 'needs_review';
   compiledAccessScope: CompiledWorkflowAccessScope;
   prompt: string;
-  promptDigest: string;
-  bindingDigest: string;
-  resourceBindings: PromptResourceBinding[];
-  resolvedAt: string;
   llmProvider?: 'openai' | 'anthropic' | 'gemini';
   llmModel?: string;
   llmReasoningSummaryMode?: 'off' | 'auto' | 'concise' | 'detailed';
@@ -89,10 +83,6 @@ export interface WorkflowExecutionRecord {
   clientRequestFingerprint?: string;
   requestProvenance: RunRequestProvenance;
   prompt: string;
-  promptDigest: string;
-  bindingDigest: string;
-  resourceBindings: PromptResourceBinding[];
-  resolvedAt: string;
   startedAt?: string;
   endedAt?: string;
   errorCode?: string;
@@ -125,8 +115,7 @@ export function mapRun(row: Row, events?: RunEvent[]): WorkflowRunRecord {
     executorSnapshot: row.executor_snapshot,
     idempotencyKey: row.idempotency_key, messageId: row.message_id, createdBy: row.created_by,
     status: row.status, compiledAccessScope: row.compiled_access_scope,
-    prompt: row.prompt_text || '', promptDigest: row.prompt_digest || '', bindingDigest: row.binding_digest || '',
-    resourceBindings: row.resource_bindings || [], resolvedAt: iso(row.resolved_at) || iso(row.requested_at)!,
+    prompt: row.prompt_text || '',
     llmProvider: row.llm_provider || undefined, llmModel: row.llm_model || undefined,
     llmReasoningSummaryMode: row.llm_reasoning_summary_mode || undefined,
     llmReasoningEffort: row.llm_reasoning_effort || undefined,
@@ -172,19 +161,14 @@ export async function createWorkflowRun(params: {
 }): Promise<WorkflowRunRecord> {
   return withTransaction(async (client) => {
     const executionId = params.executionId || randomUUID();
-    const resourceBindings = params.session.compiledAccessScope.resourceBindings || [];
-    const promptDigest = digestPrompt(params.message.content);
-    const bindingDigest = digestBindings(resourceBindings);
-    const resolvedAt = new Date().toISOString();
     await client.query(
       `INSERT INTO workflow_executions (
         id,workspace_id,workflow_id,workflow_session_id,message_id,created_by,status,workflow_snapshot,
-        prompt_text,prompt_digest,binding_digest,resource_bindings,resolved_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,'queued',$7,$8,$9,$10,$11,$12) ON CONFLICT (id) DO NOTHING`,
+        prompt_text
+       ) VALUES ($1,$2,$3,$4,$5,$6,'queued',$7,$8) ON CONFLICT (id) DO NOTHING`,
       [executionId, params.session.workspaceId, params.session.workflowId,
        params.session.id, params.message.id, params.session.createdBy,
-       params.session.workflowSnapshot, params.message.content,
-       promptDigest, bindingDigest, JSON.stringify(resourceBindings), resolvedAt]
+       params.session.workflowSnapshot, params.message.content]
     );
     const runId = randomUUID();
     const status = params.session.compiledAccessScope.approvalGates.length ? 'waiting_for_approval' : 'queued';
@@ -206,15 +190,15 @@ export async function createWorkflowRun(params: {
         id,execution_id,workspace_id,workflow_id,workflow_session_id,
         attempt_number,executor_role,agent_id,executor_snapshot,
         idempotency_key,message_id,created_by,status,compiled_access_scope,llm_provider,llm_model,
-        llm_reasoning_summary_mode,llm_reasoning_effort,prompt_text,prompt_digest,binding_digest,resource_bindings,resolved_at,requested_at
-       ) VALUES ($1,$2,$3,$4,$5,1,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW()) RETURNING *`,
+        llm_reasoning_summary_mode,llm_reasoning_effort,prompt_text,requested_at
+       ) VALUES ($1,$2,$3,$4,$5,1,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW()) RETURNING *`,
       [runId, executionId, params.session.workspaceId, params.session.workflowId, params.session.id,
        executor.role, executor.role === 'specialist' ? executor.agentId : null,
        executorSnapshot,
-       `${executionId}:${params.session.compiledAccessScope.promptDigest || 'none'}:${params.session.compiledAccessScope.bindingDigest || 'none'}:root:1`, params.message.id, params.session.createdBy, status,
+       `${executionId}:root:1`, params.message.id, params.session.createdBy, status,
        params.session.compiledAccessScope, params.llmProvider || null, params.llmModel || null,
        params.llmReasoningSummaryMode || null, params.llmReasoningEffort || null,
-       params.message.content, promptDigest, bindingDigest, JSON.stringify(resourceBindings), resolvedAt]
+       params.message.content]
     );
     const run = mapRun(result.rows[0], []);
     await client.query('UPDATE workflow_messages SET run_id=$1 WHERE id=$2', [run.id, params.message.id]);
@@ -242,10 +226,6 @@ export async function createWorkflowExecution(params: {
   origin?: WorkflowExecutionOrigin;
   clientRequestId?: string;
   clientRequestFingerprint?: string;
-  promptDigest: string;
-  bindingDigest: string;
-  resourceBindings: PromptResourceBinding[];
-  resolvedAt: string;
   specialistSnapshot?: AgentDefinition;
   llmProvider?: WorkflowRunRecord['llmProvider'];
   llmModel?: string;
@@ -290,7 +270,7 @@ export async function createWorkflowExecution(params: {
     if (params.markSessionLaunched) {
       const launchResult = await client.query(
         `UPDATE workflow_sessions
-         SET launched_at=NOW(),launch_resource_inputs='{}'::jsonb
+         SET launched_at=NOW()
          WHERE id=$1 AND launched_at IS NULL
          RETURNING id`,
         [params.session.id]
@@ -311,27 +291,26 @@ export async function createWorkflowExecution(params: {
         id,workspace_id,workflow_id,workflow_session_id,message_id,created_by,trigger_type,
         trigger_id,occurrence_key,origin_snapshot,source_type,source_id,
         client_request_id,client_request_fingerprint,status,workflow_snapshot,
-        prompt_text,prompt_digest,binding_digest,resource_bindings,resolved_at,
+        prompt_text,
         request_actor_type,request_external_integration_link_id,request_external_integration_client_id
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
       [executionId, params.workflow.workspaceId, params.workflow.id, params.session.id,
        messageId, params.session.createdBy, params.triggerType || 'manual', params.triggerId || null,
        params.occurrenceKey || null, JSON.stringify(origin), source?.kind || null, source?.id || null,
        params.clientRequestId || null, params.clientRequestFingerprint || null,
        approvalGates.length ? 'waiting_for_approval' : 'queued', params.workflow,
-       params.content, params.promptDigest,
-       params.bindingDigest, JSON.stringify(params.resourceBindings), params.resolvedAt, provenance.actorType,
+       params.content, provenance.actorType,
        provenance.externalIntegrationLinkId || null, provenance.externalIntegrationClientId || null]
     );
     const runId = randomUUID();
-    const idempotencyKey = `${executionId}:${params.promptDigest}:${params.bindingDigest}:root:1`;
+    const idempotencyKey = `${executionId}:root:1`;
     const runResult = await client.query<Row>(
       `INSERT INTO workflow_runs (
         id,execution_id,workspace_id,workflow_id,workflow_session_id,
         attempt_number,executor_role,agent_id,executor_snapshot,
         idempotency_key,message_id,created_by,status,compiled_access_scope,llm_provider,llm_model,
-        llm_reasoning_summary_mode,llm_reasoning_effort,prompt_text,prompt_digest,binding_digest,resource_bindings,resolved_at,requested_at
-       ) VALUES ($1,$2,$3,$4,$5,1,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW()) RETURNING *`,
+        llm_reasoning_summary_mode,llm_reasoning_effort,prompt_text,requested_at
+       ) VALUES ($1,$2,$3,$4,$5,1,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW()) RETURNING *`,
       [runId, executionId, params.workflow.workspaceId, params.workflow.id, params.session.id,
        executor.role,
        executor.role === 'specialist' ? executor.agentId : null,
@@ -339,7 +318,7 @@ export async function createWorkflowExecution(params: {
        approvalGates.length ? 'waiting_for_approval' : 'queued', compiledAccessScope,
        params.llmProvider || null, params.llmModel || null,
        params.llmReasoningSummaryMode || null, params.llmReasoningEffort || null,
-       params.content, params.promptDigest, params.bindingDigest, JSON.stringify(params.resourceBindings), params.resolvedAt]
+       params.content]
     );
     const run = mapRun(runResult.rows[0], []);
     await client.query('UPDATE workflow_messages SET run_id=$1 WHERE id=$2', [runId, messageId]);
@@ -381,8 +360,7 @@ export async function createWorkflowExecution(params: {
           ...(row.request_external_integration_link_id ? { externalIntegrationLinkId: row.request_external_integration_link_id } : {}),
           ...(row.request_external_integration_client_id ? { externalIntegrationClientId: row.request_external_integration_client_id } : {})
         },
-        prompt: row.prompt_text || '', promptDigest: row.prompt_digest || '', bindingDigest: row.binding_digest || '',
-        resourceBindings: row.resource_bindings || [], resolvedAt: iso(row.resolved_at) || iso(row.created_at)!,
+        prompt: row.prompt_text || '',
         createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)!
       },
       message: mapMessage(messageResult.rows[0]), run, initialEvents

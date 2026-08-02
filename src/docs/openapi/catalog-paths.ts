@@ -249,6 +249,10 @@ export function buildCatalogPaths(): Record<string, unknown> {
     '/api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/tools': {
       get: { tags: ['agents'], summary: 'List tools supplied by one Agent MCP installation', security: [{ userSession: [] }], parameters: [workspaceId, agentId, serverId], responses: { '200': { description: 'Discovered tools with review and risk state.' } } }
     },
+    '/api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/target-access': {
+      get: { tags: ['agents'], summary: 'Get target access settings for the built-in Agent Targets MCP server', security: [{ userSession: [] }], parameters: [workspaceId, agentId, serverId], responses: { '200': { description: 'Agent target access policy and available workspace targets.' }, '404': { description: 'Agent or built-in Targets MCP server not found.' } } },
+      put: { tags: ['agents'], summary: 'Update target access settings for the built-in Agent Targets MCP server', description: 'Requires manage_agents and manage_mcp. The policy applies to this Agent wherever it uses the built-in Targets MCP server.', security: [{ userSession: [] }], parameters: [workspaceId, agentId, serverId], requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/AgentTargetAccessPolicy' } } } }, responses: { '200': { description: 'Agent target access policy updated.' }, '400': { description: 'Invalid policy or target IDs.' }, '404': { description: 'Agent or built-in Targets MCP server not found.' } } }
+    },
     '/api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/tools/{toolName}': {
       patch: { tags: ['agents'], summary: 'Review and classify an Agent MCP tool', description: 'Tool approval requires manage_mcp. Only administrator-approved non-destructive writes may be auto allowed.', security: [{ userSession: [] }], parameters: [workspaceId, agentId, serverId, toolName], requestBody: agentMcpToolUpdateBody, responses: { '200': { description: 'Tool review updated.' } } }
     },

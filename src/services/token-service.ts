@@ -11,7 +11,6 @@ import type {
   RunScopeType,
   VerifiedRunScopeClaims
 } from './run-scope-claims.js';
-import { createResourceBindingClaims, readResourceBindingClaims } from './token-resource-bindings.js';
 export type {
   AgentChatRunScopeClaims,
   McpToolRef,
@@ -247,7 +246,6 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
 
   const workspaceId = stringClaim(payload, 'workspace_id');
   const userId = optionalStringClaim(payload, 'user_id');
-  const { resourceBindings, bindingDigest } = readResourceBindingClaims(permissionObject, workspaceId);
   const baseClaims = {
     subject,
     tokenId: typeof payload.jti === 'string' ? payload.jti : undefined,
@@ -263,9 +261,7 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
     allowedNativeTools: nativeToolPermissionsClaim(permissionObject.allowed_native_tools),
     allowedToolOperations: toolOperationMapClaim(permissionObject.allowed_tool_operations),
     allowedModels: stringArrayClaim(permissionObject.allowed_models, 'allowed_models'),
-    maxOutputTokens: typeof maxOutputTokens === 'number' ? maxOutputTokens : undefined,
-    resourceBindings,
-    bindingDigest
+    maxOutputTokens: typeof maxOutputTokens === 'number' ? maxOutputTokens : undefined
   };
 
   if (scopeType === 'workspace') {
@@ -358,11 +354,6 @@ export class GatewayTokenService {
       max_output_tokens: input.maxOutputTokens ?? null,
       allowed_models: input.allowedModels || []
     };
-    Object.assign(permissionPayload, createResourceBindingClaims(
-      input.resourceBindings || [],
-      input.bindingDigest,
-      input.workspaceId
-    ));
     const principal = input.principal || (input.userId ? { type: 'user' as const, id: input.userId } : undefined);
     if (!principal) throw new Error('Run principal is required to sign a gateway token');
     const payload: JWTPayload = {

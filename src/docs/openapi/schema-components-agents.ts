@@ -9,8 +9,8 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         id: { type: 'string' }, modelAlias: { type: 'string' },
         title: { type: 'string' }, description: { type: 'string' },
         semanticCapabilityId: { type: 'string' },
-        invocationScopes: { type: 'array', items: { type: 'string', enum: ['workflow', 'agent_chat'] } },
-        authorizationClass: { type: 'string', enum: ['prompt_resource', 'internal_artifact', 'external_http_read'] },
+        invocationScopes: { type: 'array', items: { type: 'string', enum: ['workflow', 'target_chat', 'agent_chat'] } },
+        authorizationClass: { type: 'string', enum: ['internal_artifact', 'external_http_read'] },
         auditOperation: { type: 'string', enum: ['read', 'write'] },
         approvalOperation: { type: 'string', enum: ['read', 'write'] },
         configSchema: jsonObject,
@@ -47,6 +47,7 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         mcpInstallations: { type: 'array', items: schemaRef('AgentMcpServer') },
         tools: stringArray,
         nativeToolConfigs: jsonObject,
+        targetAccessPolicy: schemaRef('AgentTargetAccessPolicy'),
         skills: stringArray,
         skillInstallations: { type: 'array', items: schemaRef('AgentSkill') },
         approvalPolicy: jsonObject,
@@ -77,6 +78,42 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         requiresApproval: { type: 'boolean' }
       },
       additionalProperties: true
+    },
+    AgentTargetAccessPolicy: {
+      type: 'object',
+      required: ['mode', 'targetIds'],
+      properties: {
+        mode: { type: 'string', enum: ['all', 'allowlist', 'denylist'] },
+        targetIds: {
+          type: 'array',
+          maxItems: 1000,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 256 }
+        }
+      },
+      additionalProperties: false
+    },
+    AgentTargetAccessSettings: {
+      type: 'object',
+      required: ['policy', 'targets'],
+      properties: {
+        policy: schemaRef('AgentTargetAccessPolicy'),
+        targets: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['id', 'name', 'targetType', 'status'],
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              targetType: { type: 'string', enum: ['kubernetes', 'virtual_machine'] },
+              status: { type: 'string', enum: ['online', 'offline', 'degraded', 'unknown'] }
+            },
+            additionalProperties: false
+          }
+        }
+      },
+      additionalProperties: false
     },
     AgentMutation: {
       type: 'object',

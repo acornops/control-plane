@@ -92,7 +92,7 @@ export function agentTargetsMcpTools(timeoutMs: number): AgentTargetsMcpToolDefi
   return [
     readTool({
       name: 'list_targets',
-      description: 'List targets in this Agent\'s workspace. Use the returned target ID with get_target or list_target_issues.',
+      description: 'List targets available to this Agent. Use the returned target ID with get_target or list_target_issues.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -115,7 +115,7 @@ export function agentTargetsMcpTools(timeoutMs: number): AgentTargetsMcpToolDefi
     }, timeoutMs),
     readTool({
       name: 'get_target',
-      description: 'Get normalized details, connection freshness, and active issue counts for one workspace target.',
+      description: 'Get normalized details, connection freshness, and active issue counts for one target available to this Agent.',
       inputSchema: {
         type: 'object',
         required: ['target_id'],
@@ -153,7 +153,7 @@ export function agentTargetsMcpTools(timeoutMs: number): AgentTargetsMcpToolDefi
     }, timeoutMs),
     readTool({
       name: 'list_target_issues',
-      description: 'List normalized issues for one workspace target. By default, returns active and recovering issues.',
+      description: 'List normalized issues for one target available to this Agent. By default, returns active and recovering issues.',
       inputSchema: {
         type: 'object',
         required: ['target_id'],

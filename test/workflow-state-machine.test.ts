@@ -9,7 +9,7 @@ afterEach(() => {
 });
 
 describe('workflow retry state machine', () => {
-  it('persists the freshly authorized prompt bindings and digest on the new attempt', async () => {
+  it('persists the prompt snapshot on the new attempt', async () => {
     let runInsert: unknown[] | undefined;
     let executionUpdate: unknown[] | undefined;
     let approvalInsert: unknown[] | undefined;
@@ -74,23 +74,8 @@ describe('workflow retry state machine', () => {
     };
     mock.method(db, 'connect', async () => client);
 
-    const binding = {
-      bindingId: 'prb_retry',
-      type: 'chat',
-      resourceId: 'chat-1',
-      provider: 'acornops.chat',
-      providerVersion: '1',
-      workspaceId: 'workspace-1',
-      labelSnapshot: 'Incident room',
-      source: 'explicit' as const,
-      operations: ['read'],
-      contextMode: 'tool' as const
-    };
     const compiledAccessScope = {
       approvalGates: ['Confirm retry'],
-      resourceBindings: [binding],
-      promptDigest: 'prompt-digest-new',
-      bindingDigest: 'binding-digest-new',
       executor: { role: 'specialist', agentId: 'agent-2' }
     } as unknown as CompiledWorkflowAccessScope;
 
@@ -102,11 +87,7 @@ describe('workflow retry state machine', () => {
       executorRole: 'specialist',
       specialistSnapshot: { id: 'agent-2' } as never,
       compiledAccessScope,
-      prompt: 'Retry with @chat[Incident room].',
-      promptDigest: 'prompt-digest-new',
-      bindingDigest: 'binding-digest-new',
-      resourceBindings: [binding],
-      resolvedAt: '2026-07-20T10:00:00.000Z'
+      prompt: 'Retry with @chat[Incident room].'
     });
 
     assert.equal(result.status, 'waiting_for_approval');
@@ -114,14 +95,10 @@ describe('workflow retry state machine', () => {
     assert.equal(runInsert[5], 2);
     assert.equal(runInsert[6], 'specialist');
     assert.equal(runInsert[7], 'agent-2');
-    assert.equal(runInsert[9], 'execution-1:prompt-digest-new:binding-digest-new:root:2');
+    assert.equal(runInsert[9], 'execution-1:root:2');
     assert.equal(runInsert[12], 'waiting_for_approval');
     assert.equal(runInsert[13], compiledAccessScope);
     assert.equal(runInsert[18], 'Retry with @chat[Incident room].');
-    assert.equal(runInsert[19], 'prompt-digest-new');
-    assert.equal(runInsert[20], 'binding-digest-new');
-    assert.deepEqual(JSON.parse(String(runInsert[21])), [binding]);
-    assert.equal(runInsert[22], '2026-07-20T10:00:00.000Z');
     assert(approvalInsert);
     assert.deepEqual(executionUpdate, ['execution-1', 'waiting_for_approval']);
   });

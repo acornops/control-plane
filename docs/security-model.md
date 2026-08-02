@@ -60,7 +60,7 @@
   agent-key rotation behavior
 - Internal execution auth or llm-gateway admin auth
 - Cross-workspace, cross-target, or cross-cluster data access logic
-- Agent/Workflow snapshots, executor role, parent run, target, resource binding,
+- Agent/Workflow snapshots, executor role, parent run, target access policy,
   tool-operation, approval, or idempotency claims
 
 ## Authorization
@@ -108,8 +108,8 @@
   and `data` value fingerprints.
 - Every automation callback and tool call must bind the workspace, Workflow
   execution, step attempt, assigned Agent where applicable, exact tool
-  operation, explicit resource bindings, and approval state from signed server
-  claims.
+  operation, and approval state from signed server claims. Target access is
+  enforced by the assigned Agent's Targets MCP policy.
 
 ## Automatic Investigations
 

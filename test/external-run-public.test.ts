@@ -112,7 +112,6 @@ describe('external run public projections', () => {
       executorSnapshot: { role: 'coordinator', instructions: 'private coordinator instructions' },
       idempotencyKey: 'private-key', messageId: 'message-private', createdBy: 'user-1', status: 'completed',
       compiledAccessScope: {} as WorkflowRunRecord['compiledAccessScope'], prompt: 'private prompt',
-      promptDigest: 'digest', bindingDigest: 'binding', resourceBindings: [], resolvedAt: '2026-07-23T00:00:00.000Z',
       requestedAt: '2026-07-23T00:00:00.000Z', assistantMessage: { content: 'private result' },
       createdAt: '2026-07-23T00:00:00.000Z'
     }, false);

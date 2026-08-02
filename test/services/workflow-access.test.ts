@@ -121,7 +121,8 @@ describe('Workflow executor scope compiler', () => {
       actor
     });
 
-    assert.equal(compiled.resourceBindings.length, 0);
+    assert.equal('resourceBindings' in compiled, false);
+    assert.equal('resource_bindings' in compiled.jwtClaims.permissions, false);
     assert.deepEqual(compiled.mcpTools, [{ serverId: 'ops', toolName: 'events_search' }]);
     assert(compiled.jwtClaims.permissions.allowed_tool_refs.some((ref) => (
       ref.server_id === 'ops' && ref.tool_name === 'events_search'
@@ -206,7 +207,7 @@ describe('Workflow executor scope compiler', () => {
     assert.deepEqual(compiled.tools, []);
     assert.deepEqual(compiled.mcpServers, []);
     assert.deepEqual(compiled.enabledSkills, []);
-    assert.deepEqual(compiled.resourceBindings, []);
+    assert.equal('resourceBindings' in compiled, false);
     assert.deepEqual(compiled.selectedAgentSnapshots, []);
     assert.deepEqual(compiled.coordinationFunctions, COORDINATOR_FUNCTIONS);
   });

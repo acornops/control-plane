@@ -96,7 +96,7 @@ ownership for workspace Agents and target-local generic agents.
   credentials, immediately auto-pause every enabled schedule whose workflow
   uses that Agent, preserve prior run history, and audit the configuration
   impact. Dispatch-time readiness remains the fallback for concurrent changes.
-- Reuse the same prompt binding, exact workflow scope, and MCP readiness rules
+- Reuse the same validated prompt, exact workflow scope, and MCP readiness rules
   used by interactive launches and scheduled dispatch.
 - Add focused resolver, schedule-controller, and management-console tests, then
   run repository and workspace validation.

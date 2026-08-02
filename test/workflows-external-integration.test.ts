@@ -227,10 +227,10 @@ describe('workflow external integration access', () => {
     assert.equal(secondExecutionResponse.statusCode, 200);
     const firstRun = await getWorkflowRun(firstBody.run_id);
     assert.ok(firstRun);
-    assert.deepEqual(firstRun.resourceBindings, []);
+    assert.equal('resourceBindings' in firstRun, false);
     const followUpRun = await getWorkflowRun(secondBody.run_id);
     assert.ok(followUpRun);
-    assert.deepEqual(followUpRun.resourceBindings, []);
+    assert.equal('resourceBindings' in followUpRun, false);
     const acceptedRunEvents = await appendWorkflowRunEvents(firstRun.id, [{
       schema_version: 1,
       run_id: firstRun.id,

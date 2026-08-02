@@ -8,7 +8,6 @@ import { WorkflowAccessDeniedError } from '../services/workflow-access.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
 import { emitWorkflowExecutionEvents } from '../services/workflow-execution-events.js';
-import { PromptResourceProviderError } from '../services/prompt-resources/index.js';
 import {
   getWorkflowCapabilityReadinessReport,
   publicMcpReadinessError
@@ -160,7 +159,7 @@ export async function createSession(req: AuthenticatedRequest, res: Response, ne
     const compiled = await compileWorkflowScope({
       workflow,
       actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
-      resolutionPhase: 'session_ceiling'
+      sessionCeiling: true
     });
     const session = await createWorkflowSession({
       workflow,
@@ -284,27 +283,17 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       } });
     }
     const messageId = randomUUID();
-    const resolution = kind === 'launch'
-      ? await compileWorkflowPrompt({
-          workflow,
-          actorUserId: req.auth.userId,
-          workflowSessionId: session.id,
-          initiatingMessageId: messageId
+    const compiledPrompt = kind === 'launch'
+      ? compileWorkflowPrompt({
+          workflow
         })
-      : await compileWorkflowFollowUp({
-          workflow,
-          content: typeof req.body?.content === 'string' ? req.body.content : '',
-          actorUserId: req.auth.userId,
-          workflowSessionId: session.id,
-          initiatingMessageId: messageId
+      : compileWorkflowFollowUp({
+          content: typeof req.body?.content === 'string' ? req.body.content : ''
         });
-    const content = resolution.content;
+    const content = compiledPrompt.content;
     const compiled = await compileWorkflowScope({
       workflow,
-      actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
-      resourceBindings: resolution.bindings,
-      promptDigest: resolution.promptDigest,
-      bindingDigest: resolution.bindingDigest
+      actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions }
     });
     const mcpReadiness = await getWorkflowCapabilityReadinessReport(
       session.workspaceId,
@@ -341,10 +330,6 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       content,
       clientRequestId: clientRequestId || undefined,
       clientRequestFingerprint: clientRequestFingerprint || undefined,
-      promptDigest: resolution.promptDigest,
-      bindingDigest: resolution.bindingDigest,
-      resourceBindings: resolution.bindings,
-      resolvedAt: resolution.resolvedAt,
       specialistSnapshot: compiled.specialistAgent,
       llmProvider: llmSettings.provider,
       llmModel: llmSettings.model,
@@ -367,9 +352,6 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
         workflowId: workflow.id,
         executionMode: workflow.executionMode,
         selectedAgentCount: workflow.agentIds.length,
-        promptDigest: resolution.promptDigest,
-        bindingDigest: resolution.bindingDigest,
-        resourceBindingCount: resolution.bindings.length,
         semanticCapabilityIds: compiled.scope.semanticCapabilityIds
       }
     });
@@ -426,9 +408,6 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
         message: error.message,
         retryable: false
       } });
-    }
-    if (error instanceof PromptResourceProviderError) {
-      return void res.status(409).json({ error: { code: error.code, message: error.message, retryable: error.retryable } });
     }
     if (error instanceof LlmGatewayHttpError) {
       const mapped = mapGatewayError(error, { upstreamMessage: WORKFLOW_GATEWAY_UPSTREAM_MESSAGE });

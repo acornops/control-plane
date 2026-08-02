@@ -44,10 +44,6 @@ function mapExecution(row: QueryResultRow): WorkflowExecutionRecord {
         : {})
     },
     prompt: row.prompt_text || '',
-    promptDigest: row.prompt_digest || '',
-    bindingDigest: row.binding_digest || '',
-    resourceBindings: row.resource_bindings || [],
-    resolvedAt: iso(row.resolved_at) || iso(row.created_at)!,
     startedAt: iso(row.started_at),
     endedAt: iso(row.ended_at),
     errorCode: row.error_code || undefined,

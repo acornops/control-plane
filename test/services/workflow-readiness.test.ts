@@ -105,7 +105,7 @@ describe('target MCP credential connection readiness', () => {
 
     const errors = await getWorkflowCapabilityReadinessErrors(
       'workspace-1',
-      { resourceBindings: [], mcpTools: [{ serverId: 'server-1', toolName: 'records.list' }], mcpServers: ['server-1'] } as never,
+      { mcpTools: [{ serverId: 'server-1', toolName: 'records.list' }], mcpServers: ['server-1'] } as never,
       { principal: { type: 'service_identity', id: 'service-1' } }
     );
 

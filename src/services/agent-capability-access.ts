@@ -2,7 +2,6 @@ import type { AgentDefinition } from '../types/agents.js';
 import type { CompiledAgentChatAccessScope } from '../types/agent-chat.js';
 import type { CapabilityRoutingMapping } from '../types/capability-routing.js';
 import type { WorkspaceAuditOperation } from '../types/domain.js';
-import type { PromptResourceBinding } from '../types/prompt-resources.js';
 import type { CapabilityRestrictionMode } from '../types/capability-access.js';
 import { getWorkspaceNativeTool } from './workspace-native-tools.js';
 import { CapabilityAccessDeniedError } from './capability-access-errors.js';
@@ -57,9 +56,6 @@ export function compileAgentCapabilityProjection(input: {
   restrictionMode: CapabilityRestrictionMode;
   effectiveCapabilityIds: string[];
   approvalGates: string[];
-  resourceBindings?: PromptResourceBinding[];
-  promptDigest?: string;
-  bindingDigest?: string;
   delegatedSpecialist?: boolean;
 }): AgentCapabilityProjection {
   const mappings = mappingsForAgent({
@@ -126,10 +122,6 @@ export function compileAgentCapabilityProjection(input: {
     approvalGates: uniqueSorted(input.approvalGates),
     permissionMode: input.mode === 'read_only' || input.agent.permissionMode === 'read_only'
       ? 'read_only'
-      : input.agent.permissionMode,
-    resourceBindings: [...(input.resourceBindings || [])],
-    promptDigest: input.promptDigest,
-    bindingDigest: input.bindingDigest,
-    resourceResolutionPhase: 'run_exact'
+      : input.agent.permissionMode
   };
 }

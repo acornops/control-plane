@@ -352,7 +352,7 @@ Post later thread replies as ordinary follow-ups:
 ```
 
 `{{...}}` has no template meaning in follow-up content. Plain-text
-`@target[Target name]` mentions create no resource binding.
+`@target[Target name]` mentions do not grant or change target access.
 
 Response:
 
@@ -864,7 +864,7 @@ GET {ACORNOPS_API_BASE_URL}/api/v1/runs/{runId}
 Linked integrations receive a bounded public run view. The exact originating
 link/client may receive the final assistant output needed by its adapter;
 other linked integrations with workspace read access receive status and safe
-metadata only. Prompts, compiled scopes, snapshots, resource bindings,
+metadata only. Prompts, compiled scopes, snapshots,
 idempotency keys, raw tool results, reasoning, token deltas, and integration
 provenance are never returned on this external surface.
 

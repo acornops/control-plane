@@ -86,6 +86,10 @@ describe('unified Workflow execution architecture', () => {
       assert.equal(schema.includes(removed), false, `removed schema identifier remains: ${removed}`);
     }
     assert.doesNotMatch(schema, /workflow_runs[\s\S]*?events jsonb/);
+    for (const table of ['workflow_executions', 'workflow_runs']) {
+      assert.doesNotMatch(tableBody(table), /\b(?:prompt_digest|binding_digest|resource_bindings|resolved_at)\b/);
+    }
+    assert.doesNotMatch(tableBody('workflow_sessions'), /\blaunch_resource_inputs\b/);
     const agentTable = schema.match(/CREATE TABLE agent_definitions \(([\s\S]*?)\n\);/)?.[1] || '';
     assert.doesNotMatch(agentTable, /\bkind text\b/);
   });
@@ -105,7 +109,7 @@ describe('unified Workflow execution architecture', () => {
     assert.equal(agentSchemas.includes('workflowUsage:'), false);
   });
 
-  it('keeps Agent and Workflow persistence and wire payloads free of target bindings and definition versions', () => {
+  it('keeps Workflow payloads free of target bindings while allowing Agent-owned target access policy', () => {
     for (const table of [
       'agent_definitions',
       'workflow_definitions',
@@ -130,7 +134,8 @@ describe('unified Workflow execution architecture', () => {
       'Workflow definitions contain retired template metadata'
     );
     assert.doesNotMatch(tableBody('agent_definitions'), /\bworkflow_ids?\b/, 'Agents must not own Workflow assignments');
-    assert.doesNotMatch(agentSchemas, /\btarget(?:Id|Type|Scope|Ref|Binding|Tool|Skill)\b/i);
+    assert.match(agentSchemas, /AgentTargetAccessPolicy/);
+    assert.doesNotMatch(agentSchemas, /\btarget(?:Scope|Ref|Binding|Tool|Skill)\b/i);
     assert.doesNotMatch(workflowSchemas, /\btarget(?:Id|Type|Scope|Ref|Binding|Tool|Skill)\b/i);
     assert.doesNotMatch(agentSchemas, /\bagentVersion\b/);
     assert.doesNotMatch(workflowSchemas, /\bworkflowVersion\b/);

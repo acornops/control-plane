@@ -3,7 +3,6 @@ import { after, beforeEach, describe, it } from 'node:test';
 import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { db } from '../src/infra/db.js';
 import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
-import { digestBindings, digestPrompt } from '../src/services/prompt-resources/registry.js';
 import { getAgentDefinition } from '../src/store/repository-agents.js';
 import {
   applyAutomationApprovalOutcome,
@@ -59,10 +58,6 @@ async function createDirectRoot() {
     session,
     compiledAccessScope,
     content: 'Collect signals.',
-    promptDigest: digestPrompt('Collect signals.'),
-    bindingDigest: digestBindings([]),
-    resourceBindings: [],
-    resolvedAt: new Date().toISOString(),
     specialistSnapshot: specialist
   });
 }

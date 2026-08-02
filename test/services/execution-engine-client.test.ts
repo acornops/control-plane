@@ -78,10 +78,6 @@ function createWorkflowRun(overrides: Partial<WorkflowRunRecord> = {}): Workflow
       }
     },
     prompt: 'Coordinate the workflow.',
-    promptDigest: 'prompt-digest',
-    bindingDigest: 'binding-digest',
-    resourceBindings: [],
-    resolvedAt: '2026-05-25T00:00:00.000Z',
     requestedAt: '2026-05-25T00:00:00.000Z',
     createdAt: '2026-05-25T00:00:00.000Z',
     ...overrides

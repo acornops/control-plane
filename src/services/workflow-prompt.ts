@@ -1,17 +1,4 @@
-import type {
-  PromptResourceBinding,
-  PromptResourceBindingSource
-} from '../types/prompt-resources.js';
 import type { WorkflowDefinitionForAccess } from '../types/workflows.js';
-import {
-  digestBindings,
-  digestPrompt
-} from './prompt-resources/index.js';
-
-export {
-  MAX_WORKFLOW_RESOURCE_BINDINGS,
-  workflowPromptResourceCardinalityBlockers
-} from './workflow-prompt-cardinality.js';
 
 export const MAX_WORKFLOW_PROMPT_LENGTH = 32_768;
 
@@ -53,40 +40,17 @@ export function validateWorkflowPrompt(rawPrompt: string): string {
 
 export interface CompiledWorkflowPrompt {
   content: string;
-  bindings: PromptResourceBinding[];
-  promptDigest: string;
-  bindingDigest: string;
-  resolvedAt: string;
 }
 
-function plainPrompt(content: string): CompiledWorkflowPrompt {
-  const bindings: PromptResourceBinding[] = [];
-  return {
-    content,
-    bindings,
-    promptDigest: digestPrompt(content),
-    bindingDigest: digestBindings(bindings),
-    resolvedAt: new Date().toISOString()
-  };
-}
-
-export async function compileWorkflowPrompt(input: {
+export function compileWorkflowPrompt(input: {
   workflow: WorkflowDefinitionForAccess;
-  actorUserId: string;
-  source?: PromptResourceBindingSource;
-  workflowSessionId?: string;
-  initiatingMessageId?: string;
-}): Promise<CompiledWorkflowPrompt> {
-  return plainPrompt(validateWorkflowPrompt(input.workflow.prompt));
+}): CompiledWorkflowPrompt {
+  return { content: validateWorkflowPrompt(input.workflow.prompt) };
 }
 
-export async function compileWorkflowFollowUp(input: {
-  workflow: WorkflowDefinitionForAccess;
+export function compileWorkflowFollowUp(input: {
   content: string;
-  actorUserId: string;
-  workflowSessionId: string;
-  initiatingMessageId: string;
-}): Promise<CompiledWorkflowPrompt> {
+}): CompiledWorkflowPrompt {
   const content = input.content.normalize('NFC');
   if (!content.trim()) {
     throw new WorkflowMessageContentError('WORKFLOW_MESSAGE_REQUIRED', 'Follow-up content is required.');
@@ -97,5 +61,5 @@ export async function compileWorkflowFollowUp(input: {
       `Follow-up content exceeds the ${MAX_WORKFLOW_PROMPT_LENGTH} character limit.`
     );
   }
-  return plainPrompt(content);
+  return { content };
 }

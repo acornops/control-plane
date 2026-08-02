@@ -112,10 +112,7 @@ function compileScope(
   return compileAgentConversationRunScope({
     agent: specialist,
     actor,
-    accessMode,
-    resourceBindings: [],
-    promptDigest: 'a'.repeat(64),
-    bindingDigest: 'b'.repeat(64)
+    accessMode
   });
 }
 

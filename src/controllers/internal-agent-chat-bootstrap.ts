@@ -26,7 +26,6 @@ export function agentChatRunSnapshotIsValid(run: Run, session: ChatSession): boo
     && scope?.workspaceId === run.workspaceId
     && scope?.agentId === run.agentId
     && scope?.mode === run.toolAccessMode
-    && scope?.resourceResolutionPhase === 'run_exact'
     && scope?.requiredPermissions.length === 1
     && scope.requiredPermissions[0] === expectedRunCapability
     && scope?.grantedCapabilities.length === 1
@@ -76,8 +75,6 @@ export async function bootstrapAgentChatRun(run: Run, res: Response): Promise<vo
     allowedToolRefs: tools.allowedToolRefs,
     allowedNativeTools: tools.allowedNativeTools,
     allowedToolOperations: tools.allowedToolOperations,
-    resourceBindings: scope.resourceBindings,
-    bindingDigest: scope.bindingDigest,
     maxOutputTokens: config.LLM_MAX_OUTPUT_TOKENS,
     agentId
   });
@@ -95,26 +92,6 @@ export async function bootstrapAgentChatRun(run: Run, res: Response): Promise<vo
     assistant: { instructions: agentSnapshot.instructions },
     policy: runtime.policy,
     context: runtime.context,
-    ...(scope.promptDigest && scope.bindingDigest ? {
-      resources: {
-        prompt_digest: scope.promptDigest,
-        binding_digest: scope.bindingDigest,
-        resolved_at: run.requestedAt,
-        bindings: scope.resourceBindings.map((binding) => ({
-          binding_id: binding.bindingId,
-          type: binding.type,
-          resource_id: binding.resourceId,
-          provider: binding.provider,
-          provider_version: binding.providerVersion,
-          workspace_id: binding.workspaceId,
-          label_snapshot: binding.labelSnapshot,
-          source: binding.source,
-          operations: binding.operations,
-          context_mode: binding.contextMode,
-          ...(binding.providerData ? { provider_data: binding.providerData } : {})
-        }))
-      }
-    } : {}),
     llm: runtime.llm,
     tools: {
       tool_registry_version: 'trv_1',

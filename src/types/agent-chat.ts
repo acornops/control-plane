@@ -1,7 +1,6 @@
 import type { WorkspaceCapability } from '../auth/authorization.js';
 import type { McpToolRef, RunPermissionMode, RunPrincipalRef } from './agents.js';
 import type { WorkspaceAuditOperation } from './domain.js';
-import type { PromptResourceBinding } from './prompt-resources.js';
 import type { CapabilityAccessMode, CapabilityRestrictionMode } from './capability-access.js';
 
 export interface CompiledAgentChatAccessScope {
@@ -22,8 +21,4 @@ export interface CompiledAgentChatAccessScope {
   approvalGates: string[];
   permissionMode: RunPermissionMode;
   principal: RunPrincipalRef;
-  resourceBindings: PromptResourceBinding[];
-  promptDigest?: string;
-  bindingDigest?: string;
-  resourceResolutionPhase: 'run_exact';
 }

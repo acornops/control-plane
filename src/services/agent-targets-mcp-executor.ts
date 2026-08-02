@@ -1,6 +1,7 @@
 import { repo } from '../store/repository.js';
 import type { TargetIssue, TargetIssueSeverity, TargetIssueStatus } from '../types/target-issues.js';
 import type { TargetSummary, TargetType } from '../types/domain.js';
+import type { AgentTargetAccessPolicy } from '../types/agents.js';
 import {
   CursorMismatchError,
   decodeCursor,
@@ -10,6 +11,10 @@ import {
 import {
   type AgentTargetsMcpToolName
 } from './agent-targets-mcp-catalog.js';
+import {
+  normalizeAgentTargetAccessPolicy,
+  targetAllowedByAgentPolicy
+} from './agent-target-access.js';
 
 const MAX_METADATA_DEPTH = 4;
 const MAX_METADATA_ENTRIES_PER_CONTAINER = 50;
@@ -164,22 +169,28 @@ function mcpResult(data: Record<string, unknown>): Record<string, unknown> {
 
 async function scopedTarget(
   workspaceId: string,
-  targetId: string
+  targetId: string,
+  targetAccessPolicy: AgentTargetAccessPolicy | undefined
 ): Promise<TargetSummary> {
+  if (!targetAllowedByAgentPolicy(targetAccessPolicy, targetId)) {
+    throw new AgentTargetsMcpExecutionError('TARGET_NOT_FOUND', 'Target not found or unavailable to this Agent.', 404);
+  }
   const target = await repo.getTarget(workspaceId, targetId);
   if (!target || target.workspaceId !== workspaceId) {
-    throw new AgentTargetsMcpExecutionError('TARGET_NOT_FOUND', 'Target not found in this workspace.', 404);
+    throw new AgentTargetsMcpExecutionError('TARGET_NOT_FOUND', 'Target not found or unavailable to this Agent.', 404);
   }
   return target;
 }
 
 async function listTargets(
   workspaceId: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  targetAccessPolicy: AgentTargetAccessPolicy | undefined
 ): Promise<Record<string, unknown>> {
+  const policy = normalizeAgentTargetAccessPolicy(targetAccessPolicy);
   const q = normalizeSearchQuery(stringArgument(args, 'q', 200));
   const targetType = targetTypeArgument(args);
-  const signature = makeQuerySignature({ q, targetType });
+  const signature = makeQuerySignature({ q, targetType, targetAccessPolicy: policy });
   let cursor;
   try {
     cursor = decodeCursor<{ createdAt: string; targetId: string; signature: string }>(
@@ -200,6 +211,9 @@ async function listTargets(
     cursor,
     q,
     targetType,
+    targetAccess: policy.mode === 'all'
+      ? undefined
+      : { mode: policy.mode, targetIds: policy.targetIds },
     signature
   });
   return mcpResult({
@@ -210,9 +224,10 @@ async function listTargets(
 
 async function getTarget(
   workspaceId: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  targetAccessPolicy: AgentTargetAccessPolicy | undefined
 ): Promise<Record<string, unknown>> {
-  const target = await scopedTarget(workspaceId, requiredStringArgument(args, 'target_id', 256));
+  const target = await scopedTarget(workspaceId, requiredStringArgument(args, 'target_id', 256), targetAccessPolicy);
   const [registration, issues] = await Promise.all([
     repo.getTargetAgentRegistration(target.id),
     repo.summarizeTargetIssues(workspaceId, target.id)
@@ -245,9 +260,10 @@ function issueSeverityArgument(args: Record<string, unknown>): TargetIssueSeveri
 
 async function listTargetIssues(
   workspaceId: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  targetAccessPolicy: AgentTargetAccessPolicy | undefined
 ): Promise<Record<string, unknown>> {
-  const target = await scopedTarget(workspaceId, requiredStringArgument(args, 'target_id', 256));
+  const target = await scopedTarget(workspaceId, requiredStringArgument(args, 'target_id', 256), targetAccessPolicy);
   const q = normalizeSearchQuery(stringArgument(args, 'q', 200));
   const status = issueStatusArgument(args);
   const severity = issueSeverityArgument(args);
@@ -298,6 +314,7 @@ export async function executeAgentTargetsMcpTool(input: {
   workspaceId: string;
   toolName: AgentTargetsMcpToolName;
   arguments: Record<string, unknown>;
+  targetAccessPolicy?: AgentTargetAccessPolicy;
 }): Promise<Record<string, unknown>> {
   if (!input.arguments || typeof input.arguments !== 'object' || Array.isArray(input.arguments)) {
     throw new AgentTargetsMcpExecutionError('TOOL_ARGS_INVALID', 'arguments must be an object.', 400);
@@ -312,10 +329,10 @@ export async function executeAgentTargetsMcpTool(input: {
     );
   }
   if (input.toolName === 'list_targets') {
-    return listTargets(input.workspaceId, input.arguments);
+    return listTargets(input.workspaceId, input.arguments, input.targetAccessPolicy);
   }
   if (input.toolName === 'get_target') {
-    return getTarget(input.workspaceId, input.arguments);
+    return getTarget(input.workspaceId, input.arguments, input.targetAccessPolicy);
   }
-  return listTargetIssues(input.workspaceId, input.arguments);
+  return listTargetIssues(input.workspaceId, input.arguments, input.targetAccessPolicy);
 }

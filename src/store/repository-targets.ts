@@ -10,11 +10,12 @@ export async function listTargets(
     cursor?: { createdAt: string; targetId: string } | null;
     q?: string;
     targetType?: TargetType;
+    targetAccess?: { mode: 'allowlist' | 'denylist'; targetIds: string[] };
     signature?: string;
   } = {}
 ): Promise<PagedResult<TargetSummary>> {
   const limit = Math.max(1, Math.min(100, options.limit ?? 50));
-  const params: Array<string | number> = [workspaceId, limit + 1];
+  const params: Array<string | number | string[]> = [workspaceId, limit + 1];
   const clauses = ['workspace_id = $1'];
   if (options.targetType) {
     params.push(options.targetType);
@@ -23,6 +24,12 @@ export async function listTargets(
   if (options.q) {
     params.push(`%${options.q.toLowerCase()}%`);
     clauses.push(`LOWER(name) LIKE $${params.length}`);
+  }
+  if (options.targetAccess) {
+    params.push(options.targetAccess.targetIds);
+    clauses.push(options.targetAccess.mode === 'allowlist'
+      ? `id = ANY($${params.length}::text[])`
+      : `NOT (id = ANY($${params.length}::text[]))`);
   }
   if (options.cursor) {
     params.push(options.cursor.createdAt, options.cursor.targetId);

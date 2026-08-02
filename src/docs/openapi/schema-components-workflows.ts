@@ -9,18 +9,6 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
   return {
     ...buildWorkflowWebhookSchemas(),
     ...buildWorkflowActivitySchemas(),
-    PromptResourceRequirement: {
-      type: 'object',
-      required: ['type', 'minimum', 'maximum', 'requiredOperations'],
-      properties: {
-        type: { type: 'string', pattern: '^[a-z][a-z0-9_-]{0,63}$' },
-        minimum: { type: 'integer', minimum: 0 },
-        maximum: { type: 'integer', minimum: 0, maximum: 64 },
-        requiredOperations: stringArray,
-        constraints: jsonObject
-      },
-      additionalProperties: false
-    },
     WorkflowDefinition: {
       type: 'object',
       required: ['id', 'workspaceId', 'name', 'status', 'prompt', 'agentIds', 'executionMode', 'createdBy'],
@@ -67,11 +55,9 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
     },
     WorkflowCapabilitiesPreview: {
       type: 'object',
-      required: ['workflowId', 'promptDigest', 'bindingDigest', 'mode', 'semanticCapabilityIds', 'checkedAt', 'status', 'reasonCodes', 'tools', 'directMcpServers', 'enabledSkills', 'mcpRequirements', 'approvalRequirements', 'counts'],
+      required: ['workflowId', 'mode', 'semanticCapabilityIds', 'checkedAt', 'status', 'reasonCodes', 'tools', 'directMcpServers', 'enabledSkills', 'mcpRequirements', 'approvalRequirements', 'counts'],
       properties: {
         workflowId,
-        promptDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
-        bindingDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
         mode: { type: 'string', enum: ['read_only', 'read_write'] },
         semanticCapabilityIds: stringArray,
         checkedAt: dateTime,

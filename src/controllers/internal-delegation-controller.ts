@@ -149,10 +149,7 @@ export async function delegateSpecialist(req: Request, res: Response, next: Next
           authorizationCeiling.requiredPermissions.map((permission) => [permission, true])
         ) as never
       },
-      principal: authorizationCeiling.principal,
-      resourceBindings: parent.resourceBindings,
-      promptDigest: parent.promptDigest,
-      bindingDigest: parent.bindingDigest
+      principal: authorizationCeiling.principal
     });
     compiledScope.coordinationFunctions = [];
     const readinessErrors = await getExactMcpReadinessErrors(
