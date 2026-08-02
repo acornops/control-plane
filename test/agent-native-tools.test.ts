@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { after, beforeEach, describe, it } from 'node:test';
 import { db } from '../src/infra/db.js';
 import { setAgentNativeToolAssignment } from '../src/services/agent-native-tools.js';
+import { computeWorkflowReadiness } from '../src/services/automation-readiness.js';
 import { getAgentDefinition } from '../src/store/repository-agents.js';
 import { listCapabilityRoutingMappings } from '../src/store/repository-capability-routing.js';
 import { getWorkflowDefinition } from '../src/store/repository-workflows.js';
@@ -111,6 +112,18 @@ describe('Agent workspace-native tool assignments', () => {
     const nativeMapping = afterGrantMappings.find((mapping) => mapping.nativeToolIds.includes('documents.create'));
     assert.ok(nativeMapping);
     assert.equal(nativeMapping.reviewState, 'reviewed');
+
+    await db.query(
+      `UPDATE capability_routing_mappings SET review_state='draft',reviewed_by=NULL
+       WHERE workspace_id=$1 AND id=$2`,
+      ['workspace-1', nativeMapping.id]
+    );
+    const coordinatedReadiness = await computeWorkflowReadiness({
+      ...(await getWorkflowDefinition('workspace-1', 'cluster-triage'))!,
+      agentIds: [before.id, 'agent-incident-reporter'],
+      executionMode: 'coordinated'
+    });
+    assert.deepEqual(coordinatedReadiness, { status: 'ready', reasons: [] });
 
     const dependentAfterGrant = await getWorkflowDefinition('workspace-1', 'cluster-triage');
     assert.equal(dependentAfterGrant?.readiness.status, 'ready');

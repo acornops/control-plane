@@ -74,7 +74,6 @@ function scheduleInput(enabled = true): Record<string, unknown> {
     timezone: 'UTC',
     enabled,
     principal: { type: 'user', id: 'user-1' },
-    approvedContextGrants: ['workspace_metadata']
   };
 }
 

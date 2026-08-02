@@ -58,14 +58,14 @@ describe('workflow external integration access', () => {
     await updateAgentDefinition('workspace-1', 'agent-incident-reporter', { permissionMode: 'ask_before_changes' });
     const readWriteResponse = await callController(createSession, createExternalIntegrationRequest(
       { workflowId: 'cluster-triage' },
-      { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata'] }
+      { workspaceId: 'workspace-1' }
     ));
     assert.equal(readWriteResponse.statusCode, 403);
     assert.match((readWriteResponse.body as { error: { message: string } }).error.message, /does not permit/);
 
     const approvalGatedResponse = await callController(createSession, createExternalIntegrationRequest(
       { workflowId: 'incident-report-pdf' },
-      { workspaceId: 'workspace-1', approvedContextGrants: [] }
+      { workspaceId: 'workspace-1' }
     ));
     assert.equal(approvalGatedResponse.statusCode, 403);
     assert.match((approvalGatedResponse.body as { error: { message: string } }).error.message, /does not permit/);
@@ -73,7 +73,7 @@ describe('workflow external integration access', () => {
     installExternalWriteGrant();
     const writeEnabledRequest = withWriteCapability(createExternalIntegrationRequest(
       { workflowId: 'incident-report-pdf' },
-      { workspaceId: 'workspace-1', approvedContextGrants: [] }
+      { workspaceId: 'workspace-1' }
     ));
     const writeEnabledResponse = await callController(createSession, writeEnabledRequest);
     assert.equal(writeEnabledResponse.statusCode, 201);
@@ -81,7 +81,7 @@ describe('workflow external integration access', () => {
     await updateWorkflowDefinitionScope('workspace-1', 'cluster-triage', { status: 'paused' });
     const pausedResponse = await callController(createSession, createExternalIntegrationRequest(
       { workflowId: 'cluster-triage' },
-      { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata'] }
+      { workspaceId: 'workspace-1' }
     ));
     assert.equal(pausedResponse.statusCode, 403);
     assert.equal((pausedResponse.body as { error: { code: string } }).error.code, 'WORKFLOW_NOT_AVAILABLE_FOR_EXTERNAL_INTEGRATION');
@@ -91,7 +91,7 @@ describe('workflow external integration access', () => {
     assert.deepEqual((listResponse.body as { items: Array<{ id: string }> }).items, []);
   });
 
-  it('requires create_sessions and exact context grants before external workflow sessions are created', async () => {
+  it('requires create_sessions before external workflow sessions are created', async () => {
     installWorkspace('operator');
 
     repo.getExternalIntegrationWorkspaceGrant = async () => ({
@@ -103,34 +103,24 @@ describe('workflow external integration access', () => {
     });
     const missingCapabilityResponse = await callController(createSession, createExternalIntegrationRequest(
       { workflowId: 'cluster-triage' },
-      { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata'] }
+      { workspaceId: 'workspace-1' }
     ));
     assert.equal(missingCapabilityResponse.statusCode, 403);
     assert.equal((missingCapabilityResponse.body as { error: { code: string } }).error.code, 'WORKFLOW_NOT_AVAILABLE_FOR_EXTERNAL_INTEGRATION');
 
     installWorkspace('operator');
-    const missingGrantResponse = await callController(createSession, createExternalIntegrationRequest(
+    const allowedResponse = await callController(createSession, createExternalIntegrationRequest(
       { workflowId: 'cluster-triage' },
-      { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata'] }
+      { workspaceId: 'workspace-1' }
     ));
-    assert.equal(missingGrantResponse.statusCode, 201);
-
-    const extraGrantResponse = await callController(createSession, createExternalIntegrationRequest(
-      { workflowId: 'cluster-triage' },
-      { workspaceId: 'workspace-1', approvedContextGrants: ['workspace_metadata', 'audit_events'] }
-    ));
-    assert.equal(extraGrantResponse.statusCode, 400);
-    assert.equal((extraGrantResponse.body as { error: { code: string } }).error.code, 'WORKFLOW_CONTEXT_GRANT_UNKNOWN');
+    assert.equal(allowedResponse.statusCode, 201);
   });
 
   it('requires a new request id and exact integration-link ownership for session replies', async () => {
     installWorkspace('operator');
     const sessionResponse = await callController(createSession, createExternalIntegrationRequest(
       { workflowId: 'cluster-triage' },
-      {
-        workspaceId: 'workspace-1',
-        approvedContextGrants: ['workspace_metadata']
-      }
+      { workspaceId: 'workspace-1' }
     ));
     assert.equal(sessionResponse.statusCode, 201);
     const sessionId = (sessionResponse.body as { session: { id: string } }).session.id;
@@ -188,7 +178,7 @@ describe('workflow external integration access', () => {
 
     const sessionResponse = await callController(createSession, withWriteCapability(createExternalIntegrationRequest(
       { workflowId: 'incident-report-pdf' },
-      { workspaceId: 'workspace-1', approvedContextGrants: [] }
+      { workspaceId: 'workspace-1' }
     )));
     assert.equal(sessionResponse.statusCode, 201);
     const sessionId = (sessionResponse.body as { session: { id: string } }).session.id;

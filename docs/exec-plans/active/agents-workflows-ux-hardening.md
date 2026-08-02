@@ -50,6 +50,6 @@ versioning, approval, and scheduler safety behavior.
 
 - Workspace MCP definitions are delegated to llm-gateway with explicit workspace scope; the control plane no longer stores or synthetically tests them.
 - New workspaces seed no external repository MCP server or provider-specific tools.
-- Agent grants are authoritative. Empty workflow restrictions inherit the selected agent's enabled MCP servers, tools, skills, and context grants; non-empty restrictions only narrow them.
+- Agent capabilities are authoritative. Workflows inherit the selected Agent's enabled MCP servers, tools, and skills; prompt context is authorized through explicit resource bindings.
 - Launch fails with `WORKFLOW_CAPABILITY_NOT_READY` or `WORKFLOW_AGENT_SCOPE_DENIED` when a selected capability is disconnected, disabled, deleted, or no longer granted.
 - The workflow-options contract no longer contains a repository catalog.

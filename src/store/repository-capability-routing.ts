@@ -18,7 +18,6 @@ function mapRow(row: Row): CapabilityRoutingMapping {
     mcpTools: row.mcp_tools || [],
     nativeToolIds: row.native_tool_ids || [],
     skillIds: row.skill_ids || [],
-    contextGrants: row.context_grants || [],
     createdBy: row.created_by,
     reviewedBy: row.reviewed_by || undefined,
     createdAt: iso(row.created_at),
@@ -55,8 +54,8 @@ export async function createCapabilityRoutingMapping(input: Omit<
   const result = await db.query<Row>(
     `INSERT INTO capability_routing_mappings (
        workspace_id,id,capability_id,agent_id,status,review_state,priority,
-       mcp_tools,native_tool_ids,skill_ids,context_grants,created_by,reviewed_by
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+       mcp_tools,native_tool_ids,skill_ids,created_by,reviewed_by
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
     [
       input.workspaceId,
       randomUUID(),
@@ -68,7 +67,6 @@ export async function createCapabilityRoutingMapping(input: Omit<
       JSON.stringify(input.mcpTools),
       JSON.stringify(input.nativeToolIds),
       JSON.stringify(input.skillIds),
-      JSON.stringify(input.contextGrants),
       input.createdBy,
       input.reviewedBy || null
     ]
@@ -114,9 +112,8 @@ export async function upsertPlatformCapabilityRoutingMapping(input: Omit<
   const result = await queryable.query<Row>(
     `INSERT INTO capability_routing_mappings (
        workspace_id,id,capability_id,agent_id,status,review_state,priority,
-       mcp_tools,native_tool_ids,skill_ids,
-       context_grants,created_by,reviewed_by
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       mcp_tools,native_tool_ids,skill_ids,created_by,reviewed_by
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
      ON CONFLICT (workspace_id,id) DO UPDATE SET
        capability_id=EXCLUDED.capability_id,
        agent_id=EXCLUDED.agent_id,
@@ -126,7 +123,6 @@ export async function upsertPlatformCapabilityRoutingMapping(input: Omit<
        mcp_tools=EXCLUDED.mcp_tools,
        native_tool_ids=EXCLUDED.native_tool_ids,
        skill_ids=EXCLUDED.skill_ids,
-       context_grants=EXCLUDED.context_grants,
        reviewed_by=EXCLUDED.reviewed_by,
        updated_at=NOW()
      RETURNING *`,
@@ -134,7 +130,7 @@ export async function upsertPlatformCapabilityRoutingMapping(input: Omit<
       input.workspaceId, input.id, input.capabilityId, input.agentId,
       input.status, input.reviewState, input.priority, JSON.stringify(input.mcpTools),
       JSON.stringify(input.nativeToolIds), JSON.stringify(input.skillIds),
-      JSON.stringify(input.contextGrants), input.createdBy, input.reviewedBy || null
+      input.createdBy, input.reviewedBy || null
     ]
   );
   return mapRow(result.rows[0]);

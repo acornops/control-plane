@@ -13,7 +13,7 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         authorizationClass: { type: 'string', enum: ['prompt_resource', 'internal_artifact', 'external_http_read'] },
         auditOperation: { type: 'string', enum: ['read', 'write'] },
         approvalOperation: { type: 'string', enum: ['read', 'write'] },
-        requiredContextGrant: { type: 'string' }, configSchema: jsonObject,
+        configSchema: jsonObject,
         inputSchema: jsonObject, outputSchema: jsonObject
       },
       additionalProperties: false
@@ -49,7 +49,6 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         nativeToolConfigs: jsonObject,
         skills: stringArray,
         skillInstallations: { type: 'array', items: schemaRef('AgentSkill') },
-        contextGrants: stringArray,
         approvalPolicy: jsonObject,
         trustPolicy: jsonObject,
         permissionMode: { type: 'string', enum: ['read_only', 'ask_before_changes', 'auto_allowed_changes'] },
@@ -69,7 +68,7 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
       type: 'object',
       required: ['source', 'resourceType', 'resourceScope', 'operation', 'requiresApproval'],
       properties: {
-        source: { type: 'string', enum: ['builtin_tool', 'mcp_tool', 'skill', 'context'] },
+        source: { type: 'string', enum: ['builtin_tool', 'mcp_tool', 'skill'] },
         providerAgentId: { type: 'string' },
         resourceType: { type: 'string' },
         resourceScope: { type: 'string' },
@@ -90,7 +89,6 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         status: { type: 'string', enum: ['active', 'disabled', 'draft'] },
         providerType: { type: 'string', enum: ['internal', 'external'] },
         ownerUserId: { type: 'string' },
-        contextGrants: stringArray,
         approvalPolicy: jsonObject,
         trustPolicy: jsonObject,
         permissionMode: { type: 'string', enum: ['read_only', 'ask_before_changes', 'auto_allowed_changes'] },

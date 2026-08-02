@@ -14,7 +14,6 @@ export interface WorkspaceNativeToolDefinition {
   authorizationClass: NativeToolAuthorizationClass;
   auditOperation: WorkspaceAuditOperation;
   approvalOperation: WorkspaceAuditOperation;
-  requiredContextGrant?: string;
   configSchema?: Record<string, unknown>;
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;

@@ -8,17 +8,6 @@ export function isExternalIntegrationRequest(req: AuthenticatedRequest): boolean
   return req.auth.credential?.type === 'external_integration';
 }
 
-export async function validateApprovedContextGrants(
-  workflow: WorkflowDefinitionForAccess,
-  approvedContextGrants: string[]
-): Promise<{ extra: string[] }> {
-  const required = new Set((await resolveWorkflowAgentCapabilities(workflow)).contextGrants);
-  const approved = new Set(approvedContextGrants);
-  return {
-    extra: [...approved].filter((grant) => !required.has(grant)).sort((left, right) => left.localeCompare(right))
-  };
-}
-
 export async function externalWorkflowBlocker(
   workflow: WorkflowDefinitionForAccess,
   authz: WorkspaceAuthorization

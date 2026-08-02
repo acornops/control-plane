@@ -264,9 +264,6 @@ function parseRunScopeClaims(payload: JWTPayload): VerifiedRunScopeClaims {
     allowedToolOperations: toolOperationMapClaim(permissionObject.allowed_tool_operations),
     allowedModels: stringArrayClaim(permissionObject.allowed_models, 'allowed_models'),
     maxOutputTokens: typeof maxOutputTokens === 'number' ? maxOutputTokens : undefined,
-    contextGrants: permissionObject.context_grants === undefined
-      ? []
-      : stringArrayClaim(permissionObject.context_grants, 'context_grants'),
     resourceBindings,
     bindingDigest
   };
@@ -366,10 +363,6 @@ export class GatewayTokenService {
       input.bindingDigest,
       input.workspaceId
     ));
-    if (input.scopeType === 'workspace' || input.scopeType === 'agent_chat') {
-      permissionPayload.context_grants = input.contextGrants || [];
-    }
-
     const principal = input.principal || (input.userId ? { type: 'user' as const, id: input.userId } : undefined);
     if (!principal) throw new Error('Run principal is required to sign a gateway token');
     const payload: JWTPayload = {

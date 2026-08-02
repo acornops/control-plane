@@ -192,7 +192,6 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
         status: { type: 'string', enum: ['enabled', 'paused'] },
         cron: { type: 'string' },
         timezone: { type: 'string' },
-        approvedContextGrants: stringArray,
         principal: {
           type: 'object',
           required: ['type', 'id'],

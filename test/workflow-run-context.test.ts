@@ -60,7 +60,6 @@ describe('generic Workflow run context', () => {
         role: 'operator',
         permissions: getWorkspacePermissions('operator')
       },
-      approvedContextGrants: [],
       resourceBindings: [binding],
       bindingDigest: digestBindings([binding])
     });

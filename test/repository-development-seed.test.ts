@@ -62,16 +62,15 @@ describe('development target seed', () => {
         if (sql.includes('INSERT INTO agent_definitions')) {
           const values = params || [];
           const row = {
-            workspace_id: values[0], id: values[1], name: values[2], avatar_emoji: values[21], description: values[3],
+            workspace_id: values[0], id: values[1], name: values[2], avatar_emoji: values[20], description: values[3],
             instructions: values[4], status: 'active', review_state: values[5], provider_type: values[6],
             owner_user_id: values[7], created_by: values[8], mcp_servers: JSON.parse(String(values[9])),
             mcp_tools: JSON.parse(String(values[10])), mcp_installations: JSON.parse(String(values[11])),
             tools: JSON.parse(String(values[12])), native_tool_configs: JSON.parse(String(values[13])),
             skills: JSON.parse(String(values[14])), skill_installations: JSON.parse(String(values[15])),
-            context_grants: JSON.parse(String(values[16])),
-            approval_policy: values[17], trust_policy: values[18], permission_mode: values[19],
-            semantic_capability_ids: JSON.parse(String(values[20])),
-            readiness_status: 'needs_setup', readiness_reasons: JSON.parse(String(values[22])),
+            approval_policy: values[16], trust_policy: values[17], permission_mode: values[18],
+            semantic_capability_ids: JSON.parse(String(values[19])),
+            readiness_status: 'needs_setup', readiness_reasons: JSON.parse(String(values[21])),
             created_at: new Date(), updated_at: new Date()
           };
           agentRows.set(String(values[1]), row);
@@ -88,8 +87,7 @@ describe('development target seed', () => {
             agent_id: values[3], status: values[4], review_state: values[5],
             priority: values[6], mcp_tools: JSON.parse(String(values[7])),
             native_tool_ids: JSON.parse(String(values[8])), skill_ids: JSON.parse(String(values[9])),
-            context_grants: JSON.parse(String(values[10])), created_by: values[11],
-            reviewed_by: values[12], created_at: new Date(), updated_at: new Date()
+            created_by: values[10], reviewed_by: values[11], created_at: new Date(), updated_at: new Date()
           }] };
         }
         if (sql.includes('INSERT INTO workflow_definitions')) {

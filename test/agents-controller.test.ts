@@ -69,7 +69,7 @@ describe('agents controller', () => {
       { agentId },
       { workspaceId: 'workspace-1', status: 'disabled' }
     ));
-    assert.equal(disabled.statusCode, 200);
+    assert.equal(disabled.statusCode, 200, JSON.stringify(disabled.body));
 
     const activeOnly = await callController(listAgents, createRequest({ workspaceId: 'workspace-1' }));
     assert.equal(activeOnly.statusCode, 200);
@@ -117,7 +117,6 @@ describe('agents controller', () => {
       { workspaceId: 'workspace-1' },
       {
         name: 'Cluster specialist', instructions: 'Inspect the selected cluster.',
-        contextGrants: ['workspace_metadata'],
         semanticCapabilityIds: ['infrastructure.diagnostics.read']
       }
     ));
@@ -139,7 +138,6 @@ describe('agents controller', () => {
     assert.ok(listAgent);
     assert.ok(listAgent.semanticCapabilityIds.includes('infrastructure.diagnostics.read'));
     assert.equal(listAgent.capabilities?.some((capability) => capability.source === 'target'), false);
-    assert.ok(listAgent.capabilities?.some((capability) => capability.source === 'context' && capability.resourceScope === 'workspace_metadata'));
 
     const fetched = await callController(getAgent, createRequest(
       { agentId },
@@ -187,7 +185,6 @@ describe('agents controller', () => {
         description: 'Coordinates release checks.',
         instructions: 'Prepare release notes and ask before write tools.',
         providerType: 'internal',
-        contextGrants: ['workspace_metadata'],
         approvalPolicy: { mode: 'before_write', writeToolsRequireApproval: true }
       }
     ));
@@ -207,7 +204,7 @@ describe('agents controller', () => {
         avatarEmoji: '🧭'
       }
     ));
-    assert.equal(patched.statusCode, 200);
+    assert.equal(patched.statusCode, 200, JSON.stringify(patched.body));
     assert.equal((patched.body as { agent: { avatarEmoji: string } }).agent.avatarEmoji, '🧭');
 
     assert.deepEqual(auditEvents, [
@@ -301,8 +298,7 @@ describe('agents controller', () => {
         instructions: 'Use tools that are not registered.',
         mcpServers: ['missing-server'],
         tools: ['missing.tool'],
-        skills: ['missing-skill'],
-        contextGrants: ['missing_context']
+        skills: ['missing-skill']
       }
     ));
 

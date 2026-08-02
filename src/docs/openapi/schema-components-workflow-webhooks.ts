@@ -1,4 +1,4 @@
-import { dateTime, type JsonSchema, schemaRef, stringArray, uuid } from './schema-types.js';
+import { dateTime, type JsonSchema, schemaRef, uuid } from './schema-types.js';
 
 export function buildWorkflowWebhookSchemas(): Record<string, JsonSchema> {
   return {
@@ -10,7 +10,6 @@ export function buildWorkflowWebhookSchemas(): Record<string, JsonSchema> {
         'workflowId',
         'name',
         'status',
-        'approvedContextGrants',
         'principal',
         'endpointUrl'
       ],
@@ -20,7 +19,6 @@ export function buildWorkflowWebhookSchemas(): Record<string, JsonSchema> {
         workflowId: { type: 'string', example: 'workflow-cluster-daily-triage' },
         name: { type: 'string', minLength: 1, maxLength: 120 },
         status: { type: 'string', enum: ['enabled', 'paused'] },
-        approvedContextGrants: stringArray,
         principal: {
           type: 'object',
           required: ['type', 'id'],

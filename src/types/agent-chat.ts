@@ -19,7 +19,6 @@ export interface CompiledAgentChatAccessScope {
   toolOperations: Record<string, WorkspaceAuditOperation>;
   nativeToolConfigs: Record<string, Record<string, unknown>>;
   enabledSkills: string[];
-  contextGrants: string[];
   approvalGates: string[];
   permissionMode: RunPermissionMode;
   principal: RunPrincipalRef;

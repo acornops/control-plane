@@ -311,14 +311,9 @@ Content-Type: application/json
 
 ```json
 {
-  "workspaceId": "workspace-id",
-  "approvedContextGrants": ["workspace_metadata", "target_inventory"]
+  "workspaceId": "workspace-id"
 }
 ```
-
-`approvedContextGrants` must exactly match the union of context grants on the
-Agents assigned to the Workflow. Missing grants return `WORKFLOW_CONTEXT_GRANT_DENIED`.
-Unknown extra grants return `WORKFLOW_CONTEXT_GRANT_UNKNOWN`.
 
 Persist the returned `session.id` as the adapter's external-thread mapping.
 Only the exact integration link and client that created the Workflow session

@@ -21,7 +21,6 @@ export interface CompileWorkflowAccessInput {
   specialistAgent?: AgentDefinition;
   mappings: CapabilityRoutingMapping[];
   actor: WorkflowAccessActor;
-  approvedContextGrants: string[];
   resourceBindings?: PromptResourceBinding[];
   promptDigest?: string;
   bindingDigest?: string;
@@ -79,7 +78,6 @@ function assertSelectedAgents(input: CompileWorkflowAccessInput): void {
 
 function validateCommon(input: CompileWorkflowAccessInput): {
   requiredPermissions: WorkspaceCapability[];
-  requestedContext: string[];
   principal: RunPrincipalRef;
 } {
   assertSelectedAgents(input);
@@ -92,25 +90,14 @@ function validateCommon(input: CompileWorkflowAccessInput): {
       { missingPermissions }
     );
   }
-  const requestedContext = uniqueSorted(input.selectedAgents.flatMap((agent) => agent.contextGrants));
-  const approved = new Set(input.approvedContextGrants);
-  const missingContextGrants = requestedContext.filter((grant) => !approved.has(grant));
-  if (missingContextGrants.length) {
-    throw new WorkflowAccessDeniedError(
-      'WORKFLOW_CONTEXT_GRANT_DENIED',
-      'Workflow context grants require explicit server-side approval.',
-      { missingContextGrants }
-    );
-  }
   return {
     requiredPermissions,
-    requestedContext,
     principal: input.principal || { type: 'user', id: input.actor.userId }
   };
 }
 
 export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): CompiledWorkflowAccessScope {
-  const { requiredPermissions, requestedContext, principal } = validateCommon(input);
+  const { requiredPermissions, principal } = validateCommon(input);
   const coordinator = !input.specialistAgent;
   const specialist = input.specialistAgent;
   const effectiveCapabilityIds = uniqueSorted((specialist ? [specialist] : input.selectedAgents)
@@ -150,17 +137,12 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
     .filter((toolId) => effectiveTools.includes(toolId) && specialist?.nativeToolConfigs[toolId])
     .map((toolId) => [toolId, structuredClone(specialist!.nativeToolConfigs[toolId])]));
   const effectiveRefs = mcpTools.filter((ref) => mode === 'read_write' || ref.operation === 'read');
-  const contextGrants = uniqueSorted([
-    ...requestedContext,
-    ...(specialist?.contextGrants || [])
-  ]);
   const permissionMode = mode === 'read_only' || !specialist || specialist.permissionMode === 'read_only'
     ? 'read_only'
     : specialist.permissionMode;
   const executor = specialist
     ? { role: 'specialist' as const, agentId: specialist.id }
     : { role: 'coordinator' as const };
-  const executorContextGrants = coordinator ? [] : contextGrants;
   const executorResourceBindings = coordinator ? [] : [...(input.resourceBindings || [])];
 
   return {
@@ -180,7 +162,6 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
     enabledSkills: coordinator ? [] : uniqueSorted([
       ...specialist!.skillInstallations.filter((skill) => skill.enabled).map((skill) => skill.id)
     ]),
-    contextGrants: executorContextGrants,
     approvalGates: [],
     permissionMode,
     principal,
@@ -202,7 +183,6 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
         allowed_tools: effectiveTools,
         allowed_tool_refs: effectiveRefs.map((ref) => ({ server_id: ref.serverId, tool_name: ref.toolName })),
         allowed_tool_operations: toolOperations,
-        context_grants: executorContextGrants,
         resource_bindings: executorResourceBindings.map((binding) => ({
           binding_id: binding.bindingId,
           type: binding.type,
@@ -219,7 +199,7 @@ export function compileWorkflowAccessScope(input: CompileWorkflowAccessInput): C
 export function compileWorkflowSessionCeiling(
   input: CompileWorkflowAccessInput
 ): CompiledWorkflowAccessScope {
-  const { requiredPermissions, requestedContext, principal } = validateCommon({ ...input, mappings: [] });
+  const { requiredPermissions, principal } = validateCommon({ ...input, mappings: [] });
   const specialist = input.workflow.executionMode === 'direct' ? input.selectedAgents[0] : undefined;
   const executor = specialist
     ? { role: 'specialist' as const, agentId: specialist.id }
@@ -235,7 +215,6 @@ export function compileWorkflowSessionCeiling(
     grantedCapabilities: requiredPermissions,
     mcpServers: [], mcpTools: [], tools: [], toolOperations: {},
     nativeToolConfigs: {}, enabledSkills: [],
-    contextGrants: requestedContext,
     approvalGates: [],
     permissionMode: specialist
       ? specialist.permissionMode
@@ -253,8 +232,7 @@ export function compileWorkflowSessionCeiling(
       executor_role: executor.role,
       ...(specialist ? { agent_id: specialist.id } : {}),
       permissions: {
-        allowed_tools: [], allowed_tool_refs: [], allowed_tool_operations: {},
-        context_grants: requestedContext, resource_bindings: []
+        allowed_tools: [], allowed_tool_refs: [], allowed_tool_operations: {}, resource_bindings: []
       }
     }
   };

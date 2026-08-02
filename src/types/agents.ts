@@ -69,7 +69,7 @@ export interface AgentTrustPolicy {
 }
 
 export interface AgentCapability {
-  source: 'builtin_tool' | 'mcp_tool' | 'skill' | 'context';
+  source: 'builtin_tool' | 'mcp_tool' | 'skill';
   providerAgentId?: string;
   resourceType: string;
   resourceScope: string;
@@ -99,7 +99,6 @@ export interface AgentDefinition {
   nativeToolConfigs: Record<string, Record<string, unknown>>;
   skills: string[];
   skillInstallations: AgentSkillInstallationSnapshot[];
-  contextGrants: string[];
   approvalPolicy: AgentApprovalPolicy;
   trustPolicy: AgentTrustPolicy;
   permissionMode: RunPermissionMode;

@@ -76,7 +76,6 @@ export async function bootstrapAgentChatRun(run: Run, res: Response): Promise<vo
     allowedToolRefs: tools.allowedToolRefs,
     allowedNativeTools: tools.allowedNativeTools,
     allowedToolOperations: tools.allowedToolOperations,
-    contextGrants: scope.contextGrants,
     resourceBindings: scope.resourceBindings,
     bindingDigest: scope.bindingDigest,
     maxOutputTokens: config.LLM_MAX_OUTPUT_TOKENS,

@@ -9,7 +9,6 @@ export async function getWorkflowScheduleMcpReadinessReport(input: {
   workflow: WorkflowDefinitionForAccess;
   actor: WorkflowAccessActor;
   principal: RunPrincipalRef;
-  approvedContextGrants: string[];
   resolution: {
     bindings: PromptResourceBinding[];
     promptDigest: string;
@@ -19,7 +18,6 @@ export async function getWorkflowScheduleMcpReadinessReport(input: {
   const compiled = await compileWorkflowScope({
     workflow: input.workflow,
     actor: input.actor,
-    approvedContextGrants: input.approvedContextGrants,
     resourceBindings: input.resolution.bindings,
     promptDigest: input.resolution.promptDigest,
     bindingDigest: input.resolution.bindingDigest

@@ -40,7 +40,6 @@ function agent(id: string): AgentDefinition {
     nativeToolConfigs: {},
     skills: [],
     skillInstallations: [],
-    contextGrants: ['workspace_metadata'],
     approvalPolicy: { mode: 'none', writeToolsRequireApproval: false },
     trustPolicy: { level: 'restricted', allowExternalData: false },
     permissionMode: 'read_only',
@@ -78,7 +77,6 @@ function mapping(specialist: AgentDefinition, priority = 10): CapabilityRoutingM
     }],
     nativeToolIds: ['workspace.metadata.read'],
     skillIds: [],
-    contextGrants: ['workspace_metadata'],
     createdBy: 'owner-1',
     createdAt: '2026-07-01T00:00:00.000Z',
     updatedAt: '2026-07-01T00:00:00.000Z'
@@ -99,8 +97,7 @@ describe('Workflow executor scope compiler', () => {
       selectedAgents: [specialist],
       specialistAgent: specialist,
       mappings: [mapping(specialist)],
-      actor,
-      approvedContextGrants: ['workspace_metadata']
+      actor
     });
 
     assert.deepEqual(compiled.executor, { role: 'specialist', agentId: 'agent-a' });
@@ -121,8 +118,7 @@ describe('Workflow executor scope compiler', () => {
       selectedAgents: [specialist],
       specialistAgent: specialist,
       mappings: [],
-      actor,
-      approvedContextGrants: ['workspace_metadata']
+      actor
     });
 
     assert.equal(compiled.resourceBindings.length, 0);
@@ -150,8 +146,7 @@ describe('Workflow executor scope compiler', () => {
         ...mapping(specialist),
         nativeToolIds: ['http.fetch.get']
       }],
-      actor,
-      approvedContextGrants: ['workspace_metadata']
+      actor
     });
 
     assert.deepEqual(compiled.nativeToolConfigs, specialist.nativeToolConfigs);
@@ -187,8 +182,7 @@ describe('Workflow executor scope compiler', () => {
       selectedAgents: [specialist],
       specialistAgent: specialist,
       mappings: [mapping(specialist)],
-      actor,
-      approvedContextGrants: ['workspace_metadata']
+      actor
     });
 
     assert(compiled.tools.includes('host_summary'));
@@ -203,8 +197,7 @@ describe('Workflow executor scope compiler', () => {
       workflow: workflow(agents),
       selectedAgents: agents,
       mappings: agents.map((value) => mapping(value)),
-      actor,
-      approvedContextGrants: ['workspace_metadata']
+      actor
     });
 
     assert.equal(compiled.executor.role, 'coordinator');
@@ -213,7 +206,6 @@ describe('Workflow executor scope compiler', () => {
     assert.deepEqual(compiled.tools, []);
     assert.deepEqual(compiled.mcpServers, []);
     assert.deepEqual(compiled.enabledSkills, []);
-    assert.deepEqual(compiled.contextGrants, []);
     assert.deepEqual(compiled.resourceBindings, []);
     assert.deepEqual(compiled.selectedAgentSnapshots, []);
     assert.deepEqual(compiled.coordinationFunctions, COORDINATOR_FUNCTIONS);
@@ -226,8 +218,7 @@ describe('Workflow executor scope compiler', () => {
       workflow: definition,
       selectedAgents: agents,
       mappings: agents.map((value) => mapping(value)),
-      actor,
-      approvedContextGrants: ['workspace_metadata']
+      actor
     });
     const child = compileWorkflowAccessScope({
       workflow: definition,
@@ -235,7 +226,6 @@ describe('Workflow executor scope compiler', () => {
       specialistAgent: agents[1],
       mappings: [mapping(agents[1])],
       actor,
-      approvedContextGrants: ['workspace_metadata'],
       delegatedSpecialist: true
     });
 
@@ -257,8 +247,7 @@ describe('Workflow executor scope compiler', () => {
         selectedAgents: [inactive],
         specialistAgent: inactive,
         mappings: [],
-        actor,
-        approvedContextGrants: ['workspace_metadata']
+        actor
       }),
       (error) => error instanceof WorkflowAccessDeniedError && error.code === 'WORKFLOW_AGENT_SCOPE_DENIED'
     );
@@ -269,8 +258,7 @@ describe('Workflow executor scope compiler', () => {
       selectedAgents: [specialist],
       specialistAgent: specialist,
       mappings: [],
-      actor,
-      approvedContextGrants: ['workspace_metadata']
+      actor
     }));
   });
 

@@ -40,7 +40,6 @@ import {
   externalWorkflowBlocker,
   isExternalIntegrationRequest,
   isExternallyRunnableWorkflow,
-  validateApprovedContextGrants,
   workflowAuditActor
 } from './workflow-external-access.js';
 import { externalIntegrationOwnsWorkflowSession } from './workflow-execution-access.js';
@@ -69,12 +68,6 @@ function requireWorkflowWorkspaceId(req: AuthenticatedRequest, res: Response): s
     res.status(400).json({ error: { code: 'WORKFLOW_WORKSPACE_REQUIRED', message: 'workspaceId is required.', retryable: false } });
   }
   return workspaceId;
-}
-
-function approvedContextGrants(req: AuthenticatedRequest): string[] {
-  return Array.isArray(req.body.approvedContextGrants)
-    ? req.body.approvedContextGrants.filter((value: unknown): value is string => typeof value === 'string')
-    : [];
 }
 
 export { previewWorkflowCapabilities } from './workflow-capability-preview-controller.js';
@@ -163,20 +156,10 @@ export async function createSession(req: AuthenticatedRequest, res: Response, ne
           retryable: false
         } });
       }
-      const grantValidation = await validateApprovedContextGrants(workflow, approvedContextGrants(req));
-      if (grantValidation.extra.length > 0) {
-        return void res.status(400).json({ error: {
-          code: 'WORKFLOW_CONTEXT_GRANT_UNKNOWN',
-          message: 'approvedContextGrants includes grants that are not required by this workflow.',
-          retryable: false,
-          details: { extraContextGrants: grantValidation.extra }
-        } });
-      }
     }
     const compiled = await compileWorkflowScope({
       workflow,
       actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
-      approvedContextGrants: approvedContextGrants(req),
       resolutionPhase: 'session_ceiling'
     });
     const session = await createWorkflowSession({
@@ -319,7 +302,6 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
     const compiled = await compileWorkflowScope({
       workflow,
       actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
-      approvedContextGrants: session.compiledAccessScope.contextGrants,
       resourceBindings: resolution.bindings,
       promptDigest: resolution.promptDigest,
       bindingDigest: resolution.bindingDigest

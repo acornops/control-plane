@@ -146,19 +146,19 @@
       },
       "workflowCapabilityCeiling": {
         "rule": "A workflow selects one or more active reviewed specialist Agents and derives its complete effective capability ceiling from those assigned Agent snapshots at session creation.",
-        "agentOnlyAdditions": ["native_tools", "mcp_servers", "mcp_tools", "skills", "context_grants"],
+        "agentOnlyAdditions": ["native_tools", "mcp_servers", "mcp_tools", "skills"],
         "runtimeToolIdentity": "McpToolRef{serverId,toolName}"
       },
       "workflowRuntimeLimits": {
         "authority": "ASSISTANT_MAX_RUNTIME_MS is the only workflow execution limit and GENERATED_DOCUMENT_RETENTION_DAYS is the only generated-document retention policy.",
         "mutationContract": "Workflow mutations accept no capability, context, permission, approval, runtime, or retention policy. Deployment runtime and retention configuration remains authoritative.",
         "options": "Workflow option catalogs expose assignable Agents only.",
-        "capabilities": "Workflow capability mode and context are derived from assigned Agents."
+        "capabilities": "Workflow capability mode is derived from assigned Agents; prompt context is authorized through explicit resource bindings."
       },
       "workflowCapabilityPreview": {
         "path": "POST /api/v1/workflows/{workflowId}/capabilities-preview",
         "authorization": "Requires workspace-data read and the workflow mode's run-creation capability.",
-        "snapshot": "Assigned Agents, reviewed mappings, and available tool routes are evaluated from one request snapshot. Workflows never select or persist a target.",
+        "snapshot": "Assigned Agents, assigned workspace-native tools, reviewed mappings for other semantic capabilities, and available tool routes are evaluated from one request snapshot. Workflows never select or persist a target.",
         "statuses": [
           "ready",
           "blocked"
@@ -178,7 +178,7 @@
           "documents.create": "acornops_create_document"
         },
         "ownership": "Control-plane code owns workspace-native metadata, schemas, authorization class, audit operation, and execution.",
-        "assignment": "manage_agents grants, updates, or revokes a tool on a specialist Agent and transactionally rebinds exact reviewed mappings and dependent readiness; optional code-validated config is accepted on PUT, revoke clears config, and bodyless grants remain valid for unconfigured tools; manage_mcp is not required.",
+        "assignment": "manage_agents grants, updates, or revokes a tool on a specialist Agent; the assignment itself is reviewed routing authority and dependent readiness is recomputed without a second mapping review. Optional code-validated config is accepted on PUT, revoke clears config, and bodyless grants remain valid for unconfigured tools; manage_mcp is not required.",
         "invocationScopePolicy": "Workspace-native declarations carry invocationScopes. http.fetch.get is Agent-owned and supports Agent chat plus direct or delegated runs executed by that Agent; documents.create supports workflow, target_chat, and agent_chat.",
         "artifactSafety": "documents.create is a control-plane-owned internal_artifact available to workflows, target chat, and Agent chat without crossing the target-adapter boundary. It is allowed in read-only runs without write approval, persisted as a write audit event, bounded, provenance-linked, authenticated, and idempotent by workflow or interactive run plus tool_call_id.",
         "fetchSafety": "http.fetch.get accepts only a concrete url and executes unauthenticated public HTTPS GET in the control plane against one to 20 run-snapshotted full-URL patterns. Wildcards are restricted to path/query. DNS is public-only and pinned, redirects and IP literals are blocked, timeout is 15 seconds, decompressed output is capped at 256 KiB, and only JSON or text is returned as untrusted external data. Audits and metrics omit full URLs, queries, and bodies.",
@@ -481,14 +481,12 @@
         "workflowWebhook": [
           "workflowId",
           "name",
-          "enabled?",
-          "approvedContextGrants[]?"
+          "enabled?"
         ],
         "workflowWebhookUpdate": [
           "workspaceId",
           "name?",
           "enabled?",
-          "approvedContextGrants[]?",
           "no workflowId, status, or principal"
         ],
         "catalogImport": [
@@ -513,8 +511,7 @@
           "followUp.{kind=follow_up,content,clientRequestId?}"
         ],
         "workflowCapabilityPreview": [
-          "workflowId",
-          "approvedContextGrants"
+          "workflowId"
         ],
         "workflowDefinitionMutation": [
           "prompt",
@@ -695,7 +692,6 @@
           "tools[]",
           "nativeToolConfigs",
           "skills[]",
-          "contextGrants[]",
           "approvalPolicy",
           "trustPolicy",
           "readiness.{status,reasons[]}"
@@ -765,7 +761,6 @@
           "status",
           "cron",
           "timezone",
-          "approvedContextGrants",
           "principal.{type=user,id}",
           "nextRunAt?",
           "lastRunAt?",
@@ -787,7 +782,6 @@
           "workflowId",
           "name",
           "status=enabled|paused",
-          "approvedContextGrants",
           "principal.{type=user,id}",
           "endpointUrl",
           "lastReceivedAt?",
@@ -1298,7 +1292,6 @@
         "agent_id forbidden for coordinator Workflow runs",
         "trigger_id?",
         "user_id? (required for individual MCP authorization)",
-        "permissions.context_grants",
         "scope.type=agent_chat requires agent_id while forbidding Workflow and top-level target identity claims",
         "Workflow and agent_chat MCP calls require the exact Agent server/tool pair in allowed_tool_refs; built-in AcornOps Targets calls use the same lookup without synthetic argument rebinding",
         "write tool calls receive a gateway-injected idempotencyKey derived from run_id and tool_call_id"

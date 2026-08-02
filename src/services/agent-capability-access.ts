@@ -56,7 +56,6 @@ export function compileAgentCapabilityProjection(input: {
   mode: CompiledAgentChatAccessScope['mode'];
   restrictionMode: CapabilityRestrictionMode;
   effectiveCapabilityIds: string[];
-  requestedContextGrants: string[];
   approvalGates: string[];
   resourceBindings?: PromptResourceBinding[];
   promptDigest?: string;
@@ -109,12 +108,6 @@ export function compileAgentCapabilityProjection(input: {
     .filter((toolId) => effectiveTools.includes(toolId) && input.agent.nativeToolConfigs[toolId])
     .map((toolId) => [toolId, structuredClone(input.agent.nativeToolConfigs[toolId])]));
   const effectiveRefs = mcpTools.filter((ref) => input.mode === 'read_write' || ref.operation === 'read');
-  const contextGrants = uniqueSorted([
-    ...input.requestedContextGrants,
-    ...(inheritAgentAttachments ? input.agent.contextGrants : []),
-    ...mappingAttachments.flatMap((mapping) => mapping.contextGrants)
-  ]);
-
   return {
     mode: input.mode,
     semanticCapabilityIds: input.effectiveCapabilityIds,
@@ -130,7 +123,6 @@ export function compileAgentCapabilityProjection(input: {
         : []),
       ...mappingAttachments.flatMap((mapping) => mapping.skillIds)
     ]),
-    contextGrants,
     approvalGates: uniqueSorted(input.approvalGates),
     permissionMode: input.mode === 'read_only' || input.agent.permissionMode === 'read_only'
       ? 'read_only'

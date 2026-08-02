@@ -16,7 +16,6 @@ function nowIso(now = new Date()): string {
 function cloneSchedule(schedule: WorkflowScheduleRecord): WorkflowScheduleRecord {
   return {
     ...schedule,
-    approvedContextGrants: [...schedule.approvedContextGrants],
     principal: { ...schedule.principal },
     createdBy: { ...schedule.createdBy },
     updatedBy: { ...schedule.updatedBy }
@@ -165,8 +164,7 @@ function mapSchedule(row: ScheduleRow): WorkflowScheduleRecord {
   return {
     id: row.id, workspaceId: row.workspace_id, workflowId: row.workflow_id,
     name: row.name, status: row.status,
-    cron: row.cron, timezone: row.timezone,
-    approvedContextGrants: row.approved_context_grants || [], createdBy: row.created_by,
+    cron: row.cron, timezone: row.timezone, createdBy: row.created_by,
     principal: row.principal,
     updatedBy: row.updated_by, createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
@@ -196,7 +194,6 @@ export async function createWorkflowSchedule(params: {
     status,
     cron: params.input.cron.trim(),
     timezone: params.input.timezone.trim(),
-    approvedContextGrants: [...new Set(params.input.approvedContextGrants || [])],
     principal: { ...params.input.principal },
     createdBy: { userId: params.actorUserId },
     updatedBy: { userId: params.actorUserId },
@@ -207,11 +204,11 @@ export async function createWorkflowSchedule(params: {
   const result = await db.query<ScheduleRow>(
     `INSERT INTO workflow_schedules (
       id,workspace_id,workflow_id,name,status,cron,timezone,
-      approved_context_grants,principal,created_by,updated_by,next_run_at,created_at,updated_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$11,$12,$12) RETURNING *`,
+      principal,created_by,updated_by,next_run_at,created_at,updated_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$11,$11) RETURNING *`,
     [schedule.id, schedule.workspaceId, schedule.workflowId, schedule.name,
-     schedule.status, schedule.cron, schedule.timezone, JSON.stringify(schedule.approvedContextGrants),
-     schedule.principal, schedule.createdBy, schedule.nextRunAt || null, schedule.createdAt]
+     schedule.status, schedule.cron, schedule.timezone, schedule.principal,
+     schedule.createdBy, schedule.nextRunAt || null, schedule.createdAt]
   );
   return mapSchedule(result.rows[0]);
 }
@@ -246,7 +243,6 @@ export async function updateWorkflowScheduleRecord(
     status,
     cron,
     timezone,
-    approvedContextGrants: patch.approvedContextGrants ? [...new Set(patch.approvedContextGrants)] : current.approvedContextGrants,
     principal: patch.principal ? { ...patch.principal } : current.principal,
     updatedBy: { userId: actorUserId },
     updatedAt: nowIso(now),
@@ -254,10 +250,10 @@ export async function updateWorkflowScheduleRecord(
   };
   const result = await db.query<ScheduleRow>(
     `UPDATE workflow_schedules SET workflow_id=$2,name=$3,status=$4,cron=$5,timezone=$6,
-      approved_context_grants=$7,principal=$8,updated_by=$9,next_run_at=$10,updated_at=$11
+      principal=$7,updated_by=$8,next_run_at=$9,updated_at=$10
      WHERE id=$1 RETURNING *`,
     [scheduleId, updated.workflowId, updated.name, updated.status, updated.cron,
-     updated.timezone, JSON.stringify(updated.approvedContextGrants), updated.principal, updated.updatedBy,
+     updated.timezone, updated.principal, updated.updatedBy,
      updated.nextRunAt || null, updated.updatedAt]
   );
   return result.rowCount ? mapSchedule(result.rows[0]) : null;

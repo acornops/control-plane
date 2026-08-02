@@ -102,7 +102,6 @@ describe('internal Agent Targets MCP bridge', () => {
       specialistAgent: specialist,
       mappings: [],
       actor,
-      approvedContextGrants: specialist.contextGrants
     });
     const scopeWithForgedAlias = {
       ...compiledAccessScope,
@@ -146,7 +145,6 @@ describe('internal Agent Targets MCP bridge', () => {
       allowedTools: ['targets_list_targets'],
       allowedToolRefs: [{ serverId, toolName: 'list_targets' }],
       allowedToolOperations: { targets_list_targets: 'read' },
-      contextGrants: []
     });
     await callMcpTool({
       body: {
@@ -179,7 +177,6 @@ describe('internal Agent Targets MCP bridge', () => {
       allowedTools: ['forged_list_targets'],
       allowedToolRefs: [{ serverId, toolName: 'list_targets' }],
       allowedToolOperations: { forged_list_targets: 'read' },
-      contextGrants: []
     });
     await callMcpTool({
       body: {

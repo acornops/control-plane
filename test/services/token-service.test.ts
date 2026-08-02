@@ -161,7 +161,7 @@ describe('gateway token service', () => {
       workflowId: 'workflow-1', executionId: 'workflow-execution-1', workflowSessionId: 'workflow-session-1',
       executorRole: 'coordinator',
       sessionId: 'workflow-session-1', principal: { type: 'user', id: 'user-1' },
-      allowedProviders: ['openai'], allowedTools: [], contextGrants: [], resourceBindings: bindings, bindingDigest
+      allowedProviders: ['openai'], allowedTools: [], resourceBindings: bindings, bindingDigest
     });
     const claims = await gatewayTokenService.verifyRunScopeToken(token);
     assert.deepEqual(claims.resourceBindings, bindings);

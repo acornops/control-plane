@@ -24,7 +24,6 @@ export interface CapabilityRoutingMapping {
   mcpTools: CapabilityMappingToolRef[];
   nativeToolIds: string[];
   skillIds: string[];
-  contextGrants: string[];
   createdBy: string;
   reviewedBy?: string;
   createdAt: string;
@@ -36,5 +35,4 @@ export interface CompiledCapabilityResources {
   mcpTools: CapabilityMappingToolRef[];
   nativeToolIds: string[];
   skillIds: string[];
-  contextGrants: string[];
 }

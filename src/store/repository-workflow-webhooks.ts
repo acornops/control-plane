@@ -33,7 +33,6 @@ function mapWebhook(row: QueryResultRow): WorkflowWebhookRecord {
     workflowId: row.workflow_id,
     name: row.name,
     status: row.status,
-    approvedContextGrants: Array.isArray(row.approved_context_grants) ? row.approved_context_grants : [],
     principal: row.principal,
     secretCiphertext: row.secret_ciphertext,
     secretKeyId: row.secret_key_id,
@@ -80,9 +79,9 @@ export async function createWorkflowWebhook(params: {
   const result = await db.query(
     `INSERT INTO workflow_webhooks (
        id,workspace_id,workflow_id,name,status,
-       approved_context_grants,principal,secret_ciphertext,secret_key_id,created_by,updated_by
+       principal,secret_ciphertext,secret_key_id,created_by,updated_by
      ) VALUES (
-       $1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10::jsonb,$10::jsonb
+       $1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb,$9::jsonb
      ) RETURNING *`,
     [
       id,
@@ -90,7 +89,6 @@ export async function createWorkflowWebhook(params: {
       params.input.workflowId,
       params.input.name.trim(),
       params.input.enabled === false ? 'paused' : 'enabled',
-      JSON.stringify(params.input.approvedContextGrants || []),
       JSON.stringify(params.input.principal),
       params.secretCiphertext,
       params.secretKeyId,
@@ -114,9 +112,8 @@ export async function updateWorkflowWebhookRecord(
     `UPDATE workflow_webhooks
      SET name=$2,
          status=$3,
-         approved_context_grants=$4::jsonb,
-         principal=$5::jsonb,
-         updated_by=$6::jsonb,
+         principal=$4::jsonb,
+         updated_by=$5::jsonb,
          updated_at=NOW(),
          last_error=CASE WHEN $3='enabled' THEN NULL ELSE last_error END
      WHERE id=$1
@@ -125,7 +122,6 @@ export async function updateWorkflowWebhookRecord(
       webhookId,
       patch.name?.trim() || current.name,
       status,
-      JSON.stringify(patch.approvedContextGrants || current.approvedContextGrants),
       JSON.stringify(current.principal),
       JSON.stringify(actorMetadata(actorUserId))
     ]

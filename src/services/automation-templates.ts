@@ -64,16 +64,15 @@ async function upsertStarterNativeToolMapping(
   await client.query(
      `INSERT INTO capability_routing_mappings (
        workspace_id,id,capability_id,agent_id,status,review_state,priority,
-       mcp_tools,native_tool_ids,skill_ids,context_grants,created_by,reviewed_by
-     ) VALUES ($1,$2,$3,$4,'active','reviewed',100,'[]',$5,'[]',$6,$7,$7)
+       mcp_tools,native_tool_ids,skill_ids,created_by,reviewed_by
+     ) VALUES ($1,$2,$3,$4,'active','reviewed',100,'[]',$5,'[]',$6,$6)
      ON CONFLICT (workspace_id,id) DO UPDATE SET
        capability_id=EXCLUDED.capability_id,status='active',review_state='reviewed',
        native_tool_ids=EXCLUDED.native_tool_ids,
-       context_grants=EXCLUDED.context_grants,reviewed_by=EXCLUDED.reviewed_by,
+       reviewed_by=EXCLUDED.reviewed_by,
        updated_at=NOW()`,
     [workspaceId, `native:${agentId}:${tool.id}`, tool.semanticCapabilityId, agentId,
-     JSON.stringify([tool.id]),
-     JSON.stringify(tool.requiredContextGrant ? [tool.requiredContextGrant] : []), installedBy]
+     JSON.stringify([tool.id]), installedBy]
   );
 }
 

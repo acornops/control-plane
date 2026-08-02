@@ -77,7 +77,6 @@ describe('external integration Workflow launch', () => {
       { workflowId: 'cluster-triage' },
       {
         workspaceId: 'workspace-1',
-        approvedContextGrants: ['workspace_metadata']
       }
     ));
     assert.equal(sessionResponse.statusCode, 201);

@@ -17,7 +17,6 @@ export interface CreateAgentDefinitionInput {
   nativeToolConfigs?: AgentDefinition['nativeToolConfigs'];
   skills?: string[];
   skillInstallations?: AgentDefinition['skillInstallations'];
-  contextGrants?: string[];
   approvalPolicy?: AgentDefinition['approvalPolicy'];
   trustPolicy?: AgentDefinition['trustPolicy'];
   permissionMode?: AgentDefinition['permissionMode'];
@@ -40,7 +39,6 @@ export interface AgentDefinitionUpdate {
   nativeToolConfigs?: AgentDefinition['nativeToolConfigs'];
   skills?: string[];
   skillInstallations?: AgentDefinition['skillInstallations'];
-  contextGrants?: string[];
   approvalPolicy?: AgentDefinition['approvalPolicy'];
   trustPolicy?: AgentDefinition['trustPolicy'];
   permissionMode?: AgentDefinition['permissionMode'];

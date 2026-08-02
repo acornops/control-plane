@@ -68,7 +68,6 @@ export async function previewWorkflowSchedule(req: AuthenticatedRequest, res: Re
     const workflowId = typeof body.workflowId === 'string' ? body.workflowId.trim() : '';
     const cron = typeof body.cron === 'string' ? body.cron.trim() : '';
     const timezone = typeof body.timezone === 'string' ? body.timezone.trim() : '';
-    const approvedContextGrants = stringList(body.approvedContextGrants);
     const errors: Array<{ field: string; message: string }> = [];
     const principal = principalRef(body.principal);
     if (!principal || principal.id !== req.auth.userId) {
@@ -102,10 +101,6 @@ export async function previewWorkflowSchedule(req: AuthenticatedRequest, res: Re
           throw error;
         }
       }
-      const allowedGrants = new Set((await resolveWorkflowAgentCapabilities(workflow)).contextGrants);
-      for (const grant of approvedContextGrants) {
-        if (!allowedGrants.has(grant)) errors.push({ field: 'approvedContextGrants', message: `Context grant ${grant} is not used by this workflow.` });
-      }
     }
     if (body.enabled !== false && workflow && principal && runtimeSubject && resolution && errors.length === 0) {
       try {
@@ -114,7 +109,6 @@ export async function previewWorkflowSchedule(req: AuthenticatedRequest, res: Re
           workflow,
           actor: runtimeSubject,
           principal,
-          approvedContextGrants,
           resolution
         });
         if (readiness.errors.length > 0) {
@@ -145,12 +139,6 @@ export async function previewWorkflowSchedule(req: AuthenticatedRequest, res: Re
     }
     next(err);
   }
-}
-
-function stringList(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean)
-    : [];
 }
 
 function principalRef(value: unknown): WorkflowSchedulePrincipal | undefined {
@@ -256,7 +244,6 @@ export async function createWorkflowScheduleForWorkspace(req: AuthenticatedReque
         workflow,
         actor: runtimeSubject,
         principal,
-        approvedContextGrants: stringList(body.approvedContextGrants),
         resolution
       });
       if (readiness.errors.length > 0) {
@@ -273,7 +260,6 @@ export async function createWorkflowScheduleForWorkspace(req: AuthenticatedReque
         enabled: body.enabled !== false,
         cron: String(body.cron),
         timezone: String(body.timezone),
-        approvedContextGrants: stringList(body.approvedContextGrants),
         principal
       }
     });
@@ -372,9 +358,6 @@ export async function updateWorkflowSchedule(req: AuthenticatedRequest, res: Res
         workflow,
         actor: runtimeSubject,
         principal,
-        approvedContextGrants: body.approvedContextGrants === undefined
-          ? current.approvedContextGrants
-          : stringList(body.approvedContextGrants),
         resolution
       });
       if (readiness.errors.length > 0) {
@@ -391,7 +374,6 @@ export async function updateWorkflowSchedule(req: AuthenticatedRequest, res: Res
         status: body.status === 'enabled' || body.status === 'paused' ? body.status : undefined,
         cron: typeof body.cron === 'string' ? body.cron : undefined,
         timezone: typeof body.timezone === 'string' ? body.timezone : undefined,
-        approvedContextGrants: body.approvedContextGrants === undefined ? undefined : stringList(body.approvedContextGrants),
         principal
       },
       req.auth.userId

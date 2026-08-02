@@ -12,8 +12,7 @@ export function respondWorkflowAccessError(res: Response, error: WorkflowAccessD
       message: error.message,
       retryable: false,
       details: {
-        missingPermissions: error.missingPermissions,
-        missingContextGrants: error.missingContextGrants
+        missingPermissions: error.missingPermissions
       }
     }
   });

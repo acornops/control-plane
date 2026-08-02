@@ -19,7 +19,6 @@ export function publicWorkflowWebhook(
     workflowId: webhook.workflowId,
     name: webhook.name,
     status: webhook.status,
-    approvedContextGrants: webhook.approvedContextGrants,
     principal: webhook.principal,
     endpointUrl: workflowWebhookEndpointUrl(webhook.id),
     lastReceivedAt: webhook.lastReceivedAt || null,

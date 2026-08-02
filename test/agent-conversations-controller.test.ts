@@ -15,9 +15,11 @@ import { config } from '../src/config.js';
 import { db } from '../src/infra/db.js';
 import {
   callController,
+  createReadyMcpReadinessResponse,
   createWorkspaceAiCredentialStatusResponse,
   createRequest,
   installWorkspace,
+  isMcpReadinessRequest,
   isWorkspaceAiCredentialStatusRequest,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
@@ -139,6 +141,9 @@ describe('Agent conversations controller', () => {
     mock.method(globalThis, 'fetch', async (input, init) => {
       if (isWorkspaceAiCredentialStatusRequest(input)) {
         return Response.json(createWorkspaceAiCredentialStatusResponse());
+      }
+      if (isMcpReadinessRequest(input, init)) {
+        return createReadyMcpReadinessResponse();
       }
       if (String(input) === `${config.EXECUTION_ENGINE_BASE_URL}/api/v1/runs` && init?.method === 'POST') {
         return new Response(null, { status: 202 });

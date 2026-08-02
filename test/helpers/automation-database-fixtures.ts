@@ -60,16 +60,16 @@ export async function installAutomationTemplateFixtures(
       await client.query(
         `INSERT INTO agent_definitions (
            workspace_id,id,name,avatar_emoji,description,instructions,status,provider_type,owner_user_id,created_by,
-           mcp_servers,tools,skills,context_grants,approval_policy,trust_policy,mcp_tools,mcp_installations,
+           mcp_servers,tools,skills,approval_policy,trust_policy,mcp_tools,mcp_installations,
            permission_mode,skill_installations,review_state,semantic_capability_ids,
            readiness_status,readiness_reasons
          ) VALUES
          ($1,'agent-cluster-triage','Infrastructure Diagnostics','🔎','Collects infrastructure diagnostic evidence.','Use only the environment identified by the request when calling relevant MCP tools.','active','internal','user-1','user-1',
-          '[]','[]','[]','["workspace_metadata"]',
+          '[]','[]','[]',
           '{"mode":"before_write","writeToolsRequireApproval":true}','{"level":"restricted","allowExternalData":false}',
           '[]','[]','read_only','[]','reviewed','["infrastructure.diagnostics.read"]','ready','[]'),
          ($1,'agent-incident-reporter','Incident Reporter','📝','Creates evidence-backed incident reports.','Use only explicitly granted evidence.','active','internal','user-1','user-1',
-          '[]','["documents.create"]','[]','[]',
+          '[]','["documents.create"]','[]',
           '{"mode":"before_write","writeToolsRequireApproval":true}','{"level":"restricted","allowExternalData":false}',
           '[]','[]','read_only','[]','reviewed','["incident.report.generate"]','ready','[]')`,
         [workspaceId]
@@ -77,13 +77,13 @@ export async function installAutomationTemplateFixtures(
       await client.query(
         `INSERT INTO capability_routing_mappings (
            workspace_id,id,capability_id,agent_id,status,review_state,priority,
-           mcp_tools,native_tool_ids,skill_ids,context_grants,created_by,reviewed_by
+           mcp_tools,native_tool_ids,skill_ids,created_by,reviewed_by
          ) VALUES
          ($1,'route-target-diagnostics','infrastructure.diagnostics.read','agent-cluster-triage','active','reviewed',10,
           '[]',
-          '[]','[]','["workspace_metadata"]','user-1','user-1'),
+          '[]','[]','user-1','user-1'),
          ($1,'route-incident-report','incident.report.generate','agent-incident-reporter','active','reviewed',10,
-          '[]','["documents.create"]','[]','[]','user-1','user-1')`,
+          '[]','["documents.create"]','[]','user-1','user-1')`,
         [workspaceId]
       );
       await client.query(
