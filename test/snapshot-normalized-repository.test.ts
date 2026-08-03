@@ -35,7 +35,10 @@ describe('normalized snapshot repository reads', () => {
             resourceKindCounts: { Node: 1 }
           },
           inventory_node_count: 1,
-          inventory_ready_node_count: 1
+          inventory_ready_node_count: 1,
+          inventory_running_pod_count: 5,
+          inventory_failed_pod_count: 1,
+          inventory_pending_pod_count: 1
         }]
       };
     });
@@ -43,6 +46,11 @@ describe('normalized snapshot repository reads', () => {
     const summaries = await listClusterSnapshotSummaries(['cluster-1']);
 
     assert.equal(summaries.get('cluster-1')?.summary.readyNodeCount, 1);
+    assert.deepEqual(summaries.get('cluster-1')?.summary.podStats, {
+      running: 5,
+      failed: 1,
+      pending: 1
+    });
   });
 
   it('queries resource rows with SQL filters and sort-key pagination', async () => {

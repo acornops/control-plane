@@ -41,6 +41,9 @@ interface SnapshotSummaryDbRow {
   summary: Record<string, unknown> | null;
   inventory_node_count?: number | string | null;
   inventory_ready_node_count?: number | string | null;
+  inventory_running_pod_count?: number | string | null;
+  inventory_failed_pod_count?: number | string | null;
+  inventory_pending_pod_count?: number | string | null;
 }
 
 export interface ClusterSnapshotSummaryRecord {
@@ -82,6 +85,20 @@ function optionalNonNegativeInteger(value: number | string | null | undefined): 
   return Number.isInteger(numberValue) && numberValue >= 0 ? numberValue : undefined;
 }
 
+function podStatsFromSummary(summary: Record<string, unknown>): SnapshotClusterSummary['podStats'] | undefined {
+  const podStats = summary.podStats;
+  if (!podStats || typeof podStats !== 'object' || Array.isArray(podStats)) return undefined;
+  const values = podStats as Record<string, unknown>;
+  if (![values.running, values.failed, values.pending].every((value) => Number.isInteger(value) && Number(value) >= 0)) {
+    return undefined;
+  }
+  return {
+    running: Number(values.running),
+    failed: Number(values.failed),
+    pending: Number(values.pending)
+  };
+}
+
 function mapSnapshotResourceRow(row: SnapshotResourceDerivedDbRow): SnapshotResourceListItem {
   return {
     id: row.item_id,
@@ -108,6 +125,11 @@ function mapSnapshotSummaryRow(row: SnapshotSummaryDbRow): SnapshotClusterSummar
       ? inventoryReadyNodeCount
       : undefined
   );
+  const podStats = podStatsFromSummary(summary) || {
+    running: optionalNonNegativeInteger(row.inventory_running_pod_count) || 0,
+    failed: optionalNonNegativeInteger(row.inventory_failed_pod_count) || 0,
+    pending: optionalNonNegativeInteger(row.inventory_pending_pod_count) || 0
+  };
   const resourceFamilyCounts = isNumberRecord(summary.resourceFamilyCounts)
     ? summary.resourceFamilyCounts as Record<ResourceFamily, number>
     : {
@@ -124,6 +146,7 @@ function mapSnapshotSummaryRow(row: SnapshotSummaryDbRow): SnapshotClusterSummar
     namespaceCount: numberFromSummary(summary, 'namespaceCount'),
     nodeCount,
     readyNodeCount,
+    podStats,
     resourceFamilyCounts,
     resourceKindCounts
   };
@@ -203,6 +226,7 @@ export async function replaceClusterSnapshotDerivedRows(
         namespaceCount: derived.summary.namespaceCount,
         nodeCount: derived.summary.nodeCount,
         readyNodeCount: derived.summary.readyNodeCount,
+        podStats: derived.summary.podStats,
         resourceFamilyCounts: derived.summary.resourceFamilyCounts,
         resourceKindCounts: derived.summary.resourceKindCounts
       }
@@ -218,15 +242,19 @@ export async function replaceClusterSnapshotDerivedRows(
 export async function getClusterSnapshotSummary(clusterId: string): Promise<ClusterSnapshotSummaryRecord | null> {
   const result = await db.query<SnapshotSummaryDbRow>(
     `SELECT s.target_id AS cluster_id, s.workspace_id, s.snapshot_ts, s.inventory_count, s.finding_count,
-       s.critical_finding_count, s.summary, inventory.inventory_node_count, inventory.inventory_ready_node_count
+       s.critical_finding_count, s.summary, inventory.inventory_node_count, inventory.inventory_ready_node_count,
+       inventory.inventory_running_pod_count, inventory.inventory_failed_pod_count, inventory.inventory_pending_pod_count
      FROM target_snapshot_summaries s
      JOIN targets t ON t.id = s.target_id AND t.target_type = 'kubernetes'
      LEFT JOIN LATERAL (
        SELECT COUNT(*) FILTER (WHERE item.kind = 'Node') AS inventory_node_count,
-              COUNT(*) FILTER (WHERE item.kind = 'Node' AND LOWER(COALESCE(item.status, '')) = 'ready') AS inventory_ready_node_count
+              COUNT(*) FILTER (WHERE item.kind = 'Node' AND LOWER(COALESCE(item.status, '')) = 'ready') AS inventory_ready_node_count,
+              COUNT(*) FILTER (WHERE item.kind = 'Pod' AND LOWER(COALESCE(item.status, '')) = 'running') AS inventory_running_pod_count,
+              COUNT(*) FILTER (WHERE item.kind = 'Pod' AND LOWER(COALESCE(item.status, '')) IN ('failed', 'crashloopbackoff')) AS inventory_failed_pod_count,
+              COUNT(*) FILTER (WHERE item.kind = 'Pod' AND LOWER(COALESCE(item.status, '')) = 'pending') AS inventory_pending_pod_count
        FROM target_inventory_items item
        WHERE item.target_id = s.target_id
-         AND NOT (s.summary ? 'readyNodeCount')
+         AND (NOT (s.summary ? 'readyNodeCount') OR NOT (s.summary ? 'podStats'))
      ) inventory ON TRUE
      WHERE s.target_id = $1`,
     [clusterId]
@@ -239,15 +267,19 @@ export async function listClusterSnapshotSummaries(clusterIds: string[]): Promis
   if (clusterIds.length === 0) return new Map();
   const result = await db.query<SnapshotSummaryDbRow>(
     `SELECT s.target_id AS cluster_id, s.workspace_id, s.snapshot_ts, s.inventory_count, s.finding_count,
-       s.critical_finding_count, s.summary, inventory.inventory_node_count, inventory.inventory_ready_node_count
+       s.critical_finding_count, s.summary, inventory.inventory_node_count, inventory.inventory_ready_node_count,
+       inventory.inventory_running_pod_count, inventory.inventory_failed_pod_count, inventory.inventory_pending_pod_count
      FROM target_snapshot_summaries s
      JOIN targets t ON t.id = s.target_id AND t.target_type = 'kubernetes'
      LEFT JOIN LATERAL (
        SELECT COUNT(*) FILTER (WHERE item.kind = 'Node') AS inventory_node_count,
-              COUNT(*) FILTER (WHERE item.kind = 'Node' AND LOWER(COALESCE(item.status, '')) = 'ready') AS inventory_ready_node_count
+              COUNT(*) FILTER (WHERE item.kind = 'Node' AND LOWER(COALESCE(item.status, '')) = 'ready') AS inventory_ready_node_count,
+              COUNT(*) FILTER (WHERE item.kind = 'Pod' AND LOWER(COALESCE(item.status, '')) = 'running') AS inventory_running_pod_count,
+              COUNT(*) FILTER (WHERE item.kind = 'Pod' AND LOWER(COALESCE(item.status, '')) IN ('failed', 'crashloopbackoff')) AS inventory_failed_pod_count,
+              COUNT(*) FILTER (WHERE item.kind = 'Pod' AND LOWER(COALESCE(item.status, '')) = 'pending') AS inventory_pending_pod_count
        FROM target_inventory_items item
        WHERE item.target_id = s.target_id
-         AND NOT (s.summary ? 'readyNodeCount')
+         AND (NOT (s.summary ? 'readyNodeCount') OR NOT (s.summary ? 'podStats'))
      ) inventory ON TRUE
      WHERE s.target_id = ANY($1::text[])`,
     [clusterIds]

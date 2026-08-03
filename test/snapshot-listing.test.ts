@@ -110,6 +110,11 @@ describe('snapshot listing findings', () => {
       namespaceCount: 1,
       nodeCount: 1,
       readyNodeCount: 1,
+      podStats: {
+        running: 0,
+        failed: 1,
+        pending: 0
+      },
       resourceFamilyCounts: {
         workloads: 1,
         network: 1,
@@ -122,6 +127,29 @@ describe('snapshot listing findings', () => {
         Pod: 1,
         Service: 1
       }
+    });
+  });
+
+  it('summarizes running, failed, and pending pod phases without raw snapshot reads', () => {
+    const snapshot: ClusterSnapshot = {
+      clusterId: cluster.id,
+      workspaceId: cluster.workspaceId,
+      timestamp: '2026-05-10T12:00:00.000Z',
+      data: {
+        resources: {
+          pods: [
+            { name: 'running', phase: 'Running' },
+            { name: 'failed', phase: 'Failed' },
+            { name: 'pending', phase: 'Pending' }
+          ]
+        }
+      }
+    };
+
+    assert.deepEqual(summarizeSnapshot(cluster, snapshot).podStats, {
+      running: 1,
+      failed: 1,
+      pending: 1
     });
   });
 

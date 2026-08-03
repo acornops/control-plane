@@ -575,6 +575,11 @@ Representative cluster:
     "namespaceCount": 8,
     "nodeCount": 5,
     "readyNodeCount": 5,
+    "podStats": {
+      "running": 40,
+      "failed": 1,
+      "pending": 1
+    },
     "resourceFamilyCounts": {
       "workloads": 60,
       "network": 20,

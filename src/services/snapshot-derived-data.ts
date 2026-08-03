@@ -37,6 +37,11 @@ export interface SnapshotClusterSummary {
   namespaceCount: number;
   nodeCount: number;
   readyNodeCount?: number;
+  podStats: {
+    running: number;
+    failed: number;
+    pending: number;
+  };
   resourceFamilyCounts: Record<ResourceFamily, number>;
   resourceKindCounts: Record<string, number>;
 }
@@ -126,6 +131,17 @@ const criticalPodContainerReasons = new Set([
 
 function getPodCriticalReason(pod: Record<string, unknown>): string | undefined {
   return getPodWaitingReasons(pod).find((reason) => criticalPodContainerReasons.has(reason.toLowerCase()));
+}
+
+function getPodSummaryStatus(pod: Record<string, unknown>): 'running' | 'failed' | 'pending' | undefined {
+  const hasCrashLoop = toArray(pod.containerStatuses).some((status) => {
+    const state = (status.state || {}) as Record<string, unknown>;
+    const waiting = (state.waiting || {}) as Record<string, unknown>;
+    return text(waiting.reason).toLowerCase() === 'crashloopbackoff';
+  });
+  if (hasCrashLoop) return 'failed';
+  const phase = text(pod.phase).toLowerCase();
+  return phase === 'running' || phase === 'failed' || phase === 'pending' ? phase : undefined;
 }
 
 function inferResourceStatus(kind: string, item: Record<string, unknown>): string {
@@ -419,9 +435,14 @@ export function summarizeSnapshotItems(
     cluster: 0
   };
   const resourceKindCounts: Record<string, number> = {};
+  const podStats = { running: 0, failed: 0, pending: 0 };
   for (const resource of resources) {
     resourceFamilyCounts[resource.family] += 1;
     resourceKindCounts[resource.kind] = (resourceKindCounts[resource.kind] || 0) + 1;
+    if (resource.kind === 'Pod') {
+      const status = getPodSummaryStatus(resource.item);
+      if (status) podStats[status] += 1;
+    }
   }
 
   return {
@@ -431,6 +452,7 @@ export function summarizeSnapshotItems(
     namespaceCount: resources.filter((resource) => resource.kind === 'Namespace').length,
     nodeCount: resources.filter((resource) => resource.kind === 'Node').length,
     readyNodeCount: resources.filter((resource) => resource.kind === 'Node' && resource.status?.toLowerCase() === 'ready').length,
+    podStats,
     resourceFamilyCounts,
     resourceKindCounts
   };

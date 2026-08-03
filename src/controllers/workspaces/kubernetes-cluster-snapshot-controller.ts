@@ -23,6 +23,11 @@ const emptySnapshotSummary: SnapshotClusterSummary = {
   namespaceCount: 0,
   nodeCount: 0,
   readyNodeCount: undefined,
+  podStats: {
+    running: 0,
+    failed: 0,
+    pending: 0
+  },
   resourceFamilyCounts: {
     workloads: 0,
     network: 0,

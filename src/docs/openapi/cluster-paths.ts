@@ -123,7 +123,7 @@ export function buildClusterPaths(): Record<string, unknown> {
             { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
             { in: 'path', name: 'clusterId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_CLUSTER_ID } }
           ],
-          responses: { '200': { description: 'Cluster details with latestSnapshot timestamp and summary counts, without full snapshot data.' } }
+          responses: { '200': { description: 'Cluster details with latestSnapshot timestamp and summary counts, including pod phase counts, without full snapshot data.' } }
         },
         patch: {
           tags: ['workspaces'],
