@@ -51,7 +51,15 @@ describe('auth runtime config', () => {
           defaultMethods: ['password']
         }
       };
-      applyPlatformSettingOverrides([]);
+      applyPlatformSettingOverrides([{
+        key: 'help_links',
+        overrideValue: {
+          documentationUrl: 'https://docs.example.com',
+          supportUrl: 'mailto:support@example.com'
+        },
+        version: 1,
+        updatedAt: '2026-08-03T00:00:00.000Z'
+      }]);
       const res = createResponse();
 
       await authConfig({} as never, res as never, (err?: unknown) => { if (err) throw err; });
@@ -63,7 +71,11 @@ describe('auth runtime config', () => {
         passwordAuthEnabled: true,
         passwordSignupEnabled: true,
         passwordEmailVerificationRequired: true,
-        passwordResetEnabled: true
+        passwordResetEnabled: true,
+        helpLinks: {
+          documentationUrl: 'https://docs.example.com',
+          supportUrl: 'mailto:support@example.com'
+        }
       });
       assert.equal(JSON.stringify(res.body).includes('secret'), false);
     } finally {

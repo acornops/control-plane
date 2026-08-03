@@ -189,6 +189,34 @@ describe('durable platform setting resolution', () => {
     );
   });
 
+  it('uses product help-link defaults and accepts only bounded safe overrides', () => {
+    const initial = getPlatformSetting('help_links');
+    assert.deepEqual(initial.value, {
+      documentationUrl: 'https://docs.acornops.dev',
+      supportUrl: 'https://discord.gg/jBgTy4KhF'
+    });
+    assert.equal(initial.source, 'deployment_default');
+
+    const custom = {
+      documentationUrl: 'https://docs.example.com/platform',
+      supportUrl: 'mailto:support@example.com'
+    };
+    assert.deepEqual(parsePlatformSettingValue('help_links', custom), custom);
+    assert.equal(validatePlatformSettingOverride('help_links', custom), null);
+    applyPlatformSettingOverrides([override('help_links', custom, 2)]);
+    assert.deepEqual(getPlatformSetting('help_links').value, custom);
+    assert.equal(getPlatformSetting('help_links').source, 'runtime_override');
+
+    assert.throws(() => parsePlatformSettingValue('help_links', {
+      documentationUrl: 'javascript:alert(1)',
+      supportUrl: 'https://support.example.com'
+    }));
+    assert.throws(() => parsePlatformSettingValue('help_links', {
+      documentationUrl: 'https://user:secret@docs.example.com',
+      supportUrl: 'mailto:support@example.com?subject=unsafe'
+    }));
+  });
+
   it('merges Helm Kubernetes RBAC profiles with additive admin overrides', () => {
     const cnpg = {
         key: 'cnpg',

@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { getOrSetCsrfToken } from '../auth/csrf.js';
 import { config } from '../config.js';
 import {
+  effectiveHelpLinks,
   oidcSignInEnabled,
   passwordSignInEnabled,
   passwordSignupEnabled
@@ -19,7 +20,8 @@ export async function authConfig(_req: Request, res: Response, next: NextFunctio
       passwordAuthEnabled: passwordSignInEnabled(),
       passwordSignupEnabled: passwordSignupEnabled(),
       passwordEmailVerificationRequired: passwordVerificationRequired(),
-      passwordResetEnabled: passwordSignInEnabled() && config.PASSWORD_RESET_ENABLED
+      passwordResetEnabled: passwordSignInEnabled() && config.PASSWORD_RESET_ENABLED,
+      helpLinks: effectiveHelpLinks()
     });
   } catch (err) {
     next(err);

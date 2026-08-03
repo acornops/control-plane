@@ -18,10 +18,11 @@ function readDeploymentFile(relativePath) {
 const migrationFiles = readdirSync(migrationsDir)
   .filter((entry) => entry.endsWith('.sql'))
   .sort();
-assert.deepEqual(migrationFiles.slice(0, 2), [
+assert.deepEqual(migrationFiles.slice(0, 3), [
   '001_initial_schema.sql',
-  '002_target_permission_mode.sql'
-], 'the immutable baseline must be followed by the target permission-mode migration');
+  '002_target_permission_mode.sql',
+  '003_help_links_platform_setting.sql'
+], 'the immutable baseline must be followed by ordered forward migrations');
 
 const baseline = read('migrations/control-plane/001_initial_schema.sql');
 const migrations = migrationFiles.map((filename) => read(`migrations/control-plane/${filename}`));
@@ -40,6 +41,14 @@ for (const required of [
   'kubernetes_target_settings_permission_mode_sync'
 ]) {
   assert(permissionModeMigration.includes(required), `permission-mode migration must include ${required}`);
+}
+const helpLinksMigration = read('migrations/control-plane/003_help_links_platform_setting.sql');
+for (const required of [
+  'DROP CONSTRAINT platform_setting_overrides_key_check',
+  'ADD CONSTRAINT platform_setting_overrides_key_check',
+  "'help_links'::text"
+]) {
+  assert(helpLinksMigration.includes(required), `help-links migration must include ${required}`);
 }
 assert(
   baseline.includes('rbac_additions jsonb') &&
@@ -460,6 +469,7 @@ async function runSqlChecks(databaseUrl) {
       'ai_policy',
       'password_signup',
       'user_sign_in_methods',
+      'help_links',
       'kubernetes_rbac_additions'
     ]) {
       assert(
@@ -467,6 +477,21 @@ async function runSqlChecks(databaseUrl) {
         `platform_setting_overrides_key_check must allow ${settingKey}`
       );
     }
+    await client.query(
+      `INSERT INTO platform_setting_overrides (key, override_value, version)
+       VALUES (
+         'help_links',
+         '{"documentationUrl":"https://docs.example.com","supportUrl":"mailto:support@example.com"}'::jsonb,
+         1
+       )`
+    );
+    const storedHelpLinks = await client.query(
+      `SELECT override_value FROM platform_setting_overrides WHERE key = 'help_links'`
+    );
+    assert.deepEqual(storedHelpLinks.rows[0]?.override_value, {
+      documentationUrl: 'https://docs.example.com',
+      supportUrl: 'mailto:support@example.com'
+    }, 'forward migrations must permit durable help-link overrides');
     const indexes = await client.query(
       `SELECT indexname FROM pg_indexes WHERE schemaname = current_schema()`
     );

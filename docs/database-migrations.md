@@ -42,6 +42,10 @@ boolean. A compatibility trigger synchronizes both representations so the
 previous and current control-plane binaries can coexist during rollout and the
 application can be rolled back without losing policy updates.
 
+`003_help_links_platform_setting.sql` expands the durable platform-setting key
+constraint to permit `help_links`. Previous control-plane versions ignore the
+new row, so the migration supports rolling upgrades and rollback.
+
 ## Validation
 
 `npm run migrations:check` verifies that startup remains migration-only, checks

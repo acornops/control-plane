@@ -5,13 +5,18 @@ import {
 } from './services/kubernetes-rbac-additions.js';
 import type { WorkspaceMemberDiscoveryMode } from './types/domain.js';
 
-export const PLATFORM_SETTING_KEYS = ['member_discovery', 'ai_policy', 'user_sign_in_methods', 'kubernetes_rbac_additions'] as const;
+export const PLATFORM_SETTING_KEYS = ['member_discovery', 'ai_policy', 'user_sign_in_methods', 'help_links', 'kubernetes_rbac_additions'] as const;
 export type PlatformSettingKey = typeof PLATFORM_SETTING_KEYS[number];
 export const LEGACY_PLATFORM_SETTING_KEY = 'password_signup' as const;
 export type PlatformSettingStorageKey = PlatformSettingKey | typeof LEGACY_PLATFORM_SETTING_KEY;
 
 export const USER_SIGN_IN_METHODS = ['password', 'oidc'] as const;
 export type UserSignInMethod = typeof USER_SIGN_IN_METHODS[number];
+
+export const DEFAULT_HELP_LINKS = Object.freeze({
+  documentationUrl: 'https://docs.acornops.dev',
+  supportUrl: 'https://discord.gg/jBgTy4KhF'
+});
 
 export const platformSettingsConfigFields = {
   WORKSPACE_MEMBER_DISCOVERY_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(60),

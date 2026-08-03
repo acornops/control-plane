@@ -38,6 +38,12 @@ The control plane owns the platform API boundary. Keep this README as a short in
   deployment-configured ordinary workspace-user methods (`password`, `oidc`).
   It is non-empty, server-enforced for password login/signup/reset/change and
   ordinary OIDC login/callback, and cannot enable deployment-disabled OIDC.
+- The `help_links` platform setting is an audited versioned override of the
+  built-in documentation and support destinations. Documentation accepts only
+  credential-free HTTPS; support accepts credential-free HTTPS or a plain
+  `mailto:` address. The effective links are returned as optional additive
+  fields in auth config so older Management Consoles and control planes retain
+  the current product defaults during rolling upgrades.
 - The `kubernetes_rbac_additions` platform setting resolves a deployment-owned
   baseline catalog with an audited runtime overlay of complete profile upserts
   and disabled keys. Runtime editing may be disabled by deployment policy.

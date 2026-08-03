@@ -16,6 +16,7 @@ export interface PlatformSettingValueMap {
   member_discovery: { mode: WorkspaceMemberDiscoveryMode };
   ai_policy: AiPlatformPolicy;
   user_sign_in_methods: { methods: UserSignInMethod[] };
+  help_links: { documentationUrl: string; supportUrl: string };
   kubernetes_rbac_additions: KubernetesRbacAdditionsValue;
 }
 
@@ -23,6 +24,7 @@ export interface PlatformSettingOverrideValueMap {
   member_discovery: PlatformSettingValueMap['member_discovery'];
   ai_policy: PlatformSettingValueMap['ai_policy'];
   user_sign_in_methods: PlatformSettingValueMap['user_sign_in_methods'];
+  help_links: PlatformSettingValueMap['help_links'];
   kubernetes_rbac_additions: KubernetesRbacAdditionsOverride;
 }
 

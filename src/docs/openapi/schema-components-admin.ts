@@ -62,7 +62,7 @@ export function buildAdminSchemas(): Record<string, JsonSchema> {
       type: 'object',
       required: ['key', 'value', 'deploymentDefault', 'source', 'version', 'editable', 'constraints'],
       properties: {
-        key: { type: 'string', enum: ['member_discovery', 'ai_policy', 'user_sign_in_methods', 'kubernetes_rbac_additions'] },
+        key: { type: 'string', enum: ['member_discovery', 'ai_policy', 'user_sign_in_methods', 'help_links', 'kubernetes_rbac_additions'] },
         value: jsonObject,
         deploymentDefault: jsonObject,
         overrideValue: jsonObject,

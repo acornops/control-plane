@@ -74,9 +74,15 @@
       ],
       "paginationShape": ["items", "nextCursor?"],
       "mutationFields": ["reason", "ticketRef?"],
-      "platformSettingKeys": ["member_discovery", "ai_policy", "user_sign_in_methods", "kubernetes_rbac_additions"],
+      "platformSettingKeys": ["member_discovery", "ai_policy", "user_sign_in_methods", "help_links", "kubernetes_rbac_additions"],
       "platformSettingPatchFields": ["value", "expectedVersion", "reason"],
       "platformSettingResetFields": ["expectedVersion", "reason"],
+      "helpLinksSetting": {
+        "valueFields": ["documentationUrl", "supportUrl"],
+        "defaults": ["documentationUrl=https://docs.acornops.dev", "supportUrl=https://discord.gg/jBgTy4KhF"],
+        "validation": "Documentation requires credential-free HTTPS. Support requires credential-free HTTPS or a plain mailto address. Values are limited to 2048 characters.",
+        "resolution": "A versioned admin override replaces the built-in product defaults. Reset removes the override and restores those defaults."
+      },
       "kubernetesRbacSetting": {
         "effectiveFields": ["additions[].{key,name,description?,resources[].{apiGroup,apiVersion,resource,kind,scope,verbs[]}}"],
         "deploymentDefaultFields": ["additions[].{key,name,description?,resources[].{apiGroup,apiVersion,resource,kind,scope,verbs[]}}"],
@@ -109,7 +115,7 @@
     },
     "management-console": {
       "authContract": {
-      "config": "GET /api/v1/auth/config returns effective workspace-user OIDC and password capability flags without exposing admission policy.",
+      "config": "GET /api/v1/auth/config returns effective workspace-user OIDC and password capability flags plus optional effective helpLinks destinations without exposing admission policy. Missing or invalid helpLinks fields retain the built-in documentation and support destinations during rolling upgrades.",
         "logout": "POST /api/v1/auth/logout returns {status=ok,mode=oidc|local,redirectPath}; redirectPath is an AcornOps path and never a provider URL.",
         "browserResults": ["auth_result=oidc_access_denied", "logout_result=success", "logout_result=local_only", "logout_result=incomplete"]
       },

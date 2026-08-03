@@ -36,6 +36,7 @@ import {
   parseKubernetesRbacAdditionsOverride,
   validateKubernetesRbacAdditionsOverride
 } from './platform-setting-kubernetes-rbac.js';
+import { helpLinksState, parseHelpLinksValue } from './platform-setting-help-links.js';
 import type {
   AiPlatformPolicy,
   PlatformSettingOverrideValueMap,
@@ -346,6 +347,7 @@ function buildStates(overrides: PlatformSettingOverride[]): PlatformSettingState
       map.get('user_sign_in_methods'),
       map.get(LEGACY_PLATFORM_SETTING_KEY)
     ),
+    help_links: helpLinksState(map.get('help_links')),
     kubernetes_rbac_additions: kubernetesRbacAdditionsState(
       map.get('kubernetes_rbac_additions'),
       config.PLATFORM_SETTINGS_POLICY.kubernetesRbacAdditions.profiles,
@@ -364,10 +366,12 @@ export function parsePlatformSettingValue<K extends PlatformSettingKey>(
       ? aiPolicyValueSchema.parse(value)
       : key === 'user_sign_in_methods'
         ? userSignInMethodsValueSchema.parse(value)
-        : parseKubernetesRbacAdditionsOverride(
-            value,
-            getPlatformSetting('kubernetes_rbac_additions').deploymentDefault
-          );
+        : key === 'help_links'
+          ? parseHelpLinksValue(value)
+          : parseKubernetesRbacAdditionsOverride(
+              value,
+              getPlatformSetting('kubernetes_rbac_additions').deploymentDefault
+            );
   return parsed as PlatformSettingOverrideValueMap[K];
 }
 
@@ -398,6 +402,7 @@ export function validatePlatformSettingOverride<K extends PlatformSettingKey>(
       value as KubernetesRbacAdditionsOverride
     );
   }
+  if (key === 'help_links') return null;
   const candidate = value as PlatformSettingValueMap['ai_policy'];
   const constrained = constrainedAiPolicy(candidate, deploymentAiPolicy());
   return JSON.stringify(candidate) === JSON.stringify(constrained)
@@ -470,11 +475,13 @@ export function getPlatformSettingWithoutOverride<K extends PlatformSettingKey>(
       ? aiPolicyState()
       : key === 'user_sign_in_methods'
         ? userSignInMethodsState()
-        : kubernetesRbacAdditionsState(
-            undefined,
-            config.PLATFORM_SETTINGS_POLICY.kubernetesRbacAdditions.profiles,
-            config.PLATFORM_SETTINGS_POLICY.kubernetesRbacAdditions.runtimeEditable
-          );
+        : key === 'help_links'
+          ? helpLinksState()
+          : kubernetesRbacAdditionsState(
+              undefined,
+              config.PLATFORM_SETTINGS_POLICY.kubernetesRbacAdditions.profiles,
+              config.PLATFORM_SETTINGS_POLICY.kubernetesRbacAdditions.runtimeEditable
+            );
   return structuredClone(state) as PlatformSettingState<K>;
 }
 
@@ -488,6 +495,10 @@ export function effectiveAiPlatformPolicy(): AiPlatformPolicy {
 
 export function effectiveUserSignInMethods(): UserSignInMethod[] {
   return [...resolvedStates().user_sign_in_methods.value.methods];
+}
+
+export function effectiveHelpLinks(): PlatformSettingValueMap['help_links'] {
+  return structuredClone(resolvedStates().help_links.value);
 }
 
 export function effectiveKubernetesRbacAdditions(): KubernetesRbacAdditionsValue {

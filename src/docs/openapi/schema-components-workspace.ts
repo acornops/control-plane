@@ -22,7 +22,16 @@ export function buildAuthWorkspaceSchemas(): Record<string, JsonSchema> {
         passwordAuthEnabled: { type: 'boolean' },
         passwordSignupEnabled: { type: 'boolean' },
         passwordEmailVerificationRequired: { type: 'boolean' },
-        passwordResetEnabled: { type: 'boolean' }
+        passwordResetEnabled: { type: 'boolean' },
+        helpLinks: {
+          type: 'object',
+          required: ['documentationUrl', 'supportUrl'],
+          properties: {
+            documentationUrl: { type: 'string', format: 'uri' },
+            supportUrl: { type: 'string', format: 'uri' }
+          },
+          additionalProperties: false
+        }
       }
     },
     CsrfToken: {
