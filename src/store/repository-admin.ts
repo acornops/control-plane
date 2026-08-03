@@ -10,7 +10,8 @@ import {
   RunRow,
   TargetRow,
   UserRow,
-  WorkspaceMembershipRow
+  WorkspaceMembershipRow,
+  toIso
 } from './repository-mappers.js';
 import { withTransaction } from './repository-transaction.js';
 import { AdminAuditEventInput, insertAdminAuditEvent } from './repository-admin-audit.js';
@@ -89,7 +90,7 @@ export async function listAdminUsers(options: {
   authMethod?: 'password' | 'oidc';
   emailVerified?: boolean;
   signature?: string;
-} = {}): Promise<PagedResult<User & { authMethods: string[]; emailVerified: boolean; workspaceMembershipCount: number }>> {
+} = {}): Promise<PagedResult<User & { authMethods: string[]; emailVerified: boolean; workspaceMembershipCount: number; lastLoginAt?: string }>> {
   const limit = Math.max(1, Math.min(100, options.limit ?? 50));
   const params: Array<string | number | boolean> = [limit + 1];
   const clauses: string[] = [];
@@ -113,7 +114,8 @@ export async function listAdminUsers(options: {
     `SELECT u.*,
        pc.user_id IS NOT NULL AS has_password,
        fi.user_id IS NOT NULL AS has_oidc,
-       COALESCE(member_counts.member_count, 0)::int AS member_count
+       COALESCE(member_counts.member_count, 0)::int AS member_count,
+       latest_login.last_login_at
      FROM users u
      LEFT JOIN (SELECT DISTINCT user_id FROM user_password_credentials) pc ON pc.user_id = u.id
      LEFT JOIN (SELECT DISTINCT user_id FROM user_federated_identities) fi ON fi.user_id = u.id
@@ -122,6 +124,15 @@ export async function listAdminUsers(options: {
        FROM workspace_memberships
        GROUP BY user_id
      ) member_counts ON member_counts.user_id = u.id
+     LEFT JOIN (
+       SELECT user_id, MAX(last_login_at) AS last_login_at
+       FROM (
+         SELECT user_id, last_login_at FROM user_password_credentials
+         UNION ALL
+         SELECT user_id, last_login_at FROM user_federated_identities
+       ) recorded_logins
+       GROUP BY user_id
+     ) latest_login ON latest_login.user_id = u.id
      ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
      ORDER BY u.created_at ASC, u.id ASC
      LIMIT $1`,
@@ -131,7 +142,8 @@ export async function listAdminUsers(options: {
     ...mapUser(row as UserRow),
     emailVerified: Boolean(row.email_verified_at),
     authMethods: [row.has_password ? 'password' : null, row.has_oidc ? 'oidc' : null].filter((method): method is string => Boolean(method)),
-    workspaceMembershipCount: Number(row.member_count || 0)
+    workspaceMembershipCount: Number(row.member_count || 0),
+    lastLoginAt: toIso(row.last_login_at)
   }));
   return pageWithCursor(items, limit, (user) =>
     encodeCursor({ signature: options.signature || '', createdAt: user.createdAt, userId: user.id })

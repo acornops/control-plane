@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test, mock } from 'node:test';
 import { db } from '../src/infra/db.js';
+import { listAdminUsers } from '../src/store/repository-admin.js';
 import { listAdminAuditEvents } from '../src/store/repository-admin-audit.js';
 import { listAdminWorkspaces } from '../src/store/repository-admin-workspaces.js';
 
@@ -64,6 +65,36 @@ test('returns readable governance labels without replacing immutable IDs', async
   assert.match(queries[1], /LEFT JOIN users subject_user ON a\.subject_type = 'user' AND subject_user\.id = a\.subject_id/);
   assert.match(queries[1], /a\.action NOT LIKE '%\.read'/);
   assert.match(queries[1], /a\.action NOT LIKE '%\.search'/);
+});
+
+test('returns the latest recorded login in admin user summaries without session data', async () => {
+  let queryText = '';
+  mock.method(db, 'query', async (sql: string) => {
+    queryText = sql;
+    return {
+      rowCount: 1,
+      rows: [{
+        id: 'user-1',
+        email: 'maya@example.test',
+        display_name: 'Maya Chen',
+        email_verified_at: '2026-01-01T00:00:00.000Z',
+        created_at: '2026-01-01T00:00:00.000Z',
+        has_password: true,
+        has_oidc: true,
+        member_count: 2,
+        last_login_at: '2026-08-01T03:04:05.000Z'
+      }]
+    };
+  });
+
+  const users = await listAdminUsers();
+
+  assert.equal(users.items[0].lastLoginAt, '2026-08-01T03:04:05.000Z');
+  assert.equal('activeSessionCount' in users.items[0], false);
+  assert.match(queryText, /SELECT user_id, last_login_at FROM user_password_credentials/);
+  assert.match(queryText, /UNION ALL/);
+  assert.match(queryText, /SELECT user_id, last_login_at FROM user_federated_identities/);
+  assert.match(queryText, /MAX\(last_login_at\) AS last_login_at/);
 });
 
 test('filters admin audit events by an exact workspace ID or literal case-insensitive name substring', async () => {

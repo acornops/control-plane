@@ -96,6 +96,7 @@
       "workspaceSuspendFields": ["workspaceName", "reason", "ticketRef?"],
       "workspaceRestoreFields": ["workspaceName?", "reason", "ticketRef?"],
       "adminWorkspaceResponseFields": ["createdByDisplayName?", "createdByEmail?", "clusterCount", "virtualMachineCount", "memberCount", "lifecycleStatus=active|suspended", "suspendedAt?"],
+      "adminUserSummaryResponseFields": ["lastLoginAt? (latest recorded password or OIDC login)"],
       "memberCreateFields": ["userId", "role", "createUserIfMissing=false", "reason", "ticketRef?"],
       "memberRolePatchFields": ["role", "reason", "ticketRef?"],
       "memberDeleteFields": ["reason", "replacementOwnerUserId?", "ticketRef?"],

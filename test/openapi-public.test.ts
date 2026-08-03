@@ -25,6 +25,11 @@ describe('public OpenAPI documents', () => {
     assert.doesNotThrow(() => assertOpenApiSchemaCoverage(buildPublicOpenApiDocument('admin')));
     assert.ok(Object.keys(document.components.schemas).includes('Workspace'));
     assert.ok(Object.keys(document.components.schemas).includes('AdminMutationResult'));
+    const adminDocument = buildPublicOpenApiDocument('admin');
+    const adminUser = adminDocument.components.schemas.AdminUser as { allOf?: Array<{ properties?: Record<string, unknown> }> };
+    const adminUserPage = adminDocument.components.schemas.AdminUserPage as { properties?: { items?: { items?: { $ref?: string } } } };
+    assert.ok(adminUser.allOf?.some((schema) => schema.properties?.lastLoginAt));
+    assert.equal(adminUserPage.properties?.items?.items?.$ref, '#/components/schemas/AdminUser');
   });
 
   it('exports public API paths without internal, health, metrics, or dev-login routes', () => {

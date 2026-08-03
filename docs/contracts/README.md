@@ -65,6 +65,7 @@ The control plane owns the platform API boundary. Keep this README as a short in
   case-insensitive literal workspace-name substring. Both filters are bounded,
   parameterized, and included in cursor signatures.
 - Platform-admin workspace responses retain immutable creator and workspace IDs while optionally including user display name/email and workspace-name labels for readable governance displays. Consumers fall back to the immutable IDs when labels are unavailable.
+- Platform-admin user summaries may include `lastLoginAt`, the latest recorded timestamp across the user's password and OIDC login methods. It is aggregate identity metadata, not active-session state.
 - The platform-admin consumer requires exact workspace-name confirmation for suspension and restoration. The producer requires it for suspension and validates it when supplied for restoration, retaining compatibility with existing restore clients. Both actions retain memberships, targets, workload state, references, and audit history and never issue workload commands.
 - OIDC admission evaluates verified ID-token claims and subject-bound UserInfo claims before account or identity-link mutation; conflicting values fail closed.
 - Browser logout revokes the current session before any provider redirect and returns only an AcornOps path to the console. ID tokens and provider logout URLs never cross the logout JSON response.

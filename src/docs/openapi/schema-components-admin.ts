@@ -158,8 +158,16 @@ export function buildAdminSchemas(): Record<string, JsonSchema> {
     AdminWorkspacePage: pageOf('AdminWorkspace'),
     AdminWorkspaceMemberPage: pageOf('WorkspaceMember'),
     AdminUser: {
-      allOf: [userSchema],
-      description: 'Support-safe user detail. Password hashes, reset tokens, and OIDC subjects are never returned.'
+      allOf: [
+        userSchema,
+        {
+          type: 'object',
+          properties: {
+            lastLoginAt: dateTime
+          }
+        }
+      ],
+      description: 'Support-safe user. Collection responses may include the optional latest recorded login timestamp. Password hashes, reset tokens, and OIDC subjects are never returned.'
     },
     AdminUserPage: pageOf('AdminUser'),
     AdminTarget: {
