@@ -91,7 +91,8 @@ const agentMcpUpdateSchema = z.object({
   authType: z.enum(['none', 'bearer_token', 'custom_header', 'oauth']).optional(),
   credentialMode: z.enum(['none', 'workspace', 'individual']).optional(),
   authHeaderName: z.string().min(1).optional(),
-  authHeaderPrefix: z.string().optional()
+  authHeaderPrefix: z.string().optional(),
+  publicHeaders: z.record(z.string(), z.string()).optional()
 }).strict().refine((value) => Object.keys(value).length > 0, 'At least one update field is required.');
 
 const agentMcpToolUpdateSchema = z.object({
@@ -174,8 +175,7 @@ export async function createServer(req: AuthenticatedRequest, res: Response, nex
     const parsed = agentMcpCreateSchema.safeParse(raw);
     if (!parsed.success) return invalid(res, 'AGENT_MCP_INVALID', 'Invalid Agent MCP server payload.');
     const value = parsed.data;
-    const authType = value.authType === 'custom_header' ? 'custom_header'
-      : value.authType === 'bearer_token' ? 'bearer_token' : 'none';
+    const authType = value.authType ?? 'none';
     const credentialMode = authType === 'none'
       ? 'none'
       : value.credentialMode === 'workspace' ? 'workspace' : 'individual';
@@ -214,9 +214,7 @@ export async function patchServer(req: AuthenticatedRequest, res: Response, next
     if (!removalOnly && !context.authz.can('manage_mcp')) {
       return void res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Adding or reconfiguring MCP capabilities requires manage_mcp.', retryable: false } });
     }
-    const authType = value.authType === 'custom_header' ? 'custom_header'
-      : value.authType === 'bearer_token' ? 'bearer_token'
-        : value.authType === 'none' ? 'none' : undefined;
+    const authType = value.authType;
     const credentialMode = value.credentialMode === 'workspace'
       ? 'workspace'
       : value.credentialMode === 'individual'
@@ -286,7 +284,10 @@ export async function patchServer(req: AuthenticatedRequest, res: Response, next
         headerName: value.authHeaderName,
         headerPrefix: value.authHeaderPrefix
       } : undefined,
-      credentialMode
+      credentialMode,
+      publicHeaders: value.publicHeaders === undefined
+        ? undefined
+        : validateMcpPublicHeaders(value.publicHeaders)
     });
     if (credentialMode === 'individual' && previousServer?.credential_mode === 'workspace') {
       await pauseSchedulesForAgentIndividualCredentials({

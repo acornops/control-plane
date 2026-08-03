@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, it, mock } from 'node:test';
 import {
+  createServer,
   patchServer,
   patchTool,
   removeServer
@@ -78,6 +79,16 @@ function builtinServer(enabled = true, revision = 1) {
   };
 }
 
+function manualServer(overrides: Record<string, unknown> = {}) {
+  return {
+    ...builtinServer(),
+    server_name: 'external-agent-mcp',
+    server_url: 'https://mcp.example.test/server',
+    provenance_type: 'manual',
+    ...overrides
+  };
+}
+
 function params() {
   return {
     workspaceId: 'workspace-1',
@@ -87,6 +98,67 @@ function params() {
 }
 
 describe('Agent Targets MCP management boundary', () => {
+  it('preserves OAuth and public headers when creating an Agent MCP server', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const created = manualServer({
+      auth_type: 'oauth',
+      credential_mode: 'individual',
+      public_headers: { 'x-client-version': '2026-08' }
+    });
+    mock.method(globalThis, 'fetch', async (_input, init) => {
+      if (init?.method === 'POST') {
+        requestBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return Response.json(created);
+      }
+      return Response.json([created]);
+    });
+
+    const response = await callController(createServer, createRequest(params(), {
+      name: 'external-agent-mcp',
+      url: 'https://mcp.example.test/server',
+      authType: 'oauth',
+      credentialMode: 'individual',
+      publicHeaders: { 'x-client-version': '2026-08' }
+    }));
+
+    assert.equal(response.statusCode, 201);
+    assert.equal(requestBody?.auth_type, 'oauth');
+    assert.equal(requestBody?.credential_mode, 'individual');
+    assert.deepEqual(requestBody?.public_headers, { 'x-client-version': '2026-08' });
+    assert.equal((response.body as { server: { authType: string } }).server.authType, 'oauth');
+  });
+
+  it('preserves OAuth and public headers when updating an Agent MCP server', async () => {
+    let current = manualServer();
+    let requestBody: Record<string, unknown> | undefined;
+    mock.method(globalThis, 'fetch', async (_input, init) => {
+      if (init?.method === 'PATCH') {
+        requestBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+        current = manualServer({
+          auth_type: requestBody.auth_type,
+          credential_mode: requestBody.credential_mode,
+          public_headers: requestBody.public_headers,
+          revision: 2
+        });
+        return Response.json(current);
+      }
+      return Response.json([current]);
+    });
+
+    const response = await callController(patchServer, createRequest(params(), {
+      authType: 'oauth',
+      credentialMode: 'individual',
+      publicHeaders: { 'x-client-version': '2026-08' },
+      expectedRevision: 1
+    }));
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(requestBody?.auth_type, 'oauth');
+    assert.equal(requestBody?.credential_mode, 'individual');
+    assert.deepEqual(requestBody?.public_headers, { 'x-client-version': '2026-08' });
+    assert.equal((response.body as { server: { authType: string } }).server.authType, 'oauth');
+  });
+
   it('reads and persists normalized Agent target access', async () => {
     const initial = await callController(getTargetAccess, createRequest(params()));
     assert.equal(initial.statusCode, 200);
