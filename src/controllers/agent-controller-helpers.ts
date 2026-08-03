@@ -169,9 +169,13 @@ function agentCapabilities(agent: AgentDefinition): AgentCapability[] {
   return capabilities;
 }
 
-export async function agentResponse(agent: AgentDefinition): Promise<AgentDefinitionResponse> {
+export async function agentResponse(
+  agent: AgentDefinition,
+  templateRef?: AgentDefinitionResponse['templateRef'] | null
+): Promise<AgentDefinitionResponse> {
   return {
     ...agent,
-    capabilities: agentCapabilities(agent)
+    capabilities: agentCapabilities(agent),
+    ...(templateRef ? { templateRef } : {})
   };
 }

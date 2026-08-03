@@ -66,6 +66,15 @@ describe('target delete cleanup', () => {
     assert(statements.some((sql) => sql === 'DELETE FROM workspace_audit_events WHERE workspace_id = $1'));
     assert(statements.some((sql) => sql === 'DELETE FROM workspace_membership_audit WHERE workspace_id = $1'));
     assert(statements.some((sql) => sql === 'DELETE FROM workspace_ai_settings WHERE workspace_id = $1'));
+    const workflowExecutionsDelete = statements.findIndex((sql) => sql === 'DELETE FROM workflow_executions WHERE workspace_id = $1');
+    const workflowSchedulesDelete = statements.findIndex((sql) => sql === 'DELETE FROM workflow_schedules WHERE workspace_id = $1');
+    const workflowWebhooksDelete = statements.findIndex((sql) => sql === 'DELETE FROM workflow_webhooks WHERE workspace_id = $1');
+    const workflowSessionsDelete = statements.findIndex((sql) => sql === 'DELETE FROM workflow_sessions WHERE workspace_id = $1');
+    const workspaceDelete = statements.findIndex((sql) => sql === 'DELETE FROM workspaces WHERE id = $1');
+    assert(workflowExecutionsDelete > -1 && workflowExecutionsDelete < workflowSessionsDelete);
+    assert(workflowSchedulesDelete > -1 && workflowSchedulesDelete < workspaceDelete);
+    assert(workflowWebhooksDelete > -1 && workflowWebhooksDelete < workspaceDelete);
+    assert(workflowSessionsDelete > -1 && workflowSessionsDelete < workspaceDelete);
     assert(statements.some((sql) => sql === 'DELETE FROM workspaces WHERE id = $1'));
     assert.equal(statements.at(-1), 'COMMIT');
   });

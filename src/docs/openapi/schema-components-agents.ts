@@ -55,6 +55,15 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         permissionMode: { type: 'string', enum: ['read_only', 'ask_before_changes', 'auto_allowed_changes'] },
         semanticCapabilityIds: stringArray,
         capabilities: { type: 'array', items: schemaRef('AgentCapability') },
+        templateRef: {
+          type: 'object',
+          required: ['templateId', 'recordKey'],
+          properties: {
+            templateId: { type: 'string' },
+            recordKey: { type: 'string' }
+          },
+          additionalProperties: false
+        },
         readiness: {
           type: 'object',
           required: ['status', 'reasons'],

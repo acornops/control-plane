@@ -117,6 +117,10 @@ export interface AgentDefinition {
 
 export type AgentDefinitionResponse = AgentDefinition & {
   capabilities: AgentCapability[];
+  templateRef?: {
+    templateId: string;
+    recordKey: string;
+  };
 };
 
 export interface AgentAccessActor {

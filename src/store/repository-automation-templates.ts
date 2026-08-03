@@ -10,6 +10,11 @@ export interface TemplateInstallationRecord {
   installedAt: string;
 }
 
+export interface TemplateRecordReference {
+  templateId: string;
+  recordKey: string;
+}
+
 type Row = QueryResultRow;
 
 interface Queryable {
@@ -33,6 +38,19 @@ export async function listTemplateInstallations(workspaceId: string): Promise<Te
     [workspaceId]
   );
   return result.rows.map(mapTemplateInstallation);
+}
+
+export function templateRecordReferencesById(
+  installations: TemplateInstallationRecord[]
+): Map<string, TemplateRecordReference> {
+  const references = new Map<string, TemplateRecordReference>();
+  for (const installation of installations) {
+    if (installation.state !== 'complete') continue;
+    for (const [recordKey, recordId] of Object.entries(installation.recordIds)) {
+      references.set(recordId, { templateId: installation.templateId, recordKey });
+    }
+  }
+  return references;
 }
 
 export async function reserveTemplateInstallation(input: {

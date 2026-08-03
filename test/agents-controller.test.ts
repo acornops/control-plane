@@ -8,6 +8,7 @@ import {
   listAgents,
   updateAgent,
 } from '../src/controllers/agents-controller.js';
+import { provisionStarterAutomation } from '../src/services/automation-templates.js';
 import { repo } from '../src/store/repository.js';
 import { createWorkflowDefinition } from '../src/store/repository-workflows.js';
 import {
@@ -29,6 +30,42 @@ afterEach(() => {
 after(closeAutomationDatabaseFixtures);
 
 describe('agents controller', () => {
+  it('keeps starter Agent provenance stable across renames without classifying lookalike custom Agents', async () => {
+    installWorkspace('admin');
+    const seeded = await provisionStarterAutomation({
+      workspaceId: 'workspace-1',
+      installedBy: 'user-1'
+    });
+    const kubernetesAgentId = seeded.installation.recordIds['agent:kubernetesAgent'];
+    const renamed = await callController(updateAgent, createRequest(
+      { agentId: kubernetesAgentId },
+      { workspaceId: 'workspace-1', name: 'Production cluster specialist' }
+    ));
+    assert.equal(renamed.statusCode, 200);
+    assert.deepEqual(
+      (renamed.body as { agent: { templateRef?: { templateId: string; recordKey: string } } }).agent.templateRef,
+      { templateId: 'acornops-starter', recordKey: 'agent:kubernetesAgent' }
+    );
+
+    const custom = await callController(createAgent, createRequest(
+      { workspaceId: 'workspace-1' },
+      { name: 'Kubernetes Agent', instructions: 'Inspect only explicitly granted evidence.' }
+    ));
+    assert.equal(custom.statusCode, 201);
+    const customAgentId = (custom.body as { agent: { id: string } }).agent.id;
+
+    const response = await callController(listAgents, createRequest({ workspaceId: 'workspace-1' }));
+    assert.equal(response.statusCode, 200);
+    const agents = (response.body as {
+      items: Array<{ id: string; name: string; templateRef?: { templateId: string; recordKey: string } }>;
+    }).items;
+    assert.deepEqual(agents.find((agent) => agent.id === kubernetesAgentId)?.templateRef, {
+      templateId: 'acornops-starter',
+      recordKey: 'agent:kubernetesAgent'
+    });
+    assert.equal(agents.find((agent) => agent.id === customAgentId)?.templateRef, undefined);
+  });
+
   it('returns a truthful empty state in a fresh workspace', async () => {
     installWorkspace('viewer');
 

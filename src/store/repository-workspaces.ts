@@ -460,6 +460,13 @@ export async function deleteWorkspace(workspaceId: string): Promise<boolean> {
     await client.query('DELETE FROM target_metric_history WHERE workspace_id = $1', [workspaceId]);
     await client.query('DELETE FROM workspace_ai_settings WHERE workspace_id = $1', [workspaceId]);
     await client.query('DELETE FROM webhook_subscriptions WHERE workspace_id = $1', [workspaceId]);
+    // These rows point back to workflow_definitions with RESTRICT constraints. Remove them
+    // before the workspace cascade reaches workflow_definitions; PostgreSQL does not
+    // guarantee a safe order between sibling cascades.
+    await client.query('DELETE FROM workflow_executions WHERE workspace_id = $1', [workspaceId]);
+    await client.query('DELETE FROM workflow_schedules WHERE workspace_id = $1', [workspaceId]);
+    await client.query('DELETE FROM workflow_webhooks WHERE workspace_id = $1', [workspaceId]);
+    await client.query('DELETE FROM workflow_sessions WHERE workspace_id = $1', [workspaceId]);
     await client.query('DELETE FROM workspace_memberships WHERE workspace_id = $1', [workspaceId]);
     await client.query('DELETE FROM workspaces WHERE id = $1', [workspaceId]);
     return true;

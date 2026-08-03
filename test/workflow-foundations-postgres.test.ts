@@ -22,6 +22,7 @@ import {
 } from '../src/store/repository-automation-cleanup.js';
 import { listTemplateInstallations } from '../src/store/repository-automation-templates.js';
 import { getAgentDefinition } from '../src/store/repository-agents.js';
+import { deleteWorkspace } from '../src/store/repository-workspaces.js';
 import { getWorkflowDefinition } from '../src/store/repository-workflows.js';
 import {
   closeAutomationDatabaseFixtures,
@@ -32,6 +33,36 @@ beforeEach(resetAutomationDatabaseFixtures);
 after(closeAutomationDatabaseFixtures);
 
 describe('Workflow and Agent template foundations', () => {
+  it('deletes a workspace after its default Workflow has created a session', async () => {
+    await provisionWorkspaceWithStarterAutomation({
+      id: 'workspace-delete-regression',
+      name: 'Delete Regression Workspace',
+      createdBy: 'user-1'
+    });
+    const workflow = await db.query<{ id: string }>(
+      'SELECT id FROM workflow_definitions WHERE workspace_id=$1 ORDER BY id LIMIT 1',
+      ['workspace-delete-regression']
+    );
+    assert.equal(workflow.rowCount, 1);
+    await db.query(
+      `INSERT INTO workflow_sessions (
+         id,workspace_id,workflow_id,created_by,compiled_access_scope,workflow_snapshot
+       ) VALUES ($1,$2,$3,'user-1','{}'::jsonb,$4)`,
+      [
+        'workspace-delete-regression-session',
+        'workspace-delete-regression',
+        workflow.rows[0].id,
+        { id: workflow.rows[0].id, workspaceId: 'workspace-delete-regression' }
+      ]
+    );
+
+    assert.equal(await deleteWorkspace('workspace-delete-regression'), true);
+    assert.equal(
+      (await db.query('SELECT 1 FROM workspaces WHERE id=$1', ['workspace-delete-regression'])).rowCount,
+      0
+    );
+  });
+
   it('provisions workspace ownership, specialist profiles, workflows, installation, and audit atomically', async () => {
     const provisioned = await provisionWorkspaceWithStarterAutomation({
       id: 'workspace-provisioned',

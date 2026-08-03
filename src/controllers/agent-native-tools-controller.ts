@@ -4,6 +4,10 @@ import { requireWorkspaceCapability, requireWorkspaceDataRead } from '../auth/wo
 import { AgentNativeToolAssignmentError, setAgentNativeToolAssignment } from '../services/agent-native-tools.js';
 import { listWorkspaceNativeToolsForInvocationScope } from '../services/workspace-native-tools.js';
 import { getAgentDefinition } from '../store/repository-agents.js';
+import {
+  listTemplateInstallations,
+  templateRecordReferencesById
+} from '../store/repository-automation-templates.js';
 import { toSingleParam } from '../utils/params.js';
 import { agentResponse } from './agent-controller-helpers.js';
 
@@ -50,7 +54,8 @@ async function mutate(req: AuthenticatedRequest, res: Response, next: NextFuncti
       actorUserId: req.auth.userId,
       config: assigned ? req.body?.config : undefined
     });
-    res.status(200).json({ agent: await agentResponse(agent) });
+    const templateRefs = templateRecordReferencesById(await listTemplateInstallations(workspaceId));
+    res.status(200).json({ agent: await agentResponse(agent, templateRefs.get(agent.id) || null) });
   } catch (error) {
     if (error instanceof AgentNativeToolAssignmentError) {
       res.status(error.code.endsWith('NOT_FOUND') ? 404

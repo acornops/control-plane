@@ -7,6 +7,10 @@ import {
   getAgentDefinition,
   listAgentDefinitions
 } from '../store/repository-agents.js';
+import {
+  listTemplateInstallations,
+  templateRecordReferencesById
+} from '../store/repository-automation-templates.js';
 import type { AgentDefinition } from '../types/agents.js';
 import { toSingleParam } from '../utils/params.js';
 import { containsSearchText, makeQuerySignature, normalizeSearchQuery, pageArray, parseBoundedLimit } from '../utils/pagination.js';
@@ -45,9 +49,14 @@ export async function listAgents(req: AuthenticatedRequest, res: Response, next:
     const includeInactive = req.query.includeInactive === 'true' || req.query.includeInactive === '1';
     const q = normalizeSearchQuery(req.query.q);
     const signature = makeQuerySignature({ workspaceId, includeInactive, q });
-    const agents = (await listAgentDefinitions(workspaceId, { includeInactive }))
+    const [agentDefinitions, templateInstallations] = await Promise.all([
+      listAgentDefinitions(workspaceId, { includeInactive }),
+      listTemplateInstallations(workspaceId)
+    ]);
+    const templateRefs = templateRecordReferencesById(templateInstallations);
+    const agents = agentDefinitions
       .filter((agent) => containsSearchText([agent.name, agent.description, agent.status, agent.ownerUserId], q));
-    const rows = await Promise.all(agents.map(agentResponse));
+    const rows = await Promise.all(agents.map((agent) => agentResponse(agent, templateRefs.get(agent.id) || null)));
     res.status(200).json(pageArray(rows, {
       limit: parseBoundedLimit(req.query.limit),
       cursor: req.query.cursor,
@@ -64,12 +73,17 @@ export async function getAgent(req: AuthenticatedRequest, res: Response, next: N
     if (!workspaceId) return;
     const authz = await requireWorkspaceDataRead(req, res, workspaceId);
     if (!authz) return;
-    const agent = await getAgentDefinition(workspaceId, toSingleParam(req.params.agentId));
+    const agentId = toSingleParam(req.params.agentId);
+    const [agent, templateInstallations] = await Promise.all([
+      getAgentDefinition(workspaceId, agentId),
+      listTemplateInstallations(workspaceId)
+    ]);
     if (!agent) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
       return;
     }
-    res.status(200).json({ agent: await agentResponse(agent) });
+    const templateRefs = templateRecordReferencesById(templateInstallations);
+    res.status(200).json({ agent: await agentResponse(agent, templateRefs.get(agent.id) || null) });
   } catch (err) {
     next(err);
   }
@@ -191,7 +205,8 @@ export async function updateAgent(req: AuthenticatedRequest, res: Response, next
       return;
     }
     await auditAgentDefinitionMutation(req, updated, 'agent.definition_updated.v1', 'Agent definition updated');
-    res.status(200).json({ agent: await agentResponse(updated) });
+    const templateRefs = templateRecordReferencesById(await listTemplateInstallations(workspaceId));
+    res.status(200).json({ agent: await agentResponse(updated, templateRefs.get(updated.id) || null) });
   } catch (err) {
     if (err instanceof DefinitionValidationError) return definitionValidationError(res, err);
     next(err);
