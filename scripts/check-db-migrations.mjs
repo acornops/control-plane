@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
@@ -17,14 +18,29 @@ function readDeploymentFile(relativePath) {
 const migrationFiles = readdirSync(migrationsDir)
   .filter((entry) => entry.endsWith('.sql'))
   .sort();
-assert.deepEqual(
-  migrationFiles,
-  ['001_initial_schema.sql'],
-  'this unreleased application must keep exactly one complete greenfield schema'
-);
+assert.deepEqual(migrationFiles.slice(0, 2), [
+  '001_initial_schema.sql',
+  '002_target_permission_mode.sql'
+], 'the immutable baseline must be followed by the target permission-mode migration');
 
 const baseline = read('migrations/control-plane/001_initial_schema.sql');
 const migrations = migrationFiles.map((filename) => read(`migrations/control-plane/${filename}`));
+assert.equal(
+  createHash('sha256').update(baseline).digest('hex'),
+  '944e18833deffa53d757cdeae5f2186b0d6f75c9e35edde7b9d59a0991c29954',
+  '001_initial_schema.sql is immutable after deployment; add a forward migration instead'
+);
+const permissionModeMigration = read('migrations/control-plane/002_target_permission_mode.sql');
+for (const required of [
+  'ADD COLUMN permission_mode_override text',
+  'write_confirmation_required_override',
+  "WHEN true THEN 'ask_before_changes'",
+  "WHEN false THEN 'auto_allowed_changes'",
+  'sync_kubernetes_target_permission_mode',
+  'kubernetes_target_settings_permission_mode_sync'
+]) {
+  assert(permissionModeMigration.includes(required), `permission-mode migration must include ${required}`);
+}
 assert(
   baseline.includes('rbac_additions jsonb') &&
     baseline.includes('rbac_additions_source_version') &&
@@ -63,6 +79,17 @@ assert(!dbSource.includes('SCHEMA_SQL'), 'startup must not carry boot-time schem
 assert(!/CREATE TABLE IF NOT EXISTS \w+/i.test(dbSource), 'startup must not create application tables');
 assert(!/ALTER TABLE \w+/i.test(dbSource), 'startup must not alter application tables');
 assert(dbSource.includes('assertDatabaseMigrationsCurrent'), 'startup must verify the baseline is current');
+
+const clusterRepository = read('src/store/repository-kubernetes-clusters.ts');
+assert(
+  clusterRepository.includes('k.permission_mode_override') &&
+    clusterRepository.includes('k.write_confirmation_required_override'),
+  'cluster reads must retain both permission representations during rollout'
+);
+assert(
+  clusterRepository.includes('permission_mode_override, write_confirmation_required_override'),
+  'cluster writes must retain both permission representations during rollout'
+);
 
 const packageJson = JSON.parse(read('package.json'));
 for (const command of ['db:migrate', 'db:status', 'db:check']) {
@@ -210,7 +237,9 @@ const expectedColumns = [
   ['workspace_initial_defaults', 'available_in'],
   ['kubernetes_target_settings', 'rbac_additions'],
   ['kubernetes_target_settings', 'rbac_additions_source_version'],
-  ['kubernetes_target_settings', 'rbac_additions_content_hash']
+  ['kubernetes_target_settings', 'rbac_additions_content_hash'],
+  ['kubernetes_target_settings', 'write_confirmation_required_override'],
+  ['kubernetes_target_settings', 'permission_mode_override']
 ];
 
 const expectedConstraints = [
@@ -260,6 +289,7 @@ const expectedConstraints = [
   'workspace_initial_defaults_available_in_check',
   'platform_setting_overrides_key_check',
   'kubernetes_target_settings_rbac_additions_array',
+  'kubernetes_target_settings_permission_mode_check',
   // PostgreSQL truncates identifiers to 63 bytes when migration 006 is applied.
   'k8s_target_settings_rbac_source_version_nonnegative'
 ];
@@ -272,7 +302,121 @@ async function runSqlChecks(databaseUrl) {
   try {
     await client.query(`CREATE SCHEMA ${schema}`);
     await client.query(`SET search_path TO ${schema}, public`);
-    for (const migration of migrations) await client.query(migration);
+    await client.query(migrations[0]);
+    await client.query(
+      `INSERT INTO workspaces (id, name, created_by) VALUES
+       ('migration-workspace', 'Migration workspace', 'migration-check')`
+    );
+    await client.query(
+      `INSERT INTO targets (id, workspace_id, target_type, name, status, created_at, updated_at) VALUES
+       ('migration-target-true', 'migration-workspace', 'kubernetes', 'Legacy true', 'offline', NOW(), NOW()),
+       ('migration-target-false', 'migration-workspace', 'kubernetes', 'Legacy false', 'offline', NOW(), NOW()),
+       ('migration-target-null', 'migration-workspace', 'kubernetes', 'Legacy null', 'offline', NOW(), NOW()),
+       ('migration-target-old-insert', 'migration-workspace', 'kubernetes', 'Old insert', 'offline', NOW(), NOW()),
+       ('migration-target-new-insert', 'migration-workspace', 'kubernetes', 'New insert', 'offline', NOW(), NOW())`
+    );
+    await client.query(
+      `INSERT INTO kubernetes_target_settings (target_id, write_confirmation_required_override) VALUES
+       ('migration-target-true', true),
+       ('migration-target-false', false),
+       ('migration-target-null', NULL)`
+    );
+    for (const migration of migrations.slice(1)) await client.query(migration);
+
+    const backfilledModes = await client.query(
+      `SELECT target_id, permission_mode_override, write_confirmation_required_override
+       FROM kubernetes_target_settings
+       WHERE target_id LIKE 'migration-target-%'
+       ORDER BY target_id`
+    );
+    assert.deepEqual(backfilledModes.rows, [
+      {
+        target_id: 'migration-target-false',
+        permission_mode_override: 'auto_allowed_changes',
+        write_confirmation_required_override: false
+      },
+      {
+        target_id: 'migration-target-null',
+        permission_mode_override: null,
+        write_confirmation_required_override: null
+      },
+      {
+        target_id: 'migration-target-true',
+        permission_mode_override: 'ask_before_changes',
+        write_confirmation_required_override: true
+      }
+    ], 'migration must preserve legacy target policy semantics');
+
+    await client.query(
+      `INSERT INTO kubernetes_target_settings (
+         target_id, write_confirmation_required_override
+       ) VALUES ('migration-target-old-insert', false)`
+    );
+    await client.query(
+      `INSERT INTO kubernetes_target_settings (
+         target_id, permission_mode_override
+       ) VALUES ('migration-target-new-insert', 'read_only')`
+    );
+    const rollingInsertModes = await client.query(
+      `SELECT target_id, permission_mode_override, write_confirmation_required_override
+       FROM kubernetes_target_settings
+       WHERE target_id IN ('migration-target-old-insert', 'migration-target-new-insert')
+       ORDER BY target_id`
+    );
+    assert.deepEqual(rollingInsertModes.rows, [
+      {
+        target_id: 'migration-target-new-insert',
+        permission_mode_override: 'read_only',
+        write_confirmation_required_override: true
+      },
+      {
+        target_id: 'migration-target-old-insert',
+        permission_mode_override: 'auto_allowed_changes',
+        write_confirmation_required_override: false
+      }
+    ], 'old and new binaries must both be able to insert target settings during rollout');
+
+    await client.query(
+      `UPDATE kubernetes_target_settings
+       SET permission_mode_override = 'read_only'
+       WHERE target_id = 'migration-target-false'`
+    );
+    const enumWrite = await client.query(
+      `SELECT permission_mode_override, write_confirmation_required_override
+       FROM kubernetes_target_settings WHERE target_id = 'migration-target-false'`
+    );
+    assert.deepEqual(enumWrite.rows[0], {
+      permission_mode_override: 'read_only',
+      write_confirmation_required_override: true
+    }, 'new enum writes must remain safe for legacy readers');
+
+    await client.query(
+      `UPDATE kubernetes_target_settings
+       SET permission_mode_override = NULL
+       WHERE target_id = 'migration-target-false'`
+    );
+    const clearedEnumWrite = await client.query(
+      `SELECT permission_mode_override, write_confirmation_required_override
+       FROM kubernetes_target_settings WHERE target_id = 'migration-target-false'`
+    );
+    assert.deepEqual(clearedEnumWrite.rows[0], {
+      permission_mode_override: null,
+      write_confirmation_required_override: null
+    }, 'clearing the enum override must clear the legacy override');
+
+    await client.query(
+      `UPDATE kubernetes_target_settings
+       SET write_confirmation_required_override = false
+       WHERE target_id = 'migration-target-true'`
+    );
+    const legacyWrite = await client.query(
+      `SELECT permission_mode_override, write_confirmation_required_override
+       FROM kubernetes_target_settings WHERE target_id = 'migration-target-true'`
+    );
+    assert.deepEqual(legacyWrite.rows[0], {
+      permission_mode_override: 'auto_allowed_changes',
+      write_confirmation_required_override: false
+    }, 'legacy boolean writes must remain visible to new readers');
 
     const tables = await client.query(
       `SELECT table_name FROM information_schema.tables
@@ -436,8 +580,8 @@ async function runSqlChecks(databaseUrl) {
     );
     assert.deepEqual(
       functions.rows.map(({ proname }) => proname).sort(),
-      ['prevent_admin_audit_event_mutation'],
-      'only the append-only admin audit trigger function may survive'
+      ['prevent_admin_audit_event_mutation', 'sync_kubernetes_target_permission_mode'],
+      'only approved trigger functions may survive the migration chain'
     );
 
     const adminAuditTriggers = await client.query(
@@ -451,6 +595,17 @@ async function runSqlChecks(databaseUrl) {
       ['admin_audit_events_append_only'],
       'the append-only admin audit trigger must be installed'
     );
+    const permissionModeTriggers = await client.query(
+      `SELECT tgname
+       FROM pg_trigger
+       WHERE tgrelid = 'kubernetes_target_settings'::regclass
+         AND NOT tgisinternal`
+    );
+    assert.deepEqual(
+      permissionModeTriggers.rows.map(({ tgname }) => tgname).sort(),
+      ['kubernetes_target_settings_permission_mode_sync'],
+      'the compatibility trigger must protect mixed-version writes'
+    );
   } finally {
     await client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
     client.release();
@@ -461,9 +616,9 @@ async function runSqlChecks(databaseUrl) {
 const integrationDatabaseUrl = process.env.CONTROL_PLANE_MIGRATION_TEST_DATABASE_URL;
 if (integrationDatabaseUrl) {
   await runSqlChecks(integrationDatabaseUrl);
-  console.log('Control-plane greenfield baseline static and SQL checks passed.');
+  console.log('Control-plane migration-chain static and SQL upgrade checks passed.');
 } else {
   console.log(
-    'Control-plane greenfield baseline static checks passed. Set CONTROL_PLANE_MIGRATION_TEST_DATABASE_URL to run SQL introspection.'
+    'Control-plane migration-chain static checks passed. Set CONTROL_PLANE_MIGRATION_TEST_DATABASE_URL to run SQL upgrade checks.'
   );
 }

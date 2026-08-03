@@ -1,5 +1,6 @@
 import { getConfiguredRoleTemplate, getWorkspacePermissions, isSupportedRole } from '../auth/authorization.js';
 import { config } from '../config.js';
+import { permissionModeForLegacyWriteConfirmation } from '../services/run-permission-policy.js';
 import { ChatSession, KubernetesCluster, KUBERNETES_TARGET_TYPE, Message, Role, Run, RunContinuation, RunEvent, TargetAgentRegistration, TargetSummary, User, Workspace, WorkspaceInvitation, WorkspaceMembership, WorkspaceSummary } from '../types/domain.js';
 import type { PasswordCredentialRow, PasswordCredentialWithUser, UserRow } from './repository-auth-row-types.js';
 import { buildWorkspaceQuota, resolveWorkspacePlan } from './repository-quotas.js';
@@ -62,7 +63,8 @@ export interface ClusterRow {
   status: KubernetesCluster['status'];
   namespace_include: string[] | null;
   namespace_exclude: string[] | null;
-  write_confirmation_required_override: boolean | null;
+  permission_mode_override: KubernetesCluster['permissionModeOverride'];
+  write_confirmation_required_override?: boolean | null;
   created_at: Date | string;
   updated_at: Date | string;
 }
@@ -347,9 +349,17 @@ export function displayNameFromEmail(email: string): string {
 }
 
 export function mapCluster(row: ClusterRow): KubernetesCluster {
-  const overrideRequired = row.write_confirmation_required_override;
-  const hasOverride = typeof overrideRequired === 'boolean';
-  const effectiveRequired = hasOverride ? overrideRequired : config.ASSISTANT_WRITE_CONFIRMATION_REQUIRED;
+  const permissionModeOverride = row.permission_mode_override
+    ?? (row.write_confirmation_required_override == null
+      ? null
+      : permissionModeForLegacyWriteConfirmation(row.write_confirmation_required_override));
+  const permissionMode = permissionModeOverride
+    || permissionModeForLegacyWriteConfirmation(config.ASSISTANT_WRITE_CONFIRMATION_REQUIRED);
+  const hasOverride = permissionModeOverride !== null;
+  const effectiveRequired = permissionMode !== 'auto_allowed_changes';
+  const overrideRequired = permissionModeOverride === null
+    ? null
+    : permissionModeOverride !== 'auto_allowed_changes';
   return {
     id: row.id,
     workspaceId: row.workspace_id,
@@ -357,7 +367,10 @@ export function mapCluster(row: ClusterRow): KubernetesCluster {
     status: row.status,
     namespaceInclude: Array.isArray(row.namespace_include) ? row.namespace_include : [],
     namespaceExclude: Array.isArray(row.namespace_exclude) ? row.namespace_exclude : [],
-    writeConfirmationRequiredOverride: hasOverride ? overrideRequired : null,
+    permissionMode,
+    permissionModeOverride,
+    permissionModeSource: hasOverride ? 'cluster_override' : 'deployment_default',
+    writeConfirmationRequiredOverride: overrideRequired,
     writeConfirmationPolicy: {
       effectiveRequired,
       overrideRequired: hasOverride ? overrideRequired : null,

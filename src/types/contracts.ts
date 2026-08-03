@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import { kubernetesRbacAdditionKeysSchema } from '../services/kubernetes-rbac-additions.js';
 import { validateMcpPublicHeaders as enforceMcpPublicHeaderPolicy } from '../services/mcp-public-header-policy.js';
 import { autoTriageInstructionsFitLimit } from '../utils/auto-triage-instructions.js';
 import { TARGET_TYPES } from './domain.js';
+import { kubernetesNamespaceListSchema } from './kubernetes-namespace-contracts.js';
 import { runEventSchema, runEventsBatchSchema } from './run-events-contract.js';
 import { webhookUrlSchema } from './webhook-contracts.js';
 export { internalMcpToolCallSchema } from './internal-mcp-contracts.js';
@@ -13,6 +13,7 @@ export {
 } from './workspace-default-contracts.js';
 
 export { runEventSchema, runEventsBatchSchema };
+export { registerClusterSchema, updateClusterSchema } from './kubernetes-cluster-contracts.js';
 
 const uuidV4Pattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const uuidV4Schema = z.string().regex(uuidV4Pattern, 'must be a UUIDv4');
@@ -167,27 +168,6 @@ export const upsertWorkspaceAiProviderCredentialSchema = z.object({
   apiKey: z.string().trim().min(1).max(4096)
 }).strict();
 
-const namespaceSchema = z.string().trim().min(1).max(63)
-  .regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/, 'Invalid Kubernetes namespace');
-const namespaceListSchema = z.array(namespaceSchema).max(100).refine(
-  (values) => new Set(values).size === values.length,
-  'Namespace list must not contain duplicates'
-).optional();
-const agentAccessModeSchema = z.string().trim().max(64).optional();
-
-export const registerClusterSchema = z.object({
-  name: z.string().min(1), agentAccessMode: agentAccessModeSchema,
-  namespaceInclude: namespaceListSchema, namespaceExclude: namespaceListSchema,
-  rbacAdditionKeys: kubernetesRbacAdditionKeysSchema
-});
-
-export const updateClusterSchema = z.object({
-  name: z.string().min(1).optional(),
-  namespaceInclude: namespaceListSchema,
-  namespaceExclude: namespaceListSchema,
-  writeConfirmationRequiredOverride: z.boolean().nullable().optional()
-});
-
 export const registerVirtualMachineSchema = z.object({
   name: z.string().min(1),
   hostname: z.string().trim().min(1).max(253).optional(),
@@ -214,8 +194,8 @@ export const updateTargetAutoTriageSchema = z.object({
   additionalInstructions: z.string().refine(autoTriageInstructionsFitLimit, {
     message: 'Additional instructions must be 4,000 normalized characters or fewer'
   }),
-  namespaceInclude: namespaceListSchema.default([]),
-  namespaceExclude: namespaceListSchema.default([]),
+  namespaceInclude: kubernetesNamespaceListSchema.default([]),
+  namespaceExclude: kubernetesNamespaceListSchema.default([]),
   includeClusterScopedIssues: z.boolean().optional().default(true)
 }).strict();
 

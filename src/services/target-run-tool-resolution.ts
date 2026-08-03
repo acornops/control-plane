@@ -8,7 +8,12 @@ import { webSearchAvailability } from './web-search-availability.js';
 import { sanitizeToolInputSchema, sanitizeToolText } from './tool-metadata.js';
 import { repo } from '../store/repository.js';
 import { KUBERNETES_TARGET_TYPE, LlmProvider, TargetType, ToolAccessMode } from '../types/domain.js';
+import type { RunPermissionMode } from '../types/run-permission.js';
 import { listWorkspaceNativeToolsForInvocationScope } from './workspace-native-tools.js';
+import {
+  permissionModeForLegacyWriteConfirmation,
+  permissionModeRequiresWriteApproval
+} from './run-permission-policy.js';
 
 export { WEB_SEARCH_TOOL_ID } from './provider-native-tool-ids.js';
 import { WEB_SEARCH_TOOL_ID } from './provider-native-tool-ids.js';
@@ -83,6 +88,7 @@ export interface TargetRunToolResolution {
   previewItems: TargetRunToolPreviewItem[];
   summary: TargetRunToolPreviewSummary;
   writeUnavailableReason: WriteUnavailableReason;
+  targetPermissionMode: RunPermissionMode;
   confirmationRequiredForWrite: boolean;
   approvalTimeoutSeconds: number;
 }
@@ -210,11 +216,12 @@ async function resolveGatewayTargetToolsForRun(
   return [];
 }
 
-async function resolveWriteConfirmationRequired(targetType: TargetType, targetId: string): Promise<boolean> {
+async function resolveTargetPermissionMode(targetType: TargetType, targetId: string): Promise<RunPermissionMode> {
   if (targetType === KUBERNETES_TARGET_TYPE) {
-    return (await repo.getCluster(targetId))?.writeConfirmationPolicy.effectiveRequired ?? config.ASSISTANT_WRITE_CONFIRMATION_REQUIRED;
+    return (await repo.getCluster(targetId))?.permissionMode
+      ?? permissionModeForLegacyWriteConfirmation(config.ASSISTANT_WRITE_CONFIRMATION_REQUIRED);
   }
-  return config.ASSISTANT_WRITE_CONFIRMATION_REQUIRED;
+  return permissionModeForLegacyWriteConfirmation(config.ASSISTANT_WRITE_CONFIRMATION_REQUIRED);
 }
 
 function nativeToolDescription(toolId: string): string {
@@ -253,7 +260,8 @@ export async function resolveTargetRunTools(params: {
   const { workspaceId, targetId, targetType, toolAccessMode, runId } = params;
   const agentRegistration = await repo.getTargetAgentRegistration(targetId);
   const targetSupportsWrite = Boolean(agentRegistration?.capabilities?.includes('write'));
-  const runAllowsWrite = toolAccessMode === 'read_write';
+  const targetPermissionMode = await resolveTargetPermissionMode(targetType, targetId);
+  const runAllowsWrite = toolAccessMode === 'read_write' && targetPermissionMode !== 'read_only';
   let configuredWrite = 0;
   let excludedWrite = 0;
   let allowedToolNames: string[] = [];
@@ -468,9 +476,9 @@ export async function resolveTargetRunTools(params: {
           ? 'agent_write_disabled'
           : null
       : null,
+    targetPermissionMode,
     confirmationRequiredForWrite: runAllowsWrite
-      ? await resolveWriteConfirmationRequired(targetType, targetId)
-      : false,
+      && permissionModeRequiresWriteApproval(targetPermissionMode),
     approvalTimeoutSeconds: config.ASSISTANT_WRITE_CONFIRMATION_TIMEOUT_SECONDS
   };
 }

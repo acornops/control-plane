@@ -54,7 +54,7 @@ export async function bootstrapTargetRun(run: Run, res: Response): Promise<void>
   const toolResolution = availability.resolution;
   const { confirmationRequiredForWrite, permissionMode } = resolveTargetRunConfirmationPolicy(
     run,
-    toolResolution.confirmationRequiredForWrite
+    toolResolution.targetPermissionMode
   );
   const { allowedToolSpecs, allowedToolNames, allowedToolRefs, allowedNativeTools } = toolResolution;
   const platformFunctions = toolResolution.platformFunctions.map((tool) => ({

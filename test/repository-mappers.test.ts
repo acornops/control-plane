@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  mapCluster,
   mapRun,
   mapRunToolApproval,
   mapSession,
@@ -13,6 +14,40 @@ import {
 } from '../src/store/repository-mappers.js';
 
 describe('repository mappers', () => {
+  it('reads legacy cluster permission overrides while preferring the canonical enum', () => {
+    const legacyCluster = mapCluster({
+      id: 'cluster-legacy',
+      workspace_id: 'workspace-1',
+      target_type: 'kubernetes',
+      name: 'Legacy cluster',
+      status: 'online',
+      namespace_include: [],
+      namespace_exclude: [],
+      permission_mode_override: null,
+      write_confirmation_required_override: false,
+      created_at: '2026-08-03T00:00:00.000Z',
+      updated_at: '2026-08-03T00:00:00.000Z'
+    });
+    const canonicalCluster = mapCluster({
+      id: 'cluster-canonical',
+      workspace_id: 'workspace-1',
+      target_type: 'kubernetes',
+      name: 'Canonical cluster',
+      status: 'online',
+      namespace_include: [],
+      namespace_exclude: [],
+      permission_mode_override: 'read_only',
+      write_confirmation_required_override: false,
+      created_at: '2026-08-03T00:00:00.000Z',
+      updated_at: '2026-08-03T00:00:00.000Z'
+    });
+
+    assert.equal(legacyCluster.permissionModeOverride, 'auto_allowed_changes');
+    assert.equal(legacyCluster.permissionMode, 'auto_allowed_changes');
+    assert.equal(canonicalCluster.permissionModeOverride, 'read_only');
+    assert.equal(canonicalCluster.permissionMode, 'read_only');
+  });
+
   it('redacts operational workspace counts for auditor summaries', () => {
     const summary = mapWorkspaceSummary({
       id: 'workspace-1',

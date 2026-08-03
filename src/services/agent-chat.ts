@@ -6,6 +6,11 @@ import { listCapabilityRoutingMappings } from '../store/repository-capability-ro
 import { compileAgentCapabilityProjection } from './agent-capability-access.js';
 import { CapabilityAccessDeniedError } from './capability-access-errors.js';
 import { resolveCapabilityRoutingMappings } from './capability-routing-resolution.js';
+import {
+  permissionModeAllowsAccess,
+  permissionModeRequiresWriteApproval,
+  resolveEffectiveRunPermissionMode
+} from './run-permission-policy.js';
 
 export function defaultAgentConversationAccessMode(
   permissionMode: AgentDefinition['permissionMode'],
@@ -21,7 +26,7 @@ export function agentConversationPolicyAllowsAccess(
   permissionMode: AgentDefinition['permissionMode'],
   accessMode: 'read_only' | 'read_write'
 ): boolean {
-  return accessMode === 'read_only' || permissionMode !== 'read_only';
+  return permissionModeAllowsAccess(permissionMode, accessMode);
 }
 
 export async function compileAgentConversationRunScope(input: {
@@ -55,16 +60,18 @@ export async function compileAgentConversationRunScope(input: {
   const availableCapabilityIds = input.agent.semanticCapabilityIds.filter((capabilityId) => (
     mappedCapabilityIds.has(capabilityId)
   ));
+  const permissionMode = resolveEffectiveRunPermissionMode({
+    accessMode: input.accessMode,
+    policies: [input.agent.permissionMode]
+  });
   const projection = compileAgentCapabilityProjection({
     agent: input.agent,
     mappings,
     mode: input.accessMode,
     restrictionMode: 'inherit',
     effectiveCapabilityIds: availableCapabilityIds,
-    approvalGates: input.accessMode === 'read_write'
-      && input.agent.permissionMode !== 'auto_allowed_changes'
-      ? ['tool_write']
-      : []
+    approvalGates: permissionModeRequiresWriteApproval(permissionMode) ? ['tool_write'] : [],
+    permissionMode
   });
   return {
     agentId: input.agent.id,

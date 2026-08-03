@@ -1,4 +1,6 @@
 import type { TargetType, WorkspaceAuditOperation } from '../types/domain.js';
+import type { RunPermissionMode } from '../types/run-permission.js';
+export type { RunPermissionMode } from '../types/run-permission.js';
 
 export type RunScopeType = 'target' | 'agent_chat' | 'workspace';
 
@@ -16,8 +18,6 @@ export interface RunPrincipalRef {
   type: 'user' | 'service_identity';
   id: string;
 }
-
-export type RunPermissionMode = 'read_only' | 'ask_before_changes' | 'auto_allowed_changes';
 
 interface BaseRunScopeClaims {
   runId: string;

@@ -18,6 +18,7 @@ import {
   kubernetesRbacAdditionsHash,
   type KubernetesRbacAddition
 } from '../services/kubernetes-rbac-additions.js';
+import { legacyWriteConfirmationRequired } from '../services/run-permission-policy.js';
 
 export interface KubernetesRbacAdditionsSnapshot {
   additions: KubernetesRbacAddition[];
@@ -34,6 +35,7 @@ const clusterSelect = `
     t.status,
     COALESCE(k.namespace_include, '[]'::jsonb) AS namespace_include,
     COALESCE(k.namespace_exclude, '[]'::jsonb) AS namespace_exclude,
+    k.permission_mode_override,
     k.write_confirmation_required_override,
     t.created_at,
     t.updated_at
@@ -176,7 +178,7 @@ export async function getCluster(clusterId: string): Promise<KubernetesCluster |
 
 export async function updateCluster(
   clusterId: string,
-  data: Partial<Pick<KubernetesCluster, 'name' | 'status' | 'namespaceInclude' | 'namespaceExclude' | 'writeConfirmationRequiredOverride'>>
+  data: Partial<Pick<KubernetesCluster, 'name' | 'status' | 'namespaceInclude' | 'namespaceExclude' | 'permissionModeOverride'>>
 ): Promise<KubernetesCluster | null> {
   const cluster = await getCluster(clusterId);
   if (!cluster) return null;
@@ -185,10 +187,10 @@ export async function updateCluster(
   const status = data.status ?? cluster.status;
   const namespaceInclude = data.namespaceInclude ?? cluster.namespaceInclude;
   const namespaceExclude = data.namespaceExclude ?? cluster.namespaceExclude;
-  const writeConfirmationRequiredOverride =
-    Object.prototype.hasOwnProperty.call(data, 'writeConfirmationRequiredOverride')
-      ? data.writeConfirmationRequiredOverride ?? null
-      : cluster.writeConfirmationRequiredOverride ?? null;
+  const permissionModeOverride = Object.prototype.hasOwnProperty.call(data, 'permissionModeOverride')
+    && data.permissionModeOverride !== undefined
+    ? data.permissionModeOverride ?? null
+    : cluster.permissionModeOverride ?? null;
   const updatedAt = new Date().toISOString();
 
   await withTransaction(async (client) => {
@@ -203,18 +205,23 @@ export async function updateCluster(
     );
     await client.query(
       `INSERT INTO kubernetes_target_settings (
-         target_id, namespace_include, namespace_exclude, write_confirmation_required_override
+         target_id, namespace_include, namespace_exclude,
+         permission_mode_override, write_confirmation_required_override
        )
-       VALUES ($1, $2::jsonb, $3::jsonb, $4)
+       VALUES ($1, $2::jsonb, $3::jsonb, $4, $5)
        ON CONFLICT (target_id) DO UPDATE
        SET namespace_include = EXCLUDED.namespace_include,
            namespace_exclude = EXCLUDED.namespace_exclude,
+           permission_mode_override = EXCLUDED.permission_mode_override,
            write_confirmation_required_override = EXCLUDED.write_confirmation_required_override`,
       [
         clusterId,
         JSON.stringify(namespaceInclude),
         JSON.stringify(namespaceExclude),
-        writeConfirmationRequiredOverride
+        permissionModeOverride,
+        permissionModeOverride === null
+          ? null
+          : legacyWriteConfirmationRequired(permissionModeOverride)
       ]
     );
   });

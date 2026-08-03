@@ -463,6 +463,7 @@
           "name?",
           "namespaceInclude?",
           "namespaceExclude?",
+          "permissionModeOverride?=read_only|ask_before_changes|auto_allowed_changes|null",
           "writeConfirmationRequiredOverride?"
         ],
         "registerVirtualMachine": [
@@ -597,6 +598,9 @@
           "error.details.{quotaKey,used,limit}"
         ],
         "cluster": [
+          "permissionMode",
+          "permissionModeOverride",
+          "permissionModeSource",
           "writeConfirmationPolicy"
         ],
         "clusterRegistration": [

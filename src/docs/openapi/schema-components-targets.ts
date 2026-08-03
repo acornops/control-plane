@@ -35,7 +35,13 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         agentAccessMode: { type: 'string', enum: ['read_only', 'read_write', 'unknown'] },
         namespaceInclude: stringArray,
         namespaceExclude: stringArray,
-        writeConfirmationPolicy: jsonObject
+        permissionMode: { type: 'string', enum: ['read_only', 'ask_before_changes', 'auto_allowed_changes'] },
+        permissionModeOverride: {
+          type: ['string', 'null'],
+          enum: ['read_only', 'ask_before_changes', 'auto_allowed_changes', null]
+        },
+        permissionModeSource: { type: 'string', enum: ['cluster_override', 'deployment_default'] },
+        writeConfirmationPolicy: { ...jsonObject, deprecated: true }
       }
     },
     KubernetesClusterPage: pageOf('KubernetesCluster'),

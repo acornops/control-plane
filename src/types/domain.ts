@@ -1,4 +1,10 @@
 import { type TargetType } from './target-types.js';
+export type {
+  KubernetesCluster,
+  LegacyWriteConfirmationPolicy,
+  PermissionModePolicySource,
+  WriteConfirmationPolicySource
+} from './kubernetes-cluster.js';
 export {
   isTargetType, KUBERNETES_TARGET_TYPE,
   TARGET_TYPE_DISPLAY_LIST, TARGET_TYPES,
@@ -16,7 +22,6 @@ export type RunStatus =
   | 'cancelled'
   | 'cancelling';
 export type ToolAccessMode = 'read_only' | 'read_write';
-export type WriteConfirmationPolicySource = 'cluster_override' | 'deployment_default';
 export type ToolApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 export type ToolApprovalExecutionStatus = 'not_started' | 'executing' | 'succeeded' | 'failed' | 'unknown';
 export {
@@ -297,24 +302,6 @@ export interface WorkspaceAuditEventInput {
   summary: string;
   metadata?: Record<string, unknown>;
 }
-
-export interface KubernetesCluster {
-  id: string;
-  workspaceId: string;
-  name: string;
-  status: 'online' | 'offline' | 'degraded' | 'unknown';
-  namespaceInclude: string[];
-  namespaceExclude: string[];
-  writeConfirmationRequiredOverride?: boolean | null;
-  writeConfirmationPolicy: {
-    effectiveRequired: boolean;
-    overrideRequired: boolean | null;
-    source: WriteConfirmationPolicySource;
-  };
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface VirtualMachineTarget {
   id: string;
   workspaceId: string;

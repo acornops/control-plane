@@ -34,7 +34,7 @@
 ## Recovery Expectations
 
 - Prefer explicit contract changes and idempotent retries.
-- During the pre-release phase, keep the schema baseline aligned with the direct desired schema and reset disposable databases when local state was created from an older baseline.
+- Keep applied migration files immutable and evolve durable databases through ordered, transactional forward migrations. Use expand/backfill/contract phases for representation changes and reset only intentionally disposable data.
 - Capture new failure patterns in contract docs or structural checks.
 - When behavior is degraded but recoverable, prefer explicit errors over silent fallback.
 - Production defaults persist run events in Postgres. Retention follows conversation retention because run events cascade with deleted runs and sessions.

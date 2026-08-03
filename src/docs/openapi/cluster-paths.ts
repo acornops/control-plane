@@ -127,7 +127,7 @@ export function buildClusterPaths(): Record<string, unknown> {
         },
         patch: {
           tags: ['workspaces'],
-          summary: 'Update cluster metadata, namespace scope, and write confirmation policy',
+          summary: 'Update cluster metadata, namespace scope, and run permission policy',
           security: [{ userSession: [] }],
           parameters: [
             { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
@@ -151,9 +151,16 @@ export function buildClusterPaths(): Record<string, unknown> {
                       items: { type: 'string' },
                       example: ['sandbox']
                     },
+                    permissionModeOverride: {
+                      type: ['string', 'null'],
+                      enum: ['read_only', 'ask_before_changes', 'auto_allowed_changes', null],
+                      description: 'Per-cluster run permission override. Use null to inherit the deployment default.',
+                      example: 'ask_before_changes'
+                    },
                     writeConfirmationRequiredOverride: {
                       type: ['boolean', 'null'],
-                      description: 'Per-cluster write confirmation override. Use null to inherit the deployment default.',
+                      description: 'Deprecated compatibility alias. true maps to ask_before_changes; false maps to auto_allowed_changes.',
+                      deprecated: true,
                       example: true
                     }
                   },
@@ -161,7 +168,7 @@ export function buildClusterPaths(): Record<string, unknown> {
                     name: 'payments-prod-eks',
                     namespaceInclude: ['payments', 'shared'],
                     namespaceExclude: ['sandbox'],
-                    writeConfirmationRequiredOverride: null
+                    permissionModeOverride: null
                   }
                 }
               }

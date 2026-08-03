@@ -14,6 +14,7 @@ import { KUBERNETES_TARGET_TYPE } from '../../types/domain.js';
 import { generateAgentKey, hashSecret } from '../../utils/crypto.js';
 import { toSingleParam } from '../../utils/params.js';
 import { resolveKubernetesRbacAdditionSelection } from './kubernetes-rbac-additions-controller.js';
+import { permissionModeForLegacyWriteConfirmation } from '../../services/run-permission-policy.js';
 import {
   buildAgentInstallInstructions,
   clusterAllowsNamespace,
@@ -392,15 +393,20 @@ export async function updateCluster(req: AuthenticatedRequest, res: Response, ne
     const namespaceExclude = req.body.namespaceExclude === undefined
       ? undefined
       : normalizeNamespaceList(req.body.namespaceExclude);
-    const writeConfirmationRequiredOverride =
-      Object.prototype.hasOwnProperty.call(req.body, 'writeConfirmationRequiredOverride')
-        ? req.body.writeConfirmationRequiredOverride
+    const hasPermissionModeOverride = Object.prototype.hasOwnProperty.call(req.body, 'permissionModeOverride');
+    const hasLegacyWriteConfirmationOverride = Object.prototype.hasOwnProperty.call(req.body, 'writeConfirmationRequiredOverride');
+    const permissionModeOverride = hasPermissionModeOverride
+      ? req.body.permissionModeOverride
+      : hasLegacyWriteConfirmationOverride
+        ? req.body.writeConfirmationRequiredOverride === null
+          ? null
+          : permissionModeForLegacyWriteConfirmation(req.body.writeConfirmationRequiredOverride)
         : undefined;
     const updated = await repo.updateCluster(clusterId, {
       name: requestedName,
       namespaceInclude,
       namespaceExclude,
-      writeConfirmationRequiredOverride
+      permissionModeOverride
     });
 
     const scopeChanged = Boolean(updated) && (
@@ -409,10 +415,10 @@ export async function updateCluster(req: AuthenticatedRequest, res: Response, ne
       (namespaceExclude !== undefined &&
         JSON.stringify(namespaceExclude) !== JSON.stringify(cluster.namespaceExclude))
     );
-    const writeConfirmationChanged = Boolean(updated) &&
-      writeConfirmationRequiredOverride !== undefined &&
-      writeConfirmationRequiredOverride !== (cluster.writeConfirmationRequiredOverride ?? null);
-    if (updated && ((requestedName !== undefined && requestedName !== cluster.name) || scopeChanged || writeConfirmationChanged)) {
+    const permissionModeChanged = Boolean(updated) &&
+      permissionModeOverride !== undefined &&
+      permissionModeOverride !== (cluster.permissionModeOverride ?? null);
+    if (updated && ((requestedName !== undefined && requestedName !== cluster.name) || scopeChanged || permissionModeChanged)) {
       if (scopeChanged) {
         try {
           if (await agentGateway.isAgentConnected(clusterId)) {
@@ -442,6 +448,9 @@ export async function updateCluster(req: AuthenticatedRequest, res: Response, ne
           status: updated.status,
           namespaceInclude: updated.namespaceInclude,
           namespaceExclude: updated.namespaceExclude,
+          permissionMode: updated.permissionMode,
+          permissionModeOverride: updated.permissionModeOverride,
+          permissionModeSource: updated.permissionModeSource,
           writeConfirmationPolicy: updated.writeConfirmationPolicy,
           updatedAt: updated.updatedAt
         }
@@ -459,7 +468,7 @@ export async function updateCluster(req: AuthenticatedRequest, res: Response, ne
         metadata: {
           nameChanged: requestedName !== undefined && requestedName !== cluster.name,
           namespaceScopeChanged: scopeChanged,
-          writeConfirmationChanged
+          permissionModeChanged
         }
       });
     }

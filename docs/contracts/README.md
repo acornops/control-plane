@@ -76,6 +76,13 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Roles with `permissions.manage_mcp` may mutate MCP server configuration.
 - Roles with `permissions.manage_tools` may mutate MCP per-tool enablement and non-Target-Insights built-in tool settings.
 - Kubernetes clusters and VMs own their target-scoped MCP servers, skills, and tools through their connector runtime. Workspace Agents are independent capability profiles and have no persistent target scope.
+- `permissionMode=read_only|ask_before_changes|auto_allowed_changes` is the
+  shared run-safety vocabulary for Agents and targets. Effective policy is the
+  most restrictive intersection of the configured Agent or target ceiling,
+  conversation/run access, workspace authorization, reviewed tool capability,
+  and connector support. Kubernetes cluster responses expose the effective
+  mode, optional override, and source. The legacy write-confirmation boolean is
+  accepted and projected conservatively for rolling browser compatibility.
 - Direct Agent conversations use the neutral interactive run lifecycle and issue an `agent_chat` run scope bound to the Agent identity; they do not create Workflow definitions, sessions, executions, or runs.
 - Agent-chat capability preview compiles the same current Agent, actor, access-mode,
   mapping, MCP readiness, tool, and skill scope used by message dispatch. It is

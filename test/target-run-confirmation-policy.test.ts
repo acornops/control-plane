@@ -9,7 +9,7 @@ describe('target run confirmation policy', () => {
       resolveTargetRunConfirmationPolicy({
         toolAccessMode: 'read_write',
         confirmationRequiredForWriteOverride: undefined
-      }, false),
+      }, 'auto_allowed_changes'),
       {
         confirmationRequiredForWrite: false,
         permissionMode: 'auto_allowed_changes'
@@ -22,7 +22,7 @@ describe('target run confirmation policy', () => {
       resolveTargetRunConfirmationPolicy({
         toolAccessMode: 'read_write',
         confirmationRequiredForWriteOverride: true
-      }, false),
+      }, 'auto_allowed_changes'),
       {
         confirmationRequiredForWrite: true,
         permissionMode: 'ask_before_changes'
@@ -32,7 +32,7 @@ describe('target run confirmation policy', () => {
       resolveTargetRunConfirmationPolicy({
         toolAccessMode: 'read_write',
         confirmationRequiredForWriteOverride: false
-      }, true),
+      }, 'ask_before_changes'),
       {
         confirmationRequiredForWrite: true,
         permissionMode: 'ask_before_changes'
@@ -45,8 +45,21 @@ describe('target run confirmation policy', () => {
       resolveTargetRunConfirmationPolicy({
         toolAccessMode: 'read_only',
         confirmationRequiredForWriteOverride: false
-      }, false).permissionMode,
+      }, 'auto_allowed_changes').permissionMode,
       'read_only'
+    );
+  });
+
+  it('does not turn a read-only target into an approval-gated write target', () => {
+    assert.deepEqual(
+      resolveTargetRunConfirmationPolicy({
+        toolAccessMode: 'read_write',
+        confirmationRequiredForWriteOverride: true
+      }, 'read_only'),
+      {
+        confirmationRequiredForWrite: false,
+        permissionMode: 'read_only'
+      }
     );
   });
 });

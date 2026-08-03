@@ -391,10 +391,22 @@ Kubernetes deployments run this through the Helm migration Job:
 node dist/scripts/control-plane-db.js migrate
 ```
 
-This version establishes a greenfield schema epoch. Tear down and recreate every
-pre-release database before running the baseline; in-place upgrades are not
-supported. Deploy the pinned control-plane, execution-engine, and gateway matrix
-together.
+Back up durable data and run `npm run db:status` before deployment. Apply every
+pending migration before starting the updated application. The migration job is
+serialized and transactional; do not bypass checksum or pending-migration
+failures.
+
+Target permission-mode migration `002` supports an expand-first rollout:
+
+1. Apply the migration while the previous control-plane version may still be
+   running.
+2. Roll out the updated control plane. The legacy boolean and canonical enum are
+   synchronized for mixed-version operation.
+3. Roll back the application if necessary without rolling back the database.
+
+Keep the compatibility column and trigger until all deployed and rollback
+versions use the canonical enum. Deploy the pinned control-plane,
+execution-engine, and gateway matrix together when their contracts change.
 
 ## Failure Modes
 

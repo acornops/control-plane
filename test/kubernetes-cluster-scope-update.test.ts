@@ -18,6 +18,10 @@ function cluster(namespaceInclude: string[] = []): KubernetesCluster {
     status: 'online',
     namespaceInclude,
     namespaceExclude: [],
+    permissionMode: 'auto_allowed_changes',
+    permissionModeOverride: null,
+    permissionModeSource: 'deployment_default',
+    writeConfirmationRequiredOverride: null,
     writeConfirmationPolicy: {
       effectiveRequired: false,
       overrideRequired: null,
@@ -36,6 +40,13 @@ function request() {
     },
     params: { workspaceId: 'workspace-1', clusterId: 'cluster-1' },
     body: { namespaceInclude: ['payments'], namespaceExclude: [] }
+  };
+}
+
+function permissionModeRequest(permissionModeOverride: 'read_only' | 'ask_before_changes' | 'auto_allowed_changes' | null) {
+  return {
+    ...request(),
+    body: { permissionModeOverride }
   };
 }
 
@@ -88,6 +99,34 @@ describe('Kubernetes namespace scope updates', () => {
     await pending;
     assert.equal(res.statusCode, 200);
     assert.deepEqual((res.body as KubernetesCluster).namespaceInclude, ['payments']);
+  });
+
+  it('persists the canonical cluster permission mode override', async () => {
+    installRepositoryMocks();
+    mock.method(agentGateway, 'isAgentConnected', async () => false);
+    let updateInput: unknown;
+    mock.method(repo, 'updateCluster', async (_clusterId, input) => {
+      updateInput = input;
+      return {
+        ...cluster(),
+        permissionMode: 'read_only',
+        permissionModeOverride: 'read_only',
+        permissionModeSource: 'cluster_override'
+      };
+    });
+    const res = response();
+
+    await updateCluster(permissionModeRequest('read_only') as never, res as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.deepEqual(updateInput, {
+      name: undefined,
+      namespaceInclude: undefined,
+      namespaceExclude: undefined,
+      permissionModeOverride: 'read_only'
+    });
+    assert.equal((res.body as KubernetesCluster).permissionMode, 'read_only');
   });
 
   it('disconnects a connected agent when applying the new scope fails', async () => {

@@ -68,6 +68,31 @@ describe('target run tool resolution', () => {
     });
   });
 
+  it('filters write tools when a Kubernetes cluster policy is read-only', async () => {
+    installResolverRepoStubs(['read', 'write']);
+    repo.getCluster = async () => ({
+      id: 'target-1',
+      workspaceId: 'workspace-1',
+      permissionMode: 'read_only'
+    } as never);
+    mockToolList(BASE_TOOLS);
+
+    const result = await resolveTargetRunTools({
+      workspaceId: 'workspace-1',
+      targetId: 'target-1',
+      targetType: 'kubernetes',
+      toolAccessMode: 'read_write',
+      runId: 'run-1'
+    });
+
+    assert.equal(result.targetPermissionMode, 'read_only');
+    assert.equal(result.confirmationRequiredForWrite, false);
+    assert.equal(result.writeUnavailableReason, 'run_read_only');
+    assert.deepEqual(result.allowedToolNames, ['query_logs', 'acornops_create_document']);
+    assert.equal(result.summary.writeAllowed, 0);
+    assert.equal(result.summary.excludedWrite, 1);
+  });
+
   it('includes configured third-party target MCP tools and can omit native tools', async () => {
     installResolverRepoStubs(['read', 'write']);
     mockToolList([

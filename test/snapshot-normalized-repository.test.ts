@@ -208,7 +208,7 @@ describe('normalized snapshot repository ingest', () => {
                 status: 'online',
                 namespace_include: [],
                 namespace_exclude: [],
-                write_confirmation_required_override: null,
+                permission_mode_override: null,
                 created_at: '2026-05-10T00:00:00.000Z',
                 updated_at: '2026-05-10T00:00:00.000Z'
               }
@@ -296,7 +296,7 @@ describe('normalized snapshot repository ingest', () => {
                 status: 'online',
                 namespace_include: [],
                 namespace_exclude: [],
-                write_confirmation_required_override: null,
+                permission_mode_override: null,
                 created_at: '2026-05-10T00:00:00.000Z',
                 updated_at: '2026-05-10T00:00:00.000Z'
               }

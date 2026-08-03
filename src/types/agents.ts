@@ -1,12 +1,12 @@
 import type { WorkspacePermissions } from '../auth/authorization.js';
 import type { WorkspaceAuditOperation } from './domain.js';
+import type { RunPermissionMode } from './run-permission.js';
+export type { RunPermissionMode } from './run-permission.js';
 
 export type AgentStatus = 'active' | 'disabled' | 'draft';
 export type AgentReviewState = 'draft' | 'reviewed';
 export type AgentProviderType = 'internal' | 'external';
 export type AutomationReadinessStatus = 'ready' | 'needs_setup' | 'blocked';
-export type RunPermissionMode = 'read_only' | 'ask_before_changes' | 'auto_allowed_changes';
-
 export interface RunPrincipalRef {
   type: 'user' | 'service_identity';
   id: string;
