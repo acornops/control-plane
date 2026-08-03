@@ -442,7 +442,7 @@
         "permissions.editableRoles",
         "mcpCatalog.{workspaceId,targetId?,targetType?,clusterId?}",
         "servers[].{id,name,url,type,enabled,isSystem,canDelete,canEditConnection,canToggle,authType,credentialMode,provenance,inherited?,publicHeaders,connectionStatus,lastDiscoveryAt,lastDiscoveryError}",
-        "servers[].toolCounts.{total,enabledConfigured,enabledEffective,writeConfigured,writeEffective}",
+        "servers[].toolCounts.{total,readOnly,writeCapable,enabledConfigured,enabledEffective,writeConfigured,writeEffective}",
         "serverTools.items[].{name,description,capability,version,source,enabledConfigured,enabledEffective,effectiveDisabledReason}",
         "targetTools.{workspaceId,targetId,targetType,permissions.{canEdit,editableRoles?}}",
         "targetTools.items[].{id,label,description,enabled,origin=target_setting|platform_native,capability,runtimeKind,visibility.{appearsInAssistantToolList,appearsInRunEnabledTools,appearsInToolCalls},permissions.{canEdit},availability?,readiness?,config}",

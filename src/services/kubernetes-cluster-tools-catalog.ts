@@ -40,6 +40,8 @@ interface NormalizedTool {
 
 interface ToolCounts {
   total: number;
+  readOnly: number;
+  writeCapable: number;
   enabledConfigured: number;
   enabledEffective: number;
   writeConfigured: number;
@@ -114,12 +116,16 @@ export interface TargetToolCatalogResponse {
 
 function summarizeToolCounts(tools: NormalizedTool[]): ToolCounts {
   const total = tools.length;
+  const readOnly = tools.filter((tool) => tool.capability === 'read').length;
+  const writeCapable = tools.filter((tool) => tool.capability === 'write').length;
   const enabledConfigured = tools.filter((tool) => tool.enabledConfigured).length;
   const enabledEffective = tools.filter((tool) => tool.enabledEffective).length;
   const writeConfigured = tools.filter((tool) => tool.capability === 'write' && tool.enabledConfigured).length;
   const writeEffective = tools.filter((tool) => tool.capability === 'write' && tool.enabledEffective).length;
   return {
     total,
+    readOnly,
+    writeCapable,
     enabledConfigured,
     enabledEffective,
     writeConfigured,

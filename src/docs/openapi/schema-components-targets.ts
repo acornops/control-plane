@@ -506,7 +506,8 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         publicHeaders: { type: 'object', additionalProperties: { type: 'string' } },
         connectionStatus: { type: 'string' },
         lastDiscoveryAt: dateTime,
-        lastDiscoveryError: { type: 'string' }
+        lastDiscoveryError: { type: 'string' },
+        toolCounts: schemaRef('McpToolCounts')
       },
       additionalProperties: true
     },

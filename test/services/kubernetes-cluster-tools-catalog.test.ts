@@ -230,6 +230,15 @@ describe('composeKubernetesClusterToolsCatalog', () => {
         effectiveDisabledReason: null
       }
     ]);
+    assert.deepEqual(catalog.servers[0]?.toolCounts, {
+      total: 1,
+      readOnly: 0,
+      writeCapable: 1,
+      enabledConfigured: 0,
+      enabledEffective: 0,
+      writeConfigured: 0,
+      writeEffective: 0
+    });
     assert.deepEqual(catalog.servers[1]?.tools, [
       {
         name: 'z-read',
@@ -244,6 +253,8 @@ describe('composeKubernetesClusterToolsCatalog', () => {
     ]);
     assert.deepEqual(catalog.servers[1]?.toolCounts, {
       total: 1,
+      readOnly: 0,
+      writeCapable: 1,
       enabledConfigured: 1,
       enabledEffective: 0,
       writeConfigured: 1,
@@ -305,6 +316,8 @@ describe('composeKubernetesClusterToolsCatalog', () => {
     assert.equal(catalog.servers[0]?.name, 'AcornOps VM Tools');
     assert.deepEqual(catalog.servers[0]?.toolCounts, {
       total: 1,
+      readOnly: 0,
+      writeCapable: 1,
       enabledConfigured: 1,
       enabledEffective: 1,
       writeConfigured: 1,
@@ -348,6 +361,8 @@ describe('composeKubernetesClusterToolsCatalog', () => {
 
     assert.deepEqual(catalog.servers[0]?.toolCounts, {
       total: 2,
+      readOnly: 1,
+      writeCapable: 1,
       enabledConfigured: 2,
       enabledEffective: 1,
       writeConfigured: 1,

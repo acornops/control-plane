@@ -2,6 +2,20 @@ import { dateTime, JsonSchema, jsonObject, schemaRef, stringArray, uuid } from '
 
 export function buildTargetMcpWireSchemas(): Record<string, JsonSchema> {
   return {
+    McpToolCounts: {
+      type: 'object',
+      required: ['total', 'readOnly', 'writeCapable', 'enabledConfigured', 'enabledEffective', 'writeConfigured', 'writeEffective'],
+      properties: {
+        total: { type: 'integer', minimum: 0 },
+        readOnly: { type: 'integer', minimum: 0 },
+        writeCapable: { type: 'integer', minimum: 0 },
+        enabledConfigured: { type: 'integer', minimum: 0 },
+        enabledEffective: { type: 'integer', minimum: 0 },
+        writeConfigured: { type: 'integer', minimum: 0 },
+        writeEffective: { type: 'integer', minimum: 0 }
+      },
+      additionalProperties: false
+    },
     TargetMcpToolConfig: {
       type: 'object',
       required: ['name', 'server_id', 'model_alias', 'mcp_server_url', 'timeout_ms', 'enabled'],
