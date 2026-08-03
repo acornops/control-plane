@@ -182,11 +182,12 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
     },
     AgentConversationMessageAccepted: {
       type: 'object',
-      required: ['message_id', 'run_id', 'status'],
+      required: ['message_id', 'run_id', 'status', 'runtimeSelection'],
       properties: {
         message_id: { type: 'string', format: 'uuid' },
         run_id: { type: 'string', format: 'uuid' },
-        status: { type: 'string' }
+        status: { type: 'string' },
+        runtimeSelection: schemaRef('ChatRuntimeSelection')
       },
       additionalProperties: false
     },
@@ -215,6 +216,7 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
         sessionId: { type: 'string', format: 'uuid' },
         messageId: { type: 'string', format: 'uuid' },
         toolAccessMode: { type: 'string', enum: ['read_only', 'read_write'] },
+        runtimeSelection: schemaRef('ChatRuntimeSelection'),
         status: { type: 'string' },
         requestedAt: dateTime,
         startedAt: { type: ['string', 'null'], format: 'date-time' },
@@ -249,6 +251,74 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
       required: ['conversation'],
       properties: {
         conversation: schemaRef('AgentConversationSummary')
+      },
+      additionalProperties: false
+    },
+    AgentAssistantCapabilitiesPreview: {
+      type: 'object',
+      required: [
+        'workspaceId', 'agentId', 'toolAccessMode', 'confirmationRequiredForWrite',
+        'writeUnavailableReason', 'unavailableMcpToolCount', 'toolSummary',
+        'skillSummary', 'tools', 'skills'
+      ],
+      properties: {
+        workspaceId: { type: 'string', format: 'uuid' },
+        agentId: { type: 'string' },
+        toolAccessMode: { type: 'string', enum: ['read_only', 'read_write'] },
+        confirmationRequiredForWrite: { type: 'boolean' },
+        writeUnavailableReason: {
+          type: ['string', 'null'],
+          enum: ['run_read_only', 'agent_write_disabled', null]
+        },
+        unavailableMcpToolCount: { type: 'integer', minimum: 0 },
+        toolSummary: {
+          type: 'object',
+          required: ['totalAllowed', 'nativeAllowed', 'readAllowed', 'writeAllowed'],
+          properties: {
+            totalAllowed: { type: 'integer', minimum: 0 },
+            nativeAllowed: { type: 'integer', minimum: 0 },
+            readAllowed: { type: 'integer', minimum: 0 },
+            writeAllowed: { type: 'integer', minimum: 0 }
+          },
+          additionalProperties: false
+        },
+        skillSummary: {
+          type: 'object',
+          required: ['totalAvailable'],
+          properties: { totalAvailable: { type: 'integer', minimum: 0 } },
+          additionalProperties: false
+        },
+        tools: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['id', 'name', 'description', 'capability', 'runtimeKind', 'source'],
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              label: { type: 'string' },
+              description: { type: 'string' },
+              capability: { type: 'string', enum: ['read', 'write'] },
+              runtimeKind: { type: 'string', enum: ['function', 'provider_native'] },
+              source: { type: 'string', enum: ['builtin', 'mcp', 'provider_native'] }
+            },
+            additionalProperties: false
+          }
+        },
+        skills: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['id', 'name', 'description', 'source'],
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              description: { type: 'string' },
+              source: { type: 'string', enum: ['manual', 'git_import'] }
+            },
+            additionalProperties: false
+          }
+        }
       },
       additionalProperties: false
     },

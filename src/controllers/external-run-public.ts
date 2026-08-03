@@ -92,6 +92,11 @@ export function publicConversationRun(run: Run, includeOutput: boolean): Record<
     sessionId: includeOutput ? run.sessionId : undefined,
     messageId: includeOutput ? run.messageId : undefined,
     toolAccessMode: run.toolAccessMode,
+    runtimeSelection: {
+      provider: run.llmProvider,
+      model: run.llmModel,
+      reasoningEffort: run.llmReasoningEffort
+    },
     status: run.status,
     requestedAt: run.requestedAt,
     startedAt: run.startedAt || null,

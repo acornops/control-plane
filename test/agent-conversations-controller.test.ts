@@ -9,6 +9,8 @@ import {
   listAgentConversations,
   postAgentConversationMessage
 } from '../src/controllers/agent-conversations-controller.js';
+import { getAgentAssistantCapabilitiesPreview } from '../src/controllers/agent-assistant-preview-controller.js';
+import { grantNativeTool } from '../src/controllers/agent-native-tools-controller.js';
 import { createAgent, deleteAgent, updateAgent } from '../src/controllers/agents-controller.js';
 import { bootstrap } from '../src/controllers/internal-execution-controller.js';
 import { config } from '../src/config.js';
@@ -41,6 +43,56 @@ afterEach(() => {
 after(closeAutomationDatabaseFixtures);
 
 describe('Agent conversations controller', () => {
+  it('previews the display-safe effective tools for the requested Agent chat access mode', async () => {
+    const createdAgent = await callController(createAgent, createRequest(
+      { workspaceId: 'workspace-1' },
+      {
+        name: 'Capability preview analyst',
+        instructions: 'Inspect evidence and create a concise report.',
+        status: 'active',
+        reviewState: 'reviewed'
+      }
+    ));
+    const agent = (createdAgent.body as { agent: { id: string } }).agent;
+    const granted = await callController(grantNativeTool, createRequest(
+      { workspaceId: 'workspace-1', agentId: agent.id, toolId: 'documents.create' },
+      {}
+    ));
+    assert.equal(granted.statusCode, 200);
+
+    const previewRequest = createRequest({ workspaceId: 'workspace-1', agentId: agent.id });
+    previewRequest.query = { toolAccessMode: 'read_only' };
+    const preview = await callController(getAgentAssistantCapabilitiesPreview, previewRequest);
+    const body = preview.body as {
+      agentId: string;
+      toolAccessMode: string;
+      toolSummary: { totalAllowed: number; readAllowed: number; writeAllowed: number };
+      tools: Array<Record<string, unknown>>;
+    };
+
+    assert.equal(preview.statusCode, 200);
+    assert.equal(body.agentId, agent.id);
+    assert.equal(body.toolAccessMode, 'read_only');
+    assert.deepEqual(body.toolSummary, {
+      totalAllowed: 1,
+      nativeAllowed: 1,
+      readAllowed: 1,
+      writeAllowed: 0
+    });
+    assert.deepEqual(body.tools.map((tool) => ({
+      id: tool.id,
+      label: tool.label,
+      capability: tool.capability,
+      source: tool.source
+    })), [{
+      id: 'documents.create',
+      label: 'Create Document',
+      capability: 'read',
+      source: 'builtin'
+    }]);
+    assert.equal(body.tools.some((tool) => 'inputSchema' in tool || 'input_schema' in tool), false);
+  });
+
   it('follows the Agent write policy at creation, allows workspace reads, and restricts continuation to the creator', async () => {
     const createdAgent = await callController(createAgent, createRequest(
       { workspaceId: 'workspace-1' },
@@ -152,9 +204,17 @@ describe('Agent conversations controller', () => {
     });
     const accepted = await callController(postAgentConversationMessage, createRequest(
       { conversationId: conversation.id },
-      { content: 'Summarize the evidence.', clientRequestId: randomUUID() }
+      {
+        content: 'Summarize the evidence.',
+        clientRequestId: randomUUID(),
+        llm: { reasoningEffort: 'high' }
+      }
     ));
     assert.equal(accepted.statusCode, 202);
+    assert.equal(
+      (accepted.body as { runtimeSelection: { reasoningEffort: string } }).runtimeSelection.reasoningEffort,
+      'high'
+    );
     const acceptedRunId = (accepted.body as { run_id: string }).run_id;
     const runRecord = await db.query<{
       conversation_kind: string;
@@ -162,12 +222,14 @@ describe('Agent conversations controller', () => {
       agent_id: string;
       agent_snapshot: Record<string, unknown>;
       compiled_access_scope: Record<string, unknown>;
+      llm_reasoning_effort: string;
     }>('SELECT * FROM runs WHERE id=$1', [acceptedRunId]);
     assert.equal(runRecord.rows[0].conversation_kind, 'agent_chat');
     assert.equal(runRecord.rows[0].target_id, null);
     assert.equal(runRecord.rows[0].agent_id, agent.id);
     assert.equal(typeof runRecord.rows[0].agent_snapshot, 'object');
     assert.equal(typeof runRecord.rows[0].compiled_access_scope, 'object');
+    assert.equal(runRecord.rows[0].llm_reasoning_effort, 'high');
     assert.equal('selectedAgents' in runRecord.rows[0].compiled_access_scope, false);
     assert.equal('executor' in runRecord.rows[0].compiled_access_scope, false);
     await assert.rejects(

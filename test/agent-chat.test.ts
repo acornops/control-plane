@@ -10,6 +10,7 @@ import { resolveRunSkillSnapshots } from '../src/services/run-skill-snapshots.js
 import { targetToolSpecMatchesRoute } from '../src/services/target-run-tool-resolution.js';
 import { compileAgentCapabilityProjection } from '../src/services/agent-capability-access.js';
 import { agentChatRunSnapshotIsValid } from '../src/controllers/internal-agent-chat-bootstrap.js';
+import { buildAgentAssistantCapabilitiesPreview } from '../src/controllers/agent-assistant-preview-controller.js';
 import type { CompiledAgentChatAccessScope } from '../src/types/agent-chat.js';
 import type { AgentDefinition } from '../src/types/agents.js';
 import type { CapabilityRoutingMapping } from '../src/types/capability-routing.js';
@@ -184,6 +185,54 @@ describe('Agent chat contract', () => {
       id: 'web_search',
       config: { allowedDomains: ['status.example.test'] }
     }]);
+  });
+
+  it('builds a bounded Agent-chat capability preview from the compiled run scope', () => {
+    const snapshot = agent({
+      tools: ['documents.create', 'web_search'],
+      skillInstallations: [{
+        id: 'incident-analysis',
+        name: 'Incident analysis',
+        description: 'Analyze bounded incident evidence.',
+        enabled: true,
+        revision: 1,
+        contentDigest: 'sha256:fixture',
+        source: { type: 'manual' },
+        files: []
+      }]
+    });
+    const compiledScope = run(snapshot).compiledAccessScope!;
+    const preview = buildAgentAssistantCapabilitiesPreview(snapshot, compiledScope, 'read_only');
+
+    assert.deepEqual(preview.tools.map((tool) => ({
+      id: tool.id,
+      label: tool.label,
+      capability: tool.capability,
+      source: tool.source
+    })), [{
+      id: 'documents.create',
+      label: 'Create Document',
+      capability: 'read',
+      source: 'builtin'
+    }, {
+      id: 'web_search',
+      label: 'Web Search',
+      capability: 'read',
+      source: 'provider_native'
+    }]);
+    assert.deepEqual(preview.skills, [{
+      id: 'incident-analysis',
+      name: 'Incident analysis',
+      description: 'Analyze bounded incident evidence.',
+      source: 'manual'
+    }]);
+    assert.deepEqual(preview.toolSummary, {
+      totalAllowed: 2,
+      nativeAllowed: 2,
+      readAllowed: 2,
+      writeAllowed: 0
+    });
+    assert.equal('compiledAccessScope' in preview, false);
   });
 
   it('combines direct and capability-routed MCP tools without a target-specific Agent field', () => {

@@ -206,6 +206,7 @@
       "agentConversationContract": {
         "paths": [
           "GET|POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/conversations",
+          "GET /api/v1/workspaces/{workspaceId}/agents/{agentId}/assistant/capabilities-preview",
           "GET|DELETE /api/v1/agent-conversations/{conversationId}",
           "PATCH /api/v1/agent-conversations/{conversationId}/access",
           "POST /api/v1/agent-conversations/{conversationId}/messages"
@@ -213,6 +214,8 @@
         "runtime": "Console-only single-Agent manual conversations use the neutral sessions, messages, runs, events, approvals, artifacts, retention, and deletion runtime. Each message dispatches directly with scope.type=agent_chat and creates no Workflow definition, session, execution, or run.",
         "access": "Conversations are workspace-readable. Only the creator may continue, change access, or delete them. New conversation access is the intersection of the current Agent permission mode and creator capabilities: read_write requires a write-capable Agent plus create_read_write_runs; otherwise access is read_only. A creator may pause a write-capable conversation by changing it to read_only, while a currently read-only Agent cannot be elevated. Conversations and Agent definitions with active direct runs cannot be deleted. Existing approval and audit paths remain authoritative.",
         "pinning": "A conversation binds the Agent identity and preferred access mode. Each message resolves the current active, ready Agent and actor policy, then atomically pins the exact instructions, tools, skills, principal, model, Agent snapshot, and compiled scope on the new run. Capability additions and removals therefore apply only to later runs; active runs retain their immutable snapshots.",
+        "runtimeSelection": "Message requests may include the same provider, model, and reasoning-effort selection used by target chat. The accepted response and public run DTO return the resolved runtimeSelection; omitted selection uses workspace defaults.",
+        "preview": "The read-only capability preview compiles the current Agent and requesting actor for the requested access mode, applies exact MCP readiness, and returns bounded display-safe tool and skill metadata only. It creates no conversation, run, approval, or audit record; dispatch recompiles and pins its authoritative scope.",
         "automationBoundary": "Agent chat cannot schedule, accept triggers, coordinate or delegate to other Agents. Workflows remain the only repeatable, multi-Agent, scheduled, or externally triggered automation model."
       },
       "catalogAuthorization": {

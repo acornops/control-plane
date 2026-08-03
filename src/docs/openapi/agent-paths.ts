@@ -157,6 +157,31 @@ export function buildAgentPaths(): Record<string, unknown> {
         }
       }
     },
+    '/api/v1/workspaces/{workspaceId}/agents/{agentId}/assistant/capabilities-preview': {
+      get: {
+        tags: ['agents'],
+        summary: 'Preview capabilities available to an Agent chat run',
+        description: 'Compiles the current Agent and requesting user scope for the requested access mode, then returns bounded display-safe tool and skill metadata. The preview creates no conversation or run, and dispatch recompiles its authoritative scope.',
+        security: [{ userSession: [] }],
+        parameters: [
+          workspaceIdParameter,
+          agentIdPathParameter,
+          {
+            in: 'query',
+            name: 'toolAccessMode',
+            required: true,
+            schema: { type: 'string', enum: ['read_only', 'read_write'], example: 'read_only' }
+          }
+        ],
+        responses: {
+          '200': { description: 'Effective Agent chat capabilities preview.' },
+          '400': { description: 'Invalid toolAccessMode.' },
+          '403': { description: 'Missing workspace read or run creation capability.' },
+          '404': { description: 'Agent not found.' },
+          '409': { description: 'Agent policy, readiness, capability mapping, or MCP readiness blocks the requested run.' }
+        }
+      }
+    },
     '/api/v1/agent-conversations/{conversationId}': {
       get: {
         tags: ['agents'],
@@ -226,7 +251,8 @@ export function buildAgentPaths(): Record<string, unknown> {
                 required: ['content'],
                 properties: {
                   content: { type: 'string', minLength: 1, maxLength: 32768 },
-                  clientRequestId: { type: 'string', minLength: 1, maxLength: 128 }
+                  clientRequestId: { type: 'string', minLength: 1, maxLength: 128 },
+                  llm: { $ref: '#/components/schemas/ChatRuntimeSelection' }
                 },
                 additionalProperties: false
               }

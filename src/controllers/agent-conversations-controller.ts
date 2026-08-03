@@ -35,6 +35,11 @@ import { publicConversationRun } from './external-run-public.js';
 import { enqueueInteractiveRunDispatch } from './run-controller-helpers.js';
 import { runRequestProvenance } from './run-actor.js';
 import { rejectUnavailableInteractiveLlm } from './interactive-llm-validation.js';
+import { acceptedMessageResponse, parseRequestedLlmSelection } from './session-llm-selection.js';
+
+function acceptedAgentConversationMessage(messageId: string, run: Parameters<typeof acceptedMessageResponse>[1]) {
+  return { ...acceptedMessageResponse(messageId, run), status: run.status };
+}
 
 function agentConversationAccessMode(session: ChatSession): 'read_only' | 'read_write' {
   if (session.conversationKind !== 'agent_chat'
@@ -308,11 +313,7 @@ export async function postAgentConversationMessage(req: AuthenticatedRequest, re
     if (clientRequestId) {
       const existing = await repo.findRunByClientMessageId(session.id, clientRequestId);
       if (existing) {
-        return void res.status(202).json({
-          message_id: existing.message.id,
-          run_id: existing.run.id,
-          status: existing.run.status
-        });
+        return void res.status(202).json(acceptedAgentConversationMessage(existing.message.id, existing.run));
       }
     }
     const authz = await requireWorkspaceDataRead(req, res, session.workspaceId, 'No access to Agent conversation');
@@ -355,7 +356,9 @@ export async function postAgentConversationMessage(req: AuthenticatedRequest, re
     if (readiness.errors.length > 0) {
       return void res.status(409).json({ error: publicMcpReadinessError(readiness) });
     }
-    const llm = await resolveWorkspaceLlmSettings(session.workspaceId);
+    const requestedLlm = parseRequestedLlmSelection(req, res);
+    if (requestedLlm === null) return;
+    const llm = await resolveWorkspaceLlmSettings(session.workspaceId, requestedLlm);
     if (rejectUnavailableInteractiveLlm(res, llm, {
       credentialMessage: 'Configure an AI provider credential before starting an Agent run.'
     })) return;
@@ -394,11 +397,7 @@ export async function postAgentConversationMessage(req: AuthenticatedRequest, re
         }
       });
     }
-    res.status(202).json({
-      message_id: created.message.id,
-      run_id: created.run.id,
-      status: created.run.status
-    });
+    res.status(202).json(acceptedAgentConversationMessage(created.message.id, created.run));
   } catch (error) {
     if (error instanceof AgentConversationStateConflictError) {
       return void res.status(409).json({ error: {

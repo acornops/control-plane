@@ -31,6 +31,7 @@ export function schemaForOperation(method: string, path: string, statusCode: str
     'GET /api/v1/workspaces/{workspaceId}/agents': 'AgentList',
     'GET /api/v1/workspaces/{workspaceId}/agents/{agentId}/conversations': 'AgentConversationList',
     'POST /api/v1/workspaces/{workspaceId}/agents/{agentId}/conversations': 'AgentConversationDetail',
+    'GET /api/v1/workspaces/{workspaceId}/agents/{agentId}/assistant/capabilities-preview': 'AgentAssistantCapabilitiesPreview',
     'GET /api/v1/agent-conversations/{conversationId}': 'AgentConversationDetail',
     'PATCH /api/v1/agent-conversations/{conversationId}/access': 'AgentConversationAccessResponse',
     'POST /api/v1/agent-conversations/{conversationId}/messages': 'AgentConversationMessageAccepted',

@@ -14,6 +14,7 @@ import { requirePublicAgentRoute } from '../controllers/public-agent-visibility.
 import * as agentNativeToolsController from '../controllers/agent-native-tools-controller.js';
 import * as agentConversationsController from '../controllers/agent-conversations-controller.js';
 import * as agentTargetAccessController from '../controllers/agent-target-access-controller.js';
+import { getAgentAssistantCapabilitiesPreview } from '../controllers/agent-assistant-preview-controller.js';
 
 export const agentsRouter = Router();
 const authed = authenticatedHandler;
@@ -23,6 +24,7 @@ agentsRouter.get('/workspaces/:workspaceId/agents', requireUser, authed(agentsCo
 agentsRouter.post('/workspaces/:workspaceId/agents', requireUser, authed(agentsController.createAgent));
 agentsRouter.get('/workspaces/:workspaceId/agents/:agentId/conversations', requireUser, publicAgentVisibility, authed(agentConversationsController.listAgentConversations));
 agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/conversations', requireUser, publicAgentVisibility, authed(agentConversationsController.createAgentConversation));
+agentsRouter.get('/workspaces/:workspaceId/agents/:agentId/assistant/capabilities-preview', requireUser, publicAgentVisibility, authed(getAgentAssistantCapabilitiesPreview));
 agentsRouter.get('/workspaces/:workspaceId/catalog/native-tools', requireUser, authed(agentNativeToolsController.listNativeTools));
 agentsRouter.put('/workspaces/:workspaceId/agents/:agentId/native-tools/:toolId', requireUser, publicAgentVisibility, authed(agentNativeToolsController.grantNativeTool));
 agentsRouter.delete('/workspaces/:workspaceId/agents/:agentId/native-tools/:toolId', requireUser, publicAgentVisibility, authed(agentNativeToolsController.revokeNativeTool));
