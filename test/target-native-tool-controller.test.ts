@@ -94,7 +94,7 @@ describe('target native tool controller', () => {
       },
       {
         id: 'documents.create',
-        label: 'Create document',
+        label: 'Create Document',
         enabled: true,
         toggleable: true,
         description: 'Create a PDF or Markdown document.',

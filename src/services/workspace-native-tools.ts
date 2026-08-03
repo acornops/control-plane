@@ -68,7 +68,7 @@ const WORKSPACE_NATIVE_TOOLS: WorkspaceNativeToolDefinition[] = [
   {
     id: 'documents.create',
     modelAlias: 'acornops_create_document',
-    title: 'Create document',
+    title: 'Create Document',
     description: 'Create a PDF or Markdown document.',
     userToggleable: true,
     semanticCapabilityId: 'documents.create',

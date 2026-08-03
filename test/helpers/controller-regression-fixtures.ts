@@ -86,7 +86,7 @@ const canonicalWorkflowMcpServers: Array<Omit<WorkflowMcpServerRecord, 'workspac
 }, {
   id: 'artifact-writer', scope: 'workspace', name: 'Artifact writer', url: 'builtin://artifacts', enabled: true,
   authType: 'none', credentialConfigured: false, publicHeaders: {}, status: 'connected', createdBy: 'test',
-  tools: [{ name: 'documents.create', title: 'Create document', capability: 'write', enabled: true }]
+  tools: [{ name: 'documents.create', title: 'Create Document', capability: 'write', enabled: true }]
 }];
 
 export function restoreControllerRegressionState(): void {
@@ -249,7 +249,7 @@ export function installWorkspace(role: Role | null): void {
         ...servers.flatMap((server) => server.tools.map((tool) => ({
           value: tool.name, label: tool.title, disabled: !server.enabled || !tool.enabled
         }))),
-        { value: 'documents.create', label: 'Create document' }
+        { value: 'documents.create', label: 'Create Document' }
       ],
       agents: [
         { value: 'agent-cluster-triage', label: 'Infrastructure Diagnostics' },
