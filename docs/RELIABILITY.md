@@ -42,4 +42,6 @@
 - The internal run event cursor is the source of truth for resumed execution sequencing; it returns the latest replayable sequence from persisted events or the local runtime replay buffer when persistence is disabled for development.
 - Write approvals are backend-enforced before tool execution. Frontend and bot cards only submit decisions; control plane enforces user permission and execution-engine resumes from Postgres continuation with fresh bootstrap credentials.
 - Workflow execution is deterministic and sequential. Each executable step snapshots exactly one active Agent, the current Workflow definition, tool-route scope, and idempotency key before dispatch. A target is selected only for a target-tool invocation and must match a signed route.
-- Incident reports retain versioned source plus provenance in Postgres. PDF bytes are rendered within resource limits for each authorized download and are never persisted.
+- Incident reports retain versioned source plus server-derived run provenance in
+  Postgres; model-supplied provenance is ignored. PDF bytes are rendered within
+  resource limits for each authorized download and are never persisted.

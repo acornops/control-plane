@@ -123,7 +123,10 @@ The control plane owns the platform API boundary. Keep this README as a short in
   `documents.create` supports workflows and target chat; it executes in the
   control plane without crossing a target adapter. Direct and delegated
   specialist runs inherit it from their pinned Agent snapshot. Document creation is read-only-run safe but
-  write-audited. Execution snapshots expose workspace-native functions through
+  write-audited. Its model contract accepts only title, Markdown body, and an
+  optional output format; persisted provenance is derived exclusively from the
+  authoritative run scope, while legacy caller provenance is ignored during
+  rolling upgrades. Execution snapshots expose workspace-native functions through
   provider-safe aliases in `platform_functions`; `native_tools` and gateway JWT
   `allowed_native_tools` remain reserved for provider-native capabilities such
   as `web_search`.

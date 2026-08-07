@@ -81,10 +81,23 @@ const WORKSPACE_NATIVE_TOOLS: WorkspaceNativeToolDefinition[] = [
       required: ['title', 'markdown'],
       additionalProperties: false,
       properties: {
-        title: { type: 'string', minLength: 1, maxLength: 200 },
-        markdown: { type: 'string', minLength: 1, maxLength: 262144 },
-        format: { type: 'string', enum: ['pdf', 'markdown'], default: 'pdf' },
-        provenance: { type: 'object' }
+        title: {
+          type: 'string',
+          description: 'Short title displayed for the generated document.',
+          minLength: 1,
+          maxLength: 200
+        },
+        markdown: {
+          type: 'string',
+          description: 'Complete document body in Markdown, including headings and body. Do not wrap the entire document in an outer fenced code block.',
+          minLength: 1,
+          maxLength: 262144
+        },
+        format: {
+          type: 'string',
+          description: 'Output file format. Use `pdf` for a rendered PDF or `markdown` for a Markdown file. Omit to create a PDF.',
+          enum: ['pdf', 'markdown']
+        }
       }
     },
     outputSchema: {

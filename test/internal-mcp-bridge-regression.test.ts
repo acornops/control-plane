@@ -166,7 +166,11 @@ describe('internal MCP and native-tool regressions', () => {
     };
     const body = {
       name: 'documents.create',
-      arguments: { title: 'Incident', markdown: '# Incident\n\nRecovered.' },
+      arguments: {
+        title: 'Incident',
+        markdown: '# Incident\n\nRecovered.',
+        provenance: { workflowId: 'untrusted-workflow', arbitrary: 'untrusted-value' }
+      },
       toolCallId: 'report-call-1'
     };
     const first = await callBridge(claims, body);
@@ -178,11 +182,18 @@ describe('internal MCP and native-tool regressions', () => {
       (repeated.body as { structuredContent: { documentId: string } }).structuredContent.documentId,
       documentId
     );
-    const persisted = await db.query<{ count: string }>(
-      'SELECT COUNT(*) AS count FROM generated_documents WHERE workflow_run_id=$1 AND tool_call_id=$2',
+    const persisted = await db.query<{ count: string; provenance: Record<string, unknown> }>(
+      `SELECT COUNT(*) OVER () AS count, provenance
+       FROM generated_documents WHERE workflow_run_id=$1 AND tool_call_id=$2`,
       [run.id, 'report-call-1']
     );
     assert.equal(Number(persisted.rows[0].count), 1);
+    assert.deepEqual(persisted.rows[0].provenance, {
+      workflowId: run.workflowId,
+      executionId: run.executionId,
+      runId: run.id,
+      toolCallId: 'report-call-1'
+    });
     assert.ok(await getGeneratedDocument(documentId));
   });
 
@@ -207,7 +218,11 @@ describe('internal MCP and native-tool regressions', () => {
     });
     const body = {
       toolCallId: 'target-report-1',
-      arguments: { title: 'Target', markdown: '# Healthy' }
+      arguments: {
+        title: 'Target',
+        markdown: '# Healthy',
+        provenance: { targetId: 'untrusted-target', arbitrary: 'untrusted-value' }
+      }
     };
     const first = await callNative(runId, 'documents.create', body);
     const repeated = await callNative(runId, 'documents.create', body);
@@ -216,6 +231,18 @@ describe('internal MCP and native-tool regressions', () => {
       (first.body as { structuredContent: { documentId: string } }).structuredContent.documentId,
       (repeated.body as { structuredContent: { documentId: string } }).structuredContent.documentId
     );
+    const persisted = await db.query<{ provenance: Record<string, unknown> }>(
+      `SELECT provenance FROM generated_documents
+       WHERE conversation_run_id=$1 AND tool_call_id=$2`,
+      [runId, 'target-report-1']
+    );
+    assert.deepEqual(persisted.rows[0].provenance, {
+      targetId: 'cluster-1',
+      targetType: 'kubernetes',
+      sessionId: session.id,
+      runId,
+      toolCallId: 'target-report-1'
+    });
     await repo.updateRun(runId, { status: 'completed' });
     const inactive = await callNative(runId, 'documents.create', {
       toolCallId: 'too-late',

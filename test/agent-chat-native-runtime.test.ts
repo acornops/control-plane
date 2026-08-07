@@ -124,7 +124,11 @@ describe('Agent-chat native tools and approvals', () => {
     const runId = await addAgentRun(specialist, scope, 'read_only');
     const body = {
       toolCallId: 'agent-report-1',
-      arguments: { title: 'Agent report', markdown: '# Agent report' }
+      arguments: {
+        title: 'Agent report',
+        markdown: '# Agent report',
+        provenance: { agentId: 'untrusted-agent', arbitrary: 'untrusted-value' }
+      }
     };
     const first = await callNative(runId, 'documents.create', body);
     const repeated = await callNative(runId, 'documents.create', body);
@@ -133,11 +137,19 @@ describe('Agent-chat native tools and approvals', () => {
       (first.body as { structuredContent: { documentId: string } }).structuredContent.documentId,
       (repeated.body as { structuredContent: { documentId: string } }).structuredContent.documentId
     );
-    const persisted = await db.query<{ count: string }>(
-      'SELECT COUNT(*) AS count FROM generated_documents WHERE conversation_run_id=$1 AND tool_call_id=$2',
+    const persisted = await db.query<{ count: string; provenance: Record<string, unknown> }>(
+      `SELECT COUNT(*) OVER () AS count, provenance
+       FROM generated_documents WHERE conversation_run_id=$1 AND tool_call_id=$2`,
       [runId, 'agent-report-1']
     );
     assert.equal(Number(persisted.rows[0].count), 1);
+    assert.deepEqual(persisted.rows[0].provenance, {
+      agentId: specialist.id,
+      conversationKind: 'agent_chat',
+      sessionId: (await repo.getRun(runId))?.sessionId,
+      runId,
+      toolCallId: 'agent-report-1'
+    });
   });
 
   it('creates targetless approvals for exact Agent MCP write grants', async () => {

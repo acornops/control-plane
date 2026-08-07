@@ -42,12 +42,6 @@ async function createDocument(
   }
   const workflowRun = 'executionId' in run;
   const retentionDays = config.GENERATED_DOCUMENT_RETENTION_DAYS;
-  const provenance = args.provenance && typeof args.provenance === 'object' && !Array.isArray(args.provenance)
-    ? args.provenance as Record<string, unknown>
-    : {};
-  if (Buffer.byteLength(JSON.stringify(provenance), 'utf8') > 32_768) {
-    throw new WorkspaceNativeToolExecutionError('DOCUMENT_PROVENANCE_TOO_LARGE', 'Document provenance exceeds the allowed size.', 413);
-  }
   let document: GeneratedDocumentRecord;
   try {
     document = workflowRun
@@ -60,7 +54,6 @@ async function createDocument(
           mediaType: format === 'pdf' ? 'application/pdf' : 'text/markdown',
           source: { markdown },
           provenance: {
-            ...provenance,
             workflowId: run.workflowId,
             executionId: run.executionId,
             runId: run.id,
@@ -76,7 +69,6 @@ async function createDocument(
           mediaType: format === 'pdf' ? 'application/pdf' : 'text/markdown',
           source: { markdown },
           provenance: {
-            ...provenance,
             ...(run.conversationKind === 'agent_chat'
               ? { agentId: run.agentId, conversationKind: 'agent_chat' }
               : { targetId: run.targetId, targetType: run.targetType }),
