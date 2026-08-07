@@ -35,21 +35,28 @@ export async function readGatewayTextStream(body: ReadableStream<Uint8Array>): P
   const state: GatewayStreamState = { terminal: false, text: '' };
   let buffer = '';
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    for (const line of lines) {
-      if (line.trim()) applyLine(line, state);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (line.trim()) applyLine(line, state);
+      }
     }
-  }
 
-  buffer += decoder.decode();
-  if (buffer.trim()) applyLine(buffer, state);
-  if (!state.terminal) {
-    throw new Error('llm-gateway stream ended before a terminal event');
+    buffer += decoder.decode();
+    if (buffer.trim()) applyLine(buffer, state);
+    if (!state.terminal) {
+      throw new Error('llm-gateway stream ended before a terminal event');
+    }
+    return state.text;
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    reader.releaseLock();
   }
-  return state.text;
 }
