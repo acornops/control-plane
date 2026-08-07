@@ -8,7 +8,12 @@ afterEach(() => {
   mock.restoreAll();
 });
 
-async function runCheckpoint(responseText: string, gatewayStatus = 200, leaseCurrent = true) {
+async function runCheckpoint(
+  responseText: string,
+  gatewayStatus = 200,
+  leaseCurrent = true,
+  tailEvents: Array<Record<string, unknown>> = [{ type: 'final', usage: {} }]
+) {
   const lastActivityAt = new Date(Date.now() - 45 * 60_000).toISOString();
   const job = {
     workspaceId: 'workspace-1',
@@ -89,10 +94,10 @@ async function runCheckpoint(responseText: string, gatewayStatus = 200, leaseCur
     }
     const stream = new ReadableStream({
       start(controller) {
-        controller.enqueue(new TextEncoder().encode(JSON.stringify({
-          type: 'delta',
-          text: responseText
-        })));
+        const events = [{ type: 'delta', text: responseText }, ...tailEvents];
+        controller.enqueue(new TextEncoder().encode(
+          `${events.map((event) => JSON.stringify(event)).join('\n')}\n`
+        ));
         controller.close();
       }
     });
@@ -141,6 +146,24 @@ describe('Target Insights checkpoint outcomes', () => {
     assert.ok(finishedJobs[0].retryAfter);
     assert.equal(auditEvents[0].eventType, 'target_insights.checkpoint.failed.v1');
     assert.equal(auditEvents[0].metadata?.reasonCode, 'provider_failure');
+  });
+
+  it('rejects incomplete and post-terminal gateway streams as provider failures', async () => {
+    const validResponse = '{"patches":[{"action":"noop","reasonCode":"no_durable_learning"}]}';
+    for (const tailEvents of [
+      [],
+      [{ type: 'final', usage: {} }, { type: 'delta', text: 'late' }]
+    ]) {
+      const { finishedJobs, auditEvents } = await runCheckpoint(
+        validResponse,
+        200,
+        true,
+        tailEvents
+      );
+      assert.equal(finishedJobs[0].status, 'failed');
+      assert.equal(finishedJobs[0].error, 'provider_failure');
+      assert.equal(auditEvents[0].metadata?.reasonCode, 'provider_failure');
+    }
   });
 
   it('does not record a terminal outcome after the checkpoint lease becomes stale', async () => {

@@ -29,6 +29,8 @@
 - Keep browser-facing snapshot resource, durable issue, summary, and metric-history shapes explicit in contracts; only the latest raw target snapshot is retained, while metrics use compact history samples.
 - Run event replay must read persisted `run_events` before live SSE fanout when persistence is enabled.
 - Target chat activity streams must replay persisted `chat_activity_events` before live SSE fanout when clients reconnect with `Last-Event-ID` or `?after=...`; fresh connects are live-only and should use recent activity/session reads for initial state.
+- Direct Target Insights model streams require exactly one terminal `final` or
+  `error` event and reject clean EOF or any data after that terminal boundary.
 - Multi-pod deployments must keep unique `CONTROL_PLANE_INSTANCE_ID` values and a shared `REDIS_URL`.
 
 ## Recovery Expectations

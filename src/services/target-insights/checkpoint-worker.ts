@@ -24,6 +24,7 @@ import {
   TargetInsightMutationPatch
 } from './checkpoint-response.js';
 import { normalizeTargetInsightsConfig } from './config.js';
+import { readGatewayTextStream } from './gateway-text-stream.js';
 
 type TargetInsightContentPatch = Extract<TargetInsightMutationPatch, { action: 'create' | 'update' }>;
 
@@ -116,17 +117,6 @@ function buildGeneralizedUpdate(
   };
 }
 
-function parseGatewayStreamLine(line: string): string {
-  const chunk = JSON.parse(line) as { type?: string; text?: string; code?: string; message?: string };
-  if (chunk.type === 'delta' && typeof chunk.text === 'string') {
-    return chunk.text;
-  }
-  if (chunk.type === 'error') {
-    throw new Error(chunk.message || chunk.code || 'llm-gateway stream error');
-  }
-  return '';
-}
-
 async function streamGatewayJsonPatch(input: {
   workspaceId: string;
   targetId: string;
@@ -207,26 +197,7 @@ async function streamGatewayJsonPatch(input: {
     if (!response.ok || !response.body) {
       throw new Error(`llm-gateway returned ${response.status}`);
     }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let text = '';
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        text += parseGatewayStreamLine(line);
-      }
-    }
-    buffer += decoder.decode();
-    if (buffer.trim()) {
-      text += parseGatewayStreamLine(buffer);
-    }
-    return text;
+    return await readGatewayTextStream(response.body);
   } finally {
     clearTimeout(timeout);
   }

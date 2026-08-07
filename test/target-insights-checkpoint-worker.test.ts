@@ -78,10 +78,10 @@ function mockConfiguredGatewayResponse(patchPayload: unknown): void {
     }
     const stream = new ReadableStream({
       start(controller) {
-        controller.enqueue(new TextEncoder().encode(`${JSON.stringify({
-          type: 'delta',
-          text: JSON.stringify(patchPayload)
-        })}`));
+        controller.enqueue(new TextEncoder().encode([
+          JSON.stringify({ type: 'delta', text: JSON.stringify(patchPayload) }),
+          JSON.stringify({ type: 'final', usage: {} })
+        ].join('\n')));
         controller.close();
       }
     });

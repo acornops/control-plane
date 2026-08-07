@@ -26,9 +26,10 @@ function installDeterministicCheckpointProvider(): void {
 
     const stream = new ReadableStream({
       start(controller) {
-        controller.enqueue(new TextEncoder().encode(JSON.stringify({
-          type: 'delta',
-          text: JSON.stringify({
+        controller.enqueue(new TextEncoder().encode([
+          JSON.stringify({
+            type: 'delta',
+            text: JSON.stringify({
             patches: [{
               action: 'create',
               title: 'Registry authentication failures',
@@ -40,7 +41,9 @@ function installDeterministicCheckpointProvider(): void {
               confidence: 0.9
             }]
           })
-        })));
+          }),
+          JSON.stringify({ type: 'final', usage: {} })
+        ].join('\n')));
         controller.close();
       }
     });

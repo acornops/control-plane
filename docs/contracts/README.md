@@ -239,6 +239,9 @@ The control plane owns the platform API boundary. Keep this README as a short in
   erase those pointers. Exact execution responses add origin only for normal
   users and preserve the restricted external-integration representation.
 - Roles with `permissions.manage_target_insights` may mutate Target Insights entries and Target Insights tool settings.
+- Target Insights checkpoint generation accepts model text only after a complete
+  gateway stream with exactly one terminal event; incomplete and post-terminal
+  streams fail as provider errors without applying a patch.
 - Roles without the relevant management capability are read-only for that configuration surface.
 - Chat and run creation must preserve `sessionPolicy.allowedTools` and `sessionPolicy.writeEnabled`.
 - Agent conversations are console-only, single-Agent manual sessions backed by
