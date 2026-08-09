@@ -1,8 +1,16 @@
 import { randomUUID } from 'node:crypto';
+import { config } from '../config.js';
 import { db } from '../infra/db.js';
+import { permissionModeForLegacyWriteConfirmation } from '../services/run-permission-policy.js';
 import { deriveVirtualMachineIssueObservations } from '../services/target-issue-derivation.js';
 import { summarizeVirtualMachineSnapshotMetrics } from '../services/target-metric-samples.js';
+import {
+  parseAgentVAccessPolicy,
+  READ_ONLY_AGENTV_ACCESS_POLICY,
+  type AgentVAccessPolicy
+} from '../types/agentv-access-policy.js';
 import { VirtualMachineSnapshot, VirtualMachineTarget, VIRTUAL_MACHINE_TARGET_TYPE } from '../types/domain.js';
+import { isRunPermissionMode } from '../types/run-permission.js';
 import { PagedResult, encodeCursor, pageWithCursor } from '../utils/pagination.js';
 import { TargetFindingInput, TargetInventoryItemInput } from './repository-target-inventory.js';
 import { replaceTargetInventorySnapshot } from './repository-target-inventory.js';
@@ -92,6 +100,37 @@ function mapVirtualMachineSnapshotSummaryRecord(row: SnapshotSummaryDbRow): Virt
 
 function mapVm(row: VmRow): VirtualMachineTarget {
   const metadata = row.metadata || {};
+  const storedAccessPolicy = parseAgentVAccessPolicy({
+    accessMode: metadata.agentAccessMode,
+    restartServices: metadata.restartServices
+  });
+  const hasStoredAccessPolicy = metadata.agentAccessMode !== undefined || metadata.restartServices !== undefined;
+  if (hasStoredAccessPolicy && !storedAccessPolicy) {
+    throw new Error(`Stored AgentV access policy is invalid for VM target ${row.id}`);
+  }
+  const accessPolicy = storedAccessPolicy || READ_ONLY_AGENTV_ACCESS_POLICY;
+  const pendingAccessPolicy = metadata.pendingAgentAccessPolicy === undefined
+    ? null
+    : parseAgentVAccessPolicy(metadata.pendingAgentAccessPolicy);
+  if (metadata.pendingAgentAccessPolicy !== undefined && !pendingAccessPolicy) {
+    throw new Error(`Stored pending AgentV access policy is invalid for VM target ${row.id}`);
+  }
+  const pendingAccessPolicyEnrollmentId = metadata.pendingAgentAccessPolicyEnrollmentId === undefined
+    ? null
+    : text(metadata.pendingAgentAccessPolicyEnrollmentId) || null;
+  if ((pendingAccessPolicy === null) !== (pendingAccessPolicyEnrollmentId === null)) {
+    throw new Error(`Stored pending AgentV access policy metadata is incomplete for VM target ${row.id}`);
+  }
+  const hasPermissionModeOverride = metadata.permissionModeOverride !== undefined
+    && metadata.permissionModeOverride !== null;
+  if (hasPermissionModeOverride && !isRunPermissionMode(metadata.permissionModeOverride)) {
+    throw new Error(`Stored run permission policy is invalid for VM target ${row.id}`);
+  }
+  const permissionModeOverride = isRunPermissionMode(metadata.permissionModeOverride)
+    ? metadata.permissionModeOverride
+    : null;
+  const permissionMode = permissionModeOverride
+    || permissionModeForLegacyWriteConfirmation(config.ASSISTANT_WRITE_CONFIRMATION_REQUIRED);
   return {
     id: row.id,
     workspaceId: row.workspace_id,
@@ -101,6 +140,12 @@ function mapVm(row: VmRow): VirtualMachineTarget {
     osFamily: 'linux',
     serviceManager: 'systemd',
     allowedLogSources: stringList(metadata.allowedLogSources, ['journald', 'syslog']),
+    agentAccessMode: accessPolicy.accessMode,
+    restartServices: accessPolicy.restartServices,
+    pendingAgentAccessPolicy: pendingAccessPolicy,
+    permissionMode,
+    permissionModeOverride,
+    permissionModeSource: permissionModeOverride ? 'virtual_machine_override' : 'deployment_default',
     createdAt: toIso(row.created_at)!,
     updatedAt: toIso(row.updated_at)!
   };
@@ -108,7 +153,7 @@ function mapVm(row: VmRow): VirtualMachineTarget {
 
 export async function addVirtualMachine(
   workspaceId: string,
-  input: { name: string; hostname?: string; allowedLogSources?: string[] }
+  input: { name: string; hostname?: string; allowedLogSources?: string[]; accessPolicy: AgentVAccessPolicy }
 ): Promise<VirtualMachineTarget> {
   const id = randomUUID();
   const now = new Date().toISOString();
@@ -116,7 +161,9 @@ export async function addVirtualMachine(
     hostname: input.hostname || input.name,
     osFamily: 'linux',
     serviceManager: 'systemd',
-    allowedLogSources: input.allowedLogSources || ['journald', 'syslog']
+    allowedLogSources: input.allowedLogSources || ['journald', 'syslog'],
+    agentAccessMode: input.accessPolicy.accessMode,
+    restartServices: input.accessPolicy.restartServices
   };
   await withTransaction(async (client) => {
     await assertWorkspaceTargetQuota(client, workspaceId, VIRTUAL_MACHINE_TARGET_TYPE);
@@ -183,15 +230,26 @@ export async function getVirtualMachine(vmId: string): Promise<VirtualMachineTar
 
 export async function updateVirtualMachine(
   vmId: string,
-  input: Partial<Pick<VirtualMachineTarget, 'name' | 'hostname' | 'status' | 'allowedLogSources'>>
+  input: Partial<Pick<VirtualMachineTarget, 'name' | 'hostname' | 'status' | 'allowedLogSources' | 'permissionModeOverride'>>
 ): Promise<VirtualMachineTarget | null> {
-  const existing = await getVirtualMachine(vmId);
-  if (!existing) return null;
+  const current = await db.query<VmRow>(
+    `SELECT id, workspace_id, target_type, name, status, metadata, created_at, updated_at
+     FROM targets WHERE id = $1 AND target_type = 'virtual_machine'`,
+    [vmId]
+  );
+  if (!current.rowCount) return null;
+  const existing = mapVm(current.rows[0]);
   const metadata = {
+    ...(current.rows[0].metadata || {}),
     hostname: input.hostname ?? existing.hostname ?? existing.name,
     osFamily: 'linux',
     serviceManager: 'systemd',
-    allowedLogSources: input.allowedLogSources ?? existing.allowedLogSources
+    allowedLogSources: input.allowedLogSources ?? existing.allowedLogSources,
+    agentAccessMode: existing.agentAccessMode,
+    restartServices: existing.restartServices,
+    permissionModeOverride: input.permissionModeOverride !== undefined
+      ? input.permissionModeOverride
+      : existing.permissionModeOverride
   };
   await db.query(
     `UPDATE targets

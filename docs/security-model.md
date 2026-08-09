@@ -189,6 +189,17 @@
   administration returns a short-lived one-use enrollment command; the durable
   AgentV credential is returned only to the root installer and stored hash-only
   by the control plane.
+- AgentV host writes are disabled by default. A read-write enrollment snapshots
+  an exact allowlist of non-AgentV systemd services; the root installer enables
+  the privileged socket only after installing that policy. The allowlist cannot
+  authorize AgentV to restart itself or its recovery units. The VM's run
+  permission mode independently chooses read-only, approval-required, or
+  administrator-reviewed non-destructive automatic changes; every mode remains
+  bounded by workspace permission, run scope, tool review, and the host allowlist.
+  Allowlist changes remain pending until a root-run command commits them. New
+  runs and already-issued run tokens are both denied write invocation while a
+  host policy update is pending. Transaction rollback preserves the previous
+  credential and applied policy.
 
 ## Browser Headers
 

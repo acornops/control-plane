@@ -25,6 +25,7 @@ function response() {
 const enrollment = {
   id: '11111111-1111-4111-8111-111111111111',
   targetId: 'vm-1', workspaceId: 'workspace-1', purpose: 'initial' as const,
+  accessPolicy: { accessMode: 'read_write' as const, restartServices: ['nginx.service'] },
   tokenHash: 'scrypt$redacted', transactionSecretHash: 'scrypt$redacted', status: 'exchanged' as const,
   createdBy: 'user-1', expiresAt: '2026-08-09T00:15:00.000Z', transactionExpiresAt: '2026-08-09T01:00:00.000Z'
 };
@@ -77,7 +78,8 @@ describe('AgentV bootstrap transaction API', () => {
       transactionId: enrollment.id,
       transactionSecret: 'avt_transaction-secret',
       agentKey: 'ak_vm-1_durable',
-      purpose: 'initial'
+      purpose: 'initial',
+      accessPolicy: { accessMode: 'read_write', restartServices: ['nginx.service'] }
     });
 
     accepted = false;

@@ -351,3 +351,7 @@ export {
   createVirtualMachineAgentEnrollment,
   updateVirtualMachine
 } from './workspaces/virtual-machine-controller.js';
+
+export {
+  createVirtualMachineAgentAccessPolicyUpdate
+} from './workspaces/virtual-machine-agent-access-policy-controller.js';

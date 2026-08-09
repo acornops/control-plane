@@ -21,6 +21,7 @@ const originals = {
   getWorkspaceSummaryForUser: repo.getWorkspaceSummaryForUser,
   getWorkspaceRole: repo.getWorkspaceRole,
   getCluster: repo.getCluster,
+  getVirtualMachine: repo.getVirtualMachine,
   getTarget: repo.getTarget,
   listTargets: repo.listTargets,
   addSession: repo.addSession,
@@ -94,6 +95,7 @@ export function restoreControllerRegressionState(): void {
   repo.getWorkspaceSummaryForUser = originals.getWorkspaceSummaryForUser;
   repo.getWorkspaceRole = originals.getWorkspaceRole;
   repo.getCluster = originals.getCluster;
+  repo.getVirtualMachine = originals.getVirtualMachine;
   repo.getTarget = originals.getTarget;
   repo.listTargets = originals.listTargets;
   repo.addSession = originals.addSession;

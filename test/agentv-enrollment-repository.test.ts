@@ -1,12 +1,40 @@
 import assert from 'node:assert/strict';
 import { after, beforeEach, describe, it } from 'node:test';
 import { db } from '../src/infra/db.js';
-import { agentVEnrollmentRepository as enrollmentRepo } from '../src/store/repository-agentv-enrollments.js';
+import { agentVEnrollmentRepository as baseEnrollmentRepo } from '../src/store/repository-agentv-enrollments.js';
+import type { AgentVAccessPolicy } from '../src/types/agentv-access-policy.js';
 import { hashSecret } from '../src/utils/crypto.js';
 import { closeAutomationDatabaseFixtures, resetAutomationDatabaseFixtures } from './helpers/automation-database-fixtures.js';
 
 const hasIsolatedDatabase = Boolean(process.env.CONTROL_PLANE_TEST_DATABASE_URL);
 const token = (id: string, character: string) => `aev_${id}_${character.repeat(43)}`;
+const enrollmentRepo = {
+  ...baseEnrollmentRepo,
+  createAgentVEnrollment(input: Omit<Parameters<typeof baseEnrollmentRepo.createAgentVEnrollment>[0], 'accessPolicy'> & {
+    accessPolicy?: AgentVAccessPolicy;
+  }) {
+    return baseEnrollmentRepo.createAgentVEnrollment({
+      accessPolicy: { accessMode: 'read_only', restartServices: [] },
+      ...input
+    });
+  }
+};
+
+function enrollmentInput(
+  id: string,
+  rawToken: string,
+  purpose: 'initial' | 'replace'
+): Parameters<typeof enrollmentRepo.createAgentVEnrollment>[0] {
+  return {
+    id,
+    targetId: 'vm-1',
+    workspaceId: 'workspace-1',
+    purpose,
+    tokenHash: hashSecret(rawToken),
+    createdBy: 'user-1',
+    expiresAt: new Date(Date.now() + 60_000).toISOString()
+  };
+}
 
 describe('AgentV enrollment credential transactions', { skip: !hasIsolatedDatabase }, () => {
   beforeEach(async () => {
@@ -22,11 +50,14 @@ describe('AgentV enrollment credential transactions', { skip: !hasIsolatedDataba
     const initialId = '11111111-1111-4111-8111-111111111111';
     const initialToken = token(initialId, 'a');
     await enrollmentRepo.createAgentVEnrollment({
-      id: initialId, targetId: 'vm-1', workspaceId: 'workspace-1', purpose: 'initial',
-      tokenHash: hashSecret(initialToken), createdBy: 'user-1', expiresAt: new Date(Date.now() + 60_000).toISOString()
+      ...enrollmentInput(initialId, initialToken, 'initial'),
+      accessPolicy: { accessMode: 'read_write', restartServices: ['nginx.service'] },
     });
     const initial = await enrollmentRepo.exchangeAgentVEnrollment({ enrollmentId: initialId, token: initialToken, targetId: 'vm-1', purpose: 'initial' });
     assert.ok(initial);
+    assert.deepEqual(initial.enrollment.accessPolicy, {
+      accessMode: 'read_write', restartServices: ['nginx.service']
+    });
     assert.equal(await enrollmentRepo.exchangeAgentVEnrollment({ enrollmentId: initialId, token: initialToken, targetId: 'vm-1', purpose: 'initial' }), null);
     const stored = await db.query('SELECT token_hash, transaction_secret_hash FROM agentv_enrollments WHERE id=$1', [initialId]);
     assert.notEqual(stored.rows[0].token_hash, initialToken);
@@ -39,20 +70,14 @@ describe('AgentV enrollment credential transactions', { skip: !hasIsolatedDataba
 
     const staleInitialId = '77777777-7777-4777-8777-777777777777';
     const staleInitialToken = token(staleInitialId, 'g');
-    await enrollmentRepo.createAgentVEnrollment({
-      id: staleInitialId, targetId: 'vm-1', workspaceId: 'workspace-1', purpose: 'initial',
-      tokenHash: hashSecret(staleInitialToken), createdBy: 'user-1', expiresAt: new Date(Date.now() + 60_000).toISOString()
-    });
+    await enrollmentRepo.createAgentVEnrollment(enrollmentInput(staleInitialId, staleInitialToken, 'initial'));
     assert.equal(await enrollmentRepo.exchangeAgentVEnrollment({
       enrollmentId: staleInitialId, token: staleInitialToken, targetId: 'vm-1', purpose: 'initial'
     }), null);
 
     const replacementId = '22222222-2222-4222-8222-222222222222';
     const replacementToken = token(replacementId, 'b');
-    await enrollmentRepo.createAgentVEnrollment({
-      id: replacementId, targetId: 'vm-1', workspaceId: 'workspace-1', purpose: 'replace',
-      tokenHash: hashSecret(replacementToken), createdBy: 'user-1', expiresAt: new Date(Date.now() + 60_000).toISOString()
-    });
+    await enrollmentRepo.createAgentVEnrollment(enrollmentInput(replacementId, replacementToken, 'replace'));
     const replacement = await enrollmentRepo.exchangeAgentVEnrollment({ enrollmentId: replacementId, token: replacementToken, targetId: 'vm-1', purpose: 'replace' });
     assert.ok(replacement);
     assert.equal((await enrollmentRepo.authenticateAgentVCredential('vm-1', replacement.agentKey))?.provisional, true);
@@ -72,8 +97,8 @@ describe('AgentV enrollment credential transactions', { skip: !hasIsolatedDataba
     const firstToken = token(firstId, 'c');
     const secondToken = token(secondId, 'd');
     await Promise.all([
-      enrollmentRepo.createAgentVEnrollment({ id: firstId, targetId: 'vm-1', workspaceId: 'workspace-1', purpose: 'initial', tokenHash: hashSecret(firstToken), createdBy: 'user-1', expiresAt: new Date(Date.now() + 60_000).toISOString() }),
-      enrollmentRepo.createAgentVEnrollment({ id: secondId, targetId: 'vm-1', workspaceId: 'workspace-1', purpose: 'initial', tokenHash: hashSecret(secondToken), createdBy: 'user-1', expiresAt: new Date(Date.now() + 60_000).toISOString() })
+      enrollmentRepo.createAgentVEnrollment(enrollmentInput(firstId, firstToken, 'initial')),
+      enrollmentRepo.createAgentVEnrollment(enrollmentInput(secondId, secondToken, 'initial'))
     ]);
     const results = await Promise.all([
       enrollmentRepo.exchangeAgentVEnrollment({ enrollmentId: firstId, token: firstToken, targetId: 'vm-1', purpose: 'initial' }),
@@ -84,23 +109,65 @@ describe('AgentV enrollment credential transactions', { skip: !hasIsolatedDataba
     assert.equal(pending.rows[0].count, 1);
   });
 
+  it('applies and rolls back a pending host policy with the credential transaction', async () => {
+    const initialId = '15151515-1515-4515-8515-151515151515';
+    const policyId = '16161616-1616-4616-8616-161616161616';
+    const initialToken = token(initialId, 'q');
+    const policyToken = token(policyId, 'r');
+    await db.query(
+      `UPDATE targets SET metadata = '{"agentAccessMode":"read_only","restartServices":[]}'::jsonb WHERE id = 'vm-1'`
+    );
+    assert.equal(await enrollmentRepo.createAgentVEnrollment(
+      enrollmentInput(initialId, initialToken, 'initial')
+    ), true);
+    const initial = await enrollmentRepo.exchangeAgentVEnrollment({
+      enrollmentId: initialId, token: initialToken, targetId: 'vm-1', purpose: 'initial'
+    });
+    assert.ok(initial);
+    await enrollmentRepo.authenticateAgentVCredential('vm-1', initial.agentKey);
+    await enrollmentRepo.commitAgentVInstallation(initialId, initial.transactionSecret);
+
+    const desiredPolicy = { accessMode: 'read_write' as const, restartServices: ['worker.service'] };
+    assert.equal(await enrollmentRepo.createAgentVEnrollment({
+      ...enrollmentInput(policyId, policyToken, 'replace'),
+      accessPolicy: desiredPolicy, markAccessPolicyUpdate: true,
+    }), true);
+    let target = await db.query('SELECT metadata FROM targets WHERE id = $1', ['vm-1']);
+    assert.deepEqual(target.rows[0].metadata.pendingAgentAccessPolicy, desiredPolicy);
+    assert.equal(target.rows[0].metadata.agentAccessMode, 'read_only');
+
+    const update = await enrollmentRepo.exchangeAgentVEnrollment({
+      enrollmentId: policyId, token: policyToken, targetId: 'vm-1', purpose: 'replace'
+    });
+    assert.ok(update);
+    await enrollmentRepo.authenticateAgentVCredential('vm-1', update.agentKey);
+    await enrollmentRepo.commitAgentVInstallation(policyId, update.transactionSecret);
+    target = await db.query('SELECT metadata FROM targets WHERE id = $1', ['vm-1']);
+    assert.equal(target.rows[0].metadata.agentAccessMode, 'read_write');
+    assert.deepEqual(target.rows[0].metadata.restartServices, ['worker.service']);
+    assert.equal(target.rows[0].metadata.pendingAgentAccessPolicy, undefined);
+
+    assert.equal(await enrollmentRepo.rollbackAgentVInstallation(policyId, update.transactionSecret), true);
+    target = await db.query('SELECT metadata FROM targets WHERE id = $1', ['vm-1']);
+    assert.equal(target.rows[0].metadata.agentAccessMode, 'read_only');
+    assert.deepEqual(target.rows[0].metadata.restartServices, []);
+  });
+
   it('lets a freshly generated command retire an abandoned pending enrollment', async () => {
     const abandonedId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
     const freshId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
     const abandonedToken = token(abandonedId, 'l');
     const freshToken = token(freshId, 'm');
-    assert.equal(await enrollmentRepo.createAgentVEnrollment({
-      id: abandonedId, targetId: 'vm-1', workspaceId: 'workspace-1', purpose: 'initial',
-      tokenHash: hashSecret(abandonedToken), createdBy: 'user-1', expiresAt: new Date(Date.now() + 60_000).toISOString()
-    }), true);
+    assert.equal(await enrollmentRepo.createAgentVEnrollment(
+      enrollmentInput(abandonedId, abandonedToken, 'initial')
+    ), true);
     assert.ok(await enrollmentRepo.exchangeAgentVEnrollment({
       enrollmentId: abandonedId, token: abandonedToken, targetId: 'vm-1', purpose: 'initial'
     }));
 
-    assert.equal(await enrollmentRepo.createAgentVEnrollment({
-      id: freshId, targetId: 'vm-1', workspaceId: 'workspace-1', purpose: 'initial',
-      tokenHash: hashSecret(freshToken), createdBy: 'user-1', expiresAt: new Date(Date.now() + 60_000).toISOString()
-    }), true);
+    assert.equal(await enrollmentRepo.createAgentVEnrollment(
+      enrollmentInput(freshId, freshToken, 'initial')
+    ), true);
     const abandoned = await db.query(
       `SELECT e.status, c.state FROM agentv_enrollments e
        JOIN agentv_credentials c ON c.enrollment_id=e.id WHERE e.id=$1`,
@@ -115,10 +182,9 @@ describe('AgentV enrollment credential transactions', { skip: !hasIsolatedDataba
   it('rejects replacement enrollment when the target has no active credential', async () => {
     const id = '88888888-8888-4888-8888-888888888888';
     const rawToken = token(id, 'h');
-    assert.equal(await enrollmentRepo.createAgentVEnrollment({
-      id, targetId: 'vm-1', workspaceId: 'workspace-1', purpose: 'replace',
-      tokenHash: hashSecret(rawToken), createdBy: 'user-1', expiresAt: new Date(Date.now() + 60_000).toISOString()
-    }), false);
+    assert.equal(await enrollmentRepo.createAgentVEnrollment(
+      enrollmentInput(id, rawToken, 'replace')
+    ), false);
     assert.equal(await enrollmentRepo.exchangeAgentVEnrollment({
       enrollmentId: id, token: rawToken, targetId: 'vm-1', purpose: 'replace'
     }), null);
@@ -127,10 +193,7 @@ describe('AgentV enrollment credential transactions', { skip: !hasIsolatedDataba
   it('expires an abandoned exchanged credential and rejects target mismatches', async () => {
     const id = '55555555-5555-4555-8555-555555555555';
     const rawToken = token(id, 'e');
-    await enrollmentRepo.createAgentVEnrollment({
-      id, targetId: 'vm-1', workspaceId: 'workspace-1', purpose: 'initial',
-      tokenHash: hashSecret(rawToken), createdBy: 'user-1', expiresAt: new Date(Date.now() + 60_000).toISOString()
-    });
+    await enrollmentRepo.createAgentVEnrollment(enrollmentInput(id, rawToken, 'initial'));
     assert.equal(await enrollmentRepo.exchangeAgentVEnrollment({ enrollmentId: id, token: rawToken, targetId: 'other-vm', purpose: 'initial' }), null);
     assert.equal(await enrollmentRepo.exchangeAgentVEnrollment({ enrollmentId: id, token: rawToken, targetId: 'vm-1', purpose: 'replace' }), null);
     const exchanged = await enrollmentRepo.exchangeAgentVEnrollment({ enrollmentId: id, token: rawToken, targetId: 'vm-1', purpose: 'initial' });
@@ -150,10 +213,7 @@ describe('AgentV enrollment credential transactions', { skip: !hasIsolatedDataba
   it('can cancel an initial credential after commit when post-commit readiness fails', async () => {
     const id = '66666666-6666-4666-8666-666666666666';
     const rawToken = token(id, 'f');
-    await enrollmentRepo.createAgentVEnrollment({
-      id, targetId: 'vm-1', workspaceId: 'workspace-1', purpose: 'initial',
-      tokenHash: hashSecret(rawToken), createdBy: 'user-1', expiresAt: new Date(Date.now() + 60_000).toISOString()
-    });
+    await enrollmentRepo.createAgentVEnrollment(enrollmentInput(id, rawToken, 'initial'));
     const exchanged = await enrollmentRepo.exchangeAgentVEnrollment({
       enrollmentId: id, token: rawToken, targetId: 'vm-1', purpose: 'initial'
     });
@@ -172,10 +232,7 @@ describe('AgentV enrollment credential transactions', { skip: !hasIsolatedDataba
     const replacementId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     const initialToken = token(initialId, 'i');
     const replacementToken = token(replacementId, 'j');
-    await enrollmentRepo.createAgentVEnrollment({
-      id: initialId, targetId: 'vm-1', workspaceId: 'workspace-1', purpose: 'initial',
-      tokenHash: hashSecret(initialToken), createdBy: 'user-1', expiresAt: new Date(Date.now() + 60_000).toISOString()
-    });
+    await enrollmentRepo.createAgentVEnrollment(enrollmentInput(initialId, initialToken, 'initial'));
     const initial = await enrollmentRepo.exchangeAgentVEnrollment({
       enrollmentId: initialId, token: initialToken, targetId: 'vm-1', purpose: 'initial'
     });
@@ -183,10 +240,7 @@ describe('AgentV enrollment credential transactions', { skip: !hasIsolatedDataba
     await enrollmentRepo.authenticateAgentVCredential('vm-1', initial.agentKey);
     await enrollmentRepo.commitAgentVInstallation(initialId, initial.transactionSecret);
 
-    await enrollmentRepo.createAgentVEnrollment({
-      id: replacementId, targetId: 'vm-1', workspaceId: 'workspace-1', purpose: 'replace',
-      tokenHash: hashSecret(replacementToken), createdBy: 'user-1', expiresAt: new Date(Date.now() + 60_000).toISOString()
-    });
+    await enrollmentRepo.createAgentVEnrollment(enrollmentInput(replacementId, replacementToken, 'replace'));
     const replacement = await enrollmentRepo.exchangeAgentVEnrollment({
       enrollmentId: replacementId, token: replacementToken, targetId: 'vm-1', purpose: 'replace'
     });
@@ -204,10 +258,9 @@ describe('AgentV enrollment credential transactions', { skip: !hasIsolatedDataba
   it('keeps only the immediately previous credential during successive replacement grace windows', async () => {
     const activate = async (id: string, character: string, purpose: 'initial' | 'replace') => {
       const rawToken = token(id, character);
-      assert.equal(await enrollmentRepo.createAgentVEnrollment({
-        id, targetId: 'vm-1', workspaceId: 'workspace-1', purpose,
-        tokenHash: hashSecret(rawToken), createdBy: 'user-1', expiresAt: new Date(Date.now() + 60_000).toISOString()
-      }), true);
+      assert.equal(await enrollmentRepo.createAgentVEnrollment(
+        enrollmentInput(id, rawToken, purpose)
+      ), true);
       const exchanged = await enrollmentRepo.exchangeAgentVEnrollment({
         enrollmentId: id, token: rawToken, targetId: 'vm-1', purpose
       });
@@ -238,10 +291,7 @@ describe('AgentV enrollment credential transactions', { skip: !hasIsolatedDataba
   it('reports an active connection only for the committed credential generation', async () => {
     const id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
     const rawToken = token(id, 'k');
-    await enrollmentRepo.createAgentVEnrollment({
-      id, targetId: 'vm-1', workspaceId: 'workspace-1', purpose: 'initial',
-      tokenHash: hashSecret(rawToken), createdBy: 'user-1', expiresAt: new Date(Date.now() + 60_000).toISOString()
-    });
+    await enrollmentRepo.createAgentVEnrollment(enrollmentInput(id, rawToken, 'initial'));
     const exchanged = await enrollmentRepo.exchangeAgentVEnrollment({
       enrollmentId: id, token: rawToken, targetId: 'vm-1', purpose: 'initial'
     });

@@ -1,12 +1,15 @@
+import type { AgentVAccessPolicy } from './agentv-access-policy.js';
+
 export type AgentVEnrollmentPurpose = 'initial' | 'replace';
-export type AgentVEnrollmentStatus = 'issued' | 'exchanged' | 'verified' | 'completed' | 'cancelled' | 'expired';
-export type AgentVCredentialState = 'pending' | 'active' | 'grace' | 'revoked';
+type AgentVEnrollmentStatus = 'issued' | 'exchanged' | 'verified' | 'completed' | 'cancelled' | 'expired';
+type AgentVCredentialState = 'pending' | 'active' | 'grace' | 'revoked';
 
 export interface AgentVEnrollment {
   id: string;
   targetId: string;
   workspaceId: string;
   purpose: AgentVEnrollmentPurpose;
+  accessPolicy: AgentVAccessPolicy;
   tokenHash: string;
   transactionSecretHash?: string;
   status: AgentVEnrollmentStatus;

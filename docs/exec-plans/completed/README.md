@@ -6,7 +6,6 @@ Keep only completed plans that remain useful as durable design or validation con
 
 - [Admin User Last Login](admin-user-last-login.md)
 - [Agent Chat Capability Preview](agent-chat-capability-preview.md)
-- [AgentV 0.0.1-experimental.6 Release Pin](agentv-release-0.0.1-experimental.6.md)
 - [Admin Audit Subject Display Name](admin-audit-subject-display-name.md)
 - [Admin Audit Event Filter Coverage](admin-audit-event-filter-coverage.md)
 - [Admin Audit Workspace Query](admin-audit-workspace-query.md)

@@ -4,21 +4,26 @@ import type { AgentVEnrollmentPurpose } from '../types/agentv-enrollment.js';
 import { hashSecret } from '../utils/crypto.js';
 import { buildVirtualMachineInstallInstructions } from './virtual-machine-install-instructions.js';
 import { config } from '../config.js';
+import type { AgentVAccessPolicy } from '../types/agentv-access-policy.js';
 
-export const AGENTV_ENROLLMENT_TTL_MS = 15 * 60 * 1000;
+const AGENTV_ENROLLMENT_TTL_MS = 15 * 60 * 1000;
 
 export async function issueAgentVEnrollment(input: {
   targetId: string; workspaceId: string; purpose: AgentVEnrollmentPurpose; createdBy: string;
+  accessPolicy: AgentVAccessPolicy;
+  markAccessPolicyUpdate?: boolean;
 }) {
   const id = randomUUID();
   const token = `aev_${id}_${randomBytes(32).toString('base64url')}`;
   const expiresAt = new Date(Date.now() + AGENTV_ENROLLMENT_TTL_MS).toISOString();
   const created = await repo.agentv.createAgentVEnrollment({
     id, targetId: input.targetId, workspaceId: input.workspaceId, purpose: input.purpose,
-    tokenHash: hashSecret(token), createdBy: input.createdBy, expiresAt
+    accessPolicy: input.accessPolicy, tokenHash: hashSecret(token), createdBy: input.createdBy, expiresAt,
+    markAccessPolicyUpdate: input.markAccessPolicyUpdate
   });
   if (!created) return null;
   return {
+    enrollmentId: id,
     expiresAt,
     installInstructions: buildVirtualMachineInstallInstructions({
       platformUrl: config.CONTROL_PLANE_BASE_URL,
@@ -26,6 +31,7 @@ export async function issueAgentVEnrollment(input: {
       enrollmentToken: token,
       enrollmentExpiresAt: expiresAt,
       replaceCredential: input.purpose === 'replace',
+      policyUpdate: input.markAccessPolicyUpdate,
       releaseVersion: config.AGENTV_SYSTEMD_RELEASE_VERSION,
       releaseBaseUrl: config.AGENTV_SYSTEMD_RELEASE_BASE_URL
     })

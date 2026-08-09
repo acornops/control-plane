@@ -63,6 +63,15 @@ for (const required of [
 ]) {
   assert(agentVEnrollmentMigration.includes(required), `AgentV enrollment migration must include ${required}`);
 }
+const agentVAccessPolicyMigration = read('migrations/control-plane/005_agentv_enrollment_access_policy.sql');
+for (const required of [
+  'ADD COLUMN access_policy jsonb NOT NULL',
+  'ALTER COLUMN access_policy DROP DEFAULT',
+  '"accessMode":"read_only"',
+  '"restartServices":[]'
+]) {
+  assert(agentVAccessPolicyMigration.includes(required), `AgentV access-policy migration must include ${required}`);
+}
 assert(
   baseline.includes('rbac_additions jsonb') &&
     baseline.includes('rbac_additions_source_version') &&

@@ -58,12 +58,20 @@ export async function registerVirtualMachine(req: AuthenticatedRequest, res: Res
     const vm = await repo.addVirtualMachine(workspaceId, {
       name: req.body.name,
       hostname: req.body.hostname,
-      allowedLogSources: req.body.allowedLogSources
+      allowedLogSources: req.body.allowedLogSources,
+      accessPolicy: {
+        accessMode: req.body.agentAccessMode || 'read_only',
+        restartServices: req.body.restartServices || []
+      }
     });
     let enrollment: NonNullable<Awaited<ReturnType<typeof issueAgentVEnrollment>>>;
     try {
       const issuedEnrollment = await issueAgentVEnrollment({
-        targetId: vm.id, workspaceId: vm.workspaceId, purpose: 'initial', createdBy: req.auth.userId
+        targetId: vm.id,
+        workspaceId: vm.workspaceId,
+        purpose: 'initial',
+        createdBy: req.auth.userId,
+        accessPolicy: { accessMode: vm.agentAccessMode, restartServices: vm.restartServices }
       });
       if (!issuedEnrollment) throw new Error('New virtual machine could not create its initial AgentV enrollment');
       enrollment = issuedEnrollment;
@@ -92,7 +100,13 @@ export async function registerVirtualMachine(req: AuthenticatedRequest, res: Res
       objectId: vm.id,
       objectName: vm.name,
       summary: 'Virtual machine registered',
-      metadata: { status: vm.status, osFamily: vm.osFamily, serviceManager: vm.serviceManager }
+      metadata: {
+        status: vm.status,
+        osFamily: vm.osFamily,
+        serviceManager: vm.serviceManager,
+        agentAccessMode: vm.agentAccessMode,
+        restartServiceCount: vm.restartServices.length
+      }
     });
     res.setHeader('Cache-Control', 'no-store');
     res.status(201).json({
@@ -175,33 +189,62 @@ export async function updateVirtualMachine(req: AuthenticatedRequest, res: Respo
       return;
     }
     const previous = await repo.getVirtualMachine(vmId);
+    const hasPermissionModeOverride = Object.prototype.hasOwnProperty.call(req.body, 'permissionModeOverride');
     const vm = await repo.updateVirtualMachine(vmId, {
       name: req.body.name,
       hostname: req.body.hostname,
-      allowedLogSources: req.body.allowedLogSources
+      allowedLogSources: req.body.allowedLogSources,
+      permissionModeOverride: hasPermissionModeOverride ? req.body.permissionModeOverride : undefined
     });
     if (!vm) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Virtual machine not found', retryable: false } });
       return;
     }
-    await recordWorkspaceAuditEvent({
-      workspaceId,
-      category: 'target',
-      eventType: 'target.updated.v1',
-      operation: 'write',
-      actorUserId: req.auth.userId,
-      objectType: 'virtual_machine',
-      objectId: vm.id,
-      objectName: vm.name,
-      summary: 'Virtual machine settings updated',
-      metadata: {
-        nameChanged: previous ? previous.name !== vm.name : false,
-        hostnameChanged: previous ? (previous.hostname || null) !== (vm.hostname || null) : false,
-        allowedLogSourcesChanged: previous
-          ? JSON.stringify(previous.allowedLogSources) !== JSON.stringify(vm.allowedLogSources)
-          : false
-      }
-    });
+    const nameChanged = previous ? previous.name !== vm.name : false;
+    const hostnameChanged = previous ? (previous.hostname || null) !== (vm.hostname || null) : false;
+    const allowedLogSourcesChanged = previous
+      ? JSON.stringify(previous.allowedLogSources) !== JSON.stringify(vm.allowedLogSources)
+      : false;
+    const permissionModeChanged = previous
+      ? previous.permissionModeOverride !== vm.permissionModeOverride
+      : false;
+    if (nameChanged || hostnameChanged || allowedLogSourcesChanged || permissionModeChanged) {
+      webhooks.emit({
+        type: 'target.updated.v1',
+        workspaceId,
+        targetId: vm.id,
+        targetType: VIRTUAL_MACHINE_TARGET_TYPE,
+        subject: { type: 'target', id: vm.id },
+        data: {
+          targetType: VIRTUAL_MACHINE_TARGET_TYPE,
+          name: vm.name,
+          status: vm.status,
+          hostname: vm.hostname,
+          allowedLogSources: vm.allowedLogSources,
+          permissionMode: vm.permissionMode,
+          permissionModeOverride: vm.permissionModeOverride,
+          permissionModeSource: vm.permissionModeSource,
+          updatedAt: vm.updatedAt
+        }
+      });
+      await recordWorkspaceAuditEvent({
+        workspaceId,
+        category: 'target',
+        eventType: 'target.updated.v1',
+        operation: 'write',
+        actorUserId: req.auth.userId,
+        objectType: 'virtual_machine',
+        objectId: vm.id,
+        objectName: vm.name,
+        summary: 'Virtual machine settings updated',
+        metadata: {
+          nameChanged,
+          hostnameChanged,
+          allowedLogSourcesChanged,
+          permissionModeChanged
+        }
+      });
+    }
     res.status(200).json(vm);
   } catch (err) {
     next(err);
@@ -267,8 +310,17 @@ export async function createVirtualMachineAgentEnrollment(req: AuthenticatedRequ
       });
       return;
     }
+    const vm = await repo.getVirtualMachine(vmId);
+    if (!vm) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Virtual machine not found', retryable: false } });
+      return;
+    }
     const enrollment = await issueAgentVEnrollment({
-      targetId: vmId, workspaceId, purpose, createdBy: req.auth.userId
+      targetId: vmId,
+      workspaceId,
+      purpose,
+      createdBy: req.auth.userId,
+      accessPolicy: { accessMode: vm.agentAccessMode, restartServices: vm.restartServices }
     });
     if (!enrollment) {
       res.status(409).json({

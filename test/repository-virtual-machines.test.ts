@@ -34,6 +34,72 @@ describe('virtual machine repository reads', () => {
     assert.doesNotMatch(capturedSql, /OR status = 'unknown'/);
   });
 
+  it('fails closed when stored AgentV access metadata is contradictory', async () => {
+    mock.method(db, 'query', async () => ({
+      rowCount: 1,
+      rows: [{
+        id: 'vm-1', workspace_id: 'workspace-1', target_type: 'virtual_machine', name: 'VM', status: 'online',
+        metadata: { agentAccessMode: 'read_only', restartServices: ['nginx.service'] },
+        created_at: '2026-08-09T00:00:00.000Z', updated_at: '2026-08-09T00:00:00.000Z'
+      }]
+    }));
+
+    await assert.rejects(() => listVirtualMachines('workspace-1'), /Stored AgentV access policy is invalid/);
+  });
+
+  it('maps a complete pending AgentV access policy and rejects partial markers', async () => {
+    let metadata: Record<string, unknown> = {
+      agentAccessMode: 'read_only',
+      restartServices: [],
+      pendingAgentAccessPolicy: { accessMode: 'read_write', restartServices: ['worker.service'] },
+      pendingAgentAccessPolicyEnrollmentId: '11111111-1111-4111-8111-111111111111'
+    };
+    mock.method(db, 'query', async () => ({
+      rowCount: 1,
+      rows: [{
+        id: 'vm-1', workspace_id: 'workspace-1', target_type: 'virtual_machine', name: 'VM', status: 'online',
+        metadata, created_at: '2026-08-09T00:00:00.000Z', updated_at: '2026-08-09T00:00:00.000Z'
+      }]
+    }));
+
+    const page = await listVirtualMachines('workspace-1');
+    assert.deepEqual(page.items[0].pendingAgentAccessPolicy, {
+      accessMode: 'read_write', restartServices: ['worker.service']
+    });
+    metadata = { ...metadata, pendingAgentAccessPolicyEnrollmentId: undefined };
+    await assert.rejects(() => listVirtualMachines('workspace-1'), /pending AgentV access policy metadata is incomplete/);
+  });
+
+  it('maps VM run permission overrides and fails closed on invalid stored modes', async () => {
+    let metadata: Record<string, unknown> = {
+      agentAccessMode: 'read_only',
+      restartServices: [],
+      permissionModeOverride: 'read_only'
+    };
+    mock.method(db, 'query', async () => ({
+      rowCount: 1,
+      rows: [{
+        id: 'vm-1', workspace_id: 'workspace-1', target_type: 'virtual_machine', name: 'VM', status: 'online',
+        metadata,
+        created_at: '2026-08-09T00:00:00.000Z', updated_at: '2026-08-09T00:00:00.000Z'
+      }]
+    }));
+
+    const page = await listVirtualMachines('workspace-1');
+    assert.deepEqual(page.items[0] && {
+      permissionMode: page.items[0].permissionMode,
+      permissionModeOverride: page.items[0].permissionModeOverride,
+      permissionModeSource: page.items[0].permissionModeSource
+    }, {
+      permissionMode: 'read_only',
+      permissionModeOverride: 'read_only',
+      permissionModeSource: 'virtual_machine_override'
+    });
+
+    metadata = { ...metadata, permissionModeOverride: 'allow_everything' };
+    await assert.rejects(() => listVirtualMachines('workspace-1'), /Stored run permission policy is invalid/);
+  });
+
   it('normalizes VM snapshot finding severity before latest finding insert', async () => {
     let insertedFindings: Array<Record<string, unknown>> = [];
     const statements: string[] = [];

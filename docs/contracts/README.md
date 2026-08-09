@@ -164,8 +164,17 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Virtual-machine registration returns no raw AgentV key. Initial and
   replacement responses contain a structured, version-pinned command with a
   15-minute one-use enrollment token; repair responses contain a structured
-  credential-free command. AgentK registration and key rotation retain their
-  existing response contracts.
+  credential-free command. Registration accepts a read-only policy by default
+  or a read-write policy scoped to exact restartable systemd services. VM
+  responses expose the normalized applied policy and nullable pending policy,
+  and the root bootstrap exchange receives the enrollment-bound snapshot
+  without placing policy data in the copied command. The host-policy update
+  endpoint returns a replacement-transaction command; writes remain unavailable
+  until it commits. VM responses also expose the effective run permission mode,
+  optional VM override, and deployment-default or VM-override source. The VM
+  update endpoint accepts `permissionModeOverride`; null restores the deployment
+  default. AgentK registration and key rotation retain their existing response
+  contracts.
 - AgentK and AgentV connections must send `x-connector-version` as
   `agentk/<release>` or `agentv/<release>` respectively. The handshake rejects
   missing, mismatched, whitespace-containing, or nested values and persists the

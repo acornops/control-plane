@@ -74,12 +74,12 @@ describe('Agent conversations controller', () => {
     assert.equal(body.agentId, agent.id);
     assert.equal(body.toolAccessMode, 'read_only');
     assert.deepEqual(body.toolSummary, {
-      totalAllowed: 1,
+      totalAllowed: 4,
       nativeAllowed: 1,
-      readAllowed: 1,
+      readAllowed: 4,
       writeAllowed: 0
     });
-    assert.deepEqual(body.tools.map((tool) => ({
+    assert.deepEqual(body.tools.filter((tool) => tool.source === 'builtin').map((tool) => ({
       id: tool.id,
       label: tool.label,
       capability: tool.capability,
@@ -90,6 +90,15 @@ describe('Agent conversations controller', () => {
       capability: 'read',
       source: 'builtin'
     }]);
+    assert.deepEqual(body.tools.filter((tool) => tool.source === 'mcp').map((tool) => ({
+      label: tool.label,
+      capability: tool.capability,
+      source: tool.source
+    })), [
+      { label: 'get_target', capability: 'read', source: 'mcp' },
+      { label: 'list_target_issues', capability: 'read', source: 'mcp' },
+      { label: 'list_targets', capability: 'read', source: 'mcp' }
+    ]);
     assert.equal(body.tools.some((tool) => 'inputSchema' in tool || 'input_schema' in tool), false);
   });
 

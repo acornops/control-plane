@@ -42,6 +42,7 @@ export function mockToolList(tools: McpToolConfig[]): void {
 }
 
 export function installResolverRepoStubs(capabilities: string[] = ['read', 'write']): void {
+  repo.getVirtualMachine = async () => null;
   repo.getTargetAgentRegistration = async () => ({
     workspaceId: 'workspace-1',
     targetId: 'target-1',

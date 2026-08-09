@@ -161,13 +161,25 @@ export async function rotateTargetAgentKey(req: AdminAuthenticatedRequest, res: 
         });
         return;
       }
+      const virtualMachine = await repo.getVirtualMachine(targetId);
+      if (!virtualMachine) {
+        notFound(res, 'Virtual machine not found');
+        return;
+      }
       await auditAdminMutationRequest(req, {
         action: 'admin.target.agentv_credential.replace', workspaceId: target.workspaceId,
         targetType: target.targetType, targetId, reason: req.body.reason,
         metadata: { operation: 'agentv_credential_enrollment', ticketRef: req.body.ticketRef || null }
       });
       const enrollment = await issueAgentVEnrollment({
-        targetId, workspaceId: target.workspaceId, purpose: 'replace', createdBy: `admin:${req.admin.tokenId}`
+        targetId,
+        workspaceId: target.workspaceId,
+        purpose: 'replace',
+        createdBy: `admin:${req.admin.tokenId}`,
+        accessPolicy: {
+          accessMode: virtualMachine.agentAccessMode,
+          restartServices: virtualMachine.restartServices
+        }
       });
       if (!enrollment) {
         res.status(409).json({

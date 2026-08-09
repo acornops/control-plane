@@ -221,7 +221,12 @@ async function resolveTargetPermissionMode(targetType: TargetType, targetId: str
     return (await repo.getCluster(targetId))?.permissionMode
       ?? permissionModeForLegacyWriteConfirmation(config.ASSISTANT_WRITE_CONFIRMATION_REQUIRED);
   }
-  return permissionModeForLegacyWriteConfirmation(config.ASSISTANT_WRITE_CONFIRMATION_REQUIRED);
+  const virtualMachine = await repo.getVirtualMachine(targetId);
+  // A pending root policy can temporarily differ from the host. Keep writes
+  // closed until the transactional replacement reports the new policy applied.
+  if (virtualMachine?.pendingAgentAccessPolicy) return 'read_only';
+  return virtualMachine?.permissionMode
+    ?? permissionModeForLegacyWriteConfirmation(config.ASSISTANT_WRITE_CONFIRMATION_REQUIRED);
 }
 
 function nativeToolDescription(toolId: string): string {

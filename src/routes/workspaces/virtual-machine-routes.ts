@@ -4,6 +4,7 @@ import * as workspacesController from '../../controllers/workspaces-controller.j
 import {
   createAgentVEnrollmentSchema,
   registerVirtualMachineSchema,
+  updateAgentVAccessPolicySchema,
   updateVirtualMachineSchema
 } from '../../types/contracts.js';
 import { validateBody } from '../../utils/http.js';
@@ -26,6 +27,12 @@ export function registerVirtualMachineRoutes(router: Router): void {
     authed(workspacesController.updateVirtualMachine)
   );
   router.delete('/workspaces/:workspaceId/virtual-machines/:vmId', requireActor(['user']), authed(workspacesController.deleteVirtualMachine));
+  router.post(
+    '/workspaces/:workspaceId/virtual-machines/:vmId/agent-access-policy-updates',
+    requireActor(['user']),
+    validateBody(updateAgentVAccessPolicySchema),
+    authed(workspacesController.createVirtualMachineAgentAccessPolicyUpdate)
+  );
   router.post(
     '/workspaces/:workspaceId/virtual-machines/:vmId/agent-enrollments',
     requireActor(['user']),

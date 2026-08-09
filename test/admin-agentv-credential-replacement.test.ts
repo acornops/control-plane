@@ -17,6 +17,15 @@ describe('admin AgentV credential replacement', () => {
       targetId: target.id, targetType: target.targetType, workspaceId: target.workspaceId,
       agentKeyHash: 'active-hash', keyVersion: 1
     }));
+    mock.method(repo, 'getVirtualMachine', async () => ({
+      ...target,
+      hostname: 'production-vm',
+      osFamily: 'linux' as const,
+      serviceManager: 'systemd' as const,
+      allowedLogSources: ['acornops-agentv.service'],
+      agentAccessMode: 'read_write' as const,
+      restartServices: ['nginx.service']
+    }));
     let enrollmentInput: Record<string, unknown> | undefined;
     mock.method(repo.agentv, 'createAgentVEnrollment', async (input) => {
       enrollmentInput = input as unknown as Record<string, unknown>;
@@ -54,6 +63,9 @@ describe('admin AgentV credential replacement', () => {
     assert.equal(typeof body.installInstructions.enrollmentExpiresAt, 'string');
     assert.equal(enrollmentInput?.purpose, 'replace');
     assert.equal(enrollmentInput?.createdBy, 'admin:platform-admin-console');
+    assert.deepEqual(enrollmentInput?.accessPolicy, {
+      accessMode: 'read_write', restartServices: ['nginx.service']
+    });
     assert.equal(JSON.stringify(audits).includes('aev_'), false);
   });
 });

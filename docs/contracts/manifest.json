@@ -478,12 +478,15 @@
           "hostname?",
           "osFamily?",
           "serviceManager?",
-          "allowedLogSources?"
+          "allowedLogSources?",
+          "agentAccessMode?=read_only|read_write",
+          "restartServices[]?"
         ],
         "patchVirtualMachine": [
           "name?",
           "hostname?",
-          "allowedLogSources?"
+          "allowedLogSources?",
+          "permissionModeOverride?=read_only|ask_before_changes|auto_allowed_changes|null"
         ],
         "workflowSchedule": [
           "workflowId",
@@ -625,7 +628,7 @@
           "keyVersion"
         ],
         "virtualMachineRegistration": [
-          "virtualMachine",
+          "virtualMachine.{agentAccessMode,restartServices,permissionMode,permissionModeOverride,permissionModeSource}",
           "installInstructions.{command,releaseVersion,bootstrapUrl,enrollmentExpiresAt,warnings}"
         ],
         "virtualMachineAgentEnrollment": [

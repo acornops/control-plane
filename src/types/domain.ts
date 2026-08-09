@@ -1,4 +1,6 @@
 import { type TargetType } from './target-types.js';
+import type { AgentVAccessPolicy } from './agentv-access-policy.js';
+import type { RunPermissionMode } from './run-permission.js';
 export type {
   KubernetesCluster,
   LegacyWriteConfirmationPolicy,
@@ -311,6 +313,12 @@ export interface VirtualMachineTarget {
   osFamily: 'linux';
   serviceManager: 'systemd';
   allowedLogSources: string[];
+  agentAccessMode: AgentVAccessPolicy['accessMode'];
+  restartServices: AgentVAccessPolicy['restartServices'];
+  pendingAgentAccessPolicy: AgentVAccessPolicy | null;
+  permissionMode: RunPermissionMode;
+  permissionModeOverride: RunPermissionMode | null;
+  permissionModeSource: 'virtual_machine_override' | 'deployment_default';
   createdAt: string;
   updatedAt: string;
 }

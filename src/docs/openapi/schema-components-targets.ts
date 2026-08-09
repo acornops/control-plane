@@ -57,25 +57,6 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: true
     },
-    VirtualMachine: {
-      allOf: [targetSummarySchema],
-      properties: {
-        hostname: { type: 'string' },
-        osFamily: { type: 'string', enum: ['linux'] },
-        serviceManager: { type: 'string', enum: ['systemd'] },
-        allowedLogSources: stringArray
-      }
-    },
-    VirtualMachinePage: pageOf('VirtualMachine'),
-    VirtualMachineRegistration: {
-      type: 'object',
-      required: ['virtualMachine', 'installInstructions'],
-      properties: {
-        virtualMachine: schemaRef('VirtualMachine'),
-        installInstructions: schemaRef('VirtualMachineInstallInstructions')
-      },
-      additionalProperties: false
-    },
     InstallInstructions: {
       type: 'object',
       required: ['command'],

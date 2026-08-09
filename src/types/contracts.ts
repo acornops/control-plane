@@ -14,6 +14,11 @@ export {
 
 export { runEventSchema, runEventsBatchSchema };
 export { registerClusterSchema, updateClusterSchema } from './kubernetes-cluster-contracts.js';
+export {
+  registerVirtualMachineSchema,
+  updateAgentVAccessPolicySchema,
+  updateVirtualMachineSchema
+} from './virtual-machine-contracts.js';
 
 const uuidV4Pattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const uuidV4Schema = z.string().regex(uuidV4Pattern, 'must be a UUIDv4');
@@ -167,20 +172,6 @@ export const updateWorkspaceAiSettingsSchema = z.object({
 export const upsertWorkspaceAiProviderCredentialSchema = z.object({
   apiKey: z.string().trim().min(1).max(4096)
 }).strict();
-
-export const registerVirtualMachineSchema = z.object({
-  name: z.string().min(1),
-  hostname: z.string().trim().min(1).max(253).optional(),
-  osFamily: z.literal('linux').optional(),
-  serviceManager: z.literal('systemd').optional(),
-  allowedLogSources: z.array(z.string().trim().min(1).max(64)).max(10).optional()
-});
-
-export const updateVirtualMachineSchema = z.object({
-  name: z.string().min(1).optional(),
-  hostname: z.string().trim().min(1).max(253).optional(),
-  allowedLogSources: z.array(z.string().trim().min(1).max(64)).max(10).optional()
-});
 
 export const createAgentVEnrollmentSchema = z.object({
   purpose: z.enum(['initial', 'replace'])

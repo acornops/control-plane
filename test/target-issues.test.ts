@@ -24,6 +24,12 @@ function virtualMachine(): VirtualMachineTarget {
     osFamily: 'linux',
     serviceManager: 'systemd',
     allowedLogSources: ['journald'],
+    agentAccessMode: 'read_only',
+    restartServices: [],
+  pendingAgentAccessPolicy: null,
+    permissionMode: 'ask_before_changes',
+    permissionModeOverride: null,
+    permissionModeSource: 'deployment_default',
     createdAt: '2026-05-10T00:00:00.000Z',
     updatedAt: '2026-05-10T00:00:00.000Z'
   };

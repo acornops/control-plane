@@ -84,6 +84,9 @@ export async function syncTargetBuiltInTools(
           enabled: true,
           reviewState: 'approved' as const,
           riskLevel: capability === 'read' ? 'read_only' as const : 'non_destructive_write' as const,
+          // Target run policy can auto-run only administrator-reviewed,
+          // non-destructive writes. AgentV additionally enforces its exact
+          // root-owned service allowlist on every restart.
           autoAllowed: capability === 'write'
         };
       });

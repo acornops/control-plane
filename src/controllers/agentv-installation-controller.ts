@@ -98,7 +98,8 @@ export async function exchangeAgentVEnrollment(req: Request, res: Response, next
       transactionId: exchanged.enrollment.id,
       transactionSecret: exchanged.transactionSecret,
       agentKey: exchanged.agentKey,
-      purpose: exchanged.enrollment.purpose
+      purpose: exchanged.enrollment.purpose,
+      accessPolicy: exchanged.enrollment.accessPolicy
     });
   } catch (err) {
     next(err);

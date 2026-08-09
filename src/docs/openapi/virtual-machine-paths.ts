@@ -115,6 +115,14 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
                     type: 'array',
                     items: { type: 'string' },
                     example: ['system', 'app', 'security']
+                  },
+                  agentAccessMode: { type: 'string', enum: ['read_only', 'read_write'], default: 'read_only' },
+                  restartServices: {
+                    type: 'array',
+                    maxItems: 32,
+                    uniqueItems: true,
+                    items: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9_.@:-]{0,254}\\.service$' },
+                    example: ['nginx.service']
                   }
                 }
               }
@@ -138,7 +146,7 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
       },
       patch: {
         tags: ['workspaces'],
-        summary: 'Update virtual machine metadata and allowed log sources',
+        summary: 'Update virtual machine metadata and run permission policy',
         security: [{ userSession: [] }],
         parameters: [workspaceParam, vmParam],
         requestBody: {
@@ -154,13 +162,18 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
                     type: 'array',
                     items: { type: 'string' },
                     example: ['system', 'app']
+                  },
+                  permissionModeOverride: {
+                    type: ['string', 'null'],
+                    enum: ['read_only', 'ask_before_changes', 'auto_allowed_changes', null],
+                    description: 'VM-specific assistant run policy. Null restores the deployment default.'
                   }
                 }
               }
             }
           }
         },
-        responses: { '200': { description: 'VM metadata updated.' } }
+        responses: { '200': { description: 'VM metadata and effective permission policy updated.' } }
       },
       delete: {
         tags: ['workspaces'],
@@ -190,6 +203,38 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
           }
         },
         responses: { '200': { description: 'One-use AgentV enrollment command; the active credential is unchanged.' } }
+      }
+    },
+    '/api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/agent-access-policy-updates': {
+      post: {
+        tags: ['workspaces'],
+        summary: 'Create a transactional AgentV host access policy update',
+        description: 'Returns a one-use root command. The applied host policy remains unchanged and VM writes remain disabled until the command commits successfully.',
+        security: [{ userSession: [] }],
+        parameters: [workspaceParam, vmParam],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['agentAccessMode', 'restartServices'],
+                additionalProperties: false,
+                properties: {
+                  agentAccessMode: { type: 'string', enum: ['read_only', 'read_write'] },
+                  restartServices: {
+                    type: 'array', maxItems: 32, uniqueItems: true,
+                    items: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9_.@:-]{0,254}\\.service$' }
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          '201': { description: 'Pending host policy and one-use application command.' },
+          '409': { description: 'AgentV is not enrolled, the policy is already applied, or credential state changed.' }
+        }
       }
     },
     '/api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/install-instructions': {

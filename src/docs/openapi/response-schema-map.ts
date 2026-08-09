@@ -167,6 +167,7 @@ export function schemaForOperation(method: string, path: string, statusCode: str
     'GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}': 'VirtualMachine',
     'PATCH /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}': 'VirtualMachine',
     'POST /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/agent-enrollments': 'VirtualMachineAgentEnrollment',
+    'POST /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/agent-access-policy-updates': 'VirtualMachineAgentAccessPolicyUpdate',
     'POST /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/install-instructions': 'VirtualMachineAgentEnrollment',
     'POST /api/v1/agentv/enrollments/exchange': 'AgentVEnrollmentExchange',
     'GET /api/v1/agentv/installations/{transactionId}/status': 'AgentVInstallationStatus',

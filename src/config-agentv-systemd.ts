@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-export const DEFAULT_AGENTV_SYSTEMD_RELEASE_BASE_URL = 'https://github.com/acornops/agentv/releases/download';
-export const DEVELOPMENT_AGENTV_SYSTEMD_RELEASE_VERSION = '0.0.1-experimental.6';
+const DEFAULT_AGENTV_SYSTEMD_RELEASE_BASE_URL = 'https://github.com/acornops/agentv/releases/download';
+const DEVELOPMENT_AGENTV_SYSTEMD_RELEASE_VERSION = '0.0.1-experimental.6';
 
 function emptyStringToUndefined(value: unknown): unknown {
   return typeof value === 'string' && value.trim() === '' ? undefined : value;

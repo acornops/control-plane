@@ -33,4 +33,19 @@ describe('virtual machine install instructions', () => {
       replaceCredential: true
     }), /require an enrollment token/);
   });
+
+  it('labels a host policy command without changing its bootstrap interface', () => {
+    const instructions = buildVirtualMachineInstallInstructions({
+      platformUrl: 'https://api.example.test',
+      targetId: 'vm-1',
+      releaseVersion: '0.0.1-experimental.6',
+      releaseBaseUrl: 'https://artifacts.example.test/agentv',
+      enrollmentToken: 'one-use-token',
+      replaceCredential: true,
+      policyUpdate: true
+    });
+    assert.match(instructions.command, /--replace-credential$/);
+    assert.ok(instructions.warnings.some((warning) => warning.includes('root-owned service allowlist')));
+    assert.doesNotMatch(instructions.command, /policy|restartServices/);
+  });
 });

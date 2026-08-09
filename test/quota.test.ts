@@ -412,7 +412,9 @@ describe('quota enforcement', () => {
     });
 
     await assert.rejects(
-      () => addVirtualMachine('workspace-1', { name: 'vm-31' }),
+      () => addVirtualMachine('workspace-1', {
+        name: 'vm-31', accessPolicy: { accessMode: 'read_only', restartServices: [] }
+      }),
       (error) => error instanceof QuotaExceededError && error.quotaKey === 'virtualMachines'
     );
     assert.equal(statements.some((sql) => sql.includes('INSERT INTO targets')), false);

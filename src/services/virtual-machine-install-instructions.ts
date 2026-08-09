@@ -6,6 +6,7 @@ export interface VirtualMachineInstallInstructionInput {
   enrollmentToken?: string;
   enrollmentExpiresAt?: string;
   replaceCredential?: boolean;
+  policyUpdate?: boolean;
 }
 
 export interface VirtualMachineInstallInstructions {
@@ -25,6 +26,9 @@ export function buildVirtualMachineInstallInstructions(
 ): VirtualMachineInstallInstructions {
   if (input.replaceCredential && !input.enrollmentToken) {
     throw new Error('AgentV credential replacement instructions require an enrollment token');
+  }
+  if (input.policyUpdate && !input.replaceCredential) {
+    throw new Error('AgentV host policy instructions require credential replacement');
   }
   if (input.enrollmentExpiresAt && !input.enrollmentToken) {
     throw new Error('AgentV enrollment expiry requires an enrollment token');
@@ -56,6 +60,9 @@ export function buildVirtualMachineInstallInstructions(
       ...(input.enrollmentToken
         ? ['This command contains a one-use AgentV enrollment token. Do not store, log, or share it; it becomes useless after exchange or expiry.']
         : ['This command works only on the matching VM and reuses its protected AgentV credential.']),
+      ...(input.policyUpdate
+        ? ['This command atomically applies the pending root-owned service allowlist and replaces the AgentV credential. The previous installation remains active unless the update commits.']
+        : []),
       'It requires root access on Linux with systemd and Node.js 22 or newer installed at /usr/bin/node.'
     ],
     ...(input.enrollmentExpiresAt ? { enrollmentExpiresAt: input.enrollmentExpiresAt } : {})

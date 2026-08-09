@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { db } from '../infra/db.js';
+import {
+  parseAgentVAccessPolicy,
+  agentVAccessPoliciesEqual,
+  READ_ONLY_AGENTV_ACCESS_POLICY,
+  type AgentVAccessPolicy
+} from '../types/agentv-access-policy.js';
 import type { AgentVCredential, AgentVEnrollment, AgentVEnrollmentPurpose } from '../types/agentv-enrollment.js';
 import { generateAgentKey, hashSecret, verifySecret } from '../utils/crypto.js';
 import { withTransaction } from './repository-transaction.js';
@@ -11,6 +17,7 @@ const TRANSACTION_MS = 60 * 60 * 1000;
 interface EnrollmentRow {
   id: string; target_id: string; workspace_id: string; purpose: AgentVEnrollment['purpose'];
   token_hash: string; transaction_secret_hash?: string | null; status: AgentVEnrollment['status'];
+  access_policy: unknown;
   expires_at: string | Date; transaction_expires_at?: string | Date | null;
 }
 
@@ -20,8 +27,11 @@ interface CredentialRow {
 }
 
 function enrollment(row: EnrollmentRow): AgentVEnrollment {
+  const accessPolicy = parseAgentVAccessPolicy(row.access_policy);
+  if (!accessPolicy) throw new Error('Stored AgentV enrollment access policy is invalid');
   return {
     id: row.id, targetId: row.target_id, workspaceId: row.workspace_id, purpose: row.purpose,
+    accessPolicy,
     tokenHash: row.token_hash, transactionSecretHash: row.transaction_secret_hash || undefined,
     status: row.status, expiresAt: new Date(row.expires_at).toISOString(),
     transactionExpiresAt: row.transaction_expires_at ? new Date(row.transaction_expires_at).toISOString() : undefined
@@ -35,13 +45,29 @@ function credential(row: CredentialRow): AgentVCredential {
   };
 }
 
-export async function createAgentVEnrollment(input: {
+function targetAccessPolicy(metadata: Record<string, unknown>): AgentVAccessPolicy {
+  const hasPolicy = metadata.agentAccessMode !== undefined || metadata.restartServices !== undefined;
+  const parsed = parseAgentVAccessPolicy({
+    accessMode: metadata.agentAccessMode,
+    restartServices: metadata.restartServices
+  });
+  if (hasPolicy && !parsed) throw new Error('Stored AgentV target access policy is invalid');
+  return parsed || READ_ONLY_AGENTV_ACCESS_POLICY;
+}
+
+function clearPendingAccessPolicy(metadata: Record<string, unknown>): void {
+  delete metadata.pendingAgentAccessPolicy;
+  delete metadata.pendingAgentAccessPolicyEnrollmentId;
+}
+
+async function createAgentVEnrollment(input: {
   id: string; targetId: string; workspaceId: string; purpose: AgentVEnrollmentPurpose;
-  tokenHash: string; createdBy: string; expiresAt: string;
+  accessPolicy: AgentVAccessPolicy; tokenHash: string; createdBy: string; expiresAt: string;
+  markAccessPolicyUpdate?: boolean;
 }): Promise<boolean> {
   return withTransaction(async (client) => {
     const target = await client.query(
-      'SELECT id FROM targets WHERE id = $1 AND workspace_id = $2 FOR UPDATE',
+      'SELECT id, metadata FROM targets WHERE id = $1 AND workspace_id = $2 FOR UPDATE',
       [input.targetId, input.workspaceId]
     );
     if (!target.rowCount) return false;
@@ -51,6 +77,11 @@ export async function createAgentVEnrollment(input: {
     );
     if ((input.purpose === 'initial' && active.rowCount) || (input.purpose === 'replace' && !active.rowCount)) {
       return false;
+    }
+    if (input.markAccessPolicyUpdate) {
+      if (input.purpose !== 'replace') return false;
+      const appliedPolicy = targetAccessPolicy(target.rows[0].metadata || {});
+      if (agentVAccessPoliciesEqual(appliedPolicy, input.accessPolicy)) return false;
     }
 
     // Generating a fresh command is an explicit recovery action. Retire older
@@ -76,11 +107,23 @@ export async function createAgentVEnrollment(input: {
        WHERE target_id = $1 AND state = 'pending'`,
       [input.targetId]
     );
+    const metadata = { ...(target.rows[0].metadata || {}) } as Record<string, unknown>;
+    clearPendingAccessPolicy(metadata);
+    if (input.markAccessPolicyUpdate) {
+      metadata.pendingAgentAccessPolicy = input.accessPolicy;
+      metadata.pendingAgentAccessPolicyEnrollmentId = input.id;
+    }
+    await client.query(
+      `UPDATE targets SET metadata = $2::jsonb, updated_at = NOW() WHERE id = $1`,
+      [input.targetId, JSON.stringify(metadata)]
+    );
     await client.query(
       `INSERT INTO agentv_enrollments
-         (id, target_id, workspace_id, purpose, token_hash, status, created_by, expires_at)
-       VALUES ($1, $2, $3, $4, $5, 'issued', $6, $7)`,
-      [input.id, input.targetId, input.workspaceId, input.purpose, input.tokenHash, input.createdBy, input.expiresAt]
+         (id, target_id, workspace_id, purpose, access_policy, token_hash, status, created_by, expires_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, 'issued', $7, $8)`,
+      [input.id, input.targetId, input.workspaceId, input.purpose,
+        JSON.stringify(input.accessPolicy),
+        input.tokenHash, input.createdBy, input.expiresAt]
     );
     return true;
   });
@@ -91,7 +134,7 @@ async function lockEnrollment(client: PoolClient, id: string): Promise<AgentVEnr
   return result.rowCount ? enrollment(result.rows[0]) : null;
 }
 
-export async function exchangeAgentVEnrollment(input: {
+async function exchangeAgentVEnrollment(input: {
   enrollmentId: string; token: string; targetId: string; purpose: AgentVEnrollmentPurpose;
 }): Promise<{ enrollment: AgentVEnrollment; agentKey: string; transactionSecret: string } | null> {
   return withTransaction(async (client) => {
@@ -135,7 +178,7 @@ export async function exchangeAgentVEnrollment(input: {
   });
 }
 
-export async function authenticateAgentVCredential(targetId: string, agentKey: string): Promise<{
+async function authenticateAgentVCredential(targetId: string, agentKey: string): Promise<{
   credential: AgentVCredential; workspaceId: string; provisional: boolean;
 } | null> {
   const result = await db.query(
@@ -165,7 +208,7 @@ export async function authenticateAgentVCredential(targetId: string, agentKey: s
   return { credential: credential(match), workspaceId: match.workspace_id, provisional: match.state === 'pending' };
 }
 
-export async function isAgentVCredentialAccepted(targetId: string, credentialId: string): Promise<boolean> {
+async function isAgentVCredentialAccepted(targetId: string, credentialId: string): Promise<boolean> {
   const result = await db.query(
     `SELECT 1 FROM agentv_credentials
      WHERE id = $1 AND target_id = $2
@@ -185,7 +228,7 @@ async function verifyTransaction(client: PoolClient, id: string, secret: string)
     && verifySecret(secret, current.transactionSecretHash) ? current : null;
 }
 
-export async function getAgentVInstallationStatus(id: string, secret: string): Promise<{
+async function getAgentVInstallationStatus(id: string, secret: string): Promise<{
   enrollment: AgentVEnrollment; credential: AgentVCredential; activeConnected: boolean;
 } | null> {
   const result = await db.query(
@@ -223,7 +266,7 @@ export async function getAgentVInstallationStatus(id: string, secret: string): P
   };
 }
 
-export async function commitAgentVInstallation(id: string, secret: string): Promise<AgentVCredential | null> {
+async function commitAgentVInstallation(id: string, secret: string): Promise<AgentVCredential | null> {
   return withTransaction(async (client) => {
     const current = await verifyTransaction(client, id, secret);
     if (!current) return null;
@@ -265,11 +308,23 @@ export async function commitAgentVInstallation(id: string, secret: string): Prom
       `UPDATE agentv_enrollments SET status = 'completed', completed_at = NOW(), updated_at = NOW()
        WHERE id = $1`, [id]
     );
+    const target = await client.query('SELECT metadata FROM targets WHERE id = $1 FOR UPDATE', [current.targetId]);
+    const metadata = { ...(target.rows[0]?.metadata || {}) } as Record<string, unknown>;
+    const isAccessPolicyUpdate = metadata.pendingAgentAccessPolicyEnrollmentId === id;
+    if (isAccessPolicyUpdate) {
+      metadata.agentAccessMode = current.accessPolicy.accessMode;
+      metadata.restartServices = current.accessPolicy.restartServices;
+      clearPendingAccessPolicy(metadata);
+    }
+    await client.query(
+      `UPDATE targets SET metadata = $2::jsonb, updated_at = NOW() WHERE id = $1`,
+      [current.targetId, JSON.stringify(metadata)]
+    );
     return credential(activated.rows[0]);
   });
 }
 
-export async function rollbackAgentVInstallation(id: string, secret: string): Promise<boolean> {
+async function rollbackAgentVInstallation(id: string, secret: string): Promise<boolean> {
   return withTransaction(async (client) => {
     const current = await verifyTransaction(client, id, secret);
     if (!current) return false;
@@ -279,11 +334,15 @@ export async function rollbackAgentVInstallation(id: string, secret: string): Pr
     );
     if (!candidateResult.rowCount) return false;
     const candidate = credential(candidateResult.rows[0]);
+    const target = await client.query('SELECT metadata FROM targets WHERE id = $1 FOR UPDATE', [current.targetId]);
+    const metadata = { ...(target.rows[0]?.metadata || {}) } as Record<string, unknown>;
     if (current.status === 'completed') {
       const previous = await client.query(
-        `SELECT * FROM agentv_credentials
-         WHERE target_id = $1 AND state = 'grace' AND replacement_enrollment_id = $2
-           AND grace_expires_at > NOW() FOR UPDATE`, [current.targetId, id]
+        `SELECT c.*, e.access_policy AS enrollment_access_policy
+         FROM agentv_credentials c
+         JOIN agentv_enrollments e ON e.id = c.enrollment_id
+         WHERE c.target_id = $1 AND c.state = 'grace' AND c.replacement_enrollment_id = $2
+           AND c.grace_expires_at > NOW() FOR UPDATE OF c`, [current.targetId, id]
       );
       if (current.purpose === 'replace' && !previous.rowCount) return false;
       await client.query(
@@ -303,6 +362,16 @@ export async function rollbackAgentVInstallation(id: string, secret: string): Pr
       } else {
         await client.query('DELETE FROM target_agent_registrations WHERE target_id = $1', [current.targetId]);
       }
+      if (previous.rowCount) {
+        const rollbackPolicy = parseAgentVAccessPolicy(previous.rows[0].enrollment_access_policy);
+        if (!rollbackPolicy) throw new Error('Stored AgentV enrollment access policy is invalid');
+        if (!agentVAccessPoliciesEqual(rollbackPolicy, current.accessPolicy)) {
+          metadata.agentAccessMode = rollbackPolicy.accessMode;
+          metadata.restartServices = rollbackPolicy.restartServices;
+        }
+      }
+    } else if (metadata.pendingAgentAccessPolicyEnrollmentId === id) {
+      clearPendingAccessPolicy(metadata);
     }
     await client.query(
       `UPDATE agentv_credentials SET state = 'revoked', revoked_at = NOW()
@@ -312,11 +381,15 @@ export async function rollbackAgentVInstallation(id: string, secret: string): Pr
       `UPDATE agentv_enrollments SET status = 'cancelled', cancelled_at = COALESCE(cancelled_at, NOW()), updated_at = NOW()
        WHERE id = $1`, [id]
     );
+    await client.query(
+      `UPDATE targets SET metadata = $2::jsonb, updated_at = NOW() WHERE id = $1`,
+      [current.targetId, JSON.stringify(metadata)]
+    );
     return true;
   });
 }
 
-export async function expireAgentVEnrollmentState(): Promise<void> {
+async function expireAgentVEnrollmentState(): Promise<void> {
   await withTransaction(async (client) => {
     await client.query(
       `UPDATE agentv_enrollments SET status = 'expired', expired_at = COALESCE(expired_at, NOW()), updated_at = NOW()
@@ -335,6 +408,13 @@ export async function expireAgentVEnrollmentState(): Promise<void> {
     await client.query(
       `UPDATE agentv_credentials SET state = 'revoked', revoked_at = NOW()
        WHERE state = 'grace' AND grace_expires_at <= NOW()`
+    );
+    await client.query(
+      `UPDATE targets
+       SET metadata = metadata - 'pendingAgentAccessPolicy' - 'pendingAgentAccessPolicyEnrollmentId', updated_at = NOW()
+       WHERE metadata->>'pendingAgentAccessPolicyEnrollmentId' IN (
+         SELECT id FROM agentv_enrollments WHERE status IN ('expired', 'cancelled')
+       )`
     );
   });
 }

@@ -229,6 +229,22 @@ and must not be logged, saved, or shared. Durable AgentV credentials are
 returned only to the root installer; repair commands reuse the credential
 already protected on the VM.
 
+VM registration also binds an AgentV host-access policy to the enrollment.
+`read_only` is the default. `read_write` requires one to 32 exact systemd
+`.service` unit names; wildcards and AgentV-owned units are rejected. The root
+installer writes that immutable enrollment snapshot to
+`/etc/acornops/agentv-actions.json` and enables the privileged action socket
+only for read-write installations. This allowlist is a host capability ceiling.
+The VM run permission mode chooses read-only, approval-required, or reviewed
+non-destructive automatic changes, but no mode can authorize a service outside
+the host policy. Repair preserves the validated local policy; ordinary
+credential replacement re-applies the control plane's current policy snapshot.
+Changing host access creates a pending policy and a fresh one-use root command.
+The control plane reuses the credential-replacement transaction so the
+installer can stage the helper policy, verify the candidate, and atomically
+commit policy and credential. VM writes fail closed while the update is pending;
+failure retains the previous policy, credential, and connected service.
+
 AgentV enrollment exchange is single-use and creates a pending credential plus
 a one-hour protected installation transaction. Pending connections are
 provisional: they do not expose tools, claim ownership, or mark a VM online.

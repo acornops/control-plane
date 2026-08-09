@@ -69,6 +69,15 @@ export function operationForToolCall(claims: Pick<VerifiedRunScopeClaims, 'allow
   return claims.allowedToolOperations?.[toolName] === 'read' ? 'read' : 'write';
 }
 
+export async function agentVHostPolicyUpdateBlocksWrite(
+  targetType: string,
+  targetId: string,
+  operation: 'read' | 'write'
+): Promise<boolean> {
+  if (targetType !== VIRTUAL_MACHINE_TARGET_TYPE || operation !== 'write') return false;
+  return Boolean((await repo.getVirtualMachine(targetId))?.pendingAgentAccessPolicy);
+}
+
 function operationForWorkflowToolCall(run: WorkflowRunRecord, toolName: string): 'read' | 'write' {
   return run.compiledAccessScope.toolOperations[toolName] === 'write' ? 'write' : 'read';
 }
@@ -267,6 +276,17 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
     const operation = workflowRun
       ? operationForWorkflowToolCall(workflowRun, authorizedToolName)
       : operationForToolCall(claims, toolName);
+    if (await agentVHostPolicyUpdateBlocksWrite(targetType, boundTargetId, operation)) {
+      res.status(409).json({
+        error: {
+          code: 'AGENTV_HOST_POLICY_UPDATE_PENDING',
+          message: 'AgentV write tools are paused until the pending host policy is applied',
+          retryable: false,
+          outcome: 'not_started'
+        }
+      });
+      return;
+    }
     try {
       const agentResult = await agentGateway.callAgentMcpTool(
         boundTargetId,

@@ -5,8 +5,14 @@ import {
   getVirtualMachineInstallInstructions,
   registerVirtualMachine,
 } from '../src/controllers/workspaces/virtual-machine-controller.js';
+import { createVirtualMachineAgentAccessPolicyUpdate } from '../src/controllers/workspaces/virtual-machine-agent-access-policy-controller.js';
 import { repo } from '../src/store/repository.js';
-import type { TargetSummary, VirtualMachineTarget, WorkspaceAuditEventInput } from '../src/types/domain.js';
+import type {
+  TargetAgentRegistration,
+  TargetSummary,
+  VirtualMachineTarget,
+  WorkspaceAuditEventInput
+} from '../src/types/domain.js';
 
 const originals = {
   addVirtualMachine: repo.addVirtualMachine,
@@ -14,6 +20,7 @@ const originals = {
   enqueueWebhookOutboxEvent: repo.enqueueWebhookOutboxEvent,
   getTarget: repo.getTarget,
   getTargetAgentRegistration: repo.getTargetAgentRegistration,
+  getVirtualMachine: repo.getVirtualMachine,
   getWorkspaceRole: repo.getWorkspaceRole,
   insertWorkspaceAuditEvent: repo.insertWorkspaceAuditEvent,
 };
@@ -34,6 +41,12 @@ const virtualMachine: VirtualMachineTarget = {
   osFamily: 'linux',
   serviceManager: 'systemd',
   allowedLogSources: ['acornops-agentv.service'],
+  agentAccessMode: 'read_write',
+  restartServices: ['nginx.service'],
+  pendingAgentAccessPolicy: null,
+  permissionMode: 'ask_before_changes',
+  permissionModeOverride: null,
+  permissionModeSource: 'deployment_default',
   createdAt: '2026-08-08T00:00:00.000Z',
   updatedAt: '2026-08-08T00:00:00.000Z',
 };
@@ -48,6 +61,25 @@ const target: TargetSummary = {
   createdAt: virtualMachine.createdAt,
   updatedAt: virtualMachine.updatedAt,
 };
+
+function agentRegistration(
+  capabilities: TargetAgentRegistration['capabilities'] = ['read']
+): TargetAgentRegistration {
+  return {
+    targetId: target.id,
+    targetType: 'virtual_machine' as const,
+    workspaceId: target.workspaceId,
+    agentKeyHash: 'redacted-hash',
+    keyVersion: 1,
+    capabilities,
+    lastSeenAt: null,
+    lastHeartbeatAt: null,
+    connectorVersion: null,
+    metadata: {},
+    createdAt: target.createdAt,
+    updatedAt: target.updatedAt,
+  };
+}
 
 function request(body: Record<string, unknown> = {}) {
   return {
@@ -90,7 +122,7 @@ function assertStructuredInstructions(body: unknown): string {
 describe('virtual machine onboarding instructions', () => {
   it('returns structured registration instructions without persisting the key or command in audit data', async () => {
     const audits: WorkspaceAuditEventInput[] = [];
-    let storedEnrollment: { tokenHash: string } | undefined;
+    let storedEnrollment: { tokenHash: string; accessPolicy?: { accessMode: string; restartServices: string[] } } | undefined;
     repo.getWorkspaceRole = async () => 'owner';
     repo.addVirtualMachine = async () => virtualMachine;
     repo.agentv.createAgentVEnrollment = async (input) => { storedEnrollment = input; return true; };
@@ -108,6 +140,10 @@ describe('virtual machine onboarding instructions', () => {
     assert.doesNotMatch(command, /--replace-credential/);
     assert.match(storedEnrollment?.tokenHash || '', /^[0-9a-f]{32}:[0-9a-f]{128}$/);
     assert.ok(!storedEnrollment?.tokenHash.includes('aev_'));
+    assert.deepEqual(storedEnrollment?.accessPolicy, {
+      accessMode: 'read_write',
+      restartServices: ['nginx.service']
+    });
     const auditJson = JSON.stringify(audits);
     assert.ok(!auditJson.includes(command));
     assert.ok(!auditJson.includes('install-agentv.sh'));
@@ -117,20 +153,8 @@ describe('virtual machine onboarding instructions', () => {
     const audits: WorkspaceAuditEventInput[] = [];
     repo.getWorkspaceRole = async () => 'owner';
     repo.getTarget = async () => target;
-    repo.getTargetAgentRegistration = async () => ({
-      targetId: target.id,
-      targetType: 'virtual_machine',
-      workspaceId: target.workspaceId,
-      agentKeyHash: 'redacted-hash',
-      keyVersion: 1,
-      capabilities: ['read'],
-      lastSeenAt: null,
-      lastHeartbeatAt: null,
-      connectorVersion: null,
-      metadata: {},
-      createdAt: target.createdAt,
-      updatedAt: target.updatedAt,
-    });
+    repo.getVirtualMachine = async () => virtualMachine;
+    repo.getTargetAgentRegistration = async () => agentRegistration();
     repo.agentv.createAgentVEnrollment = async () => true;
     repo.insertWorkspaceAuditEvent = async (event) => { audits.push(event); };
     const res = response();
@@ -145,6 +169,47 @@ describe('virtual machine onboarding instructions', () => {
     assert.match(command, /--replace-credential$/);
     const auditJson = JSON.stringify(audits);
     assert.ok(!auditJson.includes(command));
+    assert.ok(!auditJson.includes('install-agentv.sh'));
+  });
+
+  it('creates a pending host policy update through the replacement transaction', async () => {
+    const audits: WorkspaceAuditEventInput[] = [];
+    let enrollmentInput: Parameters<typeof repo.agentv.createAgentVEnrollment>[0] | undefined;
+    const pendingPolicy = { accessMode: 'read_write' as const, restartServices: ['nginx.service', 'worker.service'] };
+    repo.getWorkspaceRole = async () => 'owner';
+    repo.getTarget = async () => target;
+    repo.getTargetAgentRegistration = async () => agentRegistration(['read', 'write']);
+    repo.getVirtualMachine = async () => enrollmentInput ? {
+      ...virtualMachine,
+      pendingAgentAccessPolicy: pendingPolicy
+    } : virtualMachine;
+    repo.agentv.createAgentVEnrollment = async (input) => {
+      enrollmentInput = input;
+      return true;
+    };
+    repo.insertWorkspaceAuditEvent = async (event) => { audits.push(event); };
+    repo.enqueueWebhookOutboxEvent = async () => null;
+    const res = response();
+
+    await createVirtualMachineAgentAccessPolicyUpdate(request({
+      agentAccessMode: pendingPolicy.accessMode,
+      restartServices: pendingPolicy.restartServices
+    }) as never, res as never, (error?: unknown) => {
+      if (error) throw error;
+    });
+
+    assert.equal(res.statusCode, 201);
+    assert.equal(enrollmentInput?.purpose, 'replace');
+    assert.equal(enrollmentInput?.markAccessPolicyUpdate, true);
+    assert.deepEqual(enrollmentInput?.accessPolicy, pendingPolicy);
+    const body = res.body as {
+      virtualMachine: VirtualMachineTarget;
+      installInstructions: { command: string };
+    };
+    assert.deepEqual(body.virtualMachine.pendingAgentAccessPolicy, pendingPolicy);
+    assert.match(body.installInstructions.command, /--replace-credential$/);
+    const auditJson = JSON.stringify(audits);
+    assert.ok(!auditJson.includes(body.installInstructions.command));
     assert.ok(!auditJson.includes('install-agentv.sh'));
   });
 
@@ -175,20 +240,7 @@ describe('virtual machine onboarding instructions', () => {
     });
     assert.equal(missingRes.statusCode, 409);
 
-    repo.getTargetAgentRegistration = async () => ({
-      targetId: target.id,
-      targetType: 'virtual_machine',
-      workspaceId: target.workspaceId,
-      agentKeyHash: 'redacted-hash',
-      keyVersion: 1,
-      capabilities: ['read'],
-      lastSeenAt: null,
-      lastHeartbeatAt: null,
-      connectorVersion: null,
-      metadata: {},
-      createdAt: target.createdAt,
-      updatedAt: target.updatedAt,
-    });
+    repo.getTargetAgentRegistration = async () => agentRegistration();
     const activeRes = response();
     await getVirtualMachineInstallInstructions(request() as never, activeRes as never, (error?: unknown) => {
       if (error) throw error;
