@@ -204,7 +204,7 @@ Development target seeding is enabled by default for local development:
 - VM: `9254df42-4d9b-4e63-8bb6-93442e7d9a45` (`Development Linux VM`)
 - owner user: `dev@acornops.local / devpass`
 
-The local target fixture creates the owner, workspace, Kubernetes target and settings, Linux VM target, and optional AgentK/AgentV registrations when `SEED_AGENT_KEY` and `SEED_VM_AGENT_KEY` are configured. Its workspace receives the same universal starter automation as every other workspace; the fixture does not create additional Agents or workflows. It does not seed provider credentials, MCP integrations, invitations, or additional users. Normal OIDC or password users do not receive seeded workspace membership on signup or login.
+The local target fixture creates the owner, workspace, Kubernetes target and settings, Linux VM target, and optional AgentK registration/AgentV active credential when `SEED_AGENT_KEY` and `SEED_VM_AGENT_KEY` are configured. Its workspace receives the same universal starter automation as every other workspace; the fixture does not create additional Agents or workflows. It does not seed provider credentials, MCP integrations, invitations, or additional users. Normal OIDC or password users do not receive seeded workspace membership on signup or login.
 
 Set `SEED_DEVELOPMENT_DATA=false` for an empty local boot. Production startup rejects `SEED_DEVELOPMENT_DATA=true` so development data cannot be enabled accidentally in a deployed environment.
 

@@ -392,10 +392,10 @@ export function buildAdminPaths(): Record<string, unknown> {
     '/admin/v1/targets/{targetId}/agent-key/rotate': {
       post: {
         tags: ['admin'],
-        summary: 'Emergency rotate a target agent key',
+        summary: 'Replace a target agent credential',
         security: adminSecurity,
         requestBody: mutationBody,
-        responses: { '200': { description: 'One-time agent key and install instructions.' } }
+        responses: { '200': { description: 'AgentV receives one-use enrollment instructions; AgentK retains the existing key-rotation response.' } }
       }
     },
     '/admin/v1/runs': {

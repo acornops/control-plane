@@ -17,6 +17,35 @@ describe('parseAppConfig production validation', () => {
     assert.equal(config.AGENT_WS_REQUIRE_SECURE_TRANSPORT, true);
     assert.equal(config.PASSWORD_AUTH_ENABLED, true);
     assert.equal(config.MCP_OAUTH_ENABLED, true);
+    assert.equal(config.AGENTV_SYSTEMD_RELEASE_VERSION, '0.0.1-experimental.5');
+    assert.equal(config.AGENTV_SYSTEMD_RELEASE_BASE_URL, 'https://github.com/acornops/agentv/releases/download');
+  });
+
+  it('requires an exact AgentV release and HTTPS artifact source in production', () => {
+    assert.throws(
+      () => parseAppConfig(productionEnv({ AGENTV_SYSTEMD_RELEASE_VERSION: '' })),
+      (error) => Boolean(fieldErrors(error).AGENTV_SYSTEMD_RELEASE_VERSION?.length)
+    );
+    for (const version of ['latest', 'main', 'v0.0.1-experimental.5']) {
+      assert.throws(
+        () => parseAppConfig(productionEnv({ AGENTV_SYSTEMD_RELEASE_VERSION: version })),
+        (error) => Boolean(fieldErrors(error).AGENTV_SYSTEMD_RELEASE_VERSION?.length)
+      );
+    }
+    assert.throws(
+      () => parseAppConfig(productionEnv({ AGENTV_SYSTEMD_RELEASE_BASE_URL: 'http://artifacts.example.com/agentv' })),
+      (error) => Boolean(fieldErrors(error).AGENTV_SYSTEMD_RELEASE_BASE_URL?.length)
+    );
+    for (const releaseBaseUrl of [
+      'https://user@artifacts.example.com/agentv',
+      'https://artifacts.example.com/agentv?channel=stable',
+      'https://artifacts.example.com/agentv#release'
+    ]) {
+      assert.throws(
+        () => parseAppConfig(productionEnv({ AGENTV_SYSTEMD_RELEASE_BASE_URL: releaseBaseUrl })),
+        (error) => Boolean(fieldErrors(error).AGENTV_SYSTEMD_RELEASE_BASE_URL?.length)
+      );
+    }
   });
 
   it('requires the OAuth console URL to be a canonical public origin', () => {

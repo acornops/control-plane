@@ -6,8 +6,9 @@ import { cancelRunInExecutionEngine } from '../services/execution-engine-client.
 import { syncTargetBuiltInTools } from '../services/target-built-in-tool-sync.js';
 import { emitRunStatusTransition } from '../services/webhooks.js';
 import { repo } from '../store/repository.js';
-import { KUBERNETES_TARGET_TYPE, Run, TargetType, isTargetType } from '../types/domain.js';
+import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE, Run, TargetType, isTargetType } from '../types/domain.js';
 import { generateAgentKey, hashSecret } from '../utils/crypto.js';
+import { issueAgentVEnrollment } from '../services/agentv-enrollment.js';
 import { toSingleParam } from '../utils/params.js';
 import { isRunTerminalStatus, terminalizeRunCancellation } from './run-cancellation.js';
 import {
@@ -135,11 +136,8 @@ export async function disconnectTargetAgent(req: AdminAuthenticatedRequest, res:
   }
 }
 
-function installInstructions(targetId: string, targetType: TargetType, _agentKey: string): string {
-  if (targetType === KUBERNETES_TARGET_TYPE) {
-    return `Use the existing Kubernetes agent install flow with target ${targetId} and the returned one-time agent key.`;
-  }
-  return `Set ACORNOPS_TARGET_ID=${targetId} and ACORNOPS_AGENT_KEY to the returned one-time key, then restart the AgentV.`;
+function installInstructions(targetId: string): string {
+  return `Use the existing Kubernetes agent install flow with target ${targetId} and the returned one-time agent key.`;
 }
 
 export async function rotateTargetAgentKey(req: AdminAuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
@@ -149,6 +147,56 @@ export async function rotateTargetAgentKey(req: AdminAuthenticatedRequest, res: 
     const target = await repo.getTargetById(targetId);
     if (!target) {
       notFound(res, 'Target not found');
+      return;
+    }
+    if (target.targetType === VIRTUAL_MACHINE_TARGET_TYPE) {
+      const registration = await repo.getTargetAgentRegistration(targetId);
+      if (!registration) {
+        res.status(409).json({
+          error: {
+            code: 'AGENTV_CREDENTIAL_NOT_ACTIVE',
+            message: 'AgentV has no active credential to replace; use the VM enrollment flow',
+            retryable: false
+          }
+        });
+        return;
+      }
+      await auditAdminMutationRequest(req, {
+        action: 'admin.target.agentv_credential.replace', workspaceId: target.workspaceId,
+        targetType: target.targetType, targetId, reason: req.body.reason,
+        metadata: { operation: 'agentv_credential_enrollment', ticketRef: req.body.ticketRef || null }
+      });
+      const enrollment = await issueAgentVEnrollment({
+        targetId, workspaceId: target.workspaceId, purpose: 'replace', createdBy: `admin:${req.admin.tokenId}`
+      });
+      if (!enrollment) {
+        res.status(409).json({
+          error: {
+            code: 'AGENTV_ENROLLMENT_PURPOSE_CONFLICT',
+            message: 'AgentV credential state changed while generating the command; refresh and try again',
+            retryable: true
+          }
+        });
+        return;
+      }
+      await auditAdmin(req, {
+        action: 'admin.target.agentv_credential.replace', workspaceId: target.workspaceId,
+        targetType: target.targetType, targetId, reason: req.body.reason,
+        metadata: { operation: 'agentv_credential_enrollment', expiresAt: enrollment.expiresAt, ticketRef: req.body.ticketRef || null }
+      });
+      await bestEffortWorkspaceAudit({
+        workspaceId: target.workspaceId,
+        tokenId: req.admin.tokenId,
+        category: 'target',
+        eventType: 'agent.credential_enrollment_created.v1',
+        objectType: target.targetType,
+        objectId: targetId,
+        objectName: target.name,
+        summary: 'AgentV credential replacement enrollment created by admin token',
+        metadata: { expiresAt: enrollment.expiresAt, reason: req.body.reason, ticketRef: req.body.ticketRef || null }
+      });
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(200).json({ targetId, installInstructions: enrollment.installInstructions });
       return;
     }
     const reg = await repo.getTargetAgentRegistration(targetId);
@@ -197,7 +245,7 @@ export async function rotateTargetAgentKey(req: AdminAuthenticatedRequest, res: 
       metadata: { keyVersion, disconnected, reason: req.body.reason, ticketRef: req.body.ticketRef || null }
     });
     res.setHeader('Cache-Control', 'no-store');
-    res.status(200).json({ targetId, agentKey, keyVersion, installInstructions: installInstructions(targetId, target.targetType, agentKey) });
+    res.status(200).json({ targetId, agentKey, keyVersion, installInstructions: installInstructions(targetId) });
   } catch (err) {
     next(err);
   }

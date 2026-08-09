@@ -24,6 +24,60 @@ const externalUserHeader = {
 
 export function buildVirtualMachinePaths(): Record<string, unknown> {
   return {
+    '/api/v1/agentv/enrollments/exchange': {
+      post: {
+        tags: ['agents'],
+        summary: 'Exchange a one-use AgentV enrollment token for a pending credential',
+        description: 'Called only by the root AgentV installer. The token is target-bound, expires after 15 minutes, and is consumed atomically.',
+        security: [],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: {
+            type: 'object', required: ['targetId', 'enrollmentToken', 'purpose'], additionalProperties: false,
+            properties: {
+              targetId: { type: 'string', minLength: 1, maxLength: 128 },
+              enrollmentToken: { type: 'string', minLength: 84, maxLength: 84, writeOnly: true },
+              purpose: { type: 'string', enum: ['initial', 'replace'] }
+            }
+          } } }
+        },
+        responses: { '200': { description: 'Pending credential and protected installation transaction created.' } }
+      }
+    },
+    '/api/v1/agentv/installations/{transactionId}/status': {
+      get: {
+        tags: ['agents'], summary: 'Read an AgentV installation transaction status',
+        description: 'Root-installer recovery endpoint. The protected status remains readable after the one-hour mutation window so an interrupted host can resolve a final completed, cancelled, or expired state.',
+        security: [],
+        parameters: [{ in: 'path', name: 'transactionId', required: true, schema: { type: 'string', format: 'uuid' } }, {
+          in: 'header', name: 'x-agentv-transaction-secret', required: true,
+          schema: { type: 'string', minLength: 73, maxLength: 73, pattern: '^avt_[0-9a-fA-F-]{36}_[0-9a-fA-F]{32}$', writeOnly: true }
+        }],
+        responses: { '200': { description: 'Authenticated installation transaction status.' } }
+      }
+    },
+    '/api/v1/agentv/installations/{transactionId}/commit': {
+      post: {
+        tags: ['agents'], summary: 'Commit a verified AgentV installation transaction',
+        description: 'Requires provisional authentication and the protected transaction secret within its one-hour mutation window.', security: [],
+        parameters: [{ in: 'path', name: 'transactionId', required: true, schema: { type: 'string', format: 'uuid' } }, {
+          in: 'header', name: 'x-agentv-transaction-secret', required: true,
+          schema: { type: 'string', minLength: 73, maxLength: 73, pattern: '^avt_[0-9a-fA-F-]{36}_[0-9a-fA-F]{32}$', writeOnly: true }
+        }],
+        responses: { '200': { description: 'Pending credential promoted to active.' } }
+      }
+    },
+    '/api/v1/agentv/installations/{transactionId}/rollback': {
+      post: {
+        tags: ['agents'], summary: 'Roll back an AgentV installation transaction',
+        description: 'Requires the protected transaction secret within its one-hour mutation window. A committed replacement can restore the prior credential only during its 30-minute grace period.', security: [],
+        parameters: [{ in: 'path', name: 'transactionId', required: true, schema: { type: 'string', format: 'uuid' } }, {
+          in: 'header', name: 'x-agentv-transaction-secret', required: true,
+          schema: { type: 'string', minLength: 73, maxLength: 73, pattern: '^avt_[0-9a-fA-F-]{36}_[0-9a-fA-F]{32}$', writeOnly: true }
+        }],
+        responses: { '200': { description: 'Candidate revoked and the prior credential restored when available.' } }
+      }
+    },
     '/api/v1/workspaces/{workspaceId}/virtual-machines': {
       get: {
         tags: ['workspaces'],
@@ -42,7 +96,7 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
       },
       post: {
         tags: ['workspaces'],
-        summary: 'Register a Linux/systemd virtual machine and issue initial agent key',
+        summary: 'Register a Linux/systemd virtual machine and issue a one-use AgentV enrollment command',
         security: [{ userSession: [] }],
         parameters: [workspaceParam],
         requestBody: {
@@ -116,13 +170,38 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
         responses: { '204': { description: 'VM target deleted.' } }
       }
     },
-    '/api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/rotate-agent-key': {
+    '/api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/agent-enrollments': {
       post: {
         tags: ['workspaces'],
-        summary: 'Rotate the virtual machine agent key',
+        summary: 'Issue an initial or replacement AgentV enrollment command',
         security: [{ userSession: [] }],
         parameters: [workspaceParam, vmParam],
-        responses: { '200': { description: 'Replacement AgentV key and updated systemd install instructions.' } }
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['purpose'],
+                additionalProperties: false,
+                properties: { purpose: { type: 'string', enum: ['initial', 'replace'] } }
+              }
+            }
+          }
+        },
+        responses: { '200': { description: 'One-use AgentV enrollment command; the active credential is unchanged.' } }
+      }
+    },
+    '/api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/install-instructions': {
+      post: {
+        tags: ['workspaces'],
+        summary: 'Generate credential-free AgentV upgrade or repair instructions',
+        security: [{ userSession: [] }],
+        parameters: [workspaceParam, vmParam],
+        responses: {
+          '200': { description: 'Pinned instructions that reuse the matching VM credential.' },
+          '409': { description: 'AgentV has no active credential; initial enrollment is required.' }
+        }
       }
     },
     '/api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/resources': {

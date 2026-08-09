@@ -72,6 +72,7 @@ import {
   updateTargetAgentSeen as updateTargetAgentSeenRecord,
   upsertTargetAgentRegistration as upsertTargetAgentRegistrationRecord
 } from './repository-target-agent-registrations.js';
+import { agentVEnrollmentRepository } from './repository-agentv-enrollments.js';
 import {
   getTargetToolSetting as getTargetToolSettingRecord,
   listEnabledTargetToolSettings as listEnabledTargetToolSettingsRecord,
@@ -341,6 +342,7 @@ export class Repository {
 
   upsertTargetAgentRegistration = upsertTargetAgentRegistrationRecord;
   getTargetAgentRegistration = getTargetAgentRegistrationRecord;
+  agentv = agentVEnrollmentRepository;
   listTargetAgentRegistrations = listTargetAgentRegistrationsRecord;
   listWorkspaceTargetAgentRegistrations = listWorkspaceTargetAgentRegistrationsRecord;
   rotateTargetAgentKey = rotateTargetAgentKeyRecord;

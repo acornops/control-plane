@@ -44,12 +44,17 @@ export async function handleAgentHandshake(input: {
         .slice(0, 64)
     : [];
   const allowedTools = [...new Set(advertisedTools.map((tool) => tool.name))];
+  const hostFeatures = input.params.hostFeatures && typeof input.params.hostFeatures === 'object'
+    ? input.params.hostFeatures as Record<string, unknown>
+    : {};
 
   const expectedAgentType = targetType === VIRTUAL_MACHINE_TARGET_TYPE ? 'agentv' : 'agentk';
   const connectorVersionValid = input.connectorVersion.startsWith(`${expectedAgentType}/`)
     && /^agent[kv]\/[^\s/]{1,127}$/.test(input.connectorVersion);
+  const agentVRuntimeValid = targetType !== VIRTUAL_MACHINE_TARGET_TYPE
+    || (hostFeatures.osFamily === 'linux' && hostFeatures.serviceManager === 'systemd');
   if (!targetId || !isTargetType(targetType) || agentType !== expectedAgentType
-    || !connectorVersionValid || (keyTargetId && targetId !== keyTargetId)) {
+    || !connectorVersionValid || !agentVRuntimeValid || (keyTargetId && targetId !== keyTargetId)) {
     const reason = !targetId
       ? 'missing_target_id'
       : !isTargetType(targetType)
@@ -58,15 +63,35 @@ export async function handleAgentHandshake(input: {
           ? 'invalid_agent_type'
           : !connectorVersionValid
             ? 'invalid_connector_version'
-            : 'key_target_mismatch';
+            : !agentVRuntimeValid
+              ? 'invalid_agentv_runtime'
+              : 'key_target_mismatch';
     logger.warn({ reason, targetId, targetType, agentType, expectedAgentType }, 'Rejected agent handshake contract');
     input.ws.send(JSON.stringify(createErrorResponse(input.requestId, 401, 'Invalid agent key')));
     input.ws.close(1008, 'Invalid agent key');
     return;
   }
 
+  const agentVCredential = targetType === VIRTUAL_MACHINE_TARGET_TYPE
+    ? await repo.agentv.authenticateAgentVCredential(targetId, effectiveKey)
+    : null;
+  if (agentVCredential?.provisional) {
+    input.ws.send(JSON.stringify(createSuccessResponse(input.requestId, {
+      targetId,
+      targetType,
+      workspaceId: agentVCredential.workspaceId,
+      provisional: true,
+      sessionPolicy: { allowedTools: [], writeEnabled: false }
+    })));
+    input.ws.close(1000, 'AgentV provisional readiness verified');
+    return;
+  }
+
   const reg = await repo.getTargetAgentRegistration(targetId);
-  if (!reg || reg.targetType !== targetType || !verifySecret(effectiveKey, reg.agentKeyHash)) {
+  const authenticated = targetType === VIRTUAL_MACHINE_TARGET_TYPE
+    ? Boolean(agentVCredential)
+    : Boolean(reg && verifySecret(effectiveKey, reg.agentKeyHash));
+  if (!reg || reg.targetType !== targetType || !authenticated) {
     const reason = !reg
       ? 'registration_not_found'
       : reg.targetType !== targetType
@@ -78,13 +103,31 @@ export async function handleAgentHandshake(input: {
     return;
   }
 
+  // A grace credential keeps the previous AgentV connected while the new
+  // credential is proving itself. Once the active generation has completed a
+  // handshake, do not let a restarting old VM reclaim target ownership. A
+  // control-plane rollback restores the old generation as active, at which
+  // point this guard no longer applies.
+  if (targetType === VIRTUAL_MACHINE_TARGET_TYPE
+    && agentVCredential?.credential.state === 'grace'
+    && reg.lastAuthenticatedKeyVersion === reg.keyVersion) {
+    logger.warn({ reason: 'grace_credential_superseded', targetId, targetType, agentType }, 'Rejected AgentV grace credential after replacement connected');
+    input.ws.send(JSON.stringify(createErrorResponse(input.requestId, 401, 'Invalid agent key')));
+    input.ws.close(1008, 'Invalid agent key');
+    return;
+  }
+
   const previousCapabilities = reg.capabilities || [];
+  const authenticatedKeyVersion = targetType === VIRTUAL_MACHINE_TARGET_TYPE
+    ? agentVCredential?.credential.generation || reg.keyVersion
+    : reg.keyVersion;
   await repo.updateTargetAgentCapabilities(reg.targetId, supportedCapabilities);
 
   const now = new Date().toISOString();
   await repo.updateTargetAgentSeen(reg.targetId, {
     lastSeenAt: now,
     lastHeartbeatAt: now,
+    lastAuthenticatedKeyVersion: authenticatedKeyVersion,
     lastConnectorVersion: input.connectorVersion
   });
 
@@ -114,12 +157,16 @@ export async function handleAgentHandshake(input: {
   }
 
   const ownerRefreshInterval = setInterval(() => {
+    const credentialStillAccepted = targetType === VIRTUAL_MACHINE_TARGET_TYPE && agentVCredential
+      ? repo.agentv.isAgentVCredentialAccepted(target.id, agentVCredential.credential.id)
+      : repo.getTargetAgentRegistration(target.id)
+          .then((currentRegistration) => currentRegistration?.keyVersion === authenticatedKeyVersion);
     Promise.all([
       refreshAgentOwner(target.id, connectionId),
-      repo.getTargetAgentRegistration(target.id)
+      credentialStillAccepted
     ])
-      .then(([stillOwner, currentRegistration]) => {
-        if (currentRegistration?.keyVersion !== reg.keyVersion) {
+      .then(([stillOwner, accepted]) => {
+        if (!accepted) {
           const conn = getAgentConnection(target.id);
           if (conn && conn.connectionId === connectionId && conn.ws.readyState === WebSocket.OPEN) {
             conn.ws.close(1008, 'Agent key rotated');
@@ -145,7 +192,8 @@ export async function handleAgentHandshake(input: {
     clusterId: target.id,
     targetType,
     workspaceId: target.workspaceId,
-    keyVersion: reg.keyVersion,
+    keyVersion: authenticatedKeyVersion,
+    credentialId: agentVCredential?.credential.id,
     connectorVersion: input.connectorVersion,
     ownerRefreshInterval
   });

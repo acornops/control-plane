@@ -1,7 +1,11 @@
 import { Router } from 'express';
 import { authenticatedHandler, requireActor } from '../../auth/middleware.js';
 import * as workspacesController from '../../controllers/workspaces-controller.js';
-import { registerVirtualMachineSchema, updateVirtualMachineSchema } from '../../types/contracts.js';
+import {
+  createAgentVEnrollmentSchema,
+  registerVirtualMachineSchema,
+  updateVirtualMachineSchema
+} from '../../types/contracts.js';
 import { validateBody } from '../../utils/http.js';
 
 const authed = authenticatedHandler;
@@ -22,7 +26,13 @@ export function registerVirtualMachineRoutes(router: Router): void {
     authed(workspacesController.updateVirtualMachine)
   );
   router.delete('/workspaces/:workspaceId/virtual-machines/:vmId', requireActor(['user']), authed(workspacesController.deleteVirtualMachine));
-  router.post('/workspaces/:workspaceId/virtual-machines/:vmId/rotate-agent-key', requireActor(['user']), authed(workspacesController.rotateVirtualMachineAgentKey));
+  router.post(
+    '/workspaces/:workspaceId/virtual-machines/:vmId/agent-enrollments',
+    requireActor(['user']),
+    validateBody(createAgentVEnrollmentSchema),
+    authed(workspacesController.createVirtualMachineAgentEnrollment)
+  );
+  router.post('/workspaces/:workspaceId/virtual-machines/:vmId/install-instructions', requireActor(['user']), authed(workspacesController.getVirtualMachineInstallInstructions));
   router.get(
     '/workspaces/:workspaceId/virtual-machines/:vmId/resources',
     requireActor(['user', 'externalIntegration']),

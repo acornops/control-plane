@@ -626,14 +626,15 @@
         ],
         "virtualMachineRegistration": [
           "virtualMachine",
-          "agentKey",
-          "installInstructions"
+          "installInstructions.{command,releaseVersion,bootstrapUrl,enrollmentExpiresAt,warnings}"
         ],
-        "rotateVirtualMachineAgentKey": [
-          "vmId",
-          "agentKey",
-          "keyVersion",
-          "installInstructions"
+        "virtualMachineAgentEnrollment": [
+          "targetId",
+          "installInstructions.{command,releaseVersion,bootstrapUrl,enrollmentExpiresAt,warnings}"
+        ],
+        "virtualMachineRepairInstructions": [
+          "targetId",
+          "installInstructions.{command,releaseVersion,bootstrapUrl,warnings}"
         ],
         "sessionList": [
           "items",
@@ -893,7 +894,7 @@
       "adminAuditFilterFields": ["workspaceId? (exact, backward compatible)", "workspaceQuery? (exact ID or case-insensitive name substring)"],
       "workspacePlanConfig": ["WORKSPACE_PLANS_CONFIG_JSON.defaultPlanKey", "WORKSPACE_PLANS_CONFIG_JSON.plans[].{key,name,quotas}"],
       "responseCachePolicy": "All /admin/v1 responses set Cache-Control: no-store",
-      "secretReturnPolicy": "No admin response returns secrets except one-time agent-key rotation, returned once"
+      "secretReturnPolicy": "AgentK rotation returns its one-time raw key once. AgentV administration returns only a short-lived enrollment token inside installInstructions.command; its durable credential is never returned to an administrator or browser."
     },
     "external-integration-client": {
       "auth": "Authorization: Bearer <external integration client token>; token hashes configured through EXTERNAL_INTEGRATION_CLIENTS_JSON",
@@ -1412,7 +1413,6 @@
       ],
       "connectorVersionHeader": "agentv/<package-version>; required, validated against agentType, and persisted as last_connector_version",
       "handshakeRequestFields": [
-        "agentKey",
         "targetId",
         "targetType",
         "agentType",
@@ -1428,6 +1428,7 @@
         "workspaceId",
         "targetId",
         "targetType",
+        "provisional?",
         "sessionPolicy.allowedTools",
         "sessionPolicy.writeEnabled",
         "config.snapshotInterval",

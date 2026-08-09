@@ -4,6 +4,7 @@ import { buildTargetMcpWireSchemas } from './schema-components-target-mcp.js';
 import { buildWebhookSchemas } from './schema-components-webhooks.js';
 import { buildAutoTriageSchemas } from './schema-components-auto-triage.js';
 import { buildKubernetesRbacSchemas } from './schema-components-kubernetes-rbac.js';
+import { buildVirtualMachineInstallSchemas } from './schema-components-virtual-machine-install.js';
 
 export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
   return {
@@ -68,22 +69,23 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
     VirtualMachinePage: pageOf('VirtualMachine'),
     VirtualMachineRegistration: {
       type: 'object',
-      required: ['virtualMachine', 'agentKey', 'installInstructions'],
+      required: ['virtualMachine', 'installInstructions'],
       properties: {
         virtualMachine: schemaRef('VirtualMachine'),
-        agentKey: { type: 'string' },
-        installInstructions: schemaRef('InstallInstructions')
+        installInstructions: schemaRef('VirtualMachineInstallInstructions')
       },
-      additionalProperties: true
+      additionalProperties: false
     },
     InstallInstructions: {
       type: 'object',
+      required: ['command'],
       properties: {
         command: { type: 'string' },
         environment: { type: 'object', additionalProperties: { type: 'string' } }
       },
       additionalProperties: true
     },
+    ...buildVirtualMachineInstallSchemas(),
     AgentKeyRotation: {
       type: 'object',
       required: ['agentKey', 'keyVersion'],

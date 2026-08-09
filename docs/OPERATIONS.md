@@ -219,6 +219,27 @@ connectivity, namespace-scope, and write-mode paths cannot be overridden.
 PEM CA bundle; this path is resolved on the operator machine that executes the
 generated command.
 
+Generated AgentV systemd commands use `AGENTV_SYSTEMD_RELEASE_VERSION` and
+`AGENTV_SYSTEMD_RELEASE_BASE_URL`. Production requires an exact semantic
+version and an HTTPS base URL. The default base points at immutable GitHub
+Release assets; internal mirrors must preserve the
+`v<version>/<asset>` layout. Initial and credential-replacement commands
+contain a target-bound, one-use enrollment token that expires after 15 minutes
+and must not be logged, saved, or shared. Durable AgentV credentials are
+returned only to the root installer; repair commands reuse the credential
+already protected on the VM.
+
+AgentV enrollment exchange is single-use and creates a pending credential plus
+a one-hour protected installation transaction. Pending connections are
+provisional: they do not expose tools, claim ownership, or mark a VM online.
+Commit requires provisional verification, promotes the candidate, and retains
+the prior credential for a 30-minute rollback window. Rollback is idempotent
+and restores the prior registration when one exists. Redis enforces independent
+per-IP and per-enrollment/transaction request limits across replicas. The
+background worker expires issued enrollments, abandoned pending credentials,
+and elapsed grace credentials; active AgentV credentials have no scheduled
+expiry.
+
 For multi-pod deployments, set a unique `CONTROL_PLANE_INSTANCE_ID` per pod.
 The platform Helm chart sets it from the Kubernetes pod name. Production also
 enables `CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED=true` by default.

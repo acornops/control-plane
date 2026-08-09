@@ -8,6 +8,8 @@ import { upsertUser } from './repository-users.js';
 
 const DEVELOPMENT_USER_EMAIL = 'dev@acornops.local';
 const DEVELOPMENT_USER_DISPLAY_NAME = 'Dev User';
+const DEVELOPMENT_VM_ENROLLMENT_ID = `development-seed-${DEVELOPMENT_VM_ID}`;
+const DEVELOPMENT_VM_CREDENTIAL_ID = `development-seed-credential-${DEVELOPMENT_VM_ID}`;
 
 export async function ensureDevelopmentWorkspaceAndTargets(
   createdByUserId: string,
@@ -69,11 +71,51 @@ export async function ensureDevelopmentWorkspaceAndTargets(
   );
 
   if (seedVmAgentKey) {
+    const keyHash = hashSecret(seedVmAgentKey);
+    await db.query(
+      `INSERT INTO agentv_enrollments
+         (id, target_id, workspace_id, purpose, token_hash, status, created_by,
+          expires_at, completed_at, updated_at)
+       VALUES ($1, $2, $3, 'initial', $4, 'completed', $5, NOW(), NOW(), NOW())
+       ON CONFLICT (id) DO UPDATE
+       SET target_id = EXCLUDED.target_id,
+           workspace_id = EXCLUDED.workspace_id,
+           token_hash = EXCLUDED.token_hash,
+           status = 'completed',
+           completed_at = COALESCE(agentv_enrollments.completed_at, NOW()),
+           updated_at = NOW()`,
+      [
+        DEVELOPMENT_VM_ENROLLMENT_ID,
+        DEVELOPMENT_VM_ID,
+        DEVELOPMENT_WORKSPACE_ID,
+        hashSecret('development-seed-enrollment-placeholder'),
+        createdByUserId
+      ]
+    );
+    await db.query(
+      `UPDATE agentv_credentials
+       SET state = 'revoked', revoked_at = COALESCE(revoked_at, NOW())
+       WHERE target_id = $1 AND id <> $2 AND state IN ('pending', 'active', 'grace')`,
+      [DEVELOPMENT_VM_ID, DEVELOPMENT_VM_CREDENTIAL_ID]
+    );
+    await db.query(
+      `INSERT INTO agentv_credentials
+         (id, target_id, enrollment_id, key_hash, generation, state, activated_at)
+       VALUES ($1, $2, $3, $4, 1, 'active', NOW())
+       ON CONFLICT (id) DO UPDATE
+       SET key_hash = EXCLUDED.key_hash,
+           state = 'active',
+           grace_expires_at = NULL,
+           replacement_enrollment_id = NULL,
+           revoked_at = NULL,
+           activated_at = COALESCE(agentv_credentials.activated_at, NOW())`,
+      [DEVELOPMENT_VM_CREDENTIAL_ID, DEVELOPMENT_VM_ID, DEVELOPMENT_VM_ENROLLMENT_ID, keyHash]
+    );
     await upsertTargetAgentRegistration({
       targetId: DEVELOPMENT_VM_ID,
       targetType: VIRTUAL_MACHINE_TARGET_TYPE,
       workspaceId: DEVELOPMENT_WORKSPACE_ID,
-      agentKeyHash: hashSecret(seedVmAgentKey),
+      agentKeyHash: keyHash,
       keyVersion: 1
     });
   }

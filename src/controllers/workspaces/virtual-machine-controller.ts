@@ -1,7 +1,6 @@
 import { NextFunction, Response } from 'express';
 import { agentGateway } from '../../agent/ws-server.js';
 import { AuthenticatedRequest } from '../../auth/middleware.js';
-import { config } from '../../config.js';
 import {
   requireTargetAccess,
   requireWorkspaceCapability,
@@ -9,13 +8,12 @@ import {
 } from '../../auth/workspace-authorization.js';
 import type { WorkspaceAuthorization } from '../../auth/workspace-authorization.js';
 import { webhooks } from '../../services/webhooks.js';
-import { buildVirtualMachineInstallInstructions } from '../../services/virtual-machine-install-instructions.js';
+import { buildAgentVRepairInstructions, issueAgentVEnrollment } from '../../services/agentv-enrollment.js';
 import { mapVirtualMachineMetricHistoryPoint } from '../../services/virtual-machine-metric-history.js';
 import { recordWorkspaceAuditEvent } from '../../services/workspace-audit.js';
 import { repo } from '../../store/repository.js';
 import { VIRTUAL_MACHINE_TARGET_TYPE } from '../../types/domain.js';
 import type { TargetSummary } from '../../types/domain.js';
-import { generateAgentKey, hashSecret } from '../../utils/crypto.js';
 import { toSingleParam } from '../../utils/params.js';
 import {
   CursorMismatchError,
@@ -62,15 +60,20 @@ export async function registerVirtualMachine(req: AuthenticatedRequest, res: Res
       hostname: req.body.hostname,
       allowedLogSources: req.body.allowedLogSources
     });
-    const rawAgentKey = generateAgentKey(vm.id);
-    await repo.upsertTargetAgentRegistration({
-      targetId: vm.id,
-      targetType: VIRTUAL_MACHINE_TARGET_TYPE,
-      workspaceId: vm.workspaceId,
-      agentKeyHash: hashSecret(rawAgentKey),
-      keyVersion: 1,
-      capabilities: ['read', 'logs', 'mcp', 'chat', 'systemd', 'linux']
-    });
+    let enrollment: NonNullable<Awaited<ReturnType<typeof issueAgentVEnrollment>>>;
+    try {
+      const issuedEnrollment = await issueAgentVEnrollment({
+        targetId: vm.id, workspaceId: vm.workspaceId, purpose: 'initial', createdBy: req.auth.userId
+      });
+      if (!issuedEnrollment) throw new Error('New virtual machine could not create its initial AgentV enrollment');
+      enrollment = issuedEnrollment;
+    } catch (error) {
+      // Registration is not useful without the one-use command. Compensate the
+      // target insert so a transient enrollment failure does not leave a
+      // commandless orphan that the operator cannot finish onboarding.
+      await repo.deleteVirtualMachine(vm.id);
+      throw error;
+    }
     webhooks.emit({
       type: 'target.registered.v1',
       workspaceId,
@@ -91,15 +94,10 @@ export async function registerVirtualMachine(req: AuthenticatedRequest, res: Res
       summary: 'Virtual machine registered',
       metadata: { status: vm.status, osFamily: vm.osFamily, serviceManager: vm.serviceManager }
     });
+    res.setHeader('Cache-Control', 'no-store');
     res.status(201).json({
       virtualMachine: vm,
-      agentKey: rawAgentKey,
-      keyVersion: 1,
-      installInstructions: buildVirtualMachineInstallInstructions({
-        platformUrl: config.CONTROL_PLANE_BASE_URL,
-        targetId: vm.id,
-        agentKey: rawAgentKey
-      })
+      installInstructions: enrollment.installInstructions
     });
   } catch (err) {
     next(err);
@@ -245,56 +243,89 @@ export async function deleteVirtualMachine(req: AuthenticatedRequest, res: Respo
   }
 }
 
-export async function rotateVirtualMachineAgentKey(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+export async function createVirtualMachineAgentEnrollment(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
     const vmId = toSingleParam(req.params.vmId);
     const access = await requireVirtualMachineTargetAccess(req, res, workspaceId, vmId);
     if (!access) return;
-    if (!access.authz.can('manage_agent_keys')) {
-      res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Only workspace roles with agent-key management capability can rotate agent keys', retryable: false } });
+    const purpose = req.body.purpose as 'initial' | 'replace';
+    if (!(purpose === 'replace' ? access.authz.can('manage_agent_keys') : access.authz.can('manage_targets'))) {
+      res.status(403).json({ error: { code: 'FORBIDDEN', message: 'The required AgentV credential capability is missing', retryable: false } });
       return;
     }
-    const reg = await repo.getTargetAgentRegistration(vmId);
-    if (!reg) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent registration not found', retryable: false } });
-      return;
-    }
-    const rawAgentKey = generateAgentKey(vmId);
-    const keyVersion = await repo.rotateTargetAgentKey(vmId, reg.keyVersion, hashSecret(rawAgentKey));
-    if (keyVersion === null) {
+    const registration = await repo.getTargetAgentRegistration(vmId);
+    if ((purpose === 'initial' && registration) || (purpose === 'replace' && !registration)) {
       res.status(409).json({
         error: {
-          code: 'AGENT_KEY_ROTATION_CONFLICT',
-          message: 'Agent key changed during rotation; generate new install instructions and retry',
+          code: 'AGENTV_ENROLLMENT_PURPOSE_CONFLICT',
+          message: purpose === 'initial'
+            ? 'AgentV already has an active credential; generate replacement instructions instead'
+            : 'AgentV has no active credential to replace; generate initial enrollment instructions instead',
+          retryable: false
+        }
+      });
+      return;
+    }
+    const enrollment = await issueAgentVEnrollment({
+      targetId: vmId, workspaceId, purpose, createdBy: req.auth.userId
+    });
+    if (!enrollment) {
+      res.status(409).json({
+        error: {
+          code: 'AGENTV_ENROLLMENT_PURPOSE_CONFLICT',
+          message: 'AgentV credential state changed while generating the command; refresh and try again',
           retryable: true
         }
       });
       return;
     }
-    await agentGateway.disconnectCluster(vmId, 'Agent key rotated');
     await recordWorkspaceAuditEvent({
       workspaceId,
       category: 'target',
-      eventType: 'agent.key_rotated.v1',
+      eventType: 'agent.credential_enrollment_created.v1',
       operation: 'write',
       actorUserId: req.auth.userId,
       objectType: 'virtual_machine',
       objectId: vmId,
       objectName: access.target.name,
-      summary: 'AgentV key rotated',
-      metadata: { keyVersion }
+      summary: purpose === 'replace'
+        ? 'AgentV credential replacement enrollment created'
+        : 'AgentV initial enrollment regenerated',
+      metadata: { purpose, expiresAt: enrollment.expiresAt }
     });
+    res.setHeader('Cache-Control', 'no-store');
     res.status(200).json({
       targetId: vmId,
-      agentKey: rawAgentKey,
-      keyVersion,
-      installInstructions: buildVirtualMachineInstallInstructions({
-        platformUrl: config.CONTROL_PLANE_BASE_URL,
-        targetId: vmId,
-        agentKey: rawAgentKey
-      })
+      installInstructions: enrollment.installInstructions
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getVirtualMachineInstallInstructions(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const workspaceId = toSingleParam(req.params.workspaceId);
+    const vmId = toSingleParam(req.params.vmId);
+    const access = await requireVirtualMachineTargetAccess(req, res, workspaceId, vmId);
+    if (!access) return;
+    if (!access.authz.can('manage_targets')) {
+      res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Target management capability is required', retryable: false } });
+      return;
+    }
+    if (!(await repo.getTargetAgentRegistration(vmId))) {
+      res.status(409).json({
+        error: {
+          code: 'AGENTV_CREDENTIAL_NOT_ACTIVE',
+          message: 'AgentV has no active credential to reuse; generate an initial enrollment command instead',
+          retryable: false
+        }
+      });
+      return;
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).json({ targetId: vmId, installInstructions: buildAgentVRepairInstructions(vmId) });
   } catch (err) {
     next(err);
   }

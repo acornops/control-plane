@@ -107,6 +107,7 @@ describe('OIDC configuration', () => {
     assert.throws(
       () => parseAppConfig({
         NODE_ENV: 'production',
+        AGENTV_SYSTEMD_RELEASE_VERSION: '0.0.1-experimental.5',
         CONTROL_PLANE_BASE_URL: 'https://api.example.com',
         MANAGEMENT_CONSOLE_BASE_URL: 'https://console.example.com',
         CORS_ORIGIN: 'https://console.example.com',

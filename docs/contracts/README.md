@@ -22,6 +22,16 @@ The control plane owns the platform API boundary. Keep this README as a short in
 
 ## Shared Invariants
 
+- VM registration and credential replacement return structured systemd install
+  instructions with `command`, `releaseVersion`, `bootstrapUrl`, `warnings`,
+  and an enrollment expiry when applicable. Enrollment commands contain a
+  target-bound, one-use token; durable AgentV credentials are returned only to
+  the root bootstrap. Repair instructions contain no credential.
+  Generating a fresh command cancels older issued commands and any abandoned
+  pending credential for that VM. The installer status endpoint remains
+  read-only verifiable after the one-hour commit/rollback window so boot
+  recovery can resolve a long outage without reopening credential mutation.
+
 - Platform-default OpenAI, Anthropic, and Gemini keys are write-only gateway
   secrets exposed to platform administrators only through the fixed
   `/admin/v1/system/llm-provider-defaults` status and mutation routes.
@@ -151,10 +161,11 @@ The control plane owns the platform API boundary. Keep this README as a short in
   connector tools or rebinding arguments. Workflow definitions have no
   capability, context, permission, approval, timing, or retention policy fields;
   the Workflow options endpoint exposes only assignable Agents.
-- Virtual-machine registration and key rotation preserve their response shape,
-  but generated install instructions use the validated
-  `CONTROL_PLANE_BASE_URL` and a literal heredoc so credential values are not
-  expanded by the operator shell.
+- Virtual-machine registration returns no raw AgentV key. Initial and
+  replacement responses contain a structured, version-pinned command with a
+  15-minute one-use enrollment token; repair responses contain a structured
+  credential-free command. AgentK registration and key rotation retain their
+  existing response contracts.
 - AgentK and AgentV connections must send `x-connector-version` as
   `agentk/<release>` or `agentv/<release>` respectively. The handshake rejects
   missing, mismatched, whitespace-containing, or nested values and persists the

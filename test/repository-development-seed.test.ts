@@ -180,6 +180,8 @@ describe('development target seed', () => {
     assert.equal(queries.filter(({ sql }) => sql.includes('INSERT INTO targets')).length, 2);
     assert.equal(queries.filter(({ sql }) => sql.includes('INSERT INTO kubernetes_target_settings')).length, 1);
     assert.equal(queries.filter(({ sql }) => sql.includes('INSERT INTO target_agent_registrations')).length, 2);
+    assert.equal(queries.filter(({ sql }) => sql.includes('INSERT INTO agentv_enrollments')).length, 1);
+    assert.equal(queries.filter(({ sql }) => sql.includes('INSERT INTO agentv_credentials')).length, 1);
     assert.equal(queries.some(({ sql }) => sql.includes('workspace_invitations')), false);
     assert.equal(queries.some(({ sql }) => /mcp_server|provider_credential|skills/i.test(sql)), false);
     assert.equal(
@@ -219,5 +221,8 @@ describe('development target seed', () => {
     const vmRegistration = registrationQueries.find(({ params }) => params[0] === DEVELOPMENT_VM_ID);
     assert.equal(vmRegistration?.params[1], DEVELOPMENT_WORKSPACE_ID);
     assert.equal(verifySecret('ak_local_vm_dev_shared_key', String(vmRegistration?.params[2])), true);
+    const vmCredential = queries.find(({ sql }) => sql.includes('INSERT INTO agentv_credentials'));
+    assert.equal(vmCredential?.params[1], DEVELOPMENT_VM_ID);
+    assert.equal(verifySecret('ak_local_vm_dev_shared_key', String(vmCredential?.params[3])), true);
   });
 });

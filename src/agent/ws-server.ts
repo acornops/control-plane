@@ -316,8 +316,10 @@ export class AgentGateway {
   }
 
   private async ensureAgentConnectionCurrent(conn: AgentConnection): Promise<boolean> {
-    const registration = await repo.getTargetAgentRegistration(conn.clusterId);
-    if (registration?.keyVersion === conn.keyVersion) {
+    const accepted = conn.targetType === 'virtual_machine' && conn.credentialId
+      ? await repo.agentv.isAgentVCredentialAccepted(conn.clusterId, conn.credentialId)
+      : (await repo.getTargetAgentRegistration(conn.clusterId))?.keyVersion === conn.keyVersion;
+    if (accepted) {
       return true;
     }
     await this.closeLocalConnection(
@@ -492,7 +494,8 @@ export class AgentGateway {
         const now = new Date().toISOString();
         await repo.updateTargetAgentSeen(conn.clusterId, {
           lastSeenAt: now,
-          lastHeartbeatAt: now
+          lastHeartbeatAt: now,
+          lastAuthenticatedKeyVersion: conn.keyVersion
         });
       }
       return;

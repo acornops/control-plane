@@ -167,6 +167,7 @@ export interface TargetAgentRegistrationRow {
   key_version: number;
   last_seen_at: Date | string | null;
   last_heartbeat_at: Date | string | null;
+  last_authenticated_key_version?: number | null;
   last_connection_id: string | null;
   last_connector_version: string | null;
   capabilities: string[] | null;
@@ -512,6 +513,7 @@ export function mapTargetAgentRegistration(row: TargetAgentRegistrationRow): Tar
     keyVersion: row.key_version,
     lastSeenAt: toIso(row.last_seen_at),
     lastHeartbeatAt: toIso(row.last_heartbeat_at),
+    lastAuthenticatedKeyVersion: row.last_authenticated_key_version || undefined,
     lastConnectionId: row.last_connection_id || undefined,
     lastConnectorVersion: row.last_connector_version || undefined,
     capabilities: row.capabilities || undefined

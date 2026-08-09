@@ -338,6 +338,7 @@ export interface TargetAgentRegistration {
   keyVersion: number;
   lastSeenAt?: string;
   lastHeartbeatAt?: string;
+  lastAuthenticatedKeyVersion?: number;
   lastConnectionId?: string;
   lastConnectorVersion?: string;
   capabilities?: string[];

@@ -182,6 +182,18 @@ export const updateVirtualMachineSchema = z.object({
   allowedLogSources: z.array(z.string().trim().min(1).max(64)).max(10).optional()
 });
 
+export const createAgentVEnrollmentSchema = z.object({
+  purpose: z.enum(['initial', 'replace'])
+}).strict();
+
+export const exchangeAgentVEnrollmentSchema = z.object({
+  targetId: z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/),
+  enrollmentToken: z.string().regex(
+    /^aev_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}_[A-Za-z0-9_-]{43}$/i
+  ),
+  purpose: z.enum(['initial', 'replace'])
+}).strict();
+
 export const createSessionSchema = z.object({
   title: z.string().min(1)
 });

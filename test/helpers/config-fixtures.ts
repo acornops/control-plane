@@ -12,6 +12,7 @@ export function productionEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.Process
   return {
     NODE_ENV: 'production',
     CONTROL_PLANE_BASE_URL: 'https://ops.example.com',
+    AGENTV_SYSTEMD_RELEASE_VERSION: '0.0.1-experimental.5',
     MANAGEMENT_CONSOLE_BASE_URL: 'https://console.example.com',
     CORS_ORIGIN: 'https://ops.example.com',
     OIDC_ISSUER_URL: 'https://id.example.com/realms/acornops',

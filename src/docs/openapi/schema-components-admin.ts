@@ -207,7 +207,7 @@ export function buildAdminSchemas(): Record<string, JsonSchema> {
         revokedSessionCount: { type: 'integer' },
         synced: { type: 'array', items: jsonObject },
         failures: { type: 'array', items: jsonObject },
-        agentKey: { type: 'string', description: 'Returned only by emergency agent-key rotation.' },
+        agentKey: { type: 'string', description: 'Returned only for AgentK key rotation; AgentV uses enrollment instructions.' },
         installInstructions: schemaRef('InstallInstructions')
       },
       additionalProperties: true

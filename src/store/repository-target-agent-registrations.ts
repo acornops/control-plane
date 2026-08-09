@@ -92,19 +92,27 @@ export async function rotateTargetAgentKey(
 
 export async function updateTargetAgentSeen(
   targetId: string,
-  data: { lastSeenAt?: string; lastHeartbeatAt?: string; lastConnectionId?: string; lastConnectorVersion?: string }
+  data: {
+    lastSeenAt?: string;
+    lastHeartbeatAt?: string;
+    lastAuthenticatedKeyVersion?: number;
+    lastConnectionId?: string;
+    lastConnectorVersion?: string;
+  }
 ): Promise<void> {
   await db.query(
     `UPDATE target_agent_registrations
      SET last_seen_at = COALESCE($2, last_seen_at),
          last_heartbeat_at = COALESCE($3, last_heartbeat_at),
-         last_connection_id = COALESCE($4, last_connection_id),
-         last_connector_version = COALESCE($5, last_connector_version)
+         last_authenticated_key_version = COALESCE($4, last_authenticated_key_version),
+         last_connection_id = COALESCE($5, last_connection_id),
+         last_connector_version = COALESCE($6, last_connector_version)
      WHERE target_id = $1`,
     [
       targetId,
       data.lastSeenAt ?? null,
       data.lastHeartbeatAt ?? null,
+      data.lastAuthenticatedKeyVersion ?? null,
       data.lastConnectionId ?? null,
       data.lastConnectorVersion ?? null
     ]

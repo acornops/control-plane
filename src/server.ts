@@ -169,6 +169,16 @@ async function main(): Promise<void> {
     }
   }, config.AUTOMATION_WORKER_INTERVAL_MS);
   automationWorkerInterval.unref();
+  const agentVEnrollmentCleanupInterval = setInterval(async () => {
+    try {
+      await withRedisLease('agentv-enrollment-cleanup', 60, async () => {
+        await repo.agentv.expireAgentVEnrollmentState();
+      });
+    } catch (err) {
+      logger.warn({ err }, 'AgentV enrollment cleanup failed');
+    }
+  }, 60_000);
+  agentVEnrollmentCleanupInterval.unref();
   let targetAutoTriageTickInFlight = false;
   const targetAutoTriageWorkerInterval = setInterval(async () => {
     if (targetAutoTriageTickInFlight) return;
@@ -226,6 +236,7 @@ async function main(): Promise<void> {
     clearInterval(approvalTimeoutInterval);
     clearInterval(targetInsightsCheckpointInterval);
     clearInterval(automationWorkerInterval);
+    clearInterval(agentVEnrollmentCleanupInterval);
     clearInterval(targetAutoTriageWorkerInterval);
     clearInterval(webhookDeliveryInterval);
     const forceExit = setTimeout(() => {

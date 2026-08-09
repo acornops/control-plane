@@ -1,35 +1,63 @@
 export interface VirtualMachineInstallInstructionInput {
   platformUrl: string;
   targetId: string;
-  agentKey: string;
+  releaseVersion: string;
+  releaseBaseUrl: string;
+  enrollmentToken?: string;
+  enrollmentExpiresAt?: string;
+  replaceCredential?: boolean;
+}
+
+export interface VirtualMachineInstallInstructions {
+  command: string;
+  releaseVersion: string;
+  bootstrapUrl: string;
+  warnings: string[];
+  enrollmentExpiresAt?: string;
+}
+
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
 export function buildVirtualMachineInstallInstructions(
   input: VirtualMachineInstallInstructionInput
-): string {
-  return [
-    'Install the AcornOps AgentV on a Linux/systemd host:',
-    '',
-    '```bash',
-    'sudo install -d -m 0750 -o root -g root /etc/acornops',
-    "sudo tee /etc/acornops/agentv.env >/dev/null <<'EOF'",
-    `ACORNOPS_AGENT_PLATFORM_URL=${input.platformUrl}`,
-    `ACORNOPS_TARGET_ID=${input.targetId}`,
-    `ACORNOPS_AGENT_KEY=${input.agentKey}`,
-    'ACORNOPS_AGENT_TARGET_TYPE=virtual_machine',
-    'ACORNOPS_AGENT_SNAPSHOT_INTERVAL_MS=60000',
-    'ACORNOPS_AGENT_MAX_SNAPSHOT_BYTES=1048576',
-    'ACORNOPS_AGENT_LOG_LEVEL=info',
-    'ACORNOPS_VM_OS_FAMILY=linux',
-    'ACORNOPS_VM_SERVICE_MANAGER=systemd',
-    'ACORNOPS_VM_ALLOWED_LOG_UNITS=acornops-agentv.service',
-    'ACORNOPS_VM_COLLECTOR_MODE=live',
-    'EOF',
-    'sudo chown root:acornops-agent /etc/acornops/agentv.env',
-    'sudo chmod 0640 /etc/acornops/agentv.env',
-    'sudo systemctl enable --now acornops-agentv',
-    '```',
-    '',
-    'The agent connects outbound only and remains read-only unless the separate local helper is explicitly enabled.'
-  ].join('\n');
+): VirtualMachineInstallInstructions {
+  if (input.replaceCredential && !input.enrollmentToken) {
+    throw new Error('AgentV credential replacement instructions require an enrollment token');
+  }
+  if (input.enrollmentExpiresAt && !input.enrollmentToken) {
+    throw new Error('AgentV enrollment expiry requires an enrollment token');
+  }
+  for (const [name, value] of [['release base URL', input.releaseBaseUrl], ['platform URL', input.platformUrl]]) {
+    if (value.includes("'") || value.includes('\\') || value.includes('\n') || value.includes('\r')) {
+      throw new Error(`AgentV ${name} contains unsupported characters`);
+    }
+  }
+  const releaseBaseUrl = input.releaseBaseUrl.replace(/\/+$/, '');
+  const bootstrapUrl = `${releaseBaseUrl}/v${input.releaseVersion}/install-agentv.sh`;
+  const command = [
+    'set -o pipefail;',
+    `curl -fsSL --proto '=https' --proto-redir '=https' ${shellSingleQuote(bootstrapUrl)}`,
+    '| sudo bash -s --',
+    `--release-base-url ${shellSingleQuote(releaseBaseUrl)}`,
+    `--platform-url ${shellSingleQuote(input.platformUrl)}`,
+    `--target-id ${shellSingleQuote(input.targetId)}`
+  ];
+  if (input.enrollmentToken) command.push(`--enrollment-token ${shellSingleQuote(input.enrollmentToken)}`);
+  if (input.replaceCredential) command.push('--replace-credential');
+
+  return {
+    command: command.join(' '),
+    releaseVersion: input.releaseVersion,
+    bootstrapUrl,
+    warnings: [
+      'This command is target-bound and must be run only on the intended virtual machine.',
+      ...(input.enrollmentToken
+        ? ['This command contains a one-use AgentV enrollment token. Do not store, log, or share it; it becomes useless after exchange or expiry.']
+        : ['This command works only on the matching VM and reuses its protected AgentV credential.']),
+      'It requires root access on Linux with systemd and Node.js 22 or newer installed at /usr/bin/node.'
+    ],
+    ...(input.enrollmentExpiresAt ? { enrollmentExpiresAt: input.enrollmentExpiresAt } : {})
+  };
 }

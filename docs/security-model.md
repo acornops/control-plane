@@ -184,8 +184,11 @@
 - Successful audit writes emit a structured security event for centralized log
   collection. Mutations fail closed when their required audit write fails.
 - All `/admin/v1` responses set `Cache-Control: no-store`.
-- Agent-key rotation is the only admin operation that returns a secret, and the
-  replacement key is returned once.
+- Kubernetes AgentK key rotation is the only admin operation that returns a raw
+  durable target secret, and the replacement key is returned once. AgentV
+  administration returns a short-lived one-use enrollment command; the durable
+  AgentV credential is returned only to the root installer and stored hash-only
+  by the control plane.
 
 ## Browser Headers
 

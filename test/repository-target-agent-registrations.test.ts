@@ -21,8 +21,8 @@ describe('target agent registration updates', () => {
 
     await updateTargetAgentSeen('cluster-1', { lastHeartbeatAt: '2026-07-11T00:00:00.000Z' });
 
-    assert.doesNotMatch(sql, /agent_key_hash|key_version/);
-    assert.deepEqual(params, ['cluster-1', null, '2026-07-11T00:00:00.000Z', null, null]);
+    assert.doesNotMatch(sql, /\bagent_key_hash\b|\bkey_version\b/);
+    assert.deepEqual(params, ['cluster-1', null, '2026-07-11T00:00:00.000Z', null, null, null]);
   });
 
   it('updates capabilities without rewriting key material', async () => {
@@ -35,7 +35,7 @@ describe('target agent registration updates', () => {
     await updateTargetAgentCapabilities('cluster-1', ['read']);
 
     assert.match(sql, /SET capabilities/);
-    assert.doesNotMatch(sql, /agent_key_hash|key_version/);
+    assert.doesNotMatch(sql, /\bagent_key_hash\b|\bkey_version\b/);
   });
 
   it('rotates a key only when the expected version is still current', async () => {

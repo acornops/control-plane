@@ -50,6 +50,19 @@ for (const required of [
 ]) {
   assert(helpLinksMigration.includes(required), `help-links migration must include ${required}`);
 }
+const agentVEnrollmentMigration = read('migrations/control-plane/004_agentv_enrollment_credentials.sql');
+for (const required of [
+  'CREATE TABLE agentv_enrollments',
+  'CREATE TABLE agentv_credentials',
+  'agentv_enrollments_workspace_target_fkey',
+  'agentv_credentials_enrollment_target_fkey',
+  'agentv_credentials_one_active_idx',
+  'agentv_credentials_one_pending_idx',
+  'agentv_credentials_one_grace_idx',
+  'ADD COLUMN last_authenticated_key_version integer'
+]) {
+  assert(agentVEnrollmentMigration.includes(required), `AgentV enrollment migration must include ${required}`);
+}
 assert(
   baseline.includes('rbac_additions jsonb') &&
     baseline.includes('rbac_additions_source_version') &&
@@ -170,7 +183,9 @@ const expectedTables = [
   'workspace_initial_defaults',
   'workspace_initial_default_skill_files',
   'webhook_outbox_events',
-  'webhook_delivery_jobs'
+  'webhook_delivery_jobs',
+  'agentv_enrollments',
+  'agentv_credentials'
 ];
 
 const expectedColumns = [
@@ -248,7 +263,8 @@ const expectedColumns = [
   ['kubernetes_target_settings', 'rbac_additions_source_version'],
   ['kubernetes_target_settings', 'rbac_additions_content_hash'],
   ['kubernetes_target_settings', 'write_confirmation_required_override'],
-  ['kubernetes_target_settings', 'permission_mode_override']
+  ['kubernetes_target_settings', 'permission_mode_override'],
+  ['target_agent_registrations', 'last_authenticated_key_version']
 ];
 
 const expectedConstraints = [
@@ -299,8 +315,10 @@ const expectedConstraints = [
   'platform_setting_overrides_key_check',
   'kubernetes_target_settings_rbac_additions_array',
   'kubernetes_target_settings_permission_mode_check',
-  // PostgreSQL truncates identifiers to 63 bytes when migration 006 is applied.
-  'k8s_target_settings_rbac_source_version_nonnegative'
+  // PostgreSQL truncates identifiers to 63 bytes when the RBAC migration is applied.
+  'k8s_target_settings_rbac_source_version_nonnegative',
+  'agentv_enrollments_workspace_target_fkey',
+  'agentv_credentials_enrollment_target_fkey'
 ];
 
 async function runSqlChecks(databaseUrl) {
@@ -507,7 +525,10 @@ async function runSqlChecks(databaseUrl) {
       'workflow_webhook_deliveries_claim_idx',
       'workspace_defaults_available_in_idx',
       'workspace_initial_defaults_workspace_kind_idx',
-      'sessions_agent_conversations_idx'
+      'sessions_agent_conversations_idx',
+      'agentv_credentials_one_active_idx',
+      'agentv_credentials_one_pending_idx',
+      'agentv_credentials_one_grace_idx'
     ]) {
       assert(indexNames.has(indexName), `${indexName} must exist in the final baseline`);
     }

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { agentTransportConfigFields, validateAgentTransportConfig } from './config-agent-transport.js';
 import { agentKHelmConfigFields, parseAgentKHelmValues, validateAgentKHelmConfig } from './config-agentk-helm.js';
+import { agentVSystemdConfigFields, normalizeAgentVSystemdConfig, validateAgentVSystemdConfig } from './config-agentv-systemd.js';
 import { gitImportHostsJsonSchema, parseGitImportHosts } from './config-git-imports.js';
 import { configureWorkspaceRoleTemplates } from './auth/role-template-config.js';
 import { DEFAULT_LLM_PROVIDERS_JSON, llmPolicyConfigFields, validateLlmPolicyConfig } from './config-llm-policy.js';
@@ -122,7 +123,6 @@ const trustProxyFromEnv = z.preprocess((value) => {
   }
   return value;
 }, z.union([z.boolean(), z.number().int().nonnegative(), z.string().min(1)]).default(false));
-
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(8081),
@@ -170,7 +170,7 @@ const envSchema = z.object({
   SEED_AGENT_KEY: z.string().optional(),
   SEED_VM_AGENT_KEY: z.string().optional(),
   ...agentKHelmConfigFields,
-
+  ...agentVSystemdConfigFields,
   OIDC_ENABLED: envBoolean(true),
   OIDC_PROVIDER_NAME: z.string().min(1).default('oidc'),
   OIDC_ISSUER_URL: oidcHttpUrlFromEnv.default('http://localhost:8080/realms/acornops'),
@@ -314,6 +314,7 @@ const envSchema = z.object({
   validateAgentTransportConfig(ctx, value);
   validateLlmPolicyConfig(ctx, value);
   validateAgentKHelmConfig(ctx, value);
+  validateAgentVSystemdConfig(ctx, value);
   validateOptionalReadableFile(ctx, 'ADDITIONAL_CA_BUNDLE_FILE', value.ADDITIONAL_CA_BUNDLE_FILE);
   for (const issue of mcpOAuthConfigIssues(value.MCP_OAUTH_ENABLED, value.MANAGEMENT_CONSOLE_BASE_URL)) {
     addConfigIssue(ctx, issue.field, issue.message);
@@ -528,6 +529,7 @@ const envSchema = z.object({
     value.NODE_ENV === 'production'
   ),
   AGENTK_HELM_VALUES: parseAgentKHelmValues(value.AGENTK_HELM_VALUES_JSON, value.AGENTK_HELM_ADDITIONAL_CA_FILE_PATH),
+  ...normalizeAgentVSystemdConfig(value),
   SESSION_MAX_AGE_SECONDS: value.SESSION_MAX_AGE_SECONDS ?? 604800,
   PERSIST_RUN_EVENTS: value.PERSIST_RUN_EVENTS ?? value.NODE_ENV === 'production',
   CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED: value.CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED ?? value.NODE_ENV === 'production',

@@ -344,9 +344,10 @@ export {
   getVirtualMachine,
   getVirtualMachineLogs,
   getVirtualMachineMetricsHistory,
+  getVirtualMachineInstallInstructions,
   listVirtualMachineInventory,
   listVirtualMachines,
   registerVirtualMachine,
-  rotateVirtualMachineAgentKey,
+  createVirtualMachineAgentEnrollment,
   updateVirtualMachine
 } from './workspaces/virtual-machine-controller.js';
