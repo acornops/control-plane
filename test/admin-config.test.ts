@@ -7,7 +7,7 @@ import { parseAppConfig } from '../src/config.js';
 const signingKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ format: 'pem', type: 'pkcs8' }).toString();
 const baseProductionEnv: NodeJS.ProcessEnv = {
   NODE_ENV: 'production', CONTROL_PLANE_BASE_URL: 'https://ops.example.com', MANAGEMENT_CONSOLE_BASE_URL: 'https://console.example.com',
-  AGENTV_SYSTEMD_RELEASE_VERSION: '0.0.1-experimental.5',
+  AGENTV_SYSTEMD_RELEASE_VERSION: '0.0.1-experimental.6',
   CORS_ORIGIN: 'https://ops.example.com', OIDC_ISSUER_URL: 'https://id.example.com/realms/acornops', OIDC_PUBLIC_ISSUER_URL: 'https://id.example.com/realms/acornops',
   OIDC_CLIENT_SECRET: 'cp_oidc_secret_0123456789abcdef012345', CSRF_SECRET: 'csrf_secret_0123456789abcdef0123456789', OIDC_REDIRECT_URI: 'https://ops.example.com/api/v1/auth/oidc/callback',
   ORCH_SERVICE_TOKEN: 'orch_service_token_0123456789abcdef012345', EXECUTION_ENGINE_DISPATCH_TOKEN: 'dispatch_token_0123456789abcdef012345',

@@ -9,12 +9,12 @@ describe('virtual machine install instructions', () => {
       targetId: 'vm-target-1',
       enrollmentToken: "aev-'$(must-not-expand)",
       enrollmentExpiresAt: '2026-08-09T12:15:00.000Z',
-      releaseVersion: '0.0.1-experimental.5',
+      releaseVersion: '0.0.1-experimental.6',
       releaseBaseUrl: 'https://artifacts.example.test/acornops/'
     });
 
-    assert.equal(instructions.releaseVersion, '0.0.1-experimental.5');
-    assert.equal(instructions.bootstrapUrl, 'https://artifacts.example.test/acornops/v0.0.1-experimental.5/install-agentv.sh');
+    assert.equal(instructions.releaseVersion, '0.0.1-experimental.6');
+    assert.equal(instructions.bootstrapUrl, 'https://artifacts.example.test/acornops/v0.0.1-experimental.6/install-agentv.sh');
     assert.match(instructions.command, /^set -o pipefail; curl -fsSL --proto '=https' --proto-redir '=https' /);
     assert.match(instructions.command, /--platform-url 'https:\/\/control-plane\.example\.test'/);
     assert.match(instructions.command, /--enrollment-token 'aev-'"'"'\$\(must-not-expand\)'/);
@@ -28,7 +28,7 @@ describe('virtual machine install instructions', () => {
     assert.throws(() => buildVirtualMachineInstallInstructions({
       platformUrl: 'https://api.example.test',
       targetId: 'vm-1',
-      releaseVersion: '0.0.1-experimental.5',
+      releaseVersion: '0.0.1-experimental.6',
       releaseBaseUrl: 'https://artifacts.example.test/agentv',
       replaceCredential: true
     }), /require an enrollment token/);

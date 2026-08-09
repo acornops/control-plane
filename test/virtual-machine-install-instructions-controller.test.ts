@@ -74,10 +74,10 @@ function assertStructuredInstructions(body: unknown): string {
     agentKey?: string;
     installInstructions: { command: string; releaseVersion: string; bootstrapUrl: string; warnings: string[]; enrollmentExpiresAt?: string };
   };
-  assert.equal(payload.installInstructions.releaseVersion, '0.0.1-experimental.5');
+  assert.equal(payload.installInstructions.releaseVersion, '0.0.1-experimental.6');
   assert.equal(
     payload.installInstructions.bootstrapUrl,
-    'https://github.com/acornops/agentv/releases/download/v0.0.1-experimental.5/install-agentv.sh'
+    'https://github.com/acornops/agentv/releases/download/v0.0.1-experimental.6/install-agentv.sh'
   );
   assert.match(payload.installInstructions.command, /^set -o pipefail; curl -fsSL --proto '=https' --proto-redir '=https' /);
   assert.equal(payload.agentKey, undefined);

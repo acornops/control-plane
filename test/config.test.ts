@@ -17,7 +17,7 @@ describe('parseAppConfig production validation', () => {
     assert.equal(config.AGENT_WS_REQUIRE_SECURE_TRANSPORT, true);
     assert.equal(config.PASSWORD_AUTH_ENABLED, true);
     assert.equal(config.MCP_OAUTH_ENABLED, true);
-    assert.equal(config.AGENTV_SYSTEMD_RELEASE_VERSION, '0.0.1-experimental.5');
+    assert.equal(config.AGENTV_SYSTEMD_RELEASE_VERSION, '0.0.1-experimental.6');
     assert.equal(config.AGENTV_SYSTEMD_RELEASE_BASE_URL, 'https://github.com/acornops/agentv/releases/download');
   });
 
@@ -26,7 +26,7 @@ describe('parseAppConfig production validation', () => {
       () => parseAppConfig(productionEnv({ AGENTV_SYSTEMD_RELEASE_VERSION: '' })),
       (error) => Boolean(fieldErrors(error).AGENTV_SYSTEMD_RELEASE_VERSION?.length)
     );
-    for (const version of ['latest', 'main', 'v0.0.1-experimental.5']) {
+    for (const version of ['latest', 'main', 'v0.0.1-experimental.6']) {
       assert.throws(
         () => parseAppConfig(productionEnv({ AGENTV_SYSTEMD_RELEASE_VERSION: version })),
         (error) => Boolean(fieldErrors(error).AGENTV_SYSTEMD_RELEASE_VERSION?.length)
