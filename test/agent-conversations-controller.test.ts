@@ -29,6 +29,7 @@ import {
   closeAutomationDatabaseFixtures,
   resetAutomationDatabaseFixtures
 } from './helpers/automation-database-fixtures.js';
+import { installAgentTargetsGatewayFixture } from './helpers/agent-targets-gateway-fixture.js';
 
 beforeEach(async () => {
   await resetAutomationDatabaseFixtures();
@@ -44,6 +45,8 @@ after(closeAutomationDatabaseFixtures);
 
 describe('Agent conversations controller', () => {
   it('previews the display-safe effective tools for the requested Agent chat access mode', async () => {
+    installAgentTargetsGatewayFixture();
+
     const createdAgent = await callController(createAgent, createRequest(
       { workspaceId: 'workspace-1' },
       {
