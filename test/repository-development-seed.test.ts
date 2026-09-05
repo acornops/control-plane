@@ -56,6 +56,15 @@ describe('development target seed', () => {
     mock.method(db, 'connect', async () => ({
       query: async (sql: string, params?: unknown[]) => {
         transactionQueries.push({ sql, params: params ?? [] });
+        if (sql.includes('FROM workspace_member_mcp_lifecycle')) {
+          return { rowCount: 1, rows: [{
+            workspace_id: DEVELOPMENT_WORKSPACE_ID,
+            user_id: 'owner-user',
+            membership_generation: '1',
+            status: 'active',
+            reconciliation_status: 'pending'
+          }] };
+        }
         if (sql.includes('SELECT created_by FROM workspaces')) {
           return { rowCount: 1, rows: [{ created_by: 'owner-user' }] };
         }
@@ -146,6 +155,15 @@ describe('development target seed', () => {
       },
       release: () => undefined
     }) as never);
+    mock.method(globalThis, 'fetch', async (input, init) => {
+      if (
+        String(input).includes('/api/v1/internal/mcp/users/owner-user/lifecycle')
+        && init?.method === 'PUT'
+      ) {
+        return new Response(null, { status: 204 });
+      }
+      return new Response(`unexpected request: ${String(input)}`, { status: 500 });
+    });
 
     await ensureDevelopmentTargetSeed('ak_local_dev_shared_key', 'ak_local_vm_dev_shared_key');
 
@@ -224,5 +242,10 @@ describe('development target seed', () => {
     const vmCredential = queries.find(({ sql }) => sql.includes('INSERT INTO agentv_credentials'));
     assert.equal(vmCredential?.params[1], DEVELOPMENT_VM_ID);
     assert.equal(verifySecret('ak_local_vm_dev_shared_key', String(vmCredential?.params[3])), true);
+    const vmEnrollment = queries.find(({ sql }) => sql.includes('INSERT INTO agentv_enrollments'));
+    assert.deepEqual(JSON.parse(String(vmEnrollment?.params[3])), {
+      accessMode: 'read_only',
+      restartServices: []
+    });
   });
 });

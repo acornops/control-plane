@@ -187,7 +187,8 @@ export function buildClusterPaths(): Record<string, unknown> {
           responses: {
             '204': { description: 'Cluster deleted.' },
             '403': { description: 'Requires manage_targets.' },
-            '404': { description: 'Cluster not found.' }
+            '404': { description: 'Cluster not found.' },
+            '503': { description: 'Gateway lifecycle teardown is incomplete; the cluster remains locally present and deletion can be retried.' }
           }
         }
       },

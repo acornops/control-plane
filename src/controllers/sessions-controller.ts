@@ -30,6 +30,7 @@ import { mapGatewayError } from './workspaces/common.js';
 import { runAuditActor, runRequestProvenance } from './run-actor.js';
 import { acceptedMessageResponse, parseRequestedLlmSelection } from './session-llm-selection.js';
 import { resolveReadySessionAssistantReferences } from './session-assistant-references.js';
+import { resolveMcpUserPrincipal } from '../services/mcp-user-principal.js';
 import { resolveSessionMessageAccess } from './session-message-access.js';
 import { enqueueInteractiveRunDispatch } from './run-controller-helpers.js';
 import { rejectUnavailableInteractiveLlm } from './interactive-llm-validation.js';
@@ -349,8 +350,9 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
     if (!target) {
       return;
     }
+    const principal = await resolveMcpUserPrincipal(session.workspaceId, req.auth.userId);
     const assistantReferences = await resolveReadySessionAssistantReferences(
-      res, session.workspaceId, target, req.auth.userId, toolAccessMode, req.body.references || []
+      res, session.workspaceId, target, principal, toolAccessMode, req.body.references || []
     );
     if (!assistantReferences) return;
     const requestedLlm = parseRequestedLlmSelection(req, res);
@@ -374,7 +376,7 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
       llmReasoningEffort: llmSettings.reasoning.effort,
       clientMessageId: req.body.clientMessageId,
       assistantReferences,
-      principal: { type: 'user', id: req.auth.userId },
+      principal,
       requestProvenance: runRequestProvenance(req),
       messageCreatedBy: req.auth.userId,
       confirmationRequiredForWriteOverride: sharedAutomaticSession && toolAccessMode === 'read_write'

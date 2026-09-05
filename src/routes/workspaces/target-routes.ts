@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { authenticatedHandler, requireActor, requireUser } from '../../auth/middleware.js';
 import * as workspacesController from '../../controllers/workspaces-controller.js';
-import { importTargetCatalogMcpServer, reimportTargetCatalogMcpServer } from '../../controllers/catalog-controller.js';
 import * as mcpConnectionsController from '../../controllers/mcp-connections-controller.js';
 import * as mcpOAuthController from '../../controllers/mcp-oauth-controller.js';
 import {
@@ -161,16 +160,6 @@ export function registerTargetRoutes(router: Router): void {
     requireActor(['user']),
     validateBody(createMcpServerSchema),
     authed(workspacesController.createTargetMcpServerForTarget)
-  );
-  router.post(
-    '/workspaces/:workspaceId/targets/:targetId/mcp/servers/import',
-    requireUser,
-    authed(importTargetCatalogMcpServer)
-  );
-  router.post(
-    '/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/reimport',
-    requireUser,
-    authed(reimportTargetCatalogMcpServer)
   );
   router.get('/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/connection', requireUser, authed(mcpConnectionsController.getMcpConnectionStatus));
   router.put('/workspaces/:workspaceId/targets/:targetId/mcp/servers/:serverId/connection', requireUser, authed(mcpConnectionsController.putMcpConnection));

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 import { postMessage } from '../src/controllers/sessions-controller.js';
 import { config } from '../src/config.js';
 import { repo } from '../src/store/repository.js';
@@ -10,12 +10,14 @@ import {
   createRequest,
   createRun,
   createSessionRecord,
+  installMcpUserPrincipal,
   installWorkspace,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
 import { installAiCredentialGateway } from './helpers/workspace-ai-settings-fixtures.js';
 
 afterEach(restoreControllerRegressionState);
+beforeEach(() => installMcpUserPrincipal());
 
 describe('workspace AI settings run creation', () => {
   it('rejects run creation before dispatch when the selected provider credential is missing', async () => {

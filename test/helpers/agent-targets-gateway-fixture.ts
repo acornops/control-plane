@@ -1,4 +1,5 @@
 import { mock } from 'node:test';
+import { config } from '../../src/config.js';
 import {
   createReadyMcpReadinessResponse,
   isMcpReadinessRequest
@@ -12,11 +13,11 @@ export function installAgentTargetsGatewayFixture(): void {
     if (url.includes('/api/v1/internal/mcp/servers?') && init?.method === 'GET') {
       return Response.json(builtInServer ? [builtInServer] : []);
     }
-    if (url.endsWith('/api/v1/internal/mcp/servers') && init?.method === 'POST') {
+    if (url.endsWith('/api/v1/internal/mcp/servers/builtin') && init?.method === 'PUT') {
       const request = JSON.parse(String(init.body)) as {
         agent_id: string;
         server_name: string;
-        server_url: string;
+        enabled: boolean;
         tools: Array<Record<string, unknown> & { name: string }>;
       };
       const serverId = '11111111-1111-4111-8111-111111111111';
@@ -26,8 +27,8 @@ export function installAgentTargetsGatewayFixture(): void {
         scope_type: 'agent',
         agent_id: request.agent_id,
         server_name: request.server_name,
-        server_url: request.server_url,
-        enabled: true,
+        server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
+        enabled: request.enabled,
         auth_type: 'none',
         credential_mode: 'none',
         public_headers: {},
@@ -37,10 +38,10 @@ export function installAgentTargetsGatewayFixture(): void {
           ...tool,
           server_id: serverId,
           model_alias: `m_targets_${tool.name}_1`,
-          mcp_server_url: request.server_url
+          mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL
         }))
       };
-      return Response.json(builtInServer, { status: 201 });
+      return Response.json(builtInServer);
     }
     if (isMcpReadinessRequest(input, init)) return createReadyMcpReadinessResponse();
     return new Response(`unexpected request: ${url}`, { status: 500 });

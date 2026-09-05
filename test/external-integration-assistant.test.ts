@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it, mock } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import { createSession, postMessage } from '../src/controllers/sessions-controller.js';
 import { repo } from '../src/store/repository.js';
 import type { ChatSession } from '../src/types/domain.js';
@@ -10,12 +10,14 @@ import {
   createRun,
   createSessionRecord,
   createWorkspaceAiCredentialStatusResponse,
+  installMcpUserPrincipal,
   installWorkspace,
   isWorkspaceAiCredentialStatusRequest,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
 
 afterEach(restoreControllerRegressionState);
+beforeEach(() => installMcpUserPrincipal());
 
 describe('external integration assistant access', () => {
   it('allows external integration credentials to use read-only VM assistant sessions', async () => {

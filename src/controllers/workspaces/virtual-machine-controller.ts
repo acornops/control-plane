@@ -9,6 +9,8 @@ import {
 import type { WorkspaceAuthorization } from '../../auth/workspace-authorization.js';
 import { webhooks } from '../../services/webhooks.js';
 import { buildAgentVRepairInstructions, issueAgentVEnrollment } from '../../services/agentv-enrollment.js';
+import { LlmGatewayHttpError } from '../../services/mcp-registry-client.js';
+import { cleanupVirtualMachineTargetMcpServers } from '../../services/target-mcp-cleanup.js';
 import { mapVirtualMachineMetricHistoryPoint } from '../../services/virtual-machine-metric-history.js';
 import { recordWorkspaceAuditEvent } from '../../services/workspace-audit.js';
 import { repo } from '../../store/repository.js';
@@ -22,7 +24,10 @@ import {
   normalizeSearchQuery,
   parseBoundedLimit
 } from '../../utils/pagination.js';
+import { mapGatewayError } from './common.js';
 import { parseBoundedIntQuery, parseMetricLimit, parseMetricWindowMs } from './kubernetes-cluster-request-utils.js';
+
+const TARGET_MCP_TEARDOWN_UPSTREAM_MESSAGE = 'Failed to clean up target MCP state with llm-gateway';
 
 const emptyVmSnapshotSummary = {
   inventoryCount: 0,
@@ -262,6 +267,7 @@ export async function deleteVirtualMachine(req: AuthenticatedRequest, res: Respo
       return;
     }
     const targetName = access.target.name;
+    await cleanupVirtualMachineTargetMcpServers(workspaceId, vmId);
     await agentGateway.disconnectCluster(vmId, 'VM target deleted');
     const deleted = await repo.deleteVirtualMachine(vmId);
     if (!deleted) {
@@ -282,6 +288,11 @@ export async function deleteVirtualMachine(req: AuthenticatedRequest, res: Respo
     });
     res.status(204).send();
   } catch (err) {
+    if (err instanceof LlmGatewayHttpError) {
+      const mapped = mapGatewayError(err, { upstreamMessage: TARGET_MCP_TEARDOWN_UPSTREAM_MESSAGE });
+      res.status(mapped.status).json(mapped.body);
+      return;
+    }
     next(err);
   }
 }

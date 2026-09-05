@@ -19,6 +19,7 @@ import {
 import { withTransaction } from './repository-transaction.js';
 import { insertWorkspaceAuditEvent } from './repository-audit-events.js';
 import { assertWorkspaceMemberQuota, assertWorkspaceMembershipQuota } from './repository-quotas.js';
+import { readWorkspaceMemberMcpLifecycleInTransaction } from './repository-mcp-user-lifecycle.js';
 
 export async function listWorkspaceMembers(
     workspaceId: string,
@@ -315,10 +316,17 @@ export async function addWorkspaceMember(
         action: 'member_added',
         nextRole: input.role
       });
+      const lifecycle = await readWorkspaceMemberMcpLifecycleInTransaction(
+        client,
+        workspaceId,
+        input.userId,
+        'active'
+      );
 
       return {
         status: 'created',
-        member: mapWorkspaceMembership(membershipResult.rows[0])
+        member: mapWorkspaceMembership(membershipResult.rows[0]),
+        membershipGeneration: lifecycle.membershipGeneration
       };
     });
   }
@@ -421,8 +429,14 @@ export async function deleteWorkspaceMember(
         action: 'member_removed',
         previousRole: member.role
       });
+      const lifecycle = await readWorkspaceMemberMcpLifecycleInTransaction(
+        client,
+        workspaceId,
+        userId,
+        'removed'
+      );
 
-      return { status: 'deleted', member };
+      return { status: 'deleted', member, membershipGeneration: lifecycle.membershipGeneration };
     });
   }
 

@@ -11,6 +11,7 @@ import { repo } from '../../store/repository.js';
 import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE } from '../../types/domain.js';
 import { toSingleParam } from '../../utils/params.js';
 import { resolveReadyInteractiveRunTools } from '../interactive-mcp-availability.js';
+import { resolveMcpUserPrincipal } from '../../services/mcp-user-principal.js';
 
 export async function getTargetAssistantCapabilitiesPreview(
   req: AuthenticatedRequest,
@@ -64,13 +65,14 @@ export async function getTargetAssistantCapabilitiesPreview(
     }
 
     const workspaceAiSettings = await repo.getWorkspaceAiSettings(workspaceId);
+    const principal = await resolveMcpUserPrincipal(workspaceId, req.auth.userId);
     const availability = await resolveReadyInteractiveRunTools(res, {
       workspaceId,
       targetId: access.target.id,
       targetType: access.target.targetType,
       toolAccessMode,
       provider: workspaceAiSettings?.defaultProvider || defaultProvider(),
-      principal: { type: 'user', id: req.auth.userId }
+      principal
     });
     if (!availability) return;
     const resolution = availability.resolution;

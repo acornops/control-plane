@@ -417,30 +417,26 @@ export async function resolveOidcLogin(input: {
   }
 
 export async function addWorkspace(name: string, createdBy: string): Promise<Workspace> {
-    const id = randomUUID();
-    const client = await db.connect();
-    try {
-      await client.query('BEGIN');
-      await assertWorkspaceMembershipQuota(client, createdBy);
-      const wsResult = await client.query(
-        'INSERT INTO workspaces (id, name, created_by, created_at) VALUES ($1, $2, $3, NOW()) RETURNING *',
-        [id, name, createdBy]
-      );
-      await assertWorkspaceMemberQuota(client, id);
-      await client.query(
-        'INSERT INTO workspace_memberships (workspace_id, user_id, role, source) VALUES ($1, $2, $3, $4)',
-        [id, createdBy, 'owner', 'oidc']
-      );
-      await initializeWorkspaceDefaults(client, id);
-      await client.query('COMMIT');
-      return mapWorkspace(wsResult.rows[0]);
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
-  }
+  const workspaceId = randomUUID();
+  return withTransaction(async (client) => {
+    await assertWorkspaceMembershipQuota(client, createdBy);
+    const wsResult = await client.query(
+      'INSERT INTO workspaces (id, name, created_by, created_at) VALUES ($1, $2, $3, NOW()) RETURNING *',
+      [workspaceId, name, createdBy]
+    );
+    await assertWorkspaceMemberQuota(client, workspaceId);
+    await client.query(
+      'INSERT INTO workspace_memberships (workspace_id, user_id, role, source) VALUES ($1, $2, $3, $4)',
+      [workspaceId, createdBy, 'owner', 'oidc']
+    );
+    // This legacy repository helper has no external side effects. The database
+    // trigger durably queues owner activation for the lifecycle worker.
+    // MCP_LIFECYCLE_TRIGGER_PENDING
+    await initializeWorkspaceDefaults(client, workspaceId);
+    return mapWorkspace(wsResult.rows[0]);
+  });
+}
+
 export async function listWorkspacesForUser(
   userId: string,
   options: { limit?: number; cursor?: { createdAt: string; workspaceId: string } | null; q?: string; signature?: string } = {}

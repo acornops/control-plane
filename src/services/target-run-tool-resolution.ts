@@ -1,6 +1,11 @@
 import { config } from '../config.js';
 import { logger } from '../logger.js';
-import { listTargetMcpTools, McpToolConfig } from './mcp-registry-client.js';
+import {
+  createMcpLifecycleFencedError,
+  isMcpLifecycleFencedError,
+  listTargetMcpTools,
+  McpToolConfig
+} from './mcp-registry-client.js';
 import { syncTargetBuiltInTools } from './target-built-in-tool-sync.js';
 import { isReservedInternalToolName } from './internal-tool-names.js';
 import { defaultProvider } from './llm-policy.js';
@@ -178,6 +183,7 @@ async function resolveGatewayTargetToolsForRun(
       return tools;
     }
   } catch (err) {
+    if (isMcpLifecycleFencedError(err)) throw err;
     if (!resyncIfEmpty) throw err;
     logger.warn({ workspaceId, targetId, targetType, runId, err }, 'Failed listing target tools; attempting resync');
   }
@@ -185,6 +191,13 @@ async function resolveGatewayTargetToolsForRun(
   if (!resyncIfEmpty) return [];
 
   const syncResult = await syncTargetBuiltInTools(workspaceId, targetId, targetType);
+  if (syncResult.terminal) {
+    logger.info(
+      { workspaceId, targetId, targetType, runId, reason: syncResult.error },
+      'Stopped run bootstrap MCP resync for lifecycle-fenced target'
+    );
+    throw createMcpLifecycleFencedError();
+  }
   if (!syncResult.ok || syncResult.registeredToolCount === 0) {
     logger.warn(
       {
@@ -206,6 +219,7 @@ async function resolveGatewayTargetToolsForRun(
       return tools;
     }
   } catch (err) {
+    if (isMcpLifecycleFencedError(err)) throw err;
     logger.warn({ workspaceId, targetId, targetType, runId, err }, 'Failed listing target tools after resync');
   }
 
@@ -346,6 +360,7 @@ export async function resolveTargetRunTools(params: {
         source: tool.source === 'builtin' ? 'builtin' : 'mcp'
       }));
   } catch (err) {
+    if (isMcpLifecycleFencedError(err)) throw err;
     if (params.strictMcpResolution) throw err;
     logger.warn(
       {

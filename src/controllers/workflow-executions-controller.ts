@@ -31,6 +31,7 @@ import {
   parseBoundedLimit
 } from '../utils/pagination.js';
 import { mapGatewayError } from './workspaces/common.js';
+import { getActiveWorkspaceMemberMcpGeneration } from '../store/repository-mcp-user-lifecycle.js';
 import { publicWorkflowDefinition, respondWorkflowAccessError } from './workflow-public.js';
 import { publicWorkflowExecutionEvent, publicWorkflowRun } from './external-run-public.js';
 
@@ -297,6 +298,20 @@ export async function resumeWorkflowExecutionController(req: AuthenticatedReques
     const mode = pinnedScope.mode === 'read_write' ? 'create_read_write_runs' : 'create_read_only_runs';
     const authz = await requireWorkspaceCapability(req, res, row.workspace_id, mode, 'No permission to resume workflow execution');
     if (!authz) return;
+    if (pinnedScope.principal?.type === 'user') {
+      const currentGeneration = await getActiveWorkspaceMemberMcpGeneration(
+        row.workspace_id,
+        pinnedScope.principal.id
+      );
+      if (currentGeneration !== pinnedScope.principal.membershipGeneration) {
+        res.status(409).json({ error: {
+          code: 'MCP_USER_LIFECYCLE_STALE',
+          message: 'The Workflow run principal membership generation is no longer active.',
+          retryable: false
+        } });
+        return;
+      }
+    }
     const mcpReadiness = await getWorkflowCapabilityReadinessReport(
       row.workspace_id,
       pinnedScope,

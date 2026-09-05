@@ -9,6 +9,7 @@ import { internalServerTlsOptions } from './infra/internal-tls.js';
 import { closeRedis, initializeRedis } from './infra/redis.js';
 import { createInternalApp } from './internal-app.js';
 import { logger } from './logger.js';
+import { setMcpUserLifecycleGauges } from './metrics.js';
 import {
   registerRunEventHandler,
   registerTargetChatActivityEventHandler,
@@ -32,7 +33,9 @@ import { repo } from './store/repository.js';
 import { listAgentDefinitionRefs } from './store/repository-agents.js';
 import { runtime } from './store/runtime.js';
 import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE } from './types/domain.js';
-import { runMcpSecretCleanupTick } from './services/mcp-secret-cleanup-worker.js';
+import { runMcpUserLifecycleReconciliationTick } from './services/mcp-user-lifecycle-worker.js';
+import { deleteExpiredMcpOAuthCorrelations } from './store/repository-mcp-oauth-correlations.js';
+import { getMcpUserLifecycleReconciliationBacklog } from './store/repository-mcp-user-lifecycle.js';
 import {
   runTargetAutoTriageTick,
   TARGET_AUTO_TRIAGE_WORKER_INTERVAL_MS
@@ -80,6 +83,28 @@ async function main(): Promise<void> {
   const internalServer = config.INTERNAL_TRANSPORT_TLS_ENABLED
     ? createHttpsServer(internalServerTlsOptions(), createInternalApp())
     : undefined;
+  let mcpLifecycleReconciliationInFlight = false;
+  const runMcpLifecycleReconciliation = async () => {
+    if (mcpLifecycleReconciliationInFlight) return;
+    mcpLifecycleReconciliationInFlight = true;
+    try {
+      await Promise.all([
+        runMcpUserLifecycleReconciliationTick().catch((err) => {
+          logger.warn({ err }, 'MCP user lifecycle reconciliation tick failed');
+        }),
+        deleteExpiredMcpOAuthCorrelations().catch((err) => {
+          logger.warn({ err }, 'Expired MCP OAuth correlation cleanup failed');
+        })
+      ]);
+      setMcpUserLifecycleGauges(await getMcpUserLifecycleReconciliationBacklog());
+    } catch (err) {
+      logger.warn({ err }, 'MCP lifecycle reconciliation metrics refresh failed');
+    } finally {
+      mcpLifecycleReconciliationInFlight = false;
+    }
+  };
+  const mcpLifecycleReconciliationInterval = setInterval(runMcpLifecycleReconciliation, 1_000);
+  mcpLifecycleReconciliationInterval.unref();
   let retentionSweepInFlight = false;
   const runRetentionSweep = async () => {
     if (retentionSweepInFlight) return;
@@ -104,6 +129,7 @@ async function main(): Promise<void> {
         let failed = 0;
         for (const reg of regs) {
           const result = await syncTargetBuiltInTools(reg.workspaceId, reg.targetId, reg.targetType);
+          if (result.terminal) continue;
           if (!result.ok || result.registeredToolCount === 0) {
             failed += 1;
             continue;
@@ -115,6 +141,7 @@ async function main(): Promise<void> {
         let agentsFailed = 0;
         for (const agent of agents) {
           const result = await syncAgentTargetsBuiltInTools(agent.workspaceId, agent.agentId);
+          if (result.terminal) continue;
           if (!result.ok || result.registeredToolCount === 0) {
             agentsFailed += 1;
             continue;
@@ -162,7 +189,6 @@ async function main(): Promise<void> {
       await runWorkflowScheduleTick();
       await runWorkflowWebhookTick();
       await runAutomationOutboxTick();
-      await runMcpSecretCleanupTick();
       await refreshAutomationMetricsSnapshot();
     } catch (err) {
       logger.warn({ err }, 'Automation worker tick failed');
@@ -213,6 +239,7 @@ async function main(): Promise<void> {
 
   server.listen(config.PORT, () => {
     logger.info({ port: config.PORT }, 'AcornOps control plane started');
+    void runMcpLifecycleReconciliation();
   });
   if (internalServer) {
     internalServer.listen(config.CONTROL_PLANE_INTERNAL_TRANSPORT_PORT, () => {
@@ -236,6 +263,7 @@ async function main(): Promise<void> {
     clearInterval(approvalTimeoutInterval);
     clearInterval(targetInsightsCheckpointInterval);
     clearInterval(automationWorkerInterval);
+    clearInterval(mcpLifecycleReconciliationInterval);
     clearInterval(agentVEnrollmentCleanupInterval);
     clearInterval(targetAutoTriageWorkerInterval);
     clearInterval(webhookDeliveryInterval);

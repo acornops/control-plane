@@ -19,6 +19,9 @@ import type {
 
 const INHERITED_ID_PREFIX = 'platform-default:';
 
+export const WORKSPACE_STARTER_ENABLE_ONLY_MESSAGE =
+  'This workspace starter has not been added yet. Enable it to create a workspace-owned copy.';
+
 export type ProvenancedMcpServerConfig = McpServerConfig & CapabilityProvenance;
 export type ProvenancedAgentSkill = AgentSkillInstallationSnapshot & CapabilityProvenance;
 export type ProvenancedTargetSkill = TargetSkillSummary & CapabilityProvenance;
@@ -48,11 +51,22 @@ export function availabilityMatches(
   return availableIn.includes('virtual_machines');
 }
 
-function canonicalUrl(raw: string): string {
+function canonicalSkillUrl(raw: string): string {
   try {
     const url = new URL(raw);
     url.hash = '';
     url.search = '';
+    url.pathname = url.pathname.replace(/\/+$/, '') || '/';
+    return url.toString();
+  } catch {
+    return raw.trim().replace(/\/+$/, '').toLowerCase();
+  }
+}
+
+export function canonicalMcpEndpoint(raw: string): string {
+  try {
+    const url = new URL(raw);
+    url.hash = '';
     url.pathname = url.pathname.replace(/\/+$/, '') || '/';
     return url.toString();
   } catch {
@@ -65,7 +79,7 @@ function canonicalSkillSource(source: AgentSkillInstallationSnapshot['source'] |
   const commit = 'pinnedCommit' in source ? source.pinnedCommit : 'commitSha' in source ? source.commitSha : undefined;
   const path = 'path' in source ? source.path : 'subpath' in source ? source.subpath : undefined;
   if (!url || !commit) return null;
-  return `${canonicalUrl(url)}#${commit.toLowerCase()}:${path || ''}`;
+  return `${canonicalSkillUrl(url)}#${commit.toLowerCase()}:${path || ''}`;
 }
 
 async function applicableDefaults(
@@ -97,30 +111,35 @@ export async function resolveMcpServerDefaults(
   context: { workspaceId: string; destinationId: string }
 ): Promise<ProvenancedMcpServerConfig[]> {
   const defaults = await applicableDefaults(context.workspaceId, 'mcp_server', destination);
-  const existingUrls = new Set(local.map((server) => canonicalUrl(server.server_url)));
+  const existingUrls = new Set(local.map((server) => canonicalMcpEndpoint(server.server_url)));
   const inherited = defaults
-    .filter((item) => item.source.type === 'https' && !existingUrls.has(canonicalUrl(item.source.endpoint)))
+    .filter((item) => item.source.type === 'https'
+      && !existingUrls.has(canonicalMcpEndpoint(item.source.endpoint)))
     .map((item): ProvenancedMcpServerConfig => {
       if (item.source.type !== 'https') throw new Error('Unexpected workspace default source');
-      return {
+      const server = {
         id: inheritedWorkspaceDefaultId(item.id),
         workspace_id: context.workspaceId,
-        ...(destination === 'agents'
-          ? { agent_id: context.destinationId, scope_type: 'agent' as const }
-          : { target_id: context.destinationId, scope_type: 'target' as const }),
-        ...(destination === 'agents' ? {} : { target_type: destination }),
         server_name: item.name,
         server_url: item.source.endpoint,
         enabled: false,
-        auth_type: 'none',
-        credential_mode: 'none',
+        auth_type: 'none' as const,
+        credential_mode: 'none' as const,
         public_headers: {},
-        connection_status: 'unknown',
+        connection_status: 'unknown' as const,
         tools: [],
-        provenance_type: 'manual',
+        provenance_type: 'manual' as const,
         revision: 1,
         ...inheritedProvenance()
       };
+      return destination === 'agents'
+        ? { ...server, agent_id: context.destinationId, scope_type: 'agent' }
+        : {
+            ...server,
+            target_id: context.destinationId,
+            target_type: destination,
+            scope_type: 'target'
+          };
     });
   return [
     ...local.map((server) => ({ ...server, ...localProvenance() })),

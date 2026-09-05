@@ -46,6 +46,18 @@ application can be rolled back without losing policy updates.
 constraint to permit `help_links`. Previous control-plane versions ignore the
 new row, so the migration supports rolling upgrades and rollback.
 
+`006_mcp_user_lifecycle.sql` is a coordinated clean-break migration for the
+control-plane/llm-gateway membership-generation fence. It installs a trigger
+before backfilling current memberships, uses bounded `bigint` generations, and
+creates the OAuth callback correlations that retain the generation captured at
+authorization start. It deliberately rejects a non-empty legacy MCP cleanup
+queue and then drops that retired table, so old control-plane and gateway pods
+must be stopped before the migration. The initial backfill is the only source
+of global MCP lifecycle readiness blockers and intentionally resets existing
+individual MCP credentials/OAuth authorizations; workspace-owned credentials
+are unchanged. Follow the pinned maintenance procedure in
+[`docs/OPERATIONS.md`](OPERATIONS.md#mcp-membership-generation-maintenance-rollout).
+
 ## Validation
 
 `npm run migrations:check` verifies that startup remains migration-only, checks

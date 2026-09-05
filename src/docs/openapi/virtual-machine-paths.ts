@@ -180,7 +180,10 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
         summary: 'Delete a virtual machine target',
         security: [{ userSession: [] }],
         parameters: [workspaceParam, vmParam],
-        responses: { '204': { description: 'VM target deleted.' } }
+        responses: {
+          '204': { description: 'VM target deleted.' },
+          '503': { description: 'Gateway lifecycle teardown is incomplete; the VM remains locally present and deletion can be retried.' }
+        }
       }
     },
     '/api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/agent-enrollments': {

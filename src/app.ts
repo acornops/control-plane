@@ -30,6 +30,7 @@ import { workspacesRouter } from './routes/workspaces.js';
 import { workflowsRouter } from './routes/workflows.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import { QuotaExceededError } from './store/repository-quotas.js';
+import { countMcpUserLifecycleReadinessBlockers } from './store/repository-mcp-user-lifecycle.js';
 
 const API_CONTENT_SECURITY_POLICY = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 const PERMISSIONS_POLICY = 'accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()';
@@ -90,15 +91,23 @@ export function createApp() {
 
   app.get('/ready', async (_req, res) => {
     const [dbReady, redisReady] = await Promise.all([checkDatabaseHealth(), checkRedisHealth()]);
-    if (dbReady && redisReady) {
-      res.status(200).json({ status: 'ok', dependencies: { postgres: 'ok', redis: 'ok' } });
+    const lifecycleBlockers = dbReady
+      ? await countMcpUserLifecycleReadinessBlockers().catch(() => null)
+      : null;
+    const lifecycleReady = lifecycleBlockers === 0;
+    if (dbReady && redisReady && lifecycleReady) {
+      res.status(200).json({
+        status: 'ok',
+        dependencies: { postgres: 'ok', redis: 'ok', mcpUserLifecycle: 'ok' }
+      });
       return;
     }
     res.status(503).json({
       status: 'degraded',
       dependencies: {
         postgres: dbReady ? 'ok' : 'down',
-        redis: redisReady ? 'ok' : 'down'
+        redis: redisReady ? 'ok' : 'down',
+        mcpUserLifecycle: lifecycleReady ? 'ok' : 'reconciling'
       }
     });
   });

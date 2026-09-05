@@ -3,9 +3,9 @@ import type { AgentMcpServerConfig, McpServerConfig, TargetMcpServerConfig } fro
 import {
   createGatewayRequestOptions,
   fetchGateway,
-  LlmGatewayHttpError,
   parseGatewayResponse
 } from './llm-gateway-admin-client.js';
+import { gatewayMcpPrincipal, mcpMembershipGeneration } from './mcp-user-generation.js';
 
 export interface CatalogBindingConfig {
   id: string;
@@ -178,6 +178,7 @@ export interface UpsertMcpConnectionInput {
   serverId: string;
   ownerType: 'installation' | 'user';
   ownerId: string;
+  membershipGeneration?: number;
   credential: string;
   consentGranted: true;
 }
@@ -280,12 +281,7 @@ export async function deleteCatalogSource(
     createGatewayRequestOptions('DELETE')
   );
   if (!response.ok) {
-    const body = await response.text();
-    throw new LlmGatewayHttpError(
-      response.status,
-      body || `llm-gateway catalog source delete failed (${response.status})`,
-      body
-    );
+    await parseGatewayResponse<never>(response);
   }
 }
 
@@ -376,9 +372,12 @@ export async function getMcpConnection(
   workspaceId: string,
   serverId: string,
   ownerType: 'installation' | 'user',
-  ownerId: string
+  ownerId: string,
+  membershipGeneration?: number
 ): Promise<McpConnectionConfig> {
+  const generation = mcpMembershipGeneration(ownerType, membershipGeneration);
   const query = new URLSearchParams({ workspace_id: workspaceId, owner_type: ownerType });
+  if (generation !== undefined) query.set('membership_generation', String(generation));
   const response = await fetchGateway(
     `/api/v1/internal/mcp/servers/${encodeURIComponent(serverId)}/connections/${encodeURIComponent(ownerId)}?${query.toString()}`,
     createGatewayRequestOptions('GET')
@@ -389,12 +388,16 @@ export async function getMcpConnection(
 export async function upsertMcpConnection(
   input: UpsertMcpConnectionInput
 ): Promise<McpConnectionConfig> {
+  const generation = mcpMembershipGeneration(input.ownerType, input.membershipGeneration);
   const response = await fetchGateway(
     `/api/v1/internal/mcp/servers/${encodeURIComponent(input.serverId)}/connections/${encodeURIComponent(input.ownerId)}`,
     createGatewayRequestOptions('PUT', {
       workspace_id: input.workspaceId,
       owner_type: input.ownerType,
       owner_id: input.ownerId,
+      ...(generation !== undefined
+        ? { membership_generation: generation }
+        : {}),
       credential: input.credential,
       consent_granted: input.consentGranted
     })
@@ -406,20 +409,18 @@ export async function deleteMcpConnection(
   workspaceId: string,
   serverId: string,
   ownerType: 'installation' | 'user',
-  ownerId: string
+  ownerId: string,
+  membershipGeneration?: number
 ): Promise<void> {
+  const generation = mcpMembershipGeneration(ownerType, membershipGeneration);
   const query = new URLSearchParams({ workspace_id: workspaceId, owner_type: ownerType });
+  if (generation !== undefined) query.set('membership_generation', String(generation));
   const response = await fetchGateway(
     `/api/v1/internal/mcp/servers/${encodeURIComponent(serverId)}/connections/${encodeURIComponent(ownerId)}?${query.toString()}`,
     createGatewayRequestOptions('DELETE')
   );
   if (!response.ok && response.status !== 404) {
-    const body = await response.text();
-    throw new LlmGatewayHttpError(
-      response.status,
-      body || `llm-gateway disconnect failed (${response.status})`,
-      body
-    );
+    await parseGatewayResponse<never>(response);
   }
 }
 
@@ -427,14 +428,19 @@ export async function verifyMcpConnection(
   workspaceId: string,
   serverId: string,
   ownerType: 'installation' | 'user',
-  ownerId: string
+  ownerId: string,
+  membershipGeneration?: number
 ): Promise<McpConnectionConfig> {
+  const generation = mcpMembershipGeneration(ownerType, membershipGeneration);
   const response = await fetchGateway(
     `/api/v1/internal/mcp/servers/${encodeURIComponent(serverId)}/connections/${encodeURIComponent(ownerId)}/verify`,
     createGatewayRequestOptions('POST', {
       workspace_id: workspaceId,
       owner_type: ownerType,
-      owner_id: ownerId
+      owner_id: ownerId,
+      ...(generation !== undefined
+        ? { membership_generation: generation }
+        : {})
     })
   );
   return parseGatewayResponse<McpConnectionConfig>(response);
@@ -446,14 +452,17 @@ export async function prepareMcpOAuth(input: {
   ownerId: string;
   browserBindingHash: string;
   returnPath: string;
+  membershipGeneration: number;
 }): Promise<McpOAuthPrepareResult> {
+  const membershipGeneration = mcpMembershipGeneration('user', input.membershipGeneration)!;
   const response = await fetchGateway(
     `/api/v1/internal/mcp/servers/${encodeURIComponent(input.serverId)}/connections/${encodeURIComponent(input.ownerId)}/oauth/prepare`,
     createGatewayRequestOptions('POST', {
       workspace_id: input.workspaceId,
       owner_id: input.ownerId,
       browser_binding_hash: input.browserBindingHash,
-      return_path: input.returnPath
+      return_path: input.returnPath,
+      membership_generation: membershipGeneration
     })
   );
   return parseGatewayResponse<McpOAuthPrepareResult>(response);
@@ -467,7 +476,9 @@ export async function startMcpOAuth(input: {
   preparationHandle: string;
   issuer?: string;
   consentGranted: true;
-}): Promise<{ authorization_url: string; metadata_changed: boolean }> {
+  membershipGeneration: number;
+}): Promise<{ authorization_url: string; metadata_changed: boolean; state: string }> {
+  const membershipGeneration = mcpMembershipGeneration('user', input.membershipGeneration)!;
   const response = await fetchGateway(
     `/api/v1/internal/mcp/servers/${encodeURIComponent(input.serverId)}/connections/${encodeURIComponent(input.ownerId)}/oauth/start`,
     createGatewayRequestOptions('POST', {
@@ -476,12 +487,14 @@ export async function startMcpOAuth(input: {
       browser_binding_hash: input.browserBindingHash,
       preparation_handle: input.preparationHandle,
       issuer: input.issuer,
-      consent_granted: input.consentGranted
+      consent_granted: input.consentGranted,
+      membership_generation: membershipGeneration
     })
   );
   return parseGatewayResponse<{
     authorization_url: string;
     metadata_changed: boolean;
+    state: string;
   }>(response);
 }
 
@@ -492,7 +505,9 @@ export async function completeMcpOAuth(input: {
   code?: string;
   issuer?: string;
   providerError?: string;
+  membershipGeneration: number;
 }): Promise<McpOAuthCompleteResult> {
+  const membershipGeneration = mcpMembershipGeneration('user', input.membershipGeneration)!;
   const response = await fetchGateway(
     '/api/v1/internal/mcp/oauth/complete',
     createGatewayRequestOptions('POST', {
@@ -501,7 +516,8 @@ export async function completeMcpOAuth(input: {
       state: input.state,
       code: input.code,
       issuer: input.issuer,
-      provider_error: input.providerError
+      provider_error: input.providerError,
+      membership_generation: membershipGeneration
     })
   );
   return parseGatewayResponse<McpOAuthCompleteResult>(response);
@@ -509,14 +525,14 @@ export async function completeMcpOAuth(input: {
 
 export async function checkMcpReadiness(input: {
   workspaceId: string;
-  principal: { type: 'user' | 'service_identity'; id: string };
+  principal: { type: 'user' | 'service_identity'; id: string; membershipGeneration?: number };
   toolRefs: Array<{ serverId: string; toolName: string }>;
 }): Promise<McpReadinessResult> {
   const response = await fetchGateway(
     '/api/v1/internal/mcp/connections/readiness',
     createGatewayRequestOptions('POST', {
       workspace_id: input.workspaceId,
-      principal: input.principal,
+      principal: gatewayMcpPrincipal(input.principal),
       tool_refs: input.toolRefs.map((ref) => ({
         server_id: ref.serverId,
         tool_name: ref.toolName
@@ -524,25 +540,4 @@ export async function checkMcpReadiness(input: {
     })
   );
   return parseGatewayResponse<McpReadinessResult>(response);
-}
-
-export async function cleanupMcpConnections(
-  workspaceId: string,
-  userId?: string
-): Promise<void> {
-  const query = new URLSearchParams({ workspace_id: workspaceId });
-  if (userId) query.set('user_id', userId);
-  const response = await fetchGateway(
-    `/api/v1/internal/mcp/connections?${query.toString()}`,
-    createGatewayRequestOptions('DELETE')
-  );
-  if (!response.ok) {
-    const body = await response.text();
-    throw new LlmGatewayHttpError(
-      response.status,
-      body || `llm-gateway MCP cleanup failed (${response.status})`,
-      body,
-      response.headers.get('retry-after') || undefined
-    );
-  }
 }

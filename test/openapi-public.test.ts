@@ -44,6 +44,72 @@ describe('public OpenAPI documents', () => {
     assert.equal(keys.some((key) => key.endsWith(' /health') || key.endsWith(' /ready') || key.endsWith(' /metrics')), false);
   });
 
+  it('documents discriminated target MCP responses and retryable lifecycle deletion', () => {
+    const document = buildPublicOpenApiDocument('public');
+    const targetMcpServer = document.components.schemas.TargetMcpServerConfig as {
+      required?: string[];
+      properties?: Record<string, unknown>;
+      additionalProperties?: boolean;
+    };
+    assert.ok(targetMcpServer.required?.includes('scope_type'));
+    assert.ok(targetMcpServer.required?.includes('target_id'));
+    assert.ok(targetMcpServer.required?.includes('target_type'));
+    assert.ok(targetMcpServer.properties?.scope_type);
+    assert.equal(targetMcpServer.additionalProperties, false);
+
+    const targetMcpCreate = document.paths['/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers']?.post as {
+      requestBody?: {
+        content?: {
+          'application/json'?: {
+            schema?: {
+              properties?: {
+                url?: Record<string, unknown>;
+                auth?: { properties?: Record<string, Record<string, unknown>> };
+              };
+            };
+          };
+        };
+      };
+    };
+    const targetMcpProperties = targetMcpCreate.requestBody?.content?.['application/json']?.schema?.properties;
+    const targetMcpUrl = targetMcpProperties?.url;
+    assert.equal(targetMcpUrl?.format, 'uri');
+    assert.equal(targetMcpUrl?.pattern, '^https://');
+    assert.match(String(targetMcpUrl?.description), /fragments.*query keys/i);
+    assert.equal(targetMcpProperties?.auth?.properties?.headerName?.maxLength, 128);
+    assert.match(String(targetMcpProperties?.auth?.properties?.headerName?.pattern), /A-Za-z/);
+    assert.equal(targetMcpProperties?.auth?.properties?.headerPrefix?.maxLength, 4096);
+    assert.match(String(targetMcpProperties?.auth?.properties?.headerPrefix?.description), /CR.*LF/i);
+
+    const agentMcpCreate = document.paths['/api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers']?.post as {
+      requestBody?: {
+        content?: {
+          'application/json'?: {
+            schema?: {
+              properties?: Record<string, Record<string, unknown>>;
+            };
+          };
+        };
+      };
+    };
+    const agentMcpProperties = agentMcpCreate.requestBody?.content?.['application/json']?.schema?.properties;
+    assert.equal(agentMcpProperties?.authHeaderName?.maxLength, 128);
+    assert.equal(
+      agentMcpProperties?.authHeaderName?.pattern,
+      targetMcpProperties?.auth?.properties?.headerName?.pattern
+    );
+    assert.equal(agentMcpProperties?.authHeaderPrefix?.maxLength, 4096);
+
+    const vmDelete = document.paths['/api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}']?.delete as {
+      responses?: Record<string, unknown>;
+    };
+    const workspaceDelete = document.paths['/api/v1/workspaces/{workspaceId}']?.delete as {
+      responses?: Record<string, unknown>;
+    };
+    assert.ok(vmDelete.responses?.['503']);
+    assert.ok(workspaceDelete.responses?.['503']);
+  });
+
   it('exports admin API paths separately from public browser-session paths', () => {
     const document = buildPublicOpenApiDocument('admin');
     const keys = operationKeys(document);

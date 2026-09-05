@@ -307,7 +307,8 @@ export function buildAgentPaths(): Record<string, unknown> {
         responses: {
           '204': { description: 'Agent deleted.' },
           '403': { description: 'Requires manage_agents.' },
-          '409': { description: 'The Agent is still assigned to dependent workflows or has active direct-conversation runs.' }
+          '409': { description: 'The Agent is still assigned to dependent workflows or has active direct-conversation runs.' },
+          '503': { description: 'Gateway lifecycle teardown is incomplete; the Agent remains locally present and deletion can be retried.' }
         }
       }
     },

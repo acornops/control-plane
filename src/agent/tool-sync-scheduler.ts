@@ -27,6 +27,7 @@ function syncKey(workspaceId: string, targetId: string, targetType: TargetType):
 }
 
 function shouldRetry(result: Awaited<ReturnType<BuiltInToolSyncRunner>>): boolean {
+  if (result.terminal) return false;
   return !result.ok || result.discoveredToolCount === 0 || result.registeredToolCount === 0;
 }
 
@@ -63,6 +64,21 @@ async function runSyncAttempt(state: ScheduledSync): Promise<void> {
       removedTools: [],
       error: err instanceof Error ? err.message : 'Built-in tool sync failed'
     };
+  }
+
+  if (result.terminal) {
+    scheduledSyncs.delete(key);
+    logger.info(
+      {
+        workspaceId: state.workspaceId,
+        targetId: state.targetId,
+        targetType: state.targetType,
+        attempt: state.attempt + 1,
+        reason: result.error
+      },
+      'Stopped built-in tool sync retries for lifecycle-fenced target'
+    );
+    return;
   }
 
   if (!shouldRetry(result)) {

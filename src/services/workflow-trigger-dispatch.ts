@@ -23,6 +23,7 @@ import {
   WorkflowPromptValidationError
 } from './workflow-prompt.js';
 import { resolveWorkspaceLlmSettings } from './workspace-ai-resolution.js';
+import { resolveMcpUserPrincipal } from './mcp-user-principal.js';
 
 export interface WorkflowTriggerDispatchInput {
   id: string;
@@ -96,6 +97,7 @@ export async function dispatchWorkflowTrigger(
       error: 'Delegated principal is no longer authorized.'
     };
   }
+  const pinnedPrincipal = await resolveMcpUserPrincipal(trigger.workspaceId, trigger.principal.id);
 
   const messageId = randomUUID();
   const sessionId = randomUUID();
@@ -123,7 +125,7 @@ export async function dispatchWorkflowTrigger(
       specialistAgent,
       mappings,
       actor: runtimeSubject,
-      principal: trigger.principal
+      principal: pinnedPrincipal
     });
     compiledAccessScope = compileWorkflowAccessScope({
       workflow,
@@ -131,7 +133,7 @@ export async function dispatchWorkflowTrigger(
       specialistAgent,
       mappings,
       actor: runtimeSubject,
-      principal: trigger.principal
+      principal: pinnedPrincipal
     });
   } catch (error) {
     if (
@@ -152,7 +154,7 @@ export async function dispatchWorkflowTrigger(
   const mcpReadinessErrors = await getWorkflowCapabilityReadinessErrors(
     trigger.workspaceId,
     compiledAccessScope,
-    { principal: trigger.principal }
+    { principal: pinnedPrincipal }
   );
   if (mcpReadinessErrors.length > 0) {
     return {

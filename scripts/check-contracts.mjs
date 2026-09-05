@@ -50,6 +50,7 @@ const manifest = JSON.parse(read('docs/contracts/manifest.json'));
 const manifestText = JSON.stringify(manifest);
 const canonicalJsonVectors = read('docs/contracts/canonical-json-vectors.json');
 const publicHeaderVectors = read('docs/contracts/mcp-public-header-vectors.json');
+const mcpEndpointVectors = read('docs/contracts/mcp-endpoint-vectors.json');
 const authController = read('src/controllers/auth-controller.ts');
 const contracts = [
   read('src/types/contracts.ts'),
@@ -80,6 +81,8 @@ const workflowRunBootstrap = read('src/controllers/internal-execution-bootstrap.
 const agentChatRunBootstrap = read('src/controllers/internal-agent-chat-bootstrap.ts');
 const targetRunBootstrap = read('src/controllers/internal-target-run-bootstrap.ts');
 const targetRunToolResolution = read('src/services/target-run-tool-resolution.ts');
+const mcpEndpointPolicy = read('src/services/mcp-endpoint-policy.ts');
+const mcpAuthConfig = read('src/services/mcp-auth-config.ts');
 const internalMcpBridgeController = read('src/controllers/internal-mcp-bridge-controller.ts');
 const openApi = [read('src/docs/openapi.ts'), readTree('src/docs/openapi')].join('\n');
 const generatedPublicOpenApiPath = process.env.ACORNOPS_GENERATED_PUBLIC_OPENAPI_PATH
@@ -128,6 +131,21 @@ for (const [repoName, vectorsPath] of [
       `Control-plane and ${repoName} MCP public-header vectors must be byte-identical`
     );
   }
+}
+
+const gatewayMcpEndpointVectorsPath = path.resolve(
+  root,
+  '..',
+  'llm-gateway',
+  'docs',
+  'contracts',
+  'mcp-endpoint-vectors.json'
+);
+if (existsSync(gatewayMcpEndpointVectorsPath)) {
+  expect(
+    readFileSync(gatewayMcpEndpointVectorsPath, 'utf8') === mcpEndpointVectors,
+    'Control-plane and LLM-gateway MCP endpoint vectors must be byte-identical'
+  );
 }
 
 expectIncludes(readme, '[`docs/contracts/README.md`](docs/contracts/README.md)', 'README contract link');
@@ -310,6 +328,106 @@ for (const adminPath of [
   expectIncludes(mcpRegistryClient, adminPath, 'LLM-gateway admin client path');
 }
 
+for (const lifecyclePath of [
+  '/api/v1/internal/mcp/destinations',
+  '/api/v1/internal/mcp/workspaces/${encodeURIComponent(workspaceId)}'
+]) {
+  expectIncludes(mcpRegistryClient, lifecyclePath, 'LLM-gateway lifecycle teardown client path');
+}
+for (const [lifecycleController, teardownCall] of [
+  ['src/controllers/agents-lifecycle-controller.ts', 'teardownMcpDestination'],
+  ['src/controllers/workspaces/kubernetes-cluster-delete-controller.ts', 'cleanupKubernetesTargetMcpServers'],
+  ['src/controllers/workspaces/virtual-machine-controller.ts', 'cleanupVirtualMachineTargetMcpServers'],
+  ['src/controllers/workspaces-controller.ts', 'teardownWorkspaceMcpState']
+]) {
+  expectIncludes(read(lifecycleController), teardownCall, `MCP lifecycle teardown orchestration in ${lifecycleController}`);
+}
+expectIncludes(toolSync, 'isMcpLifecycleFencedError', 'Terminal target built-in sync fence handling');
+expectIncludes(read('src/services/agent-targets-mcp-sync.ts'), 'isMcpLifecycleFencedError', 'Terminal Agent built-in sync fence handling');
+expectIncludes(targetRunToolResolution, 'if (isMcpLifecycleFencedError(err)) throw err;', 'Target run lifecycle fence propagation');
+expectIncludes(agentChatRunBootstrap, 'assertAgentMcpDestinationActive', 'Agent bootstrap lifecycle fence assertion');
+expectIncludes(read('src/controllers/agent-conversations-controller.ts'), 'assertAgentMcpDestinationActive', 'Agent run creation lifecycle fence assertion');
+
+for (const [source, needle, label] of [
+  [mcpEndpointPolicy, "endpoint.protocol !== 'https:'", 'Direct MCP absolute HTTPS endpoint policy'],
+  [mcpEndpointPolicy, 'endpoint.username || endpoint.password', 'Direct MCP endpoint user-info policy'],
+  [mcpEndpointPolicy, 'endpoint.hash', 'Direct MCP endpoint fragment policy'],
+  [mcpEndpointPolicy, 'SECRET_QUERY_KEYS', 'Direct MCP endpoint secret-query policy'],
+  [contracts, 'url: remoteMcpEndpointSchema', 'Target MCP endpoint contract'],
+  [read('src/controllers/agent-mcp-controller.ts'), 'url: remoteMcpEndpointSchema', 'Agent MCP endpoint contract'],
+  [mcpAuthConfig, 'validateMcpPublicAuthHeaderCollision', 'MCP custom-auth/public-header collision policy'],
+  [mcpAuthConfig, 'validateMcpAuthHeaderName', 'Shared MCP auth-header name policy'],
+  [mcpAuthConfig, 'validateMcpAuthHeaderPrefix', 'Shared MCP auth-header prefix policy'],
+  [contracts, 'headerName: mcpAuthHeaderNameSchema.optional()', 'Target MCP shared auth-header schema'],
+  [read('src/controllers/agent-mcp-controller.ts'), 'authHeaderName: mcpAuthHeaderNameSchema.optional()', 'Agent MCP shared auth-header schema'],
+  [openApi, 'maxLength: 4096', 'MCP auth-header prefix OpenAPI limit']
+]) {
+  expectIncludes(source, needle, label);
+}
+expectIncludes(openApi, "pattern: '^https://'", 'Direct MCP HTTPS OpenAPI contract');
+
+const lifecycleTeardownContract = llmGatewayContract?.lifecycleTeardownContract;
+expect(
+  lifecycleTeardownContract?.destinationPath === 'DELETE /api/v1/internal/mcp/destinations',
+  'LLM-gateway lifecycle contract must define the destination teardown path'
+);
+expect(
+  lifecycleTeardownContract?.workspacePath === 'DELETE /api/v1/internal/mcp/workspaces/{workspace_id}',
+  'LLM-gateway lifecycle contract must define the workspace teardown path'
+);
+expect(
+  lifecycleTeardownContract?.fencedError === '409 MCP_LIFECYCLE_FENCED'
+    && lifecycleTeardownContract?.failure?.startsWith('503 MCP_LIFECYCLE_TEARDOWN_FAILED'),
+  'LLM-gateway lifecycle contract must define terminal fence and retryable teardown errors'
+);
+
+const gatewayManifestPath = path.resolve(root, '..', 'llm-gateway', 'docs', 'contracts', 'manifest.json');
+if (existsSync(gatewayManifestPath)) {
+  const gatewayManifest = JSON.parse(readFileSync(gatewayManifestPath, 'utf8'));
+  expect(
+    JSON.stringify(gatewayManifest.counterparts?.['control-plane'])
+      === JSON.stringify(llmGatewayContract),
+    'Control-plane and LLM-gateway mirrored MCP contract sections must be byte-equivalent JSON'
+  );
+  expect(
+    JSON.stringify(gatewayManifest.counterparts?.['control-plane']?.lifecycleTeardownContract)
+      === JSON.stringify(lifecycleTeardownContract),
+    'Control-plane and LLM-gateway lifecycle teardown contract objects must be byte-equivalent JSON'
+  );
+
+  const userLifecycleContract = llmGatewayContract?.userLifecycleContract;
+  expect(
+    userLifecycleContract?.path === 'PUT /api/v1/internal/mcp/users/{user_id}/lifecycle'
+      && userLifecycleContract?.requestFields?.includes(
+        'membership_generation (1..9007199254740991)'
+      ),
+    'LLM-gateway user lifecycle contract must define the bounded membership generation path'
+  );
+  expect(
+    JSON.stringify(gatewayManifest.counterparts?.['control-plane']?.userLifecycleContract)
+      === JSON.stringify(userLifecycleContract),
+    'Control-plane and LLM-gateway user lifecycle contract objects must be byte-equivalent JSON'
+  );
+  const gatewayLifecycleHandler = path.resolve(root, '..', 'llm-gateway', 'app', 'api', 'handlers_mcp_lifecycle.py');
+  expect(existsSync(gatewayLifecycleHandler), 'LLM-gateway lifecycle teardown handler source must exist');
+  if (existsSync(gatewayLifecycleHandler)) {
+    const handler = readFileSync(gatewayLifecycleHandler, 'utf8');
+    expectIncludes(handler, '"/destinations"', 'LLM-gateway destination teardown handler');
+    expectIncludes(handler, '"/workspaces/{workspace_id}"', 'LLM-gateway workspace teardown handler');
+  }
+}
+
+for (const [source, needle, label] of [
+  [read('src/services/mcp-registry-client.ts'), '/api/v1/internal/mcp/users/${encodeURIComponent(input.userId)}/lifecycle', 'MCP user lifecycle reconciliation client'],
+  [read('src/services/mcp-user-principal.ts'), 'resolveMcpUserPrincipal', 'Fail-closed MCP user principal resolver'],
+  [read('src/services/token-service.ts'), 'Run user principal requires a positive membership generation', 'Gateway token membership generation invariant'],
+  [read('src/controllers/mcp-oauth-controller.ts'), 'membershipGeneration: capturedMembershipGeneration', 'OAuth callback captured membership generation'],
+  [read('src/controllers/mcp-oauth-controller.ts'), 'consumeCurrentMcpOAuthStateCorrelation(', 'OAuth callback short current-membership admission'],
+  [read('src/services/mcp-user-lifecycle-worker.ts'), "CASE WHEN lifecycle.status='removed' THEN 0 ELSE 1 END", 'Removed-first MCP lifecycle reconciliation']
+]) {
+  expectIncludes(source, needle, label);
+}
+
 for (const oauthNeedle of [
   'MCP_OAUTH_ENABLED',
   '/api/v1/internal/mcp/oauth/complete',
@@ -317,6 +435,7 @@ for (const oauthNeedle of [
   '/connection/oauth/start',
   '/mcp/oauth/client-metadata',
   '/mcp/oauth/callback',
+  'mcpOAuthServerId',
   '__Host-acornops-mcp-oauth-binding',
   "sameSite: 'lax'",
   "token_endpoint_auth_method: 'none'"
@@ -368,11 +487,12 @@ for (const builtinNeedle of [
   }
 }
 
-for (const builtinConfigNeedle of [
-  'config.BUILTIN_TARGET_MCP_SERVER_URL'
-]) {
-  expectIncludes(toolSync, builtinConfigNeedle, 'Builtin MCP bridge implementation');
-}
+expectIncludes(toolSync, 'syncBuiltInMcpServer', 'Builtin MCP bridge implementation');
+expectIncludes(
+  read('src/services/mcp-registry-client.ts'),
+  "'/api/v1/internal/mcp/servers/builtin'",
+  'Builtin MCP bridge definition sync boundary'
+);
 
 expectIncludes(internalMcpBridgeController, 'res.locals.gatewayRunClaims', 'Builtin MCP run token claims');
 expectIncludes(internalMcpBridgeController, 'isToolAllowedByRunToken(authorizedToolName, claims.allowedTools)', 'Builtin MCP allowed-tool check');

@@ -1,5 +1,5 @@
 import type { WorkspaceCapability } from '../auth/authorization.js';
-import type { AgentDefinition } from '../types/agents.js';
+import type { AgentDefinition, RunPrincipalRef } from '../types/agents.js';
 import type { CompiledAgentChatAccessScope } from '../types/agent-chat.js';
 import type { CapabilityAccessActor } from '../types/capability-access.js';
 import { listCapabilityRoutingMappings } from '../store/repository-capability-routing.js';
@@ -33,6 +33,7 @@ export async function compileAgentConversationRunScope(input: {
   agent: AgentDefinition;
   actor: CapabilityAccessActor;
   accessMode: 'read_only' | 'read_write';
+  principal?: RunPrincipalRef;
 }): Promise<CompiledAgentChatAccessScope> {
   const requiredCapability: WorkspaceCapability = input.accessMode === 'read_write'
     ? 'create_read_write_runs'
@@ -79,7 +80,7 @@ export async function compileAgentConversationRunScope(input: {
     actor: { userId: input.actor.userId, role: input.actor.role },
     requiredPermissions: [requiredCapability],
     grantedCapabilities: [requiredCapability],
-    principal: { type: 'user', id: input.actor.userId },
+    principal: input.principal || { type: 'user', id: input.actor.userId },
     ...projection
   };
 }

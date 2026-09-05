@@ -16,9 +16,24 @@ import {
 } from '../services/mcp-registry-client.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import {
+  consumeCurrentMcpOAuthStateCorrelation,
+  deleteMcpOAuthPreparationCorrelation,
+  getMcpOAuthPreparationCorrelation,
+  type McpOAuthStateCorrelation,
+  recordMcpOAuthPreparationCorrelation,
+  recordMcpOAuthStateCorrelation
+} from '../store/repository-mcp-oauth-correlations.js';
+import {
   requireConnectionServer,
   type ConnectionContext
 } from './mcp-connections-controller.js';
+import {
+  callbackErrorDetails,
+  consoleRedirectUrl,
+  MCP_VERIFICATION_CALLBACK_CODES,
+  queryValue,
+  safeReturnPath
+} from './mcp-oauth-callback.js';
 
 const HANDLE_PATTERN = /^[A-Za-z0-9_-]{43,256}$/;
 const STATE_PATTERN = /^[A-Za-z0-9_-]{43,256}$/;
@@ -101,6 +116,8 @@ function requireOAuthContext(context: ConnectionContext, res: Response): boolean
     context.server.auth_type === 'oauth'
     && context.server.credential_mode === 'individual'
     && context.ownerType === 'user'
+    && Number.isSafeInteger(context.membershipGeneration)
+    && context.membershipGeneration! > 0
   ) {
     return true;
   }
@@ -123,16 +140,6 @@ function requestBody(req: Request): Record<string, unknown> {
 function hasOnlyFields(body: Record<string, unknown>, fields: string[]): boolean {
   const allowed = new Set(fields);
   return Object.keys(body).every((key) => allowed.has(key));
-}
-
-function safeReturnPath(value: unknown): value is string {
-  return typeof value === 'string'
-    && value.length > 0
-    && value.length <= 2048
-    && value.startsWith('/')
-    && !value.startsWith('//')
-    && !value.includes('\\')
-    && !/[\u0000-\u001F\u007F]/u.test(value);
 }
 
 async function auditOAuth(
@@ -185,7 +192,19 @@ export async function prepareMcpOAuthConnection(
       serverId: context.server.id,
       ownerId: context.ownerId,
       browserBindingHash,
-      returnPath: body.returnPath
+      returnPath: body.returnPath,
+      membershipGeneration: context.membershipGeneration!
+    });
+    if (!HANDLE_PATTERN.test(prepared.preparation_handle)) {
+      throw new Error('MCP OAuth prepare returned an invalid correlation handle');
+    }
+    await recordMcpOAuthPreparationCorrelation({
+      preparationHandle: prepared.preparation_handle,
+      workspaceId: context.workspaceId,
+      userId: context.ownerId,
+      serverId: context.server.id,
+      returnPath: body.returnPath,
+      membershipGeneration: context.membershipGeneration!
     });
     await auditOAuth(req, context, 'prepared', {
       authorizationServerCount: prepared.candidates.length,
@@ -256,6 +275,23 @@ export async function startMcpOAuthConnection(
       });
       return;
     }
+    const preparationCorrelation = await getMcpOAuthPreparationCorrelation({
+      preparationHandle: body.preparationHandle,
+      workspaceId: context.workspaceId,
+      userId: context.ownerId,
+      serverId: context.server.id,
+      membershipGeneration: context.membershipGeneration!
+    });
+    if (!preparationCorrelation) {
+      res.status(409).json({
+        error: {
+          code: 'MCP_OAUTH_PREPARATION_STALE',
+          message: 'Prepare authorization again before continuing.',
+          retryable: false
+        }
+      });
+      return;
+    }
     const started = await startMcpOAuth({
       workspaceId: context.workspaceId,
       serverId: context.server.id,
@@ -263,8 +299,28 @@ export async function startMcpOAuthConnection(
       browserBindingHash,
       preparationHandle: body.preparationHandle,
       issuer: typeof issuer === 'string' ? issuer : undefined,
-      consentGranted: true
+      consentGranted: true,
+      membershipGeneration: context.membershipGeneration!
     });
+    if (!STATE_PATTERN.test(started.state)) {
+      throw new Error('MCP OAuth start returned an invalid state correlation');
+    }
+    await recordMcpOAuthStateCorrelation({
+      state: started.state,
+      workspaceId: context.workspaceId,
+      userId: context.ownerId,
+      serverId: context.server.id,
+      returnPath: preparationCorrelation.returnPath,
+      membershipGeneration: context.membershipGeneration!
+    });
+    try {
+      await deleteMcpOAuthPreparationCorrelation(body.preparationHandle);
+    } catch (cleanupError) {
+      logger.warn(
+        { exceptionType: cleanupError instanceof Error ? cleanupError.name : 'unknown' },
+        'Failed deleting consumed MCP OAuth preparation correlation'
+      );
+    }
     if (typeof issuer === 'string') {
       await auditOAuth(req, context, 'issuer_selected', {
         authorizationServerSelected: true
@@ -282,80 +338,6 @@ export async function startMcpOAuthConnection(
   } catch (err) {
     forwardOAuthGatewayError(err, res, next);
   }
-}
-
-function queryValue(value: unknown, maxLength: number): string | undefined {
-  return typeof value === 'string' && value.length > 0 && value.length <= maxLength
-    ? value
-    : undefined;
-}
-
-type CallbackErrorDetails = {
-  code: string;
-  returnPath?: string;
-  workspaceId?: string;
-  serverId?: string;
-};
-
-const MCP_VERIFICATION_CALLBACK_CODES = new Set([
-  'MCP_AUTHENTICATION_REJECTED',
-  'MCP_DISCOVERY_INVALID_RESPONSE',
-  'MCP_DISCOVERY_RESPONSE_TOO_LARGE',
-  'MCP_DISCOVERY_TIMEOUT',
-  'MCP_EGRESS_BLOCKED',
-  'MCP_ENDPOINT_NOT_FOUND',
-  'MCP_ENDPOINT_UNAVAILABLE',
-  'MCP_PROTOCOL_ERROR',
-  'MCP_TOOL_DISCOVERY_FAILED'
-]);
-
-function safeCallbackErrorCode(value: unknown): string {
-  if (typeof value !== 'string') return 'MCP_OAUTH_CALLBACK_FAILED';
-  if (/^MCP_OAUTH_[A-Z0-9_]+$/.test(value)) return value;
-  return MCP_VERIFICATION_CALLBACK_CODES.has(value)
-    ? value
-    : 'MCP_OAUTH_CALLBACK_FAILED';
-}
-
-function callbackErrorDetails(err: unknown): CallbackErrorDetails {
-  if (!(err instanceof LlmGatewayHttpError)) {
-    return { code: 'MCP_OAUTH_CALLBACK_FAILED' };
-  }
-  try {
-    const parsed = JSON.parse(err.responseBody) as {
-      detail?: {
-        code?: unknown;
-        return_path?: unknown;
-        workspace_id?: unknown;
-        server_id?: unknown;
-      };
-    };
-    const code = parsed.detail?.code;
-    return {
-      code: safeCallbackErrorCode(code),
-      ...(safeReturnPath(parsed.detail?.return_path)
-        ? { returnPath: parsed.detail.return_path }
-        : {}),
-      ...(typeof parsed.detail?.workspace_id === 'string'
-        ? { workspaceId: parsed.detail.workspace_id }
-        : {}),
-      ...(typeof parsed.detail?.server_id === 'string'
-        ? { serverId: parsed.detail.server_id }
-        : {})
-    };
-  } catch {
-    return { code: 'MCP_OAUTH_CALLBACK_FAILED' };
-  }
-}
-
-function consoleRedirectUrl(returnPath: string, result: string): string {
-  const consoleOrigin = new URL(config.MANAGEMENT_CONSOLE_BASE_URL);
-  const target = new URL(returnPath, consoleOrigin);
-  if (target.origin !== consoleOrigin.origin) {
-    throw new Error('Unsafe MCP OAuth return path');
-  }
-  target.searchParams.set('mcpOAuthResult', result);
-  return target.toString();
 }
 
 export async function requireMcpOAuthCallbackSession(
@@ -444,14 +426,31 @@ export async function completeMcpOAuthCallback(
     ));
     return;
   }
+  let correlation: McpOAuthStateCorrelation | null = null;
   try {
+    const admission = await consumeCurrentMcpOAuthStateCorrelation(state, req.auth.userId);
+    if (admission.status === 'missing') {
+      res.redirect(303, consoleRedirectUrl(fallbackPath, 'MCP_OAUTH_CALLBACK_INVALID'));
+      return;
+    }
+    correlation = admission.correlation;
+    if (admission.status === 'stale') {
+      res.redirect(303, consoleRedirectUrl(
+        correlation.returnPath,
+        'MCP_USER_LIFECYCLE_STALE',
+        correlation.serverId
+      ));
+      return;
+    }
+    const capturedMembershipGeneration = correlation.membershipGeneration;
     const completed = await completeMcpOAuth({
       ownerId: req.auth.userId,
       browserBindingHash,
       state,
       code,
       issuer,
-      providerError
+      providerError,
+      membershipGeneration: capturedMembershipGeneration
     });
     try {
       await recordWorkspaceAuditEvent({
@@ -475,9 +474,19 @@ export async function completeMcpOAuthCallback(
         'Failed recording MCP OAuth completion audit event'
       );
     }
-    res.redirect(303, consoleRedirectUrl(completed.return_path, 'connected'));
+    res.redirect(303, consoleRedirectUrl(
+      completed.return_path,
+      'connected',
+      completed.server_id
+    ));
   } catch (err) {
-    const details = callbackErrorDetails(err);
+    const gatewayDetails = callbackErrorDetails(err);
+    const details = {
+      ...gatewayDetails,
+      ...(correlation && !gatewayDetails.returnPath ? { returnPath: correlation.returnPath } : {}),
+      ...(correlation && !gatewayDetails.workspaceId ? { workspaceId: correlation.workspaceId } : {}),
+      ...(correlation && !gatewayDetails.serverId ? { serverId: correlation.serverId } : {})
+    };
     if (details.workspaceId && details.serverId) {
       const authorizationDenied = details.code === 'MCP_OAUTH_AUTHORIZATION_DENIED';
       const verificationFailed = MCP_VERIFICATION_CALLBACK_CODES.has(details.code);
@@ -511,7 +520,8 @@ export async function completeMcpOAuthCallback(
     }
     res.redirect(303, consoleRedirectUrl(
       details.returnPath ?? fallbackPath,
-      details.code
+      details.code,
+      details.serverId
     ));
   }
 }

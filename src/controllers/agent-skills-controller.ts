@@ -9,6 +9,7 @@ import { GitSkillImportError, resolveGitSkill } from '../services/git-skill-impo
 import { respondGitSkillImportError } from './workspaces/git-skill-import-controller.js';
 import {
   getInheritedWorkspaceDefault,
+  WORKSPACE_STARTER_ENABLE_ONLY_MESSAGE,
   workspaceDefaultIdFromInheritedId,
   resolveAgentSkillDefaults
 } from '../services/workspace-default-resolution.js';
@@ -208,7 +209,7 @@ export async function patchSkill(req: AuthenticatedRequest, res: Response, next:
     if (workspaceDefaultIdFromInheritedId(skillId)) {
       if (!ctx.authz.can('manage_skills')) return fail(res, 403, 'FORBIDDEN', 'Enabling skills requires manage_skills.');
       if (body.enabled !== true || Object.keys(body).some((key) => !['enabled', 'expectedRevision'].includes(key))) {
-        return fail(res, 400, 'PLATFORM_DEFAULT_SOURCE_IMMUTABLE', 'A platform default can only be enabled; its source is managed by a platform administrator.');
+        return fail(res, 400, 'PLATFORM_DEFAULT_SOURCE_IMMUTABLE', WORKSPACE_STARTER_ENABLE_ONLY_MESSAGE);
       }
       const inherited = await getInheritedWorkspaceDefault(ctx.workspaceId, skillId, 'skill', 'agents');
       if (!inherited || inherited.source.type === 'https') return fail(res, 404, 'NOT_FOUND', 'Agent skill not found');
@@ -232,7 +233,7 @@ export async function patchSkill(req: AuthenticatedRequest, res: Response, next:
         actorUserId: req.auth.userId
       });
       await syncAgentSkillCapabilitySnapshot(ctx.workspaceId, ctx.agentId);
-      await audit(req, ctx.workspaceId, ctx.agentId, materialized, 'agent.skill_imported.v1', 'Platform default skill enabled on Agent');
+      await audit(req, ctx.workspaceId, ctx.agentId, materialized, 'agent.skill_imported.v1', 'Workspace starter skill enabled on Agent');
       res.status(200).json({ skill: withSkillProvenance(materialized) });
       return;
     }

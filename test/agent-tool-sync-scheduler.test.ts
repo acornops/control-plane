@@ -68,4 +68,25 @@ describe('built-in tool sync scheduler', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(calls, 1);
   });
+
+  it('does not retry a lifecycle-fenced target after handshake', async () => {
+    let calls = 0;
+    setBuiltInToolSyncRetryDelaysForTests([0, 1, 1, 1]);
+    setBuiltInToolSyncRunnerForTests(async () => {
+      calls += 1;
+      return result({
+        ok: false,
+        discoveredToolCount: 0,
+        registeredToolCount: 0,
+        terminal: true,
+        error: 'MCP_LIFECYCLE_FENCED'
+      });
+    });
+
+    scheduleBuiltInToolSync('workspace-1', 'cluster-1', 'kubernetes');
+
+    await waitFor(() => calls === 1);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(calls, 1);
+  });
 });

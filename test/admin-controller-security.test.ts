@@ -17,7 +17,6 @@ import { addExistingWorkspaceMember, listAdminWorkspaces } from '../src/store/re
 import { repo } from '../src/store/repository.js';
 import { db } from '../src/infra/db.js';
 import { adminReasonOnlySchema, adminWorkspacePlanPatchSchema, adminWorkspaceRestoreSchema, adminWorkspaceSuspendSchema } from '../src/types/contracts.js';
-
 afterEach(() => {
   mock.restoreAll();
 });
@@ -277,12 +276,13 @@ describe('admin controller security invariants', () => {
             }]
           };
         }
+        if (sql.includes('FROM workspace_member_mcp_lifecycle')) return { rowCount: 1, rows: [{
+          workspace_id: 'workspace-1', user_id: 'user-1', membership_generation: '1', status: 'active', reconciliation_status: 'pending' }] };
         throw new Error(`Unexpected query: ${sql}`);
       },
       release: () => undefined
     };
     mock.method(db, 'connect', async () => client);
-
     const result = await addExistingWorkspaceMember('workspace-1', 'user-1', 'viewer');
 
     assert.equal(result.status, 'created');

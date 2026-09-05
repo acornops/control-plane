@@ -31,12 +31,19 @@ export function mapGatewayError(err: LlmGatewayHttpError, options?: { upstreamMe
     };
   }
   if (err.status === 409) {
+    const lifecycleFenced = err.gatewayCode === 'MCP_LIFECYCLE_FENCED';
+    const userLifecycleCode = err.gatewayCode === 'MCP_USER_LIFECYCLE_STALE'
+      || err.gatewayCode === 'MCP_USER_LIFECYCLE_CONFLICT'
+      ? err.gatewayCode
+      : undefined;
     return {
       status: 409,
       body: {
         error: {
-          code: 'CONFLICT',
-          message: err.message,
+          code: lifecycleFenced ? 'MCP_LIFECYCLE_FENCED' : userLifecycleCode || 'CONFLICT',
+          message: lifecycleFenced
+            ? 'This MCP scope is being deleted and is no longer available.'
+            : err.message,
           retryable: false
         }
       }
@@ -55,12 +62,25 @@ export function mapGatewayError(err: LlmGatewayHttpError, options?: { upstreamMe
     };
   }
   if (err.status === 503) {
+    const cleanupIncomplete = /credential cleanup did not complete/i.test(err.message);
+    const lifecycleTeardownFailed = err.gatewayCode === 'MCP_LIFECYCLE_TEARDOWN_FAILED';
+    const userLifecycleTeardownFailed = err.gatewayCode === 'MCP_USER_LIFECYCLE_TEARDOWN_FAILED';
     return {
       status: 503,
       body: {
         error: {
-          code: 'SERVICE_UNAVAILABLE',
-          message: options?.upstreamMessage || 'MCP credential service is unavailable',
+          code: userLifecycleTeardownFailed
+            ? 'MCP_USER_LIFECYCLE_TEARDOWN_FAILED'
+            : lifecycleTeardownFailed
+            ? 'MCP_LIFECYCLE_TEARDOWN_FAILED'
+            : cleanupIncomplete ? 'MCP_CREDENTIAL_CLEANUP_INCOMPLETE' : 'SERVICE_UNAVAILABLE',
+          message: userLifecycleTeardownFailed
+            ? options?.upstreamMessage || 'MCP user lifecycle cleanup did not complete; retry the request.'
+            : lifecycleTeardownFailed
+            ? options?.upstreamMessage || 'MCP lifecycle cleanup did not complete; retry the request.'
+            : cleanupIncomplete
+              ? 'MCP connection settings were saved, but credential cleanup is incomplete'
+              : options?.upstreamMessage || 'MCP credential service is unavailable',
           retryable: true
         }
       }

@@ -10,7 +10,7 @@ describe('Agent-chat gateway token service', () => {
       scopeType: 'agent_chat',
       agentId: 'agent-incident-analyst',
       sessionId: 'agent-conversation-1',
-      principal: { type: 'user', id: 'user-1' },
+      principal: { type: 'user', id: 'user-1', membershipGeneration: 3 },
       allowedProviders: ['openai'],
       allowedTools: ['incident.search'],
       allowedToolRefs: [{ serverId: 'incidents', toolName: 'search' }],
@@ -23,6 +23,7 @@ describe('Agent-chat gateway token service', () => {
     assert.equal(claims.agentId, 'agent-incident-analyst');
     assert.equal(claims.workflowId, undefined);
     assert.equal(claims.targetId, undefined);
+    assert.equal(claims.principal.membershipGeneration, 3);
   });
 
   it('requires an Agent identity at the signing boundary', async () => {
@@ -32,7 +33,7 @@ describe('Agent-chat gateway token service', () => {
         workspaceId: 'ws-agent-chat',
         scopeType: 'agent_chat',
         sessionId: 'agent-conversation-1',
-        principal: { type: 'user', id: 'user-1' },
+        principal: { type: 'user', id: 'user-1', membershipGeneration: 3 },
         allowedProviders: ['openai'],
         allowedTools: [],
         allowedModels: ['gpt-4.1-mini']

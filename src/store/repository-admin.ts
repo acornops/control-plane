@@ -16,6 +16,7 @@ import {
 import { withTransaction } from './repository-transaction.js';
 import { AdminAuditEventInput, insertAdminAuditEvent } from './repository-admin-audit.js';
 import { insertWorkspaceAuditEvent } from './repository-audit-events.js';
+import { readWorkspaceMemberMcpLifecycleInTransaction } from './repository-mcp-user-lifecycle.js';
 import { WorkspaceAuditEventInput } from '../types/domain.js';
 import { incrementAdminAuditWriteFailures } from '../metrics.js';
 import { WorkspaceQuotaOverrides, assertWorkspaceMemberQuota, assertWorkspaceMembershipQuota } from './repository-quotas.js';
@@ -229,7 +230,7 @@ export async function addExistingWorkspaceMember(
   userId: string,
   role: string,
   audit?: AdminWorkspaceMembershipAudit
-): Promise<{ status: 'created' | 'workspace_not_found' | 'user_not_found' | 'already_exists'; member?: WorkspaceMembership }> {
+): Promise<{ status: 'created' | 'workspace_not_found' | 'user_not_found' | 'already_exists'; member?: WorkspaceMembership; membershipGeneration?: number }> {
   return withTransaction(async (client) => {
     const workspace = await client.query('SELECT 1 FROM workspaces WHERE id = $1 LIMIT 1', [workspaceId]);
     if (!workspace.rowCount) return { status: 'workspace_not_found' };
@@ -254,7 +255,12 @@ export async function addExistingWorkspaceMember(
     );
     if (!inserted.rowCount) return { status: 'already_exists' };
     await insertMembershipAudit(client, audit);
-    return { status: 'created', member: mapWorkspaceMembership(inserted.rows[0]) };
+    const lifecycle = await readWorkspaceMemberMcpLifecycleInTransaction(client, workspaceId, userId, 'active');
+    return {
+      status: 'created',
+      member: mapWorkspaceMembership(inserted.rows[0]),
+      membershipGeneration: lifecycle.membershipGeneration
+    };
   });
 }
 
@@ -263,7 +269,7 @@ export async function replaceLastOwnerAndDeleteMember(
   userId: string,
   replacementOwnerUserId: string,
   audit?: AdminWorkspaceMembershipAudit
-): Promise<{ status: 'deleted' | 'not_found' | 'replacement_not_found'; member?: WorkspaceMembership }> {
+): Promise<{ status: 'deleted' | 'not_found' | 'replacement_not_found'; member?: WorkspaceMembership; membershipGeneration?: number }> {
   return withTransaction(async (client) => {
     const replacement = await client.query(
       `SELECT 1 FROM workspace_memberships
@@ -287,7 +293,12 @@ export async function replaceLastOwnerAndDeleteMember(
     );
     if (!deleted.rowCount) return { status: 'not_found' };
     await insertMembershipAudit(client, audit);
-    return { status: 'deleted', member: mapWorkspaceMembership(deleted.rows[0]) };
+    const lifecycle = await readWorkspaceMemberMcpLifecycleInTransaction(client, workspaceId, userId, 'removed');
+    return {
+      status: 'deleted',
+      member: mapWorkspaceMembership(deleted.rows[0]),
+      membershipGeneration: lifecycle.membershipGeneration
+    };
   });
 }
 
@@ -338,7 +349,7 @@ export async function deleteExistingWorkspaceMember(
   workspaceId: string,
   userId: string,
   audit?: AdminWorkspaceMembershipAudit
-): Promise<{ status: 'deleted' | 'not_found' | 'last_owner'; member?: WorkspaceMembership }> {
+): Promise<{ status: 'deleted' | 'not_found' | 'last_owner'; member?: WorkspaceMembership; membershipGeneration?: number }> {
   return withTransaction(async (client) => {
     const current = await client.query<WorkspaceMembershipRow>(
       `SELECT m.workspace_id, m.user_id, u.email, u.display_name, m.role, m.source, m.created_at, m.updated_at
@@ -359,7 +370,8 @@ export async function deleteExistingWorkspaceMember(
     }
     await client.query('DELETE FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2', [workspaceId, userId]);
     await insertMembershipAudit(client, audit);
-    return { status: 'deleted', member };
+    const lifecycle = await readWorkspaceMemberMcpLifecycleInTransaction(client, workspaceId, userId, 'removed');
+    return { status: 'deleted', member, membershipGeneration: lifecycle.membershipGeneration };
   });
 }
 

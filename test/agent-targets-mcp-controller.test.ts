@@ -98,6 +98,27 @@ function params() {
 }
 
 describe('Agent Targets MCP management boundary', () => {
+  it('rejects invalid Agent auth header configuration before any gateway call', async () => {
+    const gateway = mock.method(globalThis, 'fetch', async () => new Response('unexpected request', { status: 500 }));
+
+    const reservedHeader = await callController(createServer, createRequest(params(), {
+      name: 'external-agent-mcp',
+      url: 'https://mcp.example.test/server',
+      authType: 'custom_header',
+      credentialMode: 'workspace',
+      authHeaderName: 'mcp-session-id'
+    }));
+    const injectedPrefix = await callController(patchServer, createRequest(params(), {
+      authHeaderPrefix: 'Token \r\nx-injected: true'
+    }));
+
+    assert.deepEqual([reservedHeader.statusCode, injectedPrefix.statusCode], [400, 400]);
+    assert.ok([reservedHeader, injectedPrefix].every((response) => (
+      (response.body as { error: { code: string } }).error.code === 'AGENT_MCP_INVALID'
+    )));
+    assert.equal(gateway.mock.callCount(), 0);
+  });
+
   it('preserves OAuth and public headers when creating an Agent MCP server', async () => {
     let requestBody: Record<string, unknown> | undefined;
     const created = manualServer({

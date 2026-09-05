@@ -5,9 +5,9 @@ import { getAgentDefinition } from '../store/repository-agents.js';
 import type { AgentDefinition } from '../types/agents.js';
 import { listWorkflowDefinitions } from '../store/repository-workflows.js';
 import {
-  createAgentMcpServer,
+  isMcpLifecycleFencedError,
   listAgentMcpServers,
-  updateAgentMcpServer
+  syncBuiltInMcpServer
 } from './mcp-registry-client.js';
 import { syncAgentMcpCapabilitySnapshot, toAgentMcpServer } from './agent-mcp-capabilities.js';
 import { refreshAgentReadiness, refreshWorkflowReadiness } from './automation-readiness.js';
@@ -26,6 +26,7 @@ export interface AgentTargetsMcpSyncResult {
   addedTools: string[];
   removedTools: string[];
   agent?: AgentDefinition;
+  terminal?: boolean;
   error?: string;
 }
 
@@ -147,14 +148,11 @@ export async function syncAgentTargetsBuiltInTools(
     let changed = false;
 
     if (!existing) {
-      server = await createAgentMcpServer({
+      server = await syncBuiltInMcpServer({
         workspaceId,
-        agentId,
+        destination: { kind: 'agent', id: agentId },
         name: AGENT_TARGETS_MCP_SERVER_NAME,
-        url: config.BUILTIN_TARGET_MCP_SERVER_URL,
         enabled: true,
-        auth: { type: 'none' },
-        credentialMode: 'none',
         tools
       });
       changed = true;
@@ -172,18 +170,13 @@ export async function syncAgentTargetsBuiltInTools(
         || Boolean(existing.auth_header_prefix)
         || Object.keys(existing.public_headers || {}).length > 0;
       if (catalogChanged || serverChanged || removeTools.length > 0) {
-        server = await updateAgentMcpServer({
+        server = await syncBuiltInMcpServer({
           workspaceId,
-          agentId,
+          destination: { kind: 'agent', id: agentId },
           serverId: existing.id,
           name: AGENT_TARGETS_MCP_SERVER_NAME,
-          url: config.BUILTIN_TARGET_MCP_SERVER_URL,
           enabled: existing.enabled,
-          auth: { type: 'none' },
-          credentialMode: 'none',
-          publicHeaders: {},
-          tools: effectiveTools,
-          removeTools
+          tools: effectiveTools
         });
         changed = true;
       }
@@ -225,6 +218,19 @@ export async function syncAgentTargetsBuiltInTools(
       agent: syncedAgent
     };
   } catch (error) {
+    if (isMcpLifecycleFencedError(error)) {
+      logger.info({ workspaceId, agentId }, 'Skipped built-in Agent Targets MCP sync for lifecycle-fenced destination');
+      return {
+        ok: false,
+        workspaceId,
+        agentId,
+        registeredToolCount: 0,
+        addedTools: [],
+        removedTools: [],
+        terminal: true,
+        error: 'MCP_LIFECYCLE_FENCED'
+      };
+    }
     logger.warn({ workspaceId, agentId, error }, 'Failed synchronizing built-in Agent Targets MCP tools');
     return {
       ok: false,

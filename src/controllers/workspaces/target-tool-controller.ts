@@ -19,6 +19,7 @@ import {
   InvalidMcpPublicHeadersError,
   validateMcpPublicHeaders
 } from '../../services/mcp-public-header-policy.js';
+import { validateEffectiveMcpAuthConfig } from '../../services/mcp-auth-config.js';
 import { targetWebhookScope } from '../../services/target-webhook-scope.js';
 import { webhooks } from '../../services/webhooks.js';
 import { repo } from '../../store/repository.js';
@@ -225,12 +226,43 @@ export async function updateTargetMcpServerForTarget(req: AuthenticatedRequest, 
     }
     const previous = (await listGatewayTargetMcpServers(workspaceId, targetId, access.target.targetType))
       .find((item) => item.id === serverId);
+    if (!previous) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'MCP server not found', retryable: false } });
+      return;
+    }
+    if (previous.provenance_type === 'builtin') {
+      const fields = Object.keys(value);
+      if (value.enabled === undefined || fields.some((key) => key !== 'enabled' && key !== 'expectedRevision')) {
+        res.status(409).json({ error: {
+          code: 'BUILTIN_MCP_SERVER_MANAGED',
+          message: 'This built-in MCP server connection is managed by AcornOps; only enablement can be changed.',
+          retryable: false
+        } });
+        return;
+      }
+    }
+    const authError = validateEffectiveMcpAuthConfig({
+      authType: previous.auth_type,
+      credentialMode: previous.credential_mode,
+      headerName: previous.auth_header_name,
+      headerPrefix: previous.auth_header_prefix,
+      publicHeaders: previous.public_headers
+    }, {
+      authType: value.auth?.type,
+      credentialMode: value.credentialMode,
+      headerName: value.auth?.headerName,
+      headerPrefix: value.auth?.headerPrefix,
+      publicHeaders: value.publicHeaders
+    });
+    if (authError) {
+      res.status(400).json({ error: { code: 'MCP_AUTH_CONFIG_INVALID', message: authError, retryable: false } });
+      return;
+    }
     const server = await updateTargetMcpServer({
       workspaceId,
       targetId,
       targetType: access.target.targetType,
       serverId,
-      url: value.url,
       name: value.name,
       enabled: value.enabled,
       publicHeaders: value.publicHeaders === undefined
@@ -238,9 +270,7 @@ export async function updateTargetMcpServerForTarget(req: AuthenticatedRequest, 
         : validateMcpPublicHeaders(value.publicHeaders),
       auth: value.auth,
       credentialMode: value.credentialMode,
-      expectedRevision: value.expectedRevision,
-      tools: value.tools,
-      removeTools: value.removeTools
+      expectedRevision: value.expectedRevision
     });
 
     webhooks.emit({
@@ -311,6 +341,20 @@ export async function deleteTargetMcpServerForTarget(req: AuthenticatedRequest, 
     }
     if (!access.authz.can('manage_mcp')) {
       respondMissingMcpCapability(res);
+      return;
+    }
+    const server = (await listGatewayTargetMcpServers(workspaceId, targetId, access.target.targetType))
+      .find((item) => item.id === serverId);
+    if (!server) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'MCP server not found', retryable: false } });
+      return;
+    }
+    if (server.provenance_type === 'builtin') {
+      res.status(409).json({ error: {
+        code: 'BUILTIN_MCP_SERVER_MANAGED',
+        message: 'Built-in MCP servers are managed by AcornOps and cannot be deleted.',
+        retryable: false
+      } });
       return;
     }
     await deleteTargetMcpServer(workspaceId, targetId, access.target.targetType, serverId);
@@ -430,9 +474,17 @@ export async function updateTargetMcpServerToolSettings(req: AuthenticatedReques
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'MCP server not found', retryable: false } });
       return;
     }
-    const existing = tools.find((tool) => tool.name === toolName && tool.mcp_server_url === server.server_url);
+    const existing = tools.find((tool) => tool.name === toolName && tool.server_id === serverId);
     if (!existing) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Tool not found', retryable: false } });
+      return;
+    }
+    if (server.provenance_type === 'builtin' && Object.keys(value).some((key) => key !== 'enabled')) {
+      res.status(409).json({ error: {
+        code: 'BUILTIN_MCP_SERVER_MANAGED',
+        message: 'Built-in MCP tool definitions are managed by AcornOps; only enablement can be changed.',
+        retryable: false
+      } });
       return;
     }
     const requestedCapability = value.capability;
@@ -453,7 +505,7 @@ export async function updateTargetMcpServerToolSettings(req: AuthenticatedReques
     }
     const updated = await updateTargetTool(workspaceId, targetId, access.target.targetType, serverId, toolName, {
       enabled: value.enabled,
-      capability
+      capability: server.provenance_type === 'builtin' ? undefined : capability
     });
     if (existing.source === 'builtin') {
       await repo.setTargetToolOverride(targetId, toolName, value.enabled);

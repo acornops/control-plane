@@ -72,6 +72,36 @@ for (const required of [
 ]) {
   assert(agentVAccessPolicyMigration.includes(required), `AgentV access-policy migration must include ${required}`);
 }
+const mcpUserLifecycleMigration = read('migrations/control-plane/006_mcp_user_lifecycle.sql');
+for (const required of [
+  'CREATE TABLE workspace_member_mcp_lifecycle',
+  'membership_generation bigint NOT NULL',
+  'membership_generation BETWEEN 1 AND 9007199254740991',
+  'blocks_readiness boolean',
+  'idx_workspace_member_mcp_lifecycle_readiness_blockers',
+  "WHERE blocks_readiness=true AND reconciliation_status<>'synced'",
+  'CREATE FUNCTION advance_workspace_member_mcp_lifecycle()',
+  'AFTER INSERT OR DELETE ON workspace_memberships',
+  'workspace_member_mcp_lifecycle.blocks_readiness',
+  'CREATE TABLE mcp_oauth_state_correlations',
+  'CREATE TABLE mcp_oauth_preparation_correlations',
+  'mcp_oauth_state_correlations_membership_fkey',
+  'mcp_oauth_preparation_correlations_membership_fkey',
+  'REFERENCES workspace_memberships(workspace_id,user_id) ON DELETE CASCADE',
+  'requires mcp_secret_cleanup_jobs to be empty',
+  'DROP TABLE mcp_secret_cleanup_jobs'
+]) {
+  assert(mcpUserLifecycleMigration.includes(required), `MCP user-lifecycle migration must include ${required}`);
+}
+assert(
+  /VALUES\s*\([\s\S]*?next_status,\s*'pending',\s*false,/m.test(mcpUserLifecycleMigration),
+  'trigger-created active and removed lifecycle rows must not globally block readiness'
+);
+assert(
+  mcpUserLifecycleMigration.indexOf('CREATE TRIGGER workspace_memberships_mcp_lifecycle_transition')
+    < mcpUserLifecycleMigration.indexOf('FROM workspace_memberships'),
+  'MCP membership trigger must be installed before the active-member backfill'
+);
 assert(
   baseline.includes('rbac_additions jsonb') &&
     baseline.includes('rbac_additions_source_version') &&
@@ -194,7 +224,10 @@ const expectedTables = [
   'webhook_outbox_events',
   'webhook_delivery_jobs',
   'agentv_enrollments',
-  'agentv_credentials'
+  'agentv_credentials',
+  'workspace_member_mcp_lifecycle',
+  'mcp_oauth_state_correlations',
+  'mcp_oauth_preparation_correlations'
 ];
 
 const expectedColumns = [
@@ -273,7 +306,13 @@ const expectedColumns = [
   ['kubernetes_target_settings', 'rbac_additions_content_hash'],
   ['kubernetes_target_settings', 'write_confirmation_required_override'],
   ['kubernetes_target_settings', 'permission_mode_override'],
-  ['target_agent_registrations', 'last_authenticated_key_version']
+  ['target_agent_registrations', 'last_authenticated_key_version'],
+  ['workspace_member_mcp_lifecycle', 'membership_generation'],
+  ['workspace_member_mcp_lifecycle', 'blocks_readiness'],
+  ['workspace_member_mcp_lifecycle', 'lease_owner'],
+  ['workspace_member_mcp_lifecycle', 'lease_expires_at'],
+  ['mcp_oauth_state_correlations', 'membership_generation'],
+  ['mcp_oauth_preparation_correlations', 'membership_generation']
 ];
 
 const expectedConstraints = [
@@ -327,7 +366,14 @@ const expectedConstraints = [
   // PostgreSQL truncates identifiers to 63 bytes when the RBAC migration is applied.
   'k8s_target_settings_rbac_source_version_nonnegative',
   'agentv_enrollments_workspace_target_fkey',
-  'agentv_credentials_enrollment_target_fkey'
+  'agentv_credentials_enrollment_target_fkey',
+  'workspace_member_mcp_lifecycle_generation_check',
+  'workspace_member_mcp_lifecycle_status_check',
+  'workspace_member_mcp_lifecycle_reconciliation_status_check',
+  'mcp_oauth_state_correlations_generation_check',
+  'mcp_oauth_preparation_correlations_generation_check',
+  'mcp_oauth_state_correlations_membership_fkey',
+  'mcp_oauth_preparation_correlations_membership_fkey'
 ];
 
 async function runSqlChecks(databaseUrl) {
@@ -340,8 +386,20 @@ async function runSqlChecks(databaseUrl) {
     await client.query(`SET search_path TO ${schema}, public`);
     await client.query(migrations[0]);
     await client.query(
+      `INSERT INTO users (id,email,display_name) VALUES
+       ('migration-user-active','active@example.test','Active migration user'),
+       ('migration-user-removed','removed@example.test','Removed migration user'),
+       ('migration-user-cascade','cascade@example.test','Cascade migration user')`
+    );
+    await client.query(
       `INSERT INTO workspaces (id, name, created_by) VALUES
-       ('migration-workspace', 'Migration workspace', 'migration-check')`
+       ('migration-workspace', 'Migration workspace', 'migration-user-active'),
+       ('migration-workspace-cascade', 'Migration cascade workspace', 'migration-user-cascade')`
+    );
+    await client.query(
+      `INSERT INTO workspace_memberships (workspace_id,user_id,role,source) VALUES
+       ('migration-workspace','migration-user-active','owner','internal'),
+       ('migration-workspace-cascade','migration-user-cascade','owner','internal')`
     );
     await client.query(
       `INSERT INTO targets (id, workspace_id, target_type, name, status, created_at, updated_at) VALUES
@@ -357,7 +415,121 @@ async function runSqlChecks(databaseUrl) {
        ('migration-target-false', false),
        ('migration-target-null', NULL)`
     );
-    for (const migration of migrations.slice(1)) await client.query(migration);
+    for (const migration of migrations.slice(1, -1)) await client.query(migration);
+    await client.query(
+      `INSERT INTO mcp_secret_cleanup_jobs (id,workspace_id,user_id,reason)
+       VALUES ('legacy-preflight-blocker','migration-workspace','migration-user-removed','member_removal')`
+    );
+    await assert.rejects(
+      () => client.query(migrations.at(-1)),
+      /requires mcp_secret_cleanup_jobs to be empty/,
+      'MCP lifecycle migration must fail closed until the legacy cleanup queue is drained'
+    );
+    await client.query("DELETE FROM mcp_secret_cleanup_jobs WHERE id='legacy-preflight-blocker'");
+    await client.query(migrations.at(-1));
+
+    const activeLifecycle = await client.query(
+      `SELECT membership_generation,status,reconciliation_status,blocks_readiness
+       FROM workspace_member_mcp_lifecycle
+       WHERE workspace_id='migration-workspace' AND user_id='migration-user-active'`
+    );
+    assert.deepEqual(activeLifecycle.rows[0], {
+      membership_generation: '1',
+      status: 'active',
+      reconciliation_status: 'pending',
+      blocks_readiness: true
+    }, 'existing memberships must be backfilled as readiness-blocking active generation one');
+
+    await client.query(
+      `UPDATE workspace_memberships SET role='member'
+       WHERE workspace_id='migration-workspace' AND user_id='migration-user-active'`
+    );
+    const afterRoleUpdate = await client.query(
+      `SELECT membership_generation,status FROM workspace_member_mcp_lifecycle
+       WHERE workspace_id='migration-workspace' AND user_id='migration-user-active'`
+    );
+    assert.deepEqual(afterRoleUpdate.rows[0], {
+      membership_generation: '1',
+      status: 'active'
+    }, 'role-only membership updates must not advance MCP membership generation');
+
+    await client.query(
+      `INSERT INTO mcp_oauth_state_correlations (
+         state_hash,workspace_id,user_id,server_id,return_path,membership_generation,expires_at
+       ) VALUES (
+         repeat('a',64),'migration-workspace','migration-user-active','server-1','/',1,NOW()+INTERVAL '30 minutes'
+       );
+       INSERT INTO mcp_oauth_preparation_correlations (
+         preparation_handle_hash,workspace_id,user_id,server_id,return_path,membership_generation,expires_at
+       ) VALUES (
+         repeat('b',64),'migration-workspace','migration-user-active','server-1','/',1,NOW()+INTERVAL '30 minutes'
+       )`
+    );
+
+    await client.query(
+      `DELETE FROM workspace_memberships
+       WHERE workspace_id='migration-workspace' AND user_id='migration-user-active'`
+    );
+    const oauthCorrelationsAfterRemoval = await client.query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM mcp_oauth_state_correlations) AS states,
+         (SELECT COUNT(*)::integer FROM mcp_oauth_preparation_correlations) AS preparations`
+    );
+    assert.deepEqual(oauthCorrelationsAfterRemoval.rows[0], {
+      states: 0,
+      preparations: 0
+    }, 'committed membership removal must invalidate all local OAuth callback correlations');
+    await client.query(
+      `INSERT INTO workspace_memberships (workspace_id,user_id,role,source)
+       VALUES ('migration-workspace','migration-user-active','member','internal')`
+    );
+    const afterRemoveReadd = await client.query(
+      `SELECT membership_generation,status,reconciliation_status,blocks_readiness
+       FROM workspace_member_mcp_lifecycle
+       WHERE workspace_id='migration-workspace' AND user_id='migration-user-active'`
+    );
+    assert.deepEqual(afterRemoveReadd.rows[0], {
+      membership_generation: '3',
+      status: 'active',
+      reconciliation_status: 'pending',
+      blocks_readiness: true
+    }, 'remove then re-add during rollout must advance twice and retain the unresolved migration-backfill activation blocker');
+
+    await client.query(
+      `UPDATE workspace_member_mcp_lifecycle
+       SET reconciliation_status='synced',blocks_readiness=false
+       WHERE workspace_id='migration-workspace' AND user_id='migration-user-active'`
+    );
+    await client.query(
+      `DELETE FROM workspace_memberships
+       WHERE workspace_id='migration-workspace' AND user_id='migration-user-active'`
+    );
+    const operationalRemoval = await client.query(
+      `SELECT membership_generation,status,reconciliation_status,blocks_readiness
+       FROM workspace_member_mcp_lifecycle
+       WHERE workspace_id='migration-workspace' AND user_id='migration-user-active'`
+    );
+    assert.deepEqual(operationalRemoval.rows[0], {
+      membership_generation: '4',
+      status: 'removed',
+      reconciliation_status: 'pending',
+      blocks_readiness: false
+    }, 'ordinary removed-member reconciliation must stay principal-scoped instead of draining readiness');
+
+    await client.query(
+      `DELETE FROM workspace_memberships WHERE workspace_id='migration-workspace-cascade';
+       DELETE FROM workspaces WHERE id='migration-workspace-cascade'`
+    );
+    const cascadedLifecycle = await client.query(
+      `SELECT 1 FROM workspace_member_mcp_lifecycle
+       WHERE workspace_id='migration-workspace-cascade'`
+    );
+    assert.equal(cascadedLifecycle.rowCount, 0, 'workspace deletion must not retain or recreate member lifecycle rows');
+
+    const legacyCleanupTable = await client.query(
+      `SELECT to_regclass(current_schema() || '.mcp_secret_cleanup_jobs') AS relation`
+    );
+    assert.equal(legacyCleanupTable.rows[0]?.relation, null, 'legacy MCP cleanup queue must be dropped after translation');
 
     const backfilledModes = await client.query(
       `SELECT target_id, permission_mode_override, write_confirmation_required_override
@@ -537,7 +709,8 @@ async function runSqlChecks(databaseUrl) {
       'sessions_agent_conversations_idx',
       'agentv_credentials_one_active_idx',
       'agentv_credentials_one_pending_idx',
-      'agentv_credentials_one_grace_idx'
+      'agentv_credentials_one_grace_idx',
+      'idx_workspace_member_mcp_lifecycle_readiness_blockers'
     ]) {
       assert(indexNames.has(indexName), `${indexName} must exist in the final baseline`);
     }
@@ -635,7 +808,11 @@ async function runSqlChecks(databaseUrl) {
     );
     assert.deepEqual(
       functions.rows.map(({ proname }) => proname).sort(),
-      ['prevent_admin_audit_event_mutation', 'sync_kubernetes_target_permission_mode'],
+      [
+        'advance_workspace_member_mcp_lifecycle',
+        'prevent_admin_audit_event_mutation',
+        'sync_kubernetes_target_permission_mode'
+      ],
       'only approved trigger functions may survive the migration chain'
     );
 
@@ -660,6 +837,17 @@ async function runSqlChecks(databaseUrl) {
       permissionModeTriggers.rows.map(({ tgname }) => tgname).sort(),
       ['kubernetes_target_settings_permission_mode_sync'],
       'the compatibility trigger must protect mixed-version writes'
+    );
+    const membershipLifecycleTriggers = await client.query(
+      `SELECT tgname
+       FROM pg_trigger
+       WHERE tgrelid = 'workspace_memberships'::regclass
+         AND NOT tgisinternal`
+    );
+    assert.deepEqual(
+      membershipLifecycleTriggers.rows.map(({ tgname }) => tgname).sort(),
+      ['workspace_memberships_mcp_lifecycle_transition'],
+      'every membership insert/delete must advance the MCP owner generation ledger'
     );
   } finally {
     await client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

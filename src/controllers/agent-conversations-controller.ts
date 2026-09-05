@@ -12,7 +12,9 @@ import {
   defaultAgentConversationAccessMode,
   MAX_AGENT_CONVERSATION_MESSAGE_LENGTH
 } from '../services/agent-chat.js';
+import { assertAgentMcpDestinationActive } from '../services/agent-chat-run-tools.js';
 import { CapabilityAccessDeniedError } from '../services/capability-access-errors.js';
+import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
 import { getExactMcpReadinessReport, publicMcpReadinessError } from '../services/mcp-readiness.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
@@ -36,6 +38,8 @@ import { enqueueInteractiveRunDispatch } from './run-controller-helpers.js';
 import { runRequestProvenance } from './run-actor.js';
 import { rejectUnavailableInteractiveLlm } from './interactive-llm-validation.js';
 import { acceptedMessageResponse, parseRequestedLlmSelection } from './session-llm-selection.js';
+import { mapGatewayError } from './workspaces/common.js';
+import { resolveMcpUserPrincipal } from '../services/mcp-user-principal.js';
 
 function acceptedAgentConversationMessage(messageId: string, run: Parameters<typeof acceptedMessageResponse>[1]) {
   return { ...acceptedMessageResponse(messageId, run), status: run.status };
@@ -342,11 +346,14 @@ export async function postAgentConversationMessage(req: AuthenticatedRequest, re
         retryable: false
       } });
     }
+    await assertAgentMcpDestinationActive(session.workspaceId, agent.id);
     const compiledMessage = compileAgentConversationMessage(content);
+    const principal = await resolveMcpUserPrincipal(session.workspaceId, req.auth.userId);
     const compiledScope = await compileAgentConversationRunScope({
       agent,
       actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
-      accessMode
+      accessMode,
+      principal
     });
     const readiness = await getExactMcpReadinessReport(
       session.workspaceId,
@@ -374,7 +381,7 @@ export async function postAgentConversationMessage(req: AuthenticatedRequest, re
       llmReasoningSummaryMode: llm.reasoning.summary_mode,
       llmReasoningEffort: llm.reasoning.effort,
       clientMessageId: clientRequestId || undefined,
-      principal: { type: 'user', id: req.auth.userId },
+      principal: compiledScope.principal,
       requestProvenance: runRequestProvenance(req),
       createdBy: req.auth.userId
     });
@@ -399,6 +406,12 @@ export async function postAgentConversationMessage(req: AuthenticatedRequest, re
     }
     res.status(202).json(acceptedAgentConversationMessage(created.message.id, created.run));
   } catch (error) {
+    if (error instanceof LlmGatewayHttpError) {
+      const mapped = mapGatewayError(error, {
+        upstreamMessage: 'Failed to check Agent MCP lifecycle state with llm-gateway'
+      });
+      return void res.status(mapped.status).json(mapped.body);
+    }
     if (error instanceof AgentConversationStateConflictError) {
       return void res.status(409).json({ error: {
         code: 'AGENT_CONVERSATION_CHANGED', message: error.message, retryable: true

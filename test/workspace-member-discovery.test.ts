@@ -185,8 +185,11 @@ describe('workspace member discovery controller', () => {
 
   it('binds the selected user id and email when adding an existing user', async () => {
     mock.method(repo, 'getWorkspaceRole', async () => 'owner');
+    mock.method(globalThis, 'fetch', async () => new Response(null, { status: 204 }));
+    mock.method(db, 'query', async () => ({ rowCount: 1, rows: [] }) as never);
     const add = mock.method(repo, 'addWorkspaceMember', async () => ({
       status: 'created' as const,
+      membershipGeneration: 1,
       member: {
         workspaceId: '22222222-2222-4222-8222-222222222222',
         userId: '33333333-3333-4333-8333-333333333333',

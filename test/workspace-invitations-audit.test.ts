@@ -68,6 +68,12 @@ describe('workspace invitation audit events', () => {
             }]
           };
         }
+        if (sql.includes('FROM workspace_member_mcp_lifecycle')) {
+          return { rowCount: 1, rows: [{
+            workspace_id: 'workspace-1', user_id: 'invitee-1', membership_generation: '1',
+            status: 'active', reconciliation_status: 'pending'
+          }] };
+        }
         if (sql.includes('UPDATE workspace_invitations SET status =')) {
           return { rowCount: 1, rows: [] };
         }
@@ -104,6 +110,7 @@ describe('workspace invitation audit events', () => {
     const result = await acceptWorkspaceInvitation('token-hash', 'invitee-1');
 
     assert.equal(result.status, 'accepted');
+    assert.equal(result.membershipGeneration, 1);
     assert.equal(auditParams[4], 'write');
     assert.equal(auditParams[6], 'invitee-1');
     assert.equal(JSON.parse(auditParams[12] as string).invitedBy, 'inviter-1');

@@ -1,6 +1,7 @@
 import { normalizeTargetSkillBundle } from '../../services/target-skills.js';
 import {
   getInheritedWorkspaceDefault,
+  WORKSPACE_STARTER_ENABLE_ONLY_MESSAGE,
   workspaceDefaultIdFromInheritedId
 } from '../../services/workspace-default-resolution.js';
 import { repo } from '../../store/repository.js';
@@ -66,7 +67,7 @@ export async function materializeInheritedTargetSkill(args: {
 }): Promise<{ status: number; body: unknown } | null> {
   if (!workspaceDefaultIdFromInheritedId(args.skillId)) return null;
   if (args.body.enabled !== true || Object.keys(args.body).some((key) => key !== 'enabled')) {
-    return immutable(400, 'A platform default can only be enabled; its source is managed by a platform administrator.');
+    return immutable(400, WORKSPACE_STARTER_ENABLE_ONLY_MESSAGE);
   }
   const inherited = await getInheritedWorkspaceDefault(
     args.workspaceId,
@@ -122,7 +123,7 @@ export async function materializeInheritedTargetSkill(args: {
     eventType: 'skill.created.v1',
     operation: 'write',
     skill: materialized,
-    summary: 'Platform default skill enabled'
+    summary: 'Workspace starter skill enabled'
   });
   return {
     status: 200,

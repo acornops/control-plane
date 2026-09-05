@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it, mock } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import { createSession, postMessage } from '../src/controllers/sessions-controller.js';
 import { cancelRun, decideRunApproval } from '../src/controllers/runs-controller.js';
 import {
@@ -20,12 +20,14 @@ import {
   createSessionRecord,
   createWorkspaceAiCredentialStatusResponse,
   createWebhookSubscription,
+  installMcpUserPrincipal,
   installWorkspace,
   isWorkspaceAiCredentialStatusRequest,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
 
 afterEach(restoreControllerRegressionState);
+beforeEach(() => installMcpUserPrincipal());
 
 describe('controller authorization regressions', () => {
   it('requires create_sessions to create sessions', async () => {
@@ -293,6 +295,7 @@ describe('controller authorization regressions', () => {
       if (init?.method === 'PATCH') {
         return new Response(JSON.stringify({
           name: 'get_pods',
+          server_id: 'server-1',
           mcp_server_url: 'builtin://cluster',
           timeout_ms: 10000,
           enabled: false,
@@ -315,6 +318,7 @@ describe('controller authorization regressions', () => {
       return new Response(JSON.stringify([
         {
           name: 'get_pods',
+          server_id: 'server-1',
           mcp_server_url: 'builtin://cluster',
           timeout_ms: 10000,
           enabled: true,
@@ -349,6 +353,7 @@ describe('controller authorization regressions', () => {
       return new Response(JSON.stringify([
         {
           name: 'external.lookup',
+          server_id: 'server-1',
           mcp_server_url: 'https://mcp.example.test',
           timeout_ms: 10000,
           enabled: false,

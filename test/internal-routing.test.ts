@@ -1,16 +1,21 @@
 import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterEach, describe, it } from 'node:test';
+import { afterEach, describe, it, mock } from 'node:test';
 import { createApp } from '../src/app.js';
 import { config } from '../src/config.js';
 import { gatewayTokenService } from '../src/services/token-service.js';
+import {
+  teardownMcpDestination,
+  teardownWorkspaceMcpState
+} from '../src/services/mcp-registry-client.js';
 import { repo } from '../src/store/repository.js';
 
 const originalGetRun = repo.getRun;
 
 afterEach(() => {
   repo.getRun = originalGetRun;
+  mock.restoreAll();
 });
 
 async function withTestServer<T>(run: (baseUrl: string) => Promise<T>): Promise<T> {
@@ -42,6 +47,56 @@ async function withTestServer<T>(run: (baseUrl: string) => Promise<T>): Promise<
 }
 
 describe('internal service routing', () => {
+  it('uses the dedicated service-authenticated lifecycle teardown routes', async () => {
+    const requests: Array<{ method?: string; url: URL; authorization: string | null }> = [];
+    mock.method(globalThis, 'fetch', async (input, init) => {
+      const headers = new Headers(init?.headers);
+      requests.push({
+        method: init?.method,
+        url: new URL(String(input)),
+        authorization: headers.get('authorization')
+      });
+      return new Response(null, { status: 204 });
+    });
+
+    await teardownMcpDestination('workspace-1', { kind: 'agent', id: 'agent-1' });
+    await teardownMcpDestination('workspace-1', {
+      kind: 'target', id: 'target-1', targetType: 'virtual_machine'
+    });
+    await teardownWorkspaceMcpState('workspace-1');
+
+    assert.deepEqual(requests.map((request) => ({
+      method: request.method,
+      path: request.url.pathname,
+      query: Object.fromEntries(request.url.searchParams),
+      authenticated: request.authorization === `Bearer ${config.LLM_GATEWAY_ADMIN_TOKEN}`
+    })), [
+      {
+        method: 'DELETE',
+        path: '/api/v1/internal/mcp/destinations',
+        query: { workspace_id: 'workspace-1', scope_type: 'agent', agent_id: 'agent-1' },
+        authenticated: true
+      },
+      {
+        method: 'DELETE',
+        path: '/api/v1/internal/mcp/destinations',
+        query: {
+          workspace_id: 'workspace-1',
+          scope_type: 'target',
+          target_id: 'target-1',
+          target_type: 'virtual_machine'
+        },
+        authenticated: true
+      },
+      {
+        method: 'DELETE',
+        path: '/api/v1/internal/mcp/workspaces/workspace-1',
+        query: {},
+        authenticated: true
+      }
+    ]);
+  });
+
   it('mounts automatic MCP OAuth while keeping retired credential routes absent', async () => {
     const connectionBases = [
       '/api/v1/workspaces/ws-1/targets/target-1/mcp/servers/server-1/connection',
@@ -76,6 +131,26 @@ describe('internal service routing', () => {
         callbackLocation.searchParams.get('mcpOAuthResult'),
         'MCP_OAUTH_SESSION_REQUIRED'
       );
+    });
+  });
+
+  it('does not mount workspace catalog MCP installation routes', async () => {
+    const removedRoutes = [
+      '/api/v1/workspaces/ws-1/agents/agent-1/mcp/servers/import',
+      '/api/v1/workspaces/ws-1/agents/agent-1/mcp/servers/server-1/reimport',
+      '/api/v1/workspaces/ws-1/targets/target-1/mcp/servers/import',
+      '/api/v1/workspaces/ws-1/targets/target-1/mcp/servers/server-1/reimport'
+    ];
+
+    await withTestServer(async (baseUrl) => {
+      for (const route of removedRoutes) {
+        const response = await fetch(`${baseUrl}${route}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: '{}'
+        });
+        assert.equal(response.status, 404, route);
+      }
     });
   });
 
@@ -120,7 +195,7 @@ describe('internal service routing', () => {
       targetId: 'cluster-1',
       targetType: 'kubernetes',
       sessionId: 'session-1',
-      principal: { type: 'user', id: 'user-1' },
+      principal: { type: 'user', id: 'user-1', membershipGeneration: 1 },
       allowedProviders: ['openai'],
       allowedTools: ['get_pods']
     });
@@ -166,7 +241,7 @@ describe('internal service routing', () => {
       targetId: 'cluster-1',
       targetType: 'kubernetes',
       sessionId: 'session-1',
-      principal: { type: 'user', id: 'user-1' },
+      principal: { type: 'user', id: 'user-1', membershipGeneration: 1 },
       allowedProviders: ['openai'],
       allowedTools: ['get_pods']
     });

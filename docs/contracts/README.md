@@ -42,6 +42,12 @@ The control plane owns the platform API boundary. Keep this README as a short in
   pinned public GitHub/GitLab snapshot. Bundle files are write-only at the
   Platform Admin boundary, while the source type and immutable Git metadata
   remain available for inventory and provenance.
+- Enabled Platform Admin MCP and skill definitions are copied once into a new
+  workspace as disabled workspace starters. Enabling a starter creates a
+  detached, normal workspace-owned item governed by ordinary workspace CRUD and
+  credential rules. Platform Admin never reconciles later definition changes
+  into the workspace snapshot or materialized item. This lifecycle is separate
+  from the AcornOps-owned built-in MCP bridge.
 
 - Browser clients use cookie-backed auth and CSRF protection where required.
 - The `user_sign_in_methods` platform setting selects one or both
@@ -145,9 +151,16 @@ The control plane owns the platform API boundary. Keep this README as a short in
   marked `origin=platform_native`, and derive from the same registry used by
   target-chat runtime resolution. MCP and Skills remain in their dedicated
   target inventories; internal model-only helpers are not user-visible tools.
-- Catalog browsing is destination-first: Agent and target surfaces provide one Add MCP server action with Browse registries and Connect by URL choices. Destination-bound catalog links retain their Agent or target until installation; destination-less `/catalog` links remain valid but require an explicit destination.
-- MCP registry management requires `manage_catalog_sources`. Source lists expose whether workspace-managed registries are permitted and the currently supported direct route. Deployment-managed registries are configuration-read-only but may be synchronized; workspace-managed registries may be added, probed, edited, enabled or disabled, synchronized, and deleted.
-- Source update authentication is write-only and tri-state: omission preserves the current credential, `none` removes it, and bearer/custom-header replacement requires a new credential. Source lifecycle audit events exclude credentials, headers, and URL query values. Disabling or deleting a registry never removes an installed MCP server or its pinned provenance.
+- Management Console exposes one Add MCP server action in Agent and target catalogs. Add from registry remains visible but disabled as a future placeholder; Connect by URL remains the active registration path.
+- Management Console has no workspace registry settings or catalog browser route and does not call source or artifact APIs. Public Agent and target catalog import/reimport routes are unmounted, so active MCP installations originate only from direct workspace registration or platform-managed built-in synchronization. Catalog producer storage and controllers remain available for future Platform Admin Console integration behind a new explicit boundary.
+- Individual MCP connection, OAuth, readiness, and run operations carry the
+  exact positive safe-integer `membership_generation` from the durable
+  workspace membership ledger. Insert/delete transitions advance the ledger in
+  the same database transaction; a removed generation fences before gateway
+  cleanup, and only a higher active generation can support a re-added member.
+  OAuth callbacks use the generation captured under the opaque gateway state,
+  never the member's current generation. New control-plane token issuance fails
+  closed rather than emitting an unversioned user principal.
 - Workflow mutations require a unique, non-empty `agentIds` specialist set. One
   selected Agent produces a specialist root run; two or more produce an
   AcornOps-coordinated root with delegated specialist children. Responses derive
@@ -349,7 +362,8 @@ The control plane owns the platform API boundary. Keep this README as a short in
   leases and fenced completion coordinate replicas, and leases cover the
   configured batch's worst-case same-origin drain time.
 - Execution-engine dispatch uses `Authorization: Bearer <EXECUTION_ENGINE_DISPATCH_TOKEN>`.
-- Target adapters register their live built-in tools against the configured internal bridge URL (the local deployment default is `http://control-plane:8081/internal/v1/mcp`). The server identity comes from the registered target, not a seeded workspace integration.
+- Target adapters send their authoritative built-in tool definition to the gateway's dedicated `PUT /api/v1/internal/mcp/servers/builtin` synchronization endpoint. The gateway owns the configured internal bridge URL (local default `http://control-plane:8081/internal/v1/mcp`) and fixed secret-free authentication shape; ordinary MCP CRUD may only toggle built-in server/tool enablement and cannot replace or delete platform definitions. The server identity comes from the registered target, not a seeded workspace integration.
+- Agent and target deletion call the service-token-only, idempotent gateway destination teardown before removing the local resource; workspace deletion calls the equivalent workspace teardown once, covering Agent-only and mixed-target workspaces. The gateway commits a durable terminal lifecycle tombstone before removing built-in and manual servers, credentials, tools, and related MCP state. Built-in sync, direct registration, connection, verification, OAuth, and ordinary mutation cannot recreate a fenced scope. A failed teardown retains both the gateway fence and the local control-plane resource so the public delete can be retried safely. This privileged lifecycle operation does not weaken public built-in immutability.
 - Built-in MCP tool calls use `Authorization: Bearer <run-scoped-jwt>` and derive scope from `run-scoped-jwt-claims`.
 - The built-in MCP bridge must classify calls as read or write before writing audit events.
 

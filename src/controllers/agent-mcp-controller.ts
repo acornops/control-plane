@@ -12,9 +12,10 @@ import {
   updateAgentMcpServer,
   updateAgentMcpTool
 } from '../services/mcp-registry-client.js';
-import { syncAgentMcpCapabilitySnapshot, toAgentMcpServer } from '../services/agent-mcp-capabilities.js';
+import { syncAgentMcpCapabilitySnapshot, toAgentMcpServer, toAgentMcpTool } from '../services/agent-mcp-capabilities.js';
 import {
   getInheritedWorkspaceDefault,
+  WORKSPACE_STARTER_ENABLE_ONLY_MESSAGE,
   workspaceDefaultIdFromInheritedId,
   resolveMcpServerDefaults
 } from '../services/workspace-default-resolution.js';
@@ -23,8 +24,17 @@ import {
   InvalidMcpPublicHeadersError,
   validateMcpPublicHeaders
 } from '../services/mcp-public-header-policy.js';
+import {
+  validateEffectiveMcpAuthConfig,
+  validateMcpPublicAuthHeaderCollision
+} from '../services/mcp-auth-config.js';
 import { getAgentDefinition } from '../store/repository-agents.js';
 import { toSingleParam } from '../utils/params.js';
+import {
+  mcpAuthHeaderNameSchema,
+  mcpAuthHeaderPrefixSchema,
+  remoteMcpEndpointSchema
+} from '../types/contracts.js';
 import { mapGatewayError } from './workspaces/common.js';
 
 function forward(error: unknown, res: Response, next: NextFunction): void {
@@ -50,14 +60,14 @@ function invalid(res: Response, code: string, message: string): void {
   res.status(400).json({ error: { code, message, retryable: false } });
 }
 
-const agentMcpCreateSchema = z.object({
+export const agentMcpCreateSchema = z.object({
   name: z.string().trim().min(1),
-  url: z.string().trim().min(1),
+  url: remoteMcpEndpointSchema,
   enabled: z.boolean().optional(),
   authType: z.enum(['none', 'bearer_token', 'custom_header', 'oauth']).optional(),
   credentialMode: z.enum(['none', 'workspace', 'individual']).optional(),
-  authHeaderName: z.string().min(1).optional(),
-  authHeaderPrefix: z.string().optional(),
+  authHeaderName: mcpAuthHeaderNameSchema.optional(),
+  authHeaderPrefix: mcpAuthHeaderPrefixSchema.optional(),
   publicHeaders: z.record(z.string(), z.string()).optional()
 }).strict().superRefine((value, context) => {
   const authType = value.authType || 'none';
@@ -73,7 +83,7 @@ const agentMcpCreateSchema = z.object({
   if (authType === 'custom_header' && !value.authHeaderName) {
     context.addIssue({ code: 'custom', message: 'Custom-header auth requires authHeaderName.' });
   }
-  if (authType === 'oauth' && value.credentialMode !== 'individual') {
+  if (authType === 'oauth' && value.credentialMode && value.credentialMode !== 'individual') {
     context.addIssue({ code: 'custom', message: 'OAuth requires individual credentials.' });
   }
   if (
@@ -82,16 +92,24 @@ const agentMcpCreateSchema = z.object({
   ) {
     context.addIssue({ code: 'custom', message: 'OAuth does not accept auth header fields.' });
   }
+  const publicAuthCollision = validateMcpPublicAuthHeaderCollision(
+    value.publicHeaders,
+    authType,
+    value.authHeaderName
+  );
+  if (publicAuthCollision) {
+    context.addIssue({ code: 'custom', path: ['publicHeaders'], message: publicAuthCollision });
+  }
 });
 
-const agentMcpUpdateSchema = z.object({
+export const agentMcpUpdateSchema = z.object({
   name: z.string().trim().min(1).optional(),
   enabled: z.boolean().optional(),
   expectedRevision: z.number().int().min(1).optional(),
   authType: z.enum(['none', 'bearer_token', 'custom_header', 'oauth']).optional(),
   credentialMode: z.enum(['none', 'workspace', 'individual']).optional(),
-  authHeaderName: z.string().min(1).optional(),
-  authHeaderPrefix: z.string().optional(),
+  authHeaderName: mcpAuthHeaderNameSchema.optional(),
+  authHeaderPrefix: mcpAuthHeaderPrefixSchema.optional(),
   publicHeaders: z.record(z.string(), z.string()).optional()
 }).strict().refine((value) => Object.keys(value).length > 0, 'At least one update field is required.');
 
@@ -226,7 +244,7 @@ export async function patchServer(req: AuthenticatedRequest, res: Response, next
         return void res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Enabling MCP capabilities requires manage_mcp.', retryable: false } });
       }
       if (value.enabled !== true || Object.keys(value).some((key) => !['enabled', 'expectedRevision'].includes(key))) {
-        return invalid(res, 'PLATFORM_DEFAULT_SOURCE_IMMUTABLE', 'A platform default can only be enabled; its source is managed by a platform administrator.');
+        return invalid(res, 'PLATFORM_DEFAULT_SOURCE_IMMUTABLE', WORKSPACE_STARTER_ENABLE_ONLY_MESSAGE);
       }
       const inherited = await getInheritedWorkspaceDefault(context.workspaceId, serverId, 'mcp_server', 'agents');
       if (!inherited || inherited.source.type !== 'https') {
@@ -248,7 +266,7 @@ export async function patchServer(req: AuthenticatedRequest, res: Response, next
         serverId: materialized.id,
         serverName: materialized.server_name,
         eventType: 'agent.mcp_server_created.v1',
-        summary: 'Platform default MCP server enabled on Agent',
+        summary: 'Workspace starter MCP server enabled on Agent',
         metadata: { workspaceDefaultId: inherited.id, materialized: true }
       });
       res.status(200).json({ server: toAgentMcpServer(materialized) });
@@ -269,6 +287,20 @@ export async function patchServer(req: AuthenticatedRequest, res: Response, next
         } });
       }
     }
+    const authError = validateEffectiveMcpAuthConfig({
+      authType: currentServer.auth_type,
+      credentialMode: currentServer.credential_mode,
+      headerName: currentServer.auth_header_name,
+      headerPrefix: currentServer.auth_header_prefix,
+      publicHeaders: currentServer.public_headers
+    }, {
+      authType,
+      credentialMode,
+      headerName: value.authHeaderName,
+      headerPrefix: value.authHeaderPrefix,
+      publicHeaders: value.publicHeaders
+    });
+    if (authError) return invalid(res, 'MCP_AUTH_CONFIG_INVALID', authError);
     const previousServer = credentialMode === 'individual'
       ? currentServer
       : undefined;
@@ -404,6 +436,6 @@ export async function patchTool(req: AuthenticatedRequest, res: Response, next: 
       eventType: 'agent.mcp_tool_reviewed.v1', summary: 'Agent MCP tool review updated', metadata: {
         toolName: tool.name, reviewState: tool.review_state, riskLevel: tool.risk_level, autoAllowed: tool.auto_allowed
       } });
-    res.status(200).json({ tool });
+    res.status(200).json({ tool: toAgentMcpTool(tool) });
   } catch (error) { forward(error, res, next); }
 }

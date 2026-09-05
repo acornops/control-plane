@@ -5,6 +5,18 @@ import { buildTargetSkillSchemas } from './target-skill-schemas.js';
 import { buildTargetToolPaths } from './target-tool-paths.js';
 
 const externalUserHeader = { in: 'header', name: 'x-acornops-external-user-id', required: false, schema: { type: 'string', minLength: 1, maxLength: 128 }, description: 'Required only for external integration client-token requests. Must identify a linked external integration user.' };
+const mcpAuthHeaderName = {
+  type: 'string',
+  minLength: 1,
+  maxLength: 128,
+  pattern: "^[!#$%&'*+\\-.^_`|~0-9A-Za-z]+$",
+  description: 'HTTP header token. Platform routing, hop-by-hop, and MCP transport header names are reserved.'
+};
+const mcpAuthHeaderPrefix = {
+  type: 'string',
+  maxLength: 4096,
+  description: 'Optional credential prefix. CR and LF characters are rejected.'
+};
 
 export function buildTargetPaths(exampleServerUrl: string): Record<string, unknown> {
   const {
@@ -127,7 +139,13 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
                 required: ['name', 'url'],
                 properties: {
                   name: { type: 'string', example: 'github' },
-                  url: { type: 'string', format: 'uri', example: exampleServerUrl },
+                  url: {
+                    type: 'string',
+                    format: 'uri',
+                    pattern: '^https://',
+                    description: 'Absolute HTTPS remote MCP endpoint. User info, URL fragments, and credential-like query keys are rejected.',
+                    example: exampleServerUrl
+                  },
                   enabled: { type: 'boolean', default: true },
                   publicHeaders: { type: 'object', additionalProperties: { type: 'string' } },
                   credentialMode: { type: 'string', enum: ['none', 'workspace', 'individual'], description: 'Required for authenticated installations. Defaults to individual.' },
@@ -135,8 +153,8 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
                     type: 'object',
                     properties: {
                       type: { type: 'string', enum: ['none', 'bearer_token', 'custom_header', 'oauth'], example: 'bearer_token' },
-                      headerName: { type: 'string', example: 'Authorization' },
-                      headerPrefix: { type: 'string', example: 'Bearer ' }
+                      headerName: { ...mcpAuthHeaderName, example: 'Authorization' },
+                      headerPrefix: { ...mcpAuthHeaderPrefix, example: 'Bearer ' }
                     },
                     additionalProperties: false
                   }
@@ -158,13 +176,16 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
             }
           }
         },
-        responses: { '201': { description: 'MCP server created.' } }
+        responses: {
+          '201': { description: 'MCP server created.' },
+          '409': { description: 'The target MCP lifecycle is fenced because target deletion is in progress.' }
+        }
       }
     },
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}': {
       patch: {
         tags: ['workspaces'],
-        summary: 'Update target MCP server settings and tool mappings',
+        summary: 'Update target MCP server settings',
         security: [{ userSession: [] }],
         parameters: [
           { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },
@@ -186,28 +207,10 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
                     type: 'object',
                     properties: {
                       type: { type: 'string', enum: ['none', 'bearer_token', 'custom_header', 'oauth'], example: 'bearer_token' },
-                      headerName: { type: 'string', example: 'Authorization' },
-                      headerPrefix: { type: 'string', example: 'Bearer ' }
+                      headerName: { ...mcpAuthHeaderName, example: 'Authorization' },
+                      headerPrefix: { ...mcpAuthHeaderPrefix, example: 'Bearer ' }
                     },
                     additionalProperties: false
-                  },
-                  tools: {
-                    type: 'array',
-                    items: {
-                      type: 'object',
-                      required: ['name'],
-                      properties: {
-                        name: { type: 'string', example: 'github.search_repositories' },
-                        timeoutMs: { type: 'integer', minimum: 100, maximum: 120000 },
-                        inputSchema: { type: 'object', additionalProperties: true },
-                        enabled: { type: 'boolean' }
-                      },
-                      additionalProperties: false
-                    }
-                  },
-                  removeTools: {
-                    type: 'array',
-                    items: { type: 'string', example: 'github.search_repositories' }
                   },
                   expectedRevision: { type: 'integer', minimum: 1 }
                 },
@@ -221,15 +224,16 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
                     type: 'bearer_token',
                     headerName: 'Authorization',
                     headerPrefix: 'Bearer '
-                  },
-                  tools: [{ name: 'github.search_repositories', timeoutMs: 10000, enabled: true }],
-                  removeTools: ['github.old_tool']
+                  }
                 }
               }
             }
           }
         },
-        responses: { '200': { description: 'MCP server updated.' } }
+        responses: {
+          '200': { description: 'MCP server updated.' },
+          '409': { description: 'Built-in definition is managed by AcornOps, the revision conflicts, or target deletion is in progress.' }
+        }
       },
       delete: {
         tags: ['workspaces'],
@@ -240,7 +244,10 @@ export function buildTargetPaths(exampleServerUrl: string): Record<string, unkno
           { in: 'path', name: 'targetId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_TARGET_ID } },
           { in: 'path', name: 'serverId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_MCP_SERVER_ID } }
         ],
-        responses: { '204': { description: 'MCP server deleted.' } }
+        responses: {
+          '204': { description: 'MCP server deleted.' },
+          '409': { description: 'Built-in definitions cannot be deleted through this route, or target deletion is in progress.' }
+        }
       }
     },
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/test-connection': {

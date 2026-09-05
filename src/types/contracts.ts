@@ -1,4 +1,10 @@
 import { z } from 'zod';
+import {
+  validateMcpAuthHeaderName,
+  validateMcpAuthHeaderPrefix,
+  validateMcpPublicAuthHeaderCollision
+} from '../services/mcp-auth-config.js';
+import { validateRemoteMcpEndpoint } from '../services/mcp-endpoint-policy.js';
 import { validateMcpPublicHeaders as enforceMcpPublicHeaderPolicy } from '../services/mcp-public-header-policy.js';
 import { autoTriageInstructionsFitLimit } from '../utils/auto-triage-instructions.js';
 import { TARGET_TYPES } from './domain.js';
@@ -343,46 +349,15 @@ export const adminLlmProviderDefaultDeleteSchema = z.object({
 
 const mcpAuthTypeSchema = z.enum(['none', 'bearer_token', 'custom_header', 'oauth']);
 
-const headerNamePattern = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
-const reservedHeaderNames = new Set([
-  'host',
-  'content-length',
-  'transfer-encoding',
-  'connection',
-  'upgrade',
-  'keep-alive',
-  'te',
-  'trailer',
-  'x-workspace-id',
-  'x-target-id',
-  'x-target-type',
-  'x-run-id',
-  'x-tool-name'
-]);
-function validateHeaderName(name: string, ctx: z.RefinementCtx, path: Array<string | number>): string | null {
-  if (name !== name.trim() || name.length === 0) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: 'header name must not be empty or padded' });
-    return null;
-  }
-  if (name.length > 128) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: 'header name must be 128 characters or fewer' });
-    return null;
-  }
-  if (!headerNamePattern.test(name)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: 'header name must be a valid HTTP header token' });
-    return null;
-  }
-  return name.toLowerCase();
-}
+export const mcpAuthHeaderNameSchema = z.string().superRefine((name, ctx) => {
+  const error = validateMcpAuthHeaderName(name);
+  if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, message: error });
+});
 
-function validateHeaderValue(value: string, ctx: z.RefinementCtx, path: Array<string | number>, label: string): void {
-  if (value.length > 4096) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: `${label} must be 4096 characters or fewer` });
-  }
-  if (/[\r\n]/.test(value)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: `${label} must not contain CR or LF characters` });
-  }
-}
+export const mcpAuthHeaderPrefixSchema = z.string().superRefine((prefix, ctx) => {
+  const error = validateMcpAuthHeaderPrefix(prefix);
+  if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, message: error });
+});
 
 function validateMcpPublicHeaders(headers: Record<string, string> | undefined, ctx: z.RefinementCtx): void {
   try {
@@ -399,29 +374,16 @@ function validateMcpPublicHeaders(headers: Record<string, string> | undefined, c
 const mcpAuthConfigSchema = z
   .object({
     type: mcpAuthTypeSchema.optional(),
-    headerName: z.string().min(1).optional(),
-    headerPrefix: z.string().optional()
+    headerName: mcpAuthHeaderNameSchema.optional(),
+    headerPrefix: mcpAuthHeaderPrefixSchema.optional()
   })
   .strict()
   .optional();
 
 function validateMcpAuthConfig(auth: z.infer<typeof mcpAuthConfigSchema>, ctx: z.RefinementCtx): void {
   const authType = auth?.type || 'none';
-  if (auth?.headerName) {
-    const normalized = validateHeaderName(auth.headerName, ctx, ['auth', 'headerName']);
-    if (normalized && reservedHeaderNames.has(normalized)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['auth', 'headerName'],
-        message: 'auth.headerName is reserved by the platform'
-      });
-    }
-  }
-  if (auth?.headerPrefix !== undefined) {
-    validateHeaderValue(auth.headerPrefix, ctx, ['auth', 'headerPrefix'], 'auth.headerPrefix');
-  }
   if (authType === 'none') {
-    if (auth?.headerName || auth?.headerPrefix) {
+    if (auth?.headerName !== undefined || auth?.headerPrefix !== undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['auth'],
@@ -450,9 +412,16 @@ function validateMcpAuthConfig(auth: z.infer<typeof mcpAuthConfigSchema>, ctx: z
   }
 }
 
+export const remoteMcpEndpointSchema = z.string().trim().min(1).superRefine((value, ctx) => {
+  const endpointError = validateRemoteMcpEndpoint(value);
+  if (endpointError) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: endpointError });
+  }
+});
+
 export const createMcpServerSchema = z.object({
   name: z.string().min(1),
-  url: z.string().url(),
+  url: remoteMcpEndpointSchema,
   enabled: z.boolean().optional(),
   publicHeaders: z.record(z.string()).optional(),
   credentialMode: z.enum(['none', 'workspace', 'individual']).optional(),
@@ -461,34 +430,46 @@ export const createMcpServerSchema = z.object({
   validateMcpPublicHeaders(input.publicHeaders, ctx);
   validateMcpAuthConfig(input.auth, ctx);
   const authType = input.auth?.type || 'none';
+  const publicAuthCollision = validateMcpPublicAuthHeaderCollision(
+    input.publicHeaders,
+    authType,
+    input.auth?.headerName
+  );
+  if (publicAuthCollision) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['publicHeaders'],
+      message: publicAuthCollision
+    });
+  }
   if (authType === 'none' && input.credentialMode && input.credentialMode !== 'none') {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['credentialMode'], message: 'credentialMode must be none when authentication is none' });
   }
   if (authType !== 'none' && input.credentialMode === 'none') {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['credentialMode'], message: 'authenticated MCP servers require workspace or individual credentials' });
   }
-  if (authType === 'oauth' && input.credentialMode !== 'individual') {
+  if (authType === 'oauth' && input.credentialMode && input.credentialMode !== 'individual') {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['credentialMode'], message: 'OAuth requires individual credentials' });
   }
 });
 
 export const updateMcpServerSchema = z.object({
-  url: z.string().url().optional(),
   name: z.string().min(1).optional(),
   enabled: z.boolean().optional(),
   publicHeaders: z.record(z.string()).optional(),
   credentialMode: z.enum(['none', 'workspace', 'individual']).optional(),
   expectedRevision: z.number().int().positive().optional(),
-  auth: mcpAuthConfigSchema,
-  tools: z.array(mcpToolConfigSchema).optional(),
-  removeTools: z.array(z.string().min(1)).optional()
+  auth: mcpAuthConfigSchema
 }).strict().superRefine((input, ctx) => {
   validateMcpPublicHeaders(input.publicHeaders, ctx);
   validateMcpAuthConfig(input.auth, ctx);
   if (input.auth?.type === 'oauth' && input.credentialMode && input.credentialMode !== 'individual') {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['credentialMode'], message: 'OAuth requires individual credentials' });
   }
-});
+}).refine(
+  (input) => Object.keys(input).some((key) => key !== 'expectedRevision'),
+  'At least one update field is required.'
+);
 
 export const updateTargetMcpServerToolSchema = z.object({
   enabled: z.boolean(),

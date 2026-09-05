@@ -8,7 +8,6 @@ import {
 import { isSupportedRole } from '../../auth/authorization.js';
 import { workspaceMemberDiscoveryMode } from '../../services/platform-settings.js';
 import { repo } from '../../store/repository.js';
-import { cleanupRemovedMemberMcpConnections } from '../../services/mcp-secret-cleanup-worker.js';
 import { Role, WorkspaceInvitation, WorkspaceMembership } from '../../types/domain.js';
 import { generateWorkspaceInviteToken, hashToken } from '../../utils/crypto.js';
 import { toSingleParam } from '../../utils/params.js';
@@ -24,21 +23,14 @@ import {
   serializeWorkspaceInvitation,
   serializeWorkspaceMembership
 } from './common.js';
-
-function sendUnsupportedRole(res: Response, role: string): void {
-  res.status(400).json({
-    error: {
-      code: 'ROLE_NOT_SUPPORTED',
-      message: `Workspace role is not supported by this deployment: ${role}`,
-      retryable: false
-    }
-  });
-}
-
-function roleFilterValue(role: string | undefined): Role | undefined {
-  return role && isSupportedRole(role) ? role : undefined;
-}
-
+import {
+  handleWorkspaceMemberMcpLifecycleError,
+  reconcileAcceptedWorkspaceMemberMcpLifecycle,
+  reconcileWorkspaceMemberMcpAccess,
+  retryActiveWorkspaceMemberMcpLifecycle,
+  retryRemovedWorkspaceMemberMcpLifecycle
+} from './member-mcp-lifecycle.js';
+import { roleFilterValue, sendUnsupportedRole } from './member-role-policy.js';
 const emailQuerySchema = z.string().email();
 
 export async function listWorkspaceMemberCandidates(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
@@ -196,6 +188,11 @@ export async function addWorkspaceMember(req: AuthenticatedRequest, res: Respons
       return;
     }
     if (result.status === 'already_exists') {
+      const member = await retryActiveWorkspaceMemberMcpLifecycle(workspaceId, req.body.userId);
+      if (member) {
+        res.status(200).json(serializeWorkspaceMembership(member));
+        return;
+      }
       res.status(409).json({ error: { code: 'CONFLICT', message: 'User is already a workspace member', retryable: false } });
       return;
     }
@@ -210,8 +207,17 @@ export async function addWorkspaceMember(req: AuthenticatedRequest, res: Respons
       return;
     }
 
+    await reconcileWorkspaceMemberMcpAccess({
+      workspaceId,
+      userId: result.member.userId,
+      membershipGeneration: result.membershipGeneration,
+      status: 'active'
+    });
+
     res.status(201).json(serializeWorkspaceMembership(result.member));
   } catch (err) {
+    if (handleWorkspaceMemberMcpLifecycleError(res, err,
+      'Workspace membership was saved, but MCP access activation did not complete; retry the request.')) return;
     next(err);
   }
 }
@@ -412,11 +418,19 @@ export async function acceptWorkspaceInvitation(req: AuthenticatedRequest, res: 
       return;
     }
 
+    await reconcileAcceptedWorkspaceMemberMcpLifecycle({
+      workspaceId: result.workspaceId,
+      userId: result.member.userId,
+      membershipGeneration: result.membershipGeneration
+    });
+
     res.status(200).json({
       workspaceId: result.workspaceId,
       member: serializeWorkspaceMembership(result.member)
     });
   } catch (err) {
+    if (handleWorkspaceMemberMcpLifecycleError(res, err,
+      'Workspace membership was saved, but MCP access activation did not complete; retry the request.')) return;
     next(err);
   }
 }
@@ -489,6 +503,11 @@ export async function deleteWorkspaceMember(req: AuthenticatedRequest, res: Resp
 
     const target = await repo.getWorkspaceMember(workspaceId, userId);
     if (!target) {
+      const retry = await retryRemovedWorkspaceMemberMcpLifecycle(workspaceId, userId);
+      if (retry) {
+        res.status(204).send();
+        return;
+      }
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workspace member not found', retryable: false } });
       return;
     }
@@ -505,14 +524,26 @@ export async function deleteWorkspaceMember(req: AuthenticatedRequest, res: Resp
       return;
     }
     if (result.status === 'not_found') {
+      const retry = await retryRemovedWorkspaceMemberMcpLifecycle(workspaceId, userId);
+      if (retry) {
+        res.status(204).send();
+        return;
+      }
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Workspace member not found', retryable: false } });
       return;
     }
 
-    await cleanupRemovedMemberMcpConnections(workspaceId, userId);
+    await reconcileWorkspaceMemberMcpAccess({
+      workspaceId,
+      userId,
+      membershipGeneration: result.membershipGeneration,
+      status: 'removed'
+    });
 
     res.status(204).send();
   } catch (err) {
+    if (handleWorkspaceMemberMcpLifecycleError(res, err,
+      'Workspace access was removed, but MCP user cleanup did not complete; retry the request.')) return;
     next(err);
   }
 }

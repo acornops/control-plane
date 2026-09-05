@@ -10,6 +10,7 @@ export type AutomationReadinessStatus = 'ready' | 'needs_setup' | 'blocked';
 export interface RunPrincipalRef {
   type: 'user' | 'service_identity';
   id: string;
+  membershipGeneration?: number;
 }
 
 export interface McpToolRef {

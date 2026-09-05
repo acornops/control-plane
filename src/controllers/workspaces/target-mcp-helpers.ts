@@ -2,70 +2,7 @@ import { Response } from 'express';
 import { z } from 'zod';
 
 import { McpServerConfig } from '../../services/mcp-registry-client.js';
-
-const targetMcpAuthSchema = z.object({
-  type: z.enum(['none', 'bearer_token', 'custom_header', 'oauth']),
-  headerName: z.string().min(1).optional(),
-  headerPrefix: z.string().optional()
-}).strict();
-
-const targetMcpToolSchema = z.object({
-  name: z.string().trim().min(1),
-  timeoutMs: z.number().int().min(100).max(120000).optional(),
-  description: z.string().optional(),
-  capability: z.enum(['read', 'write']).optional(),
-  version: z.string().optional(),
-  source: z.enum(['mcp', 'builtin']).optional(),
-  inputSchema: z.record(z.string(), z.unknown()).optional(),
-  outputSchema: z.record(z.string(), z.unknown()).optional(),
-  artifactPolicy: z.enum(['never', 'if_detailed', 'always']).optional(),
-  enabled: z.boolean().optional()
-}).strict();
-
-const targetMcpCreateSchema = z.object({
-  name: z.string().trim().min(1),
-  url: z.string().trim().min(1),
-  enabled: z.boolean().optional(),
-  publicHeaders: z.record(z.string(), z.string()).optional(),
-  auth: targetMcpAuthSchema.optional(),
-  credentialMode: z.enum(['none', 'workspace', 'individual']).optional()
-}).strict().superRefine((value, context) => {
-  if (value.auth?.type === 'oauth' && value.credentialMode !== 'individual') {
-    context.addIssue({ code: 'custom', message: 'OAuth requires individual credentials.' });
-  }
-  if (
-    value.auth?.type === 'oauth'
-    && (value.auth.headerName !== undefined || value.auth.headerPrefix !== undefined)
-  ) {
-    context.addIssue({ code: 'custom', message: 'OAuth does not accept auth header fields.' });
-  }
-});
-
-const targetMcpUpdateSchema = z.object({
-  name: z.string().trim().min(1).optional(),
-  url: z.string().trim().min(1).optional(),
-  enabled: z.boolean().optional(),
-  publicHeaders: z.record(z.string(), z.string()).optional(),
-  auth: targetMcpAuthSchema.optional(),
-  credentialMode: z.enum(['none', 'workspace', 'individual']).optional(),
-  tools: z.array(targetMcpToolSchema).optional(),
-  removeTools: z.array(z.string().trim().min(1)).optional(),
-  expectedRevision: z.number().int().min(1).optional()
-}).strict().superRefine((value, context) => {
-  if (
-    value.auth?.type === 'oauth'
-    && value.credentialMode
-    && value.credentialMode !== 'individual'
-  ) {
-    context.addIssue({ code: 'custom', message: 'OAuth requires individual credentials.' });
-  }
-  if (
-    value.auth?.type === 'oauth'
-    && (value.auth.headerName !== undefined || value.auth.headerPrefix !== undefined)
-  ) {
-    context.addIssue({ code: 'custom', message: 'OAuth does not accept auth header fields.' });
-  }
-}).refine((value) => Object.keys(value).length > 0, 'At least one update field is required.');
+import { createMcpServerSchema, updateMcpServerSchema } from '../../types/contracts.js';
 
 export const targetMcpToolSettingsSchema = z.object({
   enabled: z.boolean(),
@@ -73,11 +10,11 @@ export const targetMcpToolSettingsSchema = z.object({
 }).strict();
 
 export function parseTargetMcpServerCreate(value: unknown) {
-  return targetMcpCreateSchema.safeParse(value);
+  return createMcpServerSchema.safeParse(value);
 }
 
 export function parseTargetMcpServerUpdate(value: unknown) {
-  return targetMcpUpdateSchema.safeParse(value);
+  return updateMcpServerSchema.safeParse(value);
 }
 
 function respondInvalidMcpPayload(res: Response, message: string): void {

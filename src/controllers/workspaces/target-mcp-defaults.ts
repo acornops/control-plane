@@ -4,6 +4,7 @@ import {
 } from '../../services/mcp-registry-client.js';
 import {
   getInheritedWorkspaceDefault,
+  WORKSPACE_STARTER_ENABLE_ONLY_MESSAGE,
   workspaceDefaultIdFromInheritedId
 } from '../../services/workspace-default-resolution.js';
 import { TargetType } from '../../types/domain.js';
@@ -21,7 +22,7 @@ export async function materializeInheritedTargetMcp(args: {
   if (!workspaceDefaultIdFromInheritedId(args.serverId)) return null;
   const allowed = ['enabled', 'expectedRevision'];
   if (args.value.enabled !== true || Object.keys(args.body).some((key) => !allowed.includes(key))) {
-    return immutable(400, 'A platform default can only be enabled; its source is managed by a platform administrator.');
+    return immutable(400, WORKSPACE_STARTER_ENABLE_ONLY_MESSAGE);
   }
   const inherited = await getInheritedWorkspaceDefault(
     args.workspaceId,
@@ -48,7 +49,7 @@ export async function materializeInheritedTargetMcp(args: {
     targetType: args.targetType,
     eventType: 'mcp.server.created.v1',
     actorUserId: args.actorUserId,
-    summary: 'Platform default MCP server enabled',
+    summary: 'Workspace starter MCP server enabled',
     server: materialized
   });
   return {

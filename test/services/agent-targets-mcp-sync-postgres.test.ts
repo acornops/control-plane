@@ -19,6 +19,27 @@ afterEach(() => {
 after(closeAutomationDatabaseFixtures);
 
 describe('Agent Targets MCP synchronization', () => {
+  it('treats a gateway lifecycle fence as a terminal no-resync result', async () => {
+    const gateway = mock.method(globalThis, 'fetch', async (input, init) => {
+      const url = String(input);
+      if (url.includes('/api/v1/internal/mcp/servers?') && init?.method === 'GET') {
+        return Response.json({ detail: {
+          code: 'MCP_LIFECYCLE_FENCED',
+          message: 'MCP lifecycle teardown is in progress for this destination.',
+          retryable: false
+        } }, { status: 409 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
+
+    const result = await syncAgentTargetsBuiltInTools('workspace-1', 'agent-cluster-triage');
+
+    assert.equal(result.ok, false);
+    assert.equal(result.terminal, true);
+    assert.equal(result.error, 'MCP_LIFECYCLE_FENCED');
+    assert.ok(gateway.mock.calls.every((call) => call.arguments[1]?.method === 'GET'));
+  });
+
   it('creates one built-in Agent server and snapshots its three tools', async () => {
     const before = await getAgentDefinition('workspace-1', 'agent-cluster-triage');
     assert.ok(before);
@@ -90,47 +111,25 @@ describe('Agent Targets MCP synchronization', () => {
         listCount += 1;
         return Response.json(listCount === 1 ? [] : [server]);
       }
-      if (url.endsWith('/api/v1/internal/mcp/servers') && method === 'POST') {
+      if (url.endsWith('/api/v1/internal/mcp/servers/builtin') && method === 'PUT') {
         const requestedTools = body?.tools as Array<Record<string, unknown>>;
-        server = {
-          ...server,
-          server_name: String(body?.server_name),
-          server_url: String(body?.server_url),
-          tools: requestedTools.map((tool, index) => ({
-            ...tool,
-            server_id: server.id,
-            model_alias: server.tools[index].model_alias,
-            mcp_server_url: server.server_url
-          }))
-        };
-        return Response.json(server, { status: 201 });
-      }
-      if (url.includes(`/api/v1/internal/mcp/servers/${server.id}?`) && method === 'PATCH') {
-        const removeTools = new Set((body?.remove_tools || []) as string[]);
-        const requestedTools = body?.tools as Array<Record<string, unknown>> | undefined;
         const aliases = new Map(server.tools.map((tool) => [tool.name, tool.model_alias]));
         server = {
           ...server,
-          server_name: typeof body?.server_name === 'string' ? body.server_name : server.server_name,
-          server_url: typeof body?.server_url === 'string' ? body.server_url : server.server_url,
-          auth_type: typeof body?.auth_type === 'string' ? body.auth_type : server.auth_type,
-          credential_mode: typeof body?.credential_mode === 'string'
-            ? body.credential_mode
-            : server.credential_mode,
-          auth_header_name: body?.auth_type === 'none' ? null : server.auth_header_name,
-          auth_header_prefix: body?.auth_type === 'none' ? null : server.auth_header_prefix,
-          public_headers: body?.public_headers !== undefined
-            ? body.public_headers as Record<string, string>
-            : server.public_headers,
-          revision: server.revision + 1,
-          tools: requestedTools
-            ? requestedTools.map((tool) => ({
-                ...tool,
-                server_id: server.id,
-                model_alias: aliases.get(String(tool.name)) || String(tool.name),
-                mcp_server_url: server.server_url
-              }))
-            : server.tools.filter((tool) => !removeTools.has(tool.name))
+          server_name: String(body?.server_name),
+          server_url: 'http://control-plane:8081/internal/v1/mcp',
+          auth_type: 'none',
+          credential_mode: 'none',
+          auth_header_name: null,
+          auth_header_prefix: null,
+          public_headers: {},
+          revision: listCount === 1 ? server.revision : server.revision + 1,
+          tools: requestedTools.map((tool, index) => ({
+            ...tool,
+            server_id: server.id,
+            model_alias: aliases.get(String(tool.name)) || server.tools[index]?.model_alias || String(tool.name),
+            mcp_server_url: server.server_url
+          }))
         };
         return Response.json(server);
       }
@@ -141,7 +140,7 @@ describe('Agent Targets MCP synchronization', () => {
 
     assert.equal(result.ok, true);
     assert.equal(result.registeredToolCount, 3);
-    const create = requests.find((request) => request.method === 'POST');
+    const create = requests.find((request) => request.method === 'PUT');
     assert.ok(create);
     assert.equal(create.body?.scope_type, 'agent');
     assert.equal(create.body?.agent_id, 'agent-cluster-triage');
@@ -160,13 +159,13 @@ describe('Agent Targets MCP synchronization', () => {
     );
     assert.equal(synced?.readiness.status, 'ready');
 
-    const patchCountBeforeNoOp = requests.filter((request) => request.method === 'PATCH').length;
+    const syncCountBeforeNoOp = requests.filter((request) => request.method === 'PUT').length;
     const noOp = await syncAgentTargetsBuiltInTools('workspace-1', 'agent-cluster-triage');
     assert.equal(noOp.ok, true);
     assert.equal(noOp.agent?.updatedAt, synced?.updatedAt);
     assert.equal(
-      requests.filter((request) => request.method === 'PATCH').length,
-      patchCountBeforeNoOp
+      requests.filter((request) => request.method === 'PUT').length,
+      syncCountBeforeNoOp
     );
 
     const drifted = await updateAgentDefinition('workspace-1', 'agent-cluster-triage', {
@@ -181,8 +180,8 @@ describe('Agent Targets MCP synchronization', () => {
     assert.notEqual(driftRepair.agent?.updatedAt, drifted.updatedAt);
     assert.equal(driftRepair.agent?.mcpInstallations[0]?.name, AGENT_TARGETS_MCP_SERVER_NAME);
     assert.equal(
-      requests.filter((request) => request.method === 'PATCH').length,
-      patchCountBeforeNoOp
+      requests.filter((request) => request.method === 'PUT').length,
+      syncCountBeforeNoOp
     );
 
     server.tools.push({
@@ -194,8 +193,12 @@ describe('Agent Targets MCP synchronization', () => {
     const repaired = await syncAgentTargetsBuiltInTools('workspace-1', 'agent-cluster-triage');
     assert.equal(repaired.ok, true);
     assert.deepEqual(repaired.removedTools, ['rogue_tool']);
-    const repairRequest = requests.find((request) => request.method === 'PATCH');
-    assert.deepEqual(repairRequest?.body?.remove_tools, ['rogue_tool']);
+    const repairRequest = requests.filter((request) => request.method === 'PUT').at(-1);
+    assert.equal(repairRequest?.body?.server_id, server.id);
+    assert.equal(
+      (repairRequest?.body?.tools as Array<{ name: string }>).some((tool) => tool.name === 'rogue_tool'),
+      false
+    );
 
     Object.assign(server, {
       auth_type: 'bearer_token',
@@ -206,10 +209,11 @@ describe('Agent Targets MCP synchronization', () => {
     });
     const authRepair = await syncAgentTargetsBuiltInTools('workspace-1', 'agent-cluster-triage');
     assert.equal(authRepair.ok, true);
-    const authRepairRequest = requests.filter((request) => request.method === 'PATCH').at(-1);
-    assert.equal(authRepairRequest?.body?.auth_type, 'none');
-    assert.equal(authRepairRequest?.body?.credential_mode, 'none');
-    assert.deepEqual(authRepairRequest?.body?.public_headers, {});
+    const authRepairRequest = requests.filter((request) => request.method === 'PUT').at(-1);
+    assert.equal(authRepairRequest?.body?.server_id, server.id);
+    assert.equal(authRepairRequest?.body?.auth_type, undefined);
+    assert.equal(authRepairRequest?.body?.credential_mode, undefined);
+    assert.equal(authRepairRequest?.body?.public_headers, undefined);
     assert.equal(server.auth_type, 'none');
     assert.equal(server.credential_mode, 'none');
     assert.equal(server.auth_header_name, null);

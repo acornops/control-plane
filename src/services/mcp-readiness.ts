@@ -1,4 +1,5 @@
 import type { RunPrincipalRef } from '../types/agents.js';
+import { resolveMcpUserPrincipal } from './mcp-user-principal.js';
 import type { CompiledWorkflowAccessScope } from '../types/workflows.js';
 import {
   checkMcpReadiness,
@@ -185,7 +186,9 @@ export async function getWorkflowCapabilityReadinessReport(
       candidate.serverId === ref.serverId && candidate.toolName === ref.toolName
     )) === index);
   const principal = context.principal
-    || (context.actorUserId ? { type: 'user' as const, id: context.actorUserId } : undefined);
+    || (context.actorUserId
+      ? await resolveMcpUserPrincipal(workspaceId, context.actorUserId)
+      : undefined);
   if (!principal && exactToolRefs.length > 0) {
     return {
       errors: ['MCP_INDIVIDUAL_USER_PRINCIPAL_REQUIRED: exact MCP tools require a run principal.'],
@@ -218,9 +221,10 @@ export async function getTargetMcpConnectionReadinessReport(
   actorUserId: string,
   refs: Array<{ serverId: string; toolName: string }>
 ): Promise<McpReadinessReport> {
+  const principal = await resolveMcpUserPrincipal(workspaceId, actorUserId);
   return getExactMcpReadinessReport(
     workspaceId,
-    { type: 'user', id: actorUserId },
+    principal,
     refs
   );
 }

@@ -273,10 +273,15 @@ describe('agents controller', () => {
 
   it('deletes only unassigned custom agents', async () => {
     installWorkspace('admin');
+    const lifecycleRequests: URL[] = [];
     mock.method(globalThis, 'fetch', async (input, init) => {
       const url = new URL(String(input));
       if (url.pathname === '/api/v1/internal/mcp/servers' && init?.method === 'GET') {
         return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (url.pathname === '/api/v1/internal/mcp/destinations' && init?.method === 'DELETE') {
+        lifecycleRequests.push(url);
+        return new Response(null, { status: 204 });
       }
       return new Response('unexpected request', { status: 500 });
     });
@@ -293,12 +298,64 @@ describe('agents controller', () => {
       { workspaceId: 'workspace-1' }
     ));
     assert.equal(deleted.statusCode, 204);
+    assert.equal(lifecycleRequests.length, 1);
+    assert.deepEqual(Object.fromEntries(lifecycleRequests[0].searchParams), {
+      workspace_id: 'workspace-1',
+      scope_type: 'agent',
+      agent_id: agentId
+    });
 
     const fetched = await callController(getAgent, createRequest(
       { agentId },
       { workspaceId: 'workspace-1' }
     ));
     assert.equal(fetched.statusCode, 404);
+  });
+
+  it('keeps an Agent locally present after teardown failure and completes an idempotent retry', async () => {
+    installWorkspace('admin');
+    let teardownAttempts = 0;
+    mock.method(globalThis, 'fetch', async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/v1/internal/mcp/servers' && init?.method === 'GET') {
+        return Response.json([]);
+      }
+      if (url.pathname === '/api/v1/internal/mcp/destinations' && init?.method === 'DELETE') {
+        teardownAttempts += 1;
+        return teardownAttempts === 1
+          ? Response.json({ detail: {
+              code: 'MCP_LIFECYCLE_TEARDOWN_FAILED',
+              message: 'MCP lifecycle teardown did not complete; retry the request.',
+              retryable: true
+            } }, { status: 503 })
+          : new Response(null, { status: 204 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
+    const created = await callController(createAgent, createRequest(
+      { workspaceId: 'workspace-1' },
+      { name: 'Retryable helper', instructions: 'Handle temporary work.' }
+    ));
+    const agentId = (created.body as { agent: { id: string } }).agent.id;
+
+    const failed = await callController(deleteAgent, createRequest(
+      { agentId },
+      { workspaceId: 'workspace-1' }
+    ));
+    assert.equal(failed.statusCode, 503);
+    assert.equal((failed.body as { error: { code: string } }).error.code, 'MCP_LIFECYCLE_TEARDOWN_FAILED');
+    const retained = await callController(getAgent, createRequest(
+      { agentId },
+      { workspaceId: 'workspace-1' }
+    ));
+    assert.equal(retained.statusCode, 200);
+
+    const retried = await callController(deleteAgent, createRequest(
+      { agentId },
+      { workspaceId: 'workspace-1' }
+    ));
+    assert.equal(retried.statusCode, 204);
+    assert.equal(teardownAttempts, 2);
   });
 
   it('blocks deleting agents still assigned to workflows', async () => {

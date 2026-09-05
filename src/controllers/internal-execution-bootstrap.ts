@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { NextFunction, Request, Response } from 'express';
 import { config } from '../config.js';
+import { signRunScopeTokenForCurrentPrincipal } from '../services/current-principal-token.js';
 import { LlmGatewayHttpError } from '../services/mcp-registry-client.js';
 import { isModelAllowedForProvider } from '../services/llm-policy.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
 import { WEB_SEARCH_TOOL_ID } from '../services/provider-native-tool-ids.js';
-import { gatewayTokenService } from '../services/token-service.js';
 import { workflowRunAgentClaims } from '../services/workflow-run-agent-claims.js';
 import { repo } from '../store/repository.js';
 import { getWorkflowRun, getWorkflowSession, WorkflowRunRecord } from '../store/repository-workflows.js';
@@ -162,7 +162,19 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
   }
   allowedToolNames = [...new Set(allowedToolNames)];
 
-  const workflowPrincipal = run.compiledAccessScope.principal || { type: 'user' as const, id: session.createdBy };
+  const workflowPrincipal = run.compiledAccessScope.principal;
+  if (!workflowPrincipal || (
+    workflowPrincipal.type === 'user'
+    && (!Number.isSafeInteger(workflowPrincipal.membershipGeneration)
+      || workflowPrincipal.membershipGeneration! <= 0)
+  )) {
+    res.status(409).json({ error: {
+      code: 'RUN_PRINCIPAL_MISSING',
+      message: 'This Workflow run does not have a generation-bound pinned principal.',
+      retryable: false
+    } });
+    return;
+  }
   const commonTokenClaims = {
     runId: run.id,
     workspaceId: run.workspaceId,
@@ -178,7 +190,7 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     maxOutputTokens,
     allowedModels
   };
-  const token = await gatewayTokenService.signRunScopeToken({
+  const tokenResult = await signRunScopeTokenForCurrentPrincipal({
     ...commonTokenClaims,
     scopeType: 'workspace',
     workflowId: run.workflowId,
@@ -188,6 +200,15 @@ async function bootstrapWorkflowRun(run: WorkflowRunRecord, res: Response): Prom
     agentId: agentClaims.agentId,
     triggerId: agentClaims.triggerId
   });
+  if (!tokenResult.current) {
+    res.status(409).json({ error: {
+      code: 'MCP_USER_LIFECYCLE_STALE',
+      message: 'The run principal membership generation is no longer active.',
+      retryable: false
+    } });
+    return;
+  }
+  const token = tokenResult.token;
 
   const snapshot = {
     contract_version: 2,

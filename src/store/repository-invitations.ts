@@ -16,6 +16,7 @@ import {
 } from './repository-mappers.js';
 import { withTransaction } from './repository-transaction.js';
 import { insertWorkspaceAuditEvent } from './repository-audit-events.js';
+import { readWorkspaceMemberMcpLifecycleInTransaction } from './repository-mcp-user-lifecycle.js';
 import { assertWorkspaceMemberQuota, assertWorkspaceMembershipQuota } from './repository-quotas.js';
 
 export async function createWorkspaceInvitation(
@@ -356,11 +357,18 @@ export async function acceptWorkspaceInvitation(tokenHash: string, userId: strin
       action: 'member_added',
       nextRole: invitation.role
     });
+    const lifecycle = await readWorkspaceMemberMcpLifecycleInTransaction(
+      client,
+      invitation.workspace_id,
+      userId,
+      'active'
+    );
 
     return {
       status: 'accepted',
       member: mapWorkspaceMembership(membershipResult.rows[0]),
-      workspaceId: invitation.workspace_id
+      workspaceId: invitation.workspace_id,
+      membershipGeneration: lifecycle.membershipGeneration
     };
   });
 }

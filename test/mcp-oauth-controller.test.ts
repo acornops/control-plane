@@ -13,6 +13,7 @@ import {
   callController,
   createRequest,
   createResponse,
+  installMcpUserLifecycleDatabase,
   installWorkspace,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
@@ -37,6 +38,7 @@ function oauthServer() {
 beforeEach(() => {
   config.MCP_OAUTH_ENABLED = true;
   installWorkspace('operator');
+  installMcpUserLifecycleDatabase({ membershipGeneration: 7 });
 });
 
 afterEach(() => {
@@ -82,6 +84,7 @@ describe('MCP OAuth controllers', () => {
     const forwarded = requests[1].body || {};
     assert.equal(forwarded.workspace_id, 'workspace-1');
     assert.equal(forwarded.owner_id, 'user-1');
+    assert.equal(forwarded.membership_generation, 7);
     assert.match(String(forwarded.browser_binding_hash), /^[0-9a-f]{64}$/);
     assert.equal(JSON.stringify(forwarded).includes('credential'), false);
     assert.deepEqual(response.body, {
@@ -144,6 +147,7 @@ describe('MCP OAuth controllers', () => {
       }
       return new Response(JSON.stringify({
         authorization_url: 'https://auth.example/authorize?opaque=1',
+        state: 's'.repeat(43),
         metadata_changed: true
       }), { status: 200 });
     });
@@ -187,8 +191,16 @@ describe('MCP OAuth controllers', () => {
   });
 
   it('completes the callback using the canonical console origin, not request headers', async () => {
+    restoreControllerRegressionState();
+    installWorkspace('operator');
+    const transactionEvents: string[] = [];
+    installMcpUserLifecycleDatabase({ membershipGeneration: 7, transactionEvents });
     const binding = 'b'.repeat(43);
-    mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({
+    let completionBody: Record<string, unknown> | undefined;
+    mock.method(globalThis, 'fetch', async (_input, init) => {
+      assert.ok(transactionEvents.includes('COMMIT'), 'local callback admission must commit before gateway I/O');
+      completionBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(JSON.stringify({
       connection: {
         server_id: 'server-agent-1',
         credential_mode: 'individual',
@@ -201,7 +213,8 @@ describe('MCP OAuth controllers', () => {
       return_path: '/workspaces/workspace-1/agents/agent-1/mcp',
       workspace_id: 'workspace-1',
       server_id: 'server-agent-1'
-    }), { status: 200 }));
+      }), { status: 200 });
+    });
     const request = createRequest({});
     request.query = {
       state: 's'.repeat(43),
@@ -220,6 +233,61 @@ describe('MCP OAuth controllers', () => {
     assert.equal(redirect.origin, new URL(config.MANAGEMENT_CONSOLE_BASE_URL).origin);
     assert.equal(redirect.pathname, '/workspaces/workspace-1/agents/agent-1/mcp');
     assert.equal(redirect.searchParams.get('mcpOAuthResult'), 'connected');
+    assert.equal(redirect.searchParams.get('mcpOAuthServerId'), 'server-agent-1');
+    assert.equal(completionBody?.membership_generation, 7);
+  });
+
+  it('keeps an old OAuth flow bound to its captured generation after remove and re-add', async () => {
+    restoreControllerRegressionState();
+    installWorkspace('operator');
+    installMcpUserLifecycleDatabase({
+      membershipGeneration: 8,
+      correlationMembershipGeneration: 7
+    });
+    let completionBody: Record<string, unknown> | undefined;
+    const gateway = mock.method(globalThis, 'fetch', async (_input, init) => {
+      completionBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return Response.json({ detail: {
+        code: 'MCP_USER_LIFECYCLE_STALE',
+        message: 'The workspace membership generation is no longer active.',
+        retryable: false
+      } }, { status: 409 });
+    });
+    const request = createRequest({});
+    request.query = { state: 's'.repeat(43), code: 'old-authorization-code' } as never;
+    request.cookies['acornops-mcp-oauth-binding'] = 'b'.repeat(43);
+
+    const response = await callController(completeMcpOAuthCallback, request);
+    const redirect = new URL(response.redirectLocation || '');
+
+    assert.equal(completionBody, undefined);
+    assert.equal(gateway.mock.callCount(), 0);
+    assert.equal(redirect.searchParams.get('mcpOAuthResult'), 'MCP_USER_LIFECYCLE_STALE');
+    assert.equal(redirect.searchParams.get('mcpOAuthServerId'), 'server-agent-1');
+  });
+
+  it('consumes an OAuth callback without gateway mutation after membership removal', async () => {
+    restoreControllerRegressionState();
+    installWorkspace('operator');
+    installMcpUserLifecycleDatabase({
+      membershipGeneration: 8,
+      correlationMembershipGeneration: 7,
+      lifecycleStatus: 'removed',
+      membershipPresent: false
+    });
+    const gateway = mock.method(globalThis, 'fetch', async () => {
+      throw new Error('a removed member callback must not reach the gateway');
+    });
+    const request = createRequest({});
+    request.query = { state: 's'.repeat(43), code: 'old-authorization-code' } as never;
+    request.cookies['acornops-mcp-oauth-binding'] = 'b'.repeat(43);
+
+    const response = await callController(completeMcpOAuthCallback, request);
+    const redirect = new URL(response.redirectLocation || '');
+
+    assert.equal(gateway.mock.callCount(), 0);
+    assert.equal(redirect.searchParams.get('mcpOAuthResult'), 'MCP_USER_LIFECYCLE_STALE');
+    assert.equal(redirect.searchParams.get('mcpOAuthServerId'), 'server-agent-1');
   });
 
   it('returns a stable callback error without forwarding provider descriptions', async () => {
@@ -245,10 +313,9 @@ describe('MCP OAuth controllers', () => {
     const response = await callController(completeMcpOAuthCallback, request);
 
     assert.equal(response.statusCode, 303);
-    assert.equal(
-      new URL(response.redirectLocation || '').searchParams.get('mcpOAuthResult'),
-      'MCP_OAUTH_AUTHORIZATION_DENIED'
-    );
+    const redirect = new URL(response.redirectLocation || '');
+    assert.equal(redirect.searchParams.get('mcpOAuthResult'), 'MCP_OAUTH_AUTHORIZATION_DENIED');
+    assert.equal(redirect.searchParams.get('mcpOAuthServerId'), 'server-agent-1');
     assert.equal((response.redirectLocation || '').includes('sensitive'), false);
   });
 
@@ -274,10 +341,9 @@ describe('MCP OAuth controllers', () => {
     const response = await callController(completeMcpOAuthCallback, request);
 
     assert.equal(response.statusCode, 303);
-    assert.equal(
-      new URL(response.redirectLocation || '').searchParams.get('mcpOAuthResult'),
-      'MCP_ENDPOINT_NOT_FOUND'
-    );
+    const redirect = new URL(response.redirectLocation || '');
+    assert.equal(redirect.searchParams.get('mcpOAuthResult'), 'MCP_ENDPOINT_NOT_FOUND');
+    assert.equal(redirect.searchParams.get('mcpOAuthServerId'), 'server-agent-1');
     assert.equal((response.redirectLocation || '').includes('provider'), false);
   });
 
@@ -301,5 +367,31 @@ describe('MCP OAuth controllers', () => {
       'MCP_OAUTH_CALLBACK_INVALID'
     );
     assert.equal(gateway.mock.callCount(), 0);
+  });
+
+  it('ignores malformed gateway server IDs and uses the trusted callback correlation', async () => {
+    mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({
+      detail: {
+        code: 'MCP_OAUTH_AUTHORIZATION_DENIED',
+        message: 'Authorization was denied.',
+        retryable: false,
+        return_path: '/workspaces/workspace-1/agents/agent-1/mcp',
+        workspace_id: 'workspace-1',
+        server_id: 'server-agent-1?result=spoofed'
+      }
+    }), { status: 409 }));
+    const request = createRequest({});
+    request.query = {
+      state: 's'.repeat(43),
+      error: 'access_denied'
+    } as never;
+    request.cookies['acornops-mcp-oauth-binding'] = 'b'.repeat(43);
+
+    const response = await callController(completeMcpOAuthCallback, request);
+    const redirect = new URL(response.redirectLocation || '');
+
+    assert.equal(response.statusCode, 303);
+    assert.equal(redirect.searchParams.get('mcpOAuthResult'), 'MCP_OAUTH_AUTHORIZATION_DENIED');
+    assert.equal(redirect.searchParams.get('mcpOAuthServerId'), 'server-agent-1');
   });
 });

@@ -46,12 +46,31 @@ describe('Agent Targets MCP server', () => {
       id: 'server-1', workspace_id: 'workspace-1', scope_type: 'agent', agent_id: 'agent-1',
       target_id: 'agent-1', target_type: 'agent', server_name: AGENT_TARGETS_MCP_SERVER_NAME,
       server_url: 'http://control-plane:8081/internal/v1/mcp', enabled: true, auth_type: 'none',
-      credential_mode: 'none', provenance_type: 'builtin', revision: 1, tools: []
+      credential_mode: 'none', provenance_type: 'builtin', revision: 1, tools: [{
+        name: 'list_targets', server_id: 'server-1', model_alias: 'targets_list_targets',
+        mcp_server_url: 'http://control-plane:8081/internal/v1/mcp', timeout_ms: 10_000,
+        description: 'List targets', input_schema: { type: 'object' },
+        output_schema: { type: 'object' }, capability: 'read', enabled: true,
+        review_state: 'approved', risk_level: 'read_only', auto_allowed: false
+      }]
     });
     assert.equal(mapped.isSystem, true);
     assert.equal(mapped.canDelete, false);
     assert.equal(mapped.canEditConnection, false);
     assert.equal(mapped.canToggle, true);
+    assert.deepEqual(mapped.tools[0], {
+      name: 'list_targets',
+      serverId: 'server-1',
+      alias: 'targets_list_targets',
+      description: 'List targets',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+      capability: 'read',
+      enabled: true,
+      reviewState: 'approved',
+      riskLevel: 'read_only',
+      autoAllowed: false
+    });
   });
 
   it('lists the full workspace target inventory when the Agent allows all targets', async () => {

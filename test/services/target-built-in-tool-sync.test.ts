@@ -10,7 +10,7 @@ afterEach(() => {
 });
 
 describe('syncTargetBuiltInTools', () => {
-  it('preserves AgentV-advertised tool capabilities during built-in sync', async () => {
+  it('preserves AgentV-advertised tool capabilities and ignores workspace-owned MCP servers during built-in sync', async () => {
     mock.method(agentGateway, 'listAgentTools', async () => [
       {
         name: 'restart_service',
@@ -46,12 +46,23 @@ describe('syncTargetBuiltInTools', () => {
     mock.method(globalThis, 'fetch', async (input, init) => {
       const url = String(input);
       if (url.includes('/api/v1/internal/mcp/servers?')) {
-        return new Response(JSON.stringify([]), { status: 200 });
+        return new Response(JSON.stringify([{
+          id: 'workspace-server-1',
+          workspace_id: 'ws-1',
+          target_id: 'vm-1',
+          target_type: 'virtual_machine',
+          server_name: 'Workspace MCP',
+          server_url: 'https://mcp.example.test',
+          provenance_type: 'manual',
+          enabled: true,
+          auth_type: 'none',
+          tools: []
+        }]), { status: 200 });
       }
       if (url.includes('/api/v1/internal/mcp/tools?')) {
         return new Response(JSON.stringify([]), { status: 200 });
       }
-      if (url.endsWith('/api/v1/internal/mcp/servers') && init?.method === 'POST') {
+      if (url.endsWith('/api/v1/internal/mcp/servers/builtin') && init?.method === 'PUT') {
         createdBody = JSON.parse(String(init.body));
         return new Response(JSON.stringify({
           id: 'server-1',
@@ -76,6 +87,7 @@ describe('syncTargetBuiltInTools', () => {
     assert.equal(result.registeredToolCount, 2);
     assert.equal(createdBody?.target_type, 'virtual_machine');
     assert.equal(createdBody?.server_name, config.BUILTIN_TARGET_MCP_SERVER_NAME);
+    assert.equal(createdBody?.server_id, undefined);
     const tools = createdBody?.tools as Array<Record<string, unknown>>;
     assert.equal(tools.some((tool) => tool.name === '_acornops_load_skill'), false);
     assert.equal(tools.find((tool) => tool.name === 'restart_service')?.capability, 'write');
@@ -116,6 +128,31 @@ describe('syncTargetBuiltInTools', () => {
     assert.match(result.error || '', /gateway down|llm-gateway request failed/);
   });
 
+  it('treats a lifecycle fence as terminal and does not attempt built-in mutation', async () => {
+    mock.method(agentGateway, 'listAgentTools', async () => [{
+      name: 'query_logs', description: 'Read logs', capability: 'read' as const,
+      inputSchema: { type: 'object' }, outputSchema: { type: 'object' }, artifactPolicy: 'never' as const
+    }]);
+    const gateway = mock.method(globalThis, 'fetch', async (input, init) => {
+      const url = String(input);
+      if (url.includes('/api/v1/internal/mcp/servers?') && init?.method === 'GET') {
+        return Response.json({ detail: {
+          code: 'MCP_LIFECYCLE_FENCED',
+          message: 'MCP lifecycle teardown is in progress for this destination.',
+          retryable: false
+        } }, { status: 409 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
+
+    const result = await syncTargetBuiltInTools('ws-1', 'vm-1', 'virtual_machine');
+
+    assert.equal(result.ok, false);
+    assert.equal(result.terminal, true);
+    assert.equal(result.error, 'MCP_LIFECYCLE_FENCED');
+    assert.ok(gateway.mock.calls.every((call) => call.arguments[1]?.method === 'GET'));
+  });
+
   it('rotates built-in URL and name on the same server while reconciling AgentK tools', async () => {
     mock.method(agentGateway, 'listAgentTools', async () => [
       {
@@ -140,12 +177,12 @@ describe('syncTargetBuiltInTools', () => {
       }
       if (url.includes('/api/v1/internal/mcp/tools?')) {
         return new Response(JSON.stringify([
-          { name: 'list_resources', mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL, timeout_ms: 10000, source: 'builtin', enabled: true },
-          { name: 'apply_remediation', mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL, timeout_ms: 10000, source: 'builtin', enabled: true },
-          { name: 'simulate_patch', mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL, timeout_ms: 10000, source: 'builtin', enabled: true }
+          { name: 'list_resources', server_id: 'builtin-1', mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL, timeout_ms: 10000, source: 'builtin', enabled: false },
+          { name: 'apply_remediation', server_id: 'builtin-1', mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL, timeout_ms: 10000, source: 'builtin', enabled: true },
+          { name: 'simulate_patch', server_id: 'builtin-1', mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL, timeout_ms: 10000, source: 'builtin', enabled: true }
         ]), { status: 200 });
       }
-      if (url.includes('/api/v1/internal/mcp/servers/builtin-1?') && init?.method === 'PATCH') {
+      if (url.endsWith('/api/v1/internal/mcp/servers/builtin') && init?.method === 'PUT') {
         patchBody = JSON.parse(String(init.body));
         return new Response(JSON.stringify({
           id: 'builtin-1', workspace_id: 'ws-1', target_id: 'cluster-1', target_type: 'kubernetes',
@@ -162,9 +199,11 @@ describe('syncTargetBuiltInTools', () => {
     assert.deepEqual(result.addedTools, ['patch_resource']);
     assert.deepEqual(result.removedTools, ['apply_remediation', 'simulate_patch']);
     assert.equal(patchBody?.server_name, config.BUILTIN_TARGET_MCP_SERVER_NAME);
-    assert.equal(patchBody?.server_url, config.BUILTIN_TARGET_MCP_SERVER_URL);
-    assert.deepEqual(patchBody?.remove_tools, ['apply_remediation', 'simulate_patch']);
+    assert.equal(patchBody?.server_id, 'builtin-1');
+    assert.equal(patchBody?.server_url, undefined);
+    assert.equal(patchBody?.remove_tools, undefined);
     const tools = patchBody?.tools as Array<Record<string, unknown>>;
+    assert.equal(tools.find((tool) => tool.name === 'list_resources')?.enabled, false);
     assert.equal(tools.find((tool) => tool.name === 'patch_resource')?.review_state, 'approved');
     assert.equal(tools.find((tool) => tool.name === 'patch_resource')?.risk_level, 'non_destructive_write');
     assert.equal(tools.find((tool) => tool.name === 'patch_resource')?.auto_allowed, true);

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it, mock } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import { getTargetAssistantCapabilitiesPreview } from '../src/controllers/workspaces/target-assistant-preview-controller.js';
 import { repo } from '../src/store/repository.js';
 import {
   callController,
   createRequest,
   createTarget,
+  installMcpUserPrincipal,
   installWorkspace,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
@@ -16,6 +17,7 @@ import {
 } from './helpers/target-run-tool-resolution-fixtures.js';
 
 afterEach(restoreControllerRegressionState);
+beforeEach(() => installMcpUserPrincipal());
 
 describe('target assistant capabilities preview controller', () => {
   it('returns the shared resolver preview for an allowed target run mode', async () => {

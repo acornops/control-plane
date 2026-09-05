@@ -6,7 +6,6 @@ import { getAutomationDiagnostics } from '../controllers/automation-diagnostics-
 import * as agentMcpController from '../controllers/agent-mcp-controller.js';
 import * as mcpConnectionsController from '../controllers/mcp-connections-controller.js';
 import * as mcpOAuthController from '../controllers/mcp-oauth-controller.js';
-import { importAgentCatalogMcpServer, reimportAgentCatalogMcpServer } from '../controllers/catalog-controller.js';
 import * as agentSkillsController from '../controllers/agent-skills-controller.js';
 import * as serviceIdentitiesController from '../controllers/service-identities-controller.js';
 import * as automationTemplatesController from '../controllers/automation-templates-controller.js';
@@ -36,8 +35,6 @@ agentsRouter.post('/workspaces/:workspaceId/service-identities', requireUser, au
 agentsRouter.patch('/workspaces/:workspaceId/service-identities/:serviceIdentityId', requireUser, authed(serviceIdentitiesController.patch));
 agentsRouter.get('/workspaces/:workspaceId/agents/:agentId/mcp/servers', requireUser, publicAgentVisibility, authed(agentMcpController.listServers));
 agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/mcp/servers', requireUser, publicAgentVisibility, authed(agentMcpController.createServer));
-agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/mcp/servers/import', requireUser, publicAgentVisibility, authed(importAgentCatalogMcpServer));
-agentsRouter.post('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/reimport', requireUser, publicAgentVisibility, authed(reimportAgentCatalogMcpServer));
 agentsRouter.get('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/tools', requireUser, publicAgentVisibility, authed(agentMcpController.listTools));
 agentsRouter.get('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/target-access', requireUser, publicAgentVisibility, authed(agentTargetAccessController.getTargetAccess));
 agentsRouter.put('/workspaces/:workspaceId/agents/:agentId/mcp/servers/:serverId/target-access', requireUser, publicAgentVisibility, authed(agentTargetAccessController.putTargetAccess));

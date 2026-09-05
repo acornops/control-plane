@@ -7,7 +7,9 @@ import {
 } from '../src/types/contracts.js';
 import {
   availabilityMatches,
+  canonicalMcpEndpoint,
   inheritedWorkspaceDefaultId,
+  WORKSPACE_STARTER_ENABLE_ONLY_MESSAGE,
   workspaceDefaultIdFromInheritedId
 } from '../src/services/workspace-default-resolution.js';
 import {
@@ -15,6 +17,7 @@ import {
   validWorkspaceDefaultSkillSource
 } from '../src/controllers/admin-workspace-defaults-controller.js';
 import { toAgentMcpServer } from '../src/services/agent-mcp-capabilities.js';
+import { composeKubernetesClusterToolsCatalog } from '../src/services/kubernetes-cluster-tools-catalog.js';
 
 test('workspace default contracts accept MCP servers plus bounded manual and pinned skill bundles', () => {
   assert.equal(adminWorkspaceDefaultCreateSchema.safeParse({
@@ -126,6 +129,17 @@ test('availability expansion and inherited IDs are bounded', () => {
   assert.equal(workspaceDefaultIdFromInheritedId('workspace-owned'), null);
 });
 
+test('MCP default deduplication preserves endpoint-defining query parameters', () => {
+  assert.equal(
+    canonicalMcpEndpoint('https://mcp.example.com/v1/tools/?tenant=alpha'),
+    'https://mcp.example.com/v1/tools?tenant=alpha'
+  );
+  assert.notEqual(
+    canonicalMcpEndpoint('https://mcp.example.com/v1/tools?tenant=alpha'),
+    canonicalMcpEndpoint('https://mcp.example.com/v1/tools?tenant=beta')
+  );
+});
+
 test('workspace initialization stores a detached snapshot without promotion bookkeeping', () => {
   const schema = readFileSync(
     new URL('../migrations/control-plane/001_initial_schema.sql', import.meta.url),
@@ -198,4 +212,41 @@ test('materialized Agent defaults become normal workspace-owned items', () => {
   assert.equal(mapped.inherited, false);
   assert.equal(mapped.canDelete, true);
   assert.equal(mapped.canEditConnection, true);
+});
+
+test('materialized target defaults become normal workspace-owned items', () => {
+  const catalog = composeKubernetesClusterToolsCatalog({
+    workspaceId: 'workspace-1',
+    clusterId: 'cluster-1',
+    canEdit: true,
+    tools: [],
+    servers: [{
+      id: 'server-1',
+      workspace_id: 'workspace-1',
+      target_id: 'cluster-1',
+      target_type: 'kubernetes',
+      server_name: 'Platform MCP',
+      server_url: 'https://mcp.example.com/service',
+      enabled: true,
+      auth_type: 'none',
+      credential_mode: 'none',
+      tools: [],
+      inherited: false
+    }],
+    overrides: {},
+    targetSupportsWrite: true,
+    targetAgentConnected: true
+  });
+  const mapped = catalog.servers[0];
+  assert.equal(mapped?.inherited, false);
+  assert.equal(mapped?.canDelete, true);
+  assert.equal(mapped?.canEditConnection, true);
+  assert.equal(mapped?.canToggle, true);
+});
+
+test('untouched workspace starters explain the enable-to-own transition', () => {
+  assert.equal(
+    WORKSPACE_STARTER_ENABLE_ONLY_MESSAGE,
+    'This workspace starter has not been added yet. Enable it to create a workspace-owned copy.'
+  );
 });

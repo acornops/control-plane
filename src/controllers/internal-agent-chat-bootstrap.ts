@@ -1,8 +1,11 @@
 import type { Response } from 'express';
 import { config } from '../config.js';
-import { resolveAgentChatRunTools } from '../services/agent-chat-run-tools.js';
+import { signRunScopeTokenForCurrentPrincipal } from '../services/current-principal-token.js';
+import {
+  assertAgentMcpDestinationActive,
+  resolveAgentChatRunTools
+} from '../services/agent-chat-run-tools.js';
 import { resolveRunSkillSnapshots } from '../services/run-skill-snapshots.js';
-import { gatewayTokenService } from '../services/token-service.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
 import { repo } from '../store/repository.js';
 import type { ChatSession, Run } from '../types/domain.js';
@@ -32,9 +35,12 @@ export function agentChatRunSnapshotIsValid(run: Run, session: ChatSession): boo
     && scope.grantedCapabilities[0] === expectedRunCapability
     && principal?.type === 'user'
     && principal.id === session.createdBy
+    && Number.isSafeInteger(principal.membershipGeneration)
+    && principal.membershipGeneration! > 0
     && scope?.actor.userId === principal.id
     && scope?.principal.type === principal.type
-    && scope?.principal.id === principal.id;
+    && scope?.principal.id === principal.id
+    && scope?.principal.membershipGeneration === principal.membershipGeneration;
 }
 
 export async function bootstrapAgentChatRun(run: Run, res: Response): Promise<void> {
@@ -47,6 +53,7 @@ export async function bootstrapAgentChatRun(run: Run, res: Response): Promise<vo
     } });
     return;
   }
+  await assertAgentMcpDestinationActive(run.workspaceId, run.agentId!);
   const llmSettings = await resolveWorkspaceLlmSettings(run.workspaceId, {
     provider: run.llmProvider,
     model: run.llmModel,
@@ -61,7 +68,7 @@ export async function bootstrapAgentChatRun(run: Run, res: Response): Promise<vo
   const skills = resolveRunSkillSnapshots(agentSnapshot, scope.enabledSkills);
   const agentId = run.agentId!;
   const principal = run.principal!;
-  const token = await gatewayTokenService.signRunScopeToken({
+  const tokenResult = await signRunScopeTokenForCurrentPrincipal({
     runId: run.id,
     scopeType: 'agent_chat',
     workspaceId: run.workspaceId,
@@ -78,6 +85,15 @@ export async function bootstrapAgentChatRun(run: Run, res: Response): Promise<vo
     maxOutputTokens: config.LLM_MAX_OUTPUT_TOKENS,
     agentId
   });
+  if (!tokenResult.current) {
+    res.status(409).json({ error: {
+      code: 'MCP_USER_LIFECYCLE_STALE',
+      message: 'The run principal membership generation is no longer active.',
+      retryable: false
+    } });
+    return;
+  }
+  const token = tokenResult.token;
   const runtime = interactiveRunBootstrapContract(run, llmSettings, token);
   res.status(200).json({
     contract_version: 2,

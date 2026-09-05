@@ -4,10 +4,10 @@ import { logger } from '../logger.js';
 import { incrementDuplicateBuiltInServerAnomaly } from '../metrics.js';
 import { KUBERNETES_TARGET_TYPE, TargetType } from '../types/domain.js';
 import {
-  createTargetMcpServer,
+  isMcpLifecycleFencedError,
   listTargetMcpServers,
   listTargetMcpTools,
-  updateTargetMcpServer
+  syncBuiltInMcpServer
 } from './mcp-registry-client.js';
 import { isReservedInternalToolName } from './internal-tool-names.js';
 import { targetWebhookScope } from './target-webhook-scope.js';
@@ -23,6 +23,7 @@ export interface BuiltInToolSyncResult {
   registeredToolCount: number;
   addedTools: string[];
   removedTools: string[];
+  terminal?: boolean;
   error?: string;
 }
 
@@ -99,20 +100,22 @@ export async function syncTargetBuiltInTools(
     }
     const existing = builtinServers[0];
 
-    const existingTools = await listTargetMcpTools(workspaceId, targetId, targetType);
+    const existingTools = await listTargetMcpTools(
+      workspaceId,
+      targetId,
+      targetType,
+      { includeServerDisabled: true, includeDisabled: true }
+    );
     const existingBuiltinNames = new Set(existingTools.filter((tool) => tool.source === 'builtin').map((tool) => tool.name));
     const discoveredNames = new Set(builtinTools.map((tool) => tool.name));
     const removeTools = [...existingBuiltinNames].filter((name) => !discoveredNames.has(name));
 
     if (!existing) {
-      const created = await createTargetMcpServer({
+      const created = await syncBuiltInMcpServer({
         workspaceId,
-        targetId,
-        targetType,
+        destination: { kind: 'target', id: targetId, targetType },
         name: config.BUILTIN_TARGET_MCP_SERVER_NAME,
-        url: config.BUILTIN_TARGET_MCP_SERVER_URL,
         enabled: true,
-        auth: { type: 'none' },
         tools: builtinTools
       });
       webhooks.emit({
@@ -151,17 +154,19 @@ export async function syncTargetBuiltInTools(
       };
     }
 
-    const updated = await updateTargetMcpServer({
+    const effectiveTools = builtinTools.map((tool) => {
+      const current = existingTools.find((candidate) => (
+        candidate.server_id === existing.id && candidate.name === tool.name && candidate.source === 'builtin'
+      ));
+      return current ? { ...tool, enabled: current.enabled } : tool;
+    });
+    const updated = await syncBuiltInMcpServer({
       workspaceId,
-      targetId,
-      targetType,
+      destination: { kind: 'target', id: targetId, targetType },
       serverId: existing.id,
       name: config.BUILTIN_TARGET_MCP_SERVER_NAME,
-      url: config.BUILTIN_TARGET_MCP_SERVER_URL,
       enabled: existing.enabled,
-      auth: { type: 'none' },
-      tools: builtinTools,
-      removeTools
+      tools: effectiveTools
     });
     const addedTools = [...discoveredNames].filter((name) => !existingBuiltinNames.has(name));
     if (addedTools.length > 0 || removeTools.length > 0) {
@@ -202,6 +207,21 @@ export async function syncTargetBuiltInTools(
       removedTools: removeTools
     };
   } catch (err) {
+    if (isMcpLifecycleFencedError(err)) {
+      logger.info({ workspaceId, targetId, targetType }, 'Skipped built-in target tool sync for lifecycle-fenced destination');
+      return {
+        ok: false,
+        workspaceId,
+        targetId,
+        targetType,
+        discoveredToolCount: 0,
+        registeredToolCount: 0,
+        addedTools: [],
+        removedTools: [],
+        terminal: true,
+        error: 'MCP_LIFECYCLE_FENCED'
+      };
+    }
     logger.warn({ workspaceId, targetId, targetType, err }, 'Failed synchronizing built-in target tools');
     return {
       ok: false,

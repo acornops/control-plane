@@ -1,4 +1,5 @@
 import type { Run } from '../types/domain.js';
+import { listAgentMcpServers } from './mcp-registry-client.js';
 import { WEB_SEARCH_TOOL_ID } from './provider-native-tool-ids.js';
 import { getWorkspaceNativeTool } from './workspace-native-tools.js';
 
@@ -9,6 +10,19 @@ interface AgentChatToolSpec {
   description: string;
   capability: 'read' | 'write';
   input_schema: Record<string, unknown>;
+}
+
+/**
+ * Assert the gateway's durable destination fence before accepting or
+ * bootstrapping an Agent run. The destination list is intentionally used even
+ * when the pinned run has no MCP refs: an Agent whose local deletion failed
+ * must remain terminally unavailable after gateway teardown removed its rows.
+ */
+export async function assertAgentMcpDestinationActive(
+  workspaceId: string,
+  agentId: string
+): Promise<void> {
+  await listAgentMcpServers(workspaceId, agentId);
 }
 
 export async function resolveAgentChatRunTools(run: Run): Promise<{

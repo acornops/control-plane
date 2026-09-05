@@ -22,6 +22,7 @@ describe('gateway MCP destination descriptors', () => {
       })),
       {
         workspace_id: 'workspace-1',
+        scope_type: 'target',
         target_id: 'target-1',
         target_type: 'virtual_machine'
       }

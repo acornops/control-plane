@@ -35,6 +35,17 @@ export async function resetAutomationDatabaseFixtures(): Promise<void> {
        VALUES ('workspace-1','Test Workspace','user-1'),('workspace-2','Other Test Workspace','user-1')`
     );
     await client.query(
+      `INSERT INTO workspace_memberships (workspace_id,user_id,role,source)
+       VALUES
+         ('workspace-1','user-1','owner','internal'),
+         ('workspace-2','user-1','owner','internal')`
+    );
+    await client.query(
+      `UPDATE workspace_member_mcp_lifecycle
+       SET reconciliation_status='synced',blocks_readiness=false,
+           attempt_count=0,lease_owner=NULL,lease_expires_at=NULL,last_error_code=NULL`
+    );
+    await client.query(
       `INSERT INTO targets (id,workspace_id,target_type,name,status,metadata,created_at,updated_at)
        VALUES
          ('cluster-1','workspace-1','kubernetes','Test Cluster','online','{}',now(),now()),

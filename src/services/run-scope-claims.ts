@@ -17,6 +17,7 @@ export interface McpToolRef {
 export interface RunPrincipalRef {
   type: 'user' | 'service_identity';
   id: string;
+  membershipGeneration?: number;
 }
 
 interface BaseRunScopeClaims {

@@ -1,8 +1,8 @@
 import type { Response } from 'express';
 import { config } from '../config.js';
+import { signRunScopeTokenForCurrentPrincipal } from '../services/current-principal-token.js';
 import { targetAssistantContract } from '../services/target-adapter-contract.js';
 import { resolveTargetRunConfirmationPolicy } from '../services/target-run-confirmation-policy.js';
-import { gatewayTokenService } from '../services/token-service.js';
 import { resolveWorkspaceLlmSettings } from '../services/workspace-ai-resolution.js';
 import { repo } from '../store/repository.js';
 import type { Run } from '../types/domain.js';
@@ -33,9 +33,15 @@ export async function bootstrapTargetRun(run: Run, res: Response): Promise<void>
   if (rejectUnavailableInteractiveLlm(res, llmSettings)) return;
   const allowedProviders = llmSettings.allowedProviders;
   const allowedModels = llmSettings.allowedModels;
-  if (!run.principal) {
+  if (!run.principal || (
+    run.principal.type === 'user'
+    && (!Number.isSafeInteger(run.principal.membershipGeneration)
+      || run.principal.membershipGeneration! <= 0)
+  )) {
     res.status(409).json({ error: {
-      code: 'RUN_PRINCIPAL_MISSING', message: 'This run does not have a pinned principal.', retryable: false
+      code: 'RUN_PRINCIPAL_MISSING',
+      message: 'This run does not have a generation-bound pinned principal.',
+      retryable: false
     } });
     return;
   }
@@ -84,7 +90,7 @@ export async function bootstrapTargetRun(run: Run, res: Response): Promise<void>
     return;
   }
 
-  const token = await gatewayTokenService.signRunScopeToken({
+  const tokenResult = await signRunScopeTokenForCurrentPrincipal({
     runId: run.id,
     workspaceId: run.workspaceId,
     targetId,
@@ -101,6 +107,15 @@ export async function bootstrapTargetRun(run: Run, res: Response): Promise<void>
     maxOutputTokens,
     allowedModels
   });
+  if (!tokenResult.current) {
+    res.status(409).json({ error: {
+      code: 'MCP_USER_LIFECYCLE_STALE',
+      message: 'The run principal membership generation is no longer active.',
+      retryable: false
+    } });
+    return;
+  }
+  const token = tokenResult.token;
   const runtime = interactiveRunBootstrapContract(run, llmSettings, token);
   res.status(200).json({
     contract_version: 2,

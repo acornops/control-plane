@@ -22,7 +22,7 @@ export function buildMcpOAuthPaths(): Record<string, unknown> {
       get: {
         tags: ['auth'],
         summary: 'Complete an MCP OAuth authorization-code flow',
-        description: 'Requires the initiating AcornOps user session and browser binding. Provider parameters are exchanged server-side and the browser is redirected to a safe console path.',
+        description: 'Requires the initiating AcornOps user session and browser binding. Provider parameters are exchanged server-side and the browser is redirected to a safe console path with bounded mcpOAuthResult and mcpOAuthServerId correlation parameters.',
         security: [{ userSession: [] }],
         parameters: [
           { in: 'query', name: 'state', required: true, schema: { type: 'string' } },
@@ -31,7 +31,7 @@ export function buildMcpOAuthPaths(): Record<string, unknown> {
           { in: 'query', name: 'error', required: false, schema: { type: 'string' } }
         ],
         responses: {
-          '303': { description: 'Redirects to the canonical console with a stable OAuth result.' },
+          '303': { description: 'Redirects to the canonical console with a stable OAuth result and, when known, the validated MCP server ID.' },
           '401': { description: 'The initiating AcornOps user session is missing.' }
         }
       }

@@ -317,7 +317,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       properties: {
         permissions: jsonObject,
         servers: { type: 'array', items: schemaRef('McpServer') },
-        serverTools: schemaRef('McpToolPage')
+        nextCursor: { type: 'string' }
       },
       additionalProperties: true
     },
@@ -493,9 +493,10 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         revision: { type: 'integer', minimum: 1 },
         provenance: { type: 'object', required: ['sourceId', 'artifactName', 'version', 'digest', 'importedAt'], properties: { sourceId: uuid, artifactName: { type: 'string' }, version: { type: 'string' }, digest: { type: 'string' }, importedAt: dateTime }, additionalProperties: false },
         publicHeaders: { type: 'object', additionalProperties: { type: 'string' } },
-        connectionStatus: { type: 'string' },
-        lastDiscoveryAt: dateTime,
-        lastDiscoveryError: { type: 'string' },
+        credentialTransitioning: { type: 'boolean' },
+        connectionStatus: { type: 'string', enum: ['unknown', 'ok', 'error'] },
+        lastDiscoveryAt: { ...dateTime, nullable: true },
+        lastDiscoveryError: { type: 'string', nullable: true },
         toolCounts: schemaRef('McpToolCounts')
       },
       additionalProperties: true
@@ -518,7 +519,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         inputSchema: jsonObject,
         enabledConfigured: { type: 'boolean' },
         enabledEffective: { type: 'boolean' },
-        effectiveDisabledReason: { type: 'string', enum: ['server_disabled', 'agent_write_disabled'], nullable: true }
+        effectiveDisabledReason: { type: 'string', enum: ['server_disabled', 'agent_disconnected', 'agent_write_disabled'], nullable: true }
       },
       additionalProperties: true
     },

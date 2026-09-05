@@ -1,7 +1,9 @@
 import { mock } from 'node:test';
+import { db } from '../../src/infra/db.js';
 import { repo } from '../../src/store/repository.js';
 import { configureCapabilityOptionsCatalogLoaderForTests } from '../../src/store/repository-capability-options.js';
 import { effectiveWorkflowRuntimePolicy } from '../../src/services/workflow-runtime-policy.js';
+import { configureMcpUserPrincipalResolverForTests } from '../../src/services/mcp-user-principal.js';
 import type { WorkflowMcpServerRecord } from '../../src/store/repository-workflows.js';
 import type {
   Role
@@ -91,6 +93,7 @@ const canonicalWorkflowMcpServers: Array<Omit<WorkflowMcpServerRecord, 'workspac
 }];
 
 export function restoreControllerRegressionState(): void {
+  configureMcpUserPrincipalResolverForTests();
   configureCapabilityOptionsCatalogLoaderForTests();
   repo.getWorkspaceSummaryForUser = originals.getWorkspaceSummaryForUser;
   repo.getWorkspaceRole = originals.getWorkspaceRole;
@@ -147,6 +150,14 @@ export function restoreControllerRegressionState(): void {
   repo.listExternalIntegrationGrantableWorkspaces = originals.listExternalIntegrationGrantableWorkspaces;
   repo.replaceExternalIntegrationWorkspaceGrants = originals.replaceExternalIntegrationWorkspaceGrants;
   mock.restoreAll();
+}
+
+export function installMcpUserPrincipal(membershipGeneration = 1): void {
+  configureMcpUserPrincipalResolverForTests(async (_workspaceId, userId) => ({
+    type: 'user',
+    id: userId,
+    membershipGeneration
+  }));
 }
 export function createResponse() {
   return {
@@ -319,6 +330,71 @@ export function installWorkspace(role: Role | null): void {
   repo.requeueTargetInsightsPausedCheckpoints = async () => 0;
   repo.listEnabledValidTargetSkills = async () => [];
   repo.listEnabledValidTargetSkillSummaries = async () => [];
+}
+
+export function installMcpUserLifecycleDatabase(input: {
+  membershipGeneration?: number;
+  correlationMembershipGeneration?: number;
+  lifecycleStatus?: 'active' | 'removed';
+  reconciliationStatus?: 'pending' | 'processing' | 'failed' | 'synced';
+  membershipPresent?: boolean;
+  transactionEvents?: string[];
+  returnPath?: string;
+  serverId?: string;
+} = {}): void {
+  const membershipGeneration = input.membershipGeneration ?? 1;
+  const correlationMembershipGeneration = input.correlationMembershipGeneration
+    ?? membershipGeneration;
+  const returnPath = input.returnPath ?? '/workspaces/workspace-1/agents/agent-1/mcp';
+  const serverId = input.serverId ?? 'server-agent-1';
+  const query = async (sql: string) => {
+    input.transactionEvents?.push(sql);
+    if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+      return { rowCount: 0, rows: [] };
+    }
+    if (sql.includes('FROM workspace_memberships membership')) {
+      return input.membershipPresent === false
+        ? { rowCount: 0, rows: [] }
+        : { rowCount: 1, rows: [{ workspace_id: 'workspace-1' }] };
+    }
+    if (sql.includes('FROM workspace_member_mcp_lifecycle')) {
+      return {
+        rowCount: 1,
+        rows: sql.includes('INNER JOIN workspace_memberships')
+          ? [{ membership_generation: String(membershipGeneration) }]
+          : [{
+              workspace_id: 'workspace-1',
+              user_id: 'user-1',
+              membership_generation: String(membershipGeneration),
+              status: input.lifecycleStatus ?? 'active',
+              reconciliation_status: input.reconciliationStatus ?? 'synced'
+            }]
+      };
+    }
+    if (sql.includes('FROM mcp_oauth_preparation_correlations')
+      || sql.includes('FROM mcp_oauth_state_correlations')) {
+      return {
+        rowCount: 1,
+        rows: [{
+          workspace_id: 'workspace-1',
+          user_id: 'user-1',
+          server_id: serverId,
+          return_path: returnPath,
+          membership_generation: String(correlationMembershipGeneration)
+        }]
+      };
+    }
+    if (sql.includes('mcp_oauth_preparation_correlations')
+      || sql.includes('mcp_oauth_state_correlations')) {
+      return { rowCount: 1, rows: [] };
+    }
+    throw new Error(`Unexpected test database query: ${sql.slice(0, 120)}`);
+  };
+  mock.method(db, 'query', query);
+  mock.method(db, 'connect', async () => ({
+    query,
+    release() { input.transactionEvents?.push('RELEASE'); }
+  }) as never);
 }
 
 export function createWorkspaceAiCredentialStatusResponse(workspaceId = 'workspace-1') {

@@ -208,7 +208,21 @@ function principalClaim(value: unknown, userId?: string): RunPrincipalRef {
   if (userId && (item.type !== 'user' || item.id !== userId)) {
     throw new Error('Gateway token user_id and run principal must match');
   }
-  return { type: item.type, id: item.id };
+  const membershipGeneration = item.membership_generation;
+  if (
+    membershipGeneration !== undefined
+    && (!Number.isSafeInteger(membershipGeneration) || (membershipGeneration as number) <= 0)
+  ) {
+    throw new Error('Gateway token membership generation is invalid');
+  }
+  if (item.type === 'service_identity' && membershipGeneration !== undefined) {
+    throw new Error('Gateway service identity principal must not carry a membership generation');
+  }
+  return {
+    type: item.type,
+    id: item.id,
+    ...(typeof membershipGeneration === 'number' ? { membershipGeneration } : {})
+  };
 }
 
 function permissionModeClaim(value: unknown): RunPermissionMode {
@@ -356,6 +370,22 @@ export class GatewayTokenService {
     };
     const principal = input.principal || (input.userId ? { type: 'user' as const, id: input.userId } : undefined);
     if (!principal) throw new Error('Run principal is required to sign a gateway token');
+    if (
+      principal.type === 'user'
+      && (!Number.isSafeInteger(principal.membershipGeneration) || principal.membershipGeneration! <= 0)
+    ) {
+      throw new Error('Run user principal requires a positive membership generation');
+    }
+    if (principal.type === 'service_identity' && principal.membershipGeneration !== undefined) {
+      throw new Error('Run service identity principal must not carry a membership generation');
+    }
+    const principalPayload = {
+      type: principal.type,
+      id: principal.id,
+      ...(principal.type === 'user' && principal.membershipGeneration !== undefined
+        ? { membership_generation: principal.membershipGeneration }
+        : {})
+    };
     const payload: JWTPayload = {
       iss: this.appConfig.GATEWAY_TOKEN_ISSUER,
       aud: this.appConfig.GATEWAY_TOKEN_AUDIENCE,
@@ -367,7 +397,7 @@ export class GatewayTokenService {
       workspace_id: input.workspaceId,
       session_id: input.sessionId,
       user_id: input.userId,
-      principal,
+      principal: principalPayload,
       permission_mode: input.permissionMode || 'ask_before_changes',
       permissions: permissionPayload
     };

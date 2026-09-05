@@ -6,6 +6,7 @@ import {
 } from '../services/target-chat-assistant-references.js';
 import type { AssistantReference } from '../types/assistant-references.js';
 import type { TargetType, ToolAccessMode } from '../types/domain.js';
+import type { RunPrincipalRef } from '../types/agents.js';
 import { requireTargetMcpConnectionsReady } from './session-mcp-readiness.js';
 
 async function resolveSessionAssistantReferences(
@@ -38,7 +39,7 @@ export async function resolveReadySessionAssistantReferences(
   res: Response,
   workspaceId: string,
   target: { targetId: string; targetType: TargetType },
-  userId: string,
+  principal: RunPrincipalRef,
   toolAccessMode: ToolAccessMode,
   references: AssistantReferenceRequest[]
 ): Promise<AssistantReference[] | null> {
@@ -51,7 +52,7 @@ export async function resolveReadySessionAssistantReferences(
     res,
     workspaceId,
     target,
-    userId,
+    principal,
     toolAccessMode,
     assistantReferences
   ))) return null;

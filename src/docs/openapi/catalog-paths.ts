@@ -13,23 +13,17 @@ const serviceIdentityId = { in: 'path', name: 'serviceIdentityId', required: tru
 const artifactId = { in: 'path', name: 'artifactId', required: true, schema: { type: 'string', format: 'uuid' } };
 const sourceId = { in: 'path', name: 'sourceId', required: true, schema: { type: 'string', format: 'uuid' } };
 
-const importBody = {
-  required: true,
-  content: { 'application/json': { schema: {
-    type: 'object', required: ['artifact', 'version', 'remoteEndpoint'],
-    properties: {
-      artifact: { type: 'object', properties: {
-        artifactId: { type: 'string', format: 'uuid' }, sourceId: { type: 'string', format: 'uuid' }, artifactName: { type: 'string' }
-      }, additionalProperties: false },
-      version: { type: 'string' },
-      remoteEndpoint: { type: 'string', description: 'Selected Streamable HTTP endpoint URL or registry URL template.' },
-      serverName: { type: 'string' }, enabled: { type: 'boolean' },
-      credentialMode: { type: 'string', enum: ['none', 'workspace', 'individual'] },
-      publicHeaders: { type: 'object', additionalProperties: { type: 'string' } },
-      endpointConfiguration: { type: 'object', additionalProperties: { type: 'string' } },
-      expectedRevision: { type: 'integer', minimum: 1, description: 'Required only for explicit reimport.' }
-    }, additionalProperties: false
-  } } }
+const mcpAuthHeaderName = {
+  type: 'string',
+  minLength: 1,
+  maxLength: 128,
+  pattern: "^[!#$%&'*+\\-.^_`|~0-9A-Za-z]+$",
+  description: 'HTTP header token. Platform routing, hop-by-hop, and MCP transport header names are reserved.'
+};
+const mcpAuthHeaderPrefix = {
+  type: 'string',
+  maxLength: 4096,
+  description: 'Optional credential prefix. CR and LF characters are rejected.'
 };
 
 const gitSkillResolveBody = {
@@ -79,12 +73,12 @@ const manualAgentMcpBody = {
     required: ['name', 'url'],
     properties: {
       name: { type: 'string' },
-      url: { type: 'string', format: 'uri', pattern: '^https://', description: 'Actual remote Streamable HTTP MCP endpoint. Registry, server.json, package, container, and stdio locations are rejected.' },
+      url: { type: 'string', format: 'uri', pattern: '^https://', description: 'Absolute HTTPS remote Streamable HTTP MCP endpoint. User info, URL fragments, credential-like query keys, registry, server.json, package, container, and stdio locations are rejected.' },
       enabled: { type: 'boolean' },
       authType: { type: 'string', enum: ['none', 'bearer_token', 'custom_header', 'oauth'] },
       credentialMode: { type: 'string', enum: ['none', 'workspace', 'individual'], description: 'Required for authenticated installations. Defaults to individual.' },
-      authHeaderName: { type: 'string' },
-      authHeaderPrefix: { type: 'string' },
+      authHeaderName: mcpAuthHeaderName,
+      authHeaderPrefix: mcpAuthHeaderPrefix,
       publicHeaders: { type: 'object', additionalProperties: { type: 'string' } }
     },
     additionalProperties: false
@@ -102,8 +96,9 @@ const manualAgentMcpUpdateBody = {
       expectedRevision: { type: 'integer', minimum: 1 },
       authType: { type: 'string', enum: ['none', 'bearer_token', 'custom_header', 'oauth'] },
       credentialMode: { type: 'string', enum: ['none', 'workspace', 'individual'] },
-      authHeaderName: { type: 'string', minLength: 1 },
-      authHeaderPrefix: { type: 'string' }
+      authHeaderName: mcpAuthHeaderName,
+      authHeaderPrefix: mcpAuthHeaderPrefix,
+      publicHeaders: { type: 'object', additionalProperties: { type: 'string' } }
     },
     additionalProperties: false
   } } }
@@ -240,9 +235,6 @@ export function buildCatalogPaths(): Record<string, unknown> {
       patch: { tags: ['agents'], summary: 'Update an Agent MCP installation', description: 'Optimistic concurrency uses expectedRevision. manage_agents alone may disable; additions and reconfiguration also require manage_mcp.', security: [{ userSession: [] }], parameters: [workspaceId, agentId, serverId], requestBody: manualAgentMcpUpdateBody, responses: { '200': { description: 'Agent MCP installation updated.' }, '409': { description: 'Revision conflict.' } } },
       delete: { tags: ['agents'], summary: 'Remove an MCP server from one Agent', description: 'Requires manage_agents.', security: [{ userSession: [] }], parameters: [workspaceId, agentId, serverId], responses: { '204': { description: 'Installation removed.' } } }
     },
-    '/api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/reimport': {
-      post: { tags: ['catalog'], summary: 'Explicitly reimport a pinned catalog MCP server', description: 'Requires manage_agents and manage_mcp. The existing installation ID is retained and its immutable provenance and discovered tool review state are updated transactionally.', security: [{ userSession: [] }], parameters: [workspaceId, agentId, serverId], requestBody: importBody, responses: { '200': { description: 'Agent MCP installation reimported.' }, '409': { description: 'Revision or provenance conflict.' } } }
-    },
     '/api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/test-connection': {
       post: { tags: ['agents'], summary: 'Test and discover tools for an unauthenticated Agent MCP installation', description: 'Requires manage_agents and manage_mcp. Authenticated installations use the credential connection Verify operation.', security: [{ userSession: [] }], parameters: [workspaceId, agentId, serverId], responses: { '200': { description: 'Connection and discovery result.' }, '409': { description: 'Authenticated installations require credential connection Verify.' } } }
     },
@@ -273,15 +265,6 @@ export function buildCatalogPaths(): Record<string, unknown> {
     },
     '/api/v1/workspaces/{workspaceId}/agents/{agentId}/skills/{skillId}/reimport': {
       post: { tags: ['agents'], summary: 'Explicitly reimport a pinned Git skill', security: [{ userSession: [] }], parameters: [workspaceId, agentId, skillId], responses: { '200': { description: 'Skill reimported as a new Agent capability revision.' } } }
-    },
-    '/api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/import': {
-      post: { tags: ['catalog'], summary: 'Install a pinned catalog MCP server on one Agent', description: 'Requires both manage_agents and manage_mcp. Repeating an identical import is idempotent; upgrades require explicit reimport.', security: [{ userSession: [] }], parameters: [workspaceId, agentId], requestBody: importBody, responses: { '201': { description: 'Agent MCP installation created.' }, '409': { description: 'Explicit reimport is required for a changed version, digest, or endpoint.' } } }
-    },
-    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/import': {
-      post: { tags: ['catalog'], summary: 'Install a pinned catalog MCP server on one target', description: 'Requires manage_mcp. The server resolves workspace ownership and target type; browser-supplied routing fields are rejected. Credential ownership must be supported by the selected endpoint.', security: [{ userSession: [] }], parameters: [workspaceId, targetId], requestBody: importBody, responses: { '201': { description: 'Target MCP installation created.' }, '409': { description: 'Explicit reimport is required for a changed version, digest, or endpoint.' } } }
-    },
-    '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/reimport': {
-      post: { tags: ['catalog'], summary: 'Explicitly reimport a pinned catalog MCP server on one target', description: 'Requires manage_mcp. The existing target installation ID is retained and expectedRevision protects against stale updates.', security: [{ userSession: [] }], parameters: targetConnection, requestBody: importBody, responses: { '200': { description: 'Target MCP installation reimported.' }, '409': { description: 'Revision or provenance conflict.' } } }
     },
     '/api/v1/workspaces/{workspaceId}/agents/{agentId}/mcp/servers/{serverId}/connection': connectionPaths(agentConnection),
     '/api/v1/workspaces/{workspaceId}/targets/{targetId}/mcp/servers/{serverId}/connection': connectionPaths(targetConnection),

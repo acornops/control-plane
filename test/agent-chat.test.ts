@@ -59,7 +59,7 @@ function run(agentSnapshot: AgentDefinition, overrides: Partial<Run> = {}): Run 
     enabledSkills: agentSnapshot.skillInstallations.filter((skill) => skill.enabled).map((skill) => skill.id),
     mode: 'read_only',
     permissionMode: 'read_only',
-    principal: { type: 'user', id: 'user-1' }
+    principal: { type: 'user', id: 'user-1', membershipGeneration: 1 }
   } as unknown as CompiledAgentChatAccessScope;
   return {
     id: 'run-1',
@@ -70,7 +70,7 @@ function run(agentSnapshot: AgentDefinition, overrides: Partial<Run> = {}): Run 
     compiledAccessScope,
     sessionId: 'session-1',
     messageId: 'message-1',
-    principal: { type: 'user', id: 'user-1' },
+    principal: { type: 'user', id: 'user-1', membershipGeneration: 1 },
     llmProvider: 'openai',
     llmModel: 'gpt-5-nano',
     llmReasoningSummaryMode: 'off',
@@ -409,7 +409,7 @@ describe('Agent chat contract', () => {
     }, session()), false);
     assert.equal(agentChatRunSnapshotIsValid({
       ...validRun,
-      principal: { type: 'user', id: 'user-other' }
+      principal: { type: 'user', id: 'user-other', membershipGeneration: 1 }
     }, session()), false);
     assert.equal(agentChatRunSnapshotIsValid({
       ...validRun,

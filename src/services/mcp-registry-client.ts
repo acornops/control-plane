@@ -4,11 +4,19 @@ import type { CapabilityProvenance } from '../types/workspace-defaults.js';
 import {
   createGatewayRequestOptions as createRequestOptions,
   fetchGateway,
-  LlmGatewayHttpError,
   parseGatewayResponse as parseOrThrow
 } from './llm-gateway-admin-client.js';
+import {
+  buildGatewayMcpDestinationQuery,
+  type McpDestination
+} from './mcp-destination.js';
 export { LlmGatewayHttpError } from './llm-gateway-admin-client.js';
+export {
+  createMcpLifecycleFencedError,
+  isMcpLifecycleFencedError
+} from './llm-gateway-admin-client.js';
 export * from './mcp-catalog-client.js';
+export { buildGatewayMcpDestinationQuery, type McpDestination } from './mcp-destination.js';
 export interface McpToolConfig {
   name: string;
   server_id: string;
@@ -38,6 +46,7 @@ export interface McpServerBaseConfig {
   auth_header_name?: string;
   auth_header_prefix?: string;
   public_headers?: Record<string, string> | null;
+  credential_transitioning?: boolean;
   connection_status?: 'unknown' | 'ok' | 'error';
   last_discovery_at?: string | null;
   last_discovery_error?: string | null;
@@ -61,6 +70,8 @@ export type AgentMcpServerConfig = McpServerBaseConfig & {
 
 export type TargetMcpServerConfig = McpServerBaseConfig & {
   scope_type: 'target';
+  target_id: string;
+  target_type: TargetType;
 };
 
 export type McpServerConfig = AgentMcpServerConfig | TargetMcpServerConfig;
@@ -85,6 +96,22 @@ export interface McpServerConnectionTestResult {
   discovered_tools: string[];
   error?: string | null;
 }
+interface McpToolDefinitionInput {
+  name: string;
+  timeoutMs?: number;
+  description?: string;
+  capability?: 'read' | 'write';
+  version?: string;
+  source?: 'mcp' | 'builtin';
+  inputSchema?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  artifactPolicy?: 'never' | 'if_detailed' | 'always';
+  enabled?: boolean;
+  reviewState?: 'pending' | 'approved' | 'rejected';
+  riskLevel?: 'read_only' | 'non_destructive_write' | 'high_risk' | 'destructive';
+  autoAllowed?: boolean;
+}
+
 interface McpServerCreateInput {
   workspaceId: string;
   name: string;
@@ -97,26 +124,11 @@ interface McpServerCreateInput {
     headerPrefix?: string;
   };
   credentialMode?: 'none' | 'workspace' | 'individual';
-  tools?: Array<{
-    name: string;
-    timeoutMs?: number;
-    description?: string;
-    capability?: 'read' | 'write';
-    version?: string;
-    source?: 'mcp' | 'builtin';
-    inputSchema?: Record<string, unknown>;
-    outputSchema?: Record<string, unknown>;
-    artifactPolicy?: 'never' | 'if_detailed' | 'always';
-    enabled?: boolean;
-    reviewState?: 'pending' | 'approved' | 'rejected';
-    riskLevel?: 'read_only' | 'non_destructive_write' | 'high_risk' | 'destructive';
-    autoAllowed?: boolean;
-  }>;
+  tools?: McpToolDefinitionInput[];
 }
 interface McpServerUpdateInput {
   workspaceId: string;
   serverId: string;
-  url?: string;
   name?: string;
   enabled?: boolean;
   publicHeaders?: Record<string, string>;
@@ -127,22 +139,6 @@ interface McpServerUpdateInput {
   };
   credentialMode?: 'none' | 'workspace' | 'individual';
   expectedRevision?: number;
-  tools?: Array<{
-    name: string;
-    timeoutMs?: number;
-    description?: string;
-    capability?: 'read' | 'write';
-    version?: string;
-    source?: 'mcp' | 'builtin';
-    inputSchema?: Record<string, unknown>;
-    outputSchema?: Record<string, unknown>;
-    artifactPolicy?: 'never' | 'if_detailed' | 'always';
-    enabled?: boolean;
-    reviewState?: 'pending' | 'approved' | 'rejected';
-    riskLevel?: 'read_only' | 'non_destructive_write' | 'high_risk' | 'destructive';
-    autoAllowed?: boolean;
-  }>;
-  removeTools?: string[];
 }
 
 export interface UpsertTargetMcpServerInput extends McpServerCreateInput {
@@ -155,22 +151,83 @@ export interface UpdateTargetMcpServerInput extends McpServerUpdateInput {
   targetType: TargetType;
 }
 
-export type McpDestination =
-  | { kind: 'agent'; id: string }
-  | { kind: 'target'; id: string; targetType: TargetType };
+export interface SyncBuiltInMcpServerInput {
+  workspaceId: string;
+  destination: McpDestination;
+  serverId?: string;
+  name: string;
+  enabled: boolean;
+  tools: McpToolDefinitionInput[];
+}
 
-export function buildGatewayMcpDestinationQuery(workspaceId: string, destination: McpDestination): URLSearchParams {
-  return destination.kind === 'agent'
-    ? new URLSearchParams({
-      workspace_id: workspaceId,
-      scope_type: 'agent',
-      agent_id: destination.id
+async function requireGatewaySuccess(response: Awaited<ReturnType<typeof fetchGateway>>, operation: string): Promise<void> {
+  if (response.ok) return;
+  logger.error({ status: response.status, operation }, 'llm-gateway MCP request failed');
+  await parseOrThrow<never>(response);
+}
+
+export async function teardownMcpDestination(workspaceId: string, destination: McpDestination): Promise<void> {
+  const query = buildGatewayMcpDestinationQuery(workspaceId, destination);
+  const response = await fetchGateway(
+    `/api/v1/internal/mcp/destinations?${query.toString()}`,
+    createRequestOptions('DELETE')
+  );
+  await requireGatewaySuccess(response, 'destination_lifecycle_teardown');
+}
+
+export async function teardownWorkspaceMcpState(workspaceId: string): Promise<void> {
+  const response = await fetchGateway(
+    `/api/v1/internal/mcp/workspaces/${encodeURIComponent(workspaceId)}`,
+    createRequestOptions('DELETE')
+  );
+  await requireGatewaySuccess(response, 'workspace_lifecycle_teardown');
+}
+
+export async function reconcileMcpUserLifecycle(input: {
+  workspaceId: string;
+  userId: string;
+  membershipGeneration: number;
+  status: 'active' | 'removed';
+}): Promise<void> {
+  const response = await fetchGateway(
+    `/api/v1/internal/mcp/users/${encodeURIComponent(input.userId)}/lifecycle`,
+    createRequestOptions('PUT', {
+      workspace_id: input.workspaceId,
+      membership_generation: input.membershipGeneration,
+      status: input.status
     })
-    : new URLSearchParams({
-      workspace_id: workspaceId,
-      target_id: destination.id,
-      target_type: destination.targetType
-    });
+  );
+  await requireGatewaySuccess(response, 'user_lifecycle_reconciliation');
+}
+
+export function syncBuiltInMcpServer(
+  input: SyncBuiltInMcpServerInput & { destination: Extract<McpDestination, { kind: 'agent' }> }
+): Promise<AgentMcpServerConfig>;
+export function syncBuiltInMcpServer(
+  input: SyncBuiltInMcpServerInput & { destination: Extract<McpDestination, { kind: 'target' }> }
+): Promise<TargetMcpServerConfig>;
+export async function syncBuiltInMcpServer(
+  input: SyncBuiltInMcpServerInput
+): Promise<McpServerConfig> {
+  const destination = input.destination.kind === 'agent'
+    ? { scope_type: 'agent' as const, agent_id: input.destination.id }
+    : {
+        scope_type: 'target' as const,
+        target_id: input.destination.id,
+        target_type: input.destination.targetType
+      };
+  const response = await fetchGateway(
+    '/api/v1/internal/mcp/servers/builtin',
+    createRequestOptions('PUT', {
+      workspace_id: input.workspaceId,
+      ...destination,
+      server_id: input.serverId,
+      server_name: input.name,
+      enabled: input.enabled,
+      tools: input.tools.map(toGatewayToolPayload)
+    })
+  );
+  return parseOrThrow<McpServerConfig>(response);
 }
 
 async function listMcpServersForDestination(
@@ -210,11 +267,7 @@ async function deleteMcpServerForDestination(
     `/api/v1/internal/mcp/servers/${encodeURIComponent(serverId)}?${query.toString()}`,
     createRequestOptions('DELETE')
   );
-  if (!response.ok) {
-    const body = await response.text();
-    logger.error({ status: response.status }, 'Failed deleting MCP server');
-    throw new LlmGatewayHttpError(response.status, body || `llm-gateway delete failed (${response.status})`, body);
-  }
+  await requireGatewaySuccess(response, 'server_delete');
 }
 
 async function testMcpServerForDestination(
@@ -326,7 +379,6 @@ export async function createTargetMcpServer(input: UpsertTargetMcpServerInput): 
 export async function updateTargetMcpServer(input: UpdateTargetMcpServerInput): Promise<TargetMcpServerConfig> {
   const body = {
     server_name: input.name,
-    server_url: input.url,
     enabled: input.enabled,
     public_headers: input.publicHeaders,
     auth_type: input.auth?.type,
@@ -334,8 +386,6 @@ export async function updateTargetMcpServer(input: UpdateTargetMcpServerInput): 
     auth_header_name: input.auth?.headerName,
     auth_header_prefix: input.auth?.headerPrefix,
     expected_revision: input.expectedRevision,
-    tools: input.tools?.map(toGatewayToolPayload),
-    remove_tools: input.removeTools || []
   };
   const response = await fetchGateway(
     `/api/v1/internal/mcp/servers/${encodeURIComponent(input.serverId)}?${buildGatewayMcpDestinationQuery(input.workspaceId, { kind: 'target', id: input.targetId, targetType: input.targetType }).toString()}`,
@@ -443,7 +493,6 @@ export async function updateAgentMcpServer(input: UpdateAgentMcpServerInput): Pr
     `/api/v1/internal/mcp/servers/${encodeURIComponent(input.serverId)}?${buildGatewayMcpDestinationQuery(input.workspaceId, { kind: 'agent', id: input.agentId }).toString()}`,
     createRequestOptions('PATCH', {
       server_name: input.name,
-      server_url: input.url,
       enabled: input.enabled,
       public_headers: input.publicHeaders,
       auth_type: input.auth?.type,
@@ -451,8 +500,6 @@ export async function updateAgentMcpServer(input: UpdateAgentMcpServerInput): Pr
       auth_header_name: input.auth?.headerName,
       auth_header_prefix: input.auth?.headerPrefix,
       expected_revision: input.expectedRevision,
-      tools: input.tools?.map(toGatewayToolPayload),
-      remove_tools: input.removeTools || []
     })
   );
   return parseOrThrow<AgentMcpServerConfig>(response);

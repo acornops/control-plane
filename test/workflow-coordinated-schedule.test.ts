@@ -47,8 +47,8 @@ describe('coordinated Workflow schedules', () => {
   it('pins the Agent ceiling and delegates to a model-selected specialist', async () => {
     installWorkspace('admin');
     await db.query(
-      `INSERT INTO workspace_memberships (workspace_id,user_id,role)
-       VALUES ('workspace-1','user-1','admin')`
+      `UPDATE workspace_memberships SET role='admin'
+       WHERE workspace_id='workspace-1' AND user_id='user-1'`
     );
     mock.method(globalThis, 'fetch', async (input, init) => {
       const url = String(input);

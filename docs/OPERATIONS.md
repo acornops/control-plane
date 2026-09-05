@@ -445,10 +445,119 @@ Keep the compatibility column and trigger until all deployed and rollback
 versions use the canonical enum. Deploy the pinned control-plane,
 execution-engine, and gateway matrix together when their contracts change.
 
+### MCP membership-generation maintenance rollout
+
+Migration `006_mcp_user_lifecycle.sql` is an intentional clean-break migration
+and does **not** support mixed old/new control-plane or llm-gateway replicas.
+It activates a durable generation fence for individual MCP credentials. During
+the maintenance window, an explicit offline gateway reset removes every
+existing individual's MCP credentials, OAuth authorization, and bounded OAuth
+flow state so no generation-less owner state survives. Workspace-owned MCP
+credentials are not changed. Tell affected users that they must reconnect
+individual MCP servers.
+
+Use one coordinated pre-production maintenance window:
+
+1. On the old pinned pair, stop new membership changes and drain the legacy
+   `mcp_secret_cleanup_jobs` queue to zero. Migration `006` refuses to run while
+   any row remains.
+2. Scale **all** old control-plane and llm-gateway API pods and background
+   workers to zero before applying either side's lifecycle migrations. A stale
+   binary must not write the retired queue after the preflight.
+3. Before either migration, use the new gateway maintenance image to report
+   endpoint mismatches and duplicate built-in destinations:
+
+   ```bash
+   python -m app.scripts.mcp_endpoint_mismatch_preflight
+   ```
+
+   Treat every non-built-in mismatch as a cleanup requirement, including a
+   credential-free installation. Run `--apply-cleanup` while both old services
+   remain stopped. For each duplicate built-in destination, first reconcile
+   control-plane references and choose one authoritative server ID. Pass all
+   verified IDs as repeated `--canonical-builtin-server-id` flags in the same
+   apply invocation; sequential invocations correctly remain nonzero until all
+   duplicate destinations are selected. Do not migrate until this fail-closed
+   acceptance command exits zero:
+
+   ```bash
+   python -m app.scripts.mcp_endpoint_mismatch_preflight \
+     --fail-on-active-connections \
+     --fail-on-duplicate-builtins
+   ```
+
+   Gateway migration `b20058629f4b` independently rejects every remaining
+   non-built-in mismatch; checking only installations with credentials is not
+   sufficient. Follow the llm-gateway operations runbook for the canonical
+   incident review, cleanup, and built-in deduplication procedure.
+4. Apply the pinned llm-gateway lifecycle migrations and control-plane migration
+   `006` while both services remain stopped. With the new gateway maintenance
+   image, first record the reset inventory, then apply the reset:
+
+   ```bash
+   python -m app.scripts.mcp_user_lifecycle_preflight
+   python -m app.scripts.mcp_user_lifecycle_preflight --apply-individual-reset
+   ```
+
+   The apply command must exit zero with individual connection, individual
+   secret, and OAuth flow counts at zero, while its workspace-owned connection
+   and installation-secret baselines remain unchanged. For Vault, use the
+   explicitly elevated maintenance policy documented by llm-gateway; the normal
+   runtime policy cannot enumerate former-workspace owner secrets. Then start
+   only the pinned new gateway and control-plane pair. Do not perform an
+   application-only rollback across this boundary, even by rolling both old
+   binaries back together. Before traffic opens, rollback requires stopping the
+   new pair, atomically restoring both database backups and the gateway secret
+   namespace, then starting the old pinned pair. After any new credential
+   write, forward-fix only.
+5. Keep user traffic out of readiness-based routing while the one-time active
+   backfill drains. The HTTP listener and liveness remain available; `/ready`
+   reports `mcpUserLifecycle=reconciling` until the migration-backfill blockers
+   reach zero. The leased worker processes at most two owners at once, matching
+   the gateway's dedicated user-lifecycle lock pool, never leases more than one
+   owner per workspace, and prioritizes removed owners.
+6. Watch `control_plane_mcp_user_lifecycle_reconciliation{state="pending|processing|failed"}`
+   and the structured `ALERT: MCP user lifecycle reconciliation failed` log.
+   A routine post-rollout active/add/remove failure is principal-scoped and does
+   not globally fail readiness; new admissions for that user remain fail-closed
+   while the durable worker retries. A committed membership removal blocks new
+   admissions and token issuance immediately. If the gateway failed before
+   committing
+   `removed`, however, an already-issued run JWT may remain usable until removal
+   reconciliation succeeds or its configured lifetime expires (900 seconds by
+   default). Treat that alert as urgent.
+
+Acceptance queries:
+
+```sql
+SELECT status, reconciliation_status, blocks_readiness, COUNT(*)
+FROM workspace_member_mcp_lifecycle
+GROUP BY status, reconciliation_status, blocks_readiness
+ORDER BY status, reconciliation_status, blocks_readiness;
+
+SELECT COUNT(*) AS readiness_blockers
+FROM workspace_member_mcp_lifecycle
+WHERE blocks_readiness = true
+  AND reconciliation_status <> 'synced';
+
+SELECT to_regclass('mcp_secret_cleanup_jobs') AS retired_legacy_queue;
+```
+
+Do not open traffic until `readiness_blockers=0`, there are no failed lifecycle
+rows requiring investigation, `/ready` returns 200, and
+`retired_legacy_queue` is null. Also require
+`python -m app.scripts.mcp_user_lifecycle_preflight --fail-on-unbound` to exit
+zero and report zero individual connection, individual secret, and OAuth flow
+counts. Preserve the lifecycle rows and retry them; do not manually lower a
+generation or clear a failed removed state.
+
 ## Failure Modes
 
 - Readiness fails on Postgres: verify `DATABASE_URL`, network reachability, credentials, and migration state.
 - Readiness fails on Redis: verify `REDIS_URL` and Redis availability.
+- Readiness reports `mcpUserLifecycle=reconciling`: during the pinned `006`
+  rollout, inspect migration-backfill rows with `blocks_readiness=true`; after
+  rollout, investigate any unexpected blocker instead of deleting it.
 - Agent appears disconnected: verify the agent WebSocket reaches `/api/v1/agent/connect` on the same public platform host over HTTPS/WSS. In production, the control plane rejects agent upgrades unless TLS is terminated directly or the edge proxy forwards `X-Forwarded-Proto: https` or `wss`.
 - Multi-replica inconsistency: verify all pods share the same `REDIS_URL` and have unique `CONTROL_PLANE_INSTANCE_ID` values.
 - Scheduler lease renewal warnings: verify Redis latency/availability. The current task is allowed to finish, but another pod may take the next lease if renewal was lost.

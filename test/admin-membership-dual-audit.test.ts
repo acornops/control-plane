@@ -23,14 +23,88 @@ describe('admin membership dual audit', () => {
     mock.method(repo, 'getAdminWorkspace', async () => ({ id: 'workspace-1', name: 'Workspace', plan: { key: 'default', name: 'Default' } }));
     mock.method(repo, 'insertAdminAuditEvent', async (event) => event);
     mock.method(repo, 'addExistingWorkspaceMember', async (_workspaceId, _userId, _role, audit) => {
-      captured = audit; return { status: 'created' as const, member: { userId: 'user-1', role: 'viewer' } as never };
+      captured = audit; return {
+        status: 'created' as const,
+        member: { userId: 'user-1', role: 'viewer' } as never,
+        membershipGeneration: 1
+      };
     });
+    mock.method(globalThis, 'fetch', async () => new Response(null, { status: 204 }));
+    mock.method(db, 'query', async () => ({ rowCount: 1, rows: [] }));
     const res = response();
     await addWorkspaceMember({ ...adminReq, params: { workspaceId: 'workspace-1' }, body: { userId: 'user-1', role: 'viewer', reason: 'approved access request' } } as never, res as never, (err?: unknown) => { if (err) throw err; });
     assert.equal(captured.admin.adminTokenId, 'ops-primary');
     assert.equal(captured.workspace[0].actorTokenId, 'platform-admin');
     assert.equal(captured.admin.metadata.correlationId, captured.workspace[0].metadata.correlationId);
     assert.notEqual(captured.workspace[0].actorTokenId, captured.admin.adminTokenId);
+  });
+
+  it('returns retryable 503 after a committed membership activation failure and retries idempotently', async () => {
+    mock.method(repo, 'getAdminWorkspace', async () => ({
+      id: 'workspace-1', name: 'Workspace', plan: { key: 'default', name: 'Default' }
+    }));
+    mock.method(repo, 'insertAdminAuditEvent', async (event) => event);
+    const add = mock.method(repo, 'addExistingWorkspaceMember', async () => ({
+      status: 'created' as const,
+      member: { userId: 'user-1', role: 'viewer' } as never,
+      membershipGeneration: 2
+    }));
+    mock.method(db, 'query', async () => ({ rowCount: 1, rows: [] }));
+    mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({
+      detail: {
+        code: 'MCP_USER_LIFECYCLE_TEARDOWN_FAILED',
+        message: 'MCP user lifecycle teardown did not complete.',
+        retryable: true
+      }
+    }), { status: 503, headers: { 'content-type': 'application/json' } }));
+    const request = {
+      ...adminReq,
+      params: { workspaceId: 'workspace-1' },
+      body: { userId: 'user-1', role: 'viewer', reason: 'approved access request' }
+    };
+    const failed = response();
+
+    await addWorkspaceMember(request as never, failed as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.equal(failed.statusCode, 503);
+    assert.equal(
+      (failed.body as { error: { code: string } }).error.code,
+      'MCP_USER_LIFECYCLE_TEARDOWN_FAILED'
+    );
+    assert.equal(add.mock.callCount(), 1);
+  });
+
+  it('repairs an already-committed active membership on request retry', async () => {
+    mock.method(repo, 'getAdminWorkspace', async () => ({
+      id: 'workspace-1', name: 'Workspace', plan: { key: 'default', name: 'Default' }
+    }));
+    mock.method(repo, 'insertAdminAuditEvent', async (event) => event);
+    mock.method(repo, 'addExistingWorkspaceMember', async () => ({ status: 'already_exists' as const }));
+    mock.method(repo, 'getWorkspaceMember', async () => ({ userId: 'user-1', role: 'viewer' } as never));
+    mock.method(db, 'query', async (sql: string) => {
+      if (sql.includes('FROM workspace_member_mcp_lifecycle')) {
+        return { rowCount: 1, rows: [{
+          workspace_id: 'workspace-1', user_id: 'user-1', membership_generation: '2',
+          status: 'active', reconciliation_status: 'failed'
+        }] };
+      }
+      return { rowCount: 1, rows: [] };
+    });
+    mock.method(globalThis, 'fetch', async () => new Response(null, { status: 204 }));
+    const repaired = response();
+
+    await addWorkspaceMember({
+      ...adminReq,
+      params: { workspaceId: 'workspace-1' },
+      body: { userId: 'user-1', role: 'viewer', reason: 'retry activation' }
+    } as never, repaired as never, (err?: unknown) => {
+      if (err) throw err;
+    });
+
+    assert.equal(repaired.statusCode, 200);
+    assert.deepEqual(repaired.body, { userId: 'user-1', role: 'viewer' });
   });
 
   it('rolls back membership insertion when workspace audit persistence fails', async () => {

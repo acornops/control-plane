@@ -100,7 +100,8 @@ export function buildWorkspacePaths(): Record<string, unknown> {
           responses: {
             '204': { description: 'Workspace deleted.' },
             '403': { description: 'Only owners can delete workspace.' },
-            '404': { description: 'Workspace not found.' }
+            '404': { description: 'Workspace not found.' },
+            '503': { description: 'Gateway lifecycle teardown or credential cleanup is incomplete; the workspace remains locally present and deletion can be retried.' }
           }
         }
       },

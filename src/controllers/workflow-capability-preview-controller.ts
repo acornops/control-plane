@@ -21,6 +21,7 @@ import {
   compileWorkflowPrompt,
   WorkflowPromptValidationError
 } from '../services/workflow-prompt.js';
+import { resolveMcpUserPrincipal } from '../services/mcp-user-principal.js';
 
 function requestWorkspaceId(req: AuthenticatedRequest): string | null {
   const raw = req.body?.workspaceId || req.query.workspaceId;
@@ -36,12 +37,13 @@ async function compilePreviewScope(input: {
   if (readiness.status !== 'ready') {
     throw new WorkflowAccessDeniedError('WORKFLOW_CAPABILITY_MAPPING_UNAVAILABLE', readiness.reasons.slice(0, 4).join(' ') || 'Selected workflow Agents are not ready.');
   }
+  const principal = await resolveMcpUserPrincipal(input.workflow.workspaceId, input.actor.userId);
   return {
     specialistAgent,
     selectedAgents,
     mappings,
     scope: compileWorkflowAccessScope({
-      workflow: input.workflow, specialistAgent, selectedAgents, mappings, actor: input.actor
+      workflow: input.workflow, specialistAgent, selectedAgents, mappings, actor: input.actor, principal
     })
   };
 }
@@ -74,7 +76,8 @@ export async function genericMcpAuthRequirements(input: {
       input.workspaceId,
       server.id,
       workspaceManaged ? 'installation' : 'user',
-      workspaceManaged ? 'installation' : input.userId
+      workspaceManaged ? 'installation' : input.userId,
+      workspaceManaged ? undefined : input.scope.principal.membershipGeneration
     );
     const authType = server.auth_type === 'oauth'
       ? 'oauth' as const

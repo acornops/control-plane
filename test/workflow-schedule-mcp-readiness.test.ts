@@ -186,13 +186,13 @@ describe('workflow schedule MCP readiness', () => {
     assert.equal(executionDispatches.length, 0);
     assert.deepEqual(readinessRequests, [{
       workspace_id: 'workspace-1',
-      principal: { type: 'user', id: 'user-1' },
+      principal: { type: 'user', id: 'user-1', membership_generation: 1 },
       tool_refs: [
         { server_id: 'server-1', tool_name: 'records.list' }
       ]
     }, {
       workspace_id: 'workspace-1',
-      principal: { type: 'user', id: 'user-1' },
+      principal: { type: 'user', id: 'user-1', membership_generation: 1 },
       tool_refs: [
         { server_id: 'server-1', tool_name: 'records.list' }
       ]

@@ -7,10 +7,8 @@ import {
   requireWorkspaceRead
 } from '../auth/workspace-authorization.js';
 import {
-  deleteTargetMcpServer,
-  cleanupMcpConnections,
   LlmGatewayHttpError,
-  listTargetMcpServers
+  teardownWorkspaceMcpState
 } from '../services/mcp-registry-client.js';
 import { webhooks } from '../services/webhooks.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
@@ -31,7 +29,7 @@ import { mapGatewayError } from './workspaces/common.js';
 import { cleanupWorkspaceAiProviderCredentials } from './workspaces/ai-settings-controller.js';
 
 const AI_GATEWAY_UPSTREAM_MESSAGE = 'Failed to synchronize AI provider settings with llm-gateway';
-const MCP_CLEANUP_UPSTREAM_MESSAGE = 'Failed to clean up individual MCP credentials with llm-gateway';
+const MCP_CLEANUP_UPSTREAM_MESSAGE = 'Failed to clean up workspace MCP state with llm-gateway';
 
 export function applyWorkspaceSummaryPermissions(
   workspace: WorkspaceSummary,
@@ -60,13 +58,6 @@ async function withEffectiveWorkspacePermissions(req: AuthenticatedRequest, work
   }
   const permissions = await getEffectiveWorkspacePermissions(req, workspace.currentUserRole, workspace.id);
   return permissions ? applyWorkspaceSummaryPermissions(workspace, permissions) : null;
-}
-
-async function cleanupTargetMcpServers(target: TargetSummary): Promise<void> {
-  const servers = await listTargetMcpServers(target.workspaceId, target.id, target.targetType);
-  for (const server of servers) {
-    await deleteTargetMcpServer(target.workspaceId, target.id, target.targetType, server.id);
-  }
 }
 
 export async function listWorkspaces(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
@@ -179,7 +170,7 @@ export async function deleteWorkspace(req: AuthenticatedRequest, res: Response, 
       cursor = page.nextCursor;
     } while (cursor);
     try {
-      await cleanupMcpConnections(workspaceId);
+      await teardownWorkspaceMcpState(workspaceId);
     } catch (err) {
       if (err instanceof LlmGatewayHttpError) {
         const mapped = mapGatewayError(err, { upstreamMessage: MCP_CLEANUP_UPSTREAM_MESSAGE });
@@ -189,9 +180,6 @@ export async function deleteWorkspace(req: AuthenticatedRequest, res: Response, 
       throw err;
     }
     await cleanupWorkspaceAiProviderCredentials(workspaceId);
-    for (const target of targets) {
-      await cleanupTargetMcpServers(target);
-    }
     const clusterCount = targets.filter((target) => target.targetType === 'kubernetes').length;
 
     const workspaceDeletedWebhook = await webhooks.prepare({

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { after, beforeEach, describe, it } from 'node:test';
+import { after, afterEach, beforeEach, describe, it, mock } from 'node:test';
 import { db } from '../src/infra/db.js';
 import {
   deleteWorkflowThroughDefinitionService,
@@ -30,6 +30,7 @@ import {
 } from './helpers/automation-database-fixtures.js';
 
 beforeEach(resetAutomationDatabaseFixtures);
+afterEach(() => mock.restoreAll());
 after(closeAutomationDatabaseFixtures);
 
 describe('Workflow and Agent template foundations', () => {
@@ -160,6 +161,50 @@ describe('Workflow and Agent template foundations', () => {
       ]);
       assert.equal(result.rowCount, 0, `${table} should roll back`);
     }
+  });
+
+  it('returns a durable new workspace when initial MCP owner activation is temporarily unavailable', async () => {
+    mock.method(globalThis, 'fetch', async (input) => {
+      if (String(input).includes('/api/v1/internal/mcp/users/user-1/lifecycle')) {
+        return new Response(JSON.stringify({
+          detail: {
+            code: 'MCP_USER_LIFECYCLE_TEARDOWN_FAILED',
+            message: 'MCP user lifecycle teardown did not complete.',
+            retryable: true
+          }
+        }), { status: 503, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
+
+    const provisioned = await provisionWorkspaceWithStarterAutomation({
+      id: 'workspace-owner-activation-pending',
+      name: 'Owner Activation Pending',
+      createdBy: 'user-1'
+    });
+
+    assert.equal(provisioned.created, true);
+    assert.equal(
+      (await db.query(
+        `SELECT 1 FROM workspaces
+         WHERE id='workspace-owner-activation-pending'`
+      )).rowCount,
+      1
+    );
+    const lifecycle = await db.query<{
+      status: string;
+      reconciliation_status: string;
+      blocks_readiness: boolean;
+    }>(
+      `SELECT status,reconciliation_status,blocks_readiness
+       FROM workspace_member_mcp_lifecycle
+       WHERE workspace_id='workspace-owner-activation-pending' AND user_id='user-1'`
+    );
+    assert.deepEqual(lifecycle.rows[0], {
+      status: 'active',
+      reconciliation_status: 'failed',
+      blocks_readiness: false
+    });
   });
 
   it('never overwrites or automatically restores workspace default Agents or workflows', async () => {

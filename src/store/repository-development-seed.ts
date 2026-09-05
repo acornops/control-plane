@@ -1,6 +1,7 @@
 import { DEVELOPMENT_CLUSTER_ID, DEVELOPMENT_VM_ID, DEVELOPMENT_WORKSPACE_ID } from '../constants/dev-defaults.js';
 import { db } from '../infra/db.js';
 import { provisionWorkspaceWithStarterAutomation } from '../services/workspace-provisioning.js';
+import { READ_ONLY_AGENTV_ACCESS_POLICY } from '../types/agentv-access-policy.js';
 import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE } from '../types/domain.js';
 import { hashSecret } from '../utils/crypto.js';
 import { upsertTargetAgentRegistration } from './repository-target-agent-registrations.js';
@@ -74,12 +75,13 @@ export async function ensureDevelopmentWorkspaceAndTargets(
     const keyHash = hashSecret(seedVmAgentKey);
     await db.query(
       `INSERT INTO agentv_enrollments
-         (id, target_id, workspace_id, purpose, token_hash, status, created_by,
+         (id, target_id, workspace_id, purpose, access_policy, token_hash, status, created_by,
           expires_at, completed_at, updated_at)
-       VALUES ($1, $2, $3, 'initial', $4, 'completed', $5, NOW(), NOW(), NOW())
+       VALUES ($1, $2, $3, 'initial', $4::jsonb, $5, 'completed', $6, NOW(), NOW(), NOW())
        ON CONFLICT (id) DO UPDATE
        SET target_id = EXCLUDED.target_id,
            workspace_id = EXCLUDED.workspace_id,
+           access_policy = EXCLUDED.access_policy,
            token_hash = EXCLUDED.token_hash,
            status = 'completed',
            completed_at = COALESCE(agentv_enrollments.completed_at, NOW()),
@@ -88,6 +90,7 @@ export async function ensureDevelopmentWorkspaceAndTargets(
         DEVELOPMENT_VM_ENROLLMENT_ID,
         DEVELOPMENT_VM_ID,
         DEVELOPMENT_WORKSPACE_ID,
+        JSON.stringify(READ_ONLY_AGENTV_ACCESS_POLICY),
         hashSecret('development-seed-enrollment-placeholder'),
         createdByUserId
       ]

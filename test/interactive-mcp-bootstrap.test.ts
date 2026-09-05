@@ -38,7 +38,7 @@ describe('interactive MCP bootstrap filtering', () => {
       targetId: 'vm-1',
       targetType: 'virtual_machine',
       toolAccessMode: 'read_only',
-      principal: { type: 'user', id: 'user-2' }
+      principal: { type: 'user', id: 'user-1', membershipGeneration: 1 }
     });
     repo.getTarget = async () => createTarget({ id: 'vm-1', targetType: 'virtual_machine', name: 'vm' });
     repo.getSession = async () => createSessionRecord({ targetId: 'vm-1', targetType: 'virtual_machine', clusterId: undefined });

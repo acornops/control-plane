@@ -44,7 +44,7 @@ describe('gateway token service', () => {
       targetId: 'cluster-1',
       targetType: 'kubernetes',
       sessionId: 'session-1',
-      principal: { type: 'user', id: 'user-1' },
+      principal: { type: 'user', id: 'user-1', membershipGeneration: 1 },
       allowedProviders: ['anthropic', 'gemini'],
       allowedTools: ['get_resource', 'get_resource_logs'],
       allowedToolOperations: {
@@ -94,7 +94,7 @@ describe('gateway token service', () => {
       targetId: 'cluster-verify',
       targetType: 'kubernetes',
       sessionId: 'session-verify',
-      principal: { type: 'user', id: 'user-verify' },
+      principal: { type: 'user', id: 'user-verify', membershipGeneration: 7 },
       allowedProviders: ['openai'],
       allowedTools: ['get_pods'],
       allowedToolRefs: [{ serverId: 'server-1', toolName: 'get_pods' }],
@@ -121,6 +121,9 @@ describe('gateway token service', () => {
     assert.equal(claims.targetId, 'cluster-verify');
     assert.equal(claims.targetType, 'kubernetes');
     assert.equal(claims.sessionId, 'session-verify');
+    assert.deepEqual(claims.principal, {
+      type: 'user', id: 'user-verify', membershipGeneration: 7
+    });
     assert.deepEqual(claims.allowedProviders, ['openai']);
     assert.deepEqual(claims.allowedTools, ['get_pods']);
     assert.deepEqual(claims.allowedToolRefs, [{ serverId: 'server-1', toolName: 'get_pods' }]);
@@ -238,7 +241,7 @@ describe('gateway token service', () => {
       targetId: 'cluster-2',
       targetType: 'kubernetes',
       sessionId: 'session-2',
-      principal: { type: 'user', id: 'user-2' },
+      principal: { type: 'user', id: 'user-2', membershipGeneration: 1 },
       allowedProviders: ['openai'],
       allowedTools: ['list_resources']
     });
@@ -285,7 +288,7 @@ describe('gateway token service', () => {
       targetId: 'cluster-1',
       targetType: 'kubernetes',
       sessionId: 'session-1',
-      principal: { type: 'user', id: 'user-1' },
+      principal: { type: 'user', id: 'user-1', membershipGeneration: 1 },
       allowedProviders: ['gemini'],
       allowedTools: ['get_resource']
     });
@@ -339,5 +342,33 @@ describe('gateway token service', () => {
     const claims = await service.verifyRunScopeToken(token);
 
     assert.deepEqual(claims.allowedToolOperations, { get_pods: 'read' });
+  });
+
+  it('fails closed when a new user run token omits or exceeds the safe membership generation', async () => {
+    const base = {
+      runId: 'run-generation-required',
+      workspaceId: 'ws-1',
+      targetId: 'cluster-1',
+      targetType: 'kubernetes' as const,
+      sessionId: 'session-1',
+      allowedProviders: ['openai'],
+      allowedTools: []
+    };
+    await assert.rejects(
+      () => gatewayTokenService.signRunScopeToken({
+        ...base,
+        principal: { type: 'user', id: 'user-1' }
+      }),
+      /requires a positive membership generation/
+    );
+    await assert.rejects(
+      () => gatewayTokenService.signRunScopeToken({
+        ...base,
+        principal: {
+          type: 'user', id: 'user-1', membershipGeneration: Number.MAX_SAFE_INTEGER + 1
+        }
+      }),
+      /requires a positive membership generation/
+    );
   });
 });

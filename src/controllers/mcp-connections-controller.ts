@@ -18,6 +18,7 @@ import {
   verifyMcpConnection
 } from '../services/mcp-registry-client.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
+import { resolveMcpUserPrincipal } from '../services/mcp-user-principal.js';
 import { toSingleParam } from '../utils/params.js';
 import { mapGatewayError } from './workspaces/common.js';
 
@@ -29,6 +30,7 @@ export type ConnectionContext = {
   authz: WorkspaceAuthorization;
   ownerType: 'installation' | 'user';
   ownerId: string;
+  membershipGeneration?: number;
   canManage: boolean;
 };
 
@@ -138,12 +140,18 @@ export async function requireConnectionServer(
     });
     return null;
   }
+  const userPrincipal = workspaceManaged
+    ? undefined
+    : await resolveMcpUserPrincipal(workspaceId, req.auth.userId);
   return {
     workspaceId,
     server,
     authz,
     ownerType: workspaceManaged ? 'installation' : 'user',
     ownerId: workspaceManaged ? INSTALLATION_OWNER_ID : req.auth.userId,
+    ...(userPrincipal?.membershipGeneration !== undefined
+      ? { membershipGeneration: userPrincipal.membershipGeneration }
+      : {}),
     canManage
   };
 }
@@ -160,7 +168,8 @@ export async function getMcpConnectionStatus(
       context.workspaceId,
       context.server.id,
       context.ownerType,
-      context.ownerId
+      context.ownerId,
+      context.membershipGeneration
     );
     res.status(200).json({ connection: mapConnection(connection, context.canManage) });
   } catch (err) {
@@ -255,6 +264,7 @@ export async function putMcpConnection(
       serverId: context.server.id,
       ownerType: context.ownerType,
       ownerId: context.ownerId,
+      membershipGeneration: context.membershipGeneration,
       credential,
       consentGranted: true
     });
@@ -277,7 +287,8 @@ export async function verifyMcpConnectionStatus(
       context.workspaceId,
       context.server.id,
       context.ownerType,
-      context.ownerId
+      context.ownerId,
+      context.membershipGeneration
     );
     await auditConnection(req, context, 'verified', connection.status);
     res.status(200).json({ connection: mapConnection(connection, context.canManage) });
@@ -298,7 +309,8 @@ export async function deleteMcpConnectionStatus(
       context.workspaceId,
       context.server.id,
       context.ownerType,
-      context.ownerId
+      context.ownerId,
+      context.membershipGeneration
     );
     await auditConnection(req, context, 'disconnected');
     res.status(204).end();

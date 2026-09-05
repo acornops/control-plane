@@ -13,6 +13,7 @@ import {
   publicMcpReadinessError
 } from '../services/mcp-readiness.js';
 import { compileWorkflowScope } from '../services/workflow-scope-compiler.js';
+import { resolveMcpUserPrincipal } from '../services/mcp-user-principal.js';
 import {
   createWorkflowExecution,
   createWorkflowSession,
@@ -156,9 +157,11 @@ export async function createSession(req: AuthenticatedRequest, res: Response, ne
         } });
       }
     }
+    const principal = await resolveMcpUserPrincipal(workspaceId, req.auth.userId);
     const compiled = await compileWorkflowScope({
       workflow,
       actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
+      principal,
       sessionCeiling: true
     });
     const session = await createWorkflowSession({
@@ -291,9 +294,11 @@ export async function postMessage(req: AuthenticatedRequest, res: Response, next
           content: typeof req.body?.content === 'string' ? req.body.content : ''
         });
     const content = compiledPrompt.content;
+    const principal = await resolveMcpUserPrincipal(session.workspaceId, req.auth.userId);
     const compiled = await compileWorkflowScope({
       workflow,
-      actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions }
+      actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
+      principal
     });
     const mcpReadiness = await getWorkflowCapabilityReadinessReport(
       session.workspaceId,

@@ -1,4 +1,4 @@
-import type { AgentMcpServerConfig } from './mcp-registry-client.js';
+import type { AgentMcpServerConfig, McpToolConfig } from './mcp-registry-client.js';
 import { listAgentMcpServers } from './mcp-registry-client.js';
 import { updateAgentMcpCapabilitySnapshot } from '../store/repository-agents.js';
 import type { AgentMcpInstallationSnapshot } from '../types/agents.js';
@@ -40,22 +40,27 @@ export function toAgentMcpServer(server: AgentMcpServerConfig) {
     integrationProfileId: server.integration_profile_id || undefined,
     integrationProfileVersion: server.integration_profile_version || undefined,
     publicHeaders: server.public_headers ?? {},
+    credentialTransitioning: server.credential_transitioning === true,
     connectionStatus: server.connection_status || 'unknown',
     lastDiscoveryAt: server.last_discovery_at ?? null,
     lastDiscoveryError: server.last_discovery_error ?? null,
-    tools: server.tools.map((tool) => ({
-      name: tool.name,
-      serverId: tool.server_id,
-      alias: tool.model_alias,
-      description: tool.description,
-      inputSchema: tool.input_schema,
-      outputSchema: tool.output_schema,
-      capability: tool.capability || 'write',
-      enabled: tool.enabled,
-      reviewState: tool.review_state || 'pending',
-      riskLevel: tool.risk_level || 'high_risk',
-      autoAllowed: tool.auto_allowed === true
-    }))
+    tools: server.tools.map(toAgentMcpTool)
+  };
+}
+
+export function toAgentMcpTool(tool: McpToolConfig) {
+  return {
+    name: tool.name,
+    serverId: tool.server_id,
+    alias: tool.model_alias,
+    description: tool.description,
+    inputSchema: tool.input_schema,
+    outputSchema: tool.output_schema,
+    capability: tool.capability || 'write',
+    enabled: tool.enabled,
+    reviewState: tool.review_state || 'pending',
+    riskLevel: tool.risk_level || 'high_risk',
+    autoAllowed: tool.auto_allowed === true
   };
 }
 

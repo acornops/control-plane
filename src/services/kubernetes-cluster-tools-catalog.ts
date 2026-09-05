@@ -84,6 +84,7 @@ export interface KubernetesClusterToolCatalogServer {
     importedAt: string;
   };
   publicHeaders?: Record<string, string>;
+  credentialTransitioning: boolean;
   connectionStatus: 'unknown' | 'ok' | 'error';
   lastDiscoveryAt: string | null;
   lastDiscoveryError: string | null;
@@ -194,7 +195,7 @@ export function composeTargetToolsCatalog(params: {
     const isBuiltin = isBuiltinServer(server);
     const inherited = !isBuiltin && 'inherited' in server && server.inherited === true;
     const toolRows = tools
-      .filter((tool) => tool.server_id === server.id || (!tool.server_id && tool.mcp_server_url === server.server_url))
+      .filter((tool) => tool.server_id === server.id)
       .map((tool) => {
         const enabledConfigured = tool.source === 'builtin' && Object.prototype.hasOwnProperty.call(overrides, tool.name)
           ? overrides[tool.name]
@@ -253,6 +254,7 @@ export function composeTargetToolsCatalog(params: {
           } }
         : {}),
       publicHeaders: server.public_headers ?? {},
+      credentialTransitioning: server.credential_transitioning === true,
       connectionStatus: isBuiltin
         ? targetAgentConnected ? 'ok' : 'error'
         : server.connection_status === 'ok' || server.connection_status === 'error'

@@ -4,7 +4,7 @@ import {
   compileWorkflowSessionCeiling,
   WorkflowAccessDeniedError
 } from './workflow-access.js';
-import type { AgentDefinition } from '../types/agents.js';
+import type { AgentDefinition, RunPrincipalRef } from '../types/agents.js';
 import type { CapabilityRoutingMapping } from '../types/capability-routing.js';
 import type {
   CompiledWorkflowAccessScope,
@@ -15,6 +15,7 @@ import type {
 export async function compileWorkflowScope(input: {
   workflow: WorkflowDefinitionForAccess;
   actor: WorkflowAccessActor;
+  principal?: RunPrincipalRef;
   sessionCeiling?: boolean;
 }): Promise<{
   scope: CompiledWorkflowAccessScope;
@@ -40,7 +41,8 @@ export async function compileWorkflowScope(input: {
         selectedAgents,
         specialistAgent,
         mappings,
-        actor: input.actor
+        actor: input.actor,
+        principal: input.principal
       })
     };
   }
@@ -53,7 +55,8 @@ export async function compileWorkflowScope(input: {
       selectedAgents,
       specialistAgent,
       mappings,
-      actor: input.actor
+      actor: input.actor,
+      principal: input.principal
     })
   };
 }

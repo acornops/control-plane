@@ -27,6 +27,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
     const tools: McpToolConfig[] = [
       {
         name: 'describe_pod',
+        server_id: 'missing-server',
         mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
         timeout_ms: 5000,
         description: 'Describe a pod',
@@ -61,6 +62,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       tools: [
         {
           name: 'list_pods',
+          server_id: 'builtin-server',
           mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
           timeout_ms: 5000,
           description: 'List pods',
@@ -184,12 +186,14 @@ describe('composeKubernetesClusterToolsCatalog', () => {
     const tools: McpToolConfig[] = [
       {
         name: 'z-read',
+        server_id: 'server-b',
         mcp_server_url: 'https://zeta.example.com/mcp',
         timeout_ms: 1000,
         source: 'mcp'
       },
       {
         name: 'a-write',
+        server_id: 'server-a',
         mcp_server_url: 'https://alpha.example.com/mcp',
         timeout_ms: 1000,
         description: 'Alpha write tool',
@@ -221,6 +225,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
     assert.deepEqual(catalog.servers[0]?.tools, [
       {
         name: 'a-write',
+        serverId: 'server-a',
         description: 'Alpha write tool',
         capability: 'write',
         version: 'v2',
@@ -242,6 +247,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
     assert.deepEqual(catalog.servers[1]?.tools, [
       {
         name: 'z-read',
+        serverId: 'server-b',
         description: 'Execute tool "z-read"',
         capability: 'write',
         version: 'v1',
@@ -270,6 +276,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       tools: [
         {
           name: 'orphan-tool',
+          server_id: 'missing-server',
           mcp_server_url: 'tool://orphan-tool',
           timeout_ms: 1000,
           source: 'mcp',
@@ -298,6 +305,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       tools: [
         {
           name: 'restart_service',
+          server_id: 'server-vm-1',
           mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
           timeout_ms: 10000,
           description: 'Restart a service',
@@ -338,6 +346,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       tools: [
         {
           name: 'restart_workload',
+          server_id: 'server-cluster-4',
           mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
           timeout_ms: 10000,
           description: 'Restart a workload',
@@ -348,6 +357,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
         },
         {
           name: 'list_resources',
+          server_id: 'server-cluster-4',
           mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
           timeout_ms: 10000,
           description: 'List resources',
@@ -371,6 +381,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
     assert.deepEqual(catalog.servers[0]?.tools, [
       {
         name: 'list_resources',
+        serverId: 'server-cluster-4',
         description: 'List resources',
         capability: 'read',
         version: 'v1',
@@ -381,6 +392,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       },
       {
         name: 'restart_workload',
+        serverId: 'server-cluster-4',
         description: 'Restart a workload',
         capability: 'write',
         version: 'v1',
@@ -403,6 +415,7 @@ describe('composeKubernetesClusterToolsCatalog', () => {
       targetAgentConnected: false,
       tools: [{
         name: 'get_resource',
+        server_id: 'server-cluster-5',
         mcp_server_url: config.BUILTIN_TARGET_MCP_SERVER_URL,
         timeout_ms: 12000,
         description: 'Get a resource',

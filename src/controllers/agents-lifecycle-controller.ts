@@ -3,7 +3,10 @@ import { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireWorkspaceCapability } from '../auth/workspace-authorization.js';
 import { logger } from '../logger.js';
 import { incrementAutomationDefinitionMutation } from '../metrics.js';
-import { deleteAgentMcpServer, listAgentMcpServers } from '../services/mcp-registry-client.js';
+import {
+  LlmGatewayHttpError,
+  teardownMcpDestination
+} from '../services/mcp-registry-client.js';
 import { recordWorkspaceAuditEvent } from '../services/workspace-audit.js';
 import { syncAgentTargetsBuiltInTools } from '../services/agent-targets-mcp-sync.js';
 import {
@@ -21,6 +24,9 @@ import {
   bodyRecord,
   requireAgentWorkspaceId
 } from './agent-controller-helpers.js';
+import { mapGatewayError } from './workspaces/common.js';
+
+const AGENT_MCP_TEARDOWN_UPSTREAM_MESSAGE = 'Failed to clean up Agent MCP state with llm-gateway';
 
 export async function duplicateAgent(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   const workspaceId = requireAgentWorkspaceId(req, res);
@@ -97,9 +103,7 @@ export async function deleteAgent(req: AuthenticatedRequest, res: Response, next
       return;
     }
     const deletion = await deleteAgentWithInstallationCleanup(workspaceId, agentId, async () => {
-      for (const server of await listAgentMcpServers(workspaceId, agentId)) {
-        await deleteAgentMcpServer(workspaceId, agentId, server.id);
-      }
+      await teardownMcpDestination(workspaceId, { kind: 'agent', id: agentId });
     });
     if (deletion.status === 'not_found') {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Agent not found', retryable: false } });
@@ -132,6 +136,11 @@ export async function deleteAgent(req: AuthenticatedRequest, res: Response, next
     incrementAutomationDefinitionMutation('agent', 'definition', 'success');
     res.status(204).send();
   } catch (err) {
+    if (err instanceof LlmGatewayHttpError) {
+      const mapped = mapGatewayError(err, { upstreamMessage: AGENT_MCP_TEARDOWN_UPSTREAM_MESSAGE });
+      res.status(mapped.status).json(mapped.body);
+      return;
+    }
     next(err);
   }
 }

@@ -13,6 +13,8 @@ import { KUBERNETES_TARGET_TYPE } from '../../types/domain.js';
 import { toSingleParam } from '../../utils/params.js';
 import { mapGatewayError } from './common.js';
 
+const TARGET_MCP_TEARDOWN_UPSTREAM_MESSAGE = 'Failed to clean up target MCP state with llm-gateway';
+
 export async function deleteCluster(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
@@ -70,7 +72,7 @@ export async function deleteCluster(req: AuthenticatedRequest, res: Response, ne
     res.status(204).send();
   } catch (err) {
     if (err instanceof LlmGatewayHttpError) {
-      const mapped = mapGatewayError(err);
+      const mapped = mapGatewayError(err, { upstreamMessage: TARGET_MCP_TEARDOWN_UPSTREAM_MESSAGE });
       res.status(mapped.status).json(mapped.body);
       return;
     }

@@ -7,6 +7,7 @@ import {
 } from '../services/agent-chat.js';
 import { CapabilityAccessDeniedError } from '../services/capability-access-errors.js';
 import { getExactMcpReadinessReport, publicMcpReadinessError } from '../services/mcp-readiness.js';
+import { resolveMcpUserPrincipal } from '../services/mcp-user-principal.js';
 import { WEB_SEARCH_TOOL_ID } from '../services/provider-native-tool-ids.js';
 import {
   capabilityForToolAccessMode,
@@ -187,10 +188,12 @@ export async function getAgentAssistantCapabilitiesPreview(
       } });
     }
 
+    const principal = await resolveMcpUserPrincipal(workspaceId, req.auth.userId);
     const scope = await compileAgentConversationRunScope({
       agent,
       actor: { userId: req.auth.userId, role: authz.role, permissions: authz.permissions },
-      accessMode: toolAccessMode
+      accessMode: toolAccessMode,
+      principal
     });
     const readiness = await getExactMcpReadinessReport(
       workspaceId,

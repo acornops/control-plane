@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it, mock } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import {
   boundedPublicMcpReadinessReportForFailures,
   getExactMcpReadinessReport,
@@ -7,8 +7,15 @@ import {
   getWorkflowCapabilityReadinessErrors,
   publicMcpReadinessError
 } from '../../src/services/mcp-readiness.js';
+import { configureMcpUserPrincipalResolverForTests } from '../../src/services/mcp-user-principal.js';
 
-afterEach(() => mock.restoreAll());
+beforeEach(() => configureMcpUserPrincipalResolverForTests(async (_workspaceId, userId) => ({
+  type: 'user', id: userId, membershipGeneration: 1
+})));
+afterEach(() => {
+  configureMcpUserPrincipalResolverForTests();
+  mock.restoreAll();
+});
 
 describe('target MCP credential connection readiness', () => {
   it('does not require unrelated credential installations when no exact tools are requested', async () => {
@@ -74,7 +81,7 @@ describe('target MCP credential connection readiness', () => {
 
       const report = await getExactMcpReadinessReport(
         'workspace-1',
-        { type: 'user', id: 'user-1' },
+        { type: 'user', id: 'user-1', membershipGeneration: 1 },
         [{ serverId: 'server-1', toolName: 'records.list' }]
       );
       const error = publicMcpReadinessError(report);
@@ -128,7 +135,7 @@ describe('target MCP credential connection readiness', () => {
 
     const report = await getExactMcpReadinessReport(
       'workspace-1',
-      { type: 'user', id: 'user-1' },
+      { type: 'user', id: 'user-1', membershipGeneration: 1 },
       [{ serverId: 'server-1', toolName: 'records.list' }]
     );
 

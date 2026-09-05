@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it, mock } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
 import {
   putMcpConnection,
@@ -9,11 +9,13 @@ import { repo } from '../src/store/repository.js';
 import {
   callController,
   createRequest,
+  installMcpUserLifecycleDatabase,
   installWorkspace,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
 
 afterEach(restoreControllerRegressionState);
+beforeEach(() => installMcpUserLifecycleDatabase({ membershipGeneration: 7 }));
 
 function individualServer() {
   return {
@@ -109,6 +111,7 @@ describe('MCP credential connection controllers', () => {
       workspace_id: 'workspace-1',
       owner_type: 'user',
       owner_id: 'user-1',
+      membership_generation: 7,
       credential: 'top-secret-pat',
       consent_granted: true
     }]);
@@ -291,7 +294,9 @@ describe('MCP credential connection controllers', () => {
 
     assert.equal(response.statusCode, 200);
     assert.match(requests[1].url, /connections\/user-1\/verify$/);
-    assert.deepEqual(requests[1].body, { workspace_id: 'workspace-1', owner_type: 'user', owner_id: 'user-1' });
+    assert.deepEqual(requests[1].body, {
+      workspace_id: 'workspace-1', owner_type: 'user', owner_id: 'user-1', membership_generation: 7
+    });
     assert.equal(JSON.stringify(requests[1]).includes('credential'), false);
   });
 });

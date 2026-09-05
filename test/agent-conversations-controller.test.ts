@@ -203,6 +203,9 @@ describe('Agent conversations controller', () => {
     });
 
     mock.method(globalThis, 'fetch', async (input, init) => {
+      if (String(input).includes('/api/v1/internal/mcp/servers?') && init?.method === 'GET') {
+        return Response.json([]);
+      }
       if (isWorkspaceAiCredentialStatusRequest(input)) {
         return Response.json(createWorkspaceAiCredentialStatusResponse());
       }

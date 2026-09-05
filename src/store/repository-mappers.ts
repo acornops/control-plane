@@ -198,7 +198,7 @@ export interface CreateRunFromMessageResult {
 }
 
 export type AddWorkspaceMemberResult =
-  | { status: 'created'; member: WorkspaceMembership }
+  | { status: 'created'; member: WorkspaceMembership; membershipGeneration: number }
   | { status: 'already_exists' }
   | { status: 'invitation_pending' }
   | { status: 'workspace_not_found' }
@@ -210,7 +210,7 @@ export type UpdateWorkspaceMemberResult =
   | { status: 'last_owner' };
 
 export type DeleteWorkspaceMemberResult =
-  | { status: 'deleted'; member: WorkspaceMembership }
+  | { status: 'deleted'; member: WorkspaceMembership; membershipGeneration: number }
   | { status: 'not_found' }
   | { status: 'last_owner' };
 
@@ -220,7 +220,7 @@ export type CreateWorkspaceInvitationResult =
   | { status: 'already_member' };
 
 export type AcceptWorkspaceInvitationResult =
-  | { status: 'accepted'; member: WorkspaceMembership; workspaceId: string }
+  | { status: 'accepted'; member: WorkspaceMembership; workspaceId: string; membershipGeneration?: number }
   | { status: 'not_found' }
   | { status: 'expired' }
   | { status: 'unavailable' }

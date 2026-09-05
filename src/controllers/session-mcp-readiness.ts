@@ -2,13 +2,14 @@ import type { Response } from 'express';
 
 import type { AssistantReference } from '../types/assistant-references.js';
 import type { TargetType, ToolAccessMode } from '../types/domain.js';
+import type { RunPrincipalRef } from '../types/agents.js';
 import { resolveReadyInteractiveRunTools } from './interactive-mcp-availability.js';
 
 export async function requireTargetMcpConnectionsReady(
   res: Response,
   workspaceId: string,
   target: { targetId: string; targetType: TargetType },
-  userId: string,
+  principal: RunPrincipalRef,
   toolAccessMode: ToolAccessMode,
   assistantReferences: AssistantReference[]
 ): Promise<boolean> {
@@ -19,7 +20,7 @@ export async function requireTargetMcpConnectionsReady(
     toolAccessMode,
     includeNativeTools: false,
     strictMcpResolution: true,
-    principal: { type: 'user', id: userId },
+    principal,
     assistantReferences
   });
   return Boolean(availability);

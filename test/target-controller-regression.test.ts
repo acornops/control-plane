@@ -1,17 +1,12 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it, mock } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import { createSession, deleteSession, postMessage } from '../src/controllers/sessions-controller.js';
 import {
   createTargetMcpServerForTarget,
   listTargetMcpCatalog,
   listTargetMcpServers,
-  listTargetMcpServerTools,
+  listTargetMcpServerTools
 } from '../src/controllers/workspaces/target-tool-controller.js';
-import {
-  parseTargetMcpServerCreate,
-  parseTargetMcpServerUpdate,
-  targetMcpToolSettingsSchema
-} from '../src/controllers/workspaces/target-mcp-helpers.js';
 import { getVirtualMachineLogs } from '../src/controllers/workspaces/virtual-machine-controller.js';
 import { agentGateway } from '../src/agent/ws-server.js';
 import { syncTooling } from '../src/controllers/internal-tooling-controller.js';
@@ -26,25 +21,15 @@ import {
   createRun,
   createSessionRecord,
   createWorkspaceAiCredentialStatusResponse,
+  installMcpUserPrincipal,
   installWorkspace,
   isWorkspaceAiCredentialStatusRequest,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
 
 afterEach(restoreControllerRegressionState);
+beforeEach(() => installMcpUserPrincipal());
 describe('target controller regressions', () => {
-  it('rejects malformed and unknown target MCP mutation fields', () => {
-    assert.equal(parseTargetMcpServerCreate({
-      name: 'server', url: 'https://mcp.example.test', auth: { type: 'unsupported' }
-    }).success, false);
-    assert.equal(parseTargetMcpServerCreate({
-      name: 'server', url: 'https://mcp.example.test', credential: 'secret'
-    }).success, false);
-    assert.equal(parseTargetMcpServerUpdate({ enabled: 'false' }).success, false);
-    assert.equal(parseTargetMcpServerUpdate({ ignored: true }).success, false);
-    assert.equal(targetMcpToolSettingsSchema.safeParse({ enabled: false, ignored: true }).success, false);
-  });
-
   it('authorizes target session routes through generic targets', async () => {
     installWorkspace('operator');
     repo.getCluster = async () => {

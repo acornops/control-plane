@@ -97,7 +97,7 @@
       "workspaceDefaultSkillSources": ["manual", "git(pinned public GitHub/GitLab)"],
       "workspaceDefaultResponseFields": ["id", "kind", "name", "description", "availableIn(non-empty unique destination array)", "enabled", "source", "contentDigest?", "createdAt", "updatedAt"],
       "workspaceDefaultMutationFields": ["kind", "availableIn(non-empty unique destination array)", "enabled?", "immutable source", "skill files(write-only on create/import)", "reason"],
-      "workspaceDefaultResolution": "A new workspace copies only enabled platform definitions and their destination arrays once during workspace creation. Disabling a definition preserves it for later re-enablement but excludes it from future workspace snapshots. Inventory resolution reads only the detached workspace snapshot; later platform changes do not affect existing workspaces. Snapshot entries appear disabled, and explicit workspace enablement creates a normal workspace-owned installation. Built-in tool catalogs are unchanged.",
+      "workspaceDefaultResolution": "A new workspace copies only enabled platform definitions and their destination arrays once during workspace creation. Disabling a definition preserves it for later re-enablement but excludes it from future workspace snapshots. Inventory resolution reads only the detached workspace snapshot; later platform changes do not affect existing workspaces. Snapshot entries appear as disabled workspace starters. Explicit workspace enablement creates a detached, normal workspace-owned installation that is never reconciled from Platform Admin. Built-in tool catalogs are unchanged.",
       "workspacePlanPatchFields": ["planKey", "reason", "ticketRef?"],
       "workspaceSuspendFields": ["workspaceName", "reason", "ticketRef?"],
       "workspaceRestoreFields": ["workspaceName?", "reason", "ticketRef?"],
@@ -225,14 +225,25 @@
         "preview": "The read-only capability preview compiles the current Agent and requesting actor for the requested access mode, applies exact MCP readiness, and returns bounded display-safe tool and skill metadata only. It creates no conversation, run, approval, or audit record; dispatch recompiles and pins its authoritative scope.",
         "automationBoundary": "Agent chat cannot schedule, accept triggers, coordinate or delegate to other Agents. Workflows remain the only repeatable, multi-Agent, scheduled, or externally triggered automation model."
       },
-      "catalogAuthorization": {
-        "manageSources": "manage_catalog_sources",
-        "installAgentMcp": [
-          "manage_agents",
-          "manage_mcp"
-        ],
-        "installTargetMcp": "manage_mcp",
-        "installAgentSkills": [
+      "mcpCatalogManagement": {
+        "directRegistration": {
+          "agent": [
+            "manage_agents",
+            "manage_mcp"
+          ],
+          "target": "manage_mcp"
+        },
+        "registryPlaceholder": "Add from registry remains visible but disabled and performs no navigation or API request.",
+        "registryApiBoundary": "Management Console does not call workspace catalog source or artifact APIs. Public Agent and target catalog import/reimport routes are unmounted; active MCP installations originate only from direct workspace registration or platform-managed built-in synchronization. Catalog producer storage and controllers remain available for a future Platform Admin Console integration behind a new explicit boundary.",
+        "dormantRegistryAuthorization": {
+          "manageSources": "manage_catalog_sources",
+          "installAgentMcp": [
+            "manage_agents",
+            "manage_mcp"
+          ],
+          "installTargetMcp": "manage_mcp"
+        },
+        "agentSkillImportAuthorization": [
           "manage_agents",
           "manage_skills"
         ],
@@ -268,24 +279,6 @@
         ],
         "automaticMutation": false,
         "clearAfterSuccessfulRepair": true
-      },
-      "catalogRouteState": {
-        "path": "/workspaces/:workspaceId/catalog",
-        "query": [
-          "q",
-          "source",
-          "compatibility",
-          "artifact",
-          "destination"
-        ],
-        "destinations": [
-          "agent:{agentId}",
-          "target:{targetId}"
-        ],
-        "excludedDestination": "system-owned coordination records",
-        "artifactKinds": [
-          "mcp_server"
-        ]
       },
       "webhookEventTypes": [
         "workspace.deleted.v1",
@@ -451,7 +444,7 @@
         "permissions.canEdit",
         "permissions.editableRoles",
         "mcpCatalog.{workspaceId,targetId?,targetType?,clusterId?}",
-        "servers[].{id,name,url,type,enabled,isSystem,canDelete,canEditConnection,canToggle,authType,credentialMode,provenance,inherited?,publicHeaders,connectionStatus,lastDiscoveryAt,lastDiscoveryError}",
+        "servers[].{id,name,url,type,enabled,isSystem,canDelete,canEditConnection,canToggle,authType,credentialMode,provenance,inherited?,publicHeaders,credentialTransitioning,connectionStatus,lastDiscoveryAt,lastDiscoveryError}",
         "servers[].toolCounts.{total,readOnly,writeCapable,enabledConfigured,enabledEffective,writeConfigured,writeEffective}",
         "serverTools.items[].{name,description,capability,version,source,enabledConfigured,enabledEffective,effectiveDisabledReason}",
         "targetTools.{workspaceId,targetId,targetType,permissions.{canEdit,editableRoles?}}",
@@ -1120,6 +1113,39 @@
         "target_id (target scope only)",
         "target_type (target scope only)"
       ],
+      "lifecycleTeardownContract": {
+        "authentication": "ADMIN_API_TOKEN service token only",
+        "destinationPath": "DELETE /api/v1/internal/mcp/destinations",
+        "destinationQuery": [
+          "workspace_id",
+          "scope_type=agent + agent_id",
+          "scope_type=target + target_id + target_type"
+        ],
+        "workspacePath": "DELETE /api/v1/internal/mcp/workspaces/{workspace_id}",
+        "success": "204 and idempotent, including already fenced or empty scopes",
+        "fenceSemantics": "A durable terminal workspace or destination tombstone is committed before cleanup; lifecycle-sensitive list/read probes, create, built-in sync, connection, verification, OAuth, ordinary mutation, and runtime dispatch reject fenced state and cannot recreate it.",
+        "fencedError": "409 MCP_LIFECYCLE_FENCED",
+        "failure": "503 MCP_LIFECYCLE_TEARDOWN_FAILED; the fence remains and retry resumes cleanup",
+        "builtinAuthority": "Lifecycle teardown may delete built-in servers; generic server deletion continues to reject built-ins."
+      },
+      "userLifecycleContract": {
+        "path": "PUT /api/v1/internal/mcp/users/{user_id}/lifecycle",
+        "authentication": "ADMIN_API_TOKEN service token only",
+        "requestFields": [
+          "workspace_id",
+          "membership_generation (1..9007199254740991)",
+          "status=active|removed"
+        ],
+        "success": "204; newer applies and exact same generation/state is idempotent",
+        "stale": "409 MCP_USER_LIFECYCLE_STALE for a lower generation",
+        "conflict": "409 MCP_USER_LIFECYCLE_CONFLICT for equal generation with conflicting status",
+        "operationFence": "Individual connection, OAuth, readiness, and runtime operations require the exact active membership_generation; missing, removed, or stale state returns 409 MCP_USER_LIFECYCLE_STALE.",
+        "rolloutGate": "Every individual MCP request requires a membership_generation and an exact active lifecycle row; missing generation or missing lifecycle state fails closed.",
+        "removal": "Durable removed or activating state commits under short workspace authority before it is released; cross-replica per-user lifecycle serialization then drains server > owner state. 503 MCP_USER_LIFECYCLE_TEARDOWN_FAILED retains staged state and retry resumes cleanup.",
+        "readd": "Only a higher trusted membership_generation may reactivate the user; activation remains fenced while all older individual connections and OAuth flows are drained.",
+        "firstActivation": "The pinned pre-production rollout performs an explicit offline reset of existing individual MCP credentials and OAuth authorizations; workspace-owned credentials are unaffected by owner lifecycle reconciliation.",
+        "workspace": "Workspace teardown terminally supersedes and removes user lifecycle state."
+      },
       "catalogContracts": {
         "artifactKinds": [
           "mcp_server",
@@ -1192,6 +1218,7 @@
         "auth_header_name",
         "auth_header_prefix",
         "public_headers",
+        "credential_transitioning",
         "connection_status",
         "last_discovery_at",
         "last_discovery_error",
@@ -1214,6 +1241,7 @@
         "putFields": [
           "owner_type",
           "owner_id",
+          "membership_generation (required for owner_type=user)",
           "credential",
           "consent_granted=true"
         ],
@@ -1250,14 +1278,19 @@
           "POST /api/v1/internal/mcp/servers/{server_id}/connections/{owner_id}/oauth/start",
           "POST /api/v1/internal/mcp/oauth/complete"
         ],
+        "startResponseFields": [
+          "authorization_url",
+          "state",
+          "metadata_changed"
+        ],
         "registrationPrecedence": ["cimd", "public_dcr"],
         "connectionStates": ["missing", "pending_authorization", "connected", "reauthorization_required", "error"],
         "actions": ["authorize_mcp_server", "select_authorization_server", "reauthorize_mcp_server", "verify_mcp_server"],
         "safeResponseFields": ["issuer_origin", "registration_method", "scopes", "token_expires_at", "refresh_capable", "error_code"],
         "browserBinding": "__Host-acornops-mcp-oauth-binding in production; Secure, HttpOnly, SameSite=Lax, Path=/, ten-minute rolling lifetime",
-        "callback": "requires initiating user session and browser binding; forwards only code,state,iss,error; redirects only to canonical console plus a validated local path",
+        "callback": "requires initiating user session and browser binding; forwards only code,state,iss,error; redirects only to canonical console plus a validated local path and bounded mcpOAuthResult,mcpOAuthServerId correlation",
         "secretExclusions": ["access_token", "refresh_token", "authorization_code", "state", "code_verifier", "dcr_management_credentials", "authorization_url_from_status"],
-        "flowState": "encrypted Redis records, ten-minute default TTL, atomic consume, browser/user/workspace/server binding",
+        "flowState": "encrypted Redis records, ten-minute default TTL, atomic consume, browser/user/workspace/server/membership_generation binding",
         "tokenStorage": "versioned encrypted per-workspace, per-installation, per-user secret",
         "endpointPolicy": "validated and DNS-pinned per request; pinned token endpoint for refresh; no redirects or compression"
       },
@@ -1265,7 +1298,7 @@
         "path": "POST /api/v1/internal/mcp/connections/readiness",
         "input": [
           "workspace_id",
-          "principal.{type,id}",
+          "principal.{type,id,membership_generation (required for type=user)}",
           "tool_refs[].{server_id,tool_name}"
         ],
         "output": "bounded failure codes only; no connection snapshots",
@@ -1310,6 +1343,7 @@
         "agent_id forbidden for coordinator Workflow runs",
         "trigger_id?",
         "user_id? (required for individual MCP authorization)",
+        "principal.membership_generation (required for every individual MCP authorization)",
         "scope.type=agent_chat requires agent_id while forbidding Workflow and top-level target identity claims",
         "Workflow and agent_chat MCP calls require the exact Agent server/tool pair in allowed_tool_refs; built-in AcornOps Targets calls use the same lookup without synthetic argument rebinding",
         "write tool calls receive a gateway-injected idempotencyKey derived from run_id and tool_call_id"
@@ -1317,7 +1351,10 @@
       "internalTransportSecurity": "HTTP by default; HTTPS/mTLS when Helm internalTransport.tls.enabled=true; admin/run-scoped bearer tokens remain required",
       "builtinBridge": {
         "serverUrl": "http://control-plane:8081/internal/v1/mcp",
-        "egressException": "Allowed internal HTTP only for configured builtin server registrations with source=builtin tools, auth type none, and no public headers",
+        "definitionSyncPath": "PUT /api/v1/internal/mcp/servers/builtin",
+        "definitionAuthority": "The gateway owns the configured URL and fixed auth=none, credential_mode=none, empty-public-header trust shape; the control plane supplies destination, display name, enablement, and the authoritative approved built-in tool set.",
+        "genericMutation": "Ordinary server and tool mutation may change built-in enablement only; generic creation, definition changes, bulk tool replacement, and deletion are rejected.",
+        "egressException": "Allowed internal HTTP only for platform definitions created through the dedicated built-in synchronization endpoint",
         "authHeader": "Authorization: Bearer <run-scoped-jwt>",
         "scopeSource": "run-scoped-jwt-claims",
         "callPath": "POST /internal/v1/mcp/tools/call"

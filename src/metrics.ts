@@ -36,9 +36,9 @@ const workspaceNativeToolCalls = new Map<string, number>();
 const workspaceNativeToolCallDurations = new Map<string, number>();
 const automationMcpFailures = new Map<string, number>();
 const targetDiagnosticsReconciliations = new Map<string, number>();
-const mcpSecretCleanupEvents = new Map<string, number>();
 const agentHandoffs = new Map<string, number>();
 let automationGauges: Record<string, number> = {};
+let mcpUserLifecycleGauges: Record<string, number> = {};
 const toolResultArtifactEvents = new Map<string, number>();
 const toolResultArtifactSizes = new Map<string, number>();
 const toolResultArtifactSizeCounts = new Map<string, number>();
@@ -213,9 +213,6 @@ export function incrementTargetDiagnosticsReconciliation(
   if (disabledMappings) increment(targetDiagnosticsReconciliations, `${outcome}:disabled`, disabledMappings);
 }
 
-export function incrementMcpSecretCleanup(reason: string, outcome: string): void {
-  increment(mcpSecretCleanupEvents, `${reason}:${outcome}`);
-}
 
 export function incrementAgentHandoff(outcome: 'confirmed' | 'forbidden' | 'unavailable' | 'invalid'): void {
   increment(agentHandoffs, outcome);
@@ -253,6 +250,10 @@ export function observeWorkspaceNativeToolCall(
 
 export function setAutomationGauges(snapshot: Record<string, number>): void {
   automationGauges = { ...snapshot };
+}
+
+export function setMcpUserLifecycleGauges(snapshot: Record<string, number>): void {
+  mcpUserLifecycleGauges = { ...snapshot };
 }
 
 export function incrementToolResultArtifactEvent(event: string, count = 1): void {
@@ -500,12 +501,6 @@ export function renderControlPlaneMetrics(): string {
       const [outcome, measure] = key.split(':');
       return metricLine('control_plane_target_diagnostics_reconciliation_total', { ...serviceLabels, outcome, measure }, value);
     }),
-    '# HELP control_plane_mcp_secret_cleanup_total Individual MCP credential cleanup outcomes.',
-    '# TYPE control_plane_mcp_secret_cleanup_total counter',
-    ...Array.from(mcpSecretCleanupEvents.entries()).map(([key, value]) => {
-      const [reason, outcome] = key.split(':');
-      return metricLine('control_plane_mcp_secret_cleanup_total', { ...serviceLabels, reason, outcome }, value);
-    }),
     '# HELP control_plane_agent_handoffs_total Agent handoff outcomes by bounded result.',
     '# TYPE control_plane_agent_handoffs_total counter',
     ...Array.from(agentHandoffs.entries()).map(([outcome, value]) =>
@@ -517,6 +512,11 @@ export function renderControlPlaneMetrics(): string {
       const [resource, state = 'all'] = key.split(':');
       return metricLine('control_plane_automation_runtime', { ...serviceLabels, resource, state }, value);
     }),
+    '# HELP control_plane_mcp_user_lifecycle_reconciliation MCP membership-generation reconciliation backlog by state.',
+    '# TYPE control_plane_mcp_user_lifecycle_reconciliation gauge',
+    ...Object.entries(mcpUserLifecycleGauges).map(([state, value]) =>
+      metricLine('control_plane_mcp_user_lifecycle_reconciliation', { ...serviceLabels, state }, value)
+    ),
     '# HELP control_plane_tool_result_artifact_events_total Tool result artifact lifecycle outcomes.',
     '# TYPE control_plane_tool_result_artifact_events_total counter',
     ...Array.from(toolResultArtifactEvents.entries()).map(([event, value]) =>

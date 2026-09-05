@@ -41,10 +41,24 @@ export function buildTargetMcpWireSchemas(): Record<string, JsonSchema> {
     },
     TargetMcpServerConfig: {
       type: 'object',
-      required: ['id', 'workspace_id', 'server_name', 'server_url', 'enabled', 'auth_type', 'credential_mode', 'inherited', 'tools'],
+      required: [
+        'id',
+        'workspace_id',
+        'scope_type',
+        'target_id',
+        'target_type',
+        'server_name',
+        'server_url',
+        'enabled',
+        'auth_type',
+        'credential_mode',
+        'inherited',
+        'tools'
+      ],
       properties: {
         id: { type: 'string' },
         workspace_id: uuid,
+        scope_type: { type: 'string', enum: ['target'] },
         target_id: uuid,
         target_type: { type: 'string', enum: ['kubernetes', 'virtual_machine'] },
         server_name: { type: 'string' },
@@ -56,12 +70,23 @@ export function buildTargetMcpWireSchemas(): Record<string, JsonSchema> {
         auth_header_name: { type: 'string' },
         auth_header_prefix: { type: 'string' },
         public_headers: { type: 'object', additionalProperties: { type: 'string' } },
+        credential_transitioning: { type: 'boolean' },
         connection_status: { type: 'string', enum: ['unknown', 'ok', 'error'] },
-        last_discovery_at: dateTime,
+        last_discovery_at: { ...dateTime, nullable: true },
         last_discovery_error: { type: 'string', nullable: true },
+        catalog_source_id: { type: 'string', nullable: true },
+        catalog_artifact_name: { type: 'string', nullable: true },
+        catalog_version: { type: 'string', nullable: true },
+        catalog_digest: { type: 'string', nullable: true },
+        catalog_imported_at: { ...dateTime, nullable: true },
+        provenance_type: { type: 'string', enum: ['manual', 'catalog', 'builtin'] },
+        endpoint_configuration: jsonObject,
+        integration_profile_id: { type: 'string', nullable: true },
+        integration_profile_version: { type: 'integer', minimum: 1, nullable: true },
+        revision: { type: 'integer', minimum: 1 },
         tools: { type: 'array', items: schemaRef('TargetMcpToolConfig') }
       },
-      additionalProperties: true
+      additionalProperties: false
     },
     TargetMcpServerList: {
       type: 'array',
@@ -78,7 +103,7 @@ export function buildTargetMcpWireSchemas(): Record<string, JsonSchema> {
         last_discovery_at: dateTime,
         discovered_tool_count: { type: 'integer', minimum: 0 },
         discovered_tools: stringArray,
-        error: { type: 'string' }
+        error: { type: 'string', nullable: true }
       },
       additionalProperties: true
     }

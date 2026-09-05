@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it, mock } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import { deleteWorkspace } from '../src/controllers/workspaces-controller.js';
 import { repo } from '../src/store/repository.js';
 import type { WorkspaceSummary } from '../src/types/domain.js';
@@ -12,6 +12,9 @@ import {
 } from './helpers/controller-regression-fixtures.js';
 
 afterEach(restoreControllerRegressionState);
+beforeEach(() => {
+  mock.method(repo, 'enqueueWebhookOutboxEvent', async () => null);
+});
 
 function createWorkspaceSummary(): WorkspaceSummary {
   return {
@@ -52,7 +55,7 @@ function createWorkspaceSummary(): WorkspaceSummary {
 }
 
 describe('workspace deletion controller regressions', () => {
-  it('cleans up target-scoped MCP servers for every target type before deleting a workspace', async () => {
+  it('tears down all MCP state once for a mixed-target workspace before local deletion', async () => {
     installWorkspace('owner');
     repo.getWorkspaceSummaryForUser = async () => createWorkspaceSummary();
     repo.listTargets = async () => ({
@@ -64,42 +67,48 @@ describe('workspace deletion controller regressions', () => {
     });
     repo.deleteWorkspace = async () => true;
 
-    const listedTargetTypes: string[] = [];
-    const deletedTargets: Array<{ targetId: string | null; targetType: string | null; serverId: string }> = [];
+    const operations: string[] = [];
     mock.method(globalThis, 'fetch', async (input, init) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/v1/internal/mcp/connections' && init?.method === 'DELETE') {
+      if (url.pathname === '/api/v1/internal/mcp/workspaces/workspace-1' && init?.method === 'DELETE') {
+        operations.push('mcp-workspace-teardown');
         return new Response(null, { status: 204 });
       }
       if (url.pathname.startsWith('/api/v1/internal/llm/provider-credentials/') && init?.method === 'DELETE') {
+        operations.push('ai-credential-cleanup');
         return new Response(JSON.stringify({ provider: url.pathname.split('/').at(-1), configured: false, enabled: true }), {
           status: 200
         });
       }
-      if (url.pathname === '/api/v1/internal/mcp/servers' && init?.method === 'GET') {
-        const targetId = url.searchParams.get('target_id');
-        listedTargetTypes.push(url.searchParams.get('target_type') || '');
-        return new Response(JSON.stringify([
-          {
-            id: `${targetId}-server`,
-            workspace_id: 'workspace-1',
-            target_id: targetId,
-            target_type: url.searchParams.get('target_type'),
-            server_name: 'ops-mcp',
-            server_url: 'https://mcp.example.test',
-            enabled: true,
-            auth_type: 'none',
-            tools: []
-          }
-        ]), { status: 200 });
-      }
-      if (url.pathname.startsWith('/api/v1/internal/mcp/servers/') && init?.method === 'DELETE') {
-        deletedTargets.push({
-          targetId: url.searchParams.get('target_id'),
-          targetType: url.searchParams.get('target_type'),
-          serverId: decodeURIComponent(url.pathname.split('/').at(-1) || '')
-        });
+      return new Response('unexpected request', { status: 500 });
+    });
+    repo.deleteWorkspace = async () => {
+      operations.push('local-workspace-delete');
+      return true;
+    };
+
+    const deleted = await callController(deleteWorkspace, createRequest({ workspaceId: 'workspace-1' }));
+
+    assert.equal(deleted.statusCode, 204);
+    assert.equal(operations.filter((operation) => operation === 'mcp-workspace-teardown').length, 1);
+    assert(operations.indexOf('mcp-workspace-teardown') < operations.indexOf('local-workspace-delete'));
+    assert(operations.indexOf('ai-credential-cleanup') < operations.indexOf('local-workspace-delete'));
+  });
+
+  it('tears down Agent-only workspace MCP state even when no targets exist', async () => {
+    installWorkspace('owner');
+    repo.getWorkspaceSummaryForUser = async () => createWorkspaceSummary();
+    repo.listTargets = async () => ({ items: [], nextCursor: undefined });
+    repo.deleteWorkspace = async () => true;
+    const lifecyclePaths: string[] = [];
+    mock.method(globalThis, 'fetch', async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/v1/internal/mcp/workspaces/workspace-1' && init?.method === 'DELETE') {
+        lifecyclePaths.push(url.pathname);
         return new Response(null, { status: 204 });
+      }
+      if (url.pathname.startsWith('/api/v1/internal/llm/provider-credentials/') && init?.method === 'DELETE') {
+        return Response.json({ configured: false, enabled: true });
       }
       return new Response('unexpected request', { status: 500 });
     });
@@ -107,11 +116,7 @@ describe('workspace deletion controller regressions', () => {
     const deleted = await callController(deleteWorkspace, createRequest({ workspaceId: 'workspace-1' }));
 
     assert.equal(deleted.statusCode, 204);
-    assert.deepEqual(listedTargetTypes, ['kubernetes', 'virtual_machine']);
-    assert.deepEqual(deletedTargets, [
-      { targetId: 'cluster-1', targetType: 'kubernetes', serverId: 'cluster-1-server' },
-      { targetId: 'target-1', targetType: 'virtual_machine', serverId: 'target-1-server' }
-    ]);
+    assert.deepEqual(lifecyclePaths, ['/api/v1/internal/mcp/workspaces/workspace-1']);
   });
 
   it('maps AI credential cleanup gateway failures with workspace AI error copy', async () => {
@@ -121,7 +126,7 @@ describe('workspace deletion controller regressions', () => {
     repo.deleteWorkspace = async () => true;
     mock.method(globalThis, 'fetch', async (input, init) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/v1/internal/mcp/connections' && init?.method === 'DELETE') {
+      if (url.pathname === '/api/v1/internal/mcp/workspaces/workspace-1' && init?.method === 'DELETE') {
         return new Response(null, { status: 204 });
       }
       if (url.pathname.startsWith('/api/v1/internal/llm/provider-credentials/') && init?.method === 'DELETE') {
@@ -142,7 +147,7 @@ describe('workspace deletion controller regressions', () => {
     });
   });
 
-  it('aborts workspace deletion when individual MCP credential cleanup cannot complete', async () => {
+  it('keeps the workspace locally present when lifecycle teardown fails so deletion can retry', async () => {
     installWorkspace('owner');
     repo.getWorkspaceSummaryForUser = async () => createWorkspaceSummary();
     repo.listTargets = async () => ({ items: [], nextCursor: undefined });
@@ -151,10 +156,21 @@ describe('workspace deletion controller regressions', () => {
       workspaceDeleted = true;
       return true;
     };
+    let teardownAttempts = 0;
     mock.method(globalThis, 'fetch', async (input, init) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/v1/internal/mcp/connections' && init?.method === 'DELETE') {
-        return new Response(JSON.stringify({ detail: 'secret backend unavailable' }), { status: 503 });
+      if (url.pathname === '/api/v1/internal/mcp/workspaces/workspace-1' && init?.method === 'DELETE') {
+        teardownAttempts += 1;
+        return teardownAttempts === 1
+          ? Response.json({ detail: {
+              code: 'MCP_LIFECYCLE_TEARDOWN_FAILED',
+              message: 'MCP lifecycle teardown did not complete; retry the request.',
+              retryable: true
+            } }, { status: 503 })
+          : new Response(null, { status: 204 });
+      }
+      if (url.pathname.startsWith('/api/v1/internal/llm/provider-credentials/') && init?.method === 'DELETE') {
+        return Response.json({ configured: false, enabled: true });
       }
       return new Response('unexpected request', { status: 500 });
     });
@@ -162,11 +178,16 @@ describe('workspace deletion controller regressions', () => {
     const response = await callController(deleteWorkspace, createRequest({ workspaceId: 'workspace-1' }));
 
     assert.equal(response.statusCode, 503);
-    assert.equal((response.body as { error: { code: string } }).error.code, 'SERVICE_UNAVAILABLE');
+    assert.equal((response.body as { error: { code: string } }).error.code, 'MCP_LIFECYCLE_TEARDOWN_FAILED');
     assert.equal(
       (response.body as { error: { message: string } }).error.message,
-      'Failed to clean up individual MCP credentials with llm-gateway'
+      'Failed to clean up workspace MCP state with llm-gateway'
     );
     assert.equal(workspaceDeleted, false);
+
+    const retried = await callController(deleteWorkspace, createRequest({ workspaceId: 'workspace-1' }));
+    assert.equal(retried.statusCode, 204);
+    assert.equal(workspaceDeleted, true);
+    assert.equal(teardownAttempts, 2);
   });
 });
