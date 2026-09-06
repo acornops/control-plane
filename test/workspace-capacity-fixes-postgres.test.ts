@@ -226,8 +226,29 @@ test('completing an older hold cannot complete or replace a newer suspension cut
 test('execution access compares microsecond admission against the exact suspension cutoff',async()=>{
   const runId=await reserve(); await workflow(runId,'queued');
   await db.query("UPDATE workspace_lifecycle_outbox SET requested_at='2026-01-01 00:00:00.123456+00' WHERE workspace_id=$1",[id]);
-  await db.query("UPDATE workflow_runs SET requested_at='2026-01-01 00:00:00.123457+00' WHERE id=$1",[runId]);
+  await db.query("UPDATE workspace_run_reservations SET created_at='2026-01-01 00:00:00.123457+00' WHERE run_id=$1",[runId]);
   await assertExecutionActive(runId);
-  await db.query("UPDATE workflow_runs SET requested_at='2026-01-01 00:00:00.123455+00' WHERE id=$1",[runId]);
+  await db.query("UPDATE workspace_run_reservations SET created_at='2026-01-01 00:00:00.123455+00' WHERE run_id=$1",[runId]);
   await assert.rejects(assertExecutionActive(runId),{code:'RUN_CANCELLED_BY_SUSPENSION'});
+});
+
+test('maintenance cancels pre-suspension admissions but retains post-restore work despite request clock skew', async () => {
+  const oldRun = await reserve(); await workflow(oldRun, 'queued');
+  await db.query("UPDATE workflow_runs SET requested_at=clock_timestamp()+INTERVAL '1 minute' WHERE id=$1", [oldRun]);
+  await db.query("UPDATE workspaces SET lifecycle_status='suspended' WHERE id=$1", [id]);
+  await db.query("UPDATE workspaces SET lifecycle_status='active' WHERE id=$1", [id]);
+  const newRun = await reserve(); await workflow(newRun, 'queued');
+  await db.query("UPDATE workflow_runs SET requested_at=clock_timestamp()-INTERVAL '1 minute' WHERE id=$1", [newRun]);
+  config.WORKSPACE_DISPATCH_ENABLED = false;
+  config.WORKSPACE_CAPACITY_ENABLED = false;
+  const fetchStub = mock.method(globalThis, 'fetch', async () => new Response('{}'));
+  try {
+    await runWorkspaceCapacityMaintenance();
+    assert.equal((await db.query('SELECT status FROM workflow_runs WHERE id=$1', [oldRun])).rows[0].status, 'cancelled');
+    assert.equal((await db.query('SELECT status FROM workflow_runs WHERE id=$1', [newRun])).rows[0].status, 'queued');
+  } finally {
+    fetchStub.mock.restore();
+    config.WORKSPACE_DISPATCH_ENABLED = true;
+    config.WORKSPACE_CAPACITY_ENABLED = true;
+  }
 });

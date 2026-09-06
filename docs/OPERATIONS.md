@@ -10,6 +10,27 @@
 - Kubernetes control-plane replicas default to `3`; Redis coordinates agent WebSocket ownership, cross-pod JSON-RPC routing, run event fanout, and renewed scheduler leases.
 - On SIGTERM/SIGINT, the agent gateway stops accepting upgrades, closes active agent WebSockets, rejects pending local commands, and releases ownership before Postgres/Redis clients close.
 
+## Schedule cadence rollout
+
+Ship the control-plane cadence fixes before Management Console's authoritative
+schedule preview. No schema migration is added by these fixes. Existing schedules
+retain their stored next run until edited or processed; later occurrences use
+the calendar-aware calculation. Before enabling production scheduling, review
+custom expressions that restrict both day fields and schedules near daylight
+saving transitions. Pause, preview and save them if you need to recompute their
+next run immediately. Review all preview times in the schedule's timezone.
+
+Restricted day fields now use OR rather than the former unconditional AND;
+leading-star day fields retain AND, including `*/step`. Leap-day schedules can
+resolve beyond the former one-year horizon. Missing spring-forward wall times
+move through the gap; repeated fall-back times run once rather than twice.
+Malformed expressions and dates without a future occurrence cannot be enabled.
+
+The scheduler auto-pauses legacy enabled rows with no next run and records an
+actionable reason without creating an execution. It rechecks that condition
+atomically, so it does not undo a concurrent operator repair. Review the reason,
+correct the cadence or timezone, and explicitly enable the schedule again.
+
 ## Required Environment
 
 - `NODE_ENV=production`

@@ -12,6 +12,7 @@ import { listWorkspaceApprovalInbox } from '../src/controllers/workspace-approva
 import { runWorkflowScheduleTick } from '../src/services/workflow-scheduler.js';
 import { runAutomationOutboxTick } from '../src/services/automation-outbox-worker.js';
 import { db } from '../src/infra/db.js';
+import { createWorkflowSchedule, updateWorkflowScheduleRecord, recordWorkflowScheduleDispatch } from '../src/store/repository-workflow-schedules.js';
 import {
   createWorkflowDefinition,
   getWorkflowDefinition
@@ -150,6 +151,80 @@ describe('workflow schedules and approval inbox', () => {
     assert.deepEqual(body.nextRunTimes, []);
     assert.ok(body.errors.some((error) => error.field === 'cron'));
     assert.ok(body.errors.some((error) => error.field === 'timezone'));
+  });
+
+  it('never persists an enabled schedule with no future occurrence, including internal callers', async () => {
+    await assert.rejects(createWorkflowSchedule({
+      workspaceId: 'workspace-1', actorUserId: 'user-1', input: {
+        workflowId: 'cluster-triage', name: 'Impossible date', cron: '0 0 31 2 *', timezone: 'UTC',
+        enabled: true, principal: { type: 'user', id: 'user-1' }
+      }
+    }), /future occurrence/);
+    const result = await db.query('SELECT count(*)::int AS count FROM workflow_schedules');
+    assert.equal(result.rows[0].count, 0);
+  });
+
+  it('rejects enabling an unrunnable draft without changing its stored state', async () => {
+    const draft = await createWorkflowSchedule({
+      workspaceId: 'workspace-1', actorUserId: 'user-1', input: {
+        workflowId: 'cluster-triage', name: 'Legacy draft', cron: '0 0 31 2 *', timezone: 'UTC',
+        enabled: false, principal: { type: 'user', id: 'user-1' }
+      }
+    });
+    await assert.rejects(updateWorkflowScheduleRecord(draft.id, { enabled: true }, 'user-1'), /future occurrence/);
+    const result = await db.query('SELECT status,next_run_at FROM workflow_schedules WHERE id=$1', [draft.id]);
+    assert.equal(result.rows[0].status, 'paused');
+    assert.equal(result.rows[0].next_run_at, null);
+  });
+
+  it('pauses a legacy schedule if dispatch cannot calculate its next occurrence', async () => {
+    const draft = await createWorkflowSchedule({
+      workspaceId: 'workspace-1', actorUserId: 'user-1', input: {
+        workflowId: 'cluster-triage', name: 'Legacy invalid schedule', cron: '0 0 31 2 *', timezone: 'UTC',
+        enabled: false, principal: { type: 'user', id: 'user-1' }
+      }
+    });
+    await db.query("UPDATE workflow_schedules SET status='enabled' WHERE id=$1", [draft.id]);
+    const updated = await recordWorkflowScheduleDispatch(draft.id, 'failed');
+    assert.equal(updated?.status, 'paused');
+    assert.equal(updated?.lastStatus, 'auto_paused');
+    assert.match(updated?.lastError || '', /future occurrence/);
+  });
+
+  it('makes previously stranded enabled schedules visible as auto-paused without dispatching them', async () => {
+    const draft = await createWorkflowSchedule({
+      workspaceId: 'workspace-1', actorUserId: 'user-1', input: {
+        workflowId: 'cluster-triage', name: 'Legacy leap-day schedule', cron: '0 0 29 2 *', timezone: 'UTC',
+        enabled: false, principal: { type: 'user', id: 'user-1' }
+      }
+    });
+    await db.query("UPDATE workflow_schedules SET status='enabled' WHERE id=$1", [draft.id]);
+    const tick = await runWorkflowScheduleTick();
+    assert.equal(tick.autoPaused, 1);
+    assert.equal(tick.dispatched, 0);
+    const result = await db.query('SELECT status,last_error FROM workflow_schedules WHERE id=$1', [draft.id]);
+    assert.equal(result.rows[0].status, 'paused');
+    assert.match(result.rows[0].last_error, /next run/);
+  });
+
+  it('does not auto-pause a stranded schedule repaired after the worker claimed it', async () => {
+    const schedules = await import('../src/store/repository-workflow-schedules.js');
+    const draft = await createWorkflowSchedule({
+      workspaceId: 'workspace-1', actorUserId: 'user-1', input: {
+        workflowId: 'cluster-triage', name: 'Repaired schedule', cron: '0 0 29 2 *', timezone: 'UTC',
+        enabled: false, principal: { type: 'user', id: 'user-1' }
+      }
+    });
+    await db.query("UPDATE workflow_schedules SET status='enabled' WHERE id=$1", [draft.id]);
+    const [claimed] = await schedules.listDueWorkflowSchedules();
+    assert.equal(claimed.id, draft.id);
+    const repaired = await updateWorkflowScheduleRecord(draft.id, { enabled: true }, 'user-1');
+    const paused = await schedules.pauseStrandedWorkflowSchedule(draft.id);
+    assert.equal(paused, null);
+    const stored = await schedules.getWorkflowSchedule(draft.id);
+    assert.equal(stored?.status, 'enabled');
+    assert.equal(stored?.nextRunAt, repaired?.nextRunAt);
+    assert.equal(stored?.lastStatus, undefined);
   });
 
   it('creates, lists, pauses, and deletes workflow schedules for authorized users', async () => {

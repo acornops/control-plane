@@ -106,6 +106,7 @@
       "workspaceRestoreFields": ["workspaceName?", "reason", "ticketRef?"],
       "adminWorkspaceResponseFields": ["createdByDisplayName?", "createdByEmail?", "clusterCount", "virtualMachineCount", "memberCount", "lifecycleStatus=active|suspended", "suspendedAt?"],
       "adminUserSummaryResponseFields": ["lastLoginAt? (latest recorded password or OIDC login)"],
+      "adminUserFilterFields": ["workspaceQuery? (maximum 200 characters; case-insensitive literal workspace name or ID substring; combined filters and cursor-bound pagination)"],
       "memberCreateFields": ["userId", "role", "createUserIfMissing=false", "reason", "ticketRef?"],
       "memberRolePatchFields": ["role", "reason", "ticketRef?"],
       "memberDeleteFields": ["reason", "replacementOwnerUserId?", "ticketRef?"],

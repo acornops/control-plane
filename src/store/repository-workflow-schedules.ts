@@ -2,6 +2,14 @@ import { randomUUID } from 'node:crypto';
 import type { QueryResultRow } from 'pg';
 import { db } from '../infra/db.js';
 import { withTransaction } from './repository-transaction.js';
+import { computeNextWorkflowScheduleRunAt, requireWorkflowScheduleNextRun, WorkflowScheduleCadenceError } from '../services/workflow-schedule-cron.js';
+export {
+  computeNextWorkflowScheduleRunAt,
+  computeUpcomingWorkflowScheduleRuns,
+  summarizeWorkflowScheduleCron,
+  validateWorkflowScheduleCron,
+  validateWorkflowScheduleTimezone
+} from '../services/workflow-schedule-cron.js';
 import type {
   WorkflowScheduleInput,
   WorkflowScheduleLastStatus,
@@ -11,152 +19,6 @@ import type {
 
 function nowIso(now = new Date()): string {
   return now.toISOString();
-}
-
-function cloneSchedule(schedule: WorkflowScheduleRecord): WorkflowScheduleRecord {
-  return {
-    ...schedule,
-    principal: { ...schedule.principal },
-    createdBy: { ...schedule.createdBy },
-    updatedBy: { ...schedule.updatedBy }
-  };
-}
-
-function parseCronField(field: string, min: number, max: number): Set<number> | null {
-  const values = new Set<number>();
-  const parts = field.split(',').map((part) => part.trim()).filter(Boolean);
-  if (parts.length === 0) return null;
-  for (const part of parts) {
-    const stepMatch = part.match(/^(.+)\/(\d+)$/);
-    const base = stepMatch ? stepMatch[1] : part;
-    const step = stepMatch ? Number(stepMatch[2]) : 1;
-    if (!Number.isInteger(step) || step <= 0) return null;
-    if (base === '*') {
-      for (let value = min; value <= max; value += step) values.add(value);
-      continue;
-    }
-    const rangeMatch = base.match(/^(\d+)-(\d+)$/);
-    if (rangeMatch) {
-      const start = Number(rangeMatch[1]);
-      const end = Number(rangeMatch[2]);
-      if (start < min || end > max || start > end) return null;
-      for (let value = start; value <= end; value += step) values.add(value);
-      continue;
-    }
-    const value = Number(base);
-    if (!Number.isInteger(value) || value < min || value > max) return null;
-    values.add(value);
-  }
-  return values;
-}
-
-export function validateWorkflowScheduleCron(expression: string): boolean {
-  const fields = expression.trim().split(/\s+/);
-  if (fields.length !== 5) return false;
-  return Boolean(
-    parseCronField(fields[0], 0, 59) &&
-    parseCronField(fields[1], 0, 23) &&
-    parseCronField(fields[2], 1, 31) &&
-    parseCronField(fields[3], 1, 12) &&
-    parseCronField(fields[4], 0, 7)
-  );
-}
-
-export function validateWorkflowScheduleTimezone(timezone: string): boolean {
-  try {
-    Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date());
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function dateParts(date: Date, timezone: string): { minute: number; hour: number; day: number; month: number; weekday: number } {
-  if (timezone === 'UTC') {
-    return {
-      minute: date.getUTCMinutes(),
-      hour: date.getUTCHours(),
-      day: date.getUTCDate(),
-      month: date.getUTCMonth() + 1,
-      weekday: date.getUTCDay()
-    };
-  }
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    hourCycle: 'h23',
-    weekday: 'short',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-  const parts = Object.fromEntries(formatter.formatToParts(date).map((part) => [part.type, part.value]));
-  const weekdays: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-  return {
-    minute: Number(parts.minute),
-    hour: Number(parts.hour),
-    day: Number(parts.day),
-    month: Number(parts.month),
-    weekday: weekdays[parts.weekday] ?? date.getUTCDay()
-  };
-}
-
-function cronMatches(expression: string, date: Date, timezone: string): boolean {
-  const fields = expression.trim().split(/\s+/);
-  const minute = parseCronField(fields[0], 0, 59);
-  const hour = parseCronField(fields[1], 0, 23);
-  const day = parseCronField(fields[2], 1, 31);
-  const month = parseCronField(fields[3], 1, 12);
-  const weekday = parseCronField(fields[4], 0, 7);
-  if (!minute || !hour || !day || !month || !weekday) return false;
-  const parts = dateParts(date, timezone);
-  return (
-    minute.has(parts.minute) &&
-    hour.has(parts.hour) &&
-    day.has(parts.day) &&
-    month.has(parts.month) &&
-    (weekday.has(parts.weekday) || (parts.weekday === 0 && weekday.has(7)))
-  );
-}
-
-export function computeNextWorkflowScheduleRunAt(expression: string, from = new Date(), timezone = 'UTC'): string | undefined {
-  if (!validateWorkflowScheduleCron(expression)) return undefined;
-  if (!validateWorkflowScheduleTimezone(timezone)) return undefined;
-  const cursor = new Date(from.getTime());
-  cursor.setUTCSeconds(0, 0);
-  cursor.setUTCMinutes(cursor.getUTCMinutes() + 1);
-  for (let index = 0; index < 366 * 24 * 60; index += 1) {
-    if (cronMatches(expression, cursor, timezone)) return cursor.toISOString();
-    cursor.setUTCMinutes(cursor.getUTCMinutes() + 1);
-  }
-  return undefined;
-}
-
-export function computeUpcomingWorkflowScheduleRuns(
-  expression: string,
-  timezone: string,
-  count = 5,
-  from = new Date()
-): string[] {
-  const runs: string[] = [];
-  let cursor = from;
-  for (let index = 0; index < Math.max(1, Math.min(10, count)); index += 1) {
-    const next = computeNextWorkflowScheduleRunAt(expression, cursor, timezone);
-    if (!next) break;
-    runs.push(next);
-    cursor = new Date(next);
-  }
-  return runs;
-}
-
-export function summarizeWorkflowScheduleCron(expression: string, timezone: string): string {
-  const [minute, hour, day, month, weekday] = expression.trim().split(/\s+/);
-  const time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-  if (day === '*' && month === '*' && weekday === '*') return `Every day at ${time} (${timezone})`;
-  if (day === '*' && month === '*' && weekday === '1-5') return `Weekdays at ${time} (${timezone})`;
-  if (day === '*' && month === '*' && /^\d(?:,\d)*$/.test(weekday)) return `Selected weekdays at ${time} (${timezone})`;
-  if (day === '*' && month === '*' && /^\d$/.test(weekday)) return `Weekly at ${time} (${timezone})`;
-  return `Cron ${expression.trim()} (${timezone})`;
 }
 
 type ScheduleRow = QueryResultRow;
@@ -199,7 +61,7 @@ export async function createWorkflowSchedule(params: {
     updatedBy: { userId: params.actorUserId },
     createdAt,
     updatedAt: createdAt,
-    nextRunAt: status === 'enabled' ? computeNextWorkflowScheduleRunAt(params.input.cron, now, params.input.timezone.trim()) : undefined
+    nextRunAt: status === 'enabled' ? requireWorkflowScheduleNextRun(params.input.cron, now, params.input.timezone.trim()) : undefined
   };
   const result = await db.query<ScheduleRow>(
     `INSERT INTO workflow_schedules (
@@ -246,7 +108,7 @@ export async function updateWorkflowScheduleRecord(
     principal: patch.principal ? { ...patch.principal } : current.principal,
     updatedBy: { userId: actorUserId },
     updatedAt: nowIso(now),
-    nextRunAt: status === 'enabled' ? computeNextWorkflowScheduleRunAt(cron, now, timezone) : undefined
+    nextRunAt: status === 'enabled' ? requireWorkflowScheduleNextRun(cron, now, timezone) : undefined
   };
   const result = await db.query<ScheduleRow>(
     `UPDATE workflow_schedules SET workflow_id=$2,name=$3,status=$4,cron=$5,timezone=$6,
@@ -280,11 +142,24 @@ export async function deleteWorkflowScheduleRecord(scheduleId: string): Promise<
   return Boolean(result.rowCount);
 }
 
+export async function pauseStrandedWorkflowSchedule(scheduleId: string, now = new Date()): Promise<WorkflowScheduleRecord | null> {
+  // Recheck under the write lock: an operator may have repaired the claimed
+  // schedule since the worker read it. This is maintenance, not a run attempt.
+  const result = await db.query<ScheduleRow>(
+    `UPDATE workflow_schedules
+     SET status='paused',last_status='auto_paused',last_error=$2,
+       lease_owner=NULL,lease_expires_at=NULL,updated_at=$3
+     WHERE id=$1 AND status='enabled' AND next_run_at IS NULL RETURNING *`,
+    [scheduleId, 'This schedule has no next run. Review its cadence and enable it again.', nowIso(now)]
+  );
+  return result.rowCount ? mapSchedule(result.rows[0]) : null;
+}
+
 export async function listDueWorkflowSchedules(now = new Date(), limit = 50): Promise<WorkflowScheduleRecord[]> {
   return withTransaction(async (client) => {
     const result = await client.query<ScheduleRow>(
       `SELECT * FROM workflow_schedules
-       WHERE status='enabled' AND next_run_at <= $1
+       WHERE status='enabled' AND (next_run_at <= $1 OR next_run_at IS NULL)
          AND (lease_expires_at IS NULL OR lease_expires_at < NOW())
        ORDER BY next_run_at,id FOR UPDATE SKIP LOCKED LIMIT $2`, [now, Math.max(1, limit)]
     );
@@ -306,16 +181,18 @@ export async function recordWorkflowScheduleDispatch(
   const current = await getWorkflowSchedule(scheduleId);
   if (!current) return null;
   const now = params.now || new Date();
-  const paused = status === 'auto_paused';
+  const nextRunAt = status === 'auto_paused' ? undefined : computeNextWorkflowScheduleRunAt(current.cron, now, current.timezone);
+  const cadenceFailed = status !== 'auto_paused' && !nextRunAt;
+  const paused = status === 'auto_paused' || cadenceFailed;
   const updated: WorkflowScheduleRecord = {
     ...current,
     status: paused ? 'paused' : current.status,
     lastRunAt: nowIso(now),
-    lastStatus: status,
+    lastStatus: cadenceFailed ? 'auto_paused' : status,
     lastExecutionId: params.executionId || current.lastExecutionId,
     lastRunId: params.runId || current.lastRunId,
-    lastError: params.error,
-    nextRunAt: paused ? undefined : computeNextWorkflowScheduleRunAt(current.cron, now, current.timezone),
+    lastError: cadenceFailed ? new WorkflowScheduleCadenceError().message : params.error,
+    nextRunAt,
     updatedAt: nowIso(now)
   };
   const result = await db.query<ScheduleRow>(

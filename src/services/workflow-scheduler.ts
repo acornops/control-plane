@@ -4,6 +4,7 @@ import { recordWorkspaceAuditEvent } from './workspace-audit.js';
 import { withRedisLease } from './control-plane-coordination/leases.js';
 import {
   listDueWorkflowSchedules,
+  pauseStrandedWorkflowSchedule,
   recordWorkflowScheduleDispatch
 } from '../store/repository-workflow-schedules.js';
 import { updateWorkflowRun } from '../store/repository-workflows.js';
@@ -21,7 +22,19 @@ export interface WorkflowScheduleTickResult {
 }
 
 async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Promise<'dispatched' | 'failed' | 'auto_paused' | 'skipped'> {
-  const occurrenceKey = schedule.nextRunAt || now.toISOString();
+  if (!schedule.nextRunAt) {
+    const paused = await pauseStrandedWorkflowSchedule(schedule.id, now);
+    if (!paused) return 'skipped';
+    await recordWorkspaceAuditEvent({
+      workspaceId: paused.workspaceId, category: 'run', eventType: 'workflow.schedule_auto_paused.v1',
+      operation: 'write', actorUserId: paused.updatedBy.userId, objectType: 'workflow_schedule',
+      objectId: paused.id, objectName: paused.name, summary: 'Workflow schedule auto-paused',
+      metadata: { workflowId: paused.workflowId, reason: 'schedule_next_run_missing' }
+    });
+    incrementWorkflowSchedulerEvent('auto_paused');
+    return 'auto_paused';
+  }
+  const occurrenceKey = schedule.nextRunAt;
   const dispatch = await dispatchWorkflowTrigger({
     id: schedule.id,
     name: schedule.name,

@@ -47,6 +47,18 @@ finishes it after request cleanup. Both native entrypoints retain the caller's
 original owner/generation through asynchronous lookups. Lifecycle and cancellation
 checks still apply when capacity limits are disabled.
 
+Lifecycle ordering uses the reservation's PostgreSQL `created_at`, recorded under
+the workspace lock, not the run's `requestedAt` display metadata. Application clock
+skew and transactions waiting behind a restore cannot change this ordering.
+Timestamp comparisons retain database microsecond precision.
+
+Legacy attempts without reservations have unknown admission order. They remain
+accessible without suspension history, but a recorded suspension fences them even
+after restore. Rollout backfill marks that unknown order as PostgreSQL
+`-infinity`; it does not claim the attempt was newly admitted. Queue eligibility
+and expiry still use current timestamps. Start a fresh authorized attempt when
+recovering such work; never erase cancellation evidence to resume it.
+
 Approval waits retain outstanding capacity with their existing expiry policy;
 approval resolution starts a fresh eligible queue interval once. Dependency waits
 persist the coordinator transcript and pending tool call before releasing both
@@ -64,6 +76,14 @@ Follow the deployment repository's `docs/hosted-readiness.md` for compatible
 replica rollout, retained-attempt backfill, verification, activation and rollback.
 `npm run capacity:rollout` runs the compiled CLI, which is available in production
 images after the normal build. Keep all ledgers and cancellation evidence.
+
+When upgrading from a build whose rollout CLI already backfilled reservations
+using rollout time, close admission and dispatch and reconcile retained attempts
+in workspaces with suspension history before reopening traffic. Those old
+backfills have no provenance marker and cannot be distinguished reliably from
+fresh admissions. Cancel ambiguous retained attempts and start fresh ones only
+after checking for uncertain side effects. This fix requires no schema migration
+and does not silently rewrite historical timestamps or replay work.
 
 `npm run validate` includes PostgreSQL policy, capacity, continuation, Insights,
 rollout and dispatch regression tests. Set `NODE_ENV=test`, `DATABASE_URL` and

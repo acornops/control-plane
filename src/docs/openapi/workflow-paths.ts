@@ -129,7 +129,7 @@ const workflowScheduleBody = {
           workflowId: { type: 'string' },
           name: { type: 'string' },
           enabled: { type: 'boolean' },
-          cron: { type: 'string', example: '0 9 * * 1-5' },
+          cron: { type: 'string', maxLength: 256, example: '0 9 * * 1-5', description: 'Numeric five-field minute-resolution cron. Supports lists, ascending ranges and positive steps; no aliases or seconds. Restricted day fields combine with OR; a leading-star day field uses AND. The timezone determines daylight-saving behavior.' },
           timezone: { type: 'string', example: 'UTC' },
           principal: { type: 'object', required: ['type', 'id'], properties: {
             type: { type: 'string', enum: ['user'] }, id: { type: 'string' }
@@ -217,7 +217,7 @@ export function buildWorkflowPaths(): Record<string, unknown> {
       post: {
         tags: ['workflows'],
         summary: 'Preview a workflow schedule',
-        description: 'Compiles the active saved workflow definition and validates cron and timezone without creating or changing a schedule.',
+        description: 'Compiles the active saved workflow definition and validates cron and timezone without creating or changing a schedule. Returns field errors and upcoming occurrences. enabled:false skips MCP readiness for cadence-only preview; it does not bypass authenticated creator or workflow validation. Save and dispatch revalidate readiness.',
         security: [{ userSession: [] }],
         parameters: [workspaceIdParameter],
         requestBody: workflowScheduleBody,

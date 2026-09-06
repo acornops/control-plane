@@ -12,7 +12,7 @@ import { db } from '../src/infra/db.js';
 import { repo } from '../src/store/repository.js';
 import { callPlatformNativeTool } from '../src/controllers/internal-platform-native-tool-controller.js';
 import { callMcpTool } from '../src/controllers/internal-mcp-bridge-controller.js';
-import { requireExecutionAccess } from '../src/services/workspace-execution-access.js';
+import { assertExecutionActive, requireExecutionAccess } from '../src/services/workspace-execution-access.js';
 import { executeWorkspaceNativeTool } from '../src/services/workspace-native-tool-executor.js';
 import { acquireRunCapacity, settleRunCapacity, reserveRunCapacity } from '../src/store/repository-run-capacity.js';
 import { addAgentConversationSession } from '../src/store/repository-agent-conversations.js';
@@ -126,6 +126,37 @@ for(const entry of ['native','builtin'] as const) {
     assert.equal((await db.query('SELECT count(*)::int AS count FROM generated_documents WHERE conversation_run_id=$1',[run.id])).rows[0].count,0);
   });
 }
+for (const legacy of [false, true]) for (const afterRestore of [false, true]) {
+  test(`suspension uses admission ordering, not request clock: legacy=${legacy}, afterRestore=${afterRestore}`, async () => {
+    if (afterRestore) await revoke('', 'restore');
+    const { run } = await createRun();
+    config.WORKSPACE_CAPACITY_ENABLED = false;
+    // Model either a fast application clock before suspension or a slow one
+    // after restore, without changing the database clock or reservation order.
+    await db.query(`UPDATE runs SET requested_at=clock_timestamp()+($2::int*INTERVAL '1 minute') WHERE id=$1`,
+      [run.id, afterRestore ? -1 : 1]);
+    if (legacy) await db.query('DELETE FROM workspace_run_reservations WHERE run_id=$1', [run.id]);
+    if (!afterRestore) await revoke(run.id, 'restore');
+    const allowed = afterRestore && !legacy;
+    if (allowed) await assertExecutionActive(run.id);
+    else await assert.rejects(assertExecutionActive(run.id), { code: 'RUN_CANCELLED_BY_SUSPENSION' });
+    const res = responseStub(run);
+    await callPlatformNativeTool({ params: { runId: run.id, toolId: 'documents.create' },
+      body: { toolCallId: 'clock-skew', arguments: { title: 'Report', markdown: '# Report', format: 'markdown' } }
+    } as never, res as never, (error?: unknown) => { if (error) throw error; });
+    assert.equal(res.statusCode, allowed ? 200 : 409);
+    assert.equal((await db.query('SELECT count(*)::int AS count FROM generated_documents WHERE conversation_run_id=$1', [run.id])).rows[0].count,
+      allowed ? 1 : 0);
+  });
+}
+
+test('legacy execution without suspension history remains accessible', async () => {
+  const { run } = await createRun();
+  config.WORKSPACE_CAPACITY_ENABLED = false;
+  await db.query('DELETE FROM workspace_run_reservations WHERE run_id=$1', [run.id]);
+  await assertExecutionActive(run.id);
+});
+
 for(const reason of ['suspend','restore'] as const) {
   test(`disabled capacity still fences document ${reason}`,async()=>{
     const {run}=await createRun();

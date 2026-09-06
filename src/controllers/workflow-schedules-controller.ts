@@ -36,6 +36,7 @@ import { publicMcpReadinessError } from '../services/mcp-readiness.js';
 import { WorkflowAccessDeniedError } from '../services/workflow-access.js';
 import { resolveWorkflowAgentCapabilities } from '../services/workflow-derived-capabilities.js';
 import { respondWorkflowAccessError } from './workflow-public.js';
+import { WorkflowScheduleCadenceError } from '../services/workflow-schedule-cron.js';
 
 function objectBody(req: AuthenticatedRequest): Record<string, unknown> {
   return req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {};
@@ -119,8 +120,11 @@ export async function previewWorkflowSchedule(req: AuthenticatedRequest, res: Re
         errors.push({ field: 'readiness', message: error.message });
       }
     }
+    const nextRunTimes = errors.length === 0 ? computeUpcomingWorkflowScheduleRuns(cron, timezone, 5) : [];
+    if (errors.length === 0 && nextRunTimes.length === 0) {
+      errors.push({ field: 'cron', message: new WorkflowScheduleCadenceError().message });
+    }
     const valid = errors.length === 0;
-    const nextRunTimes = valid ? computeUpcomingWorkflowScheduleRuns(cron, timezone, 5) : [];
     observeWorkflowSchedulePreviewDurationMs(valid ? 'valid' : 'invalid', Date.now() - startedAt);
     res.status(200).json({
       valid,
@@ -271,6 +275,10 @@ export async function createWorkflowScheduleForWorkspace(req: AuthenticatedReque
     });
     res.status(201).json({ schedule: publicSchedule(schedule) });
   } catch (err) {
+    if (err instanceof WorkflowScheduleCadenceError) {
+      res.status(400).json({ error: { code: 'INVALID_CRON', message: err.message, retryable: false } });
+      return;
+    }
     if (err instanceof WorkflowPromptValidationError) {
       res.status(400).json({ error: {
         code: 'WORKFLOW_PROMPT_INVALID',
@@ -382,6 +390,10 @@ export async function updateWorkflowSchedule(req: AuthenticatedRequest, res: Res
       : null;
     res.status(200).json({ schedule: updated ? publicSchedule(updated, latestExecution) : null });
   } catch (err) {
+    if (err instanceof WorkflowScheduleCadenceError) {
+      res.status(400).json({ error: { code: 'INVALID_CRON', message: err.message, retryable: false } });
+      return;
+    }
     if (err instanceof WorkflowPromptValidationError) {
       res.status(400).json({ error: {
         code: 'WORKFLOW_PROMPT_INVALID',

@@ -41,9 +41,11 @@ async function prepare(): Promise<void> {
   await withTransaction(async client => {
     await client.query('SELECT singleton FROM workspace_capacity_rollout WHERE singleton FOR UPDATE');
     await assertQuiesced(client);
-    await client.query(`INSERT INTO workspace_run_reservations(run_id,workspace_id,pool,state,queue_expires_at)
+    // Legacy admission time is unknown; backfill must not turn historical work
+    // into a post-restore admission. Keep eligibility/queue deadlines current.
+    await client.query(`INSERT INTO workspace_run_reservations(run_id,workspace_id,pool,state,queue_expires_at,created_at)
       SELECT r.id,r.workspace_id,CASE WHEN s.origin='auto_triage' THEN 'autoTriage'
-        WHEN r.conversation_kind='agent_chat' THEN 'agent' ELSE 'chat' END,'queued',clock_timestamp()+INTERVAL '600 seconds'
+        WHEN r.conversation_kind='agent_chat' THEN 'agent' ELSE 'chat' END,'queued',clock_timestamp()+INTERVAL '600 seconds','-infinity'::timestamptz
       FROM runs r JOIN sessions s ON s.id=r.session_id JOIN workspaces w ON w.id=r.workspace_id
       WHERE r.status IN ('queued','waiting_for_approval') AND w.lifecycle_status='active' ON CONFLICT(run_id) DO NOTHING`);
     await client.query(`INSERT INTO automation_dispatch_outbox(id,workspace_id,source_type,source_id,run_id,idempotency_key,payload)
@@ -51,8 +53,8 @@ async function prepare(): Promise<void> {
       FROM runs r JOIN sessions s ON s.id=r.session_id JOIN workspaces w ON w.id=r.workspace_id
       WHERE r.status='queued' AND s.origin<>'auto_triage' AND w.lifecycle_status='active'
       ON CONFLICT(idempotency_key) DO NOTHING`);
-    await client.query(`INSERT INTO workspace_run_reservations(run_id,workspace_id,pool,state,queue_expires_at)
-      SELECT r.id,r.workspace_id,'workflow','queued',clock_timestamp()+INTERVAL '600 seconds'
+    await client.query(`INSERT INTO workspace_run_reservations(run_id,workspace_id,pool,state,queue_expires_at,created_at)
+      SELECT r.id,r.workspace_id,'workflow','queued',clock_timestamp()+INTERVAL '600 seconds','-infinity'::timestamptz
       FROM workflow_runs r JOIN workspaces w ON w.id=r.workspace_id
       WHERE r.status IN ('queued','waiting_for_approval') AND w.lifecycle_status='active' ON CONFLICT(run_id) DO NOTHING`);
     const jobs = await client.query<{ id: string; workspace_id: string }>(`SELECT j.id,j.workspace_id FROM target_auto_triage_jobs j
@@ -60,8 +62,8 @@ async function prepare(): Promise<void> {
       AND j.status IN ('queued','processing','blocked') AND w.lifecycle_status='active' FOR UPDATE OF j`);
     for (const job of jobs.rows) {
       const runId = randomUUID();
-      await client.query(`INSERT INTO workspace_run_reservations(run_id,workspace_id,pool,queue_expires_at)
-        VALUES($1,$2,'autoTriage',clock_timestamp()+INTERVAL '600 seconds')`, [runId, job.workspace_id]);
+      await client.query(`INSERT INTO workspace_run_reservations(run_id,workspace_id,pool,queue_expires_at,created_at)
+        VALUES($1,$2,'autoTriage',clock_timestamp()+INTERVAL '600 seconds','-infinity'::timestamptz)`, [runId, job.workspace_id]);
       await client.query('UPDATE target_auto_triage_jobs SET reserved_run_id=$2 WHERE id=$1', [job.id, runId]);
     }
     await client.query(`UPDATE workspace_capacity_rollout SET active=true,catalog_hash=$1,activated_at=clock_timestamp(),verified_at=NULL WHERE singleton`, [workspaceCatalogFingerprint()]);

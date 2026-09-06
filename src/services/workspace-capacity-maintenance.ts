@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import { db } from '../infra/db.js';
 import { logger } from '../logger.js';
 import { settleRunCapacity } from '../store/repository-run-capacity.js';
+import { executionAdmissionTimeSql } from '../store/repository-execution-admission.js';
 import { getWorkflowRun } from '../store/repository-workflows.js';
 import { cleanupWorkspacePolicyReceipts } from '../store/repository-workspace-policy-read.js';
 import { assertExecutionActive } from './workspace-execution-access.js';
@@ -19,7 +20,7 @@ async function maintainWorkspaceCapacity(): Promise<void> {
           SELECT 1 FROM workspace_run_reservations r WHERE r.run_id=${table}.id AND r.state='parked'
         ) THEN 'cancelled' ELSE 'cancelling' END,
         error_code='WORKSPACE_SUSPENDED',error_message='Workspace suspended'
-        WHERE workspace_id=$1 AND requested_at<=$2 AND status IN ('queued','dispatching','running','waiting_for_approval','cancelling') RETURNING id`,
+        WHERE workspace_id=$1 AND ${executionAdmissionTimeSql(table)}<=$2 AND status IN ('queued','dispatching','running','waiting_for_approval','cancelling') RETURNING id`,
       [hold.workspace_id, hold.requested_at]);
       for (const run of cancelled.rows) {
         await cancelRunInExecutionEngine(run.id).catch((err) => logger.warn({ err, runId: run.id }, 'Cancellation will also be enforced at execution boundaries'));
@@ -32,10 +33,11 @@ async function maintainWorkspaceCapacity(): Promise<void> {
     await db.query(`UPDATE target_insights_checkpoint_jobs SET status='skipped',last_error='WORKSPACE_SUSPENDED',lease_owner=NULL,lease_expires_at=NULL
       WHERE workspace_id=$1 AND last_activity_at<=$2 AND status IN ('queued','processing','failed')`, [hold.workspace_id, hold.requested_at]);
     await db.query(`UPDATE run_tool_approvals a SET status='expired' FROM runs r
-      WHERE a.run_id=r.id AND r.workspace_id=$1 AND r.requested_at<=$2 AND a.status='pending'`, [hold.workspace_id, hold.requested_at]);
+      WHERE a.run_id=r.id AND r.workspace_id=$1 AND ${executionAdmissionTimeSql('r')}<=$2 AND a.status='pending'`, [hold.workspace_id, hold.requested_at]);
     await db.query(`UPDATE workflow_run_approvals a SET status='expired' FROM workflow_runs r
-      WHERE a.run_id=r.id AND r.workspace_id=$1 AND r.requested_at<=$2 AND a.status='pending'`, [hold.workspace_id, hold.requested_at]);
-    await db.query('DELETE FROM workflow_dependency_continuations WHERE run_id IN (SELECT id FROM workflow_runs WHERE workspace_id=$1 AND requested_at<=$2)', [hold.workspace_id, hold.requested_at]);
+      WHERE a.run_id=r.id AND r.workspace_id=$1 AND ${executionAdmissionTimeSql('r')}<=$2 AND a.status='pending'`, [hold.workspace_id, hold.requested_at]);
+    await db.query(`DELETE FROM workflow_dependency_continuations WHERE run_id IN
+      (SELECT id FROM workflow_runs WHERE workspace_id=$1 AND ${executionAdmissionTimeSql('workflow_runs')}<=$2)`, [hold.workspace_id, hold.requested_at]);
     await db.query('UPDATE workspace_lifecycle_outbox SET completed_at=clock_timestamp() WHERE workspace_id=$1 AND requested_at=$2', [hold.workspace_id, hold.requested_at]);
   }
   // A cancelled owner can disappear without a callback. Keep uncertain operations
@@ -44,7 +46,7 @@ async function maintainWorkspaceCapacity(): Promise<void> {
     await db.query(`UPDATE ${table} run SET status='cancelled',ended_at=clock_timestamp()
       WHERE run.status='cancelling' AND EXISTS (
         SELECT 1 FROM workspace_run_reservations r JOIN workspace_lifecycle_outbox o ON o.workspace_id=r.workspace_id
-        WHERE r.run_id=run.id AND o.requested_at>=run.requested_at
+        WHERE r.run_id=run.id AND r.workspace_id=run.workspace_id AND o.requested_at>=r.created_at
         AND (r.lease_expires_at IS NULL OR r.lease_expires_at<=clock_timestamp())
         AND NOT EXISTS (SELECT 1 FROM workspace_run_operations op WHERE op.run_id=r.run_id
           AND op.finished_at IS NULL AND op.deadline>clock_timestamp()))`);

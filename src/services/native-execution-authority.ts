@@ -4,6 +4,7 @@ import { config } from '../config.js';
 import { assertCapacityOwner, lockActiveWorkspace, lockReservation, WorkspaceCapacityError } from '../store/repository-run-capacity.js';
 import { beginCapacityOperation, finishCapacityOperation } from '../store/repository-capacity-operations.js';
 import { withTransaction } from '../store/repository-transaction.js';
+import { executionAdmissionTimeSql } from '../store/repository-execution-admission.js';
 
 export interface NativeExecutionAuthority {
   readonly ownerId: string;
@@ -31,10 +32,10 @@ export async function withNativeExecutionAuthority<T>(
     return await withTransaction(async (client) => {
       await lockActiveWorkspace(client, input.workspaceId);
       const run = await client.query<{ cancelled: boolean }>(`SELECT EXISTS (
-          SELECT 1 FROM workspace_lifecycle_outbox o WHERE o.workspace_id=r.workspace_id AND o.requested_at>=r.requested_at
+          SELECT 1 FROM workspace_lifecycle_outbox o WHERE o.workspace_id=r.workspace_id AND o.requested_at>=${executionAdmissionTimeSql('r')}
         ) AS cancelled FROM (
-          SELECT workspace_id,requested_at FROM runs WHERE id=$1 AND workspace_id=$2
-          UNION ALL SELECT workspace_id,requested_at FROM workflow_runs WHERE id=$1 AND workspace_id=$2
+          SELECT id,workspace_id FROM runs WHERE id=$1 AND workspace_id=$2
+          UNION ALL SELECT id,workspace_id FROM workflow_runs WHERE id=$1 AND workspace_id=$2
         ) r`, [input.runId, input.workspaceId]);
       if (!run.rowCount) throw new WorkspaceCapacityError('NOT_FOUND', 'Run not found', 404);
       if (run.rows[0].cancelled) throw new WorkspaceCapacityError('RUN_CANCELLED_BY_SUSPENSION', 'This attempt was cancelled by workspace suspension', 409);

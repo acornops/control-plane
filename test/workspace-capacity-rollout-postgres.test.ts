@@ -8,6 +8,7 @@ import { after, test } from 'node:test';
 import { config } from '../src/config.js';
 import { db } from '../src/infra/db.js';
 import { canonicalPolicyHash } from '../src/store/repository-workspace-policy-read.js';
+import { assertExecutionActive } from '../src/services/workspace-execution-access.js';
 import { resetAutomationDatabaseFixtures, closeAutomationDatabaseFixtures } from './helpers/automation-database-fixtures.js';
 
 after(closeAutomationDatabaseFixtures);
@@ -54,10 +55,14 @@ test('rollout CLI verifies compatible replicas and backfills retained attempts b
     assert.equal(incompatible.code, 1, incompatible.output);
     assert.match(incompatible.output, /Incompatible peer/);
     version = 1;
+    await db.query("UPDATE workspaces SET lifecycle_status='suspended' WHERE id='workspace-1'");
+    await db.query("UPDATE workspaces SET lifecycle_status='active' WHERE id='workspace-1'");
+    await db.query("UPDATE runs SET requested_at=clock_timestamp()+INTERVAL '1 minute' WHERE id='retained-run'");
     const prepared = await cli('prepare');
     assert.equal(prepared.code, 0, prepared.output);
     const reservation = await db.query("SELECT pool,state FROM workspace_run_reservations WHERE run_id='retained-run'");
     assert.deepEqual(reservation.rows, [{ pool: 'chat', state: 'queued' }]);
+    await assert.rejects(assertExecutionActive('retained-run'), { code: 'RUN_CANCELLED_BY_SUSPENSION' });
     assert.equal((await db.query("SELECT status FROM automation_dispatch_outbox WHERE run_id='retained-run'")).rows[0].status, 'pending');
     assert.equal((await db.query('SELECT verified_at FROM workspace_capacity_rollout')).rows[0].verified_at, null);
     mode = true;

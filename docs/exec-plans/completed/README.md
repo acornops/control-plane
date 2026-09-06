@@ -1,5 +1,9 @@
 # Completed Execution Plans
 
+- [Execution admission fencing](execution-admission-fencing.md)
+
+- [Platform Release Hardening](platform-release-hardening.md)
+
 Move finished plans here after the work lands.
 
 Keep only completed plans that remain useful as durable design or validation context.

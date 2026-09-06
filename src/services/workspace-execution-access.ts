@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { config } from '../config.js';
 import { db } from '../infra/db.js';
 import { WorkspaceCapacityError } from '../store/repository-run-capacity.js';
+import { executionAdmissionTimeSql } from '../store/repository-execution-admission.js';
 
 export async function assertActiveWorkspace(workspaceId: string): Promise<void> {
   const result = await db.query<{ lifecycle_status: string }>('SELECT lifecycle_status FROM workspaces WHERE id=$1', [workspaceId]);
@@ -9,13 +10,15 @@ export async function assertActiveWorkspace(workspaceId: string): Promise<void> 
   if (result.rows[0].lifecycle_status === 'suspended') throw new WorkspaceCapacityError('WORKSPACE_SUSPENDED', 'Workspace suspended', 403);
 }
 
-export async function resolveExecutionIdentity(runId: string): Promise<{ workspaceId: string; requestedAt: string } | null> {
-  const result = await db.query<{ workspace_id: string; requested_at: string }>(
-    `SELECT workspace_id,requested_at::text AS requested_at FROM runs WHERE id=$1
-     UNION ALL SELECT workspace_id,requested_at::text AS requested_at FROM workflow_runs WHERE id=$1
-     UNION ALL SELECT workspace_id,created_at::text AS requested_at FROM workspace_run_reservations
+export async function resolveExecutionIdentity(runId: string): Promise<{ workspaceId: string; admittedAt: string } | null> {
+  const result = await db.query<{ workspace_id: string; admitted_at: string }>(
+    `SELECT r.workspace_id,${executionAdmissionTimeSql('r')}::text AS admitted_at FROM (
+       SELECT id,workspace_id FROM runs WHERE id=$1
+       UNION ALL SELECT id,workspace_id FROM workflow_runs WHERE id=$1
+     ) r
+     UNION ALL SELECT workspace_id,created_at::text AS admitted_at FROM workspace_run_reservations
        WHERE run_id=$1 AND pool='insights' LIMIT 1`, [runId]);
-  return result.rowCount ? { workspaceId: result.rows[0].workspace_id, requestedAt: result.rows[0].requested_at } : null;
+  return result.rowCount ? { workspaceId: result.rows[0].workspace_id, admittedAt: result.rows[0].admitted_at } : null;
 }
 
 export async function assertExecutionActive(runId: string): Promise<void> {
@@ -23,7 +26,7 @@ export async function assertExecutionActive(runId: string): Promise<void> {
   if (!identity) throw new WorkspaceCapacityError('NOT_FOUND', 'Run not found', 404);
   await assertActiveWorkspace(identity.workspaceId);
   const cancelled = await db.query(
-    'SELECT 1 FROM workspace_lifecycle_outbox WHERE workspace_id=$1 AND requested_at >= $2', [identity.workspaceId, identity.requestedAt]);
+    'SELECT 1 FROM workspace_lifecycle_outbox WHERE workspace_id=$1 AND requested_at >= $2', [identity.workspaceId, identity.admittedAt]);
   if (cancelled.rowCount) throw new WorkspaceCapacityError('RUN_CANCELLED_BY_SUSPENSION', 'This attempt was cancelled by workspace suspension', 409);
 }
 

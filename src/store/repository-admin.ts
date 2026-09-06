@@ -92,6 +92,7 @@ export async function listAdminUsers(options: {
   email?: string;
   authMethod?: 'password' | 'oidc';
   emailVerified?: boolean;
+  workspaceQuery?: string;
   signature?: string;
 } = {}): Promise<PagedResult<User & { authMethods: string[]; emailVerified: boolean; workspaceMembershipCount: number; lastLoginAt?: string }>> {
   const limit = Math.max(1, Math.min(100, options.limit ?? 50));
@@ -107,6 +108,17 @@ export async function listAdminUsers(options: {
   }
   if (options.email) add('u.email = ?', options.email.toLowerCase());
   if (options.emailVerified !== undefined) add('(u.email_verified_at IS NOT NULL) = ?', options.emailVerified);
+  if (options.workspaceQuery) {
+    params.push(options.workspaceQuery);
+    clauses.push(`EXISTS (
+      SELECT 1 FROM workspace_memberships wm
+      INNER JOIN workspaces w ON w.id = wm.workspace_id
+      WHERE wm.user_id = u.id AND (
+        POSITION(LOWER($${params.length}) IN LOWER(w.name)) > 0 OR
+        POSITION(LOWER($${params.length}) IN LOWER(w.id)) > 0
+      )
+    )`);
+  }
   if (options.authMethod === 'password') clauses.push('pc.user_id IS NOT NULL');
   if (options.authMethod === 'oidc') clauses.push('fi.user_id IS NOT NULL');
   if (options.cursor) {

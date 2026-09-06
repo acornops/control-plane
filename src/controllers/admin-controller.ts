@@ -164,8 +164,13 @@ export async function listUsers(req: AdminAuthenticatedRequest, res: Response, n
     const q = normalizeSearchQuery(req.query.q);
     const emailVerified = parseBoolQuery(req.query.emailVerified, 'emailVerified');
     const authMethod = parseStringFilter(req.query.authMethod, 'authMethod');
-    if (emailVerified.error || authMethod.error) {
-      validationError(res, emailVerified.error || authMethod.error!);
+    const workspaceQuery = parseStringFilter(req.query.workspaceQuery, 'workspaceQuery');
+    if (Array.isArray(req.query.workspaceQuery)) {
+      validationError(res, 'workspaceQuery must be a single filter value');
+      return;
+    }
+    if (emailVerified.error || authMethod.error || workspaceQuery.error) {
+      validationError(res, emailVerified.error || authMethod.error || workspaceQuery.error!);
       return;
     }
     if (authMethod.value && authMethod.value !== 'password' && authMethod.value !== 'oidc') {
@@ -176,7 +181,8 @@ export async function listUsers(req: AdminAuthenticatedRequest, res: Response, n
       q,
       email: toSingleParam(req.query.email as string | string[] | undefined),
       authMethod: authMethod.value as 'password' | 'oidc' | undefined,
-      emailVerified: emailVerified.value
+      emailVerified: emailVerified.value,
+      workspaceQuery: workspaceQuery.value
     };
     const signature = makeQuerySignature(filters);
     const cursor = decodeCursor<{ createdAt: string; userId: string; signature: string }>(req.query.cursor, signature);

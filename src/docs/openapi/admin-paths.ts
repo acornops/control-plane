@@ -233,6 +233,13 @@ export function buildAdminPaths(): Record<string, unknown> {
         tags: ['admin'],
         summary: 'Search users',
         security: adminSecurity,
+        parameters: [
+          { name: 'workspaceQuery', in: 'query', required: false, schema: { type: 'string', maxLength: 200 }, description: 'Case-insensitive literal substring of a membership workspace name or ID. Combined with other filters and bound to the cursor; users are returned once even with multiple matches.' },
+          { name: 'q', in: 'query', required: false, schema: { type: 'string' } },
+          { name: 'emailVerified', in: 'query', required: false, schema: { type: 'boolean' } },
+          { name: 'limit', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 100 } },
+          { name: 'cursor', in: 'query', required: false, schema: { type: 'string' } }
+        ],
         responses: { '200': { description: 'Paged safe user summaries.' } }
       }
     },

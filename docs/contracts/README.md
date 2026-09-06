@@ -1,5 +1,13 @@
 # Control Plane Contracts
 
+Admin user discovery accepts optional `workspaceQuery` (maximum 200 characters),
+matching case-insensitive literal substrings of membership workspace names or
+IDs. The existence predicate prevents duplicate users, combines with existing
+filters, and runs before bounded pagination; the filter is cursor-signature
+bound. Platform Admin consumes this additive query through its existing BFF
+allowlist without widening scopes or response fields. Deploy the producer before
+the consumer and roll back the consumer first.
+
 The control plane owns the platform API boundary. Keep this README as a short integration brief; do not turn it into a duplicated endpoint reference.
 
 ## Source Of Truth
@@ -315,6 +323,20 @@ The control plane owns the platform API boundary. Keep this README as a short in
   and update reject service identities with
   `WORKFLOW_SCHEDULE_USER_PRINCIPAL_REQUIRED`; migration pauses schedules whose
   creators are no longer authorized workspace members.
+- Schedule cadence uses numeric five-field, minute-resolution cron (maximum
+  256 characters) and an IANA timezone. Numeric lists, ascending ranges, and
+  positive steps are supported; aliases, seconds, `?`, `L`, `W`, and `#` are not.
+  Restricted day-of-month and day-of-week fields combine with OR; when either
+  day field starts with `*`, including a stepped wildcard, they combine with AND.
+  Upcoming times are strictly after the reference instant. A spring-forward
+  missing wall time moves forward through the gap; a repeated fall-back wall
+  time runs once, at its first occurrence.
+- Schedule preview preserves `{valid,summary,nextRunTimes,errors}` and returns
+  field errors for invalid or unresolvable cadence. `enabled:false` skips MCP
+  readiness checks for a cadence-only preview, not creator authorization or
+  workflow validation. Save and dispatch still enforce the stored creator's
+  readiness. Enabled persistence requires a future occurrence; a legacy enabled
+  row without `next_run_at` is conditionally auto-paused without dispatch.
 - Workflow executions persist a safe immutable origin snapshot. The
   workspace execution ledger is user-session-only, workspace-authorized, cursor
   paginated, and filterable by status, origin, workflow, and bounded search.
