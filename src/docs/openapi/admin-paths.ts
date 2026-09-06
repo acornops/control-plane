@@ -1,3 +1,4 @@
+import { buildAdminWorkspacePolicyPaths } from './admin-workspace-policy-paths.js';
 import { buildAdminWorkspaceDefaultPaths } from './admin-workspace-default-paths.js';
 
 export function buildAdminPaths(): Record<string, unknown> {
@@ -226,82 +227,7 @@ export function buildAdminPaths(): Record<string, unknown> {
         responses: { '200': { description: 'Safe workspace detail.' }, '404': { description: 'Workspace not found.' } }
       }
     },
-    '/admin/v1/workspaces/{workspaceId}/plan': {
-      patch: {
-        tags: ['admin'],
-        summary: 'Change workspace plan',
-        security: adminSecurity,
-        requestBody: mutationBody,
-        responses: { '200': { description: 'Plan changed with before/after data.' }, '400': { description: 'Invalid plan or current usage exceeds target plan.' } }
-      }
-    },
-    '/admin/v1/workspaces/{workspaceId}/suspend': {
-      post: {
-        tags: ['admin'],
-        summary: 'Suspend member access to a workspace without modifying workloads',
-        security: adminSecurity,
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                required: ['workspaceName', 'reason'],
-                properties: {
-                  workspaceName: { type: 'string', minLength: 1, maxLength: 200 },
-                  reason: { type: 'string', minLength: 3, maxLength: 500 },
-                  ticketRef: { type: 'string' }
-                },
-                additionalProperties: false
-              }
-            }
-          }
-        },
-        responses: {
-          '200': { description: 'Workspace access suspended; memberships, targets, workloads, and audit history retained.' },
-          '400': { description: 'Workspace-name confirmation did not match.' },
-          '409': { description: 'Workspace is already suspended or lifecycle state changed concurrently.' }
-        }
-      }
-    },
-    '/admin/v1/workspaces/{workspaceId}/restore': {
-      post: {
-        tags: ['admin'],
-        summary: 'Restore member access to a suspended workspace',
-        security: adminSecurity,
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                required: ['reason'],
-                properties: {
-                  workspaceName: { type: 'string', minLength: 1, maxLength: 200, description: 'When supplied, must exactly match the current workspace name.' },
-                  reason: { type: 'string', minLength: 3, maxLength: 500 },
-                  ticketRef: { type: 'string' }
-                },
-                additionalProperties: false
-              }
-            }
-          }
-        },
-        responses: {
-          '200': { description: 'Workspace access restored with retained memberships.' },
-          '400': { description: 'Workspace-name confirmation did not match.' },
-          '409': { description: 'Workspace is already active or lifecycle state changed concurrently.' }
-        }
-      }
-    },
-    '/admin/v1/workspaces/{workspaceId}/quotas': {
-      patch: {
-        tags: ['admin'],
-        summary: 'Set or clear workspace quota overrides',
-        security: adminSecurity,
-        requestBody: mutationBody,
-        responses: { '200': { description: 'Quota overrides changed.' } }
-      }
-    },
+    ...buildAdminWorkspacePolicyPaths(),
     '/admin/v1/users': {
       get: {
         tags: ['admin'],

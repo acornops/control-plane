@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { resolveExecutionLimits, ExecutionLimits } from './types/workspace-policy.js';
 import { httpsUrlProductionIssues, oidcIssuerProductionIssues } from './config-url-policy.js';
 import type { WorkspacePlan } from './types/domain.js';
 
@@ -23,6 +24,9 @@ export const ADMIN_SCOPE_VALUES = [
   'admin:audit:read',
   'admin:workspace:read',
   'admin:workspace:write',
+  'admin:workspace:policy:read',
+  'admin:workspace:plan:write',
+  'admin:workspace:external-hold:write',
   'admin:user:read',
   'admin:user:write',
   'admin:member:write',
@@ -45,6 +49,7 @@ export interface AdminTokenDescriptor {
 }
 
 export interface WorkspacePlanDefinition extends WorkspacePlan {
+  executionLimits?: ExecutionLimits;
   quotas: {
     members: number;
     kubernetesClusters: number;
@@ -204,6 +209,7 @@ function defaultWorkspacePlans(): WorkspacePlanDefinition[] {
     {
       key: 'default',
       name: 'Default',
+      executionLimits: resolveExecutionLimits(),
       quotas: {
         members: 100,
         kubernetesClusters: 30,
@@ -264,7 +270,7 @@ export function parseWorkspacePlansConfig(raw: string | undefined): {
     if (![members, kubernetesClusters, virtualMachines].every((quota) => Number.isInteger(quota) && quota > 0)) {
       throw new Error(`Workspace plan ${key} quotas must be positive integers`);
     }
-    return { key, name, quotas: { members, kubernetesClusters, virtualMachines } };
+    return { key, name, quotas: { members, kubernetesClusters, virtualMachines }, executionLimits: resolveExecutionLimits(value.executionLimits) };
   });
   if (!seen.has(defaultPlanKey)) {
     throw new Error('WORKSPACE_PLANS_CONFIG_JSON must include the default plan');

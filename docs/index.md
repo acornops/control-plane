@@ -13,6 +13,7 @@ This `docs/` tree is the repository-local system of record for agent-readable de
 - [Plan Overview](/docs/PLANS.md)
 - [Authorization Matrix](/docs/authorization-matrix.md)
 - [Database Migrations](/docs/database-migrations.md)
+- [Workspace Execution Capacity](/docs/workspace-execution-capacity.md)
 
 ## Design Docs
 
@@ -45,5 +46,6 @@ This `docs/` tree is the repository-local system of record for agent-readable de
 - [Security Model](/docs/security-model.md)
 - [Authorization Matrix](/docs/authorization-matrix.md)
 - [Database Migrations](/docs/database-migrations.md)
+- [Workspace Execution Capacity](/docs/workspace-execution-capacity.md)
 - [References](/docs/references/index.md)
 - [Generated Artifacts](/docs/generated/README.md)

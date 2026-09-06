@@ -1,3 +1,4 @@
+import { getDependencyContinuation, deleteDependencyContinuation } from './internal-dependency-wait-controller.js';
 import { NextFunction, Request, Response } from 'express';
 import { config } from '../config.js';
 import { incrementAutomationApproval } from '../metrics.js';
@@ -192,6 +193,8 @@ export async function createToolApproval(req: Request, res: Response, next: Next
 export async function getRunContinuation(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
+    const dependency = await getDependencyContinuation(runId);
+    if (dependency) { res.status(200).json(dependency); return; }
     const automationRun = await resolveAutomationRun(runId);
     if (automationRun) {
       const continuation = await getAutomationRunContinuation(runId);
@@ -315,6 +318,7 @@ export async function markToolApprovalExecutionFinished(req: Request, res: Respo
 export async function consumeRunContinuation(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const runId = toSingleParam(req.params.runId);
+    await deleteDependencyContinuation(runId);
     const automationRun = await resolveAutomationRun(runId);
     if (automationRun) {
       await deleteAutomationRunContinuation(runId);

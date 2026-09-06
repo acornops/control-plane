@@ -1,32 +1,22 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, it, mock } from 'node:test';
-import { getWorkspacePermissions } from '../src/auth/authorization.js';
 import { config } from '../src/config.js';
 import { commitRun } from '../src/controllers/internal-execution-controller.js';
 import { cancelRun } from '../src/controllers/runs-controller.js';
 import { cancelWorkflowExecution } from '../src/controllers/workflow-executions-controller.js';
 import { db } from '../src/infra/db.js';
-import {
-  compileWorkflowAccessScope,
-  compileWorkflowSessionCeiling
-} from '../src/services/workflow-access.js';
 import { runAutomationOutboxTick } from '../src/services/automation-outbox-worker.js';
-import { getAgentDefinition } from '../src/store/repository-agents.js';
 import {
   createAutomationRunApproval,
   getAutomationRunApproval,
   getAutomationRunContinuation,
   recomputeWorkflowExecutionStatusForRun
 } from '../src/store/repository-automation-approvals.js';
-import { listCapabilityRoutingMappings } from '../src/store/repository-capability-routing.js';
 import {
   createDelegatedWorkflowRun,
   WorkflowDelegationConflictError
 } from '../src/store/repository-workflow-run-delegations.js';
 import {
-  createWorkflowDefinition,
-  createWorkflowExecution,
-  createWorkflowSession,
   listWorkflowChildRuns,
   updateWorkflowRun
 } from '../src/store/repository-workflows.js';
@@ -41,11 +31,7 @@ import {
   installWorkspace,
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
-const actor = {
-  userId: 'user-1',
-  role: 'admin',
-  permissions: getWorkspacePermissions('admin')
-};
+import { actor, coordinatedRoot, delegationInput } from './helpers/workflow-delegation-postgres-fixtures.js';
 const mutableConfig = config as typeof config & { AUTOMATION_RUNTIME_MODE: 'off' | 'shadow' | 'canary' | 'on' };
 let originalRuntimeMode = config.AUTOMATION_RUNTIME_MODE;
 beforeEach(async () => {
@@ -60,79 +46,6 @@ afterEach(() => {
   restoreControllerRegressionState();
 });
 after(closeAutomationDatabaseFixtures);
-async function coordinatedRoot() {
-  const agents = (await Promise.all([
-    getAgentDefinition('workspace-1', 'agent-cluster-triage'),
-    getAgentDefinition('workspace-1', 'agent-incident-reporter')
-  ])).filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
-  assert.equal(agents.length, 2);
-  const workflow = await createWorkflowDefinition({
-    workspaceId: 'workspace-1',
-    name: 'Coordinated delegation probe',
-    prompt: 'Inspect the infrastructure.',
-    agentIds: agents.map((agent) => agent.id),
-    createdBy: actor.userId,
-    status: 'active'
-  });
-  const mappings = await listCapabilityRoutingMappings('workspace-1', { activeReviewedOnly: true });
-  const ceiling = compileWorkflowSessionCeiling({
-    workflow,
-    selectedAgents: agents,
-    mappings,
-    actor,
-  });
-  const rootScope = compileWorkflowAccessScope({
-    workflow,
-    selectedAgents: agents,
-    mappings,
-    actor,
-  });
-  const session = await createWorkflowSession({
-    workflow,
-    createdBy: actor.userId,
-    compiledAccessScope: ceiling
-  });
-  const created = await createWorkflowExecution({
-    workflow,
-    session,
-    compiledAccessScope: rootScope,
-    content: 'Inspect the infrastructure.'
-  });
-  const parent = await updateWorkflowRun(created.run.id, { status: 'running' });
-  assert.ok(parent);
-  await db.query("UPDATE workflow_executions SET status='running' WHERE id=$1", [created.execution.id]);
-  await db.query(
-    "UPDATE automation_dispatch_outbox SET status='delivered',delivered_at=NOW() WHERE run_id=$1",
-    [parent.id]
-  );
-  const specialist = agents.find((agent) => agent.id === 'agent-cluster-triage');
-  assert.ok(specialist);
-  const childScope = compileWorkflowAccessScope({
-    workflow,
-    selectedAgents: agents,
-    specialistAgent: specialist,
-    delegatedSpecialist: true,
-    mappings: mappings.filter((mapping) => mapping.agentId === specialist.id),
-    actor,
-  });
-  return { parent, specialist, childScope };
-}
-function delegationInput(
-  setup: Awaited<ReturnType<typeof coordinatedRoot>>,
-  toolCallId: string
-) {
-  return {
-    parent: setup.parent,
-    specialist: setup.specialist,
-    compiledAccessScope: setup.childScope,
-    toolCallId,
-    capabilityId: 'infrastructure.diagnostics.read',
-    taskPrompt: `Inspect the target for ${toolCallId}.`,
-    required: true,
-    maxConcurrentChildren: 4,
-    maxChildren: 8
-  };
-}
 function commitBody(status: 'completed' | 'failed', content: string, toolCalls = 0) {
   return {
     status,
@@ -411,4 +324,46 @@ describe('delegated Workflow run persistence', () => {
     );
     assert.equal(optionalExecution.rows[0].status, 'running');
   });
+});
+
+it('durably parks a coordinator so its child can execute with concurrency one', async () => {
+  const { acquireRunCapacity, releaseRunCapacity, settleRunCapacity } = await import('../src/store/repository-run-capacity.js');
+  const { saveDependencyWait, getDependencyContinuation } = await import('../src/controllers/internal-dependency-wait-controller.js');
+  const { runWorkspaceCapacityMaintenance } = await import('../src/services/workspace-capacity-maintenance.js');
+  const oldEnabled = config.WORKSPACE_CAPACITY_ENABLED;
+  const oldPlans = config.WORKSPACE_PLANS;
+  try {
+    config.WORKSPACE_CAPACITY_ENABLED = true;
+    config.WORKSPACE_PLANS = { ...oldPlans, plans: oldPlans.plans.map(plan => ({ ...plan, executionLimits: {
+      chat: { maxConcurrentRuns: null, maxOutstandingRuns: null }, agent: { maxConcurrentRuns: null, maxOutstandingRuns: null },
+      autoTriage: { maxConcurrentRuns: null, maxOutstandingRuns: null }, insights: { maxConcurrentRuns: null, maxOutstandingRuns: null },
+      workflow: { maxConcurrentRuns: 1, maxOutstandingRuns: 3 }
+    } })) };
+    const setup = await coordinatedRoot();
+    const parentGrant = await acquireRunCapacity(setup.parent.id, 'parent-worker');
+    const child = await createDelegatedWorkflowRun(delegationInput(setup, 'capacity-child'));
+    assert.equal((await acquireRunCapacity(child.run.id, 'child-worker')).status, 'wait');
+    const state = { transcript: [{ role: 'assistant', tool_call_id: 'capacity-child' }], pendingToolCallId: 'await-child' };
+    const request = createRequest({ runId: setup.parent.id });
+    request.body = { generation: parentGrant.generation, state };
+    request.header = () => 'parent-worker';
+    assert.equal((await callController(saveDependencyWait, request)).statusCode, 204);
+    await releaseRunCapacity(setup.parent.id, 'parent-worker', parentGrant.generation!, 'parked');
+    const childGrant = await acquireRunCapacity(child.run.id, 'child-worker');
+    assert.equal(childGrant.status, 'granted');
+    await updateWorkflowRun(child.run.id, { status: 'completed', endedAt: new Date().toISOString() });
+    await releaseRunCapacity(child.run.id, 'child-worker', childGrant.generation!);
+    await settleRunCapacity(child.run.id);
+    const dispatched: string[] = [];
+    mock.method(globalThis, 'fetch', async (_input, init) => {
+      dispatched.push(JSON.parse(String(init?.body)).run_id);
+      return new Response('{}', { status: 200 });
+    });
+    await runWorkspaceCapacityMaintenance();
+    assert.deepEqual(dispatched, [setup.parent.id]);
+    assert.deepEqual((await getDependencyContinuation(setup.parent.id))?.state, state);
+    const resumed = await acquireRunCapacity(setup.parent.id, 'resumed-worker');
+    assert.equal(resumed.status, 'granted');
+    assert.equal(resumed.generation, parentGrant.generation! + 1);
+  } finally { config.WORKSPACE_CAPACITY_ENABLED = oldEnabled; config.WORKSPACE_PLANS = oldPlans; }
 });

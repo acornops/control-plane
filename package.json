@@ -24,7 +24,8 @@
     "openapi:export": "node --import tsx scripts/export-public-openapi.mjs",
     "harness:check": "node scripts/check-harness.mjs",
     "validate": "npm run typecheck && npm run style:check && npm run test && npm run migrations:check && npm run authz:check && npm run membership:check && npm run run-events:check && npm run contracts:check && npm run openapi:check && npm run harness:check && npm run build",
-    "validate:ci": "npm run typecheck && npm run style:check && npm run test:coverage && npm run migrations:check && npm run authz:check && npm run membership:check && npm run run-events:check && npm run contracts:check && npm run openapi:check && npm run harness:check && npm run build"
+    "validate:ci": "npm run typecheck && npm run style:check && npm run test:coverage && npm run migrations:check && npm run authz:check && npm run membership:check && npm run run-events:check && npm run contracts:check && npm run openapi:check && npm run harness:check && npm run build",
+    "capacity:rollout": "node dist/scripts/workspace-capacity-rollout.js"
   },
   "dependencies": {
     "@types/nodemailer": "^8.0.0",

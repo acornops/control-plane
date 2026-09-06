@@ -126,7 +126,8 @@ describe('workflows controller', () => {
 
     const run = await getWorkflowRun(body.run_id);
     assert.ok(run);
-    assert.equal(run.status, 'running');
+    assert.equal(run.status, 'dispatching');
+    assert.equal(run.startedAt, undefined);
     assert.equal(run.workflowSessionId, sessionId);
     assert.equal(run.messageId, body.message_id);
     assert.equal('bindingDigest' in run, false);
@@ -136,6 +137,8 @@ describe('workflows controller', () => {
     assert.equal(executionDispatches.length, 1);
     assert.deepEqual(executionDispatches[0], {
       contract_version: 2,
+      capacity_contract_version: 1,
+      capacity_enabled: false,
       scope_type: 'workspace',
       run_id: body.run_id,
       workspace_id: 'workspace-1',

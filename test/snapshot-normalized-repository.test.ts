@@ -146,6 +146,9 @@ describe('normalized snapshot repository ingest', () => {
       query: async (sql: string, params?: unknown[]) => {
         statements.push(sql);
         queryParams.push(params ?? []);
+        if (sql.includes('SELECT plan_key,lifecycle_status FROM workspaces')) {
+          return { rowCount: 1, rows: [{ plan_key: null, lifecycle_status: 'active' }] };
+        }
         if (sql.includes('INSERT INTO target_issues')) {
           return {
             rowCount: 1,
@@ -283,6 +286,9 @@ describe('normalized snapshot repository ingest', () => {
     const client = {
       query: async (sql: string, params?: unknown[]) => {
         statements.push(sql);
+        if (sql.includes('SELECT plan_key,lifecycle_status FROM workspaces')) {
+          return { rowCount: 1, rows: [{ plan_key: null, lifecycle_status: 'active' }] };
+        }
         if (sql.includes('FROM targets t') && sql.includes("t.target_type = 'kubernetes'")) {
           assert.deepEqual(params, ['cluster-1']);
           return {

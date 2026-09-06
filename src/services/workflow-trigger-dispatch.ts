@@ -1,3 +1,4 @@
+import { WorkspaceCapacityError } from '../store/repository-run-capacity.js';
 import { randomUUID } from 'node:crypto';
 
 import type { AgentDefinition } from '../types/agents.js';
@@ -36,6 +37,7 @@ export interface WorkflowTriggerDispatchInput {
 }
 
 export type WorkflowTriggerDispatchResult =
+  | { outcome: 'skipped'; reason: 'WORKSPACE_OUTSTANDING_RUN_LIMIT' | 'WORKSPACE_SUSPENDED'; error: string }
   | {
       outcome: 'auto_paused';
       reason:
@@ -60,7 +62,7 @@ export function sanitizeWorkflowTriggerError(error: unknown): string {
   return message.slice(0, 240);
 }
 
-export async function dispatchWorkflowTrigger(
+async function dispatchActiveWorkflowTrigger(
   trigger: WorkflowTriggerDispatchInput
 ): Promise<WorkflowTriggerDispatchResult> {
   const existing = await getWorkflowExecutionByTriggerOccurrence(
@@ -216,4 +218,14 @@ export async function dispatchWorkflowTrigger(
     waitingForApproval: run.status === 'waiting_for_approval',
     runtimeSubject: { userId: runtimeSubject.userId, role: runtimeSubject.role }
   };
+}
+
+export async function dispatchWorkflowTrigger(trigger: WorkflowTriggerDispatchInput): Promise<WorkflowTriggerDispatchResult> {
+  try { return await dispatchActiveWorkflowTrigger(trigger); }
+  catch (error) {
+    if (error instanceof WorkspaceCapacityError && (error.code === 'WORKSPACE_OUTSTANDING_RUN_LIMIT' || error.code === 'WORKSPACE_SUSPENDED')) {
+      return { outcome: 'skipped', reason: error.code, error: error.code };
+    }
+    throw error;
+  }
 }

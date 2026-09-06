@@ -91,6 +91,11 @@ async function processDelivery(delivery: ClaimedWorkflowWebhookDelivery): Promis
       triggerType: 'webhook',
       occurrenceKey: delivery.occurrenceKey
     });
+    if (dispatch.outcome === 'skipped') {
+      await finishWorkflowWebhookDelivery({ delivery: effectiveDelivery, status: 'rejected', webhookStatus: 'rejected', error: dispatch.reason });
+      await auditDispatch(effectiveDelivery, 'workflow.webhook_skipped.v1', 'Workflow webhook occurrence skipped', { reason: dispatch.reason });
+      return;
+    }
     if (dispatch.outcome === 'auto_paused') {
       const definitionRejected = dispatch.reason === 'workflow_definition_invalid';
       await finishWorkflowWebhookDelivery({

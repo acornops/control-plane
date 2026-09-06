@@ -1,6 +1,7 @@
 {
   "repo": "control-plane",
   "version": 1,
+  "workspaceCapacityContractVersion": 1,
   "executionContractVersion": 2,
   "runtimeDependencies": [
     "management-console",
@@ -40,6 +41,8 @@
         "POST /admin/v1/system/workspace-defaults",
         "PATCH /admin/v1/system/workspace-defaults/{id}",
         "DELETE /admin/v1/system/workspace-defaults/{id}",
+        "GET /admin/v1/workspace-plans",
+        "GET /admin/v1/workspaces/{workspaceId}/policy",
         "GET /admin/v1/workspaces",
         "GET /admin/v1/workspaces/{workspaceId}",
         "GET /admin/v1/workspaces/{workspaceId}/members",
@@ -111,9 +114,68 @@
       "adminAuditObjectFields": ["workspaceId?", "workspaceName?", "subjectType?", "subjectId?", "subjectDisplayName?"],
       "adminAuditFilterFields": ["workspaceId? (exact, backward compatible)", "workspaceQuery? (exact ID or case-insensitive name substring)"],
       "adminAuditWritePolicy": "Authentication lifecycle events and privileged mutation requests, successes, and failures are persisted. Read-only admin requests use ordinary structured HTTP access logs and do not create admin audit records. Legacy read/search rows remain stored as append-only evidence but are excluded from Admin Audit query results.",
-      "privacyProjection": "BFF removes operational workspace fields, filters admin audit to governance action families, and removes target/run identifiers before browser delivery"
+      "privacyProjection": "BFF removes operational workspace fields, filters admin audit to governance action families, and removes target/run identifiers before browser delivery",
+      "workspacePolicyRead": {
+        "fields": [
+          "workspaceId",
+          "workspaceName",
+          "plan",
+          "effectiveLimits",
+          "quotaOverrides",
+          "policyVersion",
+          "lifecycleStatus",
+          "suspendedAt",
+          "publicReason",
+          "usage",
+          "holds"
+        ],
+        "executionPools": [
+          "chat",
+          "agent",
+          "workflow",
+          "autoTriage",
+          "insights"
+        ],
+        "holdFields": [
+          "source",
+          "publicReason",
+          "createdAt"
+        ],
+        "mutationFields": [
+          "requestId",
+          "expectedPolicyVersion",
+          "reason"
+        ],
+        "planFields": [
+          "planKey",
+          "overLimitBehavior=reject|retain_existing"
+        ],
+        "lifecycleFields": [
+          "workspaceName",
+          "source=admin"
+        ],
+        "overrideEditing": "API-only; never allowlisted"
+      }
     },
     "management-console": {
+      "workspaceAccessState": {
+        "list": "GET /api/v1/workspaces?view=access-state",
+        "detail": "GET /api/v1/workspaces/{workspaceId}/access-state",
+        "fields": [
+          "id",
+          "name",
+          "accessState=active|suspended",
+          "publicReason?",
+          "suspendedAt?"
+        ],
+        "authorization": "Current-user membership only; no workload permissions are implied",
+        "signals": [
+          "HTTP403 WORKSPACE_SUSPENDED",
+          "SSE workspace_suspended"
+        ],
+        "idleRevalidationSeconds": 15,
+        "restoration": "Explicit fresh overview navigation; never replay actions"
+      },
       "authContract": {
       "config": "GET /api/v1/auth/config returns effective workspace-user OIDC and password capability flags plus optional effective helpLinks destinations without exposing admission policy. Missing or invalid helpLinks fields retain the built-in documentation and support destinations during rolling upgrades.",
         "logout": "POST /api/v1/auth/logout returns {status=ok,mode=oidc|local,redirectPath}; redirectPath is an AcornOps path and never a provider URL.",
@@ -858,8 +920,10 @@
         "POST /admin/v1/system/workspace-defaults",
         "PATCH /admin/v1/system/workspace-defaults/{id}",
         "DELETE /admin/v1/system/workspace-defaults/{id}",
+        "GET /admin/v1/workspace-plans",
         "GET /admin/v1/workspaces",
         "GET /admin/v1/workspaces/{workspaceId}",
+        "GET /admin/v1/workspaces/{workspaceId}/policy",
         "GET /admin/v1/workspaces/{workspaceId}/members",
         "PATCH /admin/v1/workspaces/{workspaceId}/plan",
         "POST /admin/v1/workspaces/{workspaceId}/suspend",

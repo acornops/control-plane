@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { capacityConfigFields } from './config-capacity.js';
 import { z } from 'zod';
 import { agentTransportConfigFields, validateAgentTransportConfig } from './config-agent-transport.js';
 import { agentKHelmConfigFields, parseAgentKHelmValues, validateAgentKHelmConfig } from './config-agentk-helm.js';
@@ -145,6 +146,7 @@ const envSchema = z.object({
   WORKSPACE_PLANS_CONFIG_JSON: z.string().optional(),
   WORKSPACE_ROLES_CONFIG_JSON: z.string().optional(),
   ...platformAdminConfigFields,
+  ...capacityConfigFields,
   CORS_ORIGIN: z.string().default('*'),
   SESSION_COOKIE_NAME: z.string().default('acornops_cp_session'),
   SESSION_MAX_AGE_SECONDS: optionalPositiveIntFromEnv,
@@ -220,9 +222,6 @@ const envSchema = z.object({
   EXTERNAL_INTEGRATION_LINK_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(600),
   EXTERNAL_INTEGRATION_LINK_TTL_SECONDS: z.coerce.number().int().min(86400).max(31536000).default(2592000),
   EXTERNAL_INTEGRATION_LINK_TOKEN_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
-  EXECUTION_ENGINE_BASE_URL: z.string().url().default('http://localhost:8080'),
-  EXECUTION_ENGINE_DISPATCH_TOKEN: z.string().default('dev_execution_engine_dispatch_token'),
-  EXECUTION_ENGINE_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
   AUTOMATION_RUNTIME_MODE: z.enum(['off', 'shadow', 'canary', 'on']).default('off'),
   AUTOMATION_CANARY_WORKSPACE_IDS: z.string().default(''),
   AUTOMATION_WORKER_INTERVAL_MS: z.coerce.number().int().min(250).default(1000),

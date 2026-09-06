@@ -1,3 +1,4 @@
+import { assertActiveWorkspace, assertActiveTargetWorkspace } from '../services/workspace-execution-access.js';
 import { IncomingMessage } from 'node:http';
 import { Duplex } from 'node:stream';
 import WebSocket, { WebSocketServer } from 'ws';
@@ -138,6 +139,7 @@ export class AgentGateway {
   }
 
   async callAgentMcpTool(clusterId: string, toolName: string, args: Record<string, unknown>, requestId?: string): Promise<unknown> {
+    await assertActiveTargetWorkspace(clusterId);
     return this.sendJsonRpc(clusterId, 'tools/call', {
       name: toolName,
       arguments: args
@@ -504,6 +506,7 @@ export class AgentGateway {
     if (message.method === 'notify/snapshot') {
       const conn = getAgentConnectionForWebSocket(ws);
       if (!conn) return;
+      await assertActiveWorkspace(conn.workspaceId);
       if (!(await this.ensureAgentConnectionCurrent(conn))) {
         return;
       }

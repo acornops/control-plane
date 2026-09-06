@@ -1,3 +1,4 @@
+import { resumeCapacityAfterApproval } from './repository-capacity-approval-resume.js';
 import { randomUUID } from 'node:crypto';
 import type { PoolClient, QueryResultRow } from 'pg';
 import { db } from '../infra/db.js';
@@ -319,10 +320,7 @@ export async function applyAutomationApprovalOutcome(approval: AutomationRunAppr
   await withTransaction(async (client) => {
     if (approval.approvalKind === 'pre_step') {
       if (approval.status === 'approved') {
-        await client.query(
-          "UPDATE workflow_runs SET status='queued',updated_at=NOW() WHERE id=$1 AND status='waiting_for_approval'",
-          [approval.runId]
-        );
+        await resumeCapacityAfterApproval(client, approval.runId, 'workflow_runs', 'queued');
         await recomputeWorkflowExecutionStatus(client, approval.runId);
         return;
       }
@@ -356,10 +354,7 @@ export async function applyAutomationApprovalOutcome(approval: AutomationRunAppr
       return;
     }
     if (approval.status !== 'approved' && approval.status !== 'rejected') return;
-    await client.query(
-      "UPDATE workflow_runs SET status='queued',updated_at=NOW() WHERE id=$1 AND status='waiting_for_approval'",
-      [approval.runId]
-    );
+    await resumeCapacityAfterApproval(client, approval.runId, 'workflow_runs', 'queued');
     await recomputeWorkflowExecutionStatus(client, approval.runId);
     await client.query(
       `INSERT INTO automation_dispatch_outbox (

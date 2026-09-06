@@ -1,3 +1,4 @@
+import { getMemberWorkspaceAccessState } from '../store/repository-workspace-access-state.js';
 import { Response } from 'express';
 import {
   capabilitiesToPermissions,
@@ -110,6 +111,12 @@ export async function requireWorkspaceRead(
   const authz = await getWorkspaceAuthorization(req, workspaceId);
   if (authz) {
     return authz;
+  }
+  const state = req.auth.credential.type === 'session'
+    ? await getMemberWorkspaceAccessState(req.auth.userId, workspaceId) : null;
+  if (state?.accessState === 'suspended') {
+    res.status(403).json({ error: { code: 'WORKSPACE_SUSPENDED', message: state.publicReason, retryable: false } });
+    return null;
   }
   res.status(403).json({ error: { code: 'FORBIDDEN', message, retryable: false } });
   return null;

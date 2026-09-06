@@ -75,3 +75,16 @@ Postgres-backed controller tests additionally require `NODE_ENV=test` and an
 explicit `CONTROL_PLANE_TEST_DATABASE_URL` whose database name contains
 `test`. `DATABASE_URL` must match it. The guard prevents test fixture resets
 from targeting a development or production database.
+
+## Hosted-readiness additions
+
+Migrations `007` through `012` add versioned workspace policy, independent holds,
+receipt identity/retention, five-pool reservation and operation ledgers, durable
+cancellation and dependency continuations, actual-clock defaults and the rollout
+verification record. Existing suspension timestamps become administrative holds;
+old receipts are preserved, with unattributable credentials isolated from new
+request identities. No migration enables capacity limits automatically.
+
+The SQL upgrade check covers both baseline data and intermediate policy receipts.
+Activation additionally requires the runtime backfill and replica verification
+procedure in [Workspace Execution Capacity](workspace-execution-capacity.md).

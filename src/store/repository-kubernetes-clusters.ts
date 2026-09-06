@@ -1,3 +1,4 @@
+import { lockActiveWorkspace } from './repository-run-capacity.js';
 import { randomUUID } from 'node:crypto';
 import { db } from '../infra/db.js';
 import { summarizeKubernetesSnapshotMetrics } from '../services/target-metric-samples.js';
@@ -251,6 +252,7 @@ export async function deleteCluster(clusterId: string): Promise<boolean> {
 
 export async function upsertClusterSnapshot(snapshot: ClusterSnapshot): Promise<void> {
   await withTransaction(async (client) => {
+    await lockActiveWorkspace(client, snapshot.workspaceId);
     const clusterResult = await client.query<ClusterRow>(
       `${clusterSelect}
        WHERE t.id = $1

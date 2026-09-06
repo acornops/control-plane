@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it, mock } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import {
   deleteWorkspaceMember,
   addWorkspaceMember,
@@ -15,8 +15,10 @@ import {
 import { listRuns, listTargets } from '../src/controllers/admin-target-run-controller.js';
 import { addExistingWorkspaceMember, listAdminWorkspaces } from '../src/store/repository-admin.js';
 import { repo } from '../src/store/repository.js';
+import { WorkspacePolicyError } from '../src/types/workspace-policy.js';
 import { db } from '../src/infra/db.js';
 import { adminReasonOnlySchema, adminWorkspacePlanPatchSchema, adminWorkspaceRestoreSchema, adminWorkspaceSuspendSchema } from '../src/types/contracts.js';
+beforeEach(() => { mock.method(repo, 'insertAdminAuditEvent', async event => event); });
 afterEach(() => {
   mock.restoreAll();
 });
@@ -55,73 +57,29 @@ const adminReq = {
 };
 
 describe('admin controller security invariants', () => {
-  it('requires an exact workspace name before lifecycle transitions', async () => {
-    let transitionCalled = false;
-    mock.method(repo, 'getAdminWorkspace', async () => ({
-      id: 'workspace-1',
-      name: 'Atlas Research',
-      plan: { key: 'default', name: 'Default' },
-      lifecycleStatus: 'active'
-    }));
-    mock.method(repo, 'transitionWorkspaceLifecycle', async () => {
-      transitionCalled = true;
-      return { status: 'state_conflict' as const };
-    });
-    mock.method(repo, 'insertAdminAuditEvent', async (event) => event);
-    const req = {
-      ...adminReq,
-      params: { workspaceId: 'workspace-1' },
-      body: { workspaceName: 'atlas research', reason: 'support ticket TEST-LIFE-1' }
-    };
-    const res = response();
-
-    await suspendWorkspace(req as never, res as never, (err?: unknown) => {
-      if (err) throw err;
-    });
-
-    assert.equal(res.statusCode, 400);
-    assert.equal(transitionCalled, false);
-
-    const restoreRes = response();
-    await restoreWorkspace({ ...req, body: { workspaceName: 'atlas research', reason: 'support ticket TEST-LIFE-1B' } } as never, restoreRes as never, (err?: unknown) => { if (err) throw err; });
-    assert.equal(restoreRes.statusCode, 400);
-    assert.equal(transitionCalled, false);
+  it('returns transactional workspace confirmation errors to callers', async () => {
+    mock.method(repo, 'mutateWorkspacePolicy', async () => { throw new WorkspacePolicyError('VALIDATION_ERROR', 400, 'Workspace name does not match'); });
+    for (const handler of [suspendWorkspace, restoreWorkspace]) {
+      const res = response();
+      await handler({ ...adminReq, params: { workspaceId: 'workspace-1' }, body: { workspaceName: 'atlas research', reason: 'support ticket' } } as never, res as never, (err?: unknown) => { if (err) throw err; });
+      assert.equal(res.statusCode, 400);
+      assert.equal((res.body as { error: { message: string } }).error.message, 'Workspace name does not match');
+    }
   });
 
-  it('suspends and restores workspace access through audited lifecycle transitions', async () => {
-    const active = { id: 'workspace-1', name: 'Atlas Research', plan: { key: 'default', name: 'Default' }, lifecycleStatus: 'active' as const };
-    const suspended = { ...active, lifecycleStatus: 'suspended' as const, suspendedAt: '2026-07-17T00:00:00.000Z' };
-    let current = active as typeof active | typeof suspended;
-    mock.method(repo, 'getAdminWorkspace', async () => current);
-    mock.method(repo, 'transitionWorkspaceLifecycle', async (_id, expected, next) => {
-      assert.equal(current.lifecycleStatus, expected);
-      current = next === 'suspended' ? suspended : active;
-      return { status: 'updated' as const, workspace: current as never };
+  it('returns committed lifecycle responses and passes human audit identity into the transaction', async () => {
+    const active = { id: 'workspace-1', name: 'Atlas Research', lifecycleStatus: 'active' };
+    const suspended = { ...active, lifecycleStatus: 'suspended' };
+    mock.method(repo, 'mutateWorkspacePolicy', async (input) => {
+      assert.equal(input.audit.adminTokenId, 'platform-admin-console');
+      assert.equal(input.audit.reason, 'support ticket');
+      return { before: active, after: input.operation === 'suspend' ? suspended : active };
     });
-    const adminEvents: Array<Record<string, unknown>> = [];
-    const workspaceEvents: Array<Record<string, unknown>> = [];
-    mock.method(repo, 'insertAdminAuditEvent', async (event) => { adminEvents.push(event as unknown as Record<string, unknown>); return event; });
-    mock.method(repo, 'insertWorkspaceAuditEvent', async (event) => { workspaceEvents.push(event as unknown as Record<string, unknown>); return event as never; });
-
-    const suspendRes = response();
-    await suspendWorkspace({ ...adminReq, params: { workspaceId: 'workspace-1' }, body: { workspaceName: 'Atlas Research', reason: 'support ticket TEST-LIFE-2' } } as never, suspendRes as never, (err?: unknown) => { if (err) throw err; });
-    assert.equal(suspendRes.statusCode, 200);
-    assert.equal((suspendRes.body as { after: { lifecycleStatus: string } }).after.lifecycleStatus, 'suspended');
-
-    const restoreRes = response();
-    await restoreWorkspace({ ...adminReq, params: { workspaceId: 'workspace-1' }, body: { workspaceName: 'Atlas Research', reason: 'support ticket TEST-LIFE-3' } } as never, restoreRes as never, (err?: unknown) => { if (err) throw err; });
-    assert.equal(restoreRes.statusCode, 200);
-    assert.equal((restoreRes.body as { after: { lifecycleStatus: string } }).after.lifecycleStatus, 'active');
-    const completedAdminEvents = adminEvents.filter((event) => !(event.action as string).endsWith('.request'));
-    assert.equal(completedAdminEvents.length, 2);
-    assert.equal(workspaceEvents.length, 2);
-    for (let index = 0; index < 2; index += 1) {
-      assert.equal(workspaceEvents[index].actorTokenId, 'platform-admin');
-      const adminCorrelation = (completedAdminEvents[index].metadata as Record<string, unknown>).correlationId;
-      const workspaceCorrelation = (workspaceEvents[index].metadata as Record<string, unknown>).correlationId;
-      assert.equal(typeof adminCorrelation, 'string');
-      assert.equal(adminCorrelation, workspaceCorrelation);
-      assert.equal('ticketRef' in (workspaceEvents[index].metadata as Record<string, unknown>), false);
+    for (const [handler, status] of [[suspendWorkspace, 'suspended'], [restoreWorkspace, 'active']] as const) {
+      const res = response();
+      await handler({ ...adminReq, params: { workspaceId: 'workspace-1' }, body: { workspaceName: 'Atlas Research', reason: 'support ticket' } } as never, res as never, (err?: unknown) => { if (err) throw err; });
+      assert.equal(res.statusCode, 200);
+      assert.equal((res.body as { after: { lifecycleStatus: string } }).after.lifecycleStatus, status);
     }
   });
 
@@ -133,94 +91,40 @@ describe('admin controller security invariants', () => {
     assert.notEqual(' Atlas Research ', 'Atlas Research');
   });
 
-  it('rejects over-limit plan changes even when callers request an override', async () => {
-    let updatePlanCalled = false;
-    mock.method(repo, 'getAdminWorkspace', async () => ({
-      id: 'workspace-1',
-      name: 'Workspace',
-      plan: { key: 'enterprise', name: 'Enterprise' },
-      quotaOverrides: { members: null, kubernetesClusters: null, virtualMachines: null }
-    }));
-    mock.method(repo, 'countWorkspaceUsage', async () => ({ members: 101, kubernetesClusters: 2, virtualMachines: 1 }));
-    mock.method(repo, 'updateWorkspacePlan', async () => {
-      updatePlanCalled = true;
-      return null;
-    });
-    mock.method(repo, 'insertAdminAuditEvent', async (event) => event);
-    const req = {
-      ...adminReq,
-      params: { workspaceId: 'workspace-1' },
-      body: { planKey: 'default', reason: 'support ticket TEST-0', allowOverLimit: true }
-    };
-    const res = response();
-
-    await patchWorkspacePlan(req as never, res as never, (err?: unknown) => {
-      if (err) throw err;
-    });
-
-    assert.equal(res.statusCode, 400);
-    assert.equal(updatePlanCalled, false);
+  it('returns transactional over-limit failures for both plan and quota changes', async () => {
+    mock.method(repo, 'mutateWorkspacePolicy', async () => { throw new WorkspacePolicyError('VALIDATION_ERROR', 400, 'Current workspace usage exceeds target policy limits'); });
+    for (const handler of [patchWorkspacePlan, patchWorkspaceQuotas]) {
+      const res = response();
+      await handler({ ...adminReq, params: { workspaceId: 'workspace-1' }, body: { reason: 'support ticket' } } as never, res as never, (err?: unknown) => { if (err) throw err; });
+      assert.equal(res.statusCode, 400);
+    }
   });
 
-  it('rejects quota override changes that would put current usage over limit before mutation', async () => {
-    let setOverridesCalled = false;
-    mock.method(repo, 'getAdminWorkspace', async () => ({
-      id: 'workspace-1',
-      name: 'Workspace',
-      plan: { key: 'default', name: 'Default' },
-      quotaOverrides: { members: null, kubernetesClusters: null, virtualMachines: null }
-    }));
-    mock.method(repo, 'countWorkspaceUsage', async () => ({ members: 5, kubernetesClusters: 2, virtualMachines: 1 }));
-    mock.method(repo, 'setWorkspaceQuotaOverrides', async () => {
-      setOverridesCalled = true;
-      return null;
-    });
-    mock.method(repo, 'insertAdminAuditEvent', async (event) => event);
-    const req = {
-      ...adminReq,
-      params: { workspaceId: 'workspace-1' },
-      body: { quotas: { members: 4 }, reason: 'support ticket TEST-1' }
-    };
-    const res = response();
-
-    await patchWorkspaceQuotas(req as never, res as never, (err?: unknown) => {
-      if (err) throw err;
-    });
-
-    assert.equal(res.statusCode, 400);
-    assert.equal(setOverridesCalled, false);
-  });
-
-  it('blocks plan mutations when the preflight admin audit cannot be written', async () => {
-    let updatePlanCalled = false;
-    mock.method(repo, 'getAdminWorkspace', async () => ({
-      id: 'workspace-1',
-      name: 'Workspace',
-      plan: { key: 'default', name: 'Default' },
-      quotaOverrides: { members: null, kubernetesClusters: null, virtualMachines: null }
-    }));
-    mock.method(repo, 'countWorkspaceUsage', async () => ({ members: 1, kubernetesClusters: 1, virtualMachines: 1 }));
-    mock.method(repo, 'insertAdminAuditEvent', async () => {
-      throw new Error('audit unavailable');
-    });
-    mock.method(repo, 'updateWorkspacePlan', async () => {
-      updatePlanCalled = true;
-      return null;
-    });
-    const req = {
-      ...adminReq,
-      params: { workspaceId: 'workspace-1' },
-      body: { planKey: 'default', reason: 'support ticket TEST-3' }
-    };
+  it('forwards transactional audit failures without a successful mutation response', async () => {
+    mock.method(repo, 'mutateWorkspacePolicy', async () => { throw new Error('audit unavailable'); });
     const res = response();
     let forwarded: unknown;
-
-    await patchWorkspacePlan(req as never, res as never, (err?: unknown) => {
-      forwarded = err;
-    });
-
+    await patchWorkspacePlan({ ...adminReq, params: { workspaceId: 'workspace-1' }, body: { planKey: 'default', reason: 'support ticket' } } as never, res as never, (error?: unknown) => { forwarded = error; });
     assert(forwarded instanceof Error);
-    assert.equal(updatePlanCalled, false);
+    assert.equal(forwarded.message, 'audit unavailable');
+    assert.equal(res.body, undefined);
+  });
+
+  it('requires a version for receipt-bearing mutations even with broad credentials', async () => {
+    mock.method(repo, 'mutateWorkspacePolicy', async () => { throw new Error('must not mutate'); });
+    const res = response();
+    await restoreWorkspace({ ...adminReq, params: { workspaceId: 'workspace-1' }, body: { requestId: 'expired-restore', reason: 'old restore' } } as never, res as never, (error?: unknown) => { if (error) throw error; });
+    assert.equal(res.statusCode, 400);
+    assert.equal((res.body as { error: { code: string } }).error.code, 'POLICY_PRECONDITION_REQUIRED');
+  });
+
+  it('requires narrow machine preconditions and explicit external hold source', async () => {
+    mock.method(repo, 'mutateWorkspacePolicy', async () => { throw new Error('must not mutate'); });
+    for (const [body, expectedStatus] of [[{ reason: 'support ticket', source: 'external' }, 400], [{ reason: 'support ticket', requestId: 'r1', expectedPolicyVersion: 0 }, 403], [{ reason: 'support ticket', requestId: 'r2', expectedPolicyVersion: 0, source: 'admin' }, 403]] as const) {
+      const res = response();
+      await suspendWorkspace({ ...adminReq, admin: { ...adminReq.admin, scopes: ['admin:workspace:external-hold:write'] }, params: { workspaceId: 'workspace-1' }, body } as never, res as never, (error?: unknown) => { if (error) throw error; });
+      assert.equal(res.statusCode, expectedStatus);
+    }
   });
 
   it('rejects replacing the last owner with the same member being removed', async () => {

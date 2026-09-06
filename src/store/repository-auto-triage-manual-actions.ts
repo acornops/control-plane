@@ -1,3 +1,4 @@
+import { lockActiveWorkspace } from './repository-run-capacity.js';
 import { db } from '../infra/db.js';
 import type { TargetAutoTriageJob } from '../types/auto-triage.js';
 import type { TargetIssue } from '../types/domain.js';
@@ -13,6 +14,7 @@ export async function startSingleTargetAutoTriageIssue(
   settingsRevision: number
 ): Promise<TargetAutoTriageJob | null> {
   return withTransaction(async (client) => {
+    await lockActiveWorkspace(client, issue.workspaceId);
     const eligible = await client.query(
       `SELECT issue.id
          FROM target_issues issue

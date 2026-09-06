@@ -70,6 +70,20 @@ describe('admin token configuration and middleware', () => {
     assert.throws(() => parseAppConfig({ CONTROL_PLANE_ADMIN_API_ENABLED: 'true' }), /CONTROL_PLANE_ADMIN_TOKENS_JSON/);
   });
 
+  it('accepts narrow policy alternatives for machines while preserving primary human permissions', async () => {
+    mutableConfig.ADMIN_TOKEN_DESCRIPTORS = [{ id: 'policy-client', sha256: hashAdminToken('policy-token'), scopes: ['admin:workspace:policy:read'], enabled: true }];
+    const req = { method: 'GET', header: (name: string) => name === 'authorization' ? 'Bearer policy-token' : undefined, socket: {}, ip: '127.0.0.1' };
+    let called = false;
+    await requireAdminScope('admin:workspace:read', 'admin:workspace:policy:read')(req as never, createResponse() as never, () => { called = true; });
+    assert.equal(called, true);
+    mutableConfig.CONTROL_PLANE_ADMIN_HUMAN_AUTH_REQUIRED = true;
+    mutableConfig.ADMIN_TOKEN_DESCRIPTORS[0].id = config.PLATFORM_ADMIN_BFF_TOKEN_ID;
+    mock.method(redis, 'incr', async () => 1); mock.method(redis, 'expire', async () => 1);
+    const denied = createResponse();
+    await requireAdminScope('admin:workspace:read', 'admin:workspace:policy:read')(req as never, denied as never, () => assert.fail('BFF requires human session'));
+    assert.equal(denied.statusCode, 401);
+  });
+
   it('authenticates only scoped admin bearer tokens', async () => {
     mock.method(redis, 'incr', async () => 1);
     mock.method(redis, 'expire', async () => 1);
@@ -217,12 +231,12 @@ describe('admin token configuration and middleware', () => {
 
     stored = { ...base, id: 'admin-session', roles: ['platform-admin'], authenticatedAt: Date.now() - (config.ADMIN_SESSION_REAUTH_SECONDS + 1) * 1000 };
     const writeRes = createResponse();
-    await requireAdminScope('admin:workspace:write')(request('PATCH') as never, writeRes as never, () => assert.fail('stale admin authentication must not authorize a write'));
+    await requireAdminScope('admin:workspace:write', 'admin:workspace:plan:write')(request('PATCH') as never, writeRes as never, () => assert.fail('stale admin authentication must not authorize a write'));
     assert.equal((writeRes.body as { error: { code: string } }).error.code, 'ADMIN_REAUTH_REQUIRED');
 
     stored = { ...base, id: 'admin-session', roles: ['platform-admin'], authenticatedAt: Date.now() };
     const csrfRes = createResponse();
-    await requireAdminScope('admin:workspace:write')(request('PATCH') as never, csrfRes as never, () => assert.fail('platform-admin writes require CSRF evidence'));
+    await requireAdminScope('admin:workspace:write', 'admin:workspace:plan:write')(request('PATCH') as never, csrfRes as never, () => assert.fail('platform-admin writes require CSRF evidence'));
     assert.equal((csrfRes.body as { error: { code: string } }).error.code, 'CSRF_TOKEN_REQUIRED');
   });
 
@@ -279,7 +293,7 @@ describe('admin token configuration and middleware', () => {
       socket: {}
     };
     const scopedRes = createResponse();
-    await requireAdminScope('admin:workspace:write')(scopedReq as never, scopedRes as never, () => undefined);
+    await requireAdminScope('admin:workspace:write', 'admin:workspace:plan:write')(scopedReq as never, scopedRes as never, () => undefined);
     assert.equal(scopedRes.statusCode, 403);
   });
 

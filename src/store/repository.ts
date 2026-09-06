@@ -1,3 +1,5 @@
+import { mutateWorkspacePolicy } from './repository-workspace-policy.js';
+import { getWorkspacePolicy } from './repository-workspace-policy-read.js';
 import {
   createPasswordUser as createPasswordUserRecord,
   getAuthMethodsForUser as getAuthMethodsForUserRecord,
@@ -503,6 +505,8 @@ export class Repository {
   listAdminAuditEvents = listAdminAuditEventsRecord;
   listAdminWorkspaces = listAdminWorkspacesRecord;
   getAdminWorkspace = getAdminWorkspaceRecord;
+  mutateWorkspacePolicy = mutateWorkspacePolicy;
+  getWorkspacePolicy = getWorkspacePolicy;
   updateWorkspacePlan = updateWorkspacePlanRecord;
   setWorkspaceQuotaOverrides = setWorkspaceQuotaOverridesRecord;
 

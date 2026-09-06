@@ -148,6 +148,7 @@ export function buildAdminSchemas(): Record<string, JsonSchema> {
             createdByDisplayName: { type: 'string' },
             createdByEmail: { type: 'string' },
             virtualMachineCount: { type: 'integer', minimum: 0 },
+            policyVersion: { type: 'integer', minimum: 0 },
             lifecycleStatus: { type: 'string', enum: ['active', 'suspended'] },
             suspendedAt: dateTime
           }

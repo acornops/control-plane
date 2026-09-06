@@ -1,3 +1,5 @@
+import { insertConversationDispatch } from './repository-conversation-dispatch.js';
+import { reserveRunCapacity, lockActiveWorkspace } from './repository-run-capacity.js';
 import { randomUUID } from 'node:crypto';
 import { db } from '../infra/db.js';
 import type { AgentDefinition, RunPrincipalRef } from '../types/agents.js';
@@ -132,6 +134,7 @@ export async function createAgentConversationRunFromUserMessage(params: {
   createdBy: string;
 }): Promise<CreateRunFromMessageResult> {
   return withTransaction(async (client) => {
+    await lockActiveWorkspace(client, params.workspaceId);
     const agentResult = await client.query<{
       agent_updated_at: Date;
       agent_status: AgentDefinition['status'];
@@ -175,6 +178,7 @@ export async function createAgentConversationRunFromUserMessage(params: {
     const expiresAt = conversationExpiry(nowDate);
     const messageId = randomUUID();
     const runId = randomUUID();
+    await reserveRunCapacity(client, { workspaceId: params.workspaceId, runId, pool: 'agent' });
     const messageResult = await client.query(
       `INSERT INTO messages (
          id,session_id,run_id,role,kind,content,metadata,created_by,client_message_id,created_at
@@ -219,6 +223,7 @@ export async function createAgentConversationRunFromUserMessage(params: {
        WHERE id=$1 AND conversation_kind='agent_chat'`,
       [params.sessionId, now, expiresAt]
     );
+    await insertConversationDispatch(client, params.workspaceId, runId);
     return {
       message: mapMessage(messageResult.rows[0] as MessageRow),
       run: mapRun(runResult.rows[0] as RunRow),

@@ -1,3 +1,4 @@
+import { watchWorkspaceStream } from '../services/workspace-stream-lifecycle.js';
 import type { NextFunction, Response } from 'express';
 import type { QueryResultRow } from 'pg';
 import { AuthenticatedRequest } from '../auth/middleware.js';
@@ -202,6 +203,7 @@ export async function streamWorkflowExecution(req: AuthenticatedRequest, res: Re
       return;
     }
     if (!(await requireWorkspaceDataRead(req, res, record.workspaceId, 'No access to workflow execution'))) return;
+    watchWorkspaceStream(req, res, record.workspaceId);
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',

@@ -128,6 +128,9 @@ describe('virtual machine repository reads', () => {
       query: async (sql: string, params?: unknown[]) => {
         statements.push(sql);
         queryParams.push(params ?? []);
+        if (sql.includes('SELECT plan_key,lifecycle_status FROM workspaces')) {
+          return { rowCount: 1, rows: [{ plan_key: null, lifecycle_status: 'active' }] };
+        }
         if (sql.includes('INSERT INTO target_findings')) {
           insertedFindings = JSON.parse(String(params?.[0])) as Array<Record<string, unknown>>;
         }
@@ -201,6 +204,9 @@ describe('virtual machine repository reads', () => {
     const client = {
       query: async (sql: string) => {
         statements.push(sql);
+        if (sql.includes('SELECT plan_key,lifecycle_status FROM workspaces')) {
+          return { rowCount: 1, rows: [{ plan_key: null, lifecycle_status: 'active' }] };
+        }
         if (sql.includes('FROM target_snapshots')) {
           return {
             rowCount: 1,

@@ -1,3 +1,4 @@
+import { getWorkspaceAccessState, listWorkspaceAccessStates } from '../../controllers/workspace-access-state-controller.js';
 import { Router } from 'express';
 import { authenticatedHandler, requireActor } from '../../auth/middleware.js';
 import * as workspacesController from '../../controllers/workspaces-controller.js';
@@ -20,6 +21,11 @@ export function registerWorkspaceRoutes(router: Router): void {
     requireActor(['user']),
     authed(workspacesController.acceptWorkspaceInvitation)
   );
+  router.get('/workspaces', (req, res, next) => {
+    if (req.query.view !== 'access-state') { next(); return; }
+    requireActor(['user'])(req, res, () => authenticatedHandler(listWorkspaceAccessStates)(req, res, next));
+  });
+  router.get('/workspaces/:workspaceId/access-state', requireActor(['user']), authed(getWorkspaceAccessState));
   router.get('/workspaces', requireActor(['user', 'externalIntegration']), authed(workspacesController.listWorkspaces));
   router.post('/workspaces', requireActor(['user']), validateBody(createWorkspaceSchema), authed(workspacesController.createWorkspace));
   router.get('/workspaces/:workspaceId', requireActor(['user', 'externalIntegration']), authed(workspacesController.getWorkspace));

@@ -9,3 +9,5 @@ Recommended contents for each plan:
 - decision log
 - validation log
 - completion criteria
+
+- [OSS hosted readiness](oss-hosted-readiness.md)

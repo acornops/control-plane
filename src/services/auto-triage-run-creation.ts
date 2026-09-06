@@ -1,3 +1,4 @@
+import { lockActiveWorkspace } from '../store/repository-run-capacity.js';
 import { repo } from '../store/repository.js';
 import { withTransaction } from '../store/repository-transaction.js';
 import {
@@ -111,6 +112,7 @@ export async function createTargetAutoTriageSessionAndRun(input: {
   const { job, issue, settings, effective, llm } = input;
   const prompt = buildTargetAutoTriageKickoffPrompt(issue, input.targetName, settings, effective);
   return withTransaction(async (client) => {
+    await lockActiveWorkspace(client, job.workspaceId);
     const ownsLease = await repo.autoTriage.lockClaimedTargetAutoTriageJob(job.id, job.leaseOwner!, client);
     if (!ownsLease) throw new Error('Automatic investigation lease expired before run creation');
     const settingsStillCurrent = await repo.autoTriage.lockEnabledTargetAutoTriageSettingsRevision(
@@ -133,6 +135,8 @@ export async function createTargetAutoTriageSessionAndRun(input: {
     const created = await repo.createRunFromUserMessage({
       sessionId: session.id,
       workspaceId: job.workspaceId,
+      reservedRunId: job.reservedRunId,
+      executionPool: 'autoTriage',
       targetId: job.targetId,
       targetType: job.targetType,
       content: prompt,

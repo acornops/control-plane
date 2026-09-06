@@ -1,3 +1,4 @@
+import { assertActiveWorkspace } from '../services/workspace-execution-access.js';
 import { randomUUID } from 'node:crypto';
 import { runtime } from '../store/runtime.js';
 import { AgentConnection } from './types.js';
@@ -13,6 +14,7 @@ export async function sendLocalJsonRpc(
   if (stableRequestId && (stableRequestId.length > 128 || !/^[A-Za-z0-9_.:-]+$/.test(stableRequestId))) {
     throw new Error('Invalid stable agent request ID');
   }
+  if (method === 'tools/call') await assertActiveWorkspace(conn.workspaceId);
   const requestId = stableRequestId || `cmd_${randomUUID()}`;
   if (runtime.agentCommands.has(requestId)) {
     throw new Error('Agent command with this operation ID is already in progress');

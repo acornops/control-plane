@@ -1,3 +1,6 @@
+import { workspaceCatalogFingerprint } from './services/workspace-capacity-rollout.js';
+import { WorkspaceCapacityError } from './store/repository-run-capacity.js';
+import { capacityErrorResponse } from './services/workspace-execution-access.js';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { NextFunction, Request, Response } from 'express';
@@ -86,7 +89,10 @@ export function createApp() {
   app.use(csrfProtection);
 
   app.get('/health', (_req, res) => {
-    res.status(200).json({ status: 'ok', service: 'acornops-control-plane', version: '0.0.1-experimental.1' });
+    res.status(200).json({ status: 'ok', service: 'acornops-control-plane', version: '0.0.1-experimental.1',
+      capacity_contract_version: 1, capacity_enabled: config.WORKSPACE_CAPACITY_ENABLED,
+      admission_enabled: config.WORKSPACE_ADMISSION_ENABLED, dispatch_enabled: config.WORKSPACE_DISPATCH_ENABLED,
+      workspace_catalog_hash: workspaceCatalogFingerprint() });
   });
 
   app.get('/ready', async (_req, res) => {
@@ -155,6 +161,7 @@ export function createApp() {
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     const requestId = typeof res.locals.requestId === 'string' ? res.locals.requestId : randomUUID();
     res.setHeader('X-Request-Id', requestId);
+    if (err instanceof WorkspaceCapacityError) { capacityErrorResponse(res, err); return; }
     if (err instanceof QuotaExceededError) {
       res.status(409).json({
         error: {

@@ -32,6 +32,7 @@ export function buildWorkspacePaths(): Record<string, unknown> {
           security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
           parameters: [
             externalUserHeader,
+            { in: 'query', name: 'view', required: false, schema: { type: 'string', enum: ['access-state'] }, description: 'Session users only: return minimal membership identities including suspended workspaces as {items:[{id,name,accessState,publicReason?,suspendedAt?}]}; no workload permissions or quota data.' },
             { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
             { in: 'query', name: 'cursor', required: false, schema: { type: 'string' } },
             { in: 'query', name: 'q', required: false, schema: { type: 'string' } }

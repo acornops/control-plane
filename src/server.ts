@@ -1,3 +1,5 @@
+import { assertWorkspaceCapacityRollout } from './services/workspace-capacity-rollout.js';
+import { runWorkspaceCapacityMaintenance } from './services/workspace-capacity-maintenance.js';
 import { createServer } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { agentGateway } from './agent/ws-server.js';
@@ -48,6 +50,7 @@ import {
 
 async function main(): Promise<void> {
   await initializeDatabase();
+  await assertWorkspaceCapacityRollout();
   await repo.ensureOidcPrelinkedIdentities(
     config.OIDC_PROVIDER_NAME,
     config.OIDC_PRELINKED_IDENTITIES_JSON
@@ -184,6 +187,10 @@ async function main(): Promise<void> {
     }
   }, 60_000);
   targetInsightsCheckpointInterval.unref();
+  const capacityMaintenanceInterval = setInterval(() => {
+    void runWorkspaceCapacityMaintenance().catch((err) => logger.warn({ err }, 'Workspace capacity maintenance failed'));
+  }, 10000);
+  capacityMaintenanceInterval.unref();
   const automationWorkerInterval = setInterval(async () => {
     try {
       await runWorkflowScheduleTick();
@@ -263,6 +270,7 @@ async function main(): Promise<void> {
     clearInterval(approvalTimeoutInterval);
     clearInterval(targetInsightsCheckpointInterval);
     clearInterval(automationWorkerInterval);
+    clearInterval(capacityMaintenanceInterval);
     clearInterval(mcpLifecycleReconciliationInterval);
     clearInterval(agentVEnrollmentCleanupInterval);
     clearInterval(targetAutoTriageWorkerInterval);

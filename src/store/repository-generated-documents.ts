@@ -1,3 +1,4 @@
+import { withNativeExecutionAuthority, type NativeExecutionAuthority } from '../services/native-execution-authority.js';
 import { randomUUID } from 'node:crypto';
 import type { QueryResultRow } from 'pg';
 import { config } from '../config.js';
@@ -36,6 +37,7 @@ export async function createWorkflowDocument(input: {
   mediaType: 'application/pdf' | 'text/markdown';
   source: Record<string, unknown>; provenance: Record<string, unknown>; retentionDays: number;
   toolCallId: string;
+  authority?: NativeExecutionAuthority;
 }): Promise<GeneratedDocumentRecord> {
   const sourceSize = Buffer.byteLength(JSON.stringify(input.source), 'utf8');
   if (sourceSize > config.REPORT_SOURCE_MAX_BYTES) throw new GeneratedDocumentError('REPORT_SOURCE_TOO_LARGE');
@@ -57,16 +59,18 @@ export async function createWorkflowDocument(input: {
       throw error;
     }
   }
-  const result = await db.query<Row>(
-    `INSERT INTO generated_documents (
-      id,workspace_id,workflow_execution_id,workflow_run_id,tool_call_id,media_type,title,source,provenance,source_size_bytes,retention_expires_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW()+($11::text||' days')::interval)
-     ON CONFLICT (workflow_run_id,tool_call_id) WHERE workflow_run_id IS NOT NULL AND tool_call_id IS NOT NULL
-     DO UPDATE SET tool_call_id=EXCLUDED.tool_call_id RETURNING *`,
-    [candidate.id, input.workspaceId, input.executionId, input.runId, input.toolCallId, input.mediaType, input.title,
-     input.source, input.provenance, sourceSize, input.retentionDays]
-  );
-  return map(result.rows[0]);
+  return withNativeExecutionAuthority({ runId: input.runId, workspaceId: input.workspaceId, authority: input.authority }, async (client) => {
+    const result = await client.query<Row>(
+      `INSERT INTO generated_documents (
+        id,workspace_id,workflow_execution_id,workflow_run_id,tool_call_id,media_type,title,source,provenance,source_size_bytes,retention_expires_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW()+($11::text||' days')::interval)
+       ON CONFLICT (workflow_run_id,tool_call_id) WHERE workflow_run_id IS NOT NULL AND tool_call_id IS NOT NULL
+       DO UPDATE SET tool_call_id=EXCLUDED.tool_call_id RETURNING *`,
+      [candidate.id, input.workspaceId, input.executionId, input.runId, input.toolCallId, input.mediaType, input.title,
+       input.source, input.provenance, sourceSize, input.retentionDays]
+    );
+    return map(result.rows[0]);
+  });
 }
 
 export async function createConversationDocument(input: {
@@ -74,6 +78,7 @@ export async function createConversationDocument(input: {
   mediaType: 'application/pdf' | 'text/markdown';
   source: Record<string, unknown>; provenance: Record<string, unknown>; retentionDays: number;
   toolCallId: string;
+  authority?: NativeExecutionAuthority;
 }): Promise<GeneratedDocumentRecord> {
   const sourceSize = Buffer.byteLength(JSON.stringify(input.source), 'utf8');
   if (sourceSize > config.REPORT_SOURCE_MAX_BYTES) throw new GeneratedDocumentError('REPORT_SOURCE_TOO_LARGE');
@@ -94,16 +99,18 @@ export async function createConversationDocument(input: {
       throw error;
     }
   }
-  const result = await db.query<Row>(
-    `INSERT INTO generated_documents (
-      id,workspace_id,workflow_execution_id,workflow_run_id,conversation_run_id,tool_call_id,media_type,title,source,provenance,source_size_bytes,retention_expires_at
-     ) VALUES ($1,$2,NULL,NULL,$3,$4,$5,$6,$7,$8,$9,NOW()+($10::text||' days')::interval)
-     ON CONFLICT (conversation_run_id,tool_call_id) WHERE conversation_run_id IS NOT NULL AND tool_call_id IS NOT NULL
-     DO UPDATE SET tool_call_id=EXCLUDED.tool_call_id RETURNING *`,
-    [candidate.id, input.workspaceId, input.conversationRunId, input.toolCallId, input.mediaType, input.title,
-     input.source, input.provenance, sourceSize, input.retentionDays]
-  );
-  return map(result.rows[0]);
+  return withNativeExecutionAuthority({ runId: input.conversationRunId, workspaceId: input.workspaceId, authority: input.authority }, async (client) => {
+    const result = await client.query<Row>(
+      `INSERT INTO generated_documents (
+        id,workspace_id,workflow_execution_id,workflow_run_id,conversation_run_id,tool_call_id,media_type,title,source,provenance,source_size_bytes,retention_expires_at
+       ) VALUES ($1,$2,NULL,NULL,$3,$4,$5,$6,$7,$8,$9,NOW()+($10::text||' days')::interval)
+       ON CONFLICT (conversation_run_id,tool_call_id) WHERE conversation_run_id IS NOT NULL AND tool_call_id IS NOT NULL
+       DO UPDATE SET tool_call_id=EXCLUDED.tool_call_id RETURNING *`,
+      [candidate.id, input.workspaceId, input.conversationRunId, input.toolCallId, input.mediaType, input.title,
+       input.source, input.provenance, sourceSize, input.retentionDays]
+    );
+    return map(result.rows[0]);
+  });
 }
 
 export async function getGeneratedDocument(id: string): Promise<GeneratedDocumentRecord | null> {

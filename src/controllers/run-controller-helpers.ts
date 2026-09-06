@@ -1,7 +1,9 @@
+import { resumeCapacityAfterApproval } from '../store/repository-capacity-approval-resume.js';
+import { withTransaction } from '../store/repository-transaction.js';
+import { runConversationDispatchTick } from '../services/conversation-dispatch-worker.js';
 import type { Response } from 'express';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
-import { dispatchRunToExecutionEngine } from '../services/execution-engine-client.js';
 import { emitRunStatusTransition } from '../services/webhooks.js';
 import { repo } from '../store/repository.js';
 import { runtime } from '../store/runtime.js';
@@ -30,47 +32,17 @@ export function redispatchWaitingRunAfterApproval(run: Run): void {
     try {
       const latest = await repo.getRun(run.id);
       if (!latest || latest.status !== 'waiting_for_approval') return;
-      const current = (await repo.updateRun(run.id, { status: 'dispatching' })) || latest;
-      await dispatchRunToExecutionEngine({ ...current, status: 'dispatching' });
+      const resumed = await withTransaction(client => resumeCapacityAfterApproval(client, run.id, 'runs', 'dispatching'));
+      if (!resumed) return;
+      await runConversationDispatchTick();
     } catch (err) {
       logger.error({ err, runId: run.id }, 'Failed redispatching run after approval decision');
     }
   });
 }
 
-export function enqueueInteractiveRunDispatch(run: Run): void {
-  queueMicrotask(async () => {
-    try {
-      const currentRun = (await repo.updateRun(run.id, { status: 'dispatching' })) || run;
-      await dispatchRunToExecutionEngine({ ...currentRun, status: 'dispatching' });
-      const updatedRun = await repo.updateRun(run.id, {
-        status: 'running',
-        startedAt: new Date().toISOString()
-      });
-      emitRunStatusTransition(currentRun, updatedRun);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown dispatch failure';
-      const previousRun = (await repo.getRun(run.id)) || run;
-      const updatedRun = await repo.updateRun(run.id, {
-        status: 'failed',
-        errorCode: 'DISPATCH_FAILED',
-        errorMessage: message,
-        endedAt: new Date().toISOString()
-      });
-      emitRunStatusTransition(previousRun, updatedRun);
-      const accepted = await repo.appendRunEvents(run.id, [{
-        schema_version: 1,
-        run_id: run.id,
-        seq: 1,
-        ts: new Date().toISOString(),
-        type: 'run_failed',
-        payload: { code: 'DISPATCH_FAILED', message, retryable: true }
-      }]);
-      for (const event of runtime.appendRunEvents(run.id, accepted)) {
-        runtime.runStreams.emit(`run:${run.id}`, { event });
-      }
-    }
-  });
+export function enqueueInteractiveRunDispatch(_run: Run): void {
+  void runConversationDispatchTick().catch((err) => logger.warn({ err }, 'Conversation dispatch tick deferred'));
 }
 
 export function dispatchWorkflowRunAfterApprovals(runId: string): void {
@@ -88,6 +60,6 @@ export function dispatchWorkflowRunAfterApprovals(runId: string): void {
       });
       return;
     }
-    await updateWorkflowRunIfStatus(run.id, ['waiting_for_approval'], { status: 'queued' });
+    await withTransaction(client => resumeCapacityAfterApproval(client, run.id, 'workflow_runs', 'queued'));
   });
 }

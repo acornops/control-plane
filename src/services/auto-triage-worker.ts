@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { config } from '../config.js';
 import { dispatchRunToExecutionEngine, cancelRunInExecutionEngine } from './execution-engine-client.js';
 import { logger } from '../logger.js';
 import { type TargetAutoTriageJob } from '../types/auto-triage.js';
@@ -151,8 +152,7 @@ async function dispatchLinkedRun(job: TargetAutoTriageJob, run: Run): Promise<vo
       job,
       dispatching,
       {
-        status: 'running',
-        startedAt: run.startedAt || new Date().toISOString(),
+        status: 'dispatching',
         errorCode: undefined,
         errorMessage: undefined
       },
@@ -514,6 +514,7 @@ export async function runTargetAutoTriageTick(limit = 25): Promise<number> {
       logger.warn({ error: safeInternalError(error), jobId: job.id }, 'Failed stopping automatic investigation');
     }
   }
+  if (!config.WORKSPACE_DISPATCH_ENABLED) return stopping.length;
   const jobs = await repo.autoTriage.claimDueTargetAutoTriageJobs(leaseOwner, limit);
   for (const job of jobs) {
     try {

@@ -1,3 +1,4 @@
+import { config } from '../src/config.js';
 import assert from 'node:assert/strict';
 import { after, beforeEach, describe, it } from 'node:test';
 
@@ -15,37 +16,7 @@ import {
 } from './helpers/automation-database-fixtures.js';
 beforeEach(resetAutomationDatabaseFixtures);
 after(closeAutomationDatabaseFixtures);
-async function insertIssue(
-  id: string,
-  severity: 'critical' | 'warning' | 'info' = 'warning'
-): Promise<void> {
-  const severityRank = severity === 'critical' ? 0 : severity === 'warning' ? 1 : 2;
-  await db.query(
-    `INSERT INTO target_issues (
-       id,workspace_id,target_id,target_type,fingerprint,issue_type,status,severity,severity_rank,
-       title,summary,scope_kind,scope_name,first_seen_at,last_seen_at,last_observed_snapshot_at
-     ) VALUES ($1,'workspace-1','cluster-1','kubernetes',$1,'finding','active',$2,$3,$4,$4,$5,$6,NOW(),NOW(),NOW())`,
-    [id, severity, severityRank, `Issue ${id}`, null, null]
-  );
-}
-
-async function enableAutoTriage() {
-  const settings = await repo.autoTriage.saveTargetAutoTriageSettings({
-    workspaceId: 'workspace-1',
-    targetId: 'cluster-1',
-    expectedRevision: 0,
-    enabled: true,
-    minimumSeverity: 'warning',
-    writeMode: 'read_only',
-    additionalInstructions: '',
-    namespaceInclude: [],
-    namespaceExclude: [],
-    includeClusterScopedIssues: true,
-    updatedBy: 'user-1'
-  });
-  assert.ok(settings);
-  return settings;
-}
+import { insertIssue, enableAutoTriage } from './helpers/auto-triage-postgres-fixtures.js';
 
 describe('target auto-triage persistence', () => {
   it('creates one job per issue lifecycle and enforces two claimed slots per target', async () => {
@@ -431,4 +402,27 @@ describe('target auto-triage persistence', () => {
       job_count: 0
     });
   });
+});
+
+it('records excess automatic issues as skipped without consuming Chat capacity', async () => {
+  const enabled = config.WORKSPACE_CAPACITY_ENABLED;
+  const plans = config.WORKSPACE_PLANS;
+  try {
+    config.WORKSPACE_CAPACITY_ENABLED = true;
+    config.WORKSPACE_PLANS = { ...plans, plans: plans.plans.map(plan => ({ ...plan, executionLimits: {
+      chat: { maxConcurrentRuns: null, maxOutstandingRuns: null }, agent: { maxConcurrentRuns: null, maxOutstandingRuns: null },
+      workflow: { maxConcurrentRuns: null, maxOutstandingRuns: null }, insights: { maxConcurrentRuns: null, maxOutstandingRuns: null },
+      autoTriage: { maxConcurrentRuns: 1, maxOutstandingRuns: 1 }
+    } })) };
+    await enableAutoTriage();
+    for (const id of ['capacity-issue-1', 'capacity-issue-2']) await insertIssue(id);
+    const result = await repo.autoTriage.enqueueCurrentTargetAutoTriageIssues({ workspaceId: 'workspace-1', targetId: 'cluster-1', expectedSettingsRevision: 1 });
+    assert.deepEqual(result, { queuedCount: 1, skippedCount: 1, alreadyExistsCount: 0 });
+    const jobs = await db.query("SELECT status,error_code,reserved_run_id FROM target_auto_triage_jobs ORDER BY status");
+    assert.equal(jobs.rows[0].status, 'queued');
+    assert.equal(jobs.rows[1].error_code, 'WORKSPACE_OUTSTANDING_RUN_LIMIT');
+    assert.equal(jobs.rows[1].reserved_run_id, null);
+    const reservations = await db.query('SELECT pool FROM workspace_run_reservations');
+    assert.deepEqual(reservations.rows, [{ pool: 'autoTriage' }]);
+  } finally { config.WORKSPACE_CAPACITY_ENABLED = enabled; config.WORKSPACE_PLANS = plans; }
 });

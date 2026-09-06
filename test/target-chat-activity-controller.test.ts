@@ -29,7 +29,7 @@ function createStreamRequest(params: Record<string, string>, query: Record<strin
 }
 
 function createStreamResponse(writes: string[]) {
-  return {
+  return Object.assign(new EventEmitter(), {
     statusCode: 200,
     headers: undefined as Record<string, string> | undefined,
     writeHead(statusCode: number, headers: Record<string, string>) {
@@ -48,7 +48,7 @@ function createStreamResponse(writes: string[]) {
       writes.push(JSON.stringify(payload));
       return this;
     }
-  };
+  });
 }
 
 describe('target chat activity controller', () => {

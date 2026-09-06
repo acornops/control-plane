@@ -1,3 +1,4 @@
+import { reserveRunCapacity, lockActiveWorkspace } from './repository-run-capacity.js';
 import { randomUUID } from 'node:crypto';
 import type { QueryResultRow } from 'pg';
 import { db } from '../infra/db.js';
@@ -38,6 +39,7 @@ export async function createDelegatedWorkflowRun(params: {
   maxChildren: number;
 }): Promise<{ run: WorkflowRunRecord; created: boolean }> {
   return withTransaction(async (client) => {
+    await lockActiveWorkspace(client, params.parent.workspaceId);
     const lockedParent = await client.query<Row>(
       'SELECT * FROM workflow_runs WHERE id=$1 FOR UPDATE',
       [params.parent.id]
@@ -79,6 +81,7 @@ export async function createDelegatedWorkflowRun(params: {
     }
 
     const runId = randomUUID();
+    await reserveRunCapacity(client, { workspaceId: params.parent.workspaceId, runId, pool: 'workflow' });
     const status = params.specialist.approvalPolicy.mode === 'always' ? 'waiting_for_approval' : 'queued';
     const idempotencyKey = `${params.parent.id}:delegation:${params.toolCallId}`;
     const snapshot: WorkflowRunRecord['executorSnapshot'] = {

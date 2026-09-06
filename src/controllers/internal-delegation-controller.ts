@@ -225,7 +225,7 @@ export async function awaitDelegations(req: Request, res: Response, next: NextFu
     res.status(200).json({
       items,
       pending: children.filter((child) => (
-        ['queued', 'dispatching', 'running', 'waiting_for_approval'].includes(child.status)
+        ['queued', 'dispatching', 'running', 'waiting_for_approval', 'cancelling'].includes(child.status)
       )).length
     });
   } catch (error) {

@@ -19,6 +19,7 @@ export interface AutoTriageJobRow {
   session_id: string | null;
   session_created_at: Date | string | null;
   run_id: string | null;
+  reserved_run_id?: string | null;
   retry_generation: number | string;
   attempt_count: number | string;
   next_attempt_at: Date | string;
@@ -43,6 +44,7 @@ export function mapAutoTriageJob(row: AutoTriageJobRow): TargetAutoTriageJob {
     settingsRevision: Number(row.settings_revision),
     sessionId: row.session_id || undefined,
     runId: row.run_id || undefined,
+    reservedRunId: row.reserved_run_id || undefined,
     retryGeneration: Number(row.retry_generation),
     attemptCount: Number(row.attempt_count),
     nextAttemptAt: toIso(row.next_attempt_at)!,

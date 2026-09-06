@@ -20,7 +20,7 @@ export interface WorkflowScheduleTickResult {
   autoPaused: number;
 }
 
-async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Promise<'dispatched' | 'failed' | 'auto_paused'> {
+async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Promise<'dispatched' | 'failed' | 'auto_paused' | 'skipped'> {
   const occurrenceKey = schedule.nextRunAt || now.toISOString();
   const dispatch = await dispatchWorkflowTrigger({
     id: schedule.id,
@@ -31,6 +31,11 @@ async function dispatchSchedule(schedule: WorkflowScheduleRecord, now: Date): Pr
     triggerType: 'schedule',
     occurrenceKey
   });
+  if (dispatch.outcome === 'skipped') {
+    await recordWorkflowScheduleDispatch(schedule.id, 'skipped', { now, error: dispatch.reason });
+    incrementWorkflowSchedulerEvent('skipped');
+    return 'skipped';
+  }
   if (dispatch.outcome === 'auto_paused') {
     await recordWorkflowScheduleDispatch(schedule.id, 'auto_paused', { now, error: dispatch.error });
     await recordWorkspaceAuditEvent({
@@ -125,7 +130,7 @@ export async function runWorkflowScheduleTick(params: { now?: Date; limit?: numb
         const outcome = await dispatchSchedule(schedule, now);
         if (outcome === 'auto_paused') result.autoPaused += 1;
         else if (outcome === 'failed') result.failed += 1;
-        else result.dispatched += 1;
+        else if (outcome === 'dispatched') result.dispatched += 1;
       } catch (err) {
         const error = sanitizeWorkflowTriggerError(err);
         await recordWorkflowScheduleDispatch(schedule.id, 'failed', { now, error });

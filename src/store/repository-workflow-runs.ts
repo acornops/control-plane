@@ -1,3 +1,4 @@
+import { reserveRunCapacity, lockActiveWorkspace } from './repository-run-capacity.js';
 import { randomUUID } from 'node:crypto';
 import type { QueryResultRow } from 'pg';
 import { db } from '../infra/db.js';
@@ -160,6 +161,7 @@ export async function createWorkflowRun(params: {
   llmReasoningEffort?: WorkflowRunRecord['llmReasoningEffort'];
 }): Promise<WorkflowRunRecord> {
   return withTransaction(async (client) => {
+    await lockActiveWorkspace(client, params.session.workspaceId);
     const executionId = params.executionId || randomUUID();
     await client.query(
       `INSERT INTO workflow_executions (
@@ -171,6 +173,7 @@ export async function createWorkflowRun(params: {
        params.session.workflowSnapshot, params.message.content]
     );
     const runId = randomUUID();
+    await reserveRunCapacity(client, { workspaceId: params.session.workspaceId, runId, pool: 'workflow' });
     const status = params.session.compiledAccessScope.approvalGates.length ? 'waiting_for_approval' : 'queued';
     const executor = params.session.compiledAccessScope.executor;
     const specialistAgent = executor.role === 'specialist'
@@ -239,6 +242,7 @@ export async function createWorkflowExecution(params: {
   initialEvents: WorkflowExecutionStreamEvent[];
 }> {
   return withTransaction(async (client) => {
+    await lockActiveWorkspace(client, params.session.workspaceId);
     const compiledAccessScope = params.compiledAccessScope || params.session.compiledAccessScope;
     const provenance = params.requestProvenance || { actorType: 'user' };
     const origin: WorkflowExecutionOrigin = params.origin || (
@@ -303,6 +307,7 @@ export async function createWorkflowExecution(params: {
        provenance.externalIntegrationLinkId || null, provenance.externalIntegrationClientId || null]
     );
     const runId = randomUUID();
+    await reserveRunCapacity(client, { workspaceId: params.session.workspaceId, runId, pool: 'workflow' });
     const idempotencyKey = `${executionId}:root:1`;
     const runResult = await client.query<Row>(
       `INSERT INTO workflow_runs (

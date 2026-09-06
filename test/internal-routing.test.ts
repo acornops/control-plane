@@ -175,7 +175,8 @@ describe('internal service routing', () => {
         headers
       });
       assert.equal(internalResponse.status, 404);
-      assert.equal(getRunCalled, true);
+      assert.equal((await internalResponse.json()).error.code, 'NOT_FOUND');
+      assert.equal(getRunCalled, false); // Authority middleware rejects missing persisted attempts before bootstrap.
     });
   });
 
@@ -225,7 +226,8 @@ describe('internal service routing', () => {
         body: JSON.stringify({ name: 'get_pods', arguments: {} })
       });
       assert.equal(internalResponse.status, 404);
-      assert.equal(getRunCalled, true);
+      assert.equal((await internalResponse.json()).error.code, 'NOT_FOUND');
+      assert.equal(getRunCalled, false); // Authority middleware rejects missing persisted attempts before bootstrap.
     });
   });
 
@@ -283,7 +285,8 @@ describe('internal service routing', () => {
         { method: 'POST', headers, body }
       );
       assert.equal(internalResponse.status, 404);
-      assert.equal(getRunCalled, true);
+      assert.equal((await internalResponse.json()).error.code, 'NOT_FOUND');
+      assert.equal(getRunCalled, false); // Authority middleware rejects missing persisted attempts before bootstrap.
     });
   });
 

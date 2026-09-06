@@ -1,3 +1,4 @@
+import { WorkspaceCapacityError } from '../store/repository-run-capacity.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { WorkflowRunRecord } from '../store/repository-workflows.js';
@@ -12,8 +13,11 @@ export async function dispatchRunToExecutionEngine(run: Run): Promise<void> {
   if (run.conversationKind === 'target_chat' && (!run.targetId || !run.targetType)) {
     throw new Error('Target-chat dispatch requires a target identity and type');
   }
+  if (!config.WORKSPACE_DISPATCH_ENABLED) throw new WorkspaceCapacityError('WORKSPACE_DISPATCH_PAUSED', 'Execution dispatch is paused', 503);
   const payload = {
     contract_version: 2,
+    capacity_contract_version: 1,
+    capacity_enabled: config.WORKSPACE_CAPACITY_ENABLED,
     ...(run.conversationKind === 'agent_chat'
       ? { scope_type: 'agent_chat', agent_id: run.agentId }
       : { scope_type: 'target', target_id: run.targetId, target_type: run.targetType }),
@@ -52,8 +56,11 @@ export async function dispatchRunToExecutionEngine(run: Run): Promise<void> {
 
 export async function dispatchWorkflowRunToExecutionEngine(run: WorkflowRunRecord): Promise<void> {
   const agentClaims = workflowRunAgentClaims(run);
+  if (!config.WORKSPACE_DISPATCH_ENABLED) throw new WorkspaceCapacityError('WORKSPACE_DISPATCH_PAUSED', 'Execution dispatch is paused', 503);
   const payload = {
     contract_version: 2,
+    capacity_contract_version: 1,
+    capacity_enabled: config.WORKSPACE_CAPACITY_ENABLED,
     scope_type: 'workspace',
     run_id: run.id,
     workspace_id: run.workspaceId,

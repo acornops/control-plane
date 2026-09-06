@@ -1,3 +1,4 @@
+import { buildWorkspaceCapacityPaths } from './openapi/workspace-capacity-paths.js';
 import { buildAuthPaths } from './openapi/auth-paths.js';
 import { buildAgentPaths } from './openapi/agent-paths.js';
 import { buildAdminPaths } from './openapi/admin-paths.js';
@@ -68,7 +69,8 @@ export function buildOpenApiDocument(baseUrl: string, sessionCookieName: string)
       ...buildVirtualMachinePaths(),
       ...buildSessionRunPaths(),
       ...buildAdminPaths(),
-      ...buildInternalPaths()
+      ...buildInternalPaths(),
+      ...buildWorkspaceCapacityPaths()
     },
     components: {
       securitySchemes: {

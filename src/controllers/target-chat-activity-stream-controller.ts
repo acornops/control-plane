@@ -1,3 +1,4 @@
+import { watchWorkspaceStream } from '../services/workspace-stream-lifecycle.js';
 import { NextFunction, Response } from 'express';
 import { AuthenticatedRequest } from '../auth/middleware.js';
 import { requireTargetAccess } from '../auth/workspace-authorization.js';
@@ -106,6 +107,7 @@ export async function streamTargetChatActivity(req: AuthenticatedRequest, res: R
     }
     if (closed) return;
 
+    watchWorkspaceStream(req, res, workspaceId);
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',

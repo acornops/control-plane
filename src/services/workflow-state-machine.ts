@@ -1,3 +1,4 @@
+import { reserveRunCapacity, lockActiveWorkspace } from '../store/repository-run-capacity.js';
 import { randomUUID } from 'node:crypto';
 import type { QueryResultRow } from 'pg';
 import type { WorkflowRunRecord } from '../store/repository-workflows.js';
@@ -85,6 +86,7 @@ export async function resumeWorkflowExecution(
   retry: WorkflowRetrySnapshot
 ): Promise<{ runId: string; status: string }> {
   return withTransaction(async (client) => {
+    await lockActiveWorkspace(client, retry.workspaceId);
     const executionResult = await client.query<QueryResultRow>(
       'SELECT * FROM workflow_executions WHERE id=$1 FOR UPDATE',
       [executionId]
@@ -110,6 +112,7 @@ export async function resumeWorkflowExecution(
     }
     const attempt = Number(previous.attempt_number) + 1;
     const runId = randomUUID();
+    await reserveRunCapacity(client, { workspaceId: retry.workspaceId, runId, pool: 'workflow' });
     const idempotencyKey = `${executionId}:root:${attempt}`;
     const status = retry.compiledAccessScope.approvalGates.length > 0
       ? 'waiting_for_approval'

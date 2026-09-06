@@ -6,7 +6,7 @@ import { config } from '../config.js';
 import { checkDatabaseHealth } from '../infra/db.js';
 import { checkRedisHealth } from '../infra/redis.js';
 import { repo } from '../store/repository.js';
-import { effectiveWorkspaceLimits, resolveWorkspacePlan } from '../store/repository-quotas.js';
+
 import { toSingleParam } from '../utils/params.js';
 import { CursorMismatchError, decodeCursor, makeQuerySignature, normalizeSearchQuery, parseBoundedLimit } from '../utils/pagination.js';
 import { incrementAdminMutations } from '../metrics.js';
@@ -157,134 +157,7 @@ export async function getWorkspace(req: AdminAuthenticatedRequest, res: Response
   }
 }
 
-export async function patchWorkspacePlan(req: AdminAuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-  try {
-    incrementAdminMutations();
-    const workspaceId = toSingleParam(req.params.workspaceId);
-    const before = await repo.getAdminWorkspace(workspaceId);
-    if (!before) {
-      notFound(res, 'Workspace not found');
-      return;
-    }
-    let targetPlan;
-    try {
-      targetPlan = resolveWorkspacePlan(req.body.planKey);
-    } catch {
-      validationError(res, 'Workspace plan is not configured');
-      return;
-    }
-    const usage = await repo.countWorkspaceUsage(workspaceId);
-    const targetLimits = effectiveWorkspaceLimits(targetPlan.key, before.quotaOverrides).quotas;
-    const overLimit = {
-      members: usage.members > targetLimits.members,
-      kubernetesClusters: usage.kubernetesClusters > targetLimits.kubernetesClusters,
-      virtualMachines: usage.virtualMachines > targetLimits.virtualMachines
-    };
-    if (Object.values(overLimit).some(Boolean)) {
-      await auditAdmin(req, {
-        action: 'admin.workspace.plan.update',
-        outcome: 'failure',
-        workspaceId,
-        reason: req.body.reason,
-        metadata: { beforePlan: before.plan.key, requestedPlan: targetPlan.key, usage, targetLimits, overLimit }
-      });
-      validationError(res, 'Current workspace usage exceeds target plan limits', { usage, targetLimits, overLimit });
-      return;
-    }
-    await auditAdminMutationRequest(req, {
-      action: 'admin.workspace.plan.update',
-      workspaceId,
-      reason: req.body.reason,
-      metadata: { beforePlan: before.plan.key, requestedPlan: targetPlan.key, ticketRef: req.body.ticketRef || null }
-    });
-    const after = await repo.updateWorkspacePlan(workspaceId, targetPlan.key);
-    const correlationId = randomUUID();
-    await auditAdmin(req, {
-      action: 'admin.workspace.plan.update',
-      workspaceId,
-      reason: req.body.reason,
-      metadata: { beforePlan: before.plan.key, afterPlan: targetPlan.key, correlationId }
-    });
-    await bestEffortWorkspaceAudit({
-      workspaceId,
-      tokenId: req.admin.tokenId,
-      category: 'workspace',
-      eventType: 'workspace.plan.updated.v1',
-      objectType: 'workspace',
-      objectId: workspaceId,
-      objectName: before.name,
-      summary: 'Workspace plan updated by admin token',
-      metadata: { beforePlan: before.plan.key, afterPlan: targetPlan.key, reason: req.body.reason, correlationId }
-    });
-    res.status(200).json({ before, after, usage, overLimit });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function patchWorkspaceQuotas(req: AdminAuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-  try {
-    incrementAdminMutations();
-    const workspaceId = toSingleParam(req.params.workspaceId);
-    const before = await repo.getAdminWorkspace(workspaceId);
-    if (!before) {
-      notFound(res, 'Workspace not found');
-      return;
-    }
-    const requestedOverrides = req.body.quotas
-      ? {
-          members: req.body.quotas.members ?? null,
-          kubernetesClusters: req.body.quotas.kubernetesClusters ?? null,
-          virtualMachines: req.body.quotas.virtualMachines ?? null
-        }
-      : null;
-    const usage = await repo.countWorkspaceUsage(workspaceId);
-    const targetLimits = effectiveWorkspaceLimits(before.plan.key, requestedOverrides).quotas;
-    const overLimit = {
-      members: usage.members > targetLimits.members,
-      kubernetesClusters: usage.kubernetesClusters > targetLimits.kubernetesClusters,
-      virtualMachines: usage.virtualMachines > targetLimits.virtualMachines
-    };
-    if (Object.values(overLimit).some(Boolean)) {
-      await auditAdmin(req, {
-        action: 'admin.workspace.quotas.update',
-        outcome: 'failure',
-        workspaceId,
-        reason: req.body.reason,
-        metadata: { before: before.quotaOverrides, requested: requestedOverrides, usage, targetLimits, overLimit }
-      });
-      validationError(res, 'Current workspace usage exceeds target quota limits', { usage, targetLimits, overLimit });
-      return;
-    }
-    await auditAdminMutationRequest(req, {
-      action: 'admin.workspace.quotas.update',
-      workspaceId,
-      reason: req.body.reason,
-      metadata: { before: before.quotaOverrides, requested: requestedOverrides, ticketRef: req.body.ticketRef || null }
-    });
-    const after = await repo.setWorkspaceQuotaOverrides(workspaceId, requestedOverrides);
-    await auditAdmin(req, {
-      action: 'admin.workspace.quotas.update',
-      workspaceId,
-      reason: req.body.reason,
-      metadata: { before: before.quotaOverrides, after: requestedOverrides, ticketRef: req.body.ticketRef || null }
-    });
-    await bestEffortWorkspaceAudit({
-      workspaceId,
-      tokenId: req.admin.tokenId,
-      category: 'workspace',
-      eventType: 'workspace.quotas.updated.v1',
-      objectType: 'workspace',
-      objectId: workspaceId,
-      objectName: before.name,
-      summary: 'Workspace quota overrides updated by admin token',
-      metadata: { before: before.quotaOverrides, after: requestedOverrides, reason: req.body.reason, ticketRef: req.body.ticketRef || null }
-    });
-    res.status(200).json({ before, after });
-  } catch (err) {
-    next(err);
-  }
-}
+export { patchWorkspacePlan, patchWorkspaceQuotas } from './admin-workspace-policy-controller.js';
 
 export async function listUsers(req: AdminAuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {

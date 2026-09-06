@@ -1,5 +1,6 @@
 import { PoolClient } from 'pg';
 import { config, WorkspacePlanDefinition } from '../config.js';
+import { resolveExecutionLimits, ExecutionLimits } from '../types/workspace-policy.js';
 import { db } from '../infra/db.js';
 import {
   KUBERNETES_TARGET_TYPE,
@@ -44,7 +45,8 @@ interface WorkspaceQuotaRow {
   virtual_machines: number | null;
 }
 
-interface EffectiveWorkspaceLimits {
+export interface EffectiveWorkspaceLimits {
+  executionLimits: ExecutionLimits;
   plan: WorkspacePlanDefinition;
   quotas: {
     members: number;
@@ -63,7 +65,8 @@ export function workspacePlanCatalog(): Record<WorkspacePlanKey, WorkspacePlanDe
 
 export function resolveWorkspacePlan(planKey: string | null | undefined): WorkspacePlanDefinition {
   const key = planKey ?? defaultWorkspacePlanKey();
-  const plan = workspacePlanCatalog()[key];
+  const catalog = workspacePlanCatalog();
+  const plan = Object.hasOwn(catalog, key) ? catalog[key] : undefined;
   if (!plan) {
     throw new Error(`Unknown workspace plan: ${key}`);
   }
@@ -109,6 +112,7 @@ export function effectiveWorkspaceLimits(
   const plan = resolveWorkspacePlan(planKey);
   return {
     plan,
+    executionLimits: resolveExecutionLimits(plan.executionLimits),
     quotas: {
       members: overrides?.members ?? plan.quotas.members,
       kubernetesClusters: overrides?.kubernetesClusters ?? plan.quotas.kubernetesClusters,

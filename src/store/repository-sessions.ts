@@ -1,3 +1,6 @@
+import { insertConversationDispatch } from './repository-conversation-dispatch.js';
+import { reserveRunCapacity, lockActiveWorkspace } from './repository-run-capacity.js';
+import type { ExecutionPool } from '../types/workspace-policy.js';
 import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { db } from '../infra/db.js';
@@ -277,8 +280,11 @@ export async function createRunFromUserMessage(params: {
     messageMetadata?: Record<string, unknown>;
     confirmationRequiredForWriteOverride?: boolean;
     transactionClient?: PoolClient;
+    reservedRunId?: string;
+    executionPool?: ExecutionPool;
   }): Promise<CreateRunFromMessageResult> {
     const create = async (client: PoolClient): Promise<CreateRunFromMessageResult> => {
+      await lockActiveWorkspace(client, params.workspaceId);
       if (params.clientMessageId) {
         const existing = await findConversationRunByClientMessageId(client, params.sessionId, params.clientMessageId);
         if (existing) {
@@ -290,7 +296,8 @@ export async function createRunFromUserMessage(params: {
       const now = nowDate.toISOString();
       const expiresAt = conversationExpiry(nowDate);
       const messageId = randomUUID();
-      const runId = randomUUID();
+      const runId = params.reservedRunId || randomUUID();
+      await reserveRunCapacity(client, { workspaceId: params.workspaceId, runId, pool: params.executionPool || 'chat' });
 
       let insertedMessageResult;
       try {
@@ -377,6 +384,8 @@ export async function createRunFromUserMessage(params: {
         ]
       );
 
+      // Auto-triage already owns a durable job and its eligibility-aware dispatcher.
+      if (params.executionPool !== 'autoTriage') await insertConversationDispatch(client, params.workspaceId, runId);
       await createRunSkillSnapshotInTransaction(client, {
         runId,
         workspaceId: params.workspaceId,

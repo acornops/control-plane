@@ -184,11 +184,11 @@ export async function ingestRunEvents(req: Request, res: Response, next: NextFun
           runtime.runStreams.emit(`run:${currentRun.id}`, { event });
           continue;
         }
-        if (event.type === 'run_started') {
+        if (event.type === 'run_started' && !res.locals.executionCleanupOnly && currentRun.status !== 'cancelling') {
           currentRun = await updateWorkflowRunIfStatus(currentRun.id, ['queued', 'dispatching', 'running'], {
             status: 'running', startedAt: currentRun.startedAt || new Date().toISOString()
           }) || currentRun;
-        } else if (event.type === 'tool_approval_requested') {
+        } else if (event.type === 'tool_approval_requested' && !res.locals.executionCleanupOnly && currentRun.status !== 'cancelling') {
           currentRun = await updateWorkflowRunIfStatus(currentRun.id, ['dispatching', 'running'], {
             status: 'waiting_for_approval'
           }) || currentRun;
@@ -207,6 +207,7 @@ export async function ingestRunEvents(req: Request, res: Response, next: NextFun
         runtime.runStreams.emit(`run:${currentRun.id}`, { event });
       }
 
+      await recomputeWorkflowExecutionStatusForRun(currentRun.id);
       res.status(200).json({ status: 'ok', accepted: buffered.length });
       return;
     }
@@ -257,11 +258,11 @@ export async function ingestRunEvents(req: Request, res: Response, next: NextFun
         runtime.runStreams.emit(`run:${run.id}`, { event });
         continue;
       }
-      if (event.type === 'run_started') {
+      if (event.type === 'run_started' && !res.locals.executionCleanupOnly && currentRun.status !== 'cancelling') {
         const updatedRun = await repo.updateRun(run.id, { status: 'running', startedAt: currentRun.startedAt || new Date().toISOString() });
         emitRunStatusTransition(currentRun, updatedRun);
         currentRun = updatedRun || currentRun;
-      } else if (event.type === 'tool_approval_requested') {
+      } else if (event.type === 'tool_approval_requested' && !res.locals.executionCleanupOnly && currentRun.status !== 'cancelling') {
         const updatedRun = await repo.updateRun(run.id, { status: 'waiting_for_approval' });
         emitRunStatusTransition(currentRun, updatedRun);
         currentRun = updatedRun || currentRun;

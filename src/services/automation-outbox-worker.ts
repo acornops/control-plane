@@ -43,12 +43,12 @@ async function claim(limit: number): Promise<OutboxRow[]> {
          SELECT outbox.id
          FROM automation_dispatch_outbox outbox
          LEFT JOIN workflow_runs run ON outbox.source_type='workflow' AND run.id=outbox.run_id
-         WHERE (
+         WHERE outbox.source_type='workflow' AND (
              outbox.status IN ('pending','failed')
              OR (outbox.status='claimed' AND outbox.claim_expires_at < NOW())
            )
            AND outbox.next_attempt_at <= NOW()
-           AND (outbox.source_type <> 'workflow' OR run.status='queued')
+           AND (outbox.source_type <> 'workflow' OR run.status IN ('queued','dispatching'))
          ORDER BY outbox.created_at,outbox.id
          FOR UPDATE OF outbox SKIP LOCKED
          LIMIT $1
@@ -101,13 +101,13 @@ async function deliver(row: OutboxRow): Promise<void> {
   }
   if (row.source_type !== 'workflow') return retry(row, new Error(`Unsupported outbox source ${row.source_type}`), startedAt);
   const run = await getWorkflowRun(row.run_id);
-  if (!run || run.status !== 'queued') {
+  if (!run || !['queued', 'dispatching'].includes(run.status)) {
     await db.query("UPDATE automation_dispatch_outbox SET status='cancelled',claim_owner=NULL,claim_expires_at=NULL,updated_at=NOW() WHERE id=$1", [row.id]);
     incrementAutomationDispatch(row.source_type, 'stale_claim');
     return;
   }
   try {
-    const dispatching = await updateWorkflowRunIfStatus(run.id, ['queued'], { status: 'dispatching' });
+    const dispatching = run.status === 'dispatching' ? run : await updateWorkflowRunIfStatus(run.id, ['queued'], { status: 'dispatching' });
     if (!dispatching) {
       await db.query(
         `UPDATE automation_dispatch_outbox
@@ -121,29 +121,21 @@ async function deliver(row: OutboxRow): Promise<void> {
     await dispatchWorkflowRunToExecutionEngine(run);
     let activated = false;
     await withTransaction(async (client) => {
+      // An acknowledgement accepts delivery; only run_started proves execution.
+      // The engine may already have completed before its HTTP response arrives.
       const result = await client.query(
-        `UPDATE workflow_runs
-         SET status='running',started_at=COALESCE(started_at,NOW()),updated_at=NOW()
-         WHERE id=$1 AND status='dispatching' AND cancellation_requested_at IS NULL
-         RETURNING id`,
+        `SELECT id FROM workflow_runs WHERE id=$1
+         AND status NOT IN ('cancelling','cancelled') AND cancellation_requested_at IS NULL FOR UPDATE`,
         [run.id]
       );
       activated = Boolean(result.rowCount);
-      if (activated && !run.parentRunId) {
-        await client.query(
-          `UPDATE workflow_executions
-           SET status='running',started_at=COALESCE(started_at,NOW()),updated_at=NOW()
-           WHERE id=$1 AND status NOT IN ('completed','failed','cancelled')`,
-          [run.executionId]
-        );
-      }
       await client.query(
         `UPDATE automation_dispatch_outbox
          SET status=$2,attempt_count=attempt_count+1,
              delivered_at=CASE WHEN $2='delivered' THEN NOW() ELSE delivered_at END,
              claim_owner=NULL,claim_expires_at=NULL,updated_at=NOW()
-         WHERE id=$1 AND status='claimed'`,
-        [row.id, activated ? 'delivered' : 'cancelled']
+         WHERE id=$1 AND status='claimed' AND claim_owner=$3`,
+        [row.id, activated ? 'delivered' : 'cancelled', workerId]
       );
     });
     if (!activated) {
@@ -166,6 +158,7 @@ async function deliver(row: OutboxRow): Promise<void> {
 }
 
 export async function runAutomationOutboxTick(limit = 25): Promise<number> {
+  if (!config.WORKSPACE_DISPATCH_ENABLED) return 0;
   if (config.AUTOMATION_RUNTIME_MODE === 'off' || config.AUTOMATION_RUNTIME_MODE === 'shadow') return 0;
   const rows = await claim(limit);
   for (const row of rows) await deliver(row);

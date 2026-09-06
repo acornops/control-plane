@@ -1,3 +1,5 @@
+export { mutateWorkspacePolicy } from './repository-workspace-policy.js';
+export { getWorkspacePolicy } from './repository-workspace-policy-read.js';
 import { randomUUID } from 'node:crypto';
 import { db } from '../infra/db.js';
 import { AuthMethod, Run, TargetSummary, TARGET_TYPES, TargetType, User, WorkspaceMembership, WorkspaceSummary } from '../types/domain.js';

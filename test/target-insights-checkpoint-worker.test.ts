@@ -1,3 +1,4 @@
+import { installInsightsCapacityFixture } from './helpers/insights-capacity-fixture.js';
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import { db } from '../src/infra/db.js';
@@ -51,16 +52,7 @@ function mockAuditSink(): void {
 }
 
 function mockRepositoryTransaction(): void {
-  const client = {
-    query: async (sql: string) => {
-      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
-        return { rowCount: null, rows: [] };
-      }
-      throw new Error(`Unexpected transaction query: ${sql}`);
-    },
-    release: () => undefined
-  };
-  mock.method(db, 'connect', async () => client);
+  installInsightsCapacityFixture();
 }
 
 function mockConfiguredGatewayResponse(patchPayload: unknown): void {

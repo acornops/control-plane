@@ -1,5 +1,5 @@
 import https from 'node:https';
-import type { IncomingHttpHeaders } from 'node:http';
+import type { ClientRequest, IncomingHttpHeaders } from 'node:http';
 import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib';
 import type { Readable } from 'node:stream';
 import {
@@ -147,6 +147,7 @@ export async function fetchPublicHttpGet(
   options: {
     resolveEndpoint?: typeof resolveWebhookEndpoint;
     timeoutMs?: number;
+    beforeRequest?: (timeoutMs: number) => Promise<() => Promise<void>>;
   } = {}
 ): Promise<FetchHttpResult> {
   const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
@@ -165,59 +166,69 @@ export async function fetchPublicHttpGet(
     throw new FetchHttpError('FETCH_DNS_FAILED', 'Fetch destination could not be resolved.');
   }
 
-  const remainingMs = timeoutMs - (Date.now() - startedAt);
+  let remainingMs = timeoutMs - (Date.now() - startedAt);
   if (remainingMs <= 0) {
     throw new FetchHttpError('FETCH_TIMEOUT', 'Fetch timed out after 15 seconds.', 504);
   }
   const lookup = createPinnedLookup(endpoint.address, endpoint.family);
 
-  return await new Promise<FetchHttpResult>((resolve, reject) => {
-    let settled = false;
-    let deadline: NodeJS.Timeout | undefined;
-    const finish = (error?: unknown, value?: FetchHttpResult) => {
-      if (settled) return;
-      settled = true;
-      if (deadline) clearTimeout(deadline);
-      if (error) reject(error);
-      else resolve(value!);
-    };
-    const req = https.request({
-      protocol: 'https:',
-      hostname: endpoint.hostname,
-      port: endpoint.url.port || undefined,
-      path: `${endpoint.url.pathname}${endpoint.url.search}`,
-      method: 'GET',
-      headers: {
-        accept: 'application/json, text/*;q=0.9, application/*+json;q=0.9',
-        'accept-encoding': 'gzip, deflate, br',
-        'user-agent': 'AcornOps-Fetch/1.0'
-      },
-      lookup,
-      servername: endpoint.hostname,
-      timeout: remainingMs
-    }, async (response) => {
-      try {
-        finish(undefined, await readFetchHttpResponse(canonicalUrl, response));
-      } catch (error) {
-        response.destroy();
+  const cleanup = await options.beforeRequest?.(remainingMs);
+  let request: ClientRequest | undefined;
+  try {
+    remainingMs = timeoutMs - (Date.now() - startedAt);
+    if (remainingMs <= 0) throw new FetchHttpError('FETCH_TIMEOUT', 'Fetch timed out after 15 seconds.', 504);
+    return await new Promise<FetchHttpResult>((resolve, reject) => {
+      let settled = false;
+      let deadline: NodeJS.Timeout | undefined;
+      const finish = (error?: unknown, value?: FetchHttpResult) => {
+        if (settled) return;
+        settled = true;
+        if (deadline) clearTimeout(deadline);
+        if (error) reject(error);
+        else resolve(value!);
+      };
+      const req = https.request({
+        protocol: 'https:',
+        hostname: endpoint.hostname,
+        port: endpoint.url.port || undefined,
+        path: `${endpoint.url.pathname}${endpoint.url.search}`,
+        method: 'GET',
+        headers: {
+          accept: 'application/json, text/*;q=0.9, application/*+json;q=0.9',
+          'accept-encoding': 'gzip, deflate, br',
+          'user-agent': 'AcornOps-Fetch/1.0'
+        },
+        lookup,
+        servername: endpoint.hostname,
+        timeout: remainingMs
+      }, async (response) => {
+        try {
+          finish(undefined, await readFetchHttpResponse(canonicalUrl, response));
+        } catch (error) {
+          response.destroy();
+          finish(error);
+        }
+      });
+      request = req;
+      req.on('timeout', () => {
+        const error = new FetchHttpError('FETCH_TIMEOUT', 'Fetch timed out after 15 seconds.', 504);
         finish(error);
-      }
+        req.destroy(error);
+      });
+      req.on('error', (error) => {
+        finish(error instanceof FetchHttpError
+          ? error
+          : new FetchHttpError('FETCH_REQUEST_FAILED', 'Fetch request failed.'));
+      });
+      deadline = setTimeout(() => {
+        const error = new FetchHttpError('FETCH_TIMEOUT', 'Fetch timed out after 15 seconds.', 504);
+        finish(error);
+        req.destroy(error);
+      }, remainingMs);
+      req.end();
     });
-    req.on('timeout', () => {
-      const error = new FetchHttpError('FETCH_TIMEOUT', 'Fetch timed out after 15 seconds.', 504);
-      finish(error);
-      req.destroy(error);
-    });
-    req.on('error', (error) => {
-      finish(error instanceof FetchHttpError
-        ? error
-        : new FetchHttpError('FETCH_REQUEST_FAILED', 'Fetch request failed.'));
-    });
-    deadline = setTimeout(() => {
-      const error = new FetchHttpError('FETCH_TIMEOUT', 'Fetch timed out after 15 seconds.', 504);
-      finish(error);
-      req.destroy(error);
-    }, remainingMs);
-    req.end();
-  });
+  } finally {
+    request?.destroy();
+    await cleanup?.();
+  }
 }

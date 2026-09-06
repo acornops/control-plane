@@ -92,6 +92,7 @@ export async function upsertTargetInsightsCheckpointJobForSessionActivity(
          status = EXCLUDED.status,
          lease_owner = NULL,
          lease_expires_at = NULL,
+         capacity_run_id = NULL,
          last_error = EXCLUDED.last_error,
          retry_after = NULL,
          attempts = CASE

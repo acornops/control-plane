@@ -1,3 +1,4 @@
+import { PoolClient } from 'pg';
 import { config } from '../config.js';
 import { db } from '../infra/db.js';
 import { WorkspaceSummary } from '../types/domain.js';
@@ -12,6 +13,7 @@ type AdminWorkspaceRow = WorkspaceRow & {
   created_by_email?: string | null;
   lifecycle_status?: WorkspaceLifecycleStatus;
   suspended_at?: Date | string | null;
+  policy_version?: string | number;
 };
 
 export interface AdminWorkspaceSummary extends WorkspaceSummary {
@@ -19,6 +21,7 @@ export interface AdminWorkspaceSummary extends WorkspaceSummary {
   createdByEmail?: string;
   virtualMachineCount: number;
   lifecycleStatus: WorkspaceLifecycleStatus;
+  policyVersion?: number;
   suspendedAt?: string;
 }
 
@@ -34,6 +37,7 @@ function mapAdminWorkspaceSummary(row: AdminWorkspaceRow): AdminWorkspaceSummary
     ...(row.created_by_display_name ? { createdByDisplayName: row.created_by_display_name } : {}),
     ...(row.created_by_email ? { createdByEmail: row.created_by_email } : {}),
     virtualMachineCount: Number(row.virtual_machine_count ?? 0),
+    policyVersion: Number(row.policy_version ?? 0),
     lifecycleStatus: row.lifecycle_status === 'suspended' ? 'suspended' : 'active',
     ...(row.suspended_at ? { suspendedAt: toIso(row.suspended_at) } : {})
   };
@@ -134,8 +138,8 @@ export async function listAdminWorkspaces(options: {
   );
 }
 
-export async function getAdminWorkspace(workspaceId: string): Promise<AdminWorkspaceDetail | null> {
-  const result = await db.query(
+export async function getAdminWorkspace(workspaceId: string, queryable: Pick<PoolClient, 'query'> = db): Promise<AdminWorkspaceDetail | null> {
+  const result = await queryable.query(
     `SELECT ${adminWorkspaceColumns},
        latest_audit.occurred_at AS latest_workspace_audit_at
      FROM workspaces w
@@ -154,7 +158,7 @@ export async function getAdminWorkspace(workspaceId: string): Promise<AdminWorks
   if (!result.rowCount) return null;
   const row = result.rows[0];
   const summary = mapAdminWorkspaceSummary(row as AdminWorkspaceRow);
-  const runSummaryResult = await db.query<{ status: string; count: number | string }>(
+  const runSummaryResult = await queryable.query<{ status: string; count: number | string }>(
     `SELECT status, COUNT(*)::int AS count
      FROM runs
      WHERE workspace_id = $1

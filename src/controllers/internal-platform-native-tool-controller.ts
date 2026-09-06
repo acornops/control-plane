@@ -1,3 +1,6 @@
+import { nativeExecutionAuthority } from '../services/native-execution-authority.js';
+import { WorkspaceCapacityError } from '../store/repository-run-capacity.js';
+import { capacityErrorResponse } from '../services/workspace-execution-access.js';
 import type { NextFunction, Request, Response } from 'express';
 import {
   executeWorkspaceNativeTool,
@@ -11,6 +14,7 @@ import { toSingleParam } from '../utils/params.js';
 const ACTIVE_TOOL_RUN_STATUSES = new Set(['dispatching', 'running', 'waiting_for_approval']);
 
 export async function callPlatformNativeTool(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const authority = nativeExecutionAuthority(req);
   try {
     const runId = toSingleParam(req.params.runId);
     const toolId = toSingleParam(req.params.toolId);
@@ -64,6 +68,7 @@ export async function callPlatformNativeTool(req: Request, res: Response, next: 
 
     try {
       const result = await executeWorkspaceNativeTool({
+        authority,
         run,
         toolId,
         toolCallId: req.body.toolCallId,
@@ -78,6 +83,7 @@ export async function callPlatformNativeTool(req: Request, res: Response, next: 
       throw error;
     }
   } catch (error) {
+    if (error instanceof WorkspaceCapacityError) { capacityErrorResponse(res, error); return; }
     next(error);
   }
 }

@@ -120,6 +120,8 @@ describe('execution engine client', () => {
     assert.equal(headers.get('authorization'), 'Bearer dispatch-token');
     assert.deepEqual(JSON.parse(String(fetchCall.init?.body)), {
       contract_version: 2,
+      capacity_contract_version: 1,
+      capacity_enabled: false,
       scope_type: 'target',
       run_id: 'run-1',
       workspace_id: 'ws-1',
@@ -159,6 +161,8 @@ describe('execution engine client', () => {
     assert.equal(headers.get('authorization'), 'Bearer dispatch-token');
     assert.deepEqual(JSON.parse(String(fetchCall.init?.body)), {
       contract_version: 2,
+      capacity_contract_version: 1,
+      capacity_enabled: false,
       scope_type: 'workspace',
       run_id: 'workflow-run-1',
       workspace_id: 'ws-1',
@@ -194,6 +198,8 @@ describe('execution engine client', () => {
 
     assert.deepEqual(JSON.parse(String(fetchCall?.init?.body)), {
       contract_version: 2,
+      capacity_contract_version: 1,
+      capacity_enabled: false,
       scope_type: 'agent_chat',
       run_id: 'run-1',
       workspace_id: 'ws-1',
@@ -262,6 +268,8 @@ describe('execution engine client', () => {
     assert.ok(fetchCall);
     assert.deepEqual(JSON.parse(String(fetchCall.init?.body)), {
       contract_version: 2,
+      capacity_contract_version: 1,
+      capacity_enabled: false,
       scope_type: 'workspace',
       run_id: 'workflow-run-1',
       workspace_id: 'ws-1',

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { reserveRunCapacity, WorkspaceCapacityError } from './repository-run-capacity.js';
 import type { PoolClient } from 'pg';
 
 import { db } from '../infra/db.js';
@@ -34,6 +36,16 @@ export async function requeueDisabledTargetAutoTriageJob(
   );
   const jobId = result.rows[0]?.id;
   if (!jobId) return false;
+
+  const reservedRunId = randomUUID();
+  try {
+    await reserveRunCapacity(client, { workspaceId: issue.workspaceId, runId: reservedRunId, pool: 'autoTriage' });
+  } catch (error) {
+    if (!(error instanceof WorkspaceCapacityError) || error.code !== 'WORKSPACE_OUTSTANDING_RUN_LIMIT') throw error;
+    await client.query("UPDATE target_auto_triage_jobs SET status='skipped',error_code=$2 WHERE id=$1", [jobId, error.code]);
+    return false;
+  }
+  await client.query('UPDATE target_auto_triage_jobs SET reserved_run_id=$2 WHERE id=$1', [jobId, reservedRunId]);
 
   incrementAutoTriageQueued('existing_issue_start');
   await insertWorkspaceAuditEvent({

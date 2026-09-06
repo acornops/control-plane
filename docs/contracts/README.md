@@ -89,6 +89,57 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Platform-admin workspace responses retain immutable creator and workspace IDs while optionally including user display name/email and workspace-name labels for readable governance displays. Consumers fall back to the immutable IDs when labels are unavailable.
 - Platform-admin user summaries may include `lastLoginAt`, the latest recorded timestamp across the user's password and OIDC login methods. It is aggregate identity metadata, not active-session state.
 - The platform-admin consumer requires exact workspace-name confirmation for suspension and restoration. The producer requires it for suspension and validates it when supplied for restoration, retaining compatibility with existing restore clients. Both actions retain memberships, targets, workload state, references, and audit history and never issue workload commands.
+- Workspace policy machines can use `admin:workspace:policy:read` for
+  `GET /admin/v1/workspace-plans` and `GET /admin/v1/workspaces/:workspaceId/policy`,
+  `admin:workspace:plan:write` for plan changes, and
+  `admin:workspace:external-hold:write` for explicitly selected external holds.
+  Existing broad scopes remain valid. Endpoint scope alternatives do not change
+  BFF human-role, recent-authentication, or CSRF requirements.
+- Policy mutations accept `requestId`, `expectedPolicyVersion`,
+  `overLimitBehavior` (`reject` by default or `retain_existing`), `source`
+  (`admin` by default or `external`) and `publicReason`. Narrow machine writes
+  require both preconditions. Every caller supplying requestId must also supply
+  expectedPolicyVersion; legacy callers may omit both. External credentials cannot select admin holds,
+  omit the source, change plans, or change overrides. Suspension requires exact
+  `workspaceName`; restoration checks it when supplied.
+- Policy writes lock the workspace and replay a matching receipt before checking
+  versions. Receipt identity is credential/workspace/operation/request ID. Receipts
+  expire after 30 days; an expired replay must pass the normal expected-version
+  check. Maintenance calls cleanupWorkspacePolicyReceipts in bounded batches to
+  remove expired records. Previously issued versionless receipt requests are
+  rejected before receipt lookup, even while unexpired. Clients must read current
+  policy and submit a new request ID with its observed version; they must not
+  retry an old restore as an unguarded legacy mutation. Reusing a request ID with different canonical content returns 409
+  `IDEMPOTENCY_CONFLICT`; stale versions return 409 `WORKSPACE_POLICY_VERSION_CONFLICT`,
+  missing machine preconditions return 400 `POLICY_PRECONDITION_REQUIRED`, and
+  unknown plans return 400 `WORKSPACE_PLAN_NOT_CONFIGURED`. No-ops still check
+  versions. Changed state advances `policyVersion` once. The mutation, receipt,
+  authoritative admin audit and tenant governance audit commit together. Success
+  audit metadata includes bounded before/after policy facts. Rejected business
+  mutations record a protected failure event after the state transaction rolls
+  back.
+- Plans preserve explicit resource quota overrides. Downgrades compare current
+  resource and execution usage transactionally and reject excess unless the
+  caller selects `retain_existing`. Plans have five execution pools: `chat`,
+  `agent`, `workflow`, `autoTriage`, and `insights`. Each has
+  `maxConcurrentRuns` and `maxOutstandingRuns`: both null for an omitted pool,
+  or positive integers with outstanding at least concurrent. Partial pairs and
+  unknown execution-limit fields are rejected. Execution overrides and admission
+  rates are not supported. Policy snapshots expose normalized limits, explicit
+  overrides, usage and holds; execution usage counts unsettled reservations and
+  treats an unsettled reservation with `executing_until` as concurrent.
+- Admin and external suspension holds coexist. Clearing one preserves the other
+  and the original effective suspension timestamp. Legacy suspended rows become
+  admin holds in migration 007; migration 010 fills a generic public reason, and
+  reads resolve the same fallback. Migration 010 attributes legacy receipts from
+  authoritative audit records where available and otherwise preserves them in an
+  unreachable legacy credential namespace. Private `reason` and `ticketRef` remain in the
+  protected admin audit; only `publicReason` is exposed in tenant audit metadata.
+- Startup policy catalogue preflight rejects missing assigned plan keys and
+  changed limit definitions under an existing key. The canonical quota and
+  execution-limit hash is stored in `workspace_plan_definitions`; publish a new
+  plan key to change limits. Migration 007 must precede policy-capable startup.
+
 - OIDC admission evaluates verified ID-token claims and subject-bound UserInfo claims before account or identity-link mutation; conflicting values fail closed.
 - Browser logout revokes the current session before any provider redirect and returns only an AcornOps path to the console. ID tokens and provider logout URLs never cross the logout JSON response.
 - RP-initiated logout handoffs and callback states are single-use Redis records. Provider logout failure never restores the local session.
@@ -375,3 +426,40 @@ When changing a route, schema, event, or cross-service field:
 2. Update `docs/contracts/manifest.json` for every counterpart that consumes the surface.
 3. Keep this README focused on durable invariants only; do not paste endpoint lists here.
 4. Run `npm run contracts:check`.
+
+## Execution capacity and lifecycle contract v1
+
+The dispatch wire version remains `contract_version: 2`, with additive
+`capacity_contract_version: 1` and `capacity_enabled`. Five server-classified
+pools never borrow capacity. The internal capacity endpoints authorize lifecycle,
+acquire/renew/release grants, and begin/finish bounded operations. Enabled run
+callbacks and gateway requests carry `x-acornops-execution-owner` and
+`x-acornops-execution-generation`; cleanup retains its original identity after
+lease loss. Unavailable authority returns a retryable 503 and never permits work.
+
+A coordinator saves `{generation,state}` to `POST /internal/v1/runs/{runId}/dependency-wait`
+before releasing its grant as parked. The existing continuation GET returns
+`{kind:"dependency",runId,generation,state}`; DELETE consumes it. The same attempt
+is redispatched when children settle. Serialized state must include already
+executed tool calls so resume does not replay delegation writes.
+
+Session-only `GET /api/v1/workspaces?view=access-state` and
+`GET /api/v1/workspaces/{workspaceId}/access-state` expose only current membership
+identity, lifecycle and public reason. They do not grant workload permissions.
+Existing SSE connections close on suspension with a `workspace_suspended` event.
+
+The optional external-controller fixture at
+`scripts/examples/workspace-policy-controller.mjs` uses supported policy APIs and
+stores retry identity in a local request file, never the token:
+
+```sh
+node scripts/examples/workspace-policy-controller.mjs prepare workspace-id plan hosted-v1 request.json
+node scripts/examples/workspace-policy-controller.mjs apply request.json
+```
+
+Set `ACORNOPS_ADMIN_BASE_URL` to the control-plane origin and
+`ACORNOPS_ADMIN_TOKEN` to a named token with policy-read and plan-write scopes.
+For `suspend` or `restore`, use `-` instead of a plan key and grant the narrow
+external-hold scope. The fixture manages only the external hold. Retry the same
+file unchanged; a version conflict requires fetching current policy and preparing
+a new deliberate action. Resource override editing remains API-only.

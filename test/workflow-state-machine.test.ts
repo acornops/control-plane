@@ -18,6 +18,9 @@ describe('workflow retry state machine', () => {
         if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
           return { rowCount: 0, rows: [] };
         }
+        if (sql.includes('SELECT plan_key,lifecycle_status')) return { rowCount: 1, rows: [{ plan_key: null, lifecycle_status: 'active' }] };
+        if (sql.includes('SELECT * FROM workspace_run_reservations')) return { rowCount: 0, rows: [] };
+        if (sql.includes('count(*)::int AS used')) return { rowCount: 1, rows: [{ used: 0 }] };
         if (sql.includes('SELECT * FROM workflow_executions')) {
           return { rowCount: 1, rows: [{ id: 'execution-1', status: 'failed' }] };
         }

@@ -129,7 +129,7 @@ function parseBearerToken(req: Request): { token?: string; malformed?: boolean }
   return { token };
 }
 
-export function requireAdminScope(requiredScope: AdminScope): RequestHandler {
+export function requireAdminScope(requiredScope: AdminScope, ...alternatives: AdminScope[]): RequestHandler {
   return async (req, res, next) => {
     try {
       const parsed = parseBearerToken(req);
@@ -166,7 +166,7 @@ export function requireAdminScope(requiredScope: AdminScope): RequestHandler {
         sendUnauthorized(res);
         return;
       }
-      if (!hasRequiredScope(matched, requiredScope)) {
+      if (![requiredScope, ...alternatives].some(scope => hasRequiredScope(matched!, scope))) {
         await noteAuthFailure(req, 'missing_scope');
         sendForbidden(res);
         return;

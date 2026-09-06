@@ -155,6 +155,7 @@ services:
         "/app"
       ]
     environment:
+      WORKSPACE_CAPACITY_ENABLED: ${WORKSPACE_CAPACITY_ENABLED:-false}
       ORCH_BASE_URL: http://control-plane:8081
       ORCH_SERVICE_TOKEN: dev_orchestrator_token
       EXECUTION_ENGINE_DISPATCH_TOKEN: ${EXECUTION_ENGINE_DISPATCH_TOKEN:-dev_execution_engine_dispatch_token}
@@ -198,6 +199,9 @@ services:
         "/app"
       ]
     environment:
+      WORKSPACE_CAPACITY_ENABLED: ${WORKSPACE_CAPACITY_ENABLED:-false}
+      ORCH_BASE_URL: http://control-plane:8081
+      ORCH_SERVICE_TOKEN: dev_orchestrator_token
       DATABASE_URL: postgresql+asyncpg://gateway_user:gateway_password@gateway-postgres:5432/gateway
       REDIS_URL: redis://gateway-redis:6379/0
       SECRETS_KEK_BASE64: SglIGBscu1EgQ+AlpqJLADNN9QmCzS9d1ZvK3oT/e5s=

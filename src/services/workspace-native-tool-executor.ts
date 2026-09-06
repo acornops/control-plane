@@ -1,3 +1,4 @@
+import { beginNativeFetchOperation, type NativeExecutionAuthority } from './native-execution-authority.js';
 import { observeWorkspaceNativeToolCall } from '../metrics.js';
 import { recordWorkspaceAuditEvent } from './workspace-audit.js';
 import {
@@ -29,7 +30,8 @@ export class WorkspaceNativeToolExecutionError extends Error {
 async function createDocument(
   run: WorkflowRunRecord | Run,
   args: Record<string, unknown>,
-  toolCallId: string
+  toolCallId: string,
+  authority: NativeExecutionAuthority
 ): Promise<Record<string, unknown>> {
   const title = typeof args.title === 'string' ? args.title.trim() : '';
   const markdown = typeof args.markdown === 'string' ? args.markdown : '';
@@ -59,7 +61,8 @@ async function createDocument(
             runId: run.id,
             toolCallId
           },
-          retentionDays
+          retentionDays,
+          authority
         })
       : await createConversationDocument({
           workspaceId: run.workspaceId,
@@ -76,7 +79,8 @@ async function createDocument(
             runId: run.id,
             toolCallId
           },
-          retentionDays
+          retentionDays,
+          authority
         });
   } catch (error) {
     if (error instanceof GeneratedDocumentError) {
@@ -97,7 +101,9 @@ async function createDocument(
 
 async function fetchExternalUrl(
   run: WorkflowRunRecord | Run,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  toolCallId: string,
+  authority: NativeExecutionAuthority
 ): Promise<Record<string, unknown>> {
   try {
     if (!run.compiledAccessScope) {
@@ -106,7 +112,9 @@ async function fetchExternalUrl(
     const { url: rawUrl } = normalizeFetchToolInput(args);
     const config = normalizeFetchToolConfig(run.compiledAccessScope.nativeToolConfigs?.[FETCH_TOOL_ID]);
     const canonicalUrl = assertFetchUrlAllowed(rawUrl, config);
-    return await fetchPublicHttpGet(canonicalUrl) as unknown as Record<string, unknown>;
+    return await fetchPublicHttpGet(canonicalUrl, {
+      beforeRequest: (timeoutMs) => beginNativeFetchOperation({ runId: run.id, workspaceId: run.workspaceId, authority }, toolCallId, timeoutMs)
+    }) as unknown as Record<string, unknown>;
   } catch (error) {
     if (error instanceof FetchUrlPolicyError) {
       const status = error.code === 'FETCH_URL_NOT_ALLOWED' ? 403 : 400;
@@ -144,6 +152,7 @@ function fetchAuditMetadata(
 
 export async function executeWorkspaceNativeTool(input: {
   run: WorkflowRunRecord | Run;
+  authority: NativeExecutionAuthority;
   toolId: string;
   toolCallId: string;
   arguments: Record<string, unknown>;
@@ -162,9 +171,9 @@ export async function executeWorkspaceNativeTool(input: {
           403
         );
       }
-      result = await fetchExternalUrl(input.run, input.arguments);
+      result = await fetchExternalUrl(input.run, input.arguments, input.toolCallId, input.authority);
     }
-    else if (tool.id === 'documents.create') result = await createDocument(input.run, input.arguments, input.toolCallId);
+    else if (tool.id === 'documents.create') result = await createDocument(input.run, input.arguments, input.toolCallId, input.authority);
     else throw new WorkspaceNativeToolExecutionError('NATIVE_TOOL_NOT_IMPLEMENTED', 'Native tool is not implemented.', 501);
 
     await recordWorkspaceAuditEvent({

@@ -102,6 +102,7 @@ export interface TargetAutoTriageJob {
   settingsRevision: number;
   sessionId?: string;
   runId?: string;
+  reservedRunId?: string;
   retryGeneration: number;
   attemptCount: number;
   nextAttemptAt: string;
@@ -126,6 +127,7 @@ export interface AutomaticInvestigationSummary {
     | 'deleted';
   sessionId?: string;
   runId?: string;
+  reservedRunId?: string;
   updatedAt: string;
   errorCode?: string;
   canRetry: boolean;

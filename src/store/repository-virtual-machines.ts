@@ -1,3 +1,4 @@
+import { lockActiveWorkspace } from './repository-run-capacity.js';
 import { randomUUID } from 'node:crypto';
 import { config } from '../config.js';
 import { db } from '../infra/db.js';
@@ -366,6 +367,7 @@ function deriveVmInventory(vm: VirtualMachineTarget, snapshot: VirtualMachineSna
 
 export async function upsertVirtualMachineSnapshot(snapshot: VirtualMachineSnapshot): Promise<void> {
   await withTransaction(async (client) => {
+    await lockActiveWorkspace(client, snapshot.workspaceId);
     const vm = await getVirtualMachine(snapshot.targetId);
     if (!vm) throw new Error(`Cannot upsert snapshot for missing VM ${snapshot.targetId}`);
     const canonicalSnapshot = { ...snapshot, workspaceId: vm.workspaceId };

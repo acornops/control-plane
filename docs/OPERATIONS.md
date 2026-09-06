@@ -572,3 +572,8 @@ Before release or deployment chart changes:
 ```bash
 npm run validate
 ```
+
+## Workspace execution capacity
+
+See [Workspace Execution Capacity](workspace-execution-capacity.md) for runtime
+invariants, rollout prerequisites and isolated replica verification.

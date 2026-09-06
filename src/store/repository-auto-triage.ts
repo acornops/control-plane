@@ -1,3 +1,4 @@
+import { reserveRunCapacity, lockActiveWorkspace } from './repository-run-capacity.js';
 import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { db } from '../infra/db.js';
@@ -9,12 +10,12 @@ import type {
 import type { TargetIssue, TargetIssueSeverity, TargetType } from '../types/domain.js';
 import { incrementAutoTriageQueued } from '../metrics-auto-triage.js';
 import { toIso } from './repository-mappers.js';
-import { insertWorkspaceAuditEvent } from './repository-audit-events.js';
 import {
   type AutoTriageJobRow,
   mapAutoTriageJob
 } from './repository-auto-triage-job-mappers.js';
-import { requeueDisabledTargetAutoTriageJob } from './repository-auto-triage-requeue.js';
+import { enqueueTargetAutoTriageJob } from './repository-auto-triage-enqueue.js';
+export { enqueueTargetAutoTriageJob } from './repository-auto-triage-enqueue.js';
 import { withTransaction } from './repository-transaction.js';
 import { issueMatchesAutoTriageScope } from '../utils/auto-triage-eligibility.js';
 import { AUTO_TRIAGE_SCOPE_SQL } from './repository-auto-triage-scope.js';
@@ -169,67 +170,13 @@ export async function saveTargetAutoTriageSettings(input: {
   return updated.rowCount ? mapSettings(updated.rows[0]) : null;
 }
 
-export async function enqueueTargetAutoTriageJob(
-  client: Queryable,
-  issue: Pick<TargetIssue, 'id' | 'workspaceId' | 'targetId' | 'targetType' | 'lifecycleVersion'>,
-  triggerReason: AutoTriageJobTriggerReason,
-  settingsRevision: number
-): Promise<boolean> {
-  if (
-    triggerReason === 'existing_issue_start'
-    && await requeueDisabledTargetAutoTriageJob(client, issue, settingsRevision)
-  ) {
-    return true;
-  }
-
-  const jobId = randomUUID();
-  const result = await client.query(
-    `INSERT INTO target_auto_triage_jobs (
-       id, workspace_id, target_id, target_type, issue_id, issue_lifecycle_version,
-       trigger_reason, status, settings_revision
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,'queued',$8)
-     ON CONFLICT (issue_id, issue_lifecycle_version) DO NOTHING`,
-    [
-      jobId,
-      issue.workspaceId,
-      issue.targetId,
-      issue.targetType,
-      issue.id,
-      issue.lifecycleVersion,
-      triggerReason,
-      settingsRevision
-    ]
-  );
-  const inserted = (result.rowCount ?? 0) > 0;
-  if (inserted) {
-    incrementAutoTriageQueued(triggerReason);
-    await insertWorkspaceAuditEvent({
-      workspaceId: issue.workspaceId,
-      category: 'run',
-      eventType: 'target.auto_triage_job_queued.v1',
-      operation: 'write',
-      actorType: 'system',
-      objectType: 'target_auto_triage_job',
-      objectId: jobId,
-      summary: 'Automatic investigation job queued',
-      metadata: {
-        targetId: issue.targetId,
-        targetType: issue.targetType,
-        issueId: issue.id,
-        issueLifecycleVersion: issue.lifecycleVersion,
-        triggerReason
-      }
-    }, client);
-  }
-  return inserted;
-}
-
 export async function enqueueCurrentTargetAutoTriageIssues(input: {
   workspaceId: string;
   targetId: string;
   expectedSettingsRevision: number;
 }): Promise<{ queuedCount: number; alreadyExistsCount: number; skippedCount: number } | null> {
   return withTransaction(async (client) => {
+    await lockActiveWorkspace(client, input.workspaceId);
     const settingsResult = await client.query<AutoTriageSettingsRow>(
       `SELECT *
          FROM target_auto_triage_settings
@@ -263,6 +210,7 @@ export async function enqueueCurrentTargetAutoTriageIssues(input: {
     );
     let queuedCount = 0;
     let alreadyExistsCount = 0;
+    let skippedCount = 0;
     for (const issue of issues.rows) {
       if (!issueMatchesAutoTriageScope({
         targetType: issue.target_type,
@@ -282,9 +230,13 @@ export async function enqueueCurrentTargetAutoTriageIssues(input: {
         settings.revision
       );
       if (queued) queuedCount += 1;
-      else alreadyExistsCount += 1;
+      else {
+        const job = await getTargetAutoTriageJobForIssueLifecycle(issue.workspace_id, issue.id, Number(issue.lifecycle_version), client);
+        if (job?.errorCode === 'WORKSPACE_OUTSTANDING_RUN_LIMIT') skippedCount += 1;
+        else alreadyExistsCount += 1;
+      }
     }
-    return { queuedCount, alreadyExistsCount, skippedCount: 0 };
+    return { queuedCount, alreadyExistsCount, skippedCount };
   });
 }
 
@@ -292,11 +244,15 @@ export async function retryTargetAutoTriageIssue(
   workspaceId: string,
   issueId: string
 ): Promise<TargetAutoTriageJob | null> {
-  const result = await db.query<AutoTriageJobRow>(
+  return withTransaction(async (client) => {
+  await lockActiveWorkspace(client, workspaceId);
+  const reservedRunId = randomUUID();
+  const result = await client.query<AutoTriageJobRow>(
     `UPDATE target_auto_triage_jobs job
         SET status = 'queued',
             trigger_reason = 'retry',
             run_id = NULL,
+            reserved_run_id = $3,
             settings_revision = settings.revision,
             retry_generation = retry_generation + 1,
             attempt_count = 0,
@@ -334,11 +290,13 @@ export async function retryTargetAutoTriageIssue(
           )
         )
       RETURNING job.*`,
-    [workspaceId, issueId]
+    [workspaceId, issueId, reservedRunId]
   );
   if (!result.rowCount) return null;
+  await reserveRunCapacity(client, { workspaceId, runId: reservedRunId, pool: 'autoTriage' });
   incrementAutoTriageQueued('retry');
   return mapAutoTriageJob(result.rows[0]);
+  });
 }
 
 export async function getTargetAutoTriageJobForIssueLifecycle(

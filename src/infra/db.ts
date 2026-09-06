@@ -17,6 +17,8 @@ db.on('error', (error) => {
 
 export async function initializeDatabase(): Promise<void> {
   await assertDatabaseMigrationsCurrent(db);
+  const { preflightWorkspacePlanCatalog } = await import('../store/repository-workspace-policy-read.js');
+  await preflightWorkspacePlanCatalog(db);
   logger.info('PostgreSQL schema migrations current');
 }
 

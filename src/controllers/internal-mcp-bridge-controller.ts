@@ -1,3 +1,6 @@
+import { nativeExecutionAuthority } from '../services/native-execution-authority.js';
+import { WorkspaceCapacityError } from '../store/repository-run-capacity.js';
+import { capacityErrorResponse } from '../services/workspace-execution-access.js';
 import { createHash } from 'node:crypto';
 import { NextFunction, Request, Response } from 'express';
 import { agentGateway, isMcpToolResultEnvelope } from '../agent/ws-server.js';
@@ -83,6 +86,7 @@ function operationForWorkflowToolCall(run: WorkflowRunRecord, toolName: string):
 }
 
 export async function callMcpTool(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const authority = nativeExecutionAuthority(req);
   try {
     const claims = res.locals.gatewayRunClaims as VerifiedRunScopeClaims | undefined;
     if (!claims) {
@@ -244,6 +248,7 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
       }
       try {
         const result = await executeWorkspaceNativeTool({
+          authority,
           run: nativeRun,
           toolId: toolName,
           toolCallId: typeof req.body.toolCallId === 'string' ? req.body.toolCallId : '',
@@ -394,6 +399,7 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
       return;
     }
   } catch (err) {
+    if (err instanceof WorkspaceCapacityError) { capacityErrorResponse(res, err); return; }
     next(err);
   }
 }

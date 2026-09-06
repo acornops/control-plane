@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAdminScope, adminHandler } from '../auth/admin-token.js';
+import { getWorkspacePolicy, listWorkspacePlans } from '../controllers/admin-workspace-policy-controller.js';
 import * as adminController from '../controllers/admin-controller.js';
 import {
   adminAddWorkspaceMemberSchema,
@@ -99,24 +100,26 @@ adminRouter.delete(
   adminHandler(adminController.deleteDefaultLlmProviderCredential)
 );
 
+adminRouter.get('/workspace-plans', requireAdminScope('admin:workspace:read', 'admin:workspace:policy:read'), adminHandler(listWorkspacePlans));
+adminRouter.get('/workspaces/:workspaceId/policy', requireAdminScope('admin:workspace:read', 'admin:workspace:policy:read'), adminHandler(getWorkspacePolicy));
 adminRouter.get('/workspaces', requireAdminScope('admin:workspace:read'), adminHandler(adminController.listWorkspaces));
 adminRouter.get('/workspaces/:workspaceId', requireAdminScope('admin:workspace:read'), adminHandler(adminController.getWorkspace));
 adminRouter.get('/workspaces/:workspaceId/members', requireAdminScope('admin:user:read'), adminHandler(adminController.listWorkspaceMembers));
 adminRouter.patch(
   '/workspaces/:workspaceId/plan',
-  requireAdminScope('admin:workspace:write'),
+  requireAdminScope('admin:workspace:write', 'admin:workspace:plan:write'),
   validateBody(adminWorkspacePlanPatchSchema),
   adminHandler(adminController.patchWorkspacePlan)
 );
 adminRouter.post(
   '/workspaces/:workspaceId/suspend',
-  requireAdminScope('admin:workspace:write'),
+  requireAdminScope('admin:workspace:write', 'admin:workspace:external-hold:write'),
   validateBody(adminWorkspaceSuspendSchema),
   adminHandler(adminController.suspendWorkspace)
 );
 adminRouter.post(
   '/workspaces/:workspaceId/restore',
-  requireAdminScope('admin:workspace:write'),
+  requireAdminScope('admin:workspace:write', 'admin:workspace:external-hold:write'),
   validateBody(adminWorkspaceRestoreSchema),
   adminHandler(adminController.restoreWorkspace)
 );

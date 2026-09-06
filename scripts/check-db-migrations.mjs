@@ -1,3 +1,4 @@
+import { applyAndCheckHostedMigrations } from './lib/check-hosted-migrations.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -415,18 +416,20 @@ async function runSqlChecks(databaseUrl) {
        ('migration-target-false', false),
        ('migration-target-null', NULL)`
     );
-    for (const migration of migrations.slice(1, -1)) await client.query(migration);
+    const lifecycleIndex = migrationFiles.indexOf('006_mcp_user_lifecycle.sql');
+    for (const migration of migrations.slice(1, lifecycleIndex)) await client.query(migration);
     await client.query(
       `INSERT INTO mcp_secret_cleanup_jobs (id,workspace_id,user_id,reason)
        VALUES ('legacy-preflight-blocker','migration-workspace','migration-user-removed','member_removal')`
     );
     await assert.rejects(
-      () => client.query(migrations.at(-1)),
+      () => client.query(migrations[lifecycleIndex]),
       /requires mcp_secret_cleanup_jobs to be empty/,
       'MCP lifecycle migration must fail closed until the legacy cleanup queue is drained'
     );
     await client.query("DELETE FROM mcp_secret_cleanup_jobs WHERE id='legacy-preflight-blocker'");
-    await client.query(migrations.at(-1));
+    await client.query(migrations[lifecycleIndex]);
+    await applyAndCheckHostedMigrations(client, migrationFiles, migrations);
 
     const activeLifecycle = await client.query(
       `SELECT membership_generation,status,reconciliation_status,blocks_readiness
@@ -811,6 +814,7 @@ async function runSqlChecks(databaseUrl) {
       [
         'advance_workspace_member_mcp_lifecycle',
         'prevent_admin_audit_event_mutation',
+        'queue_workspace_suspension_cancellation',
         'sync_kubernetes_target_permission_mode'
       ],
       'only approved trigger functions may survive the migration chain'

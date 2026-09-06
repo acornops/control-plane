@@ -99,3 +99,8 @@ If docs are intentionally unchanged, record `Docs impact: none` and the reason i
 ## Documentation Harness
 
 Keep `README.md`, `AGENTS.md`, `ARCHITECTURE.md`, `docs/index.md`, this file, and `docs/OPERATIONS.md` in sync when changing repo behavior. `npm run harness:check` enforces the required structure.
+
+## Workspace execution capacity
+
+See [Workspace Execution Capacity](workspace-execution-capacity.md) for runtime
+invariants, rollout prerequisites and isolated replica verification.

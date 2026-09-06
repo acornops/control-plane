@@ -12,3 +12,11 @@ Assessment date: July 26, 2026.
 | Harness knowledge base | 4/5 | AGENTS entry point, indexed docs tree, plan directories, quality/security/reliability docs | Freshness still depends on developers updating docs as features evolve |
 
 Re-score this file when a major architectural or operational change lands.
+
+## Hosted-readiness evidence — September 6, 2026
+
+The full 1,284-test suite and SQL upgrade chain pass, with independent reviews of
+policy, capacity, lifecycle, rollout and native-tool authority fixes. A two-control-plane/two-engine
+PostgreSQL/Redis probe verifies concurrent admission, independent pool execution
+and settlement using deterministic operation bodies. Live provider and external
+MCP reliability remain separate measurement needs; existing scores are unchanged.

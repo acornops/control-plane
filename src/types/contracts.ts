@@ -231,20 +231,38 @@ export const internalToolingSyncSchema = z
 const adminReasonSchema = z.string().trim().min(3).max(500);
 const ticketRefSchema = z.string().trim().min(1).max(128).optional();
 
+const policyMutationFields = {
+  requestId: z.string().trim().min(1).max(128).optional(),
+  expectedPolicyVersion: z.number().int().nonnegative().safe().optional(),
+  overLimitBehavior: z.enum(['reject', 'retain_existing']).optional(),
+  source: z.enum(['admin', 'external']).optional(),
+  publicReason: z.string().trim().min(1).max(500).optional()
+};
+
+function requirePolicyReceiptVersion(value: { requestId?: string; expectedPolicyVersion?: number }, context: z.RefinementCtx): void {
+  if (value.requestId !== undefined && value.expectedPolicyVersion === undefined) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['expectedPolicyVersion'], message: 'expectedPolicyVersion is required whenever requestId is supplied' });
+  }
+}
+
 export const adminWorkspacePlanPatchSchema = z.object({
+  ...policyMutationFields,
   planKey: z.string().regex(/^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/),
   reason: adminReasonSchema,
   ticketRef: ticketRefSchema
-}).strict();
+}).strict().superRefine(requirePolicyReceiptVersion);
 
-export const adminWorkspaceSuspendSchema = z.object({
+const adminWorkspaceLifecycleSchema = z.object({
+  ...policyMutationFields,
   workspaceName: z.string().min(1).max(200), reason: adminReasonSchema,
   ticketRef: ticketRefSchema
 }).strict();
-export const adminWorkspaceRestoreSchema = adminWorkspaceSuspendSchema.partial({ workspaceName: true });
+export const adminWorkspaceSuspendSchema = adminWorkspaceLifecycleSchema.superRefine(requirePolicyReceiptVersion);
+export const adminWorkspaceRestoreSchema = adminWorkspaceLifecycleSchema.partial({ workspaceName: true }).superRefine(requirePolicyReceiptVersion);
 const adminQuotaValueSchema = z.number().int().positive().optional();
 
 export const adminWorkspaceQuotaPatchSchema = z.object({
+  ...policyMutationFields,
   quotas: z
     .object({
       members: adminQuotaValueSchema,
@@ -255,7 +273,7 @@ export const adminWorkspaceQuotaPatchSchema = z.object({
     .nullable(),
   reason: adminReasonSchema,
   ticketRef: ticketRefSchema
-}).strict();
+}).strict().superRefine(requirePolicyReceiptVersion);
 
 export const adminReasonOnlySchema = z.object({
   reason: adminReasonSchema,
