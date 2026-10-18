@@ -1,5 +1,8 @@
 # First-Class Target Auto-Triage
 
+> Archive review — 2026-10-18: Implementation has landed on main. This plan is retained as delivery history, not active implementation work.
+> Original scope, checklists, and validation below are historical; this is not a new runtime or rollout validation report.
+
 ## Goal
 
 Add durable, target-native automatic investigations for Kubernetes clusters and
@@ -116,5 +119,4 @@ retention, workflow, and execution-engine behavior remain authoritative.
   tests are implemented.
 - Control-plane validation and the cross-repository workspace checks pass.
 
-Status: complete; keep active until the coordinated change lands, then move
-this plan to `completed/`.
+Status: complete; coordinated implementation has landed on main.

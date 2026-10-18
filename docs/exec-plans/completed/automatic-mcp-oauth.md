@@ -1,5 +1,8 @@
 # Automatic MCP OAuth
 
+> Archive review — 2026-10-18: Implementation landed. External-provider canaries remain tracked by llm-gateway/docs/exec-plans/completed/automatic-mcp-oauth.md; archiving this implementation plan does not certify provider rollout.
+> Original scope, checklists, and validation below are historical; this is not a new runtime or rollout validation report.
+
 ## Goal
 
 Expose authenticated Agent and target MCP OAuth preparation/start/status/verify

@@ -19,3 +19,16 @@ Keep only completed plans that remain useful as durable design or validation con
 - [Mutation-Only Admin Audit](mutation-only-admin-audit.md)
 - [Read Audit Remnant Cleanup](read-audit-remnant-cleanup.md)
 - [Workspace Default Enabled State](workspace-default-enabled-state.md)
+
+## Archived after main reconciliation — 2026-10-18
+
+These records describe landed or superseded implementation, not fresh release
+certification. Each archive note preserves outstanding acceptance or historical limitations.
+
+- [Agents and Workflows UX Hardening](agents-workflows-ux-hardening.md)
+- [Automatic MCP OAuth](automatic-mcp-oauth.md)
+- [Configurable Help Links](configurable-help-links.md)
+- [Extensible catalog sources](extensible-catalog-sources.md)
+- [First-Class Target Auto-Triage](first-class-target-auto-triage.md)
+- [OSS hosted readiness](oss-hosted-readiness.md)
+- [Target chat slash references](target-chat-slash-references.md)

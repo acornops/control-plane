@@ -1,5 +1,8 @@
 # OSS hosted readiness
 
+> Archive review — 2026-10-18: Implementation has landed on main. This plan is retained as delivery history, not active implementation work.
+> Original scope, checklists, and validation below are historical; this is not a new runtime or rollout validation report.
+
 ## Scope
 
 Implement optional external workspace policy control and five independent execution
@@ -32,5 +35,5 @@ Run the full repository validation and counterpart contract checks before handof
 Implementation and independent reviews are complete, including native-tool
 authority at document and Fetch boundaries. Full validation passed 1,284 tests,
 SQL upgrade checks, contracts and build. Replica, Docker integration and console
-browser acceptance are recorded in the parent handoff. Keep this plan active
-until the coordinated change lands, then move it to completed/.
+browser acceptance are recorded in the parent handoff. Coordinated implementation
+has landed on main; deployment acceptance remains separate.
