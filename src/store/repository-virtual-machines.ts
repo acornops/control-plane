@@ -4,6 +4,7 @@ import { config } from '../config.js';
 import { db } from '../infra/db.js';
 import { permissionModeForLegacyWriteConfirmation } from '../services/run-permission-policy.js';
 import { deriveVirtualMachineIssueObservations } from '../services/target-issue-derivation.js';
+import { canRecoverVirtualMachineIssue } from '../services/virtual-machine-issue-recovery.js';
 import { summarizeVirtualMachineSnapshotMetrics } from '../services/target-metric-samples.js';
 import {
   parseAgentVAccessPolicy,
@@ -428,7 +429,8 @@ export async function upsertVirtualMachineSnapshot(snapshot: VirtualMachineSnaps
     await reconcileTargetIssues(client, {
       targetId: vm.id,
       snapshotTs: canonicalSnapshot.timestamp,
-      observations: deriveVirtualMachineIssueObservations(vm, canonicalSnapshot)
+      observations: deriveVirtualMachineIssueObservations(vm, canonicalSnapshot),
+      canRecoverIssue: (issue) => canRecoverVirtualMachineIssue(canonicalSnapshot, issue)
     });
   });
 }

@@ -1556,7 +1556,9 @@
         "listeners[]",
         "findings[]",
         "collector_health[]",
-        "truncation"
+        "truncation",
+        "finding_coverage.filesystems?",
+        "finding_coverage.services?"
       ],
       "rpcMethods": [
         "tools/list",

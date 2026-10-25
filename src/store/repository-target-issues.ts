@@ -241,6 +241,7 @@ async function markUnobservedIssues(
     targetId: string;
     snapshotTs: string;
     observedFingerprints: Set<string>;
+    canRecoverIssue?: (issue: TargetIssue) => boolean;
   }
 ): Promise<void> {
   const existing = await client.query<TargetIssueDbRow>(
@@ -252,6 +253,7 @@ async function markUnobservedIssues(
   );
   for (const row of existing.rows) {
     if (input.observedFingerprints.has(row.fingerprint)) continue;
+    if (input.canRecoverIssue && !input.canRecoverIssue(mapIssueRow(row))) continue;
     const nextCleanCount = Number(row.clean_snapshot_count) + 1;
     const nextStatus: TargetIssueStatus = shouldResolveIssue(input.snapshotTs, row.last_seen_at, nextCleanCount)
       ? 'resolved'
@@ -293,6 +295,7 @@ export async function reconcileTargetIssues(
     targetId: string;
     snapshotTs: string;
     observations: TargetIssueObservationInput[];
+    canRecoverIssue?: (issue: TargetIssue) => boolean;
   }
 ): Promise<void> {
   const grouped = groupObservations(input.observations);
@@ -306,7 +309,8 @@ export async function reconcileTargetIssues(
   await markUnobservedIssues(client, {
     targetId: input.targetId,
     snapshotTs: input.snapshotTs,
-    observedFingerprints: new Set(grouped.keys())
+    observedFingerprints: new Set(grouped.keys()),
+    canRecoverIssue: input.canRecoverIssue
   });
 }
 

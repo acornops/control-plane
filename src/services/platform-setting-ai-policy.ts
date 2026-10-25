@@ -75,20 +75,19 @@ function constrainedAiPolicy(override: AiPlatformPolicy, ceiling: AiPlatformPoli
     anthropic: unique(override.providerModels.anthropic.filter((model) => catalog.anthropic.includes(model))),
     gemini: unique(override.providerModels.gemini.filter((model) => catalog.gemini.includes(model)))
   };
-  if (flatProviderModels(providerModels).length === 0) {
-    return { ...ceiling, ...definitions };
-  }
+  // Losing the last permitted model must not reset an administrator's policy.
+  // Keep the unavailable default identifiable until an explicit policy repair.
   const providers = configuredProviders(providerModels);
   const defaultProvider = providers.includes(override.defaultProvider)
     ? override.defaultProvider
     : providers.includes(ceiling.defaultProvider)
       ? ceiling.defaultProvider
-      : providers[0];
+      : providers[0] ?? override.defaultProvider;
   const defaultModel = providerModels[defaultProvider].includes(override.defaultModel)
     ? override.defaultModel
     : providerModels[defaultProvider].includes(ceiling.defaultModel)
       ? ceiling.defaultModel
-      : providerModels[defaultProvider][0];
+      : providerModels[defaultProvider][0] ?? override.defaultModel;
   const reasoningSummariesEnabled = ceiling.reasoningSummariesEnabled && override.reasoningSummariesEnabled;
   const reasoningSummaryModes = reasoningSummariesEnabled
     ? unique(override.reasoningSummaryModes.filter((mode) => ceiling.reasoningSummaryModes.includes(mode)))
@@ -142,6 +141,9 @@ export function validateAiPolicyOverride(
   candidate: AiPlatformPolicy,
   stored?: AiPlatformPolicy['additionalProviderModels']
 ): string | null {
+  if (flatProviderModels(candidate.providerModels).length === 0) {
+    return 'AI policy must enable at least one model.';
+  }
   const deployment = deploymentAiPolicy();
   for (const provider of SUPPORTED_LLM_PROVIDER_VALUES) {
     const added = (candidate.additionalProviderModels?.[provider] || [])

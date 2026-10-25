@@ -296,6 +296,56 @@ describe('virtual machine repository reads', () => {
     assert.deepEqual(storage.map((item) => item.item), filesystems);
   });
 
+  it('only recovers a missing filesystem issue after successful snapshot collection', async () => {
+    const firstSeen = '2026-10-26T00:00:00.000Z';
+    const issue = {
+      id: 'issue-1', workspace_id: 'workspace-1', target_id: 'vm-1', target_type: 'virtual_machine',
+      fingerprint: 'filesystem-var', issue_type: 'vm_host_finding', status: 'active',
+      severity: 'critical', severity_rank: 0, title: 'Filesystem /var is full', summary: '/var is full',
+      scope_kind: 'host', scope_name: 'vm-1', object_kind: 'filesystem', object_name: '/var',
+      reason: 'FILESYSTEM_PRESSURE', first_seen_at: firstSeen, last_seen_at: firstSeen,
+      last_observed_snapshot_at: firstSeen, resolved_at: null, occurrence_count: 1, reopened_count: 0,
+      clean_snapshot_count: 0, lifecycle_version: 1, latest_evidence: {}, search_text: 'filesystem var',
+      created_at: firstSeen, updated_at: firstSeen
+    };
+    const updates: string[] = [];
+    mock.method(db, 'query', async () => ({
+      rowCount: 1,
+      rows: [{
+        id: 'vm-1', workspace_id: 'workspace-1', target_type: 'virtual_machine', name: 'vm-1',
+        status: 'online', metadata: {}, created_at: firstSeen, updated_at: firstSeen
+      }]
+    }));
+    mock.method(db, 'connect', async () => ({
+      query: async (sql: string, params: unknown[] = []) => {
+        if (sql.includes('SELECT plan_key,lifecycle_status FROM workspaces')) {
+          return { rowCount: 1, rows: [{ plan_key: null, lifecycle_status: 'active' }] };
+        }
+        if (sql.includes('FROM target_issues')) return { rowCount: 1, rows: [issue] };
+        if (sql.includes('UPDATE target_issues')) {
+          updates.push(String(params[1]));
+          return { rowCount: 1, rows: [{
+            ...issue, status: params[1], clean_snapshot_count: params[2], resolved_at: params[3]
+          }] };
+        }
+        return { rowCount: 0, rows: [] };
+      },
+      release: () => undefined
+    }));
+
+    // Both samples are beyond the time-based grace; only positive coverage can resolve the issue.
+    for (const [index, status] of ['unavailable', 'ok'].entries()) {
+      await upsertVirtualMachineSnapshot({
+        targetId: 'vm-1', workspaceId: 'workspace-1', timestamp: `2026-10-26T00:2${index}:00.000Z`,
+        data: {
+          filesystems: [], findings: [], truncation: { filesystems: 0, services: 0 },
+          collector_health: [{ collector: 'filesystems', status }]
+        }
+      });
+      assert.deepEqual(updates, status === 'ok' ? ['resolved'] : []);
+    }
+  });
+
   it('ignores older VM snapshots without replacing latest rows, writing metrics, or reconciling issues', async () => {
     mock.method(db, 'query', async (sql: string) => {
       if (sql.includes("WHERE id = $1 AND target_type = 'virtual_machine'")) {

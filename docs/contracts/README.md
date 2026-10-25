@@ -397,6 +397,15 @@ The control plane owns the platform API boundary. Keep this README as a short in
   fail-closed ceilings, and the control plane must not infer or add local
   opt-ins.
 - Agent snapshots preserve `config.snapshotInterval`, `config.maxSnapshotBytes`, and `config.namespaceScope.{include,exclude}`.
+- AgentV's optional `finding_coverage.filesystems` and `finding_coverage.services`
+  are independently `complete` only after all collected mounts or failed services
+  have been evaluated successfully, otherwise `incomplete`.
+  Findings and coverage survive raw inventory trimming together. VM issue
+  recovery requires healthy collection and either complete finding coverage,
+  complete legacy inventory, or (for filesystem issues) the affected mount retained
+  in that snapshot.
+  The additive field is compatible with older senders/receivers; absent coverage
+  is never inferred from truncated legacy inventory.
 - Agent namespace updates use `config/update_namespace_scope`. A connected
   AgentK must acknowledge the update before the cluster settings response
   completes; normalized Kubernetes resource reads also enforce the saved scope

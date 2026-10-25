@@ -20,3 +20,12 @@ policy, capacity, lifecycle, rollout and native-tool authority fixes. A two-cont
 PostgreSQL/Redis probe verifies concurrent admission, independent pool execution
 and settlement using deterministic operation bodies. Live provider and external
 MCP reliability remain separate measurement needs; existing scores are unchanged.
+
+## Release audit — October 26, 2026
+
+Focused model-policy and VM-recovery corrections pass 1,340 tests, SQL upgrade
+checks, contracts, harness, and build. Compatible HTTP parser security patches
+are included. This is not a production sign-off: Zod collection-error amplification
+and the Nodemailer dependency upgrade remain open in the
+[debt tracker](exec-plans/tech-debt-tracker.md), and the actual production database
+ancestry and restore rehearsal have not been verified. Existing scores are unchanged.

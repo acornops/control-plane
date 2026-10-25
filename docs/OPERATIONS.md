@@ -25,7 +25,14 @@ rewritten. The current policy is checked at submission/bootstrap; an already
 authorized in-flight provider request is not revoked by this setting change.
 
 Turning opt-in off makes additional IDs unavailable without deleting their
-definitions. Reset removes the whole runtime override and returns to deployment
+definitions. If this removes the last enabled model, the effective allowed-model
+list stays empty; it does not re-enable models or reasoning options disabled by
+the administrator. The saved default remains identifiable but cannot authorize
+new runs. An administrator must enable a permitted model, restore the opt-in,
+or explicitly Reset the policy. The same fail-closed rule applies when a
+deployment update removes the last selected model.
+
+Reset removes the whole runtime override and returns to deployment
 defaults. Before rolling back to a control-plane version without this feature,
 restore a policy record without `additionalProviderModels` (Reset does this),
 and review the resulting enabled models. Merely disabling the flag is not
@@ -292,6 +299,16 @@ with issues when AgentV excludes immutable images such as Snap/SquashFS from
 capacity alerts. Existing hosts must upgrade to the AgentV fix to stop emitting
 those findings; subsequent snapshots refresh inventory and reconcile old issues.
 No database migration or manual issue deletion is required.
+
+VM issue recovery requires successful collection of the relevant data. Failed or
+missing collectors do not count as clean snapshots, even after the recovery grace
+period. New AgentV snapshots explicitly report complete filesystem and service finding
+coverage independently of raw inventory limits. Without that marker, truncated
+legacy snapshots can recover only a mount present in the snapshot. Service issues
+require complete service findings or untruncated legacy service inventory. An issue may therefore remain open
+until collection coverage is restored or AgentV is upgraded. Check
+`collector_health`, `finding_coverage`, and `truncation` before interpreting a
+missing finding as recovery.
 
 VM registration also binds an AgentV host-access policy to the enrollment.
 `read_only` is the default. `read_write` requires one to 32 exact systemd
