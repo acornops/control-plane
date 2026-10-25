@@ -1,5 +1,7 @@
 # Completed Execution Plans
 
+- [Filesystem Capacity Inventory Consistency](filesystem-capacity-alerts.md)
+
 - [Execution admission fencing](execution-admission-fencing.md)
 
 - [Platform Release Hardening](platform-release-hardening.md)

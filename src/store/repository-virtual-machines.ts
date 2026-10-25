@@ -321,8 +321,13 @@ function deriveVmInventory(vm: VirtualMachineTarget, snapshot: VirtualMachineSna
     });
   }
   const distro = host.distro && typeof host.distro === 'object' ? host.distro as Record<string, unknown> : {};
+  // AgentV owns capacity eligibility; raw image usage is not itself a pressure finding.
+  const pressuredMounts = new Set(array(data.findings)
+    .filter((finding) => finding.code === 'FILESYSTEM_PRESSURE' && normalizeFindingSeverity(finding.severity) !== 'info')
+    .map((finding) => text(finding.mount))
+    .filter(Boolean));
   push('host', 'host', text(host.hostname, vm.hostname || vm.name), text(distro.pretty_name, 'Linux'), host);
-  for (const disk of array(data.filesystems)) push('storage', 'filesystem', text(disk.mount, 'unknown'), Number(disk.used_percent) >= 90 ? 'pressure' : null, disk, text(disk.filesystem) || null);
+  for (const disk of array(data.filesystems)) push('storage', 'filesystem', text(disk.mount, 'unknown'), pressuredMounts.has(text(disk.mount)) ? 'pressure' : null, disk, text(disk.filesystem) || null);
   for (const service of array(data.degraded_services)) push('services', 'systemd_service', text(service.unit, 'unknown'), text(service.active_state, 'unknown'), service);
   for (const process of array(data.top_processes).slice(0, 100)) {
     push('processes', 'process', text(process.name, String(process.pid || 'unknown')), null, process, text(process.user) || null, String(process.pid ?? 'unknown'));

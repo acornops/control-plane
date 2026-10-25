@@ -284,6 +284,15 @@ as well as AgentV collector health; a heartbeat alone does not prove snapshot
 persistence. New snapshots replace derived inventory automatically, with no
 AgentV reinstall or database migration required for this identity correction.
 
+Filesystem inventory pressure badges follow AgentV's `FILESYSTEM_PRESSURE`
+findings with warning or critical severity, rather than independently applying
+a percentage threshold. Raw capacity and read-only measurements are retained;
+absence of a finding is not a health guarantee. This keeps inventory consistent
+with issues when AgentV excludes immutable images such as Snap/SquashFS from
+capacity alerts. Existing hosts must upgrade to the AgentV fix to stop emitting
+those findings; subsequent snapshots refresh inventory and reconcile old issues.
+No database migration or manual issue deletion is required.
+
 VM registration also binds an AgentV host-access policy to the enrollment.
 `read_only` is the default. `read_write` requires one to 32 exact systemd
 `.service` unit names; wildcards and AgentV-owned units are rejected. The root

@@ -230,6 +230,72 @@ describe('virtual machine repository reads', () => {
     assert.deepEqual(inventory.filter((row) => row.name.includes(':')).map((row) => row.item), listeners);
   });
 
+  it('uses reported filesystem findings for inventory pressure while preserving raw capacity facts', async () => {
+    let inventory: Array<{ kind: string; name: string; status: string | null; needs_attention: boolean; item: Record<string, unknown> }> = [];
+    const timestamp = '2026-10-25T01:00:00.000Z';
+    mock.method(db, 'query', async () => ({
+      rowCount: 1,
+      rows: [{
+        id: 'vm-1', workspace_id: 'workspace-1', target_type: 'virtual_machine',
+        name: 'vm-1', status: 'online', metadata: { hostname: 'vm-1.local' },
+        created_at: timestamp, updated_at: timestamp
+      }]
+    }));
+    mock.method(db, 'connect', async () => ({
+      query: async (sql: string, params: unknown[] = []) => {
+        if (sql.includes('SELECT plan_key,lifecycle_status FROM workspaces')) {
+          return { rowCount: 1, rows: [{ plan_key: null, lifecycle_status: 'active' }] };
+        }
+        if (sql.includes('INSERT INTO target_inventory_items')) inventory = JSON.parse(String(params[0]));
+        if (sql.includes('INSERT INTO target_issues')) {
+          return { rowCount: 1, rows: [{
+            id: params[0], workspace_id: params[1], target_id: params[2], target_type: params[3],
+            fingerprint: params[4], issue_type: params[5], status: 'active', severity: params[6], severity_rank: params[7],
+            title: params[8], summary: params[9], scope_kind: params[10], scope_name: params[11],
+            object_kind: params[12], object_name: params[13], reason: params[14],
+            first_seen_at: params[15], last_seen_at: params[15], last_observed_snapshot_at: params[15],
+            resolved_at: null, occurrence_count: 1, reopened_count: 0, clean_snapshot_count: 0, lifecycle_version: 1,
+            latest_evidence: JSON.parse(String(params[16])), search_text: params[17], created_at: timestamp, updated_at: timestamp
+          }] };
+        }
+        return { rowCount: 0, rows: [] };
+      },
+      release: () => undefined
+    }));
+
+    const filesystems = [
+      { mount: '/snap/example/1', type: 'squashfs', used_percent: 100, read_only: true },
+      { mount: '/', type: 'ext4', used_percent: 95, read_only: true },
+      { mount: '/data', type: 'futurefs', used_percent: 85, read_only: false },
+      { mount: '/informational', type: 'ext4', used_percent: 100, read_only: false },
+      { mount: '/unrelated', type: 'ext4', used_percent: 100, read_only: false },
+      { mount: '/unreported', type: 'ext4', used_percent: 99, read_only: false }
+    ];
+    await upsertVirtualMachineSnapshot({
+      targetId: 'vm-1', workspaceId: 'workspace-1', timestamp,
+      data: {
+        filesystems,
+        findings: [
+          { code: 'FILESYSTEM_PRESSURE', severity: 'critical', mount: '/', summary: 'Root capacity pressure' },
+          { code: 'FILESYSTEM_PRESSURE', severity: 'WARNING', mount: '/data', summary: 'Reported capacity warning' },
+          { code: 'FILESYSTEM_PRESSURE', severity: 'info', mount: '/informational', summary: 'Informational only' },
+          { code: 'MEMORY_PRESSURE', severity: 'critical', mount: '/unrelated', summary: 'Not a filesystem finding' }
+        ]
+      }
+    });
+
+    const storage = inventory.filter((item) => item.kind === 'filesystem');
+    assert.deepEqual(storage.map(({ name, status, needs_attention }) => ({ name, status, needs_attention })), [
+      { name: '/snap/example/1', status: null, needs_attention: false },
+      { name: '/', status: 'pressure', needs_attention: true },
+      { name: '/data', status: 'pressure', needs_attention: true },
+      { name: '/informational', status: null, needs_attention: false },
+      { name: '/unrelated', status: null, needs_attention: false },
+      { name: '/unreported', status: null, needs_attention: false }
+    ]);
+    assert.deepEqual(storage.map((item) => item.item), filesystems);
+  });
+
   it('ignores older VM snapshots without replacing latest rows, writing metrics, or reconciling issues', async () => {
     mock.method(db, 'query', async (sql: string) => {
       if (sql.includes("WHERE id = $1 AND target_type = 'virtual_machine'")) {
