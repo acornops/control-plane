@@ -1,5 +1,7 @@
 # Completed Execution Plans
 
+- [Focused Production Readiness Corrections](production-readiness.md) — Released for demo; production security gates remain open.
+
 - [Filesystem Capacity Inventory Consistency](filesystem-capacity-alerts.md)
 
 - [Execution admission fencing](execution-admission-fencing.md)

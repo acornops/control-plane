@@ -1,5 +1,14 @@
 # Focused production readiness corrections
 
+Completed and released for demo on 2026-10-26 as `0.0.1-experimental.39`, source
+`19826a1ebb6e2c80e8a3db67204b5752e5e599c5`.
+[PR #28](https://github.com/acornops/control-plane/pull/28), exact-source PR/main
+CI, and [release](https://github.com/acornops/control-plane/actions/runs/40220839900)
+passed. Image provenance matches the source. The full image scan retains
+pre-existing Zod, Nodemailer, bundled npm and OS findings: this completion closes
+the focused corrections, not production security acceptance. The deployment
+repository's readiness audit and demo-release record own remaining platform gates.
+
 ## Scope
 
 Fix the confirmed AI-policy fail-open edge case and verify VM issue recovery
