@@ -14,6 +14,7 @@ import {
   listPlatformSettings,
   parsePlatformSettingValue,
   publishPlatformSettingsChanged,
+  refreshPlatformSettings,
   validatePlatformSettingOverride
 } from '../services/platform-settings.js';
 import {
@@ -69,6 +70,9 @@ export async function updateSetting(
   try {
     const key = settingKey(req, res);
     if (!key) return;
+    // Legacy clients omit catalog metadata. Merge it only from fresh durable
+    // state; the transactional version check still rejects a subsequent race.
+    if (key === 'ai_policy') await refreshPlatformSettings();
     let value;
     try {
       value = parsePlatformSettingValue(key, req.body.value);

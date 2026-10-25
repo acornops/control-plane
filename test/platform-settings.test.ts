@@ -25,6 +25,8 @@ const originalPasswordAuthEnabled = config.PASSWORD_AUTH_ENABLED;
 const originalPasswordEmailVerificationRequired = config.PASSWORD_EMAIL_VERIFICATION_REQUIRED;
 const originalEmailPublicBaseUrl = config.EMAIL_PUBLIC_BASE_URL;
 const originalNodeEnv = config.NODE_ENV;
+const originalProviders = config.LLM_PROVIDERS_JSON;
+const originalReasoningEfforts = config.LLM_ALLOWED_REASONING_EFFORTS;
 
 function override(
   key: PlatformSettingOverride['key'],
@@ -46,7 +48,134 @@ afterEach(() => {
   mutableConfig.PASSWORD_EMAIL_VERIFICATION_REQUIRED = originalPasswordEmailVerificationRequired;
   mutableConfig.EMAIL_PUBLIC_BASE_URL = originalEmailPublicBaseUrl;
   mutableConfig.NODE_ENV = originalNodeEnv;
+  config.LLM_PROVIDERS_JSON = originalProviders;
+  config.LLM_ALLOWED_REASONING_EFFORTS = originalReasoningEfforts;
   applyPlatformSettingOverrides([]);
+});
+
+describe('additional AI model IDs', () => {
+  const additions = { openai: ['gpt-future'], anthropic: [], gemini: [] };
+  function enableAdditions() {
+    mutableConfig.PLATFORM_SETTINGS_POLICY = {
+      ...originalPolicy,
+      aiPolicy: { ...originalPolicy.aiPolicy, allowAdditionalModels: true }
+    };
+  }
+  function candidate(enabled = true) {
+    const deployment = getPlatformSetting('ai_policy').deploymentDefault;
+    return {
+      ...deployment,
+      providerModels: {
+        ...deployment.providerModels,
+        openai: [...deployment.providerModels.openai, ...(enabled ? ['gpt-future'] : [])]
+      },
+      additionalProviderModels: structuredClone(additions)
+    };
+  }
+
+  it('requires deployment opt-in even when new definitions are disabled', () => {
+    assert.equal(getPlatformSetting('ai_policy').constraints.allowAdditionalModels, false);
+    assert.ok(validatePlatformSettingOverride('ai_policy', candidate(false)));
+    assert.ok(validatePlatformSettingOverride('ai_policy', candidate()));
+  });
+
+  it('adds compatible IDs without changing defaults and retains disabled definitions', () => {
+    enableAdditions();
+    const enabled = parsePlatformSettingValue('ai_policy', candidate());
+    assert.equal(validatePlatformSettingOverride('ai_policy', enabled), null);
+    applyPlatformSettingOverrides([override('ai_policy', enabled)]);
+    const state = getPlatformSetting('ai_policy');
+    assert.equal(state.source, 'runtime_override');
+    assert.equal(state.value.defaultModel, state.deploymentDefault.defaultModel);
+    assert.ok(state.value.providerModels.openai.includes('gpt-future'));
+
+    const disabled = parsePlatformSettingValue('ai_policy', candidate(false));
+    assert.equal(validatePlatformSettingOverride('ai_policy', disabled), null);
+    applyPlatformSettingOverrides([override('ai_policy', disabled, 2)]);
+    const after = getPlatformSetting('ai_policy');
+    assert.equal(after.value.providerModels.openai.includes('gpt-future'), false);
+    assert.deepEqual(after.value.additionalProviderModels, additions);
+    assert.ok((after.constraints.providerModels as typeof additions).openai.includes('gpt-future'));
+    assert.equal(validatePlatformSettingOverride('ai_policy', candidate()), null);
+    assert.ok(validatePlatformSettingOverride('ai_policy', { ...disabled, defaultProvider: 'openai', defaultModel: 'gpt-future' }));
+  });
+
+  it('keeps stored definitions inert when opt-in is removed and restores the catalog when re-enabled', () => {
+    enableAdditions();
+    applyPlatformSettingOverrides([override('ai_policy', candidate())]);
+    mutableConfig.PLATFORM_SETTINGS_POLICY = originalPolicy;
+    const constrained = getPlatformSetting('ai_policy');
+    assert.equal(constrained.source, 'runtime_override_constrained');
+    assert.equal(constrained.value.providerModels.openai.includes('gpt-future'), false);
+    assert.deepEqual(constrained.value.additionalProviderModels, additions);
+    assert.equal(validatePlatformSettingOverride('ai_policy', constrained.value), null);
+    enableAdditions();
+    assert.ok(getPlatformSetting('ai_policy').value.providerModels.openai.includes('gpt-future'));
+    const reset = getPlatformSettingWithoutOverride('ai_policy');
+    assert.equal(reset.value.additionalProviderModels, undefined);
+    assert.equal(reset.value.providerModels.openai.includes('gpt-future'), false);
+  });
+
+  it('never adds providers outside the deployment or widens reasoning limits', () => {
+    enableAdditions();
+    config.LLM_PROVIDERS_JSON = JSON.stringify({ openai: ['gpt-5.5'] });
+    const value = candidate();
+    assert.ok(validatePlatformSettingOverride('ai_policy', {
+      ...value,
+      additionalProviderModels: { ...additions, anthropic: ['claude-future'] }
+    }));
+    config.LLM_ALLOWED_REASONING_EFFORTS = 'low';
+    assert.ok(validatePlatformSettingOverride('ai_policy', { ...value, reasoningEfforts: ['high'] }));
+    mutableConfig.PLATFORM_SETTINGS_POLICY = {
+      ...mutableConfig.PLATFORM_SETTINGS_POLICY,
+      aiPolicy: { allowAdditionalModels: true, runtimeEditable: false }
+    };
+    assert.match(validatePlatformSettingOverride('ai_policy', candidate()) || '', /fixed/);
+  });
+
+  it('bounds additional identifiers and rejects malformed, duplicate, or unknown provider input', () => {
+    enableAdditions();
+    for (const models of [
+      [''], ['bad model'], ['bad\nmodel'], ['x'.repeat(201)], ['same', 'same'],
+      Array.from({ length: 101 }, (_, index) => `model-${index}`)
+    ]) {
+      assert.throws(() => parsePlatformSettingValue('ai_policy', {
+        ...candidate(), additionalProviderModels: { ...additions, openai: models }
+      }));
+    }
+    assert.throws(() => parsePlatformSettingValue('ai_policy', {
+      ...candidate(), additionalProviderModels: { ...additions, other: ['model'] }
+    }));
+    const parsed = parsePlatformSettingValue('ai_policy', {
+      ...candidate(false), additionalProviderModels: { ...additions, openai: [' Model-A ', 'model-a'] }
+    });
+    assert.deepEqual(parsed.additionalProviderModels?.openai, ['Model-A', 'model-a']);
+  });
+
+  it('preserves the catalog when an older client omits it', () => {
+    enableAdditions();
+    applyPlatformSettingOverrides([override('ai_policy', candidate(false))]);
+    const legacyValue = getPlatformSetting('ai_policy').deploymentDefault;
+    const parsed = parsePlatformSettingValue('ai_policy', legacyValue);
+    assert.deepEqual(parsed.additionalProviderModels, additions);
+    assert.equal(validatePlatformSettingOverride('ai_policy', parsed), null);
+  });
+
+  it('rejects new duplicate deployment definitions but tolerates an ID later added by deployment', () => {
+    enableAdditions();
+    const existingId = getPlatformSetting('ai_policy').deploymentDefault.providerModels.openai[0];
+    assert.ok(validatePlatformSettingOverride('ai_policy', {
+      ...candidate(false), additionalProviderModels: { ...additions, openai: [existingId] }
+    }));
+    applyPlatformSettingOverrides([override('ai_policy', candidate())]);
+    const deploymentModels = JSON.parse(config.LLM_PROVIDERS_JSON);
+    deploymentModels.openai.push('gpt-future');
+    config.LLM_PROVIDERS_JSON = JSON.stringify(deploymentModels);
+    const state = getPlatformSetting('ai_policy');
+    assert.deepEqual(state.value.additionalProviderModels, additions);
+    assert.equal((state.constraints.providerModels as typeof additions).openai.filter((id) => id === 'gpt-future').length, 1);
+    assert.equal(validatePlatformSettingOverride('ai_policy', state.value), null);
+  });
 });
 
 describe('durable platform setting resolution', () => {

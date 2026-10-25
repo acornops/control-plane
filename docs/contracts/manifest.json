@@ -80,6 +80,14 @@
       "platformSettingKeys": ["member_discovery", "ai_policy", "user_sign_in_methods", "help_links", "kubernetes_rbac_additions"],
       "platformSettingPatchFields": ["value", "expectedVersion", "reason"],
       "platformSettingResetFields": ["expectedVersion", "reason"],
+      "aiPolicySetting": {
+        "additionalValueField": "additionalProviderModels?: {openai:string[],anthropic:string[],gemini:string[]}",
+        "capabilityField": "constraints.allowAdditionalModels:boolean",
+        "enabledModelsField": "providerModels",
+        "catalogField": "constraints.providerModels",
+        "limits": "Additional IDs are trimmed, case-sensitive, match ^[A-Za-z0-9][A-Za-z0-9._:/@-]*$, have at most 200 characters, and are unique with at most 100 per provider.",
+        "resolution": "Default-off deployment opt-in allows additional IDs only for deployment-permitted providers. Disabled definitions remain stored. Omitted metadata is preserved from fresh durable state before a versioned write. Reset removes runtime additions. Provider and reasoning ceilings remain deployment-owned."
+      },
       "helpLinksSetting": {
         "valueFields": ["documentationUrl", "supportUrl"],
         "defaults": ["documentationUrl=https://docs.acornops.dev", "supportUrl=https://discord.gg/jBgTy4KhF"],

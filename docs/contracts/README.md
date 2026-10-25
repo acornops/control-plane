@@ -30,6 +30,16 @@ The control plane owns the platform API boundary. Keep this README as a short in
 
 ## Shared Invariants
 
+- AI Policy keeps `providerModels` as the enabled allowlist. The optional
+  `additionalProviderModels` map retains admin-added IDs, including disabled
+  ones. `constraints.providerModels` is the selectable catalog, while
+  `constraints.allowAdditionalModels` reports deployment opt-in (default false).
+  Additional IDs use only deployment-permitted OpenAI, Anthropic, or Gemini
+  providers, not new endpoints or credential types. Old-client writes that omit
+  catalog metadata preserve it; writes refresh durable state before the existing
+  optimistic version check. Reset clears additions. Workspace/runtime contracts
+  still receive only effective enabled choices; no database migration is needed.
+
 - VM registration and credential replacement return structured systemd install
   instructions with `command`, `releaseVersion`, `bootstrapUrl`, `warnings`,
   and an enrollment expiry when applicable. Enrollment commands contain a

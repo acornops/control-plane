@@ -10,6 +10,7 @@ export interface AiPlatformPolicy {
   reasoningSummariesEnabled: boolean;
   reasoningSummaryModes: ReasoningSummaryMode[];
   reasoningEfforts: ReasoningEffort[];
+  additionalProviderModels?: ProviderModelMap;
 }
 
 export interface PlatformSettingValueMap {

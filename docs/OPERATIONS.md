@@ -10,6 +10,31 @@
 - Kubernetes control-plane replicas default to `3`; Redis coordinates agent WebSocket ownership, cross-pod JSON-RPC routing, run event fanout, and renewed scheduler leases.
 - On SIGTERM/SIGINT, the agent gateway stops accepting upgrades, closes active agent WebSockets, rejects pending local commands, and releases ownership before Postgres/Redis clients close.
 
+## Admin-managed model IDs
+
+`PLATFORM_SETTINGS_POLICY_JSON.aiPolicy.allowAdditionalModels` defaults to
+`false`. Opt in only after all control-plane replicas support the extended
+AI-policy record. `runtimeEditable` must also be true for admin changes.
+Platform Admin can then register IDs for existing deployment-permitted
+providers, using their existing keys and adapters. Saving an ID does not verify
+provider account access or API compatibility and does not change defaults.
+
+Disabling a model retains its definition but removes it from future allowed
+selections. Existing workspace defaults and conversation selections are not
+rewritten. The current policy is checked at submission/bootstrap; an already
+authorized in-flight provider request is not revoked by this setting change.
+
+Turning opt-in off makes additional IDs unavailable without deleting their
+definitions. Reset removes the whole runtime override and returns to deployment
+defaults. Before rolling back to a control-plane version without this feature,
+restore a policy record without `additionalProviderModels` (Reset does this),
+and review the resulting enabled models. Merely disabling the flag is not
+sufficient: older binaries reject the extended record and fall back to their
+deployment defaults. Also remove `allowAdditionalModels` from the deployment
+policy JSON (or restore the previous chart) before starting an older binary;
+its strict configuration parser rejects the new key even when it is false.
+No schema migration or credential change is required.
+
 ## Schedule cadence rollout
 
 Ship the control-plane cadence fixes before Management Console's authoritative

@@ -31,7 +31,8 @@ const platformSettingsPolicySchema = z.object({
     defaultMode: z.enum(memberDiscoveryModes).default('exact_email')
   }).strict().default({}),
   aiPolicy: z.object({
-    runtimeEditable: z.boolean().default(true)
+    runtimeEditable: z.boolean().default(true),
+    allowAdditionalModels: z.boolean().default(false)
   }).strict().default({}),
   userSignInMethods: z.object({
     allowedMethods: z.array(z.enum(USER_SIGN_IN_METHODS)).min(1).optional(),
@@ -61,6 +62,7 @@ export interface PlatformSettingsDeploymentPolicy {
   };
   aiPolicy: {
     runtimeEditable: boolean;
+    allowAdditionalModels: boolean;
   };
   userSignInMethods: {
     allowedMethods: UserSignInMethod[];
@@ -113,7 +115,8 @@ export function resolvePlatformSettingsDeploymentPolicy(
       defaultMode: parsed.memberDiscovery.defaultMode
     },
     aiPolicy: {
-      runtimeEditable: parsed.aiPolicy.runtimeEditable
+      runtimeEditable: parsed.aiPolicy.runtimeEditable,
+      allowAdditionalModels: parsed.aiPolicy.allowAdditionalModels
     },
     userSignInMethods: {
       allowedMethods,

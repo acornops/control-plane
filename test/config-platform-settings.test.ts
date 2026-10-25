@@ -11,7 +11,7 @@ describe('platform settings deployment policy', () => {
       allowedModes: ['disabled', 'exact_email'],
       defaultMode: 'exact_email'
     });
-    assert.deepEqual(policy.aiPolicy, { runtimeEditable: true });
+    assert.deepEqual(policy.aiPolicy, { runtimeEditable: true, allowAdditionalModels: false });
     assert.deepEqual(policy.userSignInMethods, {
       allowedMethods: ['password', 'oidc'],
       defaultMethods: ['password', 'oidc']
@@ -20,6 +20,16 @@ describe('platform settings deployment policy', () => {
       runtimeEditable: true,
       profiles: []
     });
+  });
+
+  it('opts into additional model IDs without making a fixed policy editable', () => {
+    const policy = resolvePlatformSettingsDeploymentPolicy(JSON.stringify({
+      aiPolicy: { runtimeEditable: false, allowAdditionalModels: true }
+    }), ['password']);
+    assert.deepEqual(policy.aiPolicy, { runtimeEditable: false, allowAdditionalModels: true });
+    assert.throws(() => resolvePlatformSettingsDeploymentPolicy(JSON.stringify({
+      aiPolicy: { allowAdditionalModels: 'true' }
+    }), ['password']), ZodError);
   });
 
   it('accepts an explicit trusted directory mode and constrained sign-in methods', () => {
