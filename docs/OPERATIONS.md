@@ -250,6 +250,15 @@ and must not be logged, saved, or shared. Durable AgentV credentials are
 returned only to the root installer; repair commands reuse the credential
 already protected on the VM.
 
+VM snapshots atomically update the latest snapshot, inventory, and metric history.
+Inventory identifies processes by PID and listeners by protocol, bind address,
+port, and PID, while keeping their display labels unchanged. Repeated entries are
+disambiguated within the snapshot rather than rejecting all telemetry. If an
+online VM has no metric samples, check control-plane snapshot ingestion errors
+as well as AgentV collector health; a heartbeat alone does not prove snapshot
+persistence. New snapshots replace derived inventory automatically, with no
+AgentV reinstall or database migration required for this identity correction.
+
 VM registration also binds an AgentV host-access policy to the enrollment.
 `read_only` is the default. `read_write` requires one to 32 exact systemd
 `.service` unit names; wildcards and AgentV-owned units are rejected. The root

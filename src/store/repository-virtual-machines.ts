@@ -295,8 +295,13 @@ function deriveVmInventory(vm: VirtualMachineTarget, snapshot: VirtualMachineSna
   const data = snapshot.data || {};
   const host = data.host_summary && typeof data.host_summary === 'object' ? data.host_summary as Record<string, unknown> : {};
   const resources: TargetInventoryItemInput[] = [];
-  function push(category: string, kind: string, name: string, status: string | null, item: Record<string, unknown>, location: string | null = null): void {
-    const itemId = `${category}:${kind}:${name}`;
+  const itemIds = new Set<string>();
+  function push(category: string, kind: string, name: string, status: string | null, item: Record<string, unknown>, location: string | null = null, identity = name): void {
+    const baseId = `${category}:${kind}:${identity}`;
+    let itemId = baseId;
+    // Repeated socket entries must not roll back the entire telemetry snapshot.
+    for (let occurrence = 2; itemIds.has(itemId); occurrence += 1) itemId = `${baseId}:${occurrence}`;
+    itemIds.add(itemId);
     resources.push({
       targetId: vm.id,
       workspaceId: vm.workspaceId,
@@ -319,8 +324,15 @@ function deriveVmInventory(vm: VirtualMachineTarget, snapshot: VirtualMachineSna
   push('host', 'host', text(host.hostname, vm.hostname || vm.name), text(distro.pretty_name, 'Linux'), host);
   for (const disk of array(data.filesystems)) push('storage', 'filesystem', text(disk.mount, 'unknown'), Number(disk.used_percent) >= 90 ? 'pressure' : null, disk, text(disk.filesystem) || null);
   for (const service of array(data.degraded_services)) push('services', 'systemd_service', text(service.unit, 'unknown'), text(service.active_state, 'unknown'), service);
-  for (const process of array(data.top_processes).slice(0, 100)) push('processes', 'process', text(process.name, String(process.pid || 'unknown')), null, process, text(process.user) || null);
-  for (const listener of array(data.listeners)) push('network', 'listener', `${text(listener.protocol, 'tcp')}:${String(listener.port || '0')}`, null, listener, text(listener.address) || null);
+  for (const process of array(data.top_processes).slice(0, 100)) {
+    push('processes', 'process', text(process.name, String(process.pid || 'unknown')), null, process, text(process.user) || null, String(process.pid ?? 'unknown'));
+  }
+  for (const listener of array(data.listeners)) {
+    const protocol = text(listener.protocol, 'tcp');
+    const port = listener.port ?? 0;
+    const address = text(listener.address);
+    push('network', 'listener', `${protocol}:${String(port)}`, null, listener, address || null, JSON.stringify([protocol, address, port, listener.pid ?? null]));
+  }
 
   const findings = array(data.findings).map((finding): TargetFindingInput => {
     const severity = normalizeFindingSeverity(finding.severity);

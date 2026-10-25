@@ -179,6 +179,57 @@ describe('virtual machine repository reads', () => {
     assert.equal(insertedFindings[0]?.severity_rank, 2);
   });
 
+  it('preserves telemetry and distinct inventory rows when process names or listener ports repeat', async () => {
+    const statements: string[] = [];
+    let inventory: Array<{ item_id: string; name: string; item: Record<string, unknown> }> = [];
+    mock.method(db, 'query', async () => ({
+      rowCount: 1,
+      rows: [{
+        id: 'vm-1', workspace_id: 'workspace-1', target_type: 'virtual_machine',
+        name: 'vm-1', status: 'online', metadata: { hostname: 'vm-1.local' },
+        created_at: '2026-10-25T00:00:00.000Z', updated_at: '2026-10-25T00:00:00.000Z'
+      }]
+    }));
+    mock.method(db, 'connect', async () => ({
+      query: async (sql: string, params?: unknown[]) => {
+        statements.push(sql);
+        if (sql.includes('SELECT plan_key,lifecycle_status FROM workspaces')) {
+          return { rowCount: 1, rows: [{ plan_key: null, lifecycle_status: 'active' }] };
+        }
+        if (sql.includes('INSERT INTO target_inventory_items')) {
+          inventory = JSON.parse(String(params?.[0]));
+          // Match the database uniqueness boundary that rejects the whole snapshot.
+          assert.equal(new Set(inventory.map((row) => row.item_id)).size, inventory.length);
+        }
+        return { rowCount: 0, rows: [] };
+      },
+      release: () => undefined
+    }));
+
+    const processes = [{ pid: 101, name: 'MainThread' }, { pid: 202, name: 'MainThread' }];
+    const listeners = [
+      { protocol: 'tcp', address: '0.0.0.0', port: 22, pid: 50 },
+      { protocol: 'tcp', address: '::', port: 22, pid: 50 },
+      { protocol: 'tcp', address: '0.0.0.0', port: 22, pid: 51 },
+      { protocol: 'udp', address: '0.0.0.0', port: 53, pid: null },
+      { protocol: 'udp', address: '0.0.0.0', port: 53, pid: null }
+    ];
+    await upsertVirtualMachineSnapshot({
+      targetId: 'vm-1', workspaceId: 'workspace-1', timestamp: '2026-10-25T01:00:00.000Z',
+      data: {
+        host_summary: { cpu: { usage_percent: 10 }, memory: { total_bytes: 1024, used_bytes: 512 } },
+        top_processes: processes,
+        listeners
+      }
+    });
+
+    assert(statements.some((sql) => sql.includes('INSERT INTO target_metric_history')));
+    assert(statements.includes('COMMIT'));
+    assert.equal(inventory.length, 8);
+    assert.deepEqual(inventory.filter((row) => row.name === 'MainThread').map((row) => row.item), processes);
+    assert.deepEqual(inventory.filter((row) => row.name.includes(':')).map((row) => row.item), listeners);
+  });
+
   it('ignores older VM snapshots without replacing latest rows, writing metrics, or reconciling issues', async () => {
     mock.method(db, 'query', async (sql: string) => {
       if (sql.includes("WHERE id = $1 AND target_type = 'virtual_machine'")) {
