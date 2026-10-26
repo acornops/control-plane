@@ -25,6 +25,10 @@ import { KUBERNETES_TARGET_TYPE } from '../types/domain.js';
 import { toSingleParam } from '../utils/params.js';
 import { resolveAgentChatRunTools } from '../services/agent-chat-run-tools.js';
 
+// The worker can reach an approval before its asynchronous run_started event arrives.
+// Match the active tool bridge states; this does not bypass write grants or approval.
+const ACTIVE_APPROVAL_RUN_STATUSES = new Set(['dispatching', 'running', 'waiting_for_approval']);
+
 async function resolveAutomationRun(runId: string) {
   const workflowRun = await getWorkflowRun(runId);
   if (workflowRun) {
@@ -45,7 +49,7 @@ export async function createToolApproval(req: Request, res: Response, next: Next
     const runId = toSingleParam(req.params.runId);
     const automationRun = await resolveAutomationRun(runId);
     if (automationRun) {
-      if (automationRun.status !== 'running' && automationRun.status !== 'waiting_for_approval') {
+      if (!ACTIVE_APPROVAL_RUN_STATUSES.has(automationRun.status)) {
         res.status(409).json({ error: { code: 'RUN_NOT_ACTIVE', message: 'Run is not active for an approval interrupt', retryable: false } });
         return;
       }
@@ -104,7 +108,7 @@ export async function createToolApproval(req: Request, res: Response, next: Next
       res.status(400).json({ error: { code: 'READ_WRITE_REQUIRED', message: 'Run is not allowed to execute write tools', retryable: false } });
       return;
     }
-    if (run.status !== 'running' && run.status !== 'waiting_for_approval') {
+    if (!ACTIVE_APPROVAL_RUN_STATUSES.has(run.status)) {
       res.status(409).json({ error: { code: 'RUN_NOT_ACTIVE', message: 'Run is not active for an approval interrupt', retryable: false } });
       return;
     }

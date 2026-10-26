@@ -41,6 +41,23 @@ export async function getRun(runId: string): Promise<Run | null> {
   return result.rowCount ? mapRun(result.rows[0]) : null;
 }
 
+export async function markRunStarted(runId: string): Promise<Run | null> {
+  // Delayed worker events must not overwrite approval waits or newer lifecycle states.
+  const result = await db.query(
+    `WITH updated AS (
+       UPDATE runs
+       SET status = 'running', started_at = COALESCE(started_at, clock_timestamp())
+       WHERE id = $1 AND status IN ('queued', 'dispatching', 'running')
+       RETURNING *
+     )
+     SELECT updated.*, t.target_type
+     FROM updated
+     LEFT JOIN targets t ON t.id = updated.target_id`,
+    [runId]
+  );
+  return result.rowCount ? mapRun(result.rows[0]) : null;
+}
+
 export async function updateRun(
   runId: string,
   patch: Partial<Run>,

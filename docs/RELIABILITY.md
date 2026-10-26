@@ -19,6 +19,13 @@
 - Use the integration compose profile when changing execution-engine, llm-gateway, or auth-facing behavior.
 - Preserve deterministic run event ordering and terminal run states.
 - Preserve durable write-approval behavior: approval creation stores continuation and `waiting_for_approval` atomically, and decisions resume through backend redispatch.
+- Approval creation must tolerate `dispatching` while the worker's asynchronous
+  `run_started` event is in flight, for both interactive and Workflow runs. This
+  does not authorize writes: current execution authority and exact write grants
+  still apply, and queued, cancelling and terminal runs must be rejected.
+- A late `run_started` must not overwrite an approval wait, cancellation or terminal
+  state. Interactive start transitions check eligible states atomically in the
+  database and preserve the first start timestamp.
 - Preserve the acknowledged-run boundary: Agent/Workflow run creation and its dispatch-outbox insert commit in one transaction before returning `202`.
 - Preserve the admin membership audit boundary: an admin-initiated membership
   change, its protected Admin Audit success record, and its sanitized workspace

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, beforeEach, describe, it } from 'node:test';
 import { getWorkspacePermissions } from '../src/auth/authorization.js';
+import { createToolApproval } from '../src/controllers/internal-approval-controller.js';
 import { db } from '../src/infra/db.js';
 import { compileWorkflowAccessScope } from '../src/services/workflow-access.js';
 import { getAgentDefinition } from '../src/store/repository-agents.js';
@@ -27,6 +28,7 @@ import {
   installAutomationTemplateFixtures,
   resetAutomationDatabaseFixtures
 } from './helpers/automation-database-fixtures.js';
+import { callController, createRequest } from './helpers/controller-regression-fixtures.js';
 
 const actor = {
   userId: 'user-1',
@@ -40,7 +42,7 @@ beforeEach(async () => {
 });
 after(closeAutomationDatabaseFixtures);
 
-async function createDirectRoot() {
+async function createDirectRoot(grantRestart = false) {
   const workflow = await getWorkflowDefinition('workspace-1', 'cluster-triage');
   const specialist = await getAgentDefinition('workspace-1', 'agent-cluster-triage');
   assert.ok(workflow);
@@ -52,6 +54,10 @@ async function createDirectRoot() {
     mappings: await listCapabilityRoutingMappings('workspace-1', { activeReviewedOnly: true }),
     actor,
   });
+  if (grantRestart) {
+    compiledAccessScope.toolOperations = { restart_workload: 'write' };
+    compiledAccessScope.mcpTools = [{ serverId: 'server-operations', toolName: 'restart_workload' }];
+  }
   const session = await createWorkflowSession({ workflow, createdBy: actor.userId, compiledAccessScope });
   return createWorkflowExecution({
     workflow,
@@ -63,6 +69,27 @@ async function createDirectRoot() {
 }
 
 describe('durable Workflow run approvals', () => {
+  for (const status of ['dispatching', 'queued', 'cancelled', 'completed', 'failed'] as const) {
+    it(`handles an approval request while the workflow run is ${status}`, async () => {
+      const { run } = await createDirectRoot(true);
+      await updateWorkflowRun(run.id, { status });
+      const response = await callController(createToolApproval, createRequest({ runId: run.id }, {
+        toolCallId: 'call-2', toolName: 'restart_workload',
+        toolRef: { serverId: 'server-operations', toolName: 'restart_workload' },
+        arguments: {}, continuation: { pending_tool_call: { call_id: 'call-2' } }
+      }));
+      if (status === 'dispatching') {
+        assert.equal(response.statusCode, 201);
+        assert.equal((response.body as { status: string }).status, 'pending');
+        assert.equal((await getWorkflowRun(run.id))?.status, 'waiting_for_approval');
+      } else {
+        assert.equal(response.statusCode, 409);
+        assert.equal((response.body as { error: { code: string } }).error.code, 'RUN_NOT_ACTIVE');
+        assert.equal((await getWorkflowRun(run.id))?.status, status);
+      }
+    });
+  }
+
   it('marks duplicate write execution starts as needs_review and resumes through the logical execution', async () => {
     const created = await createDirectRoot();
     await updateWorkflowRun(created.run.id, { status: 'running' });

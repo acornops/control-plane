@@ -12,6 +12,7 @@ import { cancelRunInExecutionEngine } from '../services/execution-engine-client.
 import { recordWorkflowExecutionTransition, recordWorkflowRunEvents } from '../services/workflow-execution-events.js';
 import { repo } from '../store/repository.js';
 import { recomputeWorkflowExecutionStatusForRun } from '../store/repository-automation-approvals.js';
+import { markRunStarted } from '../store/repository-runs.js';
 import {
   appendWorkflowRunEvents,
   getWorkflowRun,
@@ -259,9 +260,9 @@ export async function ingestRunEvents(req: Request, res: Response, next: NextFun
         continue;
       }
       if (event.type === 'run_started' && !res.locals.executionCleanupOnly && currentRun.status !== 'cancelling') {
-        const updatedRun = await repo.updateRun(run.id, { status: 'running', startedAt: currentRun.startedAt || new Date().toISOString() });
+        const updatedRun = await markRunStarted(run.id);
         emitRunStatusTransition(currentRun, updatedRun);
-        currentRun = updatedRun || currentRun;
+        currentRun = updatedRun || await repo.getRun(run.id) || currentRun;
       } else if (event.type === 'tool_approval_requested' && !res.locals.executionCleanupOnly && currentRun.status !== 'cancelling') {
         const updatedRun = await repo.updateRun(run.id, { status: 'waiting_for_approval' });
         emitRunStatusTransition(currentRun, updatedRun);

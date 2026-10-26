@@ -30,6 +30,17 @@ The control plane owns the platform API boundary. Keep this README as a short in
 
 ## Shared Invariants
 
+- Every validated execution dispatch, including continuation resume, emits
+  `run_started`; the original run start timestamp is preserved. Approval creation
+  accepts `dispatching`, `running`, or `waiting_for_approval` because event delivery
+  is asynchronous. Queued, cancelling and terminal runs remain ineligible, and
+  execution authority, read-write access and exact tool grants remain mandatory.
+  A delayed start event must not overwrite an approval wait, cancellation or
+  terminal state; the interactive transition is guarded atomically in storage.
+  The engine reports approval request failures with safe `RUN_NOT_ACTIVE` or
+  `TOOL_APPROVAL_REQUEST_FAILED` messages rather than internal HTTP exceptions,
+  and never retries an ambiguously completed approval request automatically.
+
 - Kubernetes `GET /workspaces/:workspaceId/kubernetes-clusters/:clusterId/install-instructions`
   requires target access and `manage_targets`. It returns `{clusterId,
   installInstructions: {command,warnings}}` without credentials or mutations.
