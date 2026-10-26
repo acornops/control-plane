@@ -152,47 +152,67 @@ describe('Agent-chat native tools and approvals', () => {
     });
   });
 
-  it('creates targetless approvals for exact Agent MCP write grants', async () => {
-    const baseAgent = await getAgentDefinition('workspace-1', 'agent-incident-reporter');
-    assert.ok(baseAgent);
-    const specialist: AgentDefinition = {
-      ...baseAgent,
-      mcpServers: ['server-change'],
-      mcpTools: [{ serverId: 'server-change', toolName: 'apply_change' }],
-      mcpInstallations: [{
-        id: 'server-change', name: 'Change service', url: 'https://mcp.example.test',
-        enabled: true, credentialMode: 'workspace', revision: 1,
-        tools: [{
-          serverId: 'server-change', toolName: 'apply_change', alias: 'apply_change',
-          description: 'Apply an approved change.', inputSchema: { type: 'object' },
-          capability: 'write', enabled: true, reviewState: 'approved',
-          riskLevel: 'high_risk', autoAllowed: false
-        }]
-      }],
-      tools: ['apply_change'],
-      permissionMode: 'ask_before_changes'
-    };
-    const scope = {
-      ...(await compileScope(specialist, 'read_write')),
-      mode: 'read_write' as const,
-      permissionMode: 'ask_before_changes' as const,
-      mcpTools: [{ serverId: 'server-change', toolName: 'apply_change' }],
-      tools: ['apply_change'],
-      toolOperations: { apply_change: 'write' as const }
-    };
-    const runId = await addAgentRun(specialist, scope, 'read_write');
-    const response = await callApproval(runId, {
-      toolCallId: 'agent-write-1', toolName: 'apply_change',
-      toolRef: { serverId: 'server-change', toolName: 'apply_change' },
-      summary: 'Apply the reviewed change', arguments: { value: 'safe' },
-      continuation: { schema_version: 1, state: { step: 'awaiting_approval' } }
+  for (const status of ['running', 'dispatching'] as const) {
+    it(`creates targetless approvals for exact Agent MCP write grants while ${status}`, async () => {
+      const baseAgent = await getAgentDefinition('workspace-1', 'agent-incident-reporter');
+      assert.ok(baseAgent);
+      const specialist: AgentDefinition = {
+        ...baseAgent,
+        mcpServers: ['server-change'],
+        mcpTools: [{ serverId: 'server-change', toolName: 'apply_change' }],
+        mcpInstallations: [{
+          id: 'server-change', name: 'Change service', url: 'https://mcp.example.test',
+          enabled: true, credentialMode: 'workspace', revision: 1,
+          tools: [{
+            serverId: 'server-change', toolName: 'apply_change', alias: 'apply_change',
+            description: 'Apply an approved change.', inputSchema: { type: 'object' },
+            capability: 'write', enabled: true, reviewState: 'approved',
+            riskLevel: 'high_risk', autoAllowed: false
+          }]
+        }],
+        tools: ['apply_change'],
+        permissionMode: 'ask_before_changes'
+      };
+      const scope = {
+        ...(await compileScope(specialist, 'read_write')),
+        mode: 'read_write' as const,
+        permissionMode: 'ask_before_changes' as const,
+        mcpTools: [{ serverId: 'server-change', toolName: 'apply_change' }],
+        tools: ['apply_change'],
+        toolOperations: { apply_change: 'write' as const }
+      };
+      const runId = await addAgentRun(specialist, scope, 'read_write');
+      await repo.updateRun(runId, { status });
+      const response = await callApproval(runId, {
+        toolCallId: 'agent-write-1', toolName: 'apply_change',
+        toolRef: { serverId: 'server-change', toolName: 'apply_change' },
+        summary: 'Apply the reviewed change', arguments: { value: 'safe' },
+        continuation: { schema_version: 1, state: { step: 'awaiting_approval' } }
+      });
+      assert.equal(response.statusCode, 201);
+      assert.equal((response.body as { targetId?: string }).targetId, undefined);
+      const persisted = await repo.getRunToolApproval((response.body as { id: string }).id);
+      assert.equal(persisted?.targetId, undefined);
+      assert.equal((await repo.getRun(runId))?.status, 'waiting_for_approval');
     });
-    assert.equal(response.statusCode, 201);
-    assert.equal((response.body as { targetId?: string }).targetId, undefined);
-    const persisted = await repo.getRunToolApproval((response.body as { id: string }).id);
-    assert.equal(persisted?.targetId, undefined);
-    assert.equal((await repo.getRun(runId))?.status, 'waiting_for_approval');
-  });
+  }
+
+  for (const status of ['queued', 'cancelling', 'cancelled', 'completed', 'failed'] as const) {
+    it(`rejects approval creation for a ${status} run`, async () => {
+      const specialist = await getAgentDefinition('workspace-1', 'agent-incident-reporter');
+      assert.ok(specialist);
+      const runId = await addAgentRun(specialist, await compileScope(specialist, 'read_write'), 'read_write');
+      await repo.updateRun(runId, { status });
+      const response = await callApproval(runId, {
+        toolCallId: 'blocked-write', toolName: 'apply_change',
+        toolRef: { serverId: 'server-change', toolName: 'apply_change' },
+        arguments: {}, continuation: { schema_version: 1 }
+      });
+      assert.equal(response.statusCode, 409);
+      assert.equal((response.body as { error: { code: string } }).error.code, 'RUN_NOT_ACTIVE');
+      assert.equal((await repo.getRun(runId))?.status, status);
+    });
+  }
 
   it('serves enabled skills from the immutable Agent run snapshot', async () => {
     const baseAgent = await getAgentDefinition('workspace-1', 'agent-incident-reporter');

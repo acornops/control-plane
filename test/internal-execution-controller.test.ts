@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, it, mock } from 'node:test';
 import { bootstrap, summarizeRunEventCounts } from '../src/controllers/internal-execution-controller.js';
+import { createToolApproval } from '../src/controllers/internal-approval-controller.js';
 import { normalizeToolCapability } from '../src/services/target-run-tool-resolution.js';
 import { agentGateway } from '../src/agent/ws-server.js';
 import { webhooks, type WebhookEventInput } from '../src/services/webhooks.js';
@@ -9,6 +10,7 @@ import { repo } from '../src/store/repository.js';
 import { runtime } from '../src/store/runtime.js';
 import {
   callController,
+  createApproval,
   createRequest,
   createRun,
   createSessionRecord,
@@ -79,6 +81,45 @@ afterEach(() => {
 });
 
 after(closeAutomationDatabaseFixtures);
+
+describe('VM approvals during asynchronous dispatch', () => {
+  for (const scenario of [
+    { mode: 'read_write', serverId: '00000000-0000-4000-8000-000000000001', status: 201, code: undefined },
+    { mode: 'read_only', serverId: '00000000-0000-4000-8000-000000000001', status: 400, code: 'READ_WRITE_REQUIRED' },
+    { mode: 'read_write', serverId: 'ungranted-server', status: 400, code: 'MCP_TOOL_REF_NOT_GRANTED' }
+  ] as const) {
+    it(`keeps ${scenario.mode} and exact-tool checks for ${scenario.serverId}`, async () => {
+      repo.getRun = async () => createRun({
+        status: 'dispatching', targetId: 'vm-1', targetType: 'virtual_machine', toolAccessMode: scenario.mode
+      });
+      repo.getTarget = async () => createTarget({ id: 'vm-1', targetType: 'virtual_machine' });
+      repo.getSession = async () => createSessionRecord({ targetId: 'vm-1', targetType: 'virtual_machine' });
+      repo.getTargetAgentRegistration = async () => ({
+        targetId: 'vm-1', targetType: 'virtual_machine', workspaceId: 'workspace-1',
+        agentKeyHash: 'hash', keyVersion: 1, capabilities: ['read', 'write']
+      });
+      repo.listTargetToolOverrides = async () => ({});
+      mockVmBootstrapToolFetch();
+      const persist = mock.method(repo, 'createRunToolApproval', async () => createApproval({
+        targetId: 'vm-1', targetType: 'virtual_machine', toolName: 'restart_service'
+      }));
+      const response = await callController(createToolApproval, createRequest({ runId: 'run-1' }, {
+        toolCallId: 'call-2', toolName: 'restart_service',
+        toolRef: { serverId: scenario.serverId, toolName: 'restart_service' },
+        arguments: { unit: 'cron.service', expected_active_state: 'active', expected_sub_state: 'running' },
+        continuation: { schema_version: 1, pending_tool_call: { call_id: 'call-2' } }
+      }));
+      assert.equal(response.statusCode, scenario.status);
+      if (scenario.code) {
+        assert.equal((response.body as { error: { code: string } }).error.code, scenario.code);
+        assert.equal(persist.mock.callCount(), 0);
+      } else {
+        assert.equal(persist.mock.callCount(), 1);
+        assert.equal((response.body as { status: string }).status, 'pending');
+      }
+    });
+  }
+});
 
 describe('internal execution bootstrap audit metadata', () => {
   it('defaults unknown tool capabilities to write for audit classification', () => {
