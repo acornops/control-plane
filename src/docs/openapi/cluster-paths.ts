@@ -237,10 +237,29 @@ export function buildClusterPaths(): Record<string, unknown> {
           }
         }
       },
+      '/api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/install-instructions': {
+        get: {
+          tags: ['workspaces'],
+          summary: 'Get credential-preserving AgentK upgrade or repair instructions',
+          description: 'Requires manage_targets. Returns an upgrade-only Helm command that reuses installed values and restarts AgentK. Does not rotate keys or disconnect agents. Verify the Kubernetes context, release, and namespace before execution; image pins are preserved.',
+          security: [{ userSession: [] }],
+          parameters: [
+            { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid' } },
+            { in: 'path', name: 'clusterId', required: true, schema: { type: 'string', format: 'uuid' } }
+          ],
+          responses: {
+            '200': { description: 'Credential-free command and operator warnings.' },
+            '403': { description: 'Requires target access and manage_targets.' },
+            '404': { description: 'Cluster not found in this workspace.' },
+            '409': { description: 'No active agent registration to reuse.' }
+          }
+        }
+      },
       '/api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/rotate-agent-key': {
         post: {
           tags: ['workspaces'],
           summary: 'Rotate cluster agent key',
+          description: 'Requires manage_agent_keys. Immediately invalidates the old credential and disconnects AgentK when the command is generated. Use GET install-instructions for routine maintenance instead.',
           security: [{ userSession: [] }],
           parameters: [
             { in: 'path', name: 'workspaceId', required: true, schema: { type: 'string', format: 'uuid', example: EXAMPLE_WORKSPACE_ID } },

@@ -29,8 +29,8 @@ const catalogImportBaseBodySchema = z.object({
   remoteEndpoint: z.string().trim().min(1),
   serverName: z.string().trim().min(1).optional(),
   enabled: z.boolean().optional(),
-  publicHeaders: z.record(z.string()).optional(),
-  endpointConfiguration: z.record(z.string()).optional(),
+  publicHeaders: z.record(z.string(), z.string()).optional(),
+  endpointConfiguration: z.record(z.string(), z.string()).optional(),
   credentialMode: z.enum(['none', 'workspace', 'individual']).optional()
 }).strict();
 const catalogReimportBodySchema = catalogImportBaseBodySchema.extend({

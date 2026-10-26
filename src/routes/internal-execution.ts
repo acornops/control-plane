@@ -26,7 +26,7 @@ import { validateBody } from '../utils/http.js';
 export const internalExecutionRouter = Router();
 registerRunCapacityRoutes(internalExecutionRouter);
 internalExecutionRouter.post('/runs/:runId/dependency-wait', requireServiceToken, requireExecutionAccess,
-  validateBody(z.object({ generation: z.number().int().nonnegative(), state: z.record(z.unknown()) }).strict()), saveDependencyWait);
+  validateBody(z.object({ generation: z.number().int().nonnegative(), state: z.record(z.string(), z.unknown()) }).strict()), saveDependencyWait);
 
 internalExecutionRouter.post('/runs/:runId/bootstrap', requireServiceToken, requireExecutionAccess, internalExecutionController.bootstrap);
 internalExecutionRouter.post(

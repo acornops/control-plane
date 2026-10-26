@@ -68,7 +68,7 @@ export const toolResultArtifactCreateSchema = z.object({
 
 export const platformNativeToolCallSchema = z.object({
   toolCallId: z.string().min(1).max(256),
-  arguments: z.record(z.unknown()).optional().default({})
+  arguments: z.record(z.string(), z.unknown()).optional().default({})
 }).strict();
 
 export const createToolApprovalSchema = z.object({
@@ -79,8 +79,8 @@ export const createToolApprovalSchema = z.object({
     toolName: z.string().min(1)
   }).strict(),
   summary: approvalSummarySchema,
-  arguments: z.record(z.unknown()).optional().default({}),
-  continuation: z.record(z.unknown()).optional()
+  arguments: z.record(z.string(), z.unknown()).optional().default({}),
+  continuation: z.record(z.string(), z.unknown()).optional()
 });
 
 export const toolApprovalDecisionSchema = z.object({
@@ -88,7 +88,7 @@ export const toolApprovalDecisionSchema = z.object({
 });
 
 export const toolApprovalExecutionFinishedSchema = z.object({
-  result: z.unknown(),
+  result: z.unknown().optional(),
   isError: z.boolean().optional().default(false)
 });
 
@@ -341,12 +341,12 @@ export const adminMarkRunFailedSchema = z.object({
 const mcpToolConfigSchema = z.object({
   name: z.string().min(1),
   timeoutMs: z.number().int().positive().max(120000).optional(),
-  inputSchema: z.record(z.unknown()).optional(),
+  inputSchema: z.record(z.string(), z.unknown()).optional(),
   enabled: z.boolean().optional()
 });
 
 export const adminPlatformSettingPatchSchema = z.object({
-  value: z.unknown(),
+  value: z.unknown().optional(),
   expectedVersion: z.number().int().nonnegative(),
   reason: z.string().trim().min(3).max(500)
 }).strict();
@@ -441,7 +441,7 @@ export const createMcpServerSchema = z.object({
   name: z.string().min(1),
   url: remoteMcpEndpointSchema,
   enabled: z.boolean().optional(),
-  publicHeaders: z.record(z.string()).optional(),
+  publicHeaders: z.record(z.string(), z.string()).optional(),
   credentialMode: z.enum(['none', 'workspace', 'individual']).optional(),
   auth: mcpAuthConfigSchema
 }).strict().superRefine((input, ctx) => {
@@ -474,7 +474,7 @@ export const createMcpServerSchema = z.object({
 export const updateMcpServerSchema = z.object({
   name: z.string().min(1).optional(),
   enabled: z.boolean().optional(),
-  publicHeaders: z.record(z.string()).optional(),
+  publicHeaders: z.record(z.string(), z.string()).optional(),
   credentialMode: z.enum(['none', 'workspace', 'individual']).optional(),
   expectedRevision: z.number().int().positive().optional(),
   auth: mcpAuthConfigSchema
@@ -496,7 +496,7 @@ export const updateTargetMcpServerToolSchema = z.object({
 
 export const updateTargetToolSchema = z.object({
   enabled: z.boolean(),
-  config: z.record(z.unknown()).optional()
+  config: z.record(z.string(), z.unknown()).optional()
 }).strict();
 
 export { createTargetInsightsEntrySchema, updateTargetInsightsEntrySchema } from './target-insights-contracts.js';

@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const mutableEntryStatusSchema = z.enum(['active', 'pending']);
 const tagsSchema = z.array(z.string().trim().min(1).max(80)).max(32);
-const metadataSchema = z.record(z.unknown());
+const metadataSchema = z.record(z.string(), z.unknown());
 
 const mutableFields = {
   title: z.string().trim().min(1).max(240).optional(),

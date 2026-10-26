@@ -30,6 +30,15 @@ The control plane owns the platform API boundary. Keep this README as a short in
 
 ## Shared Invariants
 
+- Kubernetes `GET /workspaces/:workspaceId/kubernetes-clusters/:clusterId/install-instructions`
+  requires target access and `manage_targets`. It returns `{clusterId,
+  installInstructions: {command,warnings}}` without credentials or mutations.
+  The Helm command upgrades an existing release, reuses installed values,
+  forces a pod rollout, and waits. Operators must verify context/release/namespace;
+  custom image pins remain in effect. Credential replacement remains the separate
+  `rotate-agent-key` operation (`manage_agent_keys`), which invalidates the old
+  key immediately. Deploy this additive endpoint before the consuming console.
+
 - AI Policy keeps `providerModels` as the enabled allowlist. The optional
   `additionalProviderModels` map retains admin-added IDs, including disabled
   ones. `constraints.providerModels` is the selectable catalog, while
@@ -383,6 +392,10 @@ The control plane owns the platform API boundary. Keep this README as a short in
   run access mode, freezes qualified identities on the run, and returns
   `ASSISTANT_REFERENCE_INVALID` instead of silently dropping stale references.
 - Agent handshake responses always include a complete `sessionPolicy`; AgentK rejects tool calls until it is installed.
+- Agent tool `inputSchema` describes pre-default, pre-transform inputs in JSON
+  Schema draft 2020-12. Propagate optional fields, default annotations, and both
+  `anyOf` and `oneOf` unions without treating defaults as required values.
+  Agent-side refinements and authorization remain authoritative.
 - The Kubernetes built-in catalog contains `list_resources`, `get_resource`,
   `get_resource_logs`, `restart_workload`, `scale_workload`, `patch_workload`,
   `patch_resource`, and `patch_configmap`. Custom resources

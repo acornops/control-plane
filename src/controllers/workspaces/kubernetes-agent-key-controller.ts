@@ -8,7 +8,35 @@ import { repo } from '../../store/repository.js';
 import { KUBERNETES_TARGET_TYPE } from '../../types/domain.js';
 import { generateAgentKey, hashSecret } from '../../utils/crypto.js';
 import { toSingleParam } from '../../utils/params.js';
-import { buildAgentInstallInstructions, parseAgentAccessMode } from './kubernetes-cluster-request-utils.js';
+import { buildAgentInstallInstructions, buildAgentRepairInstructions, parseAgentAccessMode } from './kubernetes-cluster-request-utils.js';
+
+/** Return maintenance instructions without issuing or replacing an AgentK credential. */
+export async function getClusterInstallInstructions(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const workspaceId = toSingleParam(req.params.workspaceId);
+    const clusterId = toSingleParam(req.params.clusterId);
+    const access = await requireClusterAccess(req, res, workspaceId, clusterId);
+    if (!access) return;
+    if (!access.authz.can('manage_targets')) {
+      res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Target management capability is required', retryable: false } });
+      return;
+    }
+    if (!(await repo.getTargetAgentRegistration(clusterId))) {
+      res.status(409).json({
+        error: {
+          code: 'AGENTK_CREDENTIAL_NOT_ACTIVE',
+          message: 'AgentK has no active credential to reuse; generate an initial install command instead',
+          retryable: false
+        }
+      });
+      return;
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).json({ clusterId, installInstructions: buildAgentRepairInstructions(access.cluster) });
+  } catch (err) {
+    next(err);
+  }
+}
 
 /** Rotate an AgentK key while preserving the cluster's immutable RBAC snapshot. */
 export async function rotateAgentKey(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {

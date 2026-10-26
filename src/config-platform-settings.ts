@@ -29,11 +29,11 @@ const platformSettingsPolicySchema = z.object({
   memberDiscovery: z.object({
     allowedModes: z.array(z.enum(memberDiscoveryModes)).min(1).default(['disabled', 'exact_email']),
     defaultMode: z.enum(memberDiscoveryModes).default('exact_email')
-  }).strict().default({}),
+  }).strict().prefault({}),
   aiPolicy: z.object({
     runtimeEditable: z.boolean().default(true),
     allowAdditionalModels: z.boolean().default(false)
-  }).strict().default({}),
+  }).strict().prefault({}),
   userSignInMethods: z.object({
     allowedMethods: z.array(z.enum(USER_SIGN_IN_METHODS)).min(1).optional(),
     defaultMethods: z.array(z.enum(USER_SIGN_IN_METHODS)).min(1).optional()
@@ -46,14 +46,14 @@ const platformSettingsPolicySchema = z.object({
         'Kubernetes RBAC profile keys must not contain duplicates'
       )
       .default([])
-  }).strict().default({}),
+  }).strict().prefault({}),
   // Retained only to accept existing deployment policy JSON. The runtime
   // setting was superseded by userSignInMethods.
   passwordSignup: z.object({
     allowedValues: z.array(z.boolean()).min(1).default([false, true]),
     defaultValue: z.boolean().optional()
-  }).strict().default({})
-}).strict().default({});
+  }).strict().prefault({})
+}).strict().prefault({});
 
 export interface PlatformSettingsDeploymentPolicy {
   memberDiscovery: {

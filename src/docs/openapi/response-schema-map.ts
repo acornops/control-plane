@@ -158,6 +158,7 @@ export function schemaForOperation(method: string, path: string, statusCode: str
     'GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/resources': 'InventoryPage',
     'GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/pods/{namespace}/{podName}/logs': 'PodLogs',
     'POST /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/rotate-agent-key': 'AgentKeyRotation',
+    'GET /api/v1/workspaces/{workspaceId}/kubernetes-clusters/{clusterId}/install-instructions': 'ClusterAgentMaintenance',
     'GET /api/v1/workspaces/{workspaceId}/virtual-machines': 'VirtualMachinePage',
     'POST /api/v1/workspaces/{workspaceId}/virtual-machines': 'VirtualMachineRegistration',
     'GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}': 'VirtualMachine',

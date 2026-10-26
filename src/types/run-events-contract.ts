@@ -48,7 +48,7 @@ export const runEventSchema = z.object({
   seq: z.number().int().positive(),
   ts: z.string().datetime(),
   type: z.string().min(1),
-  payload: z.record(z.unknown())
+  payload: z.record(z.string(), z.unknown())
 }).superRefine((event, ctx) => {
   if (event.type !== 'tool_call_completed') return;
   const parsed = toolCallCompletedPayloadSchema.safeParse(event.payload);

@@ -66,6 +66,20 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: true
     },
+    ClusterAgentMaintenance: {
+      type: 'object',
+      required: ['clusterId', 'installInstructions'],
+      properties: {
+        clusterId: uuid,
+        installInstructions: {
+          type: 'object',
+          required: ['command', 'warnings'],
+          properties: { command: { type: 'string' }, warnings: stringArray },
+          additionalProperties: false
+        }
+      },
+      additionalProperties: false
+    },
     ...buildVirtualMachineInstallSchemas(),
     AgentKeyRotation: {
       type: 'object',

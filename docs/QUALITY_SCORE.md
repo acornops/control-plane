@@ -25,7 +25,10 @@ MCP reliability remain separate measurement needs; existing scores are unchanged
 
 Focused model-policy and VM-recovery corrections pass 1,340 tests, SQL upgrade
 checks, contracts, harness, and build. Compatible HTTP parser security patches
-are included. This is not a production sign-off: Zod collection-error amplification
-and the Nodemailer dependency upgrade remain open in the
-[debt tracker](exec-plans/tech-debt-tracker.md), and the actual production database
-ancestry and restore rehearsal have not been verified. Existing scores are unchanged.
+are included. The follow-up [runtime validation qualification](exec-plans/completed/runtime-validation-security.md)
+adopts patched Zod 4 and Nodemailer, with 1,354 passing tests, default/optionality
+and real loopback SMTP regressions, and no independent review findings. This is
+not a production sign-off: unconstrained collection
+budgets remain open in the [debt tracker](exec-plans/tech-debt-tracker.md), and the
+actual production database ancestry and restore rehearsal have not been verified.
+Existing scores are unchanged.

@@ -97,6 +97,29 @@ export function parseAgentAccessMode(value: unknown): AgentAccessMode {
   return value === 'read_write' ? 'read_write' : 'read_only';
 }
 
+/** Build a credential-preserving command for an already installed Helm release. */
+export function buildAgentRepairInstructions(cluster: KubernetesCluster): Pick<AgentInstallInstructions, 'command' | 'warnings'> {
+  const lines = [
+    `helm upgrade ${toShellSingleQuoted(config.AGENTK_HELM_RELEASE_NAME)} ${toShellSingleQuoted(config.AGENTK_HELM_CHART_REF)}`,
+    config.AGENTK_HELM_CHART_VERSION
+      ? `  --version ${toShellSingleQuoted(config.AGENTK_HELM_CHART_VERSION)}`
+      : '  --devel',
+    `  --namespace ${toShellSingleQuoted(config.AGENTK_HELM_NAMESPACE)}`,
+    '  --reuse-values',
+    `  --set-string 'podAnnotations.acornops\\.dev/maintenance-at'="$(date -u +%Y-%m-%dT%H:%M:%SZ)"`,
+    '  --wait',
+    '  --timeout 5m'
+  ];
+  return {
+    command: lines.join(' \\\n'),
+    warnings: [
+      `Verify your Kubernetes context, Helm release name, and namespace refer to ${cluster.name} before running. Adjust the command if you installed with different names.`,
+      'Reuses installed values, credentials, namespace scope, and RBAC. Existing image tag or digest pins are preserved and may prevent an image upgrade.',
+      'Restarts AgentK and waits up to five minutes. A missing release fails; use initial installation instead. Externally managed Secrets remain operator-owned.'
+    ]
+  };
+}
+
 export function buildAgentInstallInstructions(
   cluster: KubernetesCluster,
   agentKey: string,

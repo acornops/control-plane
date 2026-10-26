@@ -39,6 +39,11 @@ export function registerKubernetesClusterRoutes(router: Router): void {
     requireActor(['user']),
     authed(workspacesController.getPodLogs)
   );
+  router.get(
+    '/workspaces/:workspaceId/kubernetes-clusters/:clusterId/install-instructions',
+    requireActor(['user']),
+    authed(workspacesController.getClusterInstallInstructions)
+  );
   router.post(
     '/workspaces/:workspaceId/kubernetes-clusters/:clusterId/rotate-agent-key',
     requireActor(['user']),

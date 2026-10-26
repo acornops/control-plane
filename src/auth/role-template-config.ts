@@ -25,7 +25,7 @@ const customRoleTemplateSchema = z.object({
 const workspaceRolesConfigSchema = z.object({
   enabledBuiltIns: z.array(z.string()).optional(),
   customTemplates: z.array(customRoleTemplateSchema).default([])
-}).strict().default({});
+}).strict().prefault({});
 
 export type WorkspaceRolesConfig = z.infer<typeof workspaceRolesConfigSchema>;
 

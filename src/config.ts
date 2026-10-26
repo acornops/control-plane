@@ -50,7 +50,7 @@ function emptyStringToUndefined(value: unknown): unknown {
   }
   return value;
 }
-function envBoolean(defaultValue: boolean): z.ZodEffects<z.ZodBoolean, boolean, unknown> {
+function envBoolean(defaultValue: boolean): z.ZodType<boolean> {
   return z.preprocess((value) => {
     if (value === undefined || value === '') {
       return defaultValue;
@@ -63,7 +63,7 @@ function envBoolean(defaultValue: boolean): z.ZodEffects<z.ZodBoolean, boolean, 
     return value;
   }, z.boolean());
 }
-function optionalEnvBoolean(): z.ZodEffects<z.ZodOptional<z.ZodBoolean>, boolean | undefined, unknown> {
+function optionalEnvBoolean(): z.ZodType<boolean | undefined> {
   return z.preprocess((value) => {
     if (value === undefined || value === '') {
       return undefined;

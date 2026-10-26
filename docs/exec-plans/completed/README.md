@@ -1,5 +1,8 @@
 # Completed Execution Plans
 
+- [Agent maintenance standardization](agent-maintenance-standardization.md) — Source qualification complete; release acceptance is tracked separately.
+- [Runtime validation security](runtime-validation-security.md) — Source qualification complete; release acceptance is tracked separately.
+
 - [Focused Production Readiness Corrections](production-readiness.md) — Released for demo; production security gates remain open.
 
 - [Filesystem Capacity Inventory Consistency](filesystem-capacity-alerts.md)
