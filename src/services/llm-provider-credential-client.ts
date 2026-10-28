@@ -1,6 +1,9 @@
-import { config } from '../config.js';
-import { internalFetch, type InternalHttpResponse } from './internal-http-client.js';
-import { LlmGatewayHttpError } from './mcp-registry-client.js';
+import type { InternalHttpResponse } from './internal-http-client.js';
+import {
+  createGatewayRequestOptions as createRequestOptions,
+  fetchGateway,
+  LlmGatewayHttpError
+} from './llm-gateway-admin-client.js';
 import { LlmProvider } from '../types/domain.js';
 
 export interface ProviderCredentialStatus {
@@ -17,33 +20,6 @@ export interface ProviderCredentialStatusResponse {
 
 export interface ProviderDefaultCredentialStatusResponse {
   providers: ProviderCredentialStatus[];
-}
-
-function createRequestOptions(method: string, body?: unknown): RequestInit {
-  const headers: Record<string, string> = {
-    authorization: `Bearer ${config.LLM_GATEWAY_ADMIN_TOKEN}`
-  };
-  if (body !== undefined) {
-    headers['content-type'] = 'application/json';
-  }
-  return {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined
-  };
-}
-
-async function fetchGateway(path: string, options: RequestInit): Promise<InternalHttpResponse> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.LLM_GATEWAY_TIMEOUT_MS);
-  try {
-    return await internalFetch(`${config.LLM_GATEWAY_URL}${path}`, {
-      ...options,
-      signal: controller.signal
-    }, config.LLM_GATEWAY_TIMEOUT_MS);
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 async function parseOrThrow<T>(response: InternalHttpResponse): Promise<T> {

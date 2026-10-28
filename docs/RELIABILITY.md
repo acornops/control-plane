@@ -67,6 +67,11 @@
   handler or RPC-publication completion.
 - Only explicit trusted pre-admission rejection permits safe command retry;
   unknown write outcomes retain approval and reconciliation fencing.
+- Gateway admin GETs retry only the complete HTTP 503 drain envelope within one
+  `LLM_GATEWAY_TIMEOUT_MS` budget, including response bodies and retry waits.
+  They preserve caller cancellation and never follow redirects or replay admin
+  mutations, transport failures or other gateway errors. Credential and catalog
+  reads share this transport; message creation itself is never replayed.
 - Durable cancellation reads do not require execution ownership.
 - Validate real SIGTERM with blocked accepted HTTP work and pre-authenticated
   sockets, plus remaining-lease and owner-fencing tests against isolated stores.

@@ -31,3 +31,17 @@ for (const response of [
     assert.equal(calls, 1);
   });
 }
+
+for (const message of [undefined, '', 'upstream unavailable']) {
+  test(`dispatch does not replay an incomplete drain classification (message ${JSON.stringify(message)})`, async () => {
+    let calls = 0;
+    mock.method(globalThis, 'fetch', async () => {
+      calls++;
+      return calls === 1
+        ? new Response(JSON.stringify({ error: { ...draining.error, message } }), { status: 503 })
+        : new Response('{}', { status: 202 });
+    });
+    await assert.rejects(dispatchRunToExecutionEngine(run), /Execution Engine start failed \(503\)/);
+    assert.equal(calls, 1);
+  });
+}

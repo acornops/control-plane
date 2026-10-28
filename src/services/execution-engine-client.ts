@@ -21,9 +21,10 @@ async function dispatch(payload: Record<string, unknown>, signal: AbortSignal): 
     }, config.EXECUTION_ENGINE_TIMEOUT_MS);
     if (response.ok) return;
     const body = await response.text();
-    let error: { code?: unknown; retryable?: unknown; outcome?: unknown } | undefined;
+    let error: { code?: unknown; message?: unknown; retryable?: unknown; outcome?: unknown } | undefined;
     try { error = (JSON.parse(body) as { error?: typeof error }).error; } catch { /* Non-JSON errors cannot authorize replay. */ }
-    if (response.status !== 503 || error?.code !== 'SERVICE_DRAINING' || error.retryable !== true || error.outcome !== 'not_started') {
+    if (response.status !== 503 || error?.code !== 'SERVICE_DRAINING' || error.message !== 'Service is draining'
+      || error.retryable !== true || error.outcome !== 'not_started') {
       throw new Error(`Execution Engine start failed (${response.status}): ${body}`);
     }
     try { await delay(250, undefined, { signal }); }
