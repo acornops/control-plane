@@ -1,6 +1,7 @@
 # Completed Execution Plans
 
 - [Graceful rolling restarts](2026-10-29-graceful-rolling-restarts.md) — Control-plane drain, agent handoff and additive authority/cancellation contracts validated locally; coordinated rollout acceptance belongs to deployment.
+- [Pod logs unavailable before startup](pod-logs-unavailable.md)
 
 - [Approval-resume reliability](approval-resume-reliability.md) — Dispatch and delayed-start guards; coordinated release acceptance tracked in deployment.
 

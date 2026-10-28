@@ -30,6 +30,15 @@ The control plane owns the platform API boundary. Keep this README as a short in
 
 ## Shared Invariants
 
+- Pod-log requests map only AgentK MCP errors with `code: PRECONDITION_FAILED`,
+  `reason: ContainerNotStarted`, and upstream `status: 400` to HTTP 409
+  `POD_LOGS_UNAVAILABLE` with `retryable: false` and constant no-logs-yet copy.
+  The normal MCP result unwrapping preserves these fields. Raw Kubernetes
+  messages are not returned for this condition. Authorization, successful log
+  payloads, and unrelated failures are unchanged. Updated AgentK and console
+  consumers are required for the improved message; older combinations continue
+  to use generic error handling.
+
 - Every validated execution dispatch, including continuation resume, emits
   `run_started`; the original run start timestamp is preserved. Approval creation
   accepts `dispatching`, `running`, or `waiting_for_approval` because event delivery

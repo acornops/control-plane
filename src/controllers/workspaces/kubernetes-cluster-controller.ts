@@ -1,5 +1,6 @@
 import { NextFunction, Response } from 'express';
 import { agentGateway } from '../../agent/ws-server.js';
+import { AgentToolCallError } from '../../agent/types.js';
 import { AuthenticatedRequest } from '../../auth/middleware.js';
 import {
   requireClusterAccess,
@@ -314,7 +315,13 @@ export async function getPodLogs(req: AuthenticatedRequest, res: Response, next:
         fetchedAt: new Date().toISOString()
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Agent log request failed';
+      const containerNotStarted = err instanceof AgentToolCallError
+        && err.data?.code === 'PRECONDITION_FAILED'
+        && err.data?.reason === 'ContainerNotStarted'
+        && err.data?.status === 400;
+      const message = containerNotStarted
+        ? 'No logs yet; this container has not started.'
+        : err instanceof Error ? err.message : 'Agent log request failed';
       webhooks.emit({
         type: 'tool.called.v1',
         workspaceId,
@@ -350,10 +357,10 @@ export async function getPodLogs(req: AuthenticatedRequest, res: Response, next:
         }
       });
 
-      const status = /not connected|timed out/i.test(message) ? 503 : 502;
+      const status = containerNotStarted ? 409 : /not connected|timed out/i.test(message) ? 503 : 502;
       res.status(status).json({
         error: {
-          code: status === 503 ? 'AGENT_UNAVAILABLE' : 'AGENT_TOOL_ERROR',
+          code: containerNotStarted ? 'POD_LOGS_UNAVAILABLE' : status === 503 ? 'AGENT_UNAVAILABLE' : 'AGENT_TOOL_ERROR',
           message,
           retryable: status === 503
         }

@@ -180,6 +180,11 @@
       }
     },
     "management-console": {
+      "podLogsUnavailable": {
+        "httpStatus": 409,
+        "errorCode": "POD_LOGS_UNAVAILABLE",
+        "retryable": false
+      },
       "workspaceAccessState": {
         "list": "GET /api/v1/workspaces?view=access-state",
         "detail": "GET /api/v1/workspaces/{workspaceId}/access-state",
@@ -1450,6 +1455,13 @@
       }
     },
     "agentk": {
+      "podLogsUnavailable": {
+        "toolCode": "PRECONDITION_FAILED",
+        "reason": "ContainerNotStarted",
+        "upstreamStatus": 400,
+        "phase": "kubernetes_api",
+        "retryable": false
+      },
       "agentHeaders": [
         "x-agent-key",
         "x-connector-version"
