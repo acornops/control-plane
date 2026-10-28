@@ -6,6 +6,16 @@ import { db } from '../src/infra/db.js';
 import { serviceLifecycle } from '../src/services/service-lifecycle.js';
 import { watchWorkspaceStream } from '../src/services/workspace-stream-lifecycle.js';
 
+async function waitForAuthorizationCheck(started: Promise<void>): Promise<void> {
+  let timeout!: ReturnType<typeof setTimeout>;
+  try {
+    // The EventEmitter response has no socket to keep the unref'd observer alive.
+    await Promise.race([started, new Promise<never>((_resolve, reject) => {
+      timeout = setTimeout(() => reject(new Error('Workspace authorization check did not start')), 5000);
+    })]);
+  } finally { clearTimeout(timeout); }
+}
+
 test('a stream close retains an already-running workspace authorization callback', async () => {
   let release!: () => void;
   let started!: () => void;
@@ -15,10 +25,11 @@ test('a stream close retains an already-running workspace authorization callback
   const req = new EventEmitter();
   const res = Object.assign(new EventEmitter(), { writableEnded: false, write() {}, end() {} });
   watchWorkspaceStream(req as Request, res as unknown as Response, 'workspace');
-  await began;
-  res.emit('close');
-  try { assert.equal(await serviceLifecycle.waitForIdle(performance.now() + 20), false); }
-  finally { release(); mock.restoreAll(); }
+  try {
+    await waitForAuthorizationCheck(began);
+    res.emit('close');
+    assert.equal(await serviceLifecycle.waitForIdle(performance.now() + 20), false);
+  } finally { res.emit('close'); release(); mock.restoreAll(); }
   assert.equal(await serviceLifecycle.waitForIdle(performance.now() + 100), true);
 });
 
@@ -33,9 +44,9 @@ test('drain ends a replayable observer cleanly while retaining its running autho
     writableEnded: false, write() {}, end() { this.writableEnded = true; this.emit('finish'); this.emit('close'); }
   });
   const replayFinished = watchWorkspaceStream(req as Request, res as unknown as Response, 'workspace');
-  await began;
-  serviceLifecycle.beginDrain(1000);
   try {
+    await waitForAuthorizationCheck(began);
+    serviceLifecycle.beginDrain(1000);
     assert.equal(res.writableEnded, false, 'accepted replay must finish before observer shutdown');
     replayFinished();
     assert.equal(res.writableEnded, true);
