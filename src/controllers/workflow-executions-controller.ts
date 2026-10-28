@@ -203,7 +203,7 @@ export async function streamWorkflowExecution(req: AuthenticatedRequest, res: Re
       return;
     }
     if (!(await requireWorkspaceDataRead(req, res, record.workspaceId, 'No access to workflow execution'))) return;
-    watchWorkspaceStream(req, res, record.workspaceId);
+    const finishStreamReplay = watchWorkspaceStream(req, res, record.workspaceId);
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
@@ -246,11 +246,18 @@ export async function streamWorkflowExecution(req: AuthenticatedRequest, res: Re
     }
 
     const keepAlive = setInterval(() => res.write(': keep-alive\n\n'), 20_000);
-    req.on('close', () => {
+    let closed = false;
+    const cleanup = () => {
+      if (closed) return;
+      closed = true;
       incrementWorkflowExecutionStream('closed');
       clearInterval(keepAlive);
       runtime.workflowExecutionStreams.off(`workflow-execution:${id}`, listener);
-    });
+    };
+    req.on('close', cleanup);
+    res.on('close', cleanup);
+    if (res.destroyed || res.writableEnded) cleanup();
+    finishStreamReplay();
   } catch (err) {
     incrementWorkflowExecutionStream('error');
     next(err);

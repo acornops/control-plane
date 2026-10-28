@@ -1,5 +1,7 @@
 # Completed Execution Plans
 
+- [Graceful rolling restarts](2026-10-29-graceful-rolling-restarts.md) — Control-plane drain, agent handoff and additive authority/cancellation contracts validated locally; coordinated rollout acceptance belongs to deployment.
+
 - [Approval-resume reliability](approval-resume-reliability.md) — Dispatch and delayed-start guards; coordinated release acceptance tracked in deployment.
 
 - [Agent maintenance standardization](agent-maintenance-standardization.md) — Source qualification complete; release acceptance is tracked separately.

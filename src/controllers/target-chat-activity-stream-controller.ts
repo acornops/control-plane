@@ -91,6 +91,7 @@ export async function streamTargetChatActivity(req: AuthenticatedRequest, res: R
       runtime.targetChatActivityStreams.off(key, listener);
     };
     req.on('close', cleanup);
+    res.on('close', cleanup);
 
     let replayCursorId = lastReplayedId;
     let firstReplayPage: TargetChatActivityEvent[] = [];
@@ -107,7 +108,7 @@ export async function streamTargetChatActivity(req: AuthenticatedRequest, res: R
     }
     if (closed) return;
 
-    watchWorkspaceStream(req, res, workspaceId);
+    const finishStreamReplay = watchWorkspaceStream(req, res, workspaceId);
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
@@ -138,6 +139,7 @@ export async function streamTargetChatActivity(req: AuthenticatedRequest, res: R
       });
     }
 
+    if (closed) return;
     replaying = false;
     for (const event of bufferedLiveEvents) {
       const eventId = BigInt(event.id);
@@ -149,6 +151,7 @@ export async function streamTargetChatActivity(req: AuthenticatedRequest, res: R
     keepAlive = setInterval(() => {
       res.write(': keep-alive\n\n');
     }, 20000);
+    finishStreamReplay();
   } catch (err) {
     next(err);
   }

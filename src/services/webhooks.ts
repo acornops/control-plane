@@ -1,3 +1,4 @@
+import { serviceLifecycle } from './service-lifecycle.js';
 import { logger } from '../logger.js';
 import { repo } from '../store/repository.js';
 import { KUBERNETES_TARGET_TYPE, type Run, type WebhookSubscription } from '../types/domain.js';
@@ -57,7 +58,7 @@ async function enqueue(input: WebhookEventInput): Promise<string | null> {
 
 export const webhooks = {
   emit(input: WebhookEventInput): void {
-    void enqueue(input).catch((err) => {
+    void serviceLifecycle.track(() => enqueue(input)).catch((err) => {
       logger.warn({ err, type: input.type, workspaceId: input.workspaceId }, 'Webhook enqueue failed');
     });
   },
@@ -69,11 +70,11 @@ export const webhooks = {
   },
 
   emitPrepared(prepared: PreparedWebhookDispatch): void {
-    void repo.enqueueWebhookOutboxEvent(
+    void serviceLifecycle.track(() => repo.enqueueWebhookOutboxEvent(
       { ...prepared.input, snapshotRecipients: true },
       undefined,
       prepared.subscriptions
-    ).catch((err) => {
+    )).catch((err) => {
       logger.warn(
         { err, type: prepared.input.type, workspaceId: prepared.input.workspaceId },
         'Prepared webhook enqueue failed'
@@ -85,7 +86,7 @@ export const webhooks = {
 const terminalRunStatuses = new Set(['completed', 'failed', 'cancelled']);
 
 function recordRunLifecycleAudit(eventType: WebhookEventType, run: Run): void {
-  void recordWorkspaceAuditEvent({
+  void serviceLifecycle.track(() => recordWorkspaceAuditEvent({
     workspaceId: run.workspaceId,
     category: 'run',
     eventType,
@@ -105,7 +106,7 @@ function recordRunLifecycleAudit(eventType: WebhookEventType, run: Run): void {
       ...(run.endedAt ? { endedAt: run.endedAt } : {}),
       ...(run.errorCode ? { errorCode: run.errorCode } : {})
     }
-  });
+  }));
 }
 
 export function emitRunStatusTransition(previous: Run, next: Run | null): void {
@@ -113,7 +114,7 @@ export function emitRunStatusTransition(previous: Run, next: Run | null): void {
     return;
   }
 
-  void recordRunStatusChangedActivity(previous, next);
+  void serviceLifecycle.track(() => recordRunStatusChangedActivity(previous, next));
 
   if (previous.status !== 'running' && next.status === 'running' && !previous.startedAt) {
     if (next.targetId && next.targetType) {

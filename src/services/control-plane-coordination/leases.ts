@@ -1,3 +1,4 @@
+import { serviceLifecycle } from '../service-lifecycle.js';
 import { randomUUID } from 'node:crypto';
 import { config } from '../../config.js';
 import { redis } from '../../infra/redis.js';
@@ -29,8 +30,8 @@ export async function withRedisLease<T>(name: string, ttlSeconds: number, task: 
   const acquired = await redis.set(key, token, 'EX', ttlSeconds, 'NX');
   if (acquired !== 'OK') return undefined;
   const renewalInterval = setInterval(() => {
-    redis
-      .eval(renewIfValueScript, 1, key, token, String(ttlSeconds))
+    if (serviceLifecycle.isStopping) return;
+    serviceLifecycle.track(() => redis.eval(renewIfValueScript, 1, key, token, String(ttlSeconds)))
       .then((renewed) => {
         if (renewed === 1) return;
         clearInterval(renewalInterval);

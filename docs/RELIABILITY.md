@@ -54,3 +54,16 @@
 - Incident reports retain versioned source plus server-derived run provenance in
   Postgres; model-supplied provenance is ignored. PDF bytes are rendered within
   resource limits for each authorized download and are never persisted.
+
+
+## Restart boundaries
+
+- First signal closes HTTP admission and readiness with one fixed drain deadline.
+- Keep PostgreSQL, Redis replies and agent sockets alive for accepted work.
+- HTTP disconnect and an empty pending-command map do not imply asynchronous
+  handler or RPC-publication completion.
+- Only explicit trusted pre-admission rejection permits safe command retry;
+  unknown write outcomes retain approval and reconciliation fencing.
+- Durable cancellation reads do not require execution ownership.
+- Validate real SIGTERM with blocked accepted HTTP work and pre-authenticated
+  sockets, plus remaining-lease and owner-fencing tests against isolated stores.

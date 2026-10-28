@@ -52,3 +52,25 @@ test('workflow delivery acknowledgement leaves execution queued until an engine 
     assert.equal(row.started_at, null);
   } finally { config.AUTOMATION_RUNTIME_MODE = mode; }
 });
+
+test('safe drain rejection defers workflow delivery without exhausting attempts', async () => {
+  await resetAutomationDatabaseFixtures();
+  await installAutomationTemplateFixtures();
+  const mode = config.AUTOMATION_RUNTIME_MODE;
+  const timeout = config.EXECUTION_ENGINE_TIMEOUT_MS;
+  try {
+    config.AUTOMATION_RUNTIME_MODE = 'on';
+    config.EXECUTION_ENGINE_TIMEOUT_MS = 20;
+    const setup = await coordinatedRoot();
+    const child = await createDelegatedWorkflowRun(delegationInput(setup, 'drain-dispatch'));
+    await db.query('UPDATE automation_dispatch_outbox SET attempt_count=2 WHERE run_id=$1', [child.run.id]);
+    mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ error: {
+      code: 'SERVICE_DRAINING', message: 'Service is draining', retryable: true, outcome: 'not_started'
+    } }), { status: 503 }));
+    await runAutomationOutboxTick();
+    const row = (await db.query('SELECT status,attempt_count FROM automation_dispatch_outbox WHERE run_id=$1', [child.run.id])).rows[0];
+    assert.equal(row.status, 'failed');
+    assert.equal(row.attempt_count, 2);
+    assert.equal((await db.query('SELECT status FROM workflow_runs WHERE id=$1', [child.run.id])).rows[0].status, 'queued');
+  } finally { config.AUTOMATION_RUNTIME_MODE = mode; config.EXECUTION_ENGINE_TIMEOUT_MS = timeout; }
+});

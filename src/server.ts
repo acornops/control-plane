@@ -1,3 +1,5 @@
+import { serviceLifecycle } from './services/service-lifecycle.js';
+import { stopBuiltInToolSyncScheduler } from './agent/tool-sync-scheduler.js';
 import { assertWorkspaceCapacityRollout } from './services/workspace-capacity-rollout.js';
 import { runWorkspaceCapacityMaintenance } from './services/workspace-capacity-maintenance.js';
 import { createServer } from 'node:http';
@@ -106,7 +108,7 @@ async function main(): Promise<void> {
       mcpLifecycleReconciliationInFlight = false;
     }
   };
-  const mcpLifecycleReconciliationInterval = setInterval(runMcpLifecycleReconciliation, 1_000);
+  const mcpLifecycleReconciliationInterval = serviceLifecycle.interval(runMcpLifecycleReconciliation, 1_000);
   mcpLifecycleReconciliationInterval.unref();
   let retentionSweepInFlight = false;
   const runRetentionSweep = async () => {
@@ -124,7 +126,7 @@ async function main(): Promise<void> {
   };
   await runRetentionSweep();
 
-  const toolingSyncInterval = setInterval(async () => {
+  const toolingSyncInterval = serviceLifecycle.interval(async () => {
     try {
       await withRedisLease('built-in-tool-sync', 120, async () => {
         const regs = await repo.listTargetAgentRegistrations();
@@ -162,12 +164,12 @@ async function main(): Promise<void> {
       logger.warn({ err }, 'Periodic built-in tool sync failed');
     }
   }, 60_000);
-  const conversationRetentionInterval = setInterval(
+  const conversationRetentionInterval = serviceLifecycle.interval(
     runRetentionSweep,
     config.CONVERSATION_RETENTION_JOB_INTERVAL_SECONDS * 1000
   );
   conversationRetentionInterval.unref();
-  const approvalTimeoutInterval = setInterval(async () => {
+  const approvalTimeoutInterval = serviceLifecycle.interval(async () => {
     try {
       await withRedisLease('approval-timeouts', 30, async () => {
         await expireAndResumeTimedOutApprovals();
@@ -177,7 +179,7 @@ async function main(): Promise<void> {
     }
   }, Math.max(5, Math.min(config.ASSISTANT_WRITE_CONFIRMATION_TIMEOUT_SECONDS, 60)) * 1000);
   approvalTimeoutInterval.unref();
-  const targetInsightsCheckpointInterval = setInterval(async () => {
+  const targetInsightsCheckpointInterval = serviceLifecycle.interval(async () => {
     try {
       await withRedisLease('target-insights-checkpoints', 120, async () => {
         await runTargetInsightsCheckpointSweep();
@@ -187,14 +189,16 @@ async function main(): Promise<void> {
     }
   }, 60_000);
   targetInsightsCheckpointInterval.unref();
-  const capacityMaintenanceInterval = setInterval(() => {
-    void runWorkspaceCapacityMaintenance().catch((err) => logger.warn({ err }, 'Workspace capacity maintenance failed'));
+  const capacityMaintenanceInterval = serviceLifecycle.interval(() => {
+    return runWorkspaceCapacityMaintenance().catch((err) => logger.warn({ err }, 'Workspace capacity maintenance failed'));
   }, 10000);
   capacityMaintenanceInterval.unref();
-  const automationWorkerInterval = setInterval(async () => {
+  const automationWorkerInterval = serviceLifecycle.interval(async () => {
     try {
       await runWorkflowScheduleTick();
+      if (!serviceLifecycle.accepting) return;
       await runWorkflowWebhookTick();
+      if (!serviceLifecycle.accepting) return;
       await runAutomationOutboxTick();
       await refreshAutomationMetricsSnapshot();
     } catch (err) {
@@ -202,7 +206,7 @@ async function main(): Promise<void> {
     }
   }, config.AUTOMATION_WORKER_INTERVAL_MS);
   automationWorkerInterval.unref();
-  const agentVEnrollmentCleanupInterval = setInterval(async () => {
+  const agentVEnrollmentCleanupInterval = serviceLifecycle.interval(async () => {
     try {
       await withRedisLease('agentv-enrollment-cleanup', 60, async () => {
         await repo.agentv.expireAgentVEnrollmentState();
@@ -213,7 +217,7 @@ async function main(): Promise<void> {
   }, 60_000);
   agentVEnrollmentCleanupInterval.unref();
   let targetAutoTriageTickInFlight = false;
-  const targetAutoTriageWorkerInterval = setInterval(async () => {
+  const targetAutoTriageWorkerInterval = serviceLifecycle.interval(async () => {
     if (targetAutoTriageTickInFlight) return;
     targetAutoTriageTickInFlight = true;
     try {
@@ -226,7 +230,7 @@ async function main(): Promise<void> {
   }, TARGET_AUTO_TRIAGE_WORKER_INTERVAL_MS);
   targetAutoTriageWorkerInterval.unref();
   let webhookSweepInFlight = false;
-  const webhookDeliveryInterval = setInterval(async () => {
+  const webhookDeliveryInterval = serviceLifecycle.interval(async () => {
     if (webhookSweepInFlight) return;
     webhookSweepInFlight = true;
     try {
@@ -246,7 +250,7 @@ async function main(): Promise<void> {
 
   server.listen(config.PORT, () => {
     logger.info({ port: config.PORT }, 'AcornOps control plane started');
-    void runMcpLifecycleReconciliation();
+    void serviceLifecycle.track(runMcpLifecycleReconciliation);
   });
   if (internalServer) {
     internalServer.listen(config.CONTROL_PLANE_INTERNAL_TRANSPORT_PORT, () => {
@@ -275,29 +279,36 @@ async function main(): Promise<void> {
     clearInterval(agentVEnrollmentCleanupInterval);
     clearInterval(targetAutoTriageWorkerInterval);
     clearInterval(webhookDeliveryInterval);
+    const deadline = serviceLifecycle.beginDrain(config.SERVICE_DRAIN_TIMEOUT_SECONDS * 1000);
     const forceExit = setTimeout(() => {
-      logger.error('Forced control plane shutdown after timeout');
+      logger.error('Forced control plane shutdown after drain and cleanup deadlines');
       process.exit(1);
-    }, 30000);
+    }, config.SERVICE_DRAIN_TIMEOUT_SECONDS * 1000 + 20_000);
     forceExit.unref();
-    await agentGateway.shutdown().catch((err) => {
-      logger.warn({ err }, 'Agent gateway shutdown failed');
-    });
-    const closeInternalServer = async () => {
-      if (!internalServer) return;
-      await new Promise<void>((resolve) => internalServer.close(() => resolve()));
-    };
-    server.close(async () => {
-      await closeInternalServer().catch((err) => {
-        logger.warn({ err }, 'Internal transport shutdown failed');
+    stopBuiltInToolSyncScheduler();
+    await agentGateway.beginDrain().catch((err) => logger.warn({ err }, 'Failed marking agent owners draining'));
+    const drained = await serviceLifecycle.waitForIdle(deadline);
+    serviceLifecycle.beginStopping();
+    logger.info({ drained }, 'Control plane drain finished');
+    const closeHttp = (listener: typeof server | typeof internalServer) => {
+      if (!listener) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        listener.close(() => resolve());
+        listener.closeAllConnections();
       });
-      await stopControlPlaneCoordination().catch(() => undefined);
-      await stopPlatformSettingsRefresh().catch(() => undefined);
-      await closeRedis().catch(() => undefined);
-      await closeDatabase().catch(() => undefined);
-      clearTimeout(forceExit);
-      process.exit(0);
-    });
+    };
+    await Promise.all([
+      closeHttp(server), closeHttp(internalServer),
+      agentGateway.shutdown().catch((err) => logger.warn({ err }, 'Agent gateway shutdown failed')),
+      stopPlatformSettingsRefresh()
+    ]);
+    // Socket close handlers and already-started refresh callbacks still own dependencies.
+    await serviceLifecycle.waitForIdle(performance.now() + 5_000);
+    await stopControlPlaneCoordination();
+    await closeRedis();
+    await closeDatabase();
+    clearTimeout(forceExit);
+    process.exit(drained ? 0 : 1);
   };
 
   process.on('SIGINT', shutdown);

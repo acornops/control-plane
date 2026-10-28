@@ -272,3 +272,136 @@ describe('control-plane agent RPC routing', () => {
     });
   });
 });
+
+it('does not dispatch a new remote command once the owner is draining', async () => {
+  const store = new Map<string, string>();
+  const published: PublishedMessage[] = [];
+  installRedisStore(store, published);
+  installAgentRepoMocks([{ clusterId: 'cluster-drain', workspaceId: 'workspace-1', agentKey: 'agent-key' }]);
+  const gateway = new AgentGateway();
+  const ws = await connectAgent(gateway, { clusterId: 'cluster-drain', workspaceId: 'workspace-1', agentKey: 'agent-key' });
+  const owner = await getAgentOwner('cluster-drain');
+  await gateway.beginDrain();
+  const sent = ws.sent.length;
+  await handleAgentRpcMessageForTests(JSON.stringify({ requestId: 'draining-rpc', clusterId: 'cluster-drain', method: 'tools/call', params: {}, replyChannel: 'reply', originInstanceId: 'other', expectedConnectionId: owner?.connectionId }));
+  assert.equal(ws.sent.length, sent);
+  assert.equal(JSON.parse(published.at(-1)!.message).code, 'OWNER_DRAINING');
+});
+
+it('does not register a handshake that crosses drain during authentication', async () => {
+  const store = new Map<string, string>();
+  installRedisStore(store);
+  installAgentRepoMocks([{ clusterId: 'handshake-race', workspaceId: 'workspace-1', agentKey: 'key' }]);
+  const gateway = new AgentGateway();
+  const { repo } = await import('../src/store/repository.js');
+  const { mock } = await import('node:test');
+  const lookup = repo.getTargetAgentRegistration;
+  mock.method(repo, 'getTargetAgentRegistration', async (id: string) => {
+    const result = await lookup(id);
+    await gateway.beginDrain();
+    return result;
+  });
+  const ws = new FakeWebSocket();
+  await sendAgentMessage(gateway, ws, { jsonrpc: '2.0', id: 'handshake', method: 'lifecycle/handshake', params: {
+    targetId: 'handshake-race', targetType: 'kubernetes', agentType: 'agentk', agentKey: 'key'
+  } });
+  assert.equal(await getAgentOwner('handshake-race'), undefined);
+  assert.equal(ws.closeCode, 1012);
+});
+
+it('waits for a draining owner replacement before publishing a command', async () => {
+  const { redis } = await import('../src/infra/redis.js');
+  const { mock } = await import('node:test');
+  const store = new Map<string, string>();
+  installRedisStore(store);
+  setOwner(store, 'handoff', { instanceId: 'old', connectionId: 'old-connection', workspaceId: 'workspace-1', updatedAt: 'now', state: 'draining' });
+  const gateway = new AgentGateway();
+  const commands: string[] = [];
+  mock.method(redis, 'publish', async (channel: string) => { commands.push(channel); return 0; });
+  const command = gateway.sendJsonRpc('handoff', 'tools/list', {});
+  setTimeout(() => setOwner(store, 'handoff', { instanceId: 'new', connectionId: 'new-connection', workspaceId: 'workspace-1', updatedAt: 'now' }), 20);
+  await assert.rejects(command, /temporarily unavailable/i);
+  assert.deepEqual(commands, ['cp:agent:rpc:new']);
+});
+
+it('retains an incoming RPC until its response publication settles', async () => {
+  const { serviceLifecycle } = await import('../src/services/service-lifecycle.js');
+  const { redis } = await import('../src/infra/redis.js');
+  const { mock } = await import('node:test');
+  const { registerAgentRpcHandler } = await import('../src/services/control-plane-coordination.js');
+  const store = new Map<string, string>();
+  installRedisStore(store);
+  let publishStarted!: () => void;
+  const started = new Promise<void>((resolve) => { publishStarted = resolve; });
+  let release!: () => void;
+  const pending = new Promise<number>((resolve) => { release = () => resolve(1); });
+  mock.method(redis, 'publish', () => { publishStarted(); return pending; });
+  registerAgentRpcHandler(async (request) => ({ requestId: request.requestId, ok: true, result: 'done' }));
+  const rpc = handleAgentRpcMessageForTests(JSON.stringify({ requestId: 'publishing', clusterId: 'cluster', method: 'tools/list', params: {}, replyChannel: 'reply', originInstanceId: 'other', expectedConnectionId: 'connection' }));
+  await started;
+  assert.equal(await serviceLifecycle.waitForIdle(performance.now() + 20), false);
+  release();
+  await rpc;
+  assert.equal(await serviceLifecycle.waitForIdle(performance.now() + 100), true);
+});
+
+it('keeps an admitted command alive through drain and then reconnects that socket', async () => {
+  const store = new Map<string, string>();
+  installRedisStore(store);
+  installAgentRepoMocks([{ clusterId: 'accepted-drain', workspaceId: 'workspace-1', agentKey: 'key' }]);
+  const gateway = new AgentGateway();
+  const ws = await connectAgent(gateway, { clusterId: 'accepted-drain', workspaceId: 'workspace-1', agentKey: 'key' });
+  const command = gateway.sendJsonRpc('accepted-drain', 'tools/list', {}, 'accepted-operation');
+  await waitForSentMessage(ws, 0, (message) => message.id === 'accepted-operation');
+  await gateway.beginDrain();
+  assert.equal(ws.closeCode, undefined);
+  assert.equal((await getAgentOwner('accepted-drain'))?.state, 'draining');
+  await sendAgentMessage(gateway, ws, { jsonrpc: '2.0', id: 'accepted-operation', result: { tools: [] } });
+  assert.deepEqual(await command, { tools: [] });
+  const { serviceLifecycle } = await import('../src/services/service-lifecycle.js');
+  assert.equal(await serviceLifecycle.waitForIdle(performance.now() + 500), true);
+  assert.equal(ws.closeCode, 1012);
+});
+
+it('preserves known handoff through the closed-socket gap for a healthy caller', async () => {
+  const { redis } = await import('../src/infra/redis.js');
+  const { mock } = await import('node:test');
+  const { serviceLifecycle } = await import('../src/services/service-lifecycle.js');
+  const store = new Map<string, string>();
+  installRedisStore(store);
+  const { clusterUpdates } = installAgentRepoMocks([{ clusterId: 'handoff-gap', workspaceId: 'workspace-1', agentKey: 'key', status: 'online' }]);
+  const oldGateway = new AgentGateway();
+  const ws = await connectAgent(oldGateway, { clusterId: 'handoff-gap', workspaceId: 'workspace-1', agentKey: 'key' });
+  await oldGateway.beginDrain();
+  await serviceLifecycle.waitForIdle(performance.now() + 500);
+  assert.equal(ws.closeCode, 1012);
+  assert.ok(clusterUpdates.some((update) => update.patch.status === 'offline'));
+  assert.equal((await getAgentOwner('handoff-gap'))?.state, 'draining');
+  const healthy = new AgentGateway();
+  const publications: string[] = [];
+  mock.method(redis, 'publish', async (channel: string) => { publications.push(channel); return 0; });
+  const command = healthy.sendJsonRpc('handoff-gap', 'tools/list', {}, 'stable-gap');
+  setTimeout(() => setOwner(store, 'handoff-gap', { instanceId: 'new', connectionId: 'new', workspaceId: 'workspace-1', updatedAt: 'now' }), 20);
+  await assert.rejects(command, /temporarily unavailable/);
+  assert.deepEqual(publications, ['cp:agent:rpc:new']);
+});
+
+it('draining socket cleanup never marks a replacement owner offline', async () => {
+  const { mock } = await import('node:test');
+  const { repo } = await import('../src/store/repository.js');
+  const { serviceLifecycle } = await import('../src/services/service-lifecycle.js');
+  const store = new Map<string, string>();
+  installRedisStore(store);
+  const { clusterUpdates } = installAgentRepoMocks([{ clusterId: 'drain-fenced', workspaceId: 'workspace-1', agentKey: 'key', status: 'online' }]);
+  const gateway = new AgentGateway();
+  await connectAgent(gateway, { clusterId: 'drain-fenced', workspaceId: 'workspace-1', agentKey: 'key' });
+  const getCluster = repo.getCluster;
+  mock.method(repo, 'getCluster', async (id: string) => {
+    setOwner(store, id, { instanceId: 'replacement', connectionId: 'new', workspaceId: 'workspace-1', updatedAt: 'now' });
+    return getCluster(id);
+  });
+  await gateway.beginDrain();
+  assert.equal(await serviceLifecycle.waitForIdle(performance.now() + 500), true);
+  assert.equal((await getAgentOwner('drain-fenced'))?.connectionId, 'new');
+  assert.equal(clusterUpdates.some((update) => update.patch.status === 'offline'), false);
+});

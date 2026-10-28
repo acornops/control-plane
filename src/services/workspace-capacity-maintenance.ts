@@ -1,3 +1,4 @@
+import { serviceLifecycle } from './service-lifecycle.js';
 import { runConversationDispatchTick } from './conversation-dispatch-worker.js';
 import { config } from '../config.js';
 import { db } from '../infra/db.js';
@@ -85,6 +86,7 @@ export async function runWorkspaceCapacityMaintenance(): Promise<void> {
     await maintainWorkspaceCapacity();
     await runConversationDispatchTick();
     await cleanupWorkspacePolicyReceipts();
+    if (!serviceLifecycle.accepting) return;
     const resumable = await db.query<{ run_id: string }>(`SELECT c.run_id FROM workflow_dependency_continuations c
       JOIN workspace_run_reservations r ON r.run_id=c.run_id
       JOIN workflow_runs parent ON parent.id=c.run_id

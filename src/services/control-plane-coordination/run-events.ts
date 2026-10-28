@@ -1,3 +1,4 @@
+import { serviceLifecycle } from '../service-lifecycle.js';
 import Redis from 'ioredis';
 import { config } from '../../config.js';
 import { redis } from '../../infra/redis.js';
@@ -66,5 +67,5 @@ export async function publishRunEvents(runId: string, events: RunEvent[]): Promi
     runId,
     events
   };
-  await redis.publish(runEventsChannel(), JSON.stringify(envelope));
+  await serviceLifecycle.track(() => redis.publish(runEventsChannel(), JSON.stringify(envelope)));
 }

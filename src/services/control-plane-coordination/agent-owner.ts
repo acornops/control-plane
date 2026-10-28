@@ -8,6 +8,7 @@ export interface AgentOwnerRecord {
   workspaceId: string;
   connectorVersion?: string;
   updatedAt: string;
+  state?: 'active' | 'draining';
 }
 
 const deleteAgentOwnerIfMatchScript = `
@@ -36,7 +37,10 @@ if not ok then
 end
 if decoded["instanceId"] == ARGV[1] and decoded["connectionId"] == ARGV[2] then
   decoded["updatedAt"] = ARGV[4]
-  redis.call("SET", KEYS[1], cjson.encode(decoded), "EX", ARGV[3])
+  if ARGV[5] ~= "" then decoded["state"] = ARGV[5] end
+  local ttl = tonumber(ARGV[3])
+  if decoded["state"] == "draining" then ttl = math.min(ttl, tonumber(ARGV[6])) end
+  redis.call("SET", KEYS[1], cjson.encode(decoded), "EX", ttl)
   return 1
 end
 return 0
@@ -65,6 +69,7 @@ function parseAgentOwnerRecord(value: string | null): AgentOwnerRecord | undefin
       connectionId: record.connectionId,
       workspaceId: record.workspaceId,
       connectorVersion: typeof record.connectorVersion === 'string' ? record.connectorVersion : undefined,
+      ...(record.state === 'draining' || record.state === 'active' ? { state: record.state } : {}),
       updatedAt: record.updatedAt
     };
   } catch {
@@ -100,7 +105,7 @@ export async function isCurrentAgentOwner(clusterId: string, connectionId: strin
   return owner?.instanceId === config.CONTROL_PLANE_INSTANCE_ID && owner.connectionId === connectionId;
 }
 
-export async function refreshAgentOwner(clusterId: string, connectionId: string): Promise<boolean> {
+export async function refreshAgentOwner(clusterId: string, connectionId: string, state?: 'active' | 'draining'): Promise<boolean> {
   if (!distributedRoutingEnabled()) return true;
   const renewed = await redis.eval(
     renewAgentOwnerIfMatchScript,
@@ -109,7 +114,9 @@ export async function refreshAgentOwner(clusterId: string, connectionId: string)
     config.CONTROL_PLANE_INSTANCE_ID,
     connectionId,
     String(config.CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS),
-    new Date().toISOString()
+    new Date().toISOString(),
+    state || '',
+    String(Math.max(1, Math.ceil(config.AGENT_HANDOFF_TIMEOUT_MS / 1000)))
   );
   return renewed === 1;
 }

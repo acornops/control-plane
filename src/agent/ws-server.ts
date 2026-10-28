@@ -1,3 +1,7 @@
+import { beginAgentDispatch, waitForOwnerHandoff } from './owner-handoff.js';
+import { assertAgentExecutionAllowed, currentAgentExecution, withAgentExecution } from './execution-authority.js';
+import { drainAgentConnections, shutdownAgentGateway } from './shutdown.js';
+import { currentRequestSignal, serviceLifecycle } from '../services/service-lifecycle.js';
 import { assertActiveWorkspace, assertActiveTargetWorkspace } from '../services/workspace-execution-access.js';
 import { IncomingMessage } from 'node:http';
 import { Duplex } from 'node:stream';
@@ -11,12 +15,11 @@ import {
   detachAgentConnection,
   getAgentConnection,
   getAgentConnectionForWebSocket,
-  listAgentConnections,
   resetAgentConnectionsForTests,
   resolvePendingAgentResponse
 } from './connections.js';
 import { handleAgentHandshake } from './handshake.js';
-import { AGENT_COMMAND_TIMEOUT_MS, sendLocalJsonRpc } from './local-jsonrpc.js';
+import { AGENT_COMMAND_TIMEOUT_MS, AgentConnectionChangedBeforeDispatchError, OwnerDrainingError, sendLocalJsonRpc } from './local-jsonrpc.js';
 import { decodeAgentMessage } from './message-utils.js';
 import { markConnectionOfflineIfUnowned } from './offline-reconciliation.js';
 import { setBuiltInToolSyncSchedulerForTests as setBuiltInToolSyncSchedulerForTestsInternal } from './tool-sync-scheduler.js';
@@ -100,42 +103,15 @@ export class AgentGateway {
     return true;
   }
 
+  async beginDrain(): Promise<void> {
+    this.shuttingDown = true;
+    await drainAgentConnections(this.wss, (targetId, conn) =>
+      this.closeLocalConnection(targetId, conn, 1012, 'Control plane draining', 'Agent connection closed'));
+  }
+
   async shutdown(graceMs = 5000): Promise<void> {
     this.shuttingDown = true;
-    const activeConnections = listAgentConnections();
-
-    await Promise.all(activeConnections.map(async ([clusterId, conn]) => {
-      detachAgentConnection(clusterId, conn, 'Agent connection closed');
-      await new Promise<void>((resolve) => {
-        if (conn.ws.readyState === WebSocket.CLOSED) {
-          resolve();
-          return;
-        }
-        const timeout = setTimeout(() => {
-          if (conn.ws.readyState !== WebSocket.CLOSED) {
-            conn.ws.terminate();
-          }
-          resolve();
-        }, graceMs);
-        timeout.unref();
-        conn.ws.once('close', () => {
-          clearTimeout(timeout);
-          resolve();
-        });
-        if (conn.ws.readyState === WebSocket.OPEN || conn.ws.readyState === WebSocket.CONNECTING) {
-          conn.ws.close(1001, 'Control plane shutting down');
-        } else {
-          resolve();
-        }
-      });
-      await markConnectionOfflineIfUnowned(clusterId, conn).catch((err) => {
-        logger.warn({ err, clusterId }, 'Failed updating cluster offline status during shutdown');
-      });
-    }));
-
-    await new Promise<void>((resolve) => {
-      this.wss.close(() => resolve());
-    });
+    await shutdownAgentGateway(this.wss, graceMs);
   }
 
   async callAgentMcpTool(clusterId: string, toolName: string, args: Record<string, unknown>, requestId?: string): Promise<unknown> {
@@ -198,7 +174,7 @@ export class AgentGateway {
   }
 
   async sendJsonRpc(clusterId: string, method: string, params: Record<string, unknown>, requestId?: string): Promise<unknown> {
-    return this.sendJsonRpcWithRetry(clusterId, method, params, true, requestId);
+    return serviceLifecycle.track(() => this.sendJsonRpcWithRetry(clusterId, method, params, true, requestId));
   }
   async isAgentConnected(clusterId: string): Promise<boolean> {
     const conn = getAgentConnection(clusterId);
@@ -212,14 +188,19 @@ export class AgentGateway {
     method: string,
     params: Record<string, unknown>,
     retryOnOwnerMismatch: boolean,
-    requestId?: string
+    requestId?: string,
+    handoffDeadline = performance.now() + config.AGENT_HANDOFF_TIMEOUT_MS
   ): Promise<unknown> {
     const conn = getAgentConnection(clusterId);
     if (conn?.ws.readyState === WebSocket.OPEN) {
       if (!distributedRoutingEnabled() || await isCurrentAgentOwner(clusterId, conn.connectionId)) {
-        return sendLocalJsonRpc(conn, method, params, requestId);
+        try { return await sendLocalJsonRpc(conn, method, params, requestId); }
+        catch (error) {
+          if (!(error instanceof AgentConnectionChangedBeforeDispatchError)) throw error;
+          return waitForOwnerHandoff(clusterId, handoffDeadline, () => this.sendJsonRpcWithRetry(clusterId, method, params, true, requestId, handoffDeadline));
+        }
       }
-      this.closeStaleLocalConnection(clusterId, conn);
+      closeStaleAgentConnection(clusterId, conn);
     }
 
     if (!distributedRoutingEnabled()) {
@@ -228,26 +209,37 @@ export class AgentGateway {
 
     const owner = await getAgentOwner(clusterId);
     if (!owner) {
+      if (this.shuttingDown) return waitForOwnerHandoff(clusterId, handoffDeadline, () => this.sendJsonRpcWithRetry(clusterId, method, params, true, requestId, handoffDeadline));
       throw new AgentUnavailableError();
+    }
+    if (owner.state === 'draining') {
+      return waitForOwnerHandoff(clusterId, handoffDeadline, () => this.sendJsonRpcWithRetry(clusterId, method, params, true, requestId, handoffDeadline));
     }
     if (owner.instanceId === controlPlaneInstanceId()) {
       if (retryOnOwnerMismatch) {
         await clearAgentOwnerIfCurrent(clusterId, owner.connectionId);
-        return this.sendJsonRpcWithRetry(clusterId, method, params, false, requestId);
+        return this.sendJsonRpcWithRetry(clusterId, method, params, false, requestId, handoffDeadline);
       }
       throw new AgentUnavailableError();
     }
 
+    await assertAgentExecutionAllowed();
+    if (currentRequestSignal()?.aborted) throw new Error('Caller cancelled before agent dispatch');
+    beginAgentDispatch();
     const response = await requestRemoteAgentRpc(owner, {
       clusterId,
       method,
       params,
       timeoutMs: AGENT_COMMAND_TIMEOUT_MS + 5_000,
-      agentRequestId: requestId
+      agentRequestId: requestId,
+      execution: currentAgentExecution()
     });
     if (!response.ok) {
+      if (response.code === 'OWNER_DRAINING') {
+        return waitForOwnerHandoff(clusterId, handoffDeadline, () => this.sendJsonRpcWithRetry(clusterId, method, params, true, requestId, handoffDeadline));
+      }
       if (response.code === 'OWNER_MISMATCH' && retryOnOwnerMismatch) {
-        return this.sendJsonRpcWithRetry(clusterId, method, params, false, requestId);
+        return this.sendJsonRpcWithRetry(clusterId, method, params, false, requestId, handoffDeadline);
       }
       if (response.agentError) {
         throw new AgentToolCallError(response.agentError.message, response.agentError.rpcCode, response.agentError.data);
@@ -258,7 +250,9 @@ export class AgentGateway {
     return response.result;
   }
 
+
   private async handleRemoteAgentRpc(request: AgentRpcRequest): Promise<AgentRpcResponse> {
+    if (this.shuttingDown) return { requestId: request.requestId, ok: false, code: 'OWNER_DRAINING', error: 'Agent owner is draining' };
     const conn = getAgentConnection(request.clusterId);
     if (!conn || conn.ws.readyState !== WebSocket.OPEN) {
       await clearAgentOwnerIfCurrent(request.clusterId, request.expectedConnectionId);
@@ -278,7 +272,8 @@ export class AgentGateway {
       };
     }
     try {
-      const result = await sendLocalJsonRpc(conn, request.method, request.params, request.agentRequestId);
+      const result = await withAgentExecution(request.execution, () =>
+        sendLocalJsonRpc(conn, request.method, request.params, request.agentRequestId, () => !this.shuttingDown));
       return {
         requestId: request.requestId,
         ok: true,
@@ -288,17 +283,13 @@ export class AgentGateway {
       return {
         requestId: request.requestId,
         ok: false,
-        code: err instanceof Error && /timed out/i.test(err.message) ? 'COMMAND_TIMEOUT' : 'COMMAND_FAILED',
+        code: err instanceof OwnerDrainingError ? 'OWNER_DRAINING' : err instanceof Error && /timed out/i.test(err.message) ? 'COMMAND_TIMEOUT' : 'COMMAND_FAILED',
         error: err instanceof Error ? err.message : 'Agent command failed',
         ...(err instanceof AgentToolCallError ? {
           agentError: { rpcCode: err.rpcCode, message: err.message, data: err.data }
         } : {})
       };
     }
-  }
-
-  private closeStaleLocalConnection(clusterId: string, conn: AgentConnection): void {
-    closeStaleAgentConnection(clusterId, conn);
   }
 
   private async closeLocalConnection(
@@ -350,7 +341,8 @@ export class AgentGateway {
     this.handshakeTimers.set(ws, handshakeTimer);
 
     ws.on('message', (raw) => {
-      this.handleMessage(ws, raw, agentKeyHeader, connectorVersion, remoteAddress).catch((err) => {
+      if (serviceLifecycle.isStopping) return;
+      serviceLifecycle.track(() => this.handleMessage(ws, raw, agentKeyHeader, connectorVersion, remoteAddress)).catch((err) => {
         logger.error({ err }, 'Failed to handle agent message');
       });
     });
@@ -360,7 +352,7 @@ export class AgentGateway {
       const conn = getAgentConnectionForWebSocket(ws);
       if (conn) {
         detachAgentConnection(conn.clusterId, conn, 'Agent connection closed');
-        void markConnectionOfflineIfUnowned(conn.clusterId, conn).catch((err) => {
+        void serviceLifecycle.track(() => markConnectionOfflineIfUnowned(conn.clusterId, conn)).catch((err) => {
           logger.warn({ err, clusterId: conn.clusterId }, 'Failed updating cluster offline status after agent disconnect');
         });
       }
@@ -457,6 +449,7 @@ export class AgentGateway {
     const requestId = typeof message.id === 'string' || typeof message.id === 'number' ? message.id : undefined;
 
     if (message.method === 'lifecycle/handshake') {
+      if (this.shuttingDown) { ws.close(1012, 'Control plane draining'); return; }
       if (requestId === undefined) {
         this.closeUnauthenticated(ws, 'Handshake request id required');
         return;
@@ -470,7 +463,8 @@ export class AgentGateway {
         requestId,
         params: message.params || {},
         agentKeyHeader,
-        connectorVersion
+        connectorVersion,
+        mayConnect: () => !this.shuttingDown && ws.readyState === WebSocket.OPEN
       });
       if (getAgentConnectionForWebSocket(ws)) {
         this.clearHandshakeTimer(ws);
@@ -490,7 +484,7 @@ export class AgentGateway {
           return;
         }
         if (!(await refreshAgentOwner(conn.clusterId, conn.connectionId))) {
-          this.closeStaleLocalConnection(conn.clusterId, conn);
+          closeStaleAgentConnection(conn.clusterId, conn);
           return;
         }
         const now = new Date().toISOString();
@@ -511,7 +505,7 @@ export class AgentGateway {
         return;
       }
       if (!(await refreshAgentOwner(conn.clusterId, conn.connectionId))) {
-        this.closeStaleLocalConnection(conn.clusterId, conn);
+        closeStaleAgentConnection(conn.clusterId, conn);
         return;
       }
 

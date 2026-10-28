@@ -1,3 +1,4 @@
+import { serviceLifecycle } from '../service-lifecycle.js';
 import Redis from 'ioredis';
 import { config } from '../../config.js';
 import { redis } from '../../infra/redis.js';
@@ -75,5 +76,5 @@ export async function publishTargetChatActivityEvents(
     targetId,
     events
   };
-  await redis.publish(targetChatActivityEventsChannel(), JSON.stringify(envelope));
+  await serviceLifecycle.track(() => redis.publish(targetChatActivityEventsChannel(), JSON.stringify(envelope)));
 }

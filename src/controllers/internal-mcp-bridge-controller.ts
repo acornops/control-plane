@@ -1,3 +1,4 @@
+import { withAgentExecution } from '../agent/execution-authority.js';
 import { nativeExecutionAuthority } from '../services/native-execution-authority.js';
 import { WorkspaceCapacityError } from '../store/repository-run-capacity.js';
 import { capacityErrorResponse } from '../services/workspace-execution-access.js';
@@ -60,6 +61,7 @@ export function publicAgentToolError(err: unknown): Record<string, unknown> {
     code: err.data.code,
     message: err.message,
     ...(err.data?.outcome === 'unknown' ? { outcome: 'unknown' } : {}),
+    ...(['RUN_NOT_ACTIVE', 'EXECUTION_AUTHORITY_LOST'].includes(err.data.code) && err.data.outcome === 'not_started' ? { outcome: 'not_started' } : {}),
     ...(typeof err.data?.operationId === 'string' ? { operationId: err.data.operationId } : {}),
   };
 }
@@ -293,12 +295,13 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
       return;
     }
     try {
-      const agentResult = await agentGateway.callAgentMcpTool(
+      const agentResult = await withAgentExecution({ runId: claims.runId, workspaceId, ownerId: authority.ownerId,
+        generation: Number.isSafeInteger(authority.generation) ? authority.generation : 0 }, () => agentGateway.callAgentMcpTool(
         boundTargetId,
         toolName,
         args,
         stableAgentRequestId(claims.runId, req.body.toolCallId)
-      );
+      ));
       const result = normalizeTargetAgentToolResult(agentResult, targetType);
       const isError = (result as { isError?: unknown }).isError === true;
       webhooks.emit({
@@ -390,7 +393,8 @@ export async function callMcpTool(req: Request, res: Response, next: NextFunctio
         }
       });
       const unavailable = publicError.code === 'TARGET_AGENT_UNAVAILABLE';
-      res.status(unavailable ? 503 : 502).json({
+      const revoked = ['RUN_NOT_ACTIVE', 'EXECUTION_AUTHORITY_LOST'].includes(String(publicError.code));
+      res.status(unavailable ? 503 : revoked ? 409 : 502).json({
         error: {
           ...publicError,
           retryable: unavailable || publicError.code === 'TOOL_TIMEOUT' || publicError.code === 'AGENT_TOOL_ERROR'

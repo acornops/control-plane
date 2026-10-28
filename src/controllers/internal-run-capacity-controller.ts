@@ -34,7 +34,7 @@ export function registerRunCapacityRoutes(router: Router): void {
         if (!config.WORKSPACE_CAPACITY_ENABLED) { res.json({ status: 'disabled', contractVersion: 1 }); return; }
         const { ownerId, generation, operationId, timeoutMs, state } = req.body;
         if (action === 'acquire') { res.json({ ...await acquireRunCapacity(runId, ownerId), contractVersion: 1 }); return; }
-        if (action === 'renew') await renewRunCapacity(runId, ownerId, generation);
+        if (action === 'renew') { res.json({ status: 'ok', ...await renewRunCapacity(runId, ownerId, generation), contractVersion: 1 }); return; }
         if (action === 'release') await releaseRunCapacity(runId, ownerId, generation, state);
         if (action === 'operations/begin') await beginCapacityOperation(runId, ownerId, generation, operationId, timeoutMs);
         if (action === 'operations/finish') await finishCapacityOperation(runId, ownerId, generation, operationId);

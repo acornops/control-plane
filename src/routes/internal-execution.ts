@@ -1,3 +1,4 @@
+import { cancellationStatus, cancellationStatusSchema } from '../controllers/internal-run-cancellation-controller.js';
 import { z } from 'zod';
 import { saveDependencyWait } from '../controllers/internal-dependency-wait-controller.js';
 import { registerRunCapacityRoutes } from '../controllers/internal-run-capacity-controller.js';
@@ -25,6 +26,7 @@ import { validateBody } from '../utils/http.js';
 
 export const internalExecutionRouter = Router();
 registerRunCapacityRoutes(internalExecutionRouter);
+internalExecutionRouter.post('/runs/cancellation-status', requireServiceToken, validateBody(cancellationStatusSchema), cancellationStatus);
 internalExecutionRouter.post('/runs/:runId/dependency-wait', requireServiceToken, requireExecutionAccess,
   validateBody(z.object({ generation: z.number().int().nonnegative(), state: z.record(z.string(), z.unknown()) }).strict()), saveDependencyWait);
 

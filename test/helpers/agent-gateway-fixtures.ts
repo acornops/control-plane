@@ -106,7 +106,8 @@ export function installRedisStore(
     firstArg: string,
     secondArg?: string,
     _thirdArg?: string,
-    fourthArg?: string
+    fourthArg?: string,
+    fifthArg?: string
   ) => {
     const current = store.get(key);
     if (String(script).includes('cjson.encode') && String(script).includes('updatedAt')) {
@@ -114,7 +115,7 @@ export function installRedisStore(
       if (!current) return 0;
       const decoded = JSON.parse(current) as Record<string, unknown>;
       if (decoded.instanceId === firstArg && decoded.connectionId === secondArg) {
-        store.set(key, JSON.stringify({ ...decoded, updatedAt: fourthArg }));
+        store.set(key, JSON.stringify({ ...decoded, updatedAt: fourthArg, ...(fifthArg ? { state: fifthArg } : {}) }));
         return 1;
       }
       return 0;

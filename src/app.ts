@@ -1,3 +1,4 @@
+import { serviceLifecycle, installHandlerTracking } from './services/service-lifecycle.js';
 import { workspaceCatalogFingerprint } from './services/workspace-capacity-rollout.js';
 import { WorkspaceCapacityError } from './store/repository-run-capacity.js';
 import { capacityErrorResponse } from './services/workspace-execution-access.js';
@@ -79,6 +80,7 @@ export function createApp() {
     res.setHeader('X-Request-Id', requestId);
     next();
   });
+  app.use(serviceLifecycle.admission);
   app.use(express.json({
     limit: '4mb',
     verify: (req, _res, buffer) => {
@@ -96,6 +98,7 @@ export function createApp() {
   });
 
   app.get('/ready', async (_req, res) => {
+    if (!serviceLifecycle.accepting) { res.status(503).json({ status: 'draining' }); return; }
     const [dbReady, redisReady] = await Promise.all([checkDatabaseHealth(), checkRedisHealth()]);
     const lifecycleBlockers = dbReady
       ? await countMcpUserLifecycleReadinessBlockers().catch(() => null)
@@ -188,5 +191,6 @@ export function createApp() {
     });
   });
 
+  installHandlerTracking(app, serviceLifecycle);
   return app;
 }

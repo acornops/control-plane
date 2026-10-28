@@ -1,3 +1,4 @@
+import { serviceLifecycle, installHandlerTracking } from './services/service-lifecycle.js';
 import cookieParser from 'cookie-parser';
 import express, { NextFunction, Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
@@ -21,6 +22,7 @@ export function createInternalApp() {
     res.setHeader('X-Request-Id', requestId);
     next();
   });
+  app.use(serviceLifecycle.admission);
   app.use(express.json({
     limit: '4mb',
     verify: (req, _res, buffer) => {
@@ -35,6 +37,7 @@ export function createInternalApp() {
   });
 
   app.get('/ready', async (_req, res) => {
+    if (!serviceLifecycle.accepting) { res.status(503).json({ status: 'draining' }); return; }
     const [dbReady, redisReady] = await Promise.all([checkDatabaseHealth(), checkRedisHealth()]);
     if (dbReady && redisReady) {
       res.status(200).json({ status: 'ok', dependencies: { postgres: 'ok', redis: 'ok' } });
@@ -70,5 +73,6 @@ export function createInternalApp() {
     });
   });
 
+  installHandlerTracking(app, serviceLifecycle);
   return app;
 }

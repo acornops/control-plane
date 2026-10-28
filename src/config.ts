@@ -1,3 +1,4 @@
+import { lifecycleConfigFields } from './config-lifecycle.js';
 import { randomUUID } from 'node:crypto';
 import { capacityConfigFields } from './config-capacity.js';
 import { z } from 'zod';
@@ -134,6 +135,7 @@ const envSchema = z.object({
   CONTROL_PLANE_INSTANCE_ID: z.preprocess(emptyStringToUndefined, z.string().min(1).default(process.env.HOSTNAME || randomUUID())),
   MANAGEMENT_CONSOLE_BASE_URL: z.string().url().default('http://localhost:3000'),
   MCP_OAUTH_ENABLED: envBoolean(true),
+  ...lifecycleConfigFields,
   CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS: z.coerce.number().int().positive().default(90),
   CONTROL_PLANE_AGENT_SNAPSHOT_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(60),
   CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED: optionalEnvBoolean(),
@@ -207,7 +209,6 @@ const envSchema = z.object({
   PASSWORD_RESET_ENABLED: envBoolean(true),
   PASSWORD_RESET_TOKEN_TTL_SECONDS: z.coerce.number().int().min(300).max(86400).default(3600),
   PASSWORD_RESET_REQUEST_WINDOW_SECONDS: z.coerce.number().int().min(30).max(3600).default(300),
-
   EMAIL_DELIVERY_MODE: z.enum(['smtp', 'log', 'disabled']).default('log'),
   EMAIL_DELIVERY_ALLOW_LOG_IN_PRODUCTION: envBoolean(false),
   EMAIL_FROM: z.string().default('AcornOps <noreply@localhost>'),

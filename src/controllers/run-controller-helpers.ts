@@ -1,3 +1,4 @@
+import { serviceLifecycle } from '../services/service-lifecycle.js';
 import { resumeCapacityAfterApproval } from '../store/repository-capacity-approval-resume.js';
 import { withTransaction } from '../store/repository-transaction.js';
 import { runConversationDispatchTick } from '../services/conversation-dispatch-worker.js';
@@ -28,7 +29,7 @@ export function writeSseRunEvent(res: Response, event: RunEvent): void {
 
 export function redispatchWaitingRunAfterApproval(run: Run): void {
   if (run.status !== 'waiting_for_approval') return;
-  queueMicrotask(async () => {
+  void serviceLifecycle.track(async () => {
     try {
       const latest = await repo.getRun(run.id);
       if (!latest || latest.status !== 'waiting_for_approval') return;
@@ -42,11 +43,11 @@ export function redispatchWaitingRunAfterApproval(run: Run): void {
 }
 
 export function enqueueInteractiveRunDispatch(_run: Run): void {
-  void runConversationDispatchTick().catch((err) => logger.warn({ err }, 'Conversation dispatch tick deferred'));
+  void serviceLifecycle.track(runConversationDispatchTick).catch((err) => logger.warn({ err }, 'Conversation dispatch tick deferred'));
 }
 
 export function dispatchWorkflowRunAfterApprovals(runId: string): void {
-  queueMicrotask(async () => {
+  void serviceLifecycle.track(async () => {
     const run = await getWorkflowRun(runId);
     if (!run || run.status !== 'waiting_for_approval') return;
     const approvals = await listWorkflowRunApprovals(run.id);

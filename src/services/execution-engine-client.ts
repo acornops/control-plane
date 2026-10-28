@@ -1,3 +1,6 @@
+import { deferConversationDispatch } from '../store/repository-conversation-dispatch.js';
+import { withTransaction } from '../store/repository-transaction.js';
+import { setTimeout as delay } from 'node:timers/promises';
 import { WorkspaceCapacityError } from '../store/repository-run-capacity.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
@@ -6,7 +9,30 @@ import { Run } from '../types/domain.js';
 import { internalFetch } from './internal-http-client.js';
 import { workflowRunAgentClaims } from './workflow-run-agent-claims.js';
 
-export async function dispatchRunToExecutionEngine(run: Run): Promise<void> {
+
+export class ExecutionEngineDrainingError extends Error {}
+
+async function dispatch(payload: Record<string, unknown>, signal: AbortSignal): Promise<void> {
+  while (!signal.aborted) {
+    const response = await internalFetch(`${config.EXECUTION_ENGINE_BASE_URL}/api/v1/runs`, {
+      method: 'POST', redirect: 'error',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${config.EXECUTION_ENGINE_DISPATCH_TOKEN}` },
+      body: JSON.stringify(payload), signal
+    }, config.EXECUTION_ENGINE_TIMEOUT_MS);
+    if (response.ok) return;
+    const body = await response.text();
+    let error: { code?: unknown; retryable?: unknown; outcome?: unknown } | undefined;
+    try { error = (JSON.parse(body) as { error?: typeof error }).error; } catch { /* Non-JSON errors cannot authorize replay. */ }
+    if (response.status !== 503 || error?.code !== 'SERVICE_DRAINING' || error.retryable !== true || error.outcome !== 'not_started') {
+      throw new Error(`Execution Engine start failed (${response.status}): ${body}`);
+    }
+    try { await delay(250, undefined, { signal }); }
+    catch { throw new ExecutionEngineDrainingError('Execution engine is draining; dispatch was not started'); }
+  }
+  throw new ExecutionEngineDrainingError('Execution engine is draining; dispatch was not started');
+}
+
+export async function dispatchRunToExecutionEngine(run: Run, options: { deferOnDrain?: boolean } = {}): Promise<void> {
   if (run.conversationKind === 'agent_chat' && !run.agentId) {
     throw new Error('Agent-chat dispatch requires an Agent identity');
   }
@@ -32,21 +58,12 @@ export async function dispatchRunToExecutionEngine(run: Run): Promise<void> {
   const timeout = setTimeout(() => controller.abort(), config.EXECUTION_ENGINE_TIMEOUT_MS);
 
   try {
-    const response = await internalFetch(`${config.EXECUTION_ENGINE_BASE_URL}/api/v1/runs`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${config.EXECUTION_ENGINE_DISPATCH_TOKEN}`
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    }, config.EXECUTION_ENGINE_TIMEOUT_MS);
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`Execution Engine start failed (${response.status}): ${body}`);
-    }
+    await dispatch(payload, controller.signal);
   } catch (error) {
+    if (error instanceof ExecutionEngineDrainingError && options.deferOnDrain) {
+      await withTransaction((client) => deferConversationDispatch(client, run.id));
+      return;
+    }
     logger.error({ err: error, runId: run.id }, 'Failed to dispatch run to execution engine');
     throw error;
   } finally {
@@ -82,20 +99,7 @@ export async function dispatchWorkflowRunToExecutionEngine(run: WorkflowRunRecor
   const timeout = setTimeout(() => controller.abort(), config.EXECUTION_ENGINE_TIMEOUT_MS);
 
   try {
-    const response = await internalFetch(`${config.EXECUTION_ENGINE_BASE_URL}/api/v1/runs`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${config.EXECUTION_ENGINE_DISPATCH_TOKEN}`
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    }, config.EXECUTION_ENGINE_TIMEOUT_MS);
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`Execution Engine workflow start failed (${response.status}): ${body}`);
-    }
+    await dispatch(payload, controller.signal);
   } catch (error) {
     logger.error({ err: error, runId: run.id, workflowId: run.workflowId }, 'Failed to dispatch workflow run to execution engine');
     throw error;

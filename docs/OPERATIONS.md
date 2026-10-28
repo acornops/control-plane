@@ -658,3 +658,33 @@ npm run validate
 
 See [Workspace Execution Capacity](workspace-execution-capacity.md) for runtime
 invariants, rollout prerequisites and isolated replica verification.
+
+
+## Rolling restart shutdown
+
+`SIGTERM` and `SIGINT` start one drain deadline. `/ready` returns 503 during
+drain; `/health` remains available. The control plane stops new background ticks
+and HTTP admission while retaining accepted handler promises, response streams,
+agent commands, owner refresh callbacks and Redis RPC reply publication.
+
+`SERVICE_DRAIN_TIMEOUT_SECONDS` defaults to 150. Final cleanup has at most 20
+additional seconds; configure Kubernetes termination grace to 180 seconds and
+Compose stop grace consistently. Repeated signals do not extend these budgets.
+The process exits early after accepted work settles. Work exceeding the drain
+window can be interrupted and exits unsuccessfully; uncertain writes keep their
+existing reconciliation requirements. Replayable browser run, Workflow and activity observers close cleanly after
+in-flight replay finishes so clients can reconnect. Their running authorization
+callbacks remain tracked; model/tool streams retain the full drain window.
+
+Distributed agent owners mark themselves draining and reconnect each socket once
+its already-admitted commands finish. The fenced draining record remains for a
+bounded reconnect interval so healthy replicas recognize the handoff gap. Healthy callers may wait up to
+`AGENT_HANDOFF_TIMEOUT_MS` (default 45000) before dispatch. Agent/tool execution
+timeouts stay unchanged. Allow surge capacity for overlapping old and new pods.
+
+The HTTP lifetime adapter in `src/services/service-lifecycle.ts` traverses the
+Express 5 router stack once after app assembly, including nested routes,
+parameter callbacks and error middleware. Keep this call after route registration
+and rerun lifecycle tests when upgrading Express or adding routing mechanisms.
+The adapter retains returned handler promises separately from response close so
+an aborted client cannot close dependencies under unfinished work.

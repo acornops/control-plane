@@ -1,14 +1,21 @@
-import { getAgentOwner, clearAgentOwnerIfCurrent } from '../services/control-plane-coordination.js';
+import { getAgentOwner, clearAgentOwnerIfCurrent, controlPlaneInstanceId, refreshAgentOwner } from '../services/control-plane-coordination.js';
 import { webhooks } from '../services/webhooks.js';
 import { repo } from '../store/repository.js';
 import { KUBERNETES_TARGET_TYPE } from '../types/domain.js';
 import { AgentConnection } from './types.js';
 
 export async function markConnectionOfflineIfUnowned(clusterId: string, conn: AgentConnection): Promise<void> {
+  const owner = await getAgentOwner(clusterId);
+  const draining = owner?.state === 'draining' && owner.instanceId === controlPlaneInstanceId() && owner.connectionId === conn.connectionId;
+  if (draining) {
+    // Keep bounded evidence of an intentional reconnect for callers arriving in the gap.
+    await refreshAgentOwner(clusterId, conn.connectionId, 'draining');
+  }
   const cluster = await repo.getCluster(clusterId);
-  await clearAgentOwnerIfCurrent(clusterId, conn.connectionId);
+  if (!draining) await clearAgentOwnerIfCurrent(clusterId, conn.connectionId);
   const currentOwner = await getAgentOwner(clusterId);
-  if (currentOwner) {
+  if (currentOwner && !(draining && currentOwner.state === 'draining'
+    && currentOwner.instanceId === controlPlaneInstanceId() && currentOwner.connectionId === conn.connectionId)) {
     return;
   }
 

@@ -1,3 +1,4 @@
+import { serviceLifecycle } from './service-lifecycle.js';
 import { randomUUID } from 'node:crypto';
 import { config } from '../config.js';
 import { db } from '../infra/db.js';
@@ -11,6 +12,7 @@ import {
 import { recomputeWorkflowExecutionStatusForRun } from '../store/repository-automation-approvals.js';
 import { withTransaction } from '../store/repository-transaction.js';
 import {
+  ExecutionEngineDrainingError,
   cancelRunInExecutionEngine,
   dispatchWorkflowRunToExecutionEngine
 } from './execution-engine-client.js';
@@ -63,9 +65,10 @@ async function claim(limit: number): Promise<OutboxRow[]> {
 }
 
 async function retry(row: OutboxRow, error: unknown, startedAt: number): Promise<void> {
-  const attempt = row.attempt_count + 1;
+  const draining = error instanceof ExecutionEngineDrainingError;
+  const attempt = row.attempt_count + (draining ? 0 : 1);
   const message = (error instanceof Error ? error.message : 'Dispatch failed').slice(0, 500);
-  const terminal = attempt >= 3;
+  const terminal = !draining && attempt >= 3;
   const retried = await db.query(
     `UPDATE automation_dispatch_outbox SET status=$2,attempt_count=$3,
        next_attempt_at=NOW()+($4::text||' seconds')::interval,claim_owner=NULL,claim_expires_at=NULL,
@@ -158,7 +161,7 @@ async function deliver(row: OutboxRow): Promise<void> {
 }
 
 export async function runAutomationOutboxTick(limit = 25): Promise<number> {
-  if (!config.WORKSPACE_DISPATCH_ENABLED) return 0;
+  if (!serviceLifecycle.accepting || !config.WORKSPACE_DISPATCH_ENABLED) return 0;
   if (config.AUTOMATION_RUNTIME_MODE === 'off' || config.AUTOMATION_RUNTIME_MODE === 'shadow') return 0;
   const rows = await claim(limit);
   for (const row of rows) await deliver(row);

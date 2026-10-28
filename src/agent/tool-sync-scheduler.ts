@@ -1,3 +1,4 @@
+import { serviceLifecycle } from '../services/service-lifecycle.js';
 import { logger } from '../logger.js';
 import { TargetType } from '../types/domain.js';
 import { BuiltInToolSyncRunner, BuiltInToolSyncScheduler } from './types.js';
@@ -39,10 +40,11 @@ function retryReason(result: Awaited<ReturnType<BuiltInToolSyncRunner>>): string
 }
 
 function queueSync(state: ScheduledSync): void {
+  if (!serviceLifecycle.accepting) return;
   const delayMs = builtInToolSyncRetryDelaysMs[Math.min(state.attempt, builtInToolSyncRetryDelaysMs.length - 1)] ?? 0;
   state.timer = setTimeout(() => {
     state.timer = undefined;
-    void runSyncAttempt(state);
+    if (serviceLifecycle.accepting) void serviceLifecycle.track(() => runSyncAttempt(state));
   }, delayMs);
   state.timer.unref();
 }
@@ -148,6 +150,7 @@ const defaultBuiltInToolSyncScheduler: BuiltInToolSyncScheduler = (workspaceId, 
 let builtInToolSyncScheduler = defaultBuiltInToolSyncScheduler;
 
 export function scheduleBuiltInToolSync(workspaceId: string, targetId: string, targetType: TargetType): void {
+  if (!serviceLifecycle.accepting) return;
   builtInToolSyncScheduler(workspaceId, targetId, targetType);
 }
 
@@ -173,4 +176,9 @@ export function resetBuiltInToolSyncSchedulerStateForTests(): void {
   builtInToolSyncScheduler = defaultBuiltInToolSyncScheduler;
   builtInToolSyncRunner = defaultBuiltInToolSyncRunner;
   builtInToolSyncRetryDelaysMs = DEFAULT_RETRY_DELAYS_MS;
+}
+
+export function stopBuiltInToolSyncScheduler(): void {
+  for (const state of scheduledSyncs.values()) if (state.timer) clearTimeout(state.timer);
+  scheduledSyncs.clear();
 }

@@ -1,3 +1,4 @@
+import { serviceLifecycle } from '../service-lifecycle.js';
 import Redis from 'ioredis';
 import { config } from '../../config.js';
 import { redis } from '../../infra/redis.js';
@@ -59,9 +60,9 @@ export async function publishWorkflowExecutionEvents(
   events: WorkflowExecutionStreamEvent[]
 ): Promise<void> {
   if (!distributedRoutingEnabled() || events.length === 0) return;
-  await redis.publish(channel(), JSON.stringify({
+  await serviceLifecycle.track(() => redis.publish(channel(), JSON.stringify({
     originInstanceId: config.CONTROL_PLANE_INSTANCE_ID,
     executionId,
     events
-  } satisfies WorkflowExecutionEventEnvelope));
+  } satisfies WorkflowExecutionEventEnvelope)));
 }

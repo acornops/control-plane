@@ -1,8 +1,9 @@
+import { serviceLifecycle } from '../services/service-lifecycle.js';
 import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
-import { claimAgentOwner, refreshAgentOwner } from '../services/control-plane-coordination.js';
+import { claimAgentOwner, clearAgentOwnerIfCurrent, refreshAgentOwner } from '../services/control-plane-coordination.js';
 import { webhooks } from '../services/webhooks.js';
 import { repo } from '../store/repository.js';
 import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE, isTargetType } from '../types/domain.js';
@@ -17,7 +18,11 @@ export async function handleAgentHandshake(input: {
   params: Record<string, unknown>;
   agentKeyHeader: string;
   connectorVersion: string;
+  mayConnect?: () => boolean;
 }): Promise<void> {
+  const mayConnect = () => input.ws.readyState === WebSocket.OPEN && (input.mayConnect?.() ?? serviceLifecycle.accepting);
+  const rejectDraining = () => { input.ws.close(1012, 'Control plane draining'); };
+  if (!mayConnect()) { rejectDraining(); return; }
   const suppliedKey = String((input.params.agentKey as string | undefined) || '');
   const effectiveKey = suppliedKey || input.agentKeyHeader;
   const targetId = typeof input.params.targetId === 'string' ? input.params.targetId.trim() : '';
@@ -117,6 +122,8 @@ export async function handleAgentHandshake(input: {
     return;
   }
 
+  if (!mayConnect()) { rejectDraining(); return; }
+
   const previousCapabilities = reg.capabilities || [];
   const authenticatedKeyVersion = targetType === VIRTUAL_MACHINE_TARGET_TYPE
     ? agentVCredential?.credential.generation || reg.keyVersion
@@ -142,6 +149,7 @@ export async function handleAgentHandshake(input: {
   const updatedTarget = targetType === KUBERNETES_TARGET_TYPE
     ? await repo.updateCluster(target.id, { status: 'online' })
     : await repo.updateVirtualMachine(target.id, { status: 'online' });
+  if (!mayConnect()) { rejectDraining(); return; }
   const connectionId = randomUUID();
   await claimAgentOwner({
     clusterId: target.id,
@@ -151,38 +159,46 @@ export async function handleAgentHandshake(input: {
   });
   await repo.updateTargetAgentSeen(target.id, { lastConnectionId: connectionId });
 
+  if (!mayConnect()) {
+    await clearAgentOwnerIfCurrent(target.id, connectionId);
+    rejectDraining();
+    return;
+  }
   const previousLocalConnection = getAgentConnection(target.id);
   if (previousLocalConnection && previousLocalConnection.ws !== input.ws) {
     closeStaleAgentConnection(target.id, previousLocalConnection);
   }
 
   const ownerRefreshInterval = setInterval(() => {
-    const credentialStillAccepted = targetType === VIRTUAL_MACHINE_TARGET_TYPE && agentVCredential
-      ? repo.agentv.isAgentVCredentialAccepted(target.id, agentVCredential.credential.id)
-      : repo.getTargetAgentRegistration(target.id)
-          .then((currentRegistration) => currentRegistration?.keyVersion === authenticatedKeyVersion);
-    Promise.all([
-      refreshAgentOwner(target.id, connectionId),
-      credentialStillAccepted
-    ])
-      .then(([stillOwner, accepted]) => {
-        if (!accepted) {
-          const conn = getAgentConnection(target.id);
-          if (conn && conn.connectionId === connectionId && conn.ws.readyState === WebSocket.OPEN) {
-            conn.ws.close(1008, 'Agent key rotated');
+    if (serviceLifecycle.isStopping) return;
+    void serviceLifecycle.track(async () => {
+      const credentialStillAccepted = targetType === VIRTUAL_MACHINE_TARGET_TYPE && agentVCredential
+        ? repo.agentv.isAgentVCredentialAccepted(target.id, agentVCredential.credential.id)
+        : repo.getTargetAgentRegistration(target.id)
+            .then((currentRegistration) => currentRegistration?.keyVersion === authenticatedKeyVersion);
+      await Promise.all([
+        refreshAgentOwner(target.id, connectionId),
+        credentialStillAccepted
+      ])
+        .then(([stillOwner, accepted]) => {
+          if (!accepted) {
+            const conn = getAgentConnection(target.id);
+            if (conn && conn.connectionId === connectionId && conn.ws.readyState === WebSocket.OPEN) {
+              conn.ws.close(1008, 'Agent key rotated');
+            }
+            return;
           }
-          return;
-        }
-        if (!stillOwner) {
-          const conn = getAgentConnection(target.id);
-          if (conn && conn.connectionId === connectionId) {
-            closeStaleAgentConnection(target.id, conn);
+          if (!stillOwner) {
+            const conn = getAgentConnection(target.id);
+            if (conn && conn.connectionId === connectionId) {
+              closeStaleAgentConnection(target.id, conn);
+            }
           }
-        }
-      })
-      .catch((err) => {
-        logger.warn({ err, targetId: target.id, targetType }, 'Failed refreshing agent owner');
-      });
+        })
+        .catch((err) => {
+          logger.warn({ err, targetId: target.id, targetType }, 'Failed refreshing agent owner');
+        });
+    });
   }, Math.max(5_000, Math.floor(config.CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS * 1000 / 3)));
   ownerRefreshInterval.unref();
 

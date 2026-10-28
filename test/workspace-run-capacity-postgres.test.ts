@@ -114,3 +114,18 @@ test('an expired worker cannot park an attempt to make it executable again', asy
   await assert.rejects(releaseRunCapacity(runId, 'expired-worker', grant.generation!, 'parked'), /authority/i);
   assert.equal((await acquireRunCapacity(runId, 'replacement')).status, 'blocked');
 });
+
+test('repeated acquire reports the actual remaining lease and renew returns fresh database authority', async () => {
+  const runId = randomUUID();
+  await withTransaction((client) => reserveRunCapacity(client, { workspaceId, runId, pool: 'insights' }));
+  const grant = await acquireRunCapacity(runId, 'lease-engine');
+  assert.ok(Number.isInteger(grant.leaseRemainingMs));
+  assert.ok(grant.leaseRemainingMs! > 0 && grant.leaseRemainingMs! <= config.WORKSPACE_CAPACITY_LEASE_SECONDS * 1000);
+  await db.query("UPDATE workspace_run_reservations SET lease_expires_at=clock_timestamp()+INTERVAL '2 seconds' WHERE run_id=$1", [runId]);
+  const repeated = await acquireRunCapacity(runId, 'lease-engine');
+  assert.ok(repeated.leaseRemainingMs! > 0 && repeated.leaseRemainingMs! <= 2000);
+  const renewed = await renewRunCapacity(runId, 'lease-engine', grant.generation!);
+  assert.ok(renewed.leaseRemainingMs > 2000);
+  assert.equal(renewed.leaseSeconds, config.WORKSPACE_CAPACITY_LEASE_SECONDS);
+  await releaseRunCapacity(runId, 'lease-engine', grant.generation!);
+});

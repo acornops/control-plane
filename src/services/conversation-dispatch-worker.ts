@@ -1,15 +1,16 @@
+import { serviceLifecycle } from './service-lifecycle.js';
 import { randomUUID } from 'node:crypto';
 import { config } from '../config.js';
 import { db } from '../infra/db.js';
 import { logger } from '../logger.js';
 import { repo } from '../store/repository.js';
 import { assertExecutionActive } from './workspace-execution-access.js';
-import { dispatchRunToExecutionEngine } from './execution-engine-client.js';
+import { dispatchRunToExecutionEngine, ExecutionEngineDrainingError } from './execution-engine-client.js';
 
 const owner = `${config.CONTROL_PLANE_INSTANCE_ID}:${randomUUID()}`;
 let running = false;
 export async function runConversationDispatchTick(): Promise<void> {
-  if (!config.WORKSPACE_DISPATCH_ENABLED) return;
+  if (!serviceLifecycle.accepting || !config.WORKSPACE_DISPATCH_ENABLED) return;
   if (running) return;
   running = true;
   try {
@@ -33,10 +34,10 @@ export async function runConversationDispatchTick(): Promise<void> {
         await db.query(`UPDATE automation_dispatch_outbox SET status='delivered',delivered_at=NOW(),claim_owner=NULL,claim_expires_at=NULL
           WHERE id=$1 AND claim_owner=$2 AND status='claimed'`, [claim.id, owner]);
       } catch (error) {
-        await db.query(`UPDATE automation_dispatch_outbox SET status='failed',attempt_count=attempt_count+1,
+        await db.query(`UPDATE automation_dispatch_outbox SET status='failed',attempt_count=attempt_count+$3,
           next_attempt_at=NOW()+INTERVAL '10 seconds',claim_owner=NULL,claim_expires_at=NULL,
           last_error_code='DISPATCH_FAILED',last_error_message='Delivery deferred'
-          WHERE id=$1 AND claim_owner=$2 AND status='claimed'`, [claim.id, owner]);
+          WHERE id=$1 AND claim_owner=$2 AND status='claimed'`, [claim.id, owner, error instanceof ExecutionEngineDrainingError ? 0 : 1]);
         logger.warn({ err: error, runId: claim.run_id }, 'Conversation dispatch deferred');
       }
     }

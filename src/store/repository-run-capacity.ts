@@ -85,6 +85,14 @@ export interface CapacityGrant {
   generation?: number;
   pool?: ExecutionPool;
   leaseSeconds?: number;
+  leaseRemainingMs?: number;
+}
+
+async function remainingLease(client: Pick<PoolClient, 'query'>, runId: string): Promise<number> {
+  const result = await client.query<{ remaining_ms: number }>(
+    `SELECT GREATEST(0,FLOOR(EXTRACT(EPOCH FROM (lease_expires_at-clock_timestamp()))*1000))::int AS remaining_ms
+     FROM workspace_run_reservations WHERE run_id=$1`, [runId]);
+  return result.rows[0].remaining_ms;
 }
 
 export async function acquireRunCapacity(runId: string, owner: string): Promise<CapacityGrant> {
@@ -102,7 +110,7 @@ export async function acquireRunCapacity(runId: string, owner: string): Promise<
         if (error instanceof WorkspaceCapacityError) return { status: 'blocked' };
         throw error;
       }
-      return { status: 'granted', generation: Number(row.generation), pool: row.pool, leaseSeconds: config.WORKSPACE_CAPACITY_LEASE_SECONDS };
+      return { status: 'granted', generation: Number(row.generation), pool: row.pool, leaseSeconds: config.WORKSPACE_CAPACITY_LEASE_SECONDS, leaseRemainingMs: await remainingLease(client, runId) };
     }
     if (!config.WORKSPACE_DISPATCH_ENABLED) return { status: 'wait', pool: row.pool };
     const expired = await client.query('SELECT 1 FROM workspace_run_reservations WHERE run_id=$1 AND queue_expires_at<=clock_timestamp()', [runId]);
@@ -115,16 +123,17 @@ export async function acquireRunCapacity(runId: string, owner: string): Promise<
       `UPDATE workspace_run_reservations SET state='executing',owner_id=$2,generation=generation+1,
        lease_expires_at=clock_timestamp()+($3::int*INTERVAL '1 second'),executing_until=clock_timestamp()+($3::int*INTERVAL '1 second')
        WHERE run_id=$1 RETURNING generation`, [runId, owner, config.WORKSPACE_CAPACITY_LEASE_SECONDS]);
-    return { status: 'granted', generation: Number(updated.rows[0].generation), pool: row.pool, leaseSeconds: config.WORKSPACE_CAPACITY_LEASE_SECONDS };
+    return { status: 'granted', generation: Number(updated.rows[0].generation), pool: row.pool, leaseSeconds: config.WORKSPACE_CAPACITY_LEASE_SECONDS, leaseRemainingMs: await remainingLease(client, runId) };
   });
 }
 
-export async function renewRunCapacity(runId: string, owner: string, generation: number): Promise<void> {
-  await withTransaction(async (client) => {
+export async function renewRunCapacity(runId: string, owner: string, generation: number): Promise<{ leaseSeconds: number; leaseRemainingMs: number }> {
+  return withTransaction(async (client) => {
     const row = await lockReservation(client, runId);
     await assertCapacityOwner(client, row, owner, generation);
     await client.query(`UPDATE workspace_run_reservations SET lease_expires_at=clock_timestamp()+($2::int*INTERVAL '1 second'),
       executing_until=GREATEST(executing_until,clock_timestamp()+($2::int*INTERVAL '1 second')) WHERE run_id=$1`, [runId, config.WORKSPACE_CAPACITY_LEASE_SECONDS]);
+    return { leaseSeconds: config.WORKSPACE_CAPACITY_LEASE_SECONDS, leaseRemainingMs: await remainingLease(client, runId) };
   });
 }
 

@@ -1,3 +1,5 @@
+import type { AgentExecutionContext } from '../../agent/execution-authority.js';
+import { serviceLifecycle } from '../service-lifecycle.js';
 import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import { config } from '../../config.js';
@@ -15,6 +17,7 @@ export interface AgentRpcRequest {
   originInstanceId: string;
   expectedConnectionId: string;
   agentRequestId?: string;
+  execution?: AgentExecutionContext;
 }
 
 export interface AgentRpcResponse {
@@ -22,7 +25,7 @@ export interface AgentRpcResponse {
   ok: boolean;
   result?: unknown;
   error?: string;
-  code?: 'OWNER_MISMATCH' | 'AGENT_UNAVAILABLE' | 'COMMAND_TIMEOUT' | 'COMMAND_FAILED';
+  code?: 'OWNER_DRAINING' | 'OWNER_MISMATCH' | 'AGENT_UNAVAILABLE' | 'COMMAND_TIMEOUT' | 'COMMAND_FAILED';
   agentError?: { rpcCode: number; message: string; data?: Record<string, unknown> };
 }
 
@@ -62,6 +65,12 @@ function parseAgentRpcRequest(value: string): AgentRpcRequest | undefined {
   ) {
     return undefined;
   }
+  const execution = parsed.execution as AgentExecutionContext | undefined;
+  if (execution !== undefined && (!execution || typeof execution !== 'object'
+    || typeof execution.runId !== 'string' || !execution.runId || execution.runId.length > 200
+    || typeof execution.workspaceId !== 'string' || !execution.workspaceId || execution.workspaceId.length > 200
+    || typeof execution.ownerId !== 'string' || execution.ownerId.length > 200
+    || !Number.isSafeInteger(execution.generation) || execution.generation < 0)) return undefined;
   const params = parsed.params && typeof parsed.params === 'object' && !Array.isArray(parsed.params)
     ? parsed.params as Record<string, unknown>
     : {};
@@ -73,6 +82,7 @@ function parseAgentRpcRequest(value: string): AgentRpcRequest | undefined {
     replyChannel: parsed.replyChannel,
     originInstanceId: parsed.originInstanceId,
     expectedConnectionId: parsed.expectedConnectionId,
+    execution,
     agentRequestId: typeof parsed.agentRequestId === 'string' ? parsed.agentRequestId : undefined
   };
 }
@@ -141,6 +151,11 @@ export async function stopAgentRpcBus(): Promise<void> {
 }
 
 async function handleAgentRpcMessage(_channel: string, message: string): Promise<void> {
+  if (serviceLifecycle.isStopping) return;
+  await serviceLifecycle.track(() => processAgentRpcMessage(message));
+}
+
+async function processAgentRpcMessage(message: string): Promise<void> {
   const request = parseAgentRpcRequest(message);
   if (!request || !agentRpcHandler) return;
 
@@ -181,6 +196,7 @@ export async function requestRemoteAgentRpc(owner: AgentOwnerRecord, input: {
   params: Record<string, unknown>;
   timeoutMs: number;
   agentRequestId?: string;
+  execution?: AgentExecutionContext;
 }): Promise<AgentRpcResponse> {
   if (!distributedRoutingEnabled()) {
     return {
@@ -201,7 +217,8 @@ export async function requestRemoteAgentRpc(owner: AgentOwnerRecord, input: {
     replyChannel,
     originInstanceId: config.CONTROL_PLANE_INSTANCE_ID,
     expectedConnectionId: owner.connectionId,
-    agentRequestId: input.agentRequestId
+    agentRequestId: input.agentRequestId,
+    execution: input.execution
   };
 
   const promise = new Promise<AgentRpcResponse>((resolve, reject) => {

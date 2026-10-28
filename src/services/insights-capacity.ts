@@ -1,3 +1,4 @@
+import { serviceLifecycle } from './service-lifecycle.js';
 import type { PoolClient } from 'pg';
 import { randomUUID } from 'node:crypto';
 import { config } from '../config.js';
@@ -48,7 +49,7 @@ export async function withInsightsCapacity(job: { workspaceId: string; targetId:
       }
       if (grant.status !== 'granted') throw new WorkspaceCapacityError('EXECUTION_AUTHORITY_LOST', 'Insights execution authority unavailable');
       generation = grant.generation!;
-      timer = setInterval(() => { void renewRunCapacity(runId!, job.leaseOwner, generation).catch(() => undefined); }, 10000);
+      timer = setInterval(() => { if (serviceLifecycle.isStopping) return; void serviceLifecycle.track(() => renewRunCapacity(runId!, job.leaseOwner, generation)).catch(() => undefined); }, 10000);
       timer.unref();
     }
     await work({ runId, ownerId: job.leaseOwner, generation, workspaceId: job.workspaceId });

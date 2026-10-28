@@ -320,7 +320,7 @@ export async function streamRun(req: AuthenticatedRequest, res: Response, next: 
     }
     const sanitizeEventStream = Boolean(workflowRun) || isExternalIntegrationRequest(req);
 
-    watchWorkspaceStream(req, res, run.workspaceId);
+    const finishStreamReplay = watchWorkspaceStream(req, res, run.workspaceId);
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
@@ -383,10 +383,14 @@ export async function streamRun(req: AuthenticatedRequest, res: Response, next: 
       res.write(': keep-alive\n\n');
     }, 20000);
 
-    req.on('close', () => {
+    const cleanup = () => {
       clearInterval(keepAlive);
       runtime.runStreams.off(`run:${run.id}`, listener);
-    });
+    };
+    req.on('close', cleanup);
+    res.on('close', cleanup);
+    if (res.destroyed || res.writableEnded) cleanup();
+    finishStreamReplay();
   } catch (err) {
     next(err);
   }

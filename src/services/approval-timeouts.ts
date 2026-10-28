@@ -24,7 +24,7 @@ export async function expireAndResumeTimedOutApprovals(limit = 100): Promise<num
     }
     try {
       const dispatching = (await repo.updateRun(run.id, { status: 'dispatching' })) || run;
-      await dispatchRunToExecutionEngine(dispatching);
+      await dispatchRunToExecutionEngine(dispatching, { deferOnDrain: true });
       resumed += 1;
     } catch (err) {
       logger.warn({ err, runId: approval.runId, approvalId: approval.id }, 'Failed redispatching expired approval');

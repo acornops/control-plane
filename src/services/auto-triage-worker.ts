@@ -147,7 +147,7 @@ async function dispatchLinkedRun(job: TargetAutoTriageJob, run: Run): Promise<vo
   if (!dispatching) return;
   await recordRunStatusChangedActivity(run, dispatching);
   try {
-    await dispatchRunToExecutionEngine(dispatching);
+    await dispatchRunToExecutionEngine(dispatching, { deferOnDrain: true });
     const running = await transitionLinkedRunWhileClaimed(
       job,
       dispatching,

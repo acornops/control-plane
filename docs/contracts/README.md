@@ -528,3 +528,45 @@ For `suspend` or `restore`, use `-` instead of a plan key and grant the narrow
 external-hold scope. The fixture manages only the external hold. Retry the same
 file unchanged; a version conflict requires fetching current policy and preparing
 a new deliberate action. Resource override editing remains API-only.
+
+
+## Graceful rolling restart contract
+
+A draining listener rejects new application requests before authentication, body
+parsing or controller effects with HTTP 503, `Retry-After: 1`, HTTP/1.1 connection
+close, and `{ "error": { "code": "SERVICE_DRAINING", "message": "Service is draining", "retryable": true, "outcome": "not_started" } }`.
+CORS, security and request-ID headers remain present. Only this trusted internal
+pre-admission rejection authorizes replay of a write. Dispatch does not follow
+redirects. Accepted handlers remain owned until their promises settle, including
+when the client disconnects. Streaming response lifetimes remain owned too.
+
+Capacity acquire and renew include optional integer `leaseRemainingMs` computed
+from the actual database lease using PostgreSQL's clock. Repeated acquisition
+does not renew a lease. `leaseSeconds` and `contractVersion: 1` remain available.
+Consumers anchor conservative monotonic deadlines to request start.
+
+`POST /internal/v1/runs/cancellation-status` accepts `{ "runIds": [...] }` with
+1–100 distinct nonempty IDs, each at most 200 characters, without surrounding
+whitespace. It requires the existing service token and returns
+`{ "cancelledRunIds": [...] }` for durable interactive or Workflow cancellation.
+It does not require execution ownership; unknown IDs are omitted. Legacy 404/405
+responses leave direct cancellation as the fallback.
+
+Redis owner records optionally contain `state: "active" | "draining"`; missing
+state means active. Drain changes and renewals are fenced by instance and
+connection identity. A closed draining connection leaves a fenced owner marker
+for at most the handoff allowance, replaced by the next successful handshake.
+`OWNER_DRAINING` RPC responses mean no command was sent.
+Callers wait at most `AGENT_HANDOFF_TIMEOUT_MS=45000` before dispatch while a known
+draining owner reconnects. Optional internal RPC `execution` metadata carries
+`runId`, `workspaceId`, `ownerId` and `generation`; run-bound commands revalidate
+durable cancellation and authority while waiting and immediately before dispatch
+on the receiving owner. Receipt claims are not repeated. A premature HTTP close
+cancels only work that has not yet been dispatched. They never replay a timeout, disconnect or publication
+failure. Accepted commands and RPC reply publication finish before dependencies
+close; idle distributed agent connections reconnect independently of HTTP streams.
+
+Deploy consumers that understand these additive fields and drain errors before
+enabling coordinated rolling restarts. Initial cutover and rollback require a
+controlled window; older binaries do not acquire these guarantees. No database
+migration or agent protocol version change is required.

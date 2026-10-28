@@ -1,3 +1,4 @@
+import { serviceLifecycle } from './service-lifecycle.js';
 import Redis from 'ioredis';
 import { z } from 'zod';
 import { config } from '../config.js';
@@ -423,14 +424,16 @@ export async function publishPlatformSettingsChanged(): Promise<void> {
 export async function startPlatformSettingsRefresh(): Promise<void> {
   subscriber = redis.duplicate({ lazyConnect: true, maxRetriesPerRequest: null });
   subscriber.on('message', () => {
-    void refreshPlatformSettings().catch((error) => {
+    if (!serviceLifecycle.accepting) return;
+    void serviceLifecycle.track(refreshPlatformSettings).catch((error) => {
       logger.warn({ error }, 'Failed refreshing platform settings after invalidation');
     });
   });
   await subscriber.connect();
   await subscriber.subscribe(settingChannel);
   refreshTimer = setInterval(() => {
-    void refreshPlatformSettings().catch((error) => {
+    if (!serviceLifecycle.accepting) return;
+    void serviceLifecycle.track(refreshPlatformSettings).catch((error) => {
       logger.warn({ error }, 'Periodic platform settings refresh failed');
     });
   }, refreshIntervalMs);
