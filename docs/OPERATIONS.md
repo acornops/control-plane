@@ -679,7 +679,8 @@ callbacks remain tracked; model/tool streams retain the full drain window.
 Distributed agent owners mark themselves draining and reconnect each socket once
 its already-admitted commands finish. The fenced draining record remains for a
 bounded reconnect interval so healthy replicas recognize the handoff gap. Healthy callers may wait up to
-`AGENT_HANDOFF_TIMEOUT_MS` (default 45000) before dispatch. Agent/tool execution
+`AGENT_HANDOFF_TIMEOUT_MS` (integer range 1..45000 milliseconds, default 45000)
+before dispatch. Agent/tool execution
 timeouts stay unchanged. Allow surge capacity for overlapping old and new pods.
 
 The HTTP lifetime adapter in `src/services/service-lifecycle.ts` traverses the
