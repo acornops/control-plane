@@ -233,6 +233,7 @@ export function buildClusterPaths(): Record<string, unknown> {
           responses: {
             '200': { description: 'Pod logs payload.' },
             '403': { description: 'Only operators/admins/owners can read pod logs, and only within the cluster namespace scope.' },
+            '409': { description: 'POD_LOGS_UNAVAILABLE: the selected container has not started. No logs are available yet.' },
             '503': { description: 'Agent is not connected or timed out.' }
           }
         }

@@ -1,5 +1,7 @@
 # Completed Execution Plans
 
+- [Pod logs unavailable before startup](pod-logs-unavailable.md)
+
 - [Approval-resume reliability](approval-resume-reliability.md) — Dispatch and delayed-start guards; coordinated release acceptance tracked in deployment.
 
 - [Agent maintenance standardization](agent-maintenance-standardization.md) — Source qualification complete; release acceptance is tracked separately.
