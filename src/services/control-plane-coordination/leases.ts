@@ -22,6 +22,7 @@ return 0
 `;
 
 export async function withRedisLease<T>(name: string, ttlSeconds: number, task: () => Promise<T>): Promise<T | undefined> {
+  if (!serviceLifecycle.accepting) return undefined;
   if (!distributedRoutingEnabled()) {
     return task();
   }
@@ -44,6 +45,7 @@ export async function withRedisLease<T>(name: string, ttlSeconds: number, task: 
   }, Math.max(1_000, Math.floor(ttlSeconds * 1000 / 3)));
   renewalInterval.unref();
   try {
+    if (!serviceLifecycle.accepting) return undefined;
     return await task();
   } finally {
     clearInterval(renewalInterval);

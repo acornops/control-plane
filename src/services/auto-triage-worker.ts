@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { serviceLifecycle } from './service-lifecycle.js';
 import { config } from '../config.js';
 import { dispatchRunToExecutionEngine, cancelRunInExecutionEngine } from './execution-engine-client.js';
 import { logger } from '../logger.js';
@@ -24,10 +25,7 @@ import {
   AutoTriageSettingsChangedError,
   createTargetAutoTriageSessionAndRun
 } from './auto-triage-run-creation.js';
-import {
-  transitionLinkedRunWhileClaimed,
-  updateLinkedRunWhileClaimed
-} from './auto-triage-run-transitions.js';
+import { transitionLinkedRunWhileClaimed, updateLinkedRunWhileClaimed } from './auto-triage-run-transitions.js';
 import { autoTriageBlockedBackoff } from './auto-triage-retry-timing.js';
 import { sanitizeArtifactResult } from './tool-result-artifacts.js';
 
@@ -505,6 +503,7 @@ export async function runTargetAutoTriageTick(limit = 25): Promise<number> {
       { errorCode: job.errorCode || null, sessionId: job.sessionId || null, runId: job.runId || null }
     );
   }
+  if (!serviceLifecycle.accepting) return 0;
   const leaseOwner = `auto-triage:${randomUUID()}`;
   const stopping = await repo.autoTriage.claimStoppingTargetAutoTriageJobs(leaseOwner, limit);
   for (const job of stopping) {
@@ -514,7 +513,7 @@ export async function runTargetAutoTriageTick(limit = 25): Promise<number> {
       logger.warn({ error: safeInternalError(error), jobId: job.id }, 'Failed stopping automatic investigation');
     }
   }
-  if (!config.WORKSPACE_DISPATCH_ENABLED) return stopping.length;
+  if (!serviceLifecycle.accepting || !config.WORKSPACE_DISPATCH_ENABLED) return stopping.length;
   const jobs = await repo.autoTriage.claimDueTargetAutoTriageJobs(leaseOwner, limit);
   for (const job of jobs) {
     try {

@@ -1,4 +1,5 @@
 import { streamGatewayJsonPatch } from './checkpoint-gateway.js';
+import { serviceLifecycle } from '../service-lifecycle.js';
 import { randomUUID } from 'node:crypto';
 import { withInsightsCapacity, assertInsightsExecution } from '../insights-capacity.js';
 import { config } from '../../config.js';
@@ -408,6 +409,7 @@ export async function runTargetInsightsCheckpointSweep(): Promise<void> {
   const leaseOwner = `${config.CONTROL_PLANE_INSTANCE_ID}:${randomUUID()}`;
   const claimedKeys = new Set<string>();
   for (let index = 0; index < 50; index += 1) {
+    if (!serviceLifecycle.accepting) break;
     const [job] = await repo.claimDueTargetInsightsCheckpointJobs(1, leaseOwner);
     if (!job) break;
     const claimedKey = `${job.workspaceId}:${job.targetId}:${job.sessionId}:${job.lastActivityAt}`;

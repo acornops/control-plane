@@ -60,6 +60,9 @@
 
 - First signal closes HTTP admission and readiness with one fixed drain deadline.
 - Keep PostgreSQL, Redis replies and agent sockets alive for accepted work.
+- Recheck drain admission before each new background claim, including after
+  awaited lease acquisition, reconciliation and cleanup. Finish already-claimed
+  work and release its lease without claiming the next job.
 - HTTP disconnect and an empty pending-command map do not imply asynchronous
   handler or RPC-publication completion.
 - Only explicit trusted pre-admission rejection permits safe command retry;

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { serviceLifecycle } from './service-lifecycle.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import {
@@ -233,6 +234,7 @@ export async function runWebhookDeliverySweep(): Promise<void> {
   );
   try {
     await repo.purgeExpiredWebhookOutboxEvents();
+    if (!serviceLifecycle.accepting) return;
     const jobs = await repo.claimWebhookDeliveryJobs(
       config.WEBHOOK_WORKER_BATCH_SIZE,
       leaseOwner,
