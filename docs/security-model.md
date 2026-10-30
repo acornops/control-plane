@@ -106,6 +106,11 @@
 - AgentK redacts ConfigMap `data` and `binaryData` values before complete-result
   artifact handling; guarded patch evidence exposes only bounded key metadata
   and `data` value fingerprints.
+- Artifact persistence independently redacts common credentials in quoted JSON
+  log strings, including JSONL and up to two embedded string layers, before
+  hashing and compression. Ambiguous quoted or sensitive segments are withheld. This
+  storage pass also protects results from older agents, but model-context
+  protection requires the AgentK source fix; old artifacts are not rewritten.
 - Every automation callback and tool call must bind the workspace, Workflow
   execution, step attempt, assigned Agent where applicable, exact tool
   operation, and approval state from signed server claims. Target access is

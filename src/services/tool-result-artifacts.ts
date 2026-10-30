@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { gzip, gunzip } from 'node:zlib';
 import { config } from '../config.js';
 import { repo } from '../store/repository.js';
+import { redactStructuredLogText } from './structured-log-redaction.js';
 
 const SENSITIVE_FRAGMENTS = ['secret', 'token', 'password', 'passwd', 'credential', 'authorization', 'apikey', 'privatekey', 'cookie', 'session'];
 const gzipAsync = promisify(gzip);
@@ -28,10 +29,9 @@ const SENSITIVE_TEXT_PATTERNS: Array<[RegExp, string]> = [
 ];
 
 function sanitizeText(value: string): string {
-  return SENSITIVE_TEXT_PATTERNS.reduce(
-    (sanitized, [pattern, replacement]) => sanitized.replace(pattern, replacement),
-    value
-  );
+  return redactStructuredLogText(value, (text) => SENSITIVE_TEXT_PATTERNS.reduce(
+    (sanitized, [pattern, replacement]) => sanitized.replace(pattern, replacement), text
+  ));
 }
 
 /** Apply a second bounded redaction pass before artifact persistence. */

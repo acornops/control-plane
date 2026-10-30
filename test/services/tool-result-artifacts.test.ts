@@ -5,6 +5,79 @@ import { persistToolResultArtifact, sanitizeArtifactResult } from '../../src/ser
 import { repo } from '../../src/store/repository.js';
 
 describe('tool result artifacts', () => {
+  it('does not leak through malformed JSONL or legacy assignments spanning quotes', () => {
+    for (const logs of [
+      'log "unterminated\n{"password":"fixture-secret"}',
+      'password=first"fixture-secret"',
+      'password=\'first "fixture-secret" tail\'',
+      '{"Bearer fixture-secret":"ready"}',
+    ]) {
+      const sanitized = sanitizeArtifactResult(logs) as string;
+      assert.doesNotMatch(sanitized, /fixture-secret/);
+      assert.match(sanitized, /<redacted/);
+      assert.equal(sanitizeArtifactResult(sanitized), sanitized);
+    }
+  });
+
+  it('preserves JSON formatting, scalar types and safe large logs while redacting quoted values', () => {
+    for (const [input, expected] of [
+      ['{ "api_key" : "fixture-secret", "count":3 }', '{ "api_key" : "<redacted>", "count":3 }'],
+      ['{"password":"fixture-\\"secret","ok":true}', '{"password":"<redacted>","ok":true}'],
+      ['{"secret":["fixture-secret"],"ok":null}', '{"secret":"<redacted>","ok":null}'],
+      ['{"pwd":1234,"ok":false}', '{"pwd":"<redacted>","ok":false}'],
+    ]) {
+      assert.equal(sanitizeArtifactResult(input), expected);
+      assert.equal(sanitizeArtifactResult(expected), expected);
+    }
+    const large = '{"level":"info","message":"request completed","status":200}\n'.repeat(12000);
+    assert.equal(sanitizeArtifactResult(large), large);
+  });
+
+  it('redacts structured logs independently of the sending agent while preserving evidence', () => {
+    const logs = 'time INFO {"password":"fixture-secret","status":"ready"}\n'
+      + '{"pass\\u0077ord":{"parts":["fixture-secret"]},"count":3}\n';
+    const sanitized = sanitizeArtifactResult({ logs }) as { logs: string };
+    assert.equal(sanitized.logs, 'time INFO {"password":"<redacted>","status":"ready"}\n'
+      + '{"pass\\u0077ord":"<redacted>","count":3}\n');
+    assert.deepEqual(sanitizeArtifactResult(sanitized), sanitized);
+  });
+
+  it('sanitizes encoded and incomplete JSON strings and incomplete private keys', () => {
+    for (const logs of [
+      '{"password":"fixture-secret',
+      '{"password":{\n"part":"fixture-secret"',
+      '-----BEGIN PRIVATE KEY-----\nfixture-secret',
+      JSON.stringify({ message: JSON.stringify({ password: 'fixture-secret', ok: true }) }),
+    ]) {
+      const sanitized = sanitizeArtifactResult(logs) as string;
+      assert.doesNotMatch(sanitized, /fixture-secret/);
+      assert.match(sanitized, /<redacted/);
+      assert.equal(sanitizeArtifactResult(sanitized), sanitized);
+    }
+    assert.deepEqual(JSON.parse(sanitizeArtifactResult('{"message":"password=fixture-secret","ok":true}') as string),
+      { message: 'password=<redacted>', ok: true });
+  });
+
+  it('stores only sanitized structured log bytes for JSON and plain-text artifacts', async () => {
+    const original = repo.upsertToolResultArtifact;
+    repo.upsertToolResultArtifact = async (input) => ({ ...input, createdAt: new Date().toISOString() });
+    try {
+      for (const contentType of ['application/json', 'text/plain']) {
+        const logs = '{"api_key":"fixture-secret","status":"ready"}';
+        const artifact = await persistToolResultArtifact({
+          runId: 'run-1', workspaceId: 'workspace-1', callId: `logs-${contentType}`, toolName: 'get_resource_logs',
+          result: contentType === 'text/plain' ? logs : { logs }, contentType,
+        });
+        const bytes = gunzipSync(artifact.payload);
+        assert.doesNotMatch(bytes.toString('utf8'), /fixture-secret/);
+        assert.match(bytes.toString('utf8'), /ready/);
+        assert.equal(artifact.uncompressedBytes, bytes.length);
+      }
+    } finally {
+      repo.upsertToolResultArtifact = original;
+    }
+  });
+
   it('redacts sensitive structured keys recursively', () => {
     assert.deepEqual(sanitizeArtifactResult({
       metadata: { name: 'api', token: 'secret-value' },
