@@ -54,15 +54,18 @@ describe('AgentK handshake contract', () => {
 
 describe('AgentK negotiated snapshot budget', () => {
   const originalMaxPayload = config.AGENT_WS_MAX_PAYLOAD_BYTES;
+  const originalMaxDecoded = config.AGENT_WS_MAX_DECODED_BYTES;
   beforeEach(setupControlPlaneCoordinationTest);
   afterEach(() => {
     config.AGENT_WS_MAX_PAYLOAD_BYTES = originalMaxPayload;
+    config.AGENT_WS_MAX_DECODED_BYTES = originalMaxDecoded;
     teardownControlPlaneCoordinationTest();
   });
 
   for (const maxPayloadBytes of [3 * 1024 * 1024, 2 * 1024 * 1024 + 65536, 5 * 1024 * 1024]) {
     it(`never advertises more than the ${maxPayloadBytes}-byte receiver limit`, async () => {
       config.AGENT_WS_MAX_PAYLOAD_BYTES = maxPayloadBytes;
+      config.AGENT_WS_MAX_DECODED_BYTES = maxPayloadBytes + 1024 * 1024;
       installRedisStore(new Map());
       installAgentRepoMocks([{ clusterId: 'cluster-1', workspaceId: 'workspace-1', agentKey: 'agent-key' }]);
       const ws = new FakeWebSocket();
@@ -74,8 +77,9 @@ describe('AgentK negotiated snapshot budget', () => {
         },
         agentKeyHeader: 'agent-key', connectorVersion: 'agentk/test'
       });
-      const response = parseLastSent(ws) as { result?: { config?: { maxSnapshotBytes?: number } } };
+      const response = parseLastSent(ws) as { result?: { config?: { maxSnapshotBytes?: number; maxDecodedSnapshotBytes?: number } } };
       assert.equal(response.result?.config?.maxSnapshotBytes, maxPayloadBytes);
+      assert.equal(response.result?.config?.maxDecodedSnapshotBytes, maxPayloadBytes + 1024 * 1024);
     });
   }
 });

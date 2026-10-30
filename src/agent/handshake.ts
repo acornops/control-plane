@@ -273,6 +273,8 @@ export async function handleAgentHandshake(input: {
         targetType === VIRTUAL_MACHINE_TARGET_TYPE ? 1024 * 1024 : 5 * 1024 * 1024,
         config.AGENT_WS_MAX_PAYLOAD_BYTES
       ),
+      ...(targetType === KUBERNETES_TARGET_TYPE
+        ? { maxDecodedSnapshotBytes: config.AGENT_WS_MAX_DECODED_BYTES } : {}),
       namespaceScope: targetType === KUBERNETES_TARGET_TYPE && 'namespaceInclude' in target
         ? {
           include: target.namespaceInclude,

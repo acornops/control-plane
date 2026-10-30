@@ -438,6 +438,10 @@ The control plane owns the platform API boundary. Keep this README as a short in
   opt-ins.
 - Agent snapshots preserve `config.snapshotInterval`, `config.maxSnapshotBytes`, and `config.namespaceScope.{include,exclude}`.
   The advertised compressed snapshot budget never exceeds `AGENT_WS_MAX_PAYLOAD_BYTES`.
+  Kubernetes handshakes also advertise `config.maxDecodedSnapshotBytes` from
+  `AGENT_WS_MAX_DECODED_BYTES`. AgentK drops snapshots above either budget before
+  sending. With older control planes that omit the decoded budget, AgentK uses
+  the advertised compressed budget as a conservative decoded ceiling.
 - AgentV's optional `finding_coverage.filesystems` and `finding_coverage.services`
   are independently `complete` only after all collected mounts or failed services
   have been evaluated successfully, otherwise `incomplete`.
