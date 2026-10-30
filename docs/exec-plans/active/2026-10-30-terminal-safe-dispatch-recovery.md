@@ -20,6 +20,12 @@ The documented Compose integration profile built and reached healthy control-pla
 
 **Remaining release work:** Qualify the live engine/agent dropped-response canary before promotion and upgrade every worker replica. Historical inconsistent records are not automatically repaired. Existing resume and reservation policy are unchanged; this does not promise exactly-once external effects. No release image, deployment pin or production service was changed.
 
+## Pre-merge verification — 2026-10-30
+
+The user requested another critical review and authorized merging/pushing to `main`. Fresh review found that broad ordinary claims could close a never-dispatched pre-step approval as delivered, leaving no dispatch after approval. A real-Postgres regression creates an approval-gated execution, ticks before approval, applies the actual approval decision, then ticks again. It failed before correction because the first tick claimed the waiting run.
+
+Ordinary pending/failed entries now retain the original queued/dispatching eligibility filter; broader state recovery applies only to expired claimed entries. The regression proves the initial outbox stays untouched until approval and delivers once afterward. Callback/expired-claim recovery remains covered. The complete recovery/dispatch/approval/capacity group passes 44 tests, and independent focused review confirms this finding resolved. Final `npm run validate:ci` passes all 1,504 tests with coverage and no failures/skips. No approval, capacity or resume policy changed. The coordinated handoff records final repeated-race evidence and pushed revisions.
+
 ## Original proposed plan
 
 The remaining unchecked tasks preserve the original proposal; the implementation record identifies narrowed interfaces and intentionally deferred policy/operational work.

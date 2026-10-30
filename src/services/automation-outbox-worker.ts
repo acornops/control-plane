@@ -41,8 +41,9 @@ async function claim(limit: number): Promise<OutboxRow[]> {
       `WITH candidates AS (
          SELECT outbox.id
          FROM automation_dispatch_outbox outbox
+         LEFT JOIN workflow_runs run ON run.id=outbox.run_id
          WHERE outbox.source_type='workflow' AND (
-             outbox.status IN ('pending','failed')
+             (outbox.status IN ('pending','failed') AND run.status IN ('queued','dispatching'))
              OR (outbox.status='claimed' AND outbox.claim_expires_at < NOW())
            )
            AND outbox.next_attempt_at <= NOW()

@@ -6,6 +6,8 @@ import { commitRun } from '../src/controllers/internal-execution-controller.js';
 import { runAutomationOutboxTick } from '../src/services/automation-outbox-worker.js';
 import { cancelWorkflowExecutionGraph } from '../src/services/workflow-execution-cancellation.js';
 import { createDelegatedWorkflowRun } from '../src/store/repository-workflow-run-delegations.js';
+import { applyAutomationApprovalOutcome, decideAutomationRunApproval } from '../src/store/repository-automation-approvals.js';
+import { createWorkflowExecution, createWorkflowSession, getWorkflowDefinition } from '../src/store/repository-workflows.js';
 import { recomputeWorkflowExecutionStatusForRun } from '../src/store/repository-workflow-execution-aggregate.js';
 import { coordinatedRoot, delegationInput } from './helpers/workflow-delegation-postgres-fixtures.js';
 import { callController, createRequest, restoreControllerRegressionState } from './helpers/controller-regression-fixtures.js';
@@ -23,6 +25,36 @@ afterEach(() => {
   restoreControllerRegressionState();
 });
 after(closeAutomationDatabaseFixtures);
+
+test('a pre-step approval preserves the pending dispatch until approval resumes it', async () => {
+  const setup = await coordinatedRoot();
+  const workflow = await getWorkflowDefinition('workspace-1', setup.parent.workflowId);
+  assert.ok(workflow);
+  const compiledAccessScope = { ...setup.parent.compiledAccessScope, approvalGates: ['Confirm execution.'] };
+  const session = await createWorkflowSession({ workflow, createdBy: 'user-1', compiledAccessScope });
+  const { run } = await createWorkflowExecution({ workflow, session, content: 'Inspect after approval.' });
+  const waiting = await state(run.id);
+  assert.equal(waiting.run.status, 'waiting_for_approval');
+  assert.equal(waiting.outbox.status, 'pending');
+  let calls = 0;
+  mock.method(globalThis, 'fetch', async () => {
+    calls += 1;
+    return new Response('{}', { status: 202 });
+  });
+  assert.equal(await runAutomationOutboxTick(1), 0);
+  assert.deepEqual(await state(run.id), waiting);
+  const approval = await db.query('SELECT id FROM workflow_run_approvals WHERE run_id=$1', [run.id]);
+  const decided = await decideAutomationRunApproval(approval.rows[0].id, 'approved', 'user-1');
+  assert.ok(decided);
+  await applyAutomationApprovalOutcome(decided);
+  assert.equal((await state(run.id)).run.status, 'queued');
+  assert.equal(await runAutomationOutboxTick(1), 1);
+  const delivered = await state(run.id);
+  assert.equal(delivered.outbox.status, 'delivered');
+  assert.equal(delivered.run.status, 'dispatching');
+  assert.equal(delivered.outbox.attempt_count, 1);
+  assert.equal(calls, 1);
+});
 
 test('exhaustion rollback leaves run, execution and outbox unchanged together', async () => {
   const run = await dispatchFixture();
