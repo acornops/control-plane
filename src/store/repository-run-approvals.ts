@@ -19,6 +19,15 @@ const RUN_TOOL_APPROVAL_SELECT = `
   JOIN runs r ON r.id = a.run_id
   JOIN sessions s ON s.id = r.session_id`;
 
+export class RunToolApprovalConflictError extends Error {
+  readonly code = 'APPROVAL_IDEMPOTENCY_CONFLICT';
+
+  constructor() {
+    super('The tool-call ID was already used with a different approval request.');
+    this.name = 'RunToolApprovalConflictError';
+  }
+}
+
 export async function createRunToolApproval(params: {
   runId: string;
   workspaceId: string;
@@ -33,6 +42,7 @@ export async function createRunToolApproval(params: {
   expiresAt: string;
   continuationState?: Record<string, unknown>;
 }): Promise<RunToolApproval> {
+  const argumentsDigest = canonicalJsonSha256(params.arguments || {});
   return withTransaction(async (client) => {
     const id = randomUUID();
     const result = await client.query<RunToolApprovalRow>(
@@ -42,14 +52,7 @@ export async function createRunToolApproval(params: {
            server_id, server_tool_name, requested_tool_alias, arguments_digest,
            summary, arguments, status, execution_status, requested_by, expires_at
          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$6,$9,$10,$11::jsonb,'pending','not_started',$12,$13)
-         ON CONFLICT (run_id, tool_call_id) DO UPDATE
-           SET tool_name = EXCLUDED.tool_name,
-               server_id = EXCLUDED.server_id,
-               server_tool_name = EXCLUDED.server_tool_name,
-               requested_tool_alias = EXCLUDED.requested_tool_alias,
-               arguments_digest = EXCLUDED.arguments_digest,
-               summary = COALESCE(EXCLUDED.summary, run_tool_approvals.summary),
-               arguments = EXCLUDED.arguments
+         ON CONFLICT (run_id, tool_call_id) DO NOTHING
          RETURNING *
        )
        SELECT a.*, t.target_type
@@ -64,13 +67,46 @@ export async function createRunToolApproval(params: {
         params.toolName,
         params.toolRef.serverId,
         params.toolRef.toolName,
-        canonicalJsonSha256(params.arguments || {}),
+        argumentsDigest,
         params.summary || null,
         JSON.stringify(params.arguments || {}),
         params.requestedBy || null,
         params.expiresAt
       ]
     );
+    if (!result.rowCount) {
+      const existing = await client.query<RunToolApprovalRow>(
+        `SELECT a.*, t.target_type FROM run_tool_approvals a
+         LEFT JOIN targets t ON t.id = a.target_id
+         WHERE a.run_id=$1 AND a.tool_call_id=$2 FOR UPDATE OF a`,
+        [params.runId, params.toolCallId]
+      );
+      if (!existing.rowCount) throw new RunToolApprovalConflictError();
+      const approval = mapRunToolApproval(existing.rows[0]);
+      const sameRequest = approval.workspaceId === params.workspaceId
+        && approval.targetId === (params.targetId || undefined)
+        && approval.toolName === params.toolName
+        && approval.requestedToolAlias === params.toolName
+        && approval.toolRef.serverId === params.toolRef.serverId
+        && approval.toolRef.toolName === params.toolRef.toolName
+        && approval.argumentsDigest === argumentsDigest
+        && canonicalJsonSha256(approval.arguments) === argumentsDigest
+        && approval.summary === (params.summary || undefined)
+        && approval.requestedBy === (params.requestedBy || undefined);
+      if (!sameRequest) throw new RunToolApprovalConflictError();
+
+      const continuation = await client.query<RunContinuationRow>(
+        'SELECT * FROM run_continuations WHERE run_id=$1 FOR UPDATE', [params.runId]
+      );
+      const sameContinuation = params.continuationState
+        ? continuation.rowCount
+          && continuation.rows[0].approval_id === approval.id
+          && canonicalJsonSha256(continuation.rows[0].state || {}) === canonicalJsonSha256(params.continuationState)
+        : !continuation.rowCount;
+      if (!sameContinuation) throw new RunToolApprovalConflictError();
+      // A retry must not refresh expiry, resurrect a continuation, or repeat the audit.
+      return approval;
+    }
     const approval = mapRunToolApproval(result.rows[0]);
     if (params.continuationState) {
       await client.query(

@@ -17,7 +17,7 @@ import {
   markAutomationApprovalExecutionFinished,
   startAutomationApprovalExecution
 } from '../store/repository-automation-approvals.js';
-import { ApprovalExecutionStartError } from '../store/repository-run-approvals.js';
+import { ApprovalExecutionStartError, RunToolApprovalConflictError } from '../store/repository-run-approvals.js';
 import { gatewayTokenService } from '../services/token-service.js';
 import { resolveTargetRunTools } from '../services/target-run-tool-resolution.js';
 import { getWorkflowRun } from '../store/repository-workflows.js';
@@ -180,7 +180,7 @@ export async function createToolApproval(req: Request, res: Response, next: Next
     }
     res.status(201).json(approval);
   } catch (err) {
-    if (err instanceof AutomationApprovalConflictError) {
+    if (err instanceof AutomationApprovalConflictError || err instanceof RunToolApprovalConflictError) {
       res.status(409).json({
         error: {
           code: err.code,

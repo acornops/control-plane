@@ -27,6 +27,9 @@
 - Never log password email verification or reset tokens, token hashes, SMTP credentials, or email bodies. Production verification and reset URLs are also suppressed unless an operator enables the explicit unsafe `EMAIL_DELIVERY_ALLOW_LOG_IN_PRODUCTION=true` log-delivery override.
 - Keep JWKS issuer and audience settings aligned with downstream consumers.
 - Treat run-scoped gateway JWTs as bearer secrets; builtin MCP bridge scope must come from JWT claims, not caller-supplied headers.
+- An interactive tool-call ID binds one immutable approval intent. Conflicting
+  retries cannot change approved arguments or receipt identity, extend expiry,
+  or replace/resurrect its continuation; storage checks run transactionally.
 - Treat external integration `intlink_` link tokens as short-lived bearer secrets. Store them only as hashes, invalidate older pending tokens when a new token is issued for the same external user, never log them, and never return browser cookies or OIDC provider tokens to external integration clients.
 - Treat raw external integration client tokens as operator secrets. Commit only descriptor examples with SHA-256 hashes, never raw client tokens, and never return raw client tokens in API responses or audit metadata.
 - Treat MCP `publicHeaders` as visible non-secret metadata only; credential-like, hop-by-hop, and platform routing headers must be rejected before forwarding to the gateway.

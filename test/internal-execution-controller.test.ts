@@ -7,6 +7,7 @@ import { agentGateway } from '../src/agent/ws-server.js';
 import { webhooks, type WebhookEventInput } from '../src/services/webhooks.js';
 import { gatewayTokenService } from '../src/services/token-service.js';
 import { repo } from '../src/store/repository.js';
+import { RunToolApprovalConflictError } from '../src/store/repository-run-approvals.js';
 import { runtime } from '../src/store/runtime.js';
 import {
   callController,
@@ -85,10 +86,11 @@ after(closeAutomationDatabaseFixtures);
 describe('VM approvals during asynchronous dispatch', () => {
   for (const scenario of [
     { mode: 'read_write', serverId: '00000000-0000-4000-8000-000000000001', status: 201, code: undefined },
+    { mode: 'read_write', serverId: '00000000-0000-4000-8000-000000000001', status: 409, code: 'APPROVAL_IDEMPOTENCY_CONFLICT' },
     { mode: 'read_only', serverId: '00000000-0000-4000-8000-000000000001', status: 400, code: 'READ_WRITE_REQUIRED' },
     { mode: 'read_write', serverId: 'ungranted-server', status: 400, code: 'MCP_TOOL_REF_NOT_GRANTED' }
   ] as const) {
-    it(`keeps ${scenario.mode} and exact-tool checks for ${scenario.serverId}`, async () => {
+    it(`keeps ${scenario.mode} and exact-tool checks for ${scenario.serverId}: ${scenario.status}`, async () => {
       repo.getRun = async () => createRun({
         status: 'dispatching', targetId: 'vm-1', targetType: 'virtual_machine', toolAccessMode: scenario.mode
       });
@@ -100,9 +102,13 @@ describe('VM approvals during asynchronous dispatch', () => {
       });
       repo.listTargetToolOverrides = async () => ({});
       mockVmBootstrapToolFetch();
-      const persist = mock.method(repo, 'createRunToolApproval', async () => createApproval({
-        targetId: 'vm-1', targetType: 'virtual_machine', toolName: 'restart_service'
-      }));
+      const conflict = scenario.status === 409;
+      const persist = mock.method(repo, 'createRunToolApproval', async () => {
+        if (conflict) throw new RunToolApprovalConflictError();
+        return createApproval({ targetId: 'vm-1', targetType: 'virtual_machine', toolName: 'restart_service' });
+      });
+      const activity = mock.method(repo, 'insertTargetChatActivityEvent');
+      const webhook = mock.method(webhooks, 'emit');
       const response = await callController(createToolApproval, createRequest({ runId: 'run-1' }, {
         toolCallId: 'call-2', toolName: 'restart_service',
         toolRef: { serverId: scenario.serverId, toolName: 'restart_service' },
@@ -112,7 +118,15 @@ describe('VM approvals during asynchronous dispatch', () => {
       assert.equal(response.statusCode, scenario.status);
       if (scenario.code) {
         assert.equal((response.body as { error: { code: string } }).error.code, scenario.code);
-        assert.equal(persist.mock.callCount(), 0);
+        assert.equal(persist.mock.callCount(), conflict ? 1 : 0);
+        if (conflict) {
+          assert.deepEqual(response.body, { error: {
+            code: 'APPROVAL_IDEMPOTENCY_CONFLICT',
+            message: 'The tool-call ID was already used with a different approval request.', retryable: false
+          } });
+          assert.equal(activity.mock.callCount(), 0);
+          assert.equal(webhook.mock.callCount(), 0);
+        }
       } else {
         assert.equal(persist.mock.callCount(), 1);
         assert.equal((response.body as { status: string }).status, 'pending');

@@ -49,6 +49,11 @@ The control plane owns the platform API boundary. Keep this README as a short in
   The engine reports approval request failures with safe `RUN_NOT_ACTIVE` or
   `TOOL_APPROVAL_REQUEST_FAILED` messages rather than internal HTTP exceptions,
   and never retries an ambiguously completed approval request automatically.
+  Interactive approval retries preserve the original tool identity, arguments,
+  requester, summary, expiry and continuation. An exact retry returns the stored
+  approval without another repository request audit. Conflicting intent or a
+  missing/replaced continuation returns `409 APPROVAL_IDEMPOTENCY_CONFLICT`
+  with `retryable: false`; retries never restore consumed continuation state.
 
 - Kubernetes `GET /workspaces/:workspaceId/kubernetes-clusters/:clusterId/install-instructions`
   requires target access and `manage_targets`. It returns `{clusterId,
