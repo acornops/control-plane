@@ -18,6 +18,12 @@
 - Run `npm run db:status` or `npm run db:check` before starting against an existing database after schema changes.
 - Use the integration compose profile when changing execution-engine, llm-gateway, or auth-facing behavior.
 - Preserve deterministic run event ordering and terminal run states.
+- Workflow dispatch response loss must preserve recorded completion, progress,
+  approval waits and cancellation intent. Only the current unexpired outbox
+  claim may settle delivery; retry exhaustion updates eligible run, execution
+  aggregate and outbox state in one transaction. Database persistence failures
+  do not count as transport attempts. Expired claims with recorded progress
+  close without another dispatch; other retries retain the original identity.
 - Preserve durable write-approval behavior: approval creation stores continuation and `waiting_for_approval` atomically, and decisions resume through backend redispatch.
 - Approval creation must tolerate `dispatching` while the worker's asynchronous
   `run_started` event is in flight, for both interactive and Workflow runs. This
