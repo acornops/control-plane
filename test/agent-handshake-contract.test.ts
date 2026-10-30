@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 import WebSocket from 'ws';
 import { handleAgentHandshake } from '../src/agent/handshake.js';
-import { FakeWebSocket, parseLastSent } from './helpers/agent-gateway-fixtures.js';
+import { config } from '../src/config.js';
+import {
+  FakeWebSocket, installAgentRepoMocks, installRedisStore, parseLastSent,
+  setupControlPlaneCoordinationTest, teardownControlPlaneCoordinationTest
+} from './helpers/agent-gateway-fixtures.js';
 
 describe('AgentK handshake contract', () => {
   it('rejects the unsupported k8s_agent type before key lookup', async () => {
@@ -44,6 +48,34 @@ describe('AgentK handshake contract', () => {
 
       assert.equal(ws.closeCode, 1008);
       assert.equal((parseLastSent(ws) as { error?: { message?: string } }).error?.message, 'Invalid agent key');
+    });
+  }
+});
+
+describe('AgentK negotiated snapshot budget', () => {
+  const originalMaxPayload = config.AGENT_WS_MAX_PAYLOAD_BYTES;
+  beforeEach(setupControlPlaneCoordinationTest);
+  afterEach(() => {
+    config.AGENT_WS_MAX_PAYLOAD_BYTES = originalMaxPayload;
+    teardownControlPlaneCoordinationTest();
+  });
+
+  for (const maxPayloadBytes of [3 * 1024 * 1024, 2 * 1024 * 1024 + 65536, 5 * 1024 * 1024]) {
+    it(`never advertises more than the ${maxPayloadBytes}-byte receiver limit`, async () => {
+      config.AGENT_WS_MAX_PAYLOAD_BYTES = maxPayloadBytes;
+      installRedisStore(new Map());
+      installAgentRepoMocks([{ clusterId: 'cluster-1', workspaceId: 'workspace-1', agentKey: 'agent-key' }]);
+      const ws = new FakeWebSocket();
+      await handleAgentHandshake({
+        ws: ws as unknown as WebSocket, requestId: 'handshake-1',
+        params: {
+          targetId: 'cluster-1', targetType: 'kubernetes', agentType: 'agentk',
+          agentKey: 'agent-key', supportedCapabilities: ['read'], advertisedTools: []
+        },
+        agentKeyHeader: 'agent-key', connectorVersion: 'agentk/test'
+      });
+      const response = parseLastSent(ws) as { result?: { config?: { maxSnapshotBytes?: number } } };
+      assert.equal(response.result?.config?.maxSnapshotBytes, maxPayloadBytes);
     });
   }
 });

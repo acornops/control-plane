@@ -52,8 +52,10 @@ The control plane owns the platform API boundary. Keep this README as a short in
   Interactive approval retries preserve the original tool identity, arguments,
   requester, summary, expiry and continuation. An exact retry returns the stored
   approval without another repository request audit. Conflicting intent or a
-  missing/replaced continuation returns `409 APPROVAL_IDEMPOTENCY_CONFLICT`
-  with `retryable: false`; retries never restore consumed continuation state.
+  supplied continuation that is missing/replaced returns
+  `409 APPROVAL_IDEMPOTENCY_CONFLICT` with `retryable: false`. Omitting a stored
+  continuation also conflicts; omitting one after consumption may return the
+  approval read-only. Retries never restore consumed continuation state.
 
 - Kubernetes `GET /workspaces/:workspaceId/kubernetes-clusters/:clusterId/install-instructions`
   requires target access and `manage_targets`. It returns `{clusterId,
@@ -435,6 +437,7 @@ The control plane owns the platform API boundary. Keep this README as a short in
   fail-closed ceilings, and the control plane must not infer or add local
   opt-ins.
 - Agent snapshots preserve `config.snapshotInterval`, `config.maxSnapshotBytes`, and `config.namespaceScope.{include,exclude}`.
+  The advertised compressed snapshot budget never exceeds `AGENT_WS_MAX_PAYLOAD_BYTES`.
 - AgentV's optional `finding_coverage.filesystems` and `finding_coverage.services`
   are independently `complete` only after all collected mounts or failed services
   have been evaluated successfully, otherwise `incomplete`.

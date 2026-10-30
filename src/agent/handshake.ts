@@ -269,7 +269,10 @@ export async function handleAgentHandshake(input: {
     },
     config: {
       snapshotInterval: config.CONTROL_PLANE_AGENT_SNAPSHOT_INTERVAL_SECONDS,
-      maxSnapshotBytes: targetType === VIRTUAL_MACHINE_TARGET_TYPE ? 1024 * 1024 : 5 * 1024 * 1024,
+      maxSnapshotBytes: Math.min(
+        targetType === VIRTUAL_MACHINE_TARGET_TYPE ? 1024 * 1024 : 5 * 1024 * 1024,
+        config.AGENT_WS_MAX_PAYLOAD_BYTES
+      ),
       namespaceScope: targetType === KUBERNETES_TARGET_TYPE && 'namespaceInclude' in target
         ? {
           include: target.namespaceInclude,
