@@ -5,6 +5,49 @@ import { persistToolResultArtifact, sanitizeArtifactResult } from '../../src/ser
 import { repo } from '../../src/store/repository.js';
 
 describe('tool result artifacts', () => {
+  it('redacts quoted URI userinfo without corrupting JSON or harmless URL/email fields', () => {
+    for (const message of [
+      'https://user:"fixture-secret"@example.com/path',
+      'postgres://user:fixture-secret"tail"@database.test/path',
+      'https://"user:fixture-secret"@example.com/path',
+      '"postgres://user:fixture-secret"@database.test/path',
+      '"postgres://user:fixture-secret"suffix@database.test/path',
+      '"postgres://user:fixture-secret"tail"@database.test/path"',
+      '"postgres://user:"fixture-secret"@database.test/path',
+      '"postgres://user:fixture-secret",suffix@database.test/path',
+    ]) {
+      for (const input of [message, JSON.stringify({ message, status: 'ready' })]) {
+        const output = sanitizeArtifactResult(input) as string;
+        assert.doesNotMatch(output, /fixture-secret/);
+        assert.match(output, /\/path/);
+        assert.equal(sanitizeArtifactResult(output), output);
+        if (input.startsWith('{')) assert.equal(JSON.parse(output).status, 'ready');
+      }
+    }
+    for (const safe of [
+      '{"url":"https://example.com","email":"user@example.com"}',
+      '["https://example.com","user@example.com"]',
+      '{"https://example.com":"user@example.com"}',
+    ]) assert.equal(sanitizeArtifactResult(safe), safe);
+  });
+
+  it('withholds malformed continuation after sensitive string, scalar and compound values', () => {
+    for (const message of [
+      '{"password":"first"fixture-secret"}',
+      '{"password":123 fixture-secret}',
+      '{"password":null fixture-secret}',
+      '{"password":{"one":"x"}fixture-secret}',
+      '{"password":["first"]fixture-secret}',
+    ]) {
+      for (const input of [message, JSON.stringify({ message })]) {
+        const output = sanitizeArtifactResult(input) as string;
+        assert.doesNotMatch(output, /fixture-secret/);
+        assert.match(output, /<redacted-unparseable-log-segment>/);
+        assert.equal(sanitizeArtifactResult(output), output);
+      }
+    }
+  });
+
   it('does not leak through malformed JSONL or legacy assignments spanning quotes', () => {
     for (const logs of [
       'log "unterminated\n{"password":"fixture-secret"}',
