@@ -22,7 +22,7 @@ afterEach(() => { config.AGENTV_WINDOWS_ENABLED = previous; teardownControlPlane
 function definition(name: string, field: string, capability: 'read' | 'write' = 'read'): AgentToolDefinition {
   return { name, description: name, capability, version: '1.0.0',
     inputSchema: { type: 'object', additionalProperties: false, properties: { [field]: { type: 'string' } }, required: [field] },
-    outputSchema: { type: 'object', properties: { [field]: { type: 'string' } } }, artifactPolicy: 'if_detailed' };
+    outputSchema: { type: 'object', additionalProperties: false, properties: { [field]: { type: 'string' } }, required: [field] }, artifactPolicy: 'if_detailed' };
 }
 it('keeps same-name Linux and Windows schemas in their own built-in destinations across sync and dispatch target switches', async () => {
   const catalogs = new Map<string, AgentToolDefinition[]>([
@@ -69,7 +69,16 @@ it('keeps same-name Linux and Windows schemas in their own built-in destinations
     const tools = body.tools as Array<Record<string, unknown>>;
     assert.deepEqual((tools.find((tool) => tool.name === 'query_logs')!.input_schema as Record<string, unknown>).required, [id === 'windows' ? 'channel' : 'unit']);
     assert.deepEqual((tools.find((tool) => tool.name === 'get_service')!.input_schema as Record<string, unknown>).required, [id === 'windows' ? 'name' : 'unit']);
+    for (const [name, field] of [['query_logs', id === 'windows' ? 'channel' : 'unit'], ['get_service', id === 'windows' ? 'name' : 'unit']]) {
+      assert.deepEqual(tools.find((tool) => tool.name === name)!.output_schema, {
+        type: 'object', additionalProperties: false, properties: { [field]: { type: 'string' } }, required: [field]
+      });
+    }
     assert.equal(tools.some((tool) => tool.capability === 'write'), id === 'linux');
+    if (registered.has('linux') && registered.has('windows')) {
+      const output = (targetId: string) => (registered.get(targetId)!.tools as Array<Record<string, unknown>>).find((tool) => tool.name === 'get_service')!.output_schema;
+      assert.notDeepEqual(output('linux'), output('windows'));
+    }
   }
   assert.deepEqual(queries, ['linux', 'linux', 'windows', 'windows', 'linux', 'linux', 'windows', 'windows']);
   for (const [id, args] of [['linux', { unit: 'backup.service' }], ['windows', { channel: 'System' }], ['linux', { unit: 'backup.service' }]] as const) {
