@@ -4,7 +4,7 @@ export function isSafeWindowsInstallUrl(value: string): boolean {
   try {
     const url = new URL(value);
     return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash
-      && !/[\s'"`\\\x00-\x1f\x7f]/.test(value);
+      && !/[\s'"`\\\x00-\x1f\x7f\u2018-\u201f]/.test(value);
   } catch { return false; }
 }
 

@@ -101,3 +101,15 @@ it('fails closed for stored Windows write policy', async () => {
   mock.method(db, 'query', async () => ({ rowCount: 1, rows: [{ id: 'vm', metadata: { osFamily: 'windows', serviceManager: 'scm', agentAccessMode: 'read_write', restartServices: ['nginx.service'] } }] }));
   await assert.rejects(getVirtualMachine('vm'), /Windows AgentV access policy must be read-only/);
 });
+
+it('rejects PowerShell smart-quote delimiters and adjacent quote variants in both URL fields', () => {
+  const input = { targetId: 'vm-1', platformUrl: 'https://platform.test', releaseBaseUrl: 'https://releases.test', releaseVersion: '1.2.3' };
+  for (const quote of ['\u2018', '\u2019', '\u201a', '\u201b', '\u201c', '\u201d', '\u201e', '\u201f']) {
+    const unsafeUrl = `https://releases.test/${quote};whoami;${quote}`;
+    assert.equal(windowsAgentVConfigSchema.safeParse({ AGENTV_WINDOWS_RELEASE_BASE_URL: unsafeUrl }).success, false, `config accepted ${quote.codePointAt(0)?.toString(16)}`);
+    for (const field of ['releaseBaseUrl', 'platformUrl'] as const) {
+      assert.throws(() => buildVirtualMachineWindowsInstallInstructions({ ...input, [field]: unsafeUrl }), /literal HTTPS/, `${field} accepted ${quote.codePointAt(0)?.toString(16)}`);
+    }
+  }
+  assert.doesNotThrow(() => buildVirtualMachineWindowsInstallInstructions({ ...input, releaseBaseUrl: 'https://releases.test/ascii-path_1.2-3', platformUrl: 'https://platform.test/acornops' }));
+});
