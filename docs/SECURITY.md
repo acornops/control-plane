@@ -26,3 +26,12 @@ Give the AcornOps maintainers time to acknowledge, investigate, and remediate a
 valid vulnerability before public disclosure. Maintainers may follow up through
 Discord for reproduction details, mitigation guidance, and coordinated
 disclosure timing.
+
+## HTTP body parser logging
+
+Both HTTP listeners handle JSON parsing failures at the parser boundary. Logs
+contain only the request ID, normalized status, and fixed error code; parser
+exception bodies, messages, stacks, and causes are never serialized. Malformed,
+oversized, and unsupported bodies return safe 400, 413, and 415 error envelopes.
+The 4 MiB limit, compression support, and exact valid bytes used for webhook
+signature verification are preserved.

@@ -126,7 +126,7 @@ export async function listAdminUsers(options: {
     clauses.push(`(u.created_at, u.id) > ($${params.length - 1}::timestamptz, $${params.length}::text)`);
   }
   const result = await db.query(
-    `SELECT u.*,
+    `SELECT u.*, u.created_at::text AS cursor_created_at,
        pc.user_id IS NOT NULL AS has_password,
        fi.user_id IS NOT NULL AS has_oidc,
        COALESCE(member_counts.member_count, 0)::int AS member_count,
@@ -161,7 +161,7 @@ export async function listAdminUsers(options: {
     lastLoginAt: toIso(row.last_login_at)
   }));
   return pageWithCursor(items, limit, (user) =>
-    encodeCursor({ signature: options.signature || '', createdAt: user.createdAt, userId: user.id })
+    encodeCursor({ signature: options.signature || '', createdAt: result.rows[limit - 1].cursor_created_at, userId: user.id })
   );
 }
 
@@ -169,17 +169,19 @@ export async function getAdminUser(userId: string): Promise<{
   user: User & { emailVerified: boolean };
   authMethods: Pick<AuthMethod, 'type'>[];
   activeSessionCount: number | null;
-  memberships: WorkspaceMembership[];
+  memberships: Array<WorkspaceMembership & { workspaceName: string; workspaceLifecycleStatus: 'active' | 'suspended' }>;
 } | null> {
   const userResult = await db.query<UserRow>('SELECT * FROM users WHERE id = $1', [userId]);
   if (!userResult.rowCount) return null;
   const [passwordResult, federatedResult, membershipsResult] = await Promise.all([
     db.query('SELECT 1 FROM user_password_credentials WHERE user_id = $1 LIMIT 1', [userId]),
     db.query<{ provider: string }>('SELECT provider FROM user_federated_identities WHERE user_id = $1 ORDER BY provider ASC', [userId]),
-    db.query<WorkspaceMembershipRow>(
-      `SELECT m.workspace_id, m.user_id, u.email, u.display_name, m.role, m.source, m.created_at, m.updated_at
+    db.query<WorkspaceMembershipRow & { workspace_name: string; lifecycle_status: 'active' | 'suspended' }>(
+      `SELECT m.workspace_id, m.user_id, u.email, u.display_name, m.role, m.source, m.created_at, m.updated_at,
+        w.name AS workspace_name, w.lifecycle_status
        FROM workspace_memberships m
        INNER JOIN users u ON u.id = m.user_id
+       INNER JOIN workspaces w ON w.id = m.workspace_id
        WHERE m.user_id = $1
        ORDER BY m.created_at ASC`,
       [userId]
@@ -192,7 +194,7 @@ export async function getAdminUser(userId: string): Promise<{
       ...federatedResult.rows.map(() => ({ type: 'oidc' as const }))
     ],
     activeSessionCount: null,
-    memberships: membershipsResult.rows.map(mapWorkspaceMembership)
+    memberships: membershipsResult.rows.map(row => ({ ...mapWorkspaceMembership(row), workspaceName: row.workspace_name, workspaceLifecycleStatus: row.lifecycle_status }))
   };
 }
 
@@ -209,8 +211,9 @@ export async function listAdminWorkspaceMembers(options: {
     params.push(options.cursor.createdAt, options.cursor.userId);
     clauses.push(`(m.created_at, m.user_id) > ($${params.length - 1}::timestamptz, $${params.length}::text)`);
   }
-  const result = await db.query<WorkspaceMembershipRow>(
-    `SELECT m.workspace_id, m.user_id, u.email, u.display_name, m.role, m.source, m.created_at, m.updated_at
+  const result = await db.query<WorkspaceMembershipRow & { cursor_created_at: string }>(
+    `SELECT m.workspace_id, m.user_id, u.email, u.display_name, m.role, m.source, m.created_at, m.updated_at,
+       m.created_at::text AS cursor_created_at
      FROM workspace_memberships m
      INNER JOIN users u ON u.id = m.user_id
      WHERE ${clauses.join(' AND ')}
@@ -220,7 +223,7 @@ export async function listAdminWorkspaceMembers(options: {
   );
   const items = result.rows.map(mapWorkspaceMembership);
   return pageWithCursor(items, limit, (member) =>
-    encodeCursor({ signature: options.signature || '', createdAt: member.createdAt, userId: member.userId })
+    encodeCursor({ signature: options.signature || '', createdAt: result.rows[limit - 1].cursor_created_at, userId: member.userId })
   );
 }
 
