@@ -183,6 +183,14 @@
       }
     },
     "management-console": {
+      "windowsCollectionStatus": {
+        "resources": "GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/resources",
+        "projection": "Windows-only collectionStatus: {workspaceId,targetId,snapshotTs,categories:{host,filesystems,services,processes,network}} or null when the snapshot/read-model generation is missing",
+        "categoryFields": "status: ok|partial|unavailable|permission_denied|timed_out|unsupported|unknown; omittedCount for lists; findingCoverage: complete|incomplete only for filesystems/services",
+        "logs": "Windows HTTP200 retains health.status, truncated, returned_count, original_count and byte_count with entries; runtime health messages are not displayed",
+        "compatibility": "Linux resources remain exactly {items}; Linux logs, cache arrays and UI are unchanged",
+        "cache": "Windows complete envelopes cached by workspace/target (resources) or workspace/target/channel (logs); stale requests rejected; collection status bound to row snapshotTs"
+      },
       "virtualMachineRegistrationOptions": {
         "path": "GET /api/v1/workspaces/{workspaceId}/virtual-machines/registration-options",
         "authorization": "user session and manage_targets",

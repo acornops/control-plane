@@ -491,7 +491,29 @@ export async function listVirtualMachineInventory(vmId: string): Promise<TargetI
      ORDER BY sort_key ASC`,
     [vmId]
   );
-  return result.rows.map((row) => ({
+  return result.rows.map(mapVirtualMachineInventoryRow);
+}
+
+export interface VirtualMachineInventoryRow {
+  target_id: string;
+  workspace_id: string;
+  snapshot_ts: Date | string;
+  item_id: string;
+  category: string;
+  kind: string;
+  scope_kind: string | null;
+  scope_name: string | null;
+  name: string;
+  status: string | null;
+  location: string | null;
+  needs_attention: boolean;
+  sort_key: string;
+  search_text: string;
+  item: Record<string, unknown> | null;
+}
+
+export function mapVirtualMachineInventoryRow(row: VirtualMachineInventoryRow): TargetInventoryItemInput {
+  return {
     targetId: row.target_id,
     workspaceId: row.workspace_id,
     snapshotTs: toIso(row.snapshot_ts)!,
@@ -507,5 +529,5 @@ export async function listVirtualMachineInventory(vmId: string): Promise<TargetI
     sortKey: row.sort_key,
     searchText: row.search_text,
     item: row.item || {}
-  }));
+  };
 }

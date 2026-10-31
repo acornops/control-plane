@@ -69,3 +69,25 @@ export function isFailedWindowsService(service: Record<string, unknown>): boolea
     && typeof service.exit_code === 'number' && Number.isFinite(service.exit_code)
     && service.exit_code !== 0 && service.exit_code !== 1077;
 }
+
+/** Fixed display projection; runtime collector names/messages never cross this boundary. */
+export function projectWindowsCollectionStatus(snapshot: VirtualMachineSnapshot) {
+  const parsed = windowsSnapshotSchema.safeParse(snapshot.data);
+  if (!parsed.success) return null;
+  const data = parsed.data;
+  const status = (collector: string) => {
+    const entries = data.collector_health.filter((entry) => entry.collector === collector);
+    return entries.find((entry) => entry.status !== 'ok')?.status ?? entries[0]?.status ?? 'unknown';
+  };
+  const count = (value: number) => Math.min(value, Number.MAX_SAFE_INTEGER);
+  return {
+    targetId: snapshot.targetId, workspaceId: snapshot.workspaceId, snapshotTs: snapshot.timestamp,
+    categories: {
+      host: { status: status('windows_host') },
+      filesystems: { status: status('windows_volumes'), omittedCount: count(data.truncation.filesystems), findingCoverage: data.finding_coverage.filesystems },
+      services: { status: status('windows_services'), omittedCount: count(data.truncation.services), findingCoverage: data.finding_coverage.services },
+      processes: { status: status('windows_processes'), omittedCount: count(data.truncation.processes) },
+      network: { status: status('windows_listeners'), omittedCount: count(data.truncation.listeners) }
+    }
+  };
+}

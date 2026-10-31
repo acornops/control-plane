@@ -403,7 +403,12 @@ export async function listVirtualMachineInventory(req: AuthenticatedRequest, res
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
     const vmId = toSingleParam(req.params.vmId);
-    if (!(await requireVirtualMachineTargetAccess(req, res, workspaceId, vmId))) return;
+    const access = await requireVirtualMachineTargetAccess(req, res, workspaceId, vmId);
+    if (!access) return;
+    if (access.target.metadata?.osFamily === 'windows') {
+      res.status(200).json(await repo.listWindowsVirtualMachineInventory(workspaceId, vmId));
+      return;
+    }
     const items = await repo.listVirtualMachineInventory(vmId);
     res.status(200).json({ items });
   } catch (err) {

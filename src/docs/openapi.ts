@@ -7,7 +7,7 @@ import { buildHealthPaths } from './openapi/health-paths.js';
 import { buildInternalPaths } from './openapi/internal-paths.js';
 import { buildSessionRunPaths } from './openapi/session-run-paths.js';
 import { buildTargetPaths } from './openapi/target-paths.js';
-import { buildVirtualMachinePaths } from './openapi/virtual-machine-paths.js';
+import { buildVirtualMachinePaths, windowsCollectionCategorySchema } from './openapi/virtual-machine-paths.js';
 import { buildWebhookPaths } from './openapi/webhook-paths.js';
 import { buildWorkspacePaths } from './openapi/workspace-paths.js';
 import { buildWorkflowPaths } from './openapi/workflow-paths.js';
@@ -101,6 +101,7 @@ export function buildOpenApiDocument(baseUrl: string, sessionCookieName: string)
         }
       },
       schemas: {
+        WindowsCollectionCategory: windowsCollectionCategorySchema,
         ErrorResponse: {
           type: 'object',
           properties: {

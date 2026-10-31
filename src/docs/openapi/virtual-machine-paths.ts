@@ -22,6 +22,25 @@ const externalUserHeader = {
   description: 'Required only for external integration client-token requests. Must identify a linked external integration user.'
 };
 
+export const windowsCollectionCategorySchema = {
+  type: 'object', required: ['status'], additionalProperties: false,
+  properties: {
+    status: { type: 'string', enum: ['ok', 'partial', 'unavailable', 'permission_denied', 'timed_out', 'unsupported', 'unknown'] },
+    omittedCount: { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+    findingCoverage: { type: 'string', enum: ['complete', 'incomplete'] }
+  }
+};
+const collectionStatusSchema = {
+  type: ['object', 'null'], additionalProperties: false,
+  required: ['workspaceId', 'targetId', 'snapshotTs', 'categories'],
+  properties: {
+    workspaceId: { type: 'string' }, targetId: { type: 'string' }, snapshotTs: { type: 'string', format: 'date-time' },
+    categories: { type: 'object', additionalProperties: false,
+      required: ['host', 'filesystems', 'services', 'processes', 'network'],
+      properties: Object.fromEntries(['host', 'filesystems', 'services', 'processes', 'network'].map((key) => [key, { $ref: '#/components/schemas/WindowsCollectionCategory' }])) }
+  }
+};
+
 export function buildVirtualMachinePaths(): Record<string, unknown> {
   return {
     '/api/v1/agentv/enrollments/exchange': {
@@ -278,7 +297,12 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
         description: 'Browser callers use the session cookie. External integration callers may use the external integration client token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
         security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
         parameters: [externalUserHeader, workspaceParam, vmParam],
-        responses: { '200': { description: 'VM inventory page payload: { items, nextCursor? }.' } }
+        responses: { '200': {
+          description: 'VM inventory: Linux retains {items}. Windows adds collectionStatus bound to the same committed snapshot as its rows; null means no matching snapshot/read-model generation. Missing collector evidence is unknown. Omitted counts describe inventory truncation; findingCoverage applies only to volumes/services and does not imply a complete inventory.',
+          content: { 'application/json': { schema: { type: 'object', required: ['items'], properties: {
+            items: { type: 'array', items: { type: 'object', additionalProperties: true } }, collectionStatus: collectionStatusSchema
+          } } } }
+        } }
       }
     },
     '/api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/metrics/history': {
@@ -312,7 +336,7 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
           { in: 'query', name: 'tailLines', required: false, schema: { type: 'integer', minimum: 1, maximum: 500, default: 200 } },
           { in: 'query', name: 'limitBytes', required: false, schema: { type: 'integer', minimum: 1024, maximum: 1048576, default: 1048576 } }
         ],
-        responses: { '200': { description: 'VM log entries returned by the connected AgentV.' } }
+        responses: { '200': { description: 'VM log entries returned by the connected AgentV. Windows HTTP 200 envelopes also include health.status (ok, partial, unavailable, permission_denied, timed_out, unsupported), truncated, returned_count, original_count and byte_count. A successful HTTP response does not imply complete collection; retain usable entries alongside failed/partial collection status. Linux envelopes are unchanged.' } }
       }
     }
   };

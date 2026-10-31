@@ -114,3 +114,16 @@ it('checks Windows log permissions before calling the agent', async () => {
   assert.equal(res.statusCode, 403);
   assert.equal(call.mock.callCount(), 0);
 });
+
+for (const status of ['permission_denied', 'unavailable', 'partial']) {
+  it(`preserves successful native log ${status} envelopes through HTTP 200`, async () => {
+    const payload = { entries: status === 'partial' ? [{ channel: 'System', message: 'retained event' }] : [],
+      health: { collector: 'windows_events', status, duration_ms: 2 }, truncated: true,
+      returned_count: status === 'partial' ? 1 : 0, original_count: 2, byte_count: 100 };
+    mock.method(agentGateway, 'callAgentTool', async () => payload);
+    const res = response();
+    await getVirtualMachineLogs(request({ channel: 'System' }) as never, res as never, next);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.body, payload);
+  });
+}

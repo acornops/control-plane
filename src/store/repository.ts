@@ -54,18 +54,8 @@ import {
   revokeWorkspaceInvitation as revokeWorkspaceInvitationRecord
 } from './repository-invitations.js';
 import * as repositoryKubernetesClusters from './repository-kubernetes-clusters.js';
-import {
-  addVirtualMachine as addVirtualMachineRecord,
-  deleteVirtualMachine as deleteVirtualMachineRecord,
-  getVirtualMachine as getVirtualMachineRecord,
-  getVirtualMachineSnapshot as getVirtualMachineSnapshotRecord,
-  listVirtualMachineInventory as listVirtualMachineInventoryRecord,
-  getVirtualMachineSnapshotSummary as getVirtualMachineSnapshotSummaryRecord,
-  listVirtualMachineSnapshotSummaries as listVirtualMachineSnapshotSummariesRecord,
-  listVirtualMachines as listVirtualMachinesRecord,
-  updateVirtualMachine as updateVirtualMachineRecord,
-  upsertVirtualMachineSnapshot as upsertVirtualMachineSnapshotRecord
-} from './repository-virtual-machines.js';
+import * as repositoryVirtualMachines from './repository-virtual-machines.js';
+import { listWindowsVirtualMachineInventory } from './repository-windows-vm-inventory.js';
 import {
   getTargetAgentRegistration as getTargetAgentRegistrationRecord,
   listTargetAgentRegistrations as listTargetAgentRegistrationsRecord,
@@ -333,15 +323,15 @@ export class Repository {
 
   deleteCluster = repositoryKubernetesClusters.deleteCluster;
 
-  addVirtualMachine = addVirtualMachineRecord;
+  addVirtualMachine = repositoryVirtualMachines.addVirtualMachine;
 
-  listVirtualMachines = listVirtualMachinesRecord;
+  listVirtualMachines = repositoryVirtualMachines.listVirtualMachines;
 
-  getVirtualMachine = getVirtualMachineRecord;
+  getVirtualMachine = repositoryVirtualMachines.getVirtualMachine;
 
-  updateVirtualMachine = updateVirtualMachineRecord;
+  updateVirtualMachine = repositoryVirtualMachines.updateVirtualMachine;
 
-  deleteVirtualMachine = deleteVirtualMachineRecord;
+  deleteVirtualMachine = repositoryVirtualMachines.deleteVirtualMachine;
 
   deleteWorkspace = deleteWorkspaceRecord;
 
@@ -436,11 +426,12 @@ export class Repository {
   purgeOldTargetIssueObservations = purgeOldTargetIssueObservationsRecord;
   purgeExpiredGeneratedDocuments = purgeExpiredGeneratedDocumentsRecord;
   purgeExpiredWorkflowHistory = purgeExpiredWorkflowHistoryRecord;
-  upsertVirtualMachineSnapshot = upsertVirtualMachineSnapshotRecord;
-  getVirtualMachineSnapshot = getVirtualMachineSnapshotRecord;
-  getVirtualMachineSnapshotSummary = getVirtualMachineSnapshotSummaryRecord;
-  listVirtualMachineSnapshotSummaries = listVirtualMachineSnapshotSummariesRecord;
-  listVirtualMachineInventory = listVirtualMachineInventoryRecord;
+  upsertVirtualMachineSnapshot = repositoryVirtualMachines.upsertVirtualMachineSnapshot;
+  getVirtualMachineSnapshot = repositoryVirtualMachines.getVirtualMachineSnapshot;
+  getVirtualMachineSnapshotSummary = repositoryVirtualMachines.getVirtualMachineSnapshotSummary;
+  listVirtualMachineSnapshotSummaries = repositoryVirtualMachines.listVirtualMachineSnapshotSummaries;
+  listVirtualMachineInventory = repositoryVirtualMachines.listVirtualMachineInventory;
+  listWindowsVirtualMachineInventory = listWindowsVirtualMachineInventory;
   listTargetToolOverrides = listTargetToolOverridesRecord;
   setTargetToolOverride = setTargetToolOverrideRecord;
   listTargetToolSettings = listTargetToolSettingsRecord;
