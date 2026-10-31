@@ -91,6 +91,7 @@ export async function listAdminWorkspaces(options: {
   limit?: number;
   cursor?: { createdAt: string; workspaceId: string } | null;
   q?: string;
+  lifecycleStatus?: WorkspaceLifecycleStatus;
   planKey?: string;
   createdBy?: string;
   createdAfter?: string;
@@ -105,7 +106,11 @@ export async function listAdminWorkspaces(options: {
     params.push(value);
     clauses.push(sql.replace('?', `$${params.length}`));
   };
-  if (options.q) add('LOWER(w.name) LIKE ?', `%${options.q.toLowerCase()}%`);
+  if (options.q) {
+    params.push(`%${options.q.toLowerCase()}%`);
+    clauses.push(`(LOWER(w.name) LIKE $${params.length} OR LOWER(w.id) LIKE $${params.length})`);
+  }
+  if (options.lifecycleStatus) add('w.lifecycle_status = ?', options.lifecycleStatus);
   if (options.planKey) add('w.plan_key = ?', options.planKey);
   if (options.createdBy) add('w.created_by = ?', options.createdBy);
   if (options.createdAfter) add('w.created_at >= ?::timestamptz', options.createdAfter);
@@ -124,7 +129,7 @@ export async function listAdminWorkspaces(options: {
     clauses.push(`(w.created_at, w.id) > ($${params.length - 1}::timestamptz, $${params.length}::text)`);
   }
   const result = await db.query(
-    `SELECT ${adminWorkspaceColumns}
+    `SELECT ${adminWorkspaceColumns}, w.created_at::text AS cursor_created_at
      FROM workspaces w
      ${adminWorkspaceJoins}
      ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
@@ -134,7 +139,7 @@ export async function listAdminWorkspaces(options: {
   );
   const items = result.rows.map((row) => mapAdminWorkspaceSummary(row as AdminWorkspaceRow));
   return pageWithCursor(items, limit, (workspace) =>
-    encodeCursor({ signature: options.signature || '', createdAt: workspace.createdAt, workspaceId: workspace.id })
+    encodeCursor({ signature: options.signature || '', createdAt: result.rows[limit - 1].cursor_created_at, workspaceId: workspace.id })
   );
 }
 

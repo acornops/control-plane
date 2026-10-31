@@ -106,6 +106,11 @@ export async function systemConfig(_req: AdminAuthenticatedRequest, res: Respons
 
 export async function listWorkspaces(req: AdminAuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
+    const lifecycleStatus = req.query.lifecycleStatus;
+    if (lifecycleStatus !== undefined && lifecycleStatus !== 'active' && lifecycleStatus !== 'suspended') {
+      validationError(res, 'lifecycleStatus must be active or suspended');
+      return;
+    }
     const q = normalizeSearchQuery(req.query.q);
     const overLimit = parseBoolQuery(req.query.overLimit, 'overLimit');
     const createdAfter = parseIsoDateQuery(req.query.createdAfter, 'createdAfter');
@@ -124,7 +129,8 @@ export async function listWorkspaces(req: AdminAuthenticatedRequest, res: Respon
       createdBy: toSingleParam(req.query.createdBy as string | string[] | undefined),
       createdAfter: createdAfter.value,
       createdBefore: createdBefore.value,
-      overLimit: overLimit.value
+      overLimit: overLimit.value,
+      ...(lifecycleStatus ? { lifecycleStatus } as const : {})
     };
     const signature = makeQuerySignature(filters);
     const cursor = decodeCursor<{ createdAt: string; workspaceId: string; signature: string }>(req.query.cursor, signature);

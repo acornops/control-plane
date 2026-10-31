@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAdminScope, adminHandler } from '../auth/admin-token.js';
 import { getWorkspacePolicy, listWorkspacePlans } from '../controllers/admin-workspace-policy-controller.js';
 import * as adminController from '../controllers/admin-controller.js';
+import { userSummary, workspaceSummary } from '../controllers/admin-summary-controller.js';
 import {
   adminAddWorkspaceMemberSchema,
   adminDeleteWorkspaceMemberSchema,
@@ -102,6 +103,7 @@ adminRouter.delete(
 
 adminRouter.get('/workspace-plans', requireAdminScope('admin:workspace:read', 'admin:workspace:policy:read'), adminHandler(listWorkspacePlans));
 adminRouter.get('/workspaces/:workspaceId/policy', requireAdminScope('admin:workspace:read', 'admin:workspace:policy:read'), adminHandler(getWorkspacePolicy));
+adminRouter.get('/workspaces/summary', requireAdminScope('admin:workspace:read'), adminHandler(workspaceSummary));
 adminRouter.get('/workspaces', requireAdminScope('admin:workspace:read'), adminHandler(adminController.listWorkspaces));
 adminRouter.get('/workspaces/:workspaceId', requireAdminScope('admin:workspace:read'), adminHandler(adminController.getWorkspace));
 adminRouter.get('/workspaces/:workspaceId/members', requireAdminScope('admin:user:read'), adminHandler(adminController.listWorkspaceMembers));
@@ -131,6 +133,7 @@ adminRouter.patch(
 );
 
 adminRouter.get('/users', requireAdminScope('admin:user:read'), adminHandler(adminController.listUsers));
+adminRouter.get('/users/summary', requireAdminScope('admin:user:read'), adminHandler(userSummary));
 adminRouter.get('/users/:userId', requireAdminScope('admin:user:read'), adminHandler(adminController.getUser));
 adminRouter.post(
   '/users/:userId/sessions/revoke',

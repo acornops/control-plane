@@ -44,7 +44,7 @@ for (const audience of ['public', 'admin']) {
   const lineCount = serialized.split('\n').length - 1;
   combinedLineCount += lineCount;
   // Policy catalogue/snapshot responses and preconditioned hold bodies add two admin paths.
-  const lineLimit = audience === 'admin' ? 5400 : 28750;
+  const lineLimit = audience === 'admin' ? 5600 : 28750;
   if (lineCount > lineLimit) {
     throw new Error(`${audience} OpenAPI document has ${lineCount} lines; expected at most ${lineLimit}`);
   }
