@@ -93,16 +93,7 @@ describe('external integration Workflow launch', () => {
     assert.ok(runBody.run_id);
     assert.ok(runBody.executionId);
 
-    const mutableConfig = config as typeof config & {
-      AUTOMATION_RUNTIME_MODE: 'off' | 'shadow' | 'canary' | 'on';
-    };
-    const originalRuntimeMode = config.AUTOMATION_RUNTIME_MODE;
-    mutableConfig.AUTOMATION_RUNTIME_MODE = 'on';
-    try {
-      assert.equal(await runAutomationOutboxTick(), 1);
-    } finally {
-      mutableConfig.AUTOMATION_RUNTIME_MODE = originalRuntimeMode;
-    }
+    assert.equal(await runAutomationOutboxTick(), 1);
     assert.equal(executionDispatches.length, 1);
     assert.deepEqual(auditEvents, [
       { actorType: 'external_integration', actorTokenId: 'external-chat', eventType: 'workflow.session_created.v2' },

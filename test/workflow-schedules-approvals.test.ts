@@ -30,9 +30,6 @@ import {
 } from './helpers/controller-regression-fixtures.js';
 import { closeAutomationDatabaseFixtures, installAutomationTemplateFixtures, resetAutomationDatabaseFixtures } from './helpers/automation-database-fixtures.js';
 
-const mutableConfig = config as typeof config & { AUTOMATION_RUNTIME_MODE: 'off' | 'shadow' | 'canary' | 'on' };
-let originalRuntimeMode = config.AUTOMATION_RUNTIME_MODE;
-
 function installReadyMcpReadinessFetch(): void {
   mock.method(globalThis, 'fetch', async (input, init) => {
     if (isMcpReadinessRequest(input, init)) return createReadyMcpReadinessResponse();
@@ -41,14 +38,11 @@ function installReadyMcpReadinessFetch(): void {
 }
 
 beforeEach(async () => {
-  originalRuntimeMode = config.AUTOMATION_RUNTIME_MODE;
-  mutableConfig.AUTOMATION_RUNTIME_MODE = 'on';
   await resetAutomationDatabaseFixtures();
   await installAutomationTemplateFixtures();
 });
 
 afterEach(() => {
-  mutableConfig.AUTOMATION_RUNTIME_MODE = originalRuntimeMode;
   restoreControllerRegressionState();
 });
 

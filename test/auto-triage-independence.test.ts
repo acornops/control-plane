@@ -56,7 +56,7 @@ describe('target auto-triage architecture independence', () => {
     assert.match(autoTriageBlock, /Target auto-triage worker tick failed/);
     assert.match(autoTriageBlock, /if \(targetAutoTriageTickInFlight\) return/);
     assert.match(autoTriageBlock, /targetAutoTriageTickInFlight = false/);
-    assert.doesNotMatch(autoTriageBlock, /AUTOMATION_RUNTIME_MODE|AUTOMATION_WORKER_INTERVAL_MS/);
+    assert.doesNotMatch(autoTriageBlock, /AUTOMATION_WORKER_INTERVAL_MS/);
     assert.match(server, /clearInterval\(targetAutoTriageWorkerInterval\)/);
   });
 

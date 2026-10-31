@@ -32,6 +32,7 @@ This `docs/` tree is the repository-local system of record for agent-readable de
 
 - [Plans](/docs/PLANS.md)
 - [Active Plans](/docs/exec-plans/active/README.md)
+- [Remove Automation Rollout Mode](/docs/exec-plans/active/2026-10-31-remove-automation-rollout.md)
 - [Completed Plans](/docs/exec-plans/completed/README.md)
 - [Filesystem Capacity Inventory Consistency](/docs/exec-plans/completed/filesystem-capacity-alerts.md)
 - [Tech Debt Tracker](/docs/exec-plans/tech-debt-tracker.md)

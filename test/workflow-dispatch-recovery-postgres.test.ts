@@ -13,14 +13,11 @@ import { coordinatedRoot, delegationInput } from './helpers/workflow-delegation-
 import { callController, createRequest, restoreControllerRegressionState } from './helpers/controller-regression-fixtures.js';
 import { resetAutomationDatabaseFixtures, installAutomationTemplateFixtures, closeAutomationDatabaseFixtures } from './helpers/automation-database-fixtures.js';
 
-const originalMode = config.AUTOMATION_RUNTIME_MODE;
 beforeEach(async () => {
-  config.AUTOMATION_RUNTIME_MODE = 'on';
   await resetAutomationDatabaseFixtures();
   await installAutomationTemplateFixtures();
 });
 afterEach(() => {
-  config.AUTOMATION_RUNTIME_MODE = originalMode;
   mock.restoreAll();
   restoreControllerRegressionState();
 });

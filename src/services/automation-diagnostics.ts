@@ -9,8 +9,8 @@ type CountMap = Record<string, number>;
 export interface AutomationDiagnostics {
   status: 'ok' | 'degraded' | 'disabled';
   runtime: {
-    mode: typeof config.AUTOMATION_RUNTIME_MODE;
-    workspaceEnabled: boolean;
+    admissionEnabled: boolean;
+    dispatchEnabled: boolean;
     workerIntervalMs: number;
   };
   dispatch: {
@@ -42,13 +42,6 @@ export interface AutomationDiagnostics {
 
 function counts(rows: QueryResultRow[]): CountMap {
   return Object.fromEntries(rows.map((row) => [String(row.status), Number(row.count || 0)]));
-}
-
-function workspaceEnabled(workspaceId?: string): boolean {
-  if (config.AUTOMATION_RUNTIME_MODE === 'on') return true;
-  if (config.AUTOMATION_RUNTIME_MODE !== 'canary') return false;
-  if (!workspaceId) return true;
-  return config.AUTOMATION_CANARY_WORKSPACE_IDS.split(',').map((value) => value.trim()).includes(workspaceId);
 }
 
 let nextReadinessRefreshAt = 0;
@@ -156,12 +149,15 @@ export async function loadAutomationDiagnostics(workspaceId?: string): Promise<A
   const schedulerLagSeconds = Math.max(0, Number(schedules.rows[0]?.lag || 0));
   const active = ['queued', 'dispatching', 'running', 'waiting_for_approval', 'needs_review']
     .reduce((total, status) => total + (workflowByStatus[status] || 0), 0);
-  const enabled = workspaceEnabled(workspaceId);
   const degraded = (byOutboxStatus.needs_review || 0) > 0 || oldestPendingAgeSeconds > 30 || schedulerLagSeconds > 60;
 
   return {
-    status: !enabled ? 'disabled' : degraded ? 'degraded' : 'ok',
-    runtime: { mode: config.AUTOMATION_RUNTIME_MODE, workspaceEnabled: enabled, workerIntervalMs: config.AUTOMATION_WORKER_INTERVAL_MS },
+    status: !config.WORKSPACE_DISPATCH_ENABLED ? 'disabled' : degraded ? 'degraded' : 'ok',
+    runtime: {
+      admissionEnabled: config.WORKSPACE_ADMISSION_ENABLED,
+      dispatchEnabled: config.WORKSPACE_DISPATCH_ENABLED,
+      workerIntervalMs: config.AUTOMATION_WORKER_INTERVAL_MS
+    },
     dispatch: { byStatus: byOutboxStatus, oldestPendingAgeSeconds },
     runs: { workflowByStatus, byExecutorRole, byGraphPosition, active },
     schedules: { schedulerLagSeconds },

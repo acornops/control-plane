@@ -2,6 +2,7 @@
 
 | Item | Impact | Next Action | Status |
 | --- | --- | --- | --- |
+| Capacity maintenance leaves stale Workflow execution status | High; expired runs can appear queued indefinitely and block resume | Recompute execution status with maintenance terminal transitions and reconcile stale summaries without redispatch; see [reproduction](active/2026-10-31-remove-automation-rollout.md#separate-capacity-maintenance-defect). | Open; separate from rollout-mode removal |
 | Broaden auth regression suite | Medium | Add end-to-end OIDC callback/linking coverage with provider claim fixtures | Open |
 | No consumer-driven cross-repo contract replay tests | Medium | Add end-to-end contract fixtures for management-console, execution-engine, and gateway consumers | Open |
 | Zod 3 collection-error amplification (GHSA-mrhx-c7xc-m3w5) | High dependency finding | Zod 4.6.7 with early bounded-array rejection and compatibility regressions; see [qualification](active/runtime-validation-security.md). Release patched artifacts before promotion. | Implemented and reviewed locally; publication pending |

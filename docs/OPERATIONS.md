@@ -181,23 +181,34 @@ plaintext database, Redis, or internal-service URLs.
 
 ## Automation Runtime
 
-Production defaults keep new automation dispatch disabled until the greenfield
-baseline and current workspace provisioning are verified:
+Workflow dispatch is enabled by default after startup. Apply required migrations
+before starting the control plane. Worker cadence and approval expiry remain
+configurable:
 
 ```bash
-AUTOMATION_RUNTIME_MODE=off
-AUTOMATION_CANARY_WORKSPACE_IDS=
 AUTOMATION_WORKER_INTERVAL_MS=1000
 ASSISTANT_WRITE_CONFIRMATION_TIMEOUT_SECONDS=900
 ```
 
-Use `off`, then `shadow`, then `canary` with an explicit workspace allow-list,
-and finally `on`. A run is acknowledged only after its Postgres run record and
+A run is acknowledged only after its Postgres run record and
 dispatch-outbox entry commit. Postgres row claims are authoritative; Redis
 leases reduce duplicate work but do not own scheduler correctness.
 
+For maintenance, set `WORKSPACE_ADMISSION_ENABLED=false` to reject new execution
+admissions, or `WORKSPACE_DISPATCH_ENABLED=false` to pause dispatch of accepted
+work. These existing controls apply across workspace execution types. An
+admission-only pause lets accepted work drain; a dispatch pause retains pending
+work subject to its queue deadline and does not stop work already running.
+
+Remove `AUTOMATION_RUNTIME_MODE` and `AUTOMATION_CANARY_WORKSPACE_IDS` from
+deployment configuration when upgrading: they are no longer read. If the old
+mode intentionally kept work paused, configure the explicit maintenance controls
+before upgrading and review pending work before reopening dispatch. Diagnostics
+clients must replace `runtime.mode` and `runtime.workspaceEnabled` with
+`runtime.admissionEnabled` and `runtime.dispatchEnabled`.
+
 `GET /api/v1/workspaces/{workspaceId}/automation/diagnostics` reports the
-workspace's runtime mode, outbox depth and age, Workflow run states grouped by
+admission and dispatch availability, outbox depth and age, Workflow run states grouped by
 executor role and root/child graph position, trigger delivery state, scheduler
 lag, pending approval age, template readiness reasons, and retained
 report-source count. It requires workspace read access. Keep this dependency
@@ -230,10 +241,11 @@ disablement or a policy edit that commits first prevents a stale worker from
 starting a new chat.
 
 The worker has its own one-second timer and error boundary. It does not use
-`AUTOMATION_RUNTIME_MODE`, `AUTOMATION_WORKER_INTERVAL_MS`, Workflow schedulers,
-or the automation dispatch outbox, so disabling or failing the Automation
-runtime cannot pause target auto-triage. A process skips a tick while its prior
-tick is still running; multiple replicas remain safe through durable job leases.
+`AUTOMATION_WORKER_INTERVAL_MS`, Workflow schedulers, or the automation dispatch
+outbox, so a Workflow scheduler failure cannot pause target auto-triage. The
+shared workspace admission and dispatch controls still apply. A process skips a
+tick while its prior tick is still running; multiple replicas remain safe through
+durable job leases.
 
 The worker admits at most two nonterminal automatic investigations per target.
 Readiness blockers such as missing AI credentials, a disconnected target agent,

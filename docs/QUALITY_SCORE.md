@@ -13,6 +13,13 @@ Assessment date: July 26, 2026.
 
 Re-score this file when a major architectural or operational change lands.
 
+## Workflow queue investigation — October 31, 2026
+
+Default dispatch and maintenance-pause regressions cover removal of the obsolete
+automation rollout mode. A separate reproduced capacity-maintenance defect can
+leave execution summaries queued after their runs expire; it remains open in the
+[debt tracker](exec-plans/tech-debt-tracker.md). Existing scores are unchanged.
+
 ## Hosted-readiness evidence — September 6, 2026
 
 The full 1,284-test suite and SQL upgrade chain pass, with independent reviews of

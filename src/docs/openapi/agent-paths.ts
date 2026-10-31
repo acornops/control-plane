@@ -342,7 +342,7 @@ export function buildAgentPaths(): Record<string, unknown> {
         security: [{ userSession: [] }],
         parameters: [workspaceIdParameter],
         responses: {
-          '200': { description: 'Sanitized runtime mode, queue, run, trigger, approval, template readiness, and report-source diagnostics.' },
+          '200': { description: 'Admission and dispatch availability, queue, run, trigger, approval, template readiness, and report-source diagnostics.' },
           '403': { description: 'Requires read_workspace_data.' }
         }
       }
