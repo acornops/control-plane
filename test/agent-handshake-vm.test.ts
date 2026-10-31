@@ -14,7 +14,13 @@ import {
   teardownControlPlaneCoordinationTest
 } from './helpers/agent-gateway-fixtures.js';
 
-beforeEach(setupControlPlaneCoordinationTest);
+beforeEach(() => {
+  setupControlPlaneCoordinationTest();
+  mock.method(repo, 'transitionVirtualMachineConnection', async (_id, input) => (await input.allow()) ? {
+    workspaceId: 'workspace-1', previousStatus: 'offline', status: input.status,
+    updatedAt: '2026-05-19T00:01:00.000Z', connectionId: input.connectionId || 'prior'
+  } : null);
+});
 afterEach(teardownControlPlaneCoordinationTest);
 
 function createVm(status: 'online' | 'offline') {
@@ -167,7 +173,7 @@ describe('AgentV handshake', () => {
     assert.equal(response.result?.config?.namespaceScope, undefined);
     assert.equal(response.result?.config?.maxSnapshotBytes, 1024 * 1024);
     assert.deepEqual(registration.capabilities, ['read', 'write', 'restart_service', 'logs']);
-    assert.equal(seenUpdates.length >= 2, true);
+    assert.equal(seenUpdates.length >= 1, true);
     assert.equal(seenUpdates[0]?.lastAuthenticatedKeyVersion, 1);
     assert.equal(store.has(agentOwnerKey('vm-1')), true);
   });

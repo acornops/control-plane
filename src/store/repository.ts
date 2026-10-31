@@ -1,3 +1,4 @@
+import { transitionVirtualMachineConnection } from './repository-vm-connections.js';
 import { mutateWorkspacePolicy } from './repository-workspace-policy.js';
 import { getWorkspacePolicy } from './repository-workspace-policy-read.js';
 import {
@@ -340,6 +341,7 @@ export class Repository {
   getVirtualMachine = getVirtualMachineRecord;
 
   updateVirtualMachine = updateVirtualMachineRecord;
+  transitionVirtualMachineConnection = transitionVirtualMachineConnection;
 
   deleteVirtualMachine = deleteVirtualMachineRecord;
 

@@ -683,6 +683,29 @@ AgentV enforces its local channel allowlist and maximum time window. Built-in
 tool schemas remain scoped to each target; Windows sync excludes writes even
 when the agent advertises them.
 
+## VM connection status
+
+VM lifecycle persistence serializes target-first and registration-second row
+locks. Online status, connection ID and connector version commit together after
+an ownership check. Disconnects clear only the matching persisted identity and
+update status without replacing VM metadata. A settings patch that omits status
+preserves the current status column. VM lifecycle events use the VM target scope
+and omit Kubernetes `clusterId`.
+
+Redis claims occur outside the database lock. Connected events and handshake
+acknowledgements follow commit and a final ownership/local-attempt check. Failed
+handshakes use exact-ID cleanup; if no owner remains, a guarded transition can
+reconcile the prior persisted identity instead of leaving it online indefinitely.
+Local connections and pending attempts also fence this cleanup when distributed
+routing is disabled. Owner read/cleanup timeouts are uncertainty, not successful
+cancellation. A Redis claim is never treated as cancelled by a Promise timeout.
+
+This is not an atomic transaction across Redis and PostgreSQL. Cross-instance
+replacement retains the existing execution/heartbeat ownership checks and eventual
+socket closure; an unavailable dependency can prevent reconciliation. The row-lock
+ordering applies between updated control-plane instances. Kubernetes lifecycle,
+agent payloads and the generic last-seen update semantics are unchanged.
+
 ## Webhook validation and workflow retention
 
 Webhook create/update requires workspace mutation capability before body validation.

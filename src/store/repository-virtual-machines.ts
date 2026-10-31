@@ -267,9 +267,9 @@ export async function updateVirtualMachine(
   };
   await db.query(
     `UPDATE targets
-     SET name = $2, status = $3, metadata = $4::jsonb, updated_at = $5
+     SET name = $2, status = COALESCE($3, status), metadata = $4::jsonb, updated_at = $5
      WHERE id = $1 AND target_type = 'virtual_machine'`,
-    [vmId, input.name ?? existing.name, input.status ?? existing.status, JSON.stringify(metadata), new Date().toISOString()]
+    [vmId, input.name ?? existing.name, input.status ?? null, JSON.stringify(metadata), new Date().toISOString()]
   );
   return getVirtualMachine(vmId);
 }
