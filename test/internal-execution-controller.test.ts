@@ -324,7 +324,9 @@ describe('internal execution bootstrap audit metadata', () => {
         capability: 'read' as const,
         timeout_ms: 10000,
         version: 'v1',
-        input_schema: { type: 'object' }
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+        artifactPolicy: 'never' as const
       }
     ]);
     mock.method(globalThis, 'fetch', async (input, init) => {

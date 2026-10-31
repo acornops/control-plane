@@ -33,6 +33,7 @@ This `docs/` tree is the repository-local system of record for agent-readable de
 - [Plans](/docs/PLANS.md)
 - [Active Plans](/docs/exec-plans/active/README.md)
 - [Completed Plans](/docs/exec-plans/completed/README.md)
+- [Tool Schema Preservation](/docs/exec-plans/completed/2026-10-31-tool-schema-preservation.md)
 - [Admin Metrics and Document Expiry](/docs/exec-plans/completed/2026-10-31-metrics-document-retention.md)
 - [Issue Observation Retention](/docs/exec-plans/completed/2026-10-31-issue-observation-retention.md)
 - [Filesystem Capacity Inventory Consistency](/docs/exec-plans/completed/filesystem-capacity-alerts.md)

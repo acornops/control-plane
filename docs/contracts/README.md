@@ -504,6 +504,18 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Built-in MCP tool calls use `Authorization: Bearer <run-scoped-jwt>` and derive scope from `run-scoped-jwt-claims`.
 - The built-in MCP bridge must classify calls as read or write before writing audit events.
 
+## Tool schema metadata preservation
+
+Generic tool metadata preparation preserves accepted constraint values and ordering.
+Only `title`, `description` and `markdownDescription` at schema-node positions are
+sanitized; property names, literal `const`/`enum`/`default` values and unknown
+extensions remain unchanged. Invalid JSON values or exceeded metadata budgets
+reject the complete schema with `TOOL_SCHEMA_REJECTED`, never a truncated or
+permissive replacement. Existing missing optional runtime schemas retain their
+defaults. Bootstrap aborts on rejection; discovery/sync disables matching stale
+registrations within that server's scope. Wire fields, provider-specific adapters
+and argument-validation dialects are unchanged.
+
 ## Change Checklist
 
 When changing a route, schema, event, or cross-service field:

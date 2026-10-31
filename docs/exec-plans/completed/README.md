@@ -1,5 +1,7 @@
 # Completed Execution Plans
 
+- [Tool schema preservation](2026-10-31-tool-schema-preservation.md) — Preserve constraints and reject unsupported metadata across Control Plane, Gateway and Engine.
+
 - [Admin metrics and document expiry](2026-10-31-metrics-document-retention.md) — Bounded labels and batched expiry cleanup.
 
 - [Issue observation retention](2026-10-31-issue-observation-retention.md) — Sample repetitive history, expire old observations, and preserve current issue state.

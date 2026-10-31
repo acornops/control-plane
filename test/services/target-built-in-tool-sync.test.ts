@@ -214,9 +214,10 @@ describe('syncTargetBuiltInTools', () => {
       name: 'get_resource', description: 'Get a resource', capability: 'read' as const,
       inputSchema: { type: 'object' },
     }]);
+    mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify([])));
     const result = await syncTargetBuiltInTools('ws-1', 'cluster-1', 'kubernetes');
 
     assert.equal(result.ok, false);
-    assert.match(result.error || '', /missing a valid output schema/);
+    assert.match(result.error || '', /TOOL_SCHEMA_REJECTED.*expected_output_object/);
   });
 });

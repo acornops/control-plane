@@ -10,7 +10,7 @@ import { syncTargetBuiltInTools } from './target-built-in-tool-sync.js';
 import { isReservedInternalToolName } from './internal-tool-names.js';
 import { defaultProvider } from './llm-policy.js';
 import { webSearchAvailability } from './web-search-availability.js';
-import { sanitizeToolInputSchema, sanitizeToolText } from './tool-metadata.js';
+import { sanitizeToolInputSchema, sanitizeToolText, ToolSchemaRejectedError } from './tool-metadata.js';
 import { repo } from '../store/repository.js';
 import { KUBERNETES_TARGET_TYPE, LlmProvider, TargetType, ToolAccessMode } from '../types/domain.js';
 import type { RunPermissionMode } from '../types/run-permission.js';
@@ -198,6 +198,9 @@ async function resolveGatewayTargetToolsForRun(
     );
     throw createMcpLifecycleFencedError();
   }
+  if (!syncResult.ok && syncResult.error?.startsWith('TOOL_SCHEMA_REJECTED: ')) {
+    throw new ToolSchemaRejectedError(syncResult.error.slice('TOOL_SCHEMA_REJECTED: '.length));
+  }
   if (!syncResult.ok || syncResult.registeredToolCount === 0) {
     logger.warn(
       {
@@ -340,7 +343,7 @@ export async function resolveTargetRunTools(params: {
       description: mcpToolDescription(tool),
       capability: normalizeToolCapability(tool),
       source: tool.source,
-      input_schema: sanitizeToolInputSchema(tool.input_schema)
+      input_schema: sanitizeToolInputSchema(tool.input_schema, tool.name)
     }));
     const previewToolNames = new Set<string>();
     functionPreviewItems = enabledTools
@@ -360,7 +363,7 @@ export async function resolveTargetRunTools(params: {
         source: tool.source === 'builtin' ? 'builtin' : 'mcp'
       }));
   } catch (err) {
-    if (isMcpLifecycleFencedError(err)) throw err;
+    if (isMcpLifecycleFencedError(err) || err instanceof ToolSchemaRejectedError) throw err;
     if (params.strictMcpResolution) throw err;
     logger.warn(
       {
