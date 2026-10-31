@@ -1,7 +1,5 @@
 # Active Execution Plans
 
-- [Target deletion latency](2026-10-31-target-delete-latency.md) — Indexed foreign-key cleanup implemented and locally verified; rollout pending.
-
 Reviewed 2026-10-18. Implementation-only plans that have landed are in
 [Completed plans](../completed/README.md). Historical validation results are not fresh release acceptance.
 

@@ -30,7 +30,7 @@ Options considered: indexed synchronous cleanup (selected, addresses measured ca
 
 ## Coordination and progress
 
-Console companion: `management-console/docs/exec-plans/active/2026-10-31-target-delete-latency.md`. Either change can ship independently; backend first is preferred. No external API or cross-service schema contract changes.
+Console companion: `management-console/docs/exec-plans/completed/2026-10-31-target-delete-latency.md`. Either change can ship independently; backend first is preferred. No external API or cross-service schema contract changes.
 
 Pre-flight: no shared implementation interfaces. Existing unrelated documentation changes are preserved. Work is performed on `fix/target-delete-latency` in the existing checkouts; no dependency installation or live environment changes are required.
 
@@ -54,6 +54,15 @@ Implementation and local verification are complete; deployment remains pending.
 These are controlled SQL measurements, not end-to-end latency or proof of the reported customer incident. No affected deployment ID, version SHA, or request trace was available. The full-chain benchmark additionally confirms the fix works with current migrations; timing variation between runs is expected.
 
 ## Rollout and remaining limits
+
+Pre-merge review found that the CI job only ran static migration checks. The job
+now supplies `CONTROL_PLANE_MIGRATION_TEST_DATABASE_URL` using its existing
+disposable PostgreSQL service, so populated migration checks run on every full
+CI validation. The same isolated-schema check passed again locally with
+PostgreSQL 16 and Node 22. Independent review found no runtime migration defect.
+
+PR: https://github.com/acornops/control-plane/pull/31. Source qualification is
+complete; applying the migration remains a separate rollout action.
 
 Apply the normal forward migration during a quiet maintenance window; index creation temporarily blocks writes to the triage table. See [Database migrations](../../database-migrations.md). Either application binary can run with these additive indexes. No customer/demo environment was modified.
 
