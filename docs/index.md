@@ -59,3 +59,5 @@ This `docs/` tree is the repository-local system of record for agent-readable de
 - [Generated Artifacts](/docs/generated/README.md)
 
 - [Validation deadlines and workflow retention](exec-plans/completed/2026-10-31-validation-retention.md)
+
+- [http-parser-log-protection plan](exec-plans/active/2026-11-01-http-parser-log-protection.md)

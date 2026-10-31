@@ -7,6 +7,7 @@ import { config } from './config.js';
 import { checkDatabaseHealth } from './infra/db.js';
 import { checkRedisHealth } from './infra/redis.js';
 import { logger } from './logger.js';
+import { jsonBodyParser } from './middleware/json-body-parser.js';
 import * as authController from './controllers/auth-controller.js';
 import { adminAuthRouter } from './routes/admin-auth.js';
 import { adminRouter } from './routes/admin.js';
@@ -23,12 +24,7 @@ export function createInternalApp() {
     next();
   });
   app.use(serviceLifecycle.admission);
-  app.use(express.json({
-    limit: '4mb',
-    verify: (req, _res, buffer) => {
-      (req as Request & { rawBody?: string }).rawBody = buffer.toString('utf8');
-    }
-  }));
+  app.use(jsonBodyParser());
   app.use(cookieParser());
   app.use(csrfProtection);
 

@@ -19,6 +19,7 @@ import {
 import { checkDatabaseHealth } from './infra/db.js';
 import { checkRedisHealth } from './infra/redis.js';
 import { logger } from './logger.js';
+import { jsonBodyParser } from './middleware/json-body-parser.js';
 import { renderControlPlaneMetrics } from './metrics.js';
 import { agentsRouter } from './routes/agents.js';
 import { agentVInstallationsRouter } from './routes/agentv-installations.js';
@@ -81,12 +82,7 @@ export function createApp() {
     next();
   });
   app.use(serviceLifecycle.admission);
-  app.use(express.json({
-    limit: '4mb',
-    verify: (req, _res, buffer) => {
-      (req as Request & { rawBody?: string }).rawBody = buffer.toString('utf8');
-    }
-  }));
+  app.use(jsonBodyParser());
   app.use(cookieParser());
   app.use(csrfProtection);
 
