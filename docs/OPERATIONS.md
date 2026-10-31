@@ -149,6 +149,14 @@ with a single large delete. Normal vacuum makes deleted space reusable inside
 PostgreSQL; it generally does not shrink files on disk. Plan physical compaction
 separately because `VACUUM FULL` needs extra space and exclusive locks.
 
+### Admin request metrics
+
+`control_plane_admin_requests_total` retains only registered admin/admin-auth route
+templates, standard methods, and HTTP statuses. Unknown paths use `route="unmatched"`
+and custom methods use `method="OTHER"`; parameter names remain in matched templates.
+The metric name and label names are unchanged. Queries that relied on raw unknown
+paths or the previously truncated parameterized route labels should use these labels.
+
 ## Automatic MCP OAuth
 
 Automatic MCP OAuth is enabled by default. Before deploying, configure the

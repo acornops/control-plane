@@ -3,9 +3,10 @@ import { increment, metricLine } from './metrics-helpers.js';
 import { renderWebhookMetrics } from './metrics-external-webhooks.js';
 import { renderWorkflowExecutionMetrics } from './metrics-workflow-execution.js';
 import { renderAutoTriageMetrics } from './metrics-auto-triage.js';
+import { renderAdminRequestMetrics } from './metrics-admin-requests.js';
+export { incrementAdminRequests } from './metrics-admin-requests.js';
 export { incrementWorkflowExecutionStream } from './metrics-workflow-execution.js';
 const adminAuthFailures = new Map<string, number>();
-const adminRequests = new Map<string, number>();
 const runEventIngestCounts = new Map<string, number>();
 const workflowSchedulerCounts = new Map<string, number>();
 const approvalInboxQueries = new Map<string, number>();
@@ -49,9 +50,6 @@ let adminAuditWriteFailures = 0;
 
 export function incrementAdminAuthFailures(reason: string): void {
   increment(adminAuthFailures, reason);
-}
-export function incrementAdminRequests(method: string, route: string, status: number): void {
-  increment(adminRequests, `${method}:${route}:${status}`);
 }
 export function incrementAdminMutations(): void {
   adminMutations += 1;
@@ -304,10 +302,7 @@ export function renderControlPlaneMetrics(): string {
     ),
     '# HELP control_plane_admin_requests_total Admin API requests by method, route, and status.',
     '# TYPE control_plane_admin_requests_total counter',
-    ...Array.from(adminRequests.entries()).map(([key, value]) => {
-      const [method, route, status] = key.split(':');
-      return metricLine('control_plane_admin_requests_total', { ...serviceLabels, method, route, status }, value);
-    }),
+    ...renderAdminRequestMetrics(serviceLabels),
     '# HELP control_plane_admin_mutations_total Admin API mutation requests accepted by controllers.',
     '# TYPE control_plane_admin_mutations_total counter',
     metricLine('control_plane_admin_mutations_total', serviceLabels, adminMutations),
