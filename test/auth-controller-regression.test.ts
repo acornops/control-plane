@@ -387,6 +387,9 @@ describe('controller authorization regressions', () => {
     assert.equal(denied.statusCode, 403);
 
     installWorkspace('admin');
+    const webhookTargetId = '11111111-1111-4111-8111-111111111111';
+    const getTarget = repo.getTarget;
+    repo.getTarget = async (workspaceId, targetId) => getTarget(workspaceId, targetId === webhookTargetId ? 'target-1' : targetId);
     let createInput: Parameters<typeof repo.createWebhookSubscription>[0] | undefined;
     repo.createWebhookSubscription = async (input) => {
       createInput = input;
@@ -399,17 +402,17 @@ describe('controller authorization regressions', () => {
       createWebhook,
       createRequest(
         { workspaceId: 'workspace-1' },
-        { name: 'Webhook', url: 'https://example.test/webhook', eventTypes: ['run.created.v1'], targetId: 'target-1', enabled: true }
+        { name: 'Webhook', url: 'https://example.test/webhook', eventTypes: ['run.created.v1'], targetId: webhookTargetId, enabled: true }
       )
     );
     assert.equal(created.statusCode, 201);
-    assert.equal(createInput?.targetId, 'target-1');
+    assert.equal(createInput?.targetId, webhookTargetId);
 
     const missingTarget = await callController(
       createWebhook,
       createRequest(
         { workspaceId: 'workspace-1' },
-        { name: 'Webhook', url: 'https://example.test/webhook', eventTypes: ['run.created.v1'], targetId: 'missing-target', enabled: true }
+        { name: 'Webhook', url: 'https://example.test/webhook', eventTypes: ['run.created.v1'], targetId: '22222222-2222-4222-8222-222222222222', enabled: true }
       )
     );
     assert.equal(missingTarget.statusCode, 404);

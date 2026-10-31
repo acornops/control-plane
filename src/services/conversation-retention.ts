@@ -7,6 +7,7 @@ const PURGE_BATCH_SIZE = 500;
 
 type RetentionTaskName =
   | 'conversations'
+  | 'workflow_history'
   | 'webhook_history'
   | 'workspace_audit_events'
   | 'external_integration_link_tokens'
@@ -18,6 +19,7 @@ type RetentionTaskName =
 
 interface RetentionSweepTasks {
   conversations: () => Promise<number>;
+  workflowHistory: () => Promise<number>;
   webhookHistory: () => Promise<number>;
   workspaceAuditEvents: () => Promise<number>;
   externalIntegrationLinkTokens: () => Promise<number>;
@@ -60,6 +62,7 @@ async function runRetentionTask(name: RetentionTaskName, task: () => Promise<num
 
 export async function runControlPlaneRetentionSweep(tasks: RetentionSweepTasks = {
   conversations: purgeExpiredConversations,
+  workflowHistory: purgeExpiredWorkflowHistory,
   webhookHistory: purgeOldWebhookHistory,
   workspaceAuditEvents: purgeOldWorkspaceAuditEvents,
   externalIntegrationLinkTokens: purgeOldExternalIntegrationLinkTokens,
@@ -70,6 +73,7 @@ export async function runControlPlaneRetentionSweep(tasks: RetentionSweepTasks =
   toolResultArtifacts: purgeExpiredToolResultArtifacts
 }): Promise<void> {
   await runRetentionTask('conversations', tasks.conversations);
+  await runRetentionTask('workflow_history', tasks.workflowHistory);
   await runRetentionTask('webhook_history', tasks.webhookHistory);
   await runRetentionTask('workspace_audit_events', tasks.workspaceAuditEvents);
   await runRetentionTask('external_integration_link_tokens', tasks.externalIntegrationLinkTokens);
@@ -78,6 +82,17 @@ export async function runControlPlaneRetentionSweep(tasks: RetentionSweepTasks =
   await runRetentionTask('skill_snapshot_blobs', tasks.skillSnapshotBlobs);
   await runRetentionTask('generated_documents', tasks.generatedDocuments);
   await runRetentionTask('tool_result_artifacts', tasks.toolResultArtifacts);
+}
+
+export async function purgeExpiredWorkflowHistory(): Promise<number> {
+  let purgedTotal = 0;
+  for (let batch = 0; batch < 20; batch++) {
+    const purged = await repo.purgeExpiredWorkflowHistory(config.WORKFLOW_HISTORY_RETENTION_DAYS, 50);
+    purgedTotal += purged;
+    if (purged < 50) break;
+  }
+  if (purgedTotal > 0) logger.info({ purgedTotal }, 'Purged expired workflow history');
+  return purgedTotal;
 }
 
 export async function purgeOldWebhookHistory(): Promise<number> {

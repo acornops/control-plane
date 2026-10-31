@@ -53,3 +53,5 @@ This `docs/` tree is the repository-local system of record for agent-readable de
 - [Workspace Execution Capacity](/docs/workspace-execution-capacity.md)
 - [References](/docs/references/index.md)
 - [Generated Artifacts](/docs/generated/README.md)
+
+- [Validation deadlines and workflow retention](exec-plans/completed/2026-10-31-validation-retention.md)

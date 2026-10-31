@@ -32,3 +32,10 @@ not a production sign-off: unconstrained collection
 budgets remain open in the [debt tracker](exec-plans/tech-debt-tracker.md), and the
 actual production database ancestry and restore rehearsal have not been verified.
 Existing scores are unchanged.
+
+## Scoped hardening evidence — October 31, 2026
+
+[Validation and retention checks](exec-plans/completed/2026-10-31-validation-retention.md)
+cover webhook bounds, PostgreSQL cleanup races, real-process schema deadlines,
+cancellation and unknown-write outcomes. Fresh review findings have regression
+coverage. Existing scores and broader integration coverage gaps remain unchanged.

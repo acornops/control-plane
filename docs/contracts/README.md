@@ -516,6 +516,20 @@ defaults. Bootstrap aborts on rejection; discovery/sync disables matching stale
 registrations within that server's scope. Wire fields, provider-specific adapters
 and argument-validation dialects are unchanged.
 
+## Schema validation execution
+
+Execution Engine validates advertised tool arguments in a disposable child before
+approval; Gateway validates both Agent and target arguments before claiming a
+receipt or fetching secret headers. Gateway also validates trusted output in a
+child. Ordinary mismatches retain `TOOL_ARGS_INVALID`. A deadline, saturation,
+invalid schema or process failure yields `TOOL_VALIDATION_UNAVAILABLE` without
+dispatch (HTTP 503 at Gateway). Output validation failure retains
+`TOOL_RESULT_SCHEMA_INVALID`; after a write it has `outcome: unknown` and
+`retryable: false`, never automatic redispatch. Cancellation propagates.
+Existing Engine subset and Gateway jsonschema dialect rules remain; Gateway permits
+local references but rejects external reference retrieval. No schema, argument or
+result is truncated to pass validation, and there is no inline fallback.
+
 ## Change Checklist
 
 When changing a route, schema, event, or cross-service field:
@@ -603,3 +617,14 @@ Deploy consumers that understand these additive fields and drain errors before
 enabling coordinated rolling restarts. Initial cutover and rollback require a
 controlled window; older binaries do not acquire these guarantees. No database
 migration or agent protocol version change is required.
+
+## Webhook validation and workflow retention
+
+Webhook create/update requires workspace mutation capability before body validation.
+`eventTypes` accepts at most the supported event catalog length; diagnostic messages
+are bounded. The existing error envelope and permitted event values remain.
+Completed workflow history expires as whole inactive sessions after the configured
+retention period (30 days by default). Active/uncertain work and unresolved approvals
+are protected. Expiry removes historical client-request idempotency lookups along
+with messages, executions and payloads; webhook delivery identities and schedules
+remain. Consumers must not retry expired historical client request IDs as new work.

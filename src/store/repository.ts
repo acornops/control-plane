@@ -113,6 +113,7 @@ import {
 } from './repository-target-issues.js';
 import { purgeOldTargetIssueObservations as purgeOldTargetIssueObservationsRecord } from './repository-target-issue-observations.js';
 import { purgeExpiredGeneratedDocuments as purgeExpiredGeneratedDocumentsRecord } from './repository-generated-documents.js';
+import { purgeExpiredWorkflowHistory as purgeExpiredWorkflowHistoryRecord } from './repository-workflow-history.js';
 import {
   addMessage as addMessageRecord,
   addRun as addRunRecord,
@@ -434,6 +435,7 @@ export class Repository {
   purgeOldTargetMetricHistory = purgeOldTargetMetricHistoryRecord;
   purgeOldTargetIssueObservations = purgeOldTargetIssueObservationsRecord;
   purgeExpiredGeneratedDocuments = purgeExpiredGeneratedDocumentsRecord;
+  purgeExpiredWorkflowHistory = purgeExpiredWorkflowHistoryRecord;
   upsertVirtualMachineSnapshot = upsertVirtualMachineSnapshotRecord;
   getVirtualMachineSnapshot = getVirtualMachineSnapshotRecord;
   getVirtualMachineSnapshotSummary = getVirtualMachineSnapshotSummaryRecord;
@@ -497,9 +499,7 @@ export class Repository {
   getWebhookQueueMetrics = repositoryWebhookOutbox.getWebhookQueueMetrics;
 
   insertWorkspaceAuditEvent = insertWorkspaceAuditEventRecord;
-
   listWorkspaceAuditEvents = listWorkspaceAuditEventsRecord;
-
   purgeOldWorkspaceAuditEvents = purgeOldWorkspaceAuditEventsRecord;
 
   insertAdminAuditEvent = insertAdminAuditEventRecord;

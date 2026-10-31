@@ -8,6 +8,24 @@ import { WebhookHistory, WebhookSubscription } from '../types/domain.js';
 import { encryptWebhookSecret, generateWebhookSecret } from '../utils/crypto.js';
 import { toSingleParam } from '../utils/params.js';
 import { canonicalizeWebhookUrl } from '../utils/webhook-url.js';
+import { createWebhookSubscriptionSchema, updateWebhookSubscriptionSchema } from '../types/webhook-contracts.js';
+
+function validateWebhookBody(
+  req: AuthenticatedRequest,
+  res: Response,
+  schema: typeof createWebhookSubscriptionSchema | typeof updateWebhookSubscriptionSchema
+): boolean {
+  const parsed = schema.safeParse(req.body);
+  if (parsed.success) {
+    req.body = parsed.data;
+    return true;
+  }
+  res.status(400).json({ error: {
+    code: 'VALIDATION_ERROR', message: 'Invalid request body', retryable: false,
+    details: parsed.error.flatten(issue => issue.message.slice(0, 256))
+  } });
+  return false;
+}
 
 function serializeWebhook(subscription: WebhookSubscription): Record<string, unknown> {
   return {
@@ -95,6 +113,7 @@ export async function createWebhook(req: AuthenticatedRequest, res: Response, ne
     ) {
       return;
     }
+    if (!validateWebhookBody(req, res, createWebhookSubscriptionSchema)) return;
     if (!(await requireValidTargetScope(res, workspaceId, req.body.targetId))) {
       return;
     }
@@ -176,6 +195,7 @@ export async function updateWebhook(req: AuthenticatedRequest, res: Response, ne
     ) {
       return;
     }
+    if (!validateWebhookBody(req, res, updateWebhookSubscriptionSchema)) return;
     if (!(await requireValidTargetScope(res, workspaceId, req.body.targetId))) {
       return;
     }

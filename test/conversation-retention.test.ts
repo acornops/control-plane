@@ -11,6 +11,24 @@ import { repo } from '../src/store/repository.js';
 import * as retention from '../src/services/conversation-retention.js';
 
 describe('conversation retention service', () => {
+  it('uses thirty days and caps workflow cleanup at twenty batches of fifty sessions', async () => {
+    const original = repo.purgeExpiredWorkflowHistory;
+    const calls: number[] = [];
+    repo.purgeExpiredWorkflowHistory = async (days, limit) => {
+      assert.equal(days, 30);
+      assert.equal(limit, 50);
+      calls.push(days);
+      return 50;
+    };
+    try {
+      assert.equal(await retention.purgeExpiredWorkflowHistory(), 1000);
+      assert.equal(calls.length, 20);
+      repo.purgeExpiredWorkflowHistory = async () => 3;
+      assert.equal(await retention.purgeExpiredWorkflowHistory(), 3);
+    } finally {
+      repo.purgeExpiredWorkflowHistory = original;
+    }
+  });
   it('caps generated document cleanup at twenty batches and stops when caught up', async () => {
     const original = repo.purgeExpiredGeneratedDocuments;
     const calls: Array<number | undefined> = [];
@@ -147,6 +165,10 @@ describe('conversation retention service', () => {
         calls.push('webhook_history');
         return 0;
       },
+      workflowHistory: async () => {
+        calls.push('workflow_history');
+        throw new Error('workflow purge unavailable');
+      },
       workspaceAuditEvents: async () => {
         calls.push('workspace_audit_events');
         return 0;
@@ -179,6 +201,7 @@ describe('conversation retention service', () => {
 
     assert.deepEqual(calls, [
       'conversations',
+      'workflow_history',
       'webhook_history',
       'workspace_audit_events',
       'external_integration_link_tokens',

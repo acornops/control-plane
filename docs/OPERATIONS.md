@@ -157,9 +157,35 @@ The same retention worker deletes generated documents whose stored
 unavailable through the API. Each sweep deletes at most 10,000 documents in
 500-row batches with a five-second statement timeout; locked rows are retried on
 a later sweep. The existing expiry index supports this cleanup without a migration.
-Unexpired documents and parent conversations, runs, and workflow history are kept.
+This document-only cleanup keeps unexpired documents and parent history; the separate
+workflow-history policy below can cascade documents when their parent expires.
 Monitor `Purged expired generated documents` and `Retention task failed` logs.
 Rollback stops future cleanup but cannot restore deleted expired documents.
+
+### Workflow history expiry
+
+`WORKFLOW_HISTORY_RETENTION_DAYS` defaults to 30. The existing hourly retention
+worker deletes whole inactive workflow sessions only after every execution/run
+has completed, failed or been cancelled and its latest recorded activity is older
+than the retention window. Active sessions keep their shared context. Pending
+approvals, approved but unexecuted writes, unknown outcomes, live dispatch and
+unsettled capacity protect history regardless of aggregate status.
+
+A sweep processes at most 1,000 sessions in batches of 50. Locked work is skipped;
+statements time out after five seconds and each batch stops taking new candidates
+after five seconds. Cascades remove execution/run events, messages, continuations,
+approvals and generated documents. Workflow definitions, schedules and inbound
+webhook delivery receipts remain. Expired history, including its client-request
+idempotency lookup, is no longer available. Export required records before rollout;
+rollback stops future cleanup but cannot restore deleted history. Long-lived active
+sessions retain old history until they become inactive; this is not a disk quota.
+
+Apply `014_workflow_history_retention.sql` before starting the new Control Plane.
+It adds indexes on sessions, executions and dispatch rows using the transactional
+migration runner; schedule the index build for a maintenance window on large
+databases, with headroom for index/WAL growth. Monitor `Purged expired workflow
+history` and retention failure logs (`workflow_history`). PostgreSQL vacuum reuses
+freed space; deletion does not immediately shrink database files.
 
 ### Admin request metrics
 
@@ -726,8 +752,7 @@ obsolete registration through the existing administration workflow, then redisco
 and review it. Rejected tools remain disabled until a valid definition is reviewed
 and enabled through the existing administration flow. If registry cleanup fails,
 built-in bootstrap keeps the schema rejection; retry sync/discovery once the registry
-recovers. No migration, dependency or setting is added. Metadata bounds
-do not provide a hard CPU deadline for regex/schema validation; that remains deferred.
+recovers. No migration, dependency or setting is added. Validation CPU deadlines are described below.
 
 ## Required Validation
 
@@ -772,3 +797,22 @@ parameter callbacks and error middleware. Keep this call after route registratio
 and rerun lifecycle tests when upgrading Express or adding routing mechanisms.
 The adapter retains returned handler promises separately from response close so
 an aborted client cannot close dependencies under unfinished work.
+
+### Schema validation deadlines
+
+Each Python service permits four disposable validation children and sixteen
+waiters per service process. Queue wait and validation each have a one-second
+budget; validation includes launch, IPC and exit. Engine also honors the remaining
+run deadline. Cancellation terminates and reaps the child. Cleanup allows 100ms
+for TERM before KILL, with a 250ms request cleanup budget. If reaping exceeds that
+budget, capacity stays occupied and new validation is rejected until cleanup
+finishes; shutdown waits for tracked children. There is no deadline-disable option.
+
+Schemas retain the existing 256 KiB/depth16/100-items/16,384-values limits (remote
+metadata still has its tighter limits). Input instances are limited to 1,000,000
+compact UTF-8 JSON bytes; output instances to 2 MiB plus 1 KiB of envelope overhead (the existing 2 MiB data
+limit remains), both depth32/65,536 values.
+IPC is bounded to 3 MiB input and 8 KiB output; at most twelve diagnostics have
+256-byte paths/messages. Children receive schema/instance JSON and an empty
+environment, and do not load service configuration or retrieve external schemas.
+Roll out both Python services to remove inline validation from both boundaries.
