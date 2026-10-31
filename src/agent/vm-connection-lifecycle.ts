@@ -2,8 +2,7 @@ import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { claimAgentOwner, clearAgentOwnerIfCurrent, controlPlaneInstanceId, distributedRoutingEnabled, getAgentOwner, refreshAgentOwner } from '../services/control-plane-coordination.js';
 import { webhooks } from '../services/webhooks.js';
-import { repo } from '../store/repository.js';
-import type { VirtualMachineConnectionTransition } from '../store/repository-vm-connections.js';
+import { vmConnections, type VirtualMachineConnectionTransition } from '../store/repository-vm-connections.js';
 import { detachAgentConnection, getAgentConnection } from './connections.js';
 import type { AgentConnection } from './types.js';
 
@@ -39,7 +38,7 @@ export async function disconnectVirtualMachine(conn: AgentConnection): Promise<v
   const draining = exactOwner(owner, conn) && owner?.state === 'draining';
   if (draining) await boundedOwnerOperation(refreshAgentOwner(targetId, conn.connectionId, 'draining'));
   else await boundedOwnerOperation(clearAgentOwnerIfCurrent(targetId, conn.connectionId));
-  const transition = await repo.transitionVirtualMachineConnection(targetId, {
+  const transition = await vmConnections.transition(targetId, {
     status: 'offline', connectionId: conn.connectionId,
     allow: async () => {
       const current = await boundedOwnerOperation(getAgentOwner(targetId));
@@ -60,7 +59,7 @@ async function cleanupFailedHandshake(conn: AgentConnection): Promise<void> {
   conn.ws.close(1012, 'VM handshake did not complete');
   // A late CAS clear can remove only this attempt, never its replacement.
   await boundedOwnerOperation(clearAgentOwnerIfCurrent(targetId, conn.connectionId));
-  const transition = await repo.transitionVirtualMachineConnection(targetId, {
+  const transition = await vmConnections.transition(targetId, {
     status: 'offline',
     allow: async () => {
       if (await boundedOwnerOperation(getAgentOwner(targetId))) return false;
@@ -89,7 +88,7 @@ export async function publishVirtualMachineConnection(input: {
   try {
     await claimAgentOwner({ clusterId: targetId, connectionId: conn.connectionId, workspaceId: conn.workspaceId, connectorVersion: conn.connectorVersion });
     if (!eligible()) return;
-    const transition = await repo.transitionVirtualMachineConnection(targetId, { status: 'online', connectionId: conn.connectionId, connectorVersion: conn.connectorVersion, allow: owns });
+    const transition = await vmConnections.transition(targetId, { status: 'online', connectionId: conn.connectionId, connectorVersion: conn.connectorVersion, allow: owns });
     if (!transition || !(await owns()) || !eligible()) return;
     // No await between the final local fence and publication. A delayed older
     // transaction/read cannot install its socket over a newer local attempt.

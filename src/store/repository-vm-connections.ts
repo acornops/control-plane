@@ -47,3 +47,5 @@ export async function transitionVirtualMachineConnection(
     };
   });
 }
+
+export const vmConnections = { transition: transitionVirtualMachineConnection };

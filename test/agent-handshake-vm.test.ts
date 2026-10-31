@@ -1,3 +1,4 @@
+import { vmConnections } from '../src/store/repository-vm-connections.js';
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import WebSocket from 'ws';
@@ -16,7 +17,7 @@ import {
 
 beforeEach(() => {
   setupControlPlaneCoordinationTest();
-  mock.method(repo, 'transitionVirtualMachineConnection', async (_id, input) => (await input.allow()) ? {
+  mock.method(vmConnections, 'transition', async (_id, input) => (await input.allow()) ? {
     workspaceId: 'workspace-1', previousStatus: 'offline', status: input.status,
     updatedAt: '2026-05-19T00:01:00.000Z', connectionId: input.connectionId || 'prior'
   } : null);

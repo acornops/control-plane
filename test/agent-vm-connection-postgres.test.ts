@@ -1,3 +1,4 @@
+import { vmConnections } from '../src/store/repository-vm-connections.js';
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, it, mock } from 'node:test';
 import WebSocket from 'ws';
@@ -97,8 +98,8 @@ describe('VM connection persistence', { skip: !process.env.CONTROL_PLANE_TEST_DA
   });
   it('fences delayed post-commit local publication after a newer local handshake', async () => {
     const committed = deferred(); const release = deferred();
-    const transition = repo.transitionVirtualMachineConnection.bind(repo); let online = 0;
-    mock.method(repo, 'transitionVirtualMachineConnection', async (id, input) => {
+    const transition = vmConnections.transition.bind(vmConnections); let online = 0;
+    mock.method(vmConnections, 'transition', async (id, input) => {
       const result = await transition(id, input);
       if (input.status === 'online' && ++online === 1) { committed.resolve(); await release.promise; }
       return result;
@@ -111,8 +112,8 @@ describe('VM connection persistence', { skip: !process.env.CONTROL_PLANE_TEST_DA
     assert.equal(events.filter((event) => event.type === 'agent.connected.v1').length, 1);
   });
   it('cleans a socket closed after online persistence without publishing success', async () => {
-    const ws = new FakeWebSocket(); const transition = repo.transitionVirtualMachineConnection.bind(repo);
-    mock.method(repo, 'transitionVirtualMachineConnection', async (id, input) => {
+    const ws = new FakeWebSocket(); const transition = vmConnections.transition.bind(vmConnections);
+    mock.method(vmConnections, 'transition', async (id, input) => {
       const result = await transition(id, input); if (input.status === 'online') ws.close(); return result;
     });
     await handshake(ws);
@@ -190,8 +191,8 @@ describe('VM connection persistence', { skip: !process.env.CONTROL_PLANE_TEST_DA
   });
   it('protects a local replacement during failed-handshake cleanup without distributed routing', async () => {
     config.CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED = false;
-    const committed = deferred(); const release = deferred(); const transition = repo.transitionVirtualMachineConnection.bind(repo); let online = 0;
-    mock.method(repo, 'transitionVirtualMachineConnection', async (id, input) => {
+    const committed = deferred(); const release = deferred(); const transition = vmConnections.transition.bind(vmConnections); let online = 0;
+    mock.method(vmConnections, 'transition', async (id, input) => {
       const result = await transition(id, input);
       if (input.status === 'online' && ++online === 1) { committed.resolve(); await release.promise; }
       return result;
@@ -204,8 +205,8 @@ describe('VM connection persistence', { skip: !process.env.CONTROL_PLANE_TEST_DA
   it('protects a newer pending attempt during orphan cleanup without distributed routing', async () => {
     config.CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED = false;
     const firstCommitted = deferred(); const releaseFirst = deferred(); const secondStarted = deferred(); const releaseSecond = deferred();
-    const transition = repo.transitionVirtualMachineConnection.bind(repo); let online = 0;
-    mock.method(repo, 'transitionVirtualMachineConnection', async (id, input) => {
+    const transition = vmConnections.transition.bind(vmConnections); let online = 0;
+    mock.method(vmConnections, 'transition', async (id, input) => {
       if (input.status !== 'online') return transition(id, input);
       const order = ++online;
       if (order === 2) { secondStarted.resolve(); await releaseSecond.promise; }
@@ -220,8 +221,8 @@ describe('VM connection persistence', { skip: !process.env.CONTROL_PLANE_TEST_DA
     releaseSecond.resolve(); const ws = await second; assert.equal(getAgentConnection(targetId)!.ws, ws);
   });
   it('rolls back and cleans up a failed online persistence before acknowledgement', async () => {
-    const transition = repo.transitionVirtualMachineConnection.bind(repo);
-    mock.method(repo, 'transitionVirtualMachineConnection', async (id, input) => {
+    const transition = vmConnections.transition.bind(vmConnections);
+    mock.method(vmConnections, 'transition', async (id, input) => {
       if (input.status === 'online') throw new Error('database unavailable'); return transition(id, input);
     });
     const ws = new FakeWebSocket(); await assert.rejects(handshake(ws), /database unavailable/);
