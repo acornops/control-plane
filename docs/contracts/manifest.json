@@ -444,7 +444,7 @@
         "queueVisibility": "Target settings responses include queueSummary.{activeCount,waitingCount,oldestWaitingAt?}. Counts follow worker admission semantics, remain independent of Workflow activity, and support a compact link to the existing target issue surface rather than a separate queue page.",
         "historyUi": "The console filters the existing target session history into manual Chats and auto_triage Investigations while global search spans both. Investigation rows use linked issue scope, object, severity, and assistant status. A per-user, per-target browser marker derives the supplementary unseen badge from existing session creation timestamps; it is not control-plane state.",
         "sharedChat": "Browser members with create_sessions and the relevant run capability may reply to auto_triage sessions with actual message authorship. Manual sessions and all external-integration access remain creator-owned.",
-        "workflowIndependence": "Automatic investigation enqueueing is evaluated independently during issue lifecycle persistence and does not invoke Workflow execution or alter outbound issue webhook behavior. The worker does not consult Automation runtime mode or share a Workflow scheduler tick."
+        "workflowIndependence": "Automatic investigation enqueueing is evaluated independently during issue lifecycle persistence and does not invoke Workflow execution or alter outbound issue webhook behavior. The worker does not share a Workflow scheduler tick. Shared workspace admission and dispatch controls still apply."
       },
       "eventTypes": [
         "run_progress",
@@ -802,7 +802,7 @@
         ],
         "automationDiagnostics": [
           "status",
-          "runtime.{mode,workspaceEnabled,workerIntervalMs}",
+          "runtime.{admissionEnabled,dispatchEnabled,workerIntervalMs}",
           "dispatch.{byStatus,oldestPendingAgeSeconds}",
           "runs.{workflowByStatus,byExecutorRole,byGraphPosition,active}",
           "schedules.schedulerLagSeconds",

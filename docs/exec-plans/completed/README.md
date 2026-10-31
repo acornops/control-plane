@@ -5,6 +5,9 @@
 - [Admin metrics and document expiry](2026-10-31-metrics-document-retention.md) — Bounded labels and batched expiry cleanup.
 
 - [Issue observation retention](2026-10-31-issue-observation-retention.md) — Sample repetitive history, expire old observations, and preserve current issue state.
+
+- [Target deletion latency](2026-10-31-target-delete-latency.md) — Indexed foreign-key cleanup with populated migration checks; deployment remains separate.
+
 - [Graceful rolling restarts](2026-10-29-graceful-rolling-restarts.md) — Control-plane drain, agent handoff and additive authority/cancellation contracts validated locally; coordinated rollout acceptance belongs to deployment.
 - [Pod logs unavailable before startup](pod-logs-unavailable.md)
 

@@ -221,8 +221,9 @@ The control plane owns the platform API boundary. Keep this README as a short in
   Qualifying issue lifecycles enqueue one durable automatic investigation,
   existing issues require an explicit bulk-start request, and the system actor
   reuses target-chat runs, approvals, cancellation, retention, and audit paths.
-  Its worker has a dedicated timer and error boundary and ignores Automation
-  runtime mode, so Workflow failures cannot pause automatic investigations.
+  Its worker has a dedicated timer and error boundary, so Workflow scheduler
+  failures cannot pause automatic investigations. Shared workspace admission
+  and dispatch controls still apply.
   Requested write behavior can only become stricter after intersecting target
   settings and connector write policy. Kubernetes settings additionally narrow eligible issue
   namespaces and independently control cluster-scoped issues; virtual-machine

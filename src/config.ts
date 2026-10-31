@@ -221,8 +221,6 @@ const envSchema = z.object({
   EXTERNAL_INTEGRATION_LINK_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(600),
   EXTERNAL_INTEGRATION_LINK_TTL_SECONDS: z.coerce.number().int().min(86400).max(31536000).default(2592000),
   EXTERNAL_INTEGRATION_LINK_TOKEN_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
-  AUTOMATION_RUNTIME_MODE: z.enum(['off', 'shadow', 'canary', 'on']).default('off'),
-  AUTOMATION_CANARY_WORKSPACE_IDS: z.string().default(''),
   AUTOMATION_WORKER_INTERVAL_MS: z.coerce.number().int().min(250).default(1000),
   REPORT_SOURCE_MAX_BYTES: z.coerce.number().int().positive().default(262144),
   REPORT_PDF_MAX_BYTES: z.coerce.number().int().positive().default(5242880),

@@ -383,7 +383,16 @@ export function buildAgentSchemas(): Record<string, JsonSchema> {
       required: ['status', 'runtime', 'dispatch', 'runs', 'schedules', 'approvals', 'templates', 'reports', 'checkedAt'],
       properties: {
         status: { type: 'string', enum: ['ok', 'degraded', 'disabled'] },
-        runtime: jsonObject,
+        runtime: {
+          type: 'object',
+          required: ['admissionEnabled', 'dispatchEnabled', 'workerIntervalMs'],
+          properties: {
+            admissionEnabled: { type: 'boolean' },
+            dispatchEnabled: { type: 'boolean' },
+            workerIntervalMs: { type: 'integer', minimum: 250 }
+          },
+          additionalProperties: false
+        },
         dispatch: jsonObject,
         runs: jsonObject,
         schedules: jsonObject,

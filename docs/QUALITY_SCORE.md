@@ -13,6 +13,15 @@ Assessment date: July 26, 2026.
 
 Re-score this file when a major architectural or operational change lands.
 
+## Workflow queue investigation — October 31, 2026
+
+Default dispatch and maintenance-pause regressions cover removal of the obsolete
+automation rollout mode. The reproduced capacity-maintenance defect that left
+summaries queued after run expiry now has an [atomic repair and bounded historical
+reconciliation](exec-plans/active/2026-10-31-capacity-maintenance-status.md), with
+PostgreSQL rollback, start/renewal races, suspension, and retry regressions.
+Existing scores are unchanged.
+
 ## Hosted-readiness evidence — September 6, 2026
 
 The full 1,284-test suite and SQL upgrade chain pass, with independent reviews of

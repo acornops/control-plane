@@ -58,6 +58,19 @@ individual MCP credentials/OAuth authorizations; workspace-owned credentials
 are unchanged. Follow the pinned maintenance procedure in
 [`docs/OPERATIONS.md`](OPERATIONS.md#mcp-membership-generation-maintenance-rollout).
 
+## Target deletion indexes
+
+`013_target_delete_indexes.sql` adds indexes for the auto-triage job references
+to runs and sessions. These prevent repeated history scans during cluster/VM
+deletion and preserve the existing foreign-key cleanup behavior. This additive
+migration also supports rollback to the previous application binary.
+
+Like the other migrations, index creation runs in a transaction. It blocks
+writes to `target_auto_triage_jobs` while the indexes build; schedule the upgrade
+in a quiet maintenance window for installations with substantial history. Do
+not edit the baseline or substitute `CREATE INDEX CONCURRENTLY` in this runner,
+which wraps migrations in a transaction. No database reset is needed.
+
 ## Validation
 
 `npm run migrations:check` verifies that startup remains migration-only, checks
@@ -70,6 +83,8 @@ database, the same check applies the baseline, inserts legacy data, runs the
 forward chain, verifies its backfill and mixed-version synchronization, and
 introspects the final tables, columns, indexes, foreign keys, triggers, and check
 constraints.
+CI sets `CONTROL_PLANE_MIGRATION_TEST_DATABASE_URL` to its disposable PostgreSQL
+service so populated forward-upgrade checks run in the required validation job.
 
 Postgres-backed controller tests additionally require `NODE_ENV=test` and an
 explicit `CONTROL_PLANE_TEST_DATABASE_URL` whose database name contains

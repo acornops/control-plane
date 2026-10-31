@@ -57,7 +57,8 @@ migration rollout accounts for a large existing table and transactional indexes.
   failure isolation and default retention checks pass. VM and Kubernetes evidence
   streams are both covered.
 - Populated upgrade: applied migrations 001–012, inserted 100,000 observations,
-  then applied 013. All 100,000 payloads survived unchanged; PostgreSQL selected the
+  then applied the observation migration (renumbered to 014 during main integration).
+  All 100,000 payloads survived unchanged; PostgreSQL selected the
   new index for the 500-row candidate query; cleanup removed exactly 500 rows and
   preserved the complete current issue record.
 - First full run: 1,529 tests and SQL migration checks passed. Harness file-size
