@@ -629,3 +629,23 @@ retention period (30 days by default). Active/uncertain work and unresolved appr
 are protected. Expiry removes historical client-request idempotency lookups along
 with messages, executions and payloads; webhook delivery identities and schedules
 remain. Consumers must not retry expired historical client request IDs as new work.
+
+## Bounded admin directory reads
+
+`GET /admin/v1/workspaces/summary` returns exact workspace and environment counts
+plus at most three workspace identity/count rows under `admin:workspace:read`.
+`GET /admin/v1/users/summary` returns total and verified-user counts under
+`admin:user:read`. Empty catalogs return zero counts and an empty leader list;
+unavailable responses must remain errors. Neither endpoint exposes target or
+session records. Counts are computed on demand; this change does not add a cache.
+
+Workspace search matches `q` against names or IDs and accepts
+`lifecycleStatus=active|suspended` before pagination; both filters participate in
+the cursor signature. User detail memberships include `workspaceName`
+and `workspaceLifecycleStatus` for the existing workspace IDs. Workspace, user,
+and membership cursors preserve database timestamp precision while display dates
+retain their existing ISO format. Existing cursor strings remain accepted.
+
+Deploy the control-plane producer before the console consumer; roll back the
+consumer first. Existing list routes and membership mutation payloads are
+unchanged. No schema migration or additional scope is required.

@@ -157,6 +157,21 @@ export function buildAdminSchemas(): Record<string, JsonSchema> {
       description: 'Support-safe workspace detail.'
     },
     AdminWorkspacePage: pageOf('AdminWorkspace'),
+    AdminWorkspaceOverview: {
+      type: 'object', additionalProperties: false,
+      required: ['workspaceCount', 'suspendedWorkspaceCount', 'kubernetesCount', 'virtualMachineCount', 'environmentLeaders'],
+      properties: {
+        ...Object.fromEntries(['workspaceCount', 'suspendedWorkspaceCount', 'kubernetesCount', 'virtualMachineCount'].map(key => [key, { type: 'integer', minimum: 0 }])),
+        environmentLeaders: { type: 'array', maxItems: 3, items: {
+          type: 'object', additionalProperties: false, required: ['id', 'name', 'clusterCount', 'virtualMachineCount'],
+          properties: { id: { type: 'string' }, name: { type: 'string' }, clusterCount: { type: 'integer', minimum: 0 }, virtualMachineCount: { type: 'integer', minimum: 0 } }
+        } }
+      }
+    },
+    AdminUserOverview: {
+      type: 'object', additionalProperties: false, required: ['userCount', 'verifiedUserCount'],
+      properties: { userCount: { type: 'integer', minimum: 0 }, verifiedUserCount: { type: 'integer', minimum: 0 } }
+    },
     AdminWorkspaceMemberPage: pageOf('WorkspaceMember'),
     AdminUser: {
       allOf: [

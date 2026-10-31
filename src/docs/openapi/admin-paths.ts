@@ -211,11 +211,19 @@ export function buildAdminPaths(): Record<string, unknown> {
       }
     },
     ...buildAdminWorkspaceDefaultPaths(adminSecurity),
+    '/admin/v1/workspaces/summary': {
+      get: { tags: ['admin'], summary: 'Read workspace counts and top three connected environments', security: adminSecurity,
+        responses: { '200': { description: 'Bounded governance summary; requires admin:workspace:read.' } } }
+    },
     '/admin/v1/workspaces': {
       get: {
         tags: ['admin'],
         summary: 'Search all workspaces',
         security: adminSecurity,
+        parameters: [
+          { name: 'q', in: 'query', required: false, schema: { type: 'string' }, description: 'Case-insensitive workspace name or ID search.' },
+          { name: 'lifecycleStatus', in: 'query', required: false, schema: { type: 'string', enum: ['active', 'suspended'] }, description: 'Filter before pagination; bound to the cursor.' }
+        ],
         responses: { '200': { description: 'Paged workspace support summaries.' } }
       }
     },
@@ -228,6 +236,10 @@ export function buildAdminPaths(): Record<string, unknown> {
       }
     },
     ...buildAdminWorkspacePolicyPaths(),
+    '/admin/v1/users/summary': {
+      get: { tags: ['admin'], summary: 'Read user and verified-user counts', security: adminSecurity,
+        responses: { '200': { description: 'Bounded governance summary; requires admin:user:read.' } } }
+    },
     '/admin/v1/users': {
       get: {
         tags: ['admin'],
