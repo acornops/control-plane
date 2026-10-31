@@ -1,3 +1,5 @@
+import { isWindowsSnapshot } from './windows-vm-snapshot.js';
+import { summarizeWindowsMetrics } from './windows-vm-interpretation.js';
 import type { ClusterSnapshot, VirtualMachineSnapshot } from '../types/domain.js';
 
 const MEMORY_BINARY_UNITS: Record<string, number> = {
@@ -81,6 +83,7 @@ export function summarizeKubernetesSnapshotMetrics(snapshot: ClusterSnapshot): R
 }
 
 export function summarizeVirtualMachineSnapshotMetrics(snapshot: VirtualMachineSnapshot): Record<string, unknown> | null {
+  if (isWindowsSnapshot(snapshot)) return summarizeWindowsMetrics(snapshot);
   const summary = snapshot.data.host_summary;
   if (!summary || typeof summary !== 'object') return null;
   const value = summary as Record<string, unknown>;

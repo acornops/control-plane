@@ -592,3 +592,67 @@ Deploy consumers that understand these additive fields and drain errors before
 enabling coordinated rolling restarts. Initial cutover and rollback require a
 controlled window; older binaries do not acquire these guarantees. No database
 migration or agent protocol version change is required.
+
+## AgentV runtime identity
+
+VM registration defaults omitted identity to Linux/systemd. Explicit Windows
+registration requires `osFamily: windows`, `serviceManager: scm`, read-only
+access, and enabled, independently pinned Windows rollout settings. Identity is
+immutable and survives status/settings changes. Every AgentV handshake must
+provide both runtime identity fields; credential authentication compares them to
+the stored target under its transaction lock before marking an enrollment
+verified. Existing Linux agents and direct legacy Linux authentication calls
+retain their behavior.
+
+Windows permits only `get_host_summary`, `list_filesystems`, `list_processes`,
+`get_process`, `list_services`, `get_service`, `query_logs`, and `list_listeners`.
+Advertisement, discovery, built-in synchronization and local/remote-owner RPC
+dispatch enforce this ceiling independently of a tool's claimed capability.
+Windows write enrollment and policy updates are refused. Linux restart schemas,
+allowlists, helper behavior and release coordinates remain unchanged.
+
+Windows instructions use `install-agentv.ps1` at the pinned `v<version>` release
+URL with `-ReleaseBaseUrl`, `-PlatformUrl`, `-TargetId`, optional
+`-EnrollmentToken`, and `-ReplaceCredential`. Repair omits the token. The command
+uses a fresh temporary `.ps1` file and removes it in `finally`. Native packaging
+and telemetry qualification are separate gates; leave Windows rollout disabled
+until those gates pass. Deploy this compatible backend before enabling Windows
+consumers; an older backend may relabel Windows metadata during updates.
+
+## AgentV Windows native read producer
+
+The [Windows native read contract](windows-read-runtime.md) records the
+producer schemas consumed by Windows telemetry interpretation. Windows uses
+`acornops.agentv-windows-snapshot.v1`; Linux payloads and their existing optional
+helper/restart handshake fields retain their released compatibility. Both OS
+identity fields remain required. Hosted native parsing does not qualify service
+permissions, reboot, packaging or enable rollout.
+
+
+## Windows telemetry consumption and registration options
+
+Snapshot ingestion validates Windows data against its native version and strict
+row shapes using the stored target OS. A Linux VM rejects Windows telemetry;
+legacy Linux snapshots need no new fields. Windows inventory uses native volume
+identities and `scm_service` names. Service issue fingerprints keep the native
+name (case-insensitive) and failure class stable across exit-code changes.
+Stopped services alone create no issue. Complete findings survive optional
+inventory trimming; failed or incomplete collection cannot resolve issues.
+Windows load and swap stay unavailable. Disk history uses the reported
+`host_summary.system_volume`, including system drives other than `C:`.
+
+`GET /api/v1/workspaces/{workspaceId}/virtual-machines/registration-options`
+requires a user session and `manage_targets`. Its response is
+`{platforms:[{osFamily:"linux",serviceManager:"systemd",accessModes:["read_only","read_write"]}]}`.
+The server appends
+`{osFamily:"windows",serviceManager:"scm",accessModes:["read_only"]}` only when
+Windows rollout is explicitly enabled with valid pinned release coordinates.
+The response contains no release URL, version, enrollment token or credential.
+The existing VM list response is unchanged; clients may request options when
+opening registration.
+
+VM log requests preserve Linux `unit` routing. Windows requires `channel` equal
+to `Application` or `System`, with optional ISO `since`/`until` and literal `q`.
+AgentV enforces its local channel allowlist and maximum time window. Built-in
+tool schemas remain scoped to each target; Windows sync excludes writes even
+when the agent advertises them.

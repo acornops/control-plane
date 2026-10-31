@@ -1,3 +1,4 @@
+import type { VirtualMachinePlatform } from './virtual-machine-platform.js';
 import { type TargetType } from './target-types.js';
 import type { AgentVAccessPolicy } from './agentv-access-policy.js';
 import type { RunPermissionMode } from './run-permission.js';
@@ -304,14 +305,12 @@ export interface WorkspaceAuditEventInput {
   summary: string;
   metadata?: Record<string, unknown>;
 }
-export interface VirtualMachineTarget {
+export type VirtualMachineTarget = VirtualMachinePlatform & {
   id: string;
   workspaceId: string;
   name: string;
   status: 'online' | 'offline' | 'degraded' | 'unknown';
   hostname?: string;
-  osFamily: 'linux';
-  serviceManager: 'systemd';
   allowedLogSources: string[];
   agentAccessMode: AgentVAccessPolicy['accessMode'];
   restartServices: AgentVAccessPolicy['restartServices'];
@@ -321,7 +320,7 @@ export interface VirtualMachineTarget {
   permissionModeSource: 'virtual_machine_override' | 'deployment_default';
   createdAt: string;
   updatedAt: string;
-}
+};
 
 export interface VirtualMachineSnapshot {
   targetId: string;

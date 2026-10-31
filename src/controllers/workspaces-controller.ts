@@ -343,3 +343,5 @@ export {
 export {
   createVirtualMachineAgentAccessPolicyUpdate
 } from './workspaces/virtual-machine-agent-access-policy-controller.js';
+
+export { getVirtualMachineRegistrationOptions } from './workspaces/virtual-machine-registration-options-controller.js';

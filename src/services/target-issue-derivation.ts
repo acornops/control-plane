@@ -1,3 +1,4 @@
+import { deriveWindowsIssueObservations } from './windows-vm-interpretation.js';
 import {
   ClusterSnapshot,
   KubernetesCluster,
@@ -407,6 +408,7 @@ export function deriveVirtualMachineIssueObservations(
   vm: VirtualMachineTarget,
   snapshot: VirtualMachineSnapshot
 ): TargetIssueObservationInput[] {
+  if (vm.osFamily === 'windows') return deriveWindowsIssueObservations(vm, snapshot);
   const data = snapshot.data || {};
   const observations: TargetIssueObservationInput[] = [];
   const serviceStates = new Map<string, Record<string, unknown>>();

@@ -33,7 +33,7 @@ function createVm(status: 'online' | 'offline') {
 }
 
 describe('AgentV handshake', () => {
-  it('verifies a pending credential without claiming the target connection', async () => {
+  it('verifies a legacy pending Linux credential with optional helper and tool fields omitted', async () => {
     const store = new Map<string, string>();
     installRedisStore(store);
     mock.method(repo.agentv, 'authenticateAgentVCredential', async () => ({
@@ -46,7 +46,7 @@ describe('AgentV handshake', () => {
     }).handleMessage(ws as unknown as WebSocket, Buffer.from(JSON.stringify({
       jsonrpc: '2.0', id: 'pending', method: 'lifecycle/handshake', params: {
         targetId: 'vm-1', targetType: 'virtual_machine', agentType: 'agentv', agentKey: 'pending-key',
-        hostFeatures: { osFamily: 'linux', serviceManager: 'systemd', helperReachable: false, restartServices: [] }
+        hostFeatures: { osFamily: 'linux', serviceManager: 'systemd' }
       }
     })), 'pending-key', 'agentv/test', '203.0.113.13');
     const response = parseLastSent(ws) as { result?: { provisional?: boolean; sessionPolicy?: { allowedTools?: string[] } } };
@@ -55,7 +55,26 @@ describe('AgentV handshake', () => {
     assert.equal(store.has(agentOwnerKey('vm-1')), false);
   });
 
-  it('returns capability-driven write policy for VM handshakes', async () => {
+  it('requires the released Linux/systemd identity before verifying credentials', async () => {
+    const authenticate = mock.method(repo.agentv, 'authenticateAgentVCredential', async () => null);
+    for (const hostFeatures of [undefined, { osFamily: 'linux' }, { serviceManager: 'systemd' }]) {
+      const ws = new FakeWebSocket();
+      await (new AgentGateway() as unknown as {
+        handleMessage(ws: WebSocket, raw: WebSocket.RawData, key: string, version: string): Promise<void>;
+      }).handleMessage(ws as unknown as WebSocket, Buffer.from(JSON.stringify({
+        jsonrpc: '2.0', id: 'missing-runtime', method: 'lifecycle/handshake', params: {
+          targetId: 'vm-1', targetType: 'virtual_machine', agentType: 'agentv', agentKey: 'pending-key', hostFeatures
+        }
+      })), 'pending-key', 'agentv/0.0.1-experimental.14');
+
+      const response = parseLastSent(ws) as { error?: { code?: number } };
+      assert.equal(response.error?.code, 401);
+      assert.equal(ws.closeCode, 1008);
+    }
+    assert.equal(authenticate.mock.callCount(), 0);
+  });
+
+  it('accepts omitted optional helper fields with capability-driven VM write policy', async () => {
     const store = new Map<string, string>();
     installRedisStore(store);
     const registration = {
@@ -119,9 +138,7 @@ describe('AgentV handshake', () => {
           supportedCapabilities: ['read', 'write', 'restart_service', 'logs'],
           hostFeatures: {
             osFamily: 'linux',
-            serviceManager: 'systemd',
-            helperReachable: true,
-            restartServices: ['acornops-agentv.service']
+            serviceManager: 'systemd'
           },
           advertisedTools: [
             { name: 'query_logs', capability: 'read' },
@@ -201,4 +218,30 @@ describe('AgentV handshake', () => {
     assert.equal(response.error?.code, 401);
     assert.equal(store.has(agentOwnerKey('vm-1')), false);
   });
+});
+
+it('suppresses Windows write capability and unreviewed tools at handshake', async () => {
+  const { config } = await import('../src/config.js');
+  const previous = config.AGENTV_WINDOWS_ENABLED;
+  config.AGENTV_WINDOWS_ENABLED = true;
+  try {
+    installRedisStore(new Map());
+    mock.method(repo.agentv, 'authenticateAgentVCredential', async (_id, _key, runtime) => {
+      assert.deepEqual(runtime, { osFamily: 'windows', serviceManager: 'scm' });
+      return { credential: { id: 'active', targetId: 'vm-1', enrollmentId: 'enrollment', keyHash: 'hash', generation: 1, state: 'active' as const }, workspaceId: 'workspace-1', provisional: false };
+    });
+    mock.method(repo, 'getTargetAgentRegistration', async () => ({ targetId: 'vm-1', targetType: 'virtual_machine' as const, workspaceId: 'workspace-1', agentKeyHash: 'hash', keyVersion: 1, capabilities: [] }));
+    mock.method(repo, 'getVirtualMachine', async () => ({ ...createVm('offline'), osFamily: 'windows', serviceManager: 'scm' }));
+    mock.method(repo, 'updateVirtualMachine', async () => ({ ...createVm('online'), osFamily: 'windows', serviceManager: 'scm' }));
+    mock.method(repo, 'updateTargetAgentCapabilities', async (_id, capabilities) => { assert.deepEqual(capabilities, ['read', 'windows', 'scm']); });
+    mock.method(repo, 'updateTargetAgentSeen', async () => undefined);
+    mock.method(webhooks, 'emit', () => undefined);
+    const ws = new FakeWebSocket();
+    await (new AgentGateway() as unknown as { handleMessage(ws: WebSocket, raw: WebSocket.RawData, key: string, version: string): Promise<void> }).handleMessage(ws as unknown as WebSocket, Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: 'windows', method: 'lifecycle/handshake', params: {
+      targetId: 'vm-1', targetType: 'virtual_machine', agentType: 'agentv', hostFeatures: { osFamily: 'windows', serviceManager: 'scm' }, supportedCapabilities: ['read', 'write', 'linux', 'systemd', 'windows', 'scm'],
+      advertisedTools: [{ name: 'query_logs', capability: 'read' }, { name: 'get_service', capability: 'write' }, { name: 'restart_service', capability: 'read' }, { name: 'arbitrary_shell', capability: 'read' }]
+    } })), 'key', 'agentv/test');
+    const result = parseLastSent(ws) as { result: { sessionPolicy: { allowedTools: string[]; writeEnabled: boolean } } };
+    assert.deepEqual(result.result.sessionPolicy, { allowedTools: ['query_logs'], writeEnabled: false });
+  } finally { config.AGENTV_WINDOWS_ENABLED = previous; }
 });

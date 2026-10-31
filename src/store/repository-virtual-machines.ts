@@ -1,3 +1,5 @@
+import { isFailedWindowsService, validateVirtualMachineSnapshot } from '../services/windows-vm-snapshot.js';
+import { parseVirtualMachinePlatform } from '../types/virtual-machine-platform.js';
 import { lockActiveWorkspace } from './repository-run-capacity.js';
 import { randomUUID } from 'node:crypto';
 import { config } from '../config.js';
@@ -102,6 +104,8 @@ function mapVirtualMachineSnapshotSummaryRecord(row: SnapshotSummaryDbRow): Virt
 
 function mapVm(row: VmRow): VirtualMachineTarget {
   const metadata = row.metadata || {};
+  const platform = parseVirtualMachinePlatform(metadata);
+  if (!platform) throw new Error(`Stored VM platform is invalid for target ${row.id}`);
   const storedAccessPolicy = parseAgentVAccessPolicy({
     accessMode: metadata.agentAccessMode,
     restartServices: metadata.restartServices
@@ -123,6 +127,10 @@ function mapVm(row: VmRow): VirtualMachineTarget {
   if ((pendingAccessPolicy === null) !== (pendingAccessPolicyEnrollmentId === null)) {
     throw new Error(`Stored pending AgentV access policy metadata is incomplete for VM target ${row.id}`);
   }
+  if (platform.osFamily === 'windows' && (accessPolicy.accessMode !== 'read_only'
+    || (pendingAccessPolicy && pendingAccessPolicy.accessMode !== 'read_only'))) {
+    throw new Error(`Stored Windows AgentV access policy must be read-only for VM target ${row.id}`);
+  }
   const hasPermissionModeOverride = metadata.permissionModeOverride !== undefined
     && metadata.permissionModeOverride !== null;
   if (hasPermissionModeOverride && !isRunPermissionMode(metadata.permissionModeOverride)) {
@@ -139,9 +147,8 @@ function mapVm(row: VmRow): VirtualMachineTarget {
     name: row.name,
     status: row.status,
     hostname: text(metadata.hostname) || undefined,
-    osFamily: 'linux',
-    serviceManager: 'systemd',
-    allowedLogSources: stringList(metadata.allowedLogSources, ['journald', 'syslog']),
+    ...platform,
+    allowedLogSources: stringList(metadata.allowedLogSources, platform.osFamily === 'windows' ? ['Application', 'System'] : ['journald', 'syslog']),
     agentAccessMode: accessPolicy.accessMode,
     restartServices: accessPolicy.restartServices,
     pendingAgentAccessPolicy: pendingAccessPolicy,
@@ -155,15 +162,20 @@ function mapVm(row: VmRow): VirtualMachineTarget {
 
 export async function addVirtualMachine(
   workspaceId: string,
-  input: { name: string; hostname?: string; allowedLogSources?: string[]; accessPolicy: AgentVAccessPolicy }
+  input: { name: string; hostname?: string; osFamily?: 'linux' | 'windows'; serviceManager?: 'systemd' | 'scm'; allowedLogSources?: string[]; accessPolicy: AgentVAccessPolicy }
 ): Promise<VirtualMachineTarget> {
+  const platform = parseVirtualMachinePlatform(input);
+  if (!platform) throw new Error('Invalid VM platform');
+  if (platform.osFamily === 'windows') {
+    if (!config.AGENTV_WINDOWS_ENABLED || !config.AGENTV_WINDOWS_RELEASE_VERSION || !config.AGENTV_WINDOWS_RELEASE_BASE_URL) throw new Error('Windows AgentV rollout is disabled or unqualified');
+    if (input.accessPolicy.accessMode !== 'read_only' || input.accessPolicy.restartServices.length) throw new Error('Windows AgentV supports read-only access');
+  }
   const id = randomUUID();
   const now = new Date().toISOString();
   const metadata = {
     hostname: input.hostname || input.name,
-    osFamily: 'linux',
-    serviceManager: 'systemd',
-    allowedLogSources: input.allowedLogSources || ['journald', 'syslog'],
+    ...platform,
+    allowedLogSources: input.allowedLogSources || (platform.osFamily === 'windows' ? ['Application', 'System'] : ['journald', 'syslog']),
     agentAccessMode: input.accessPolicy.accessMode,
     restartServices: input.accessPolicy.restartServices
   };
@@ -244,8 +256,8 @@ export async function updateVirtualMachine(
   const metadata = {
     ...(current.rows[0].metadata || {}),
     hostname: input.hostname ?? existing.hostname ?? existing.name,
-    osFamily: 'linux',
-    serviceManager: 'systemd',
+    osFamily: existing.osFamily,
+    serviceManager: existing.serviceManager,
     allowedLogSources: input.allowedLogSources ?? existing.allowedLogSources,
     agentAccessMode: existing.agentAccessMode,
     restartServices: existing.restartServices,
@@ -294,6 +306,7 @@ function deriveVmInventory(vm: VirtualMachineTarget, snapshot: VirtualMachineSna
   summary: { inventoryCount: number; findingCount: number; criticalFindingCount: number; summary: Record<string, unknown> };
 } {
   const data = snapshot.data || {};
+  const windows = vm.osFamily === 'windows';
   const host = data.host_summary && typeof data.host_summary === 'object' ? data.host_summary as Record<string, unknown> : {};
   const resources: TargetInventoryItemInput[] = [];
   const itemIds = new Set<string>();
@@ -315,7 +328,7 @@ function deriveVmInventory(vm: VirtualMachineTarget, snapshot: VirtualMachineSna
       name,
       status,
       location,
-      needsAttention: /failed|inactive|pressure|high/i.test(status || ''),
+      needsAttention: (windows && kind === 'scm_service') ? isFailedWindowsService(item) : /failed|inactive|pressure|high/i.test(status || ''),
       sortKey: `${category}:${kind}:${name}`,
       searchText: buildSearchText([category, kind, name, status, location]),
       item
@@ -325,11 +338,11 @@ function deriveVmInventory(vm: VirtualMachineTarget, snapshot: VirtualMachineSna
   // AgentV owns capacity eligibility; raw image usage is not itself a pressure finding.
   const pressuredMounts = new Set(array(data.findings)
     .filter((finding) => finding.code === 'FILESYSTEM_PRESSURE' && normalizeFindingSeverity(finding.severity) !== 'info')
-    .map((finding) => text(finding.mount))
+    .map((finding) => text(windows ? finding.volume : finding.mount))
     .filter(Boolean));
-  push('host', 'host', text(host.hostname, vm.hostname || vm.name), text(distro.pretty_name, 'Linux'), host);
-  for (const disk of array(data.filesystems)) push('storage', 'filesystem', text(disk.mount, 'unknown'), pressuredMounts.has(text(disk.mount)) ? 'pressure' : null, disk, text(disk.filesystem) || null);
-  for (const service of array(data.degraded_services)) push('services', 'systemd_service', text(service.unit, 'unknown'), text(service.active_state, 'unknown'), service);
+  push('host', 'host', text(host.hostname, vm.hostname || vm.name), windows ? `Windows ${text(host.version)} (${text(host.build)})` : text(distro.pretty_name, 'Linux'), host);
+  for (const disk of array(data.filesystems)) push('storage', 'filesystem', text(windows ? disk.volume : disk.mount, 'unknown'), pressuredMounts.has(text(windows ? disk.volume : disk.mount)) ? 'pressure' : null, disk, text(disk.filesystem) || null);
+  for (const service of array(data.degraded_services)) push('services', windows ? 'scm_service' : 'systemd_service', text(windows ? service.name : service.unit, 'unknown'), text(windows ? service.state : service.active_state, 'unknown'), service);
   for (const process of array(data.top_processes).slice(0, 100)) {
     push('processes', 'process', text(process.name, String(process.pid || 'unknown')), null, process, text(process.user) || null, String(process.pid ?? 'unknown'));
   }
@@ -342,9 +355,9 @@ function deriveVmInventory(vm: VirtualMachineTarget, snapshot: VirtualMachineSna
 
   const findings = array(data.findings).map((finding): TargetFindingInput => {
     const severity = normalizeFindingSeverity(finding.severity);
-    const objectName = text(finding.unit, text(finding.mount, vm.name));
+    const objectName = text(windows ? finding.name : finding.unit, text(windows ? finding.volume : finding.mount, vm.name));
     const reason = text(finding.code, 'finding');
-    const id = `${text(finding.unit ? 'systemd_service' : 'host')}:${objectName}:${reason}`;
+    const id = `${text(windows ? (finding.name ? 'scm_service' : 'host') : (finding.unit ? 'systemd_service' : 'host'))}:${objectName}:${reason}`;
     return {
       targetId: vm.id,
       workspaceId: vm.workspaceId,
@@ -354,13 +367,13 @@ function deriveVmInventory(vm: VirtualMachineTarget, snapshot: VirtualMachineSna
       severityRank: findingRank(severity),
       scopeKind: null,
       scopeName: null,
-      objectKind: finding.unit ? 'systemd_service' : 'host',
+      objectKind: windows ? (finding.name ? 'scm_service' : 'host') : (finding.unit ? 'systemd_service' : 'host'),
       objectName,
       title: text(finding.summary, 'VM finding'),
       message: text(finding.summary, 'VM diagnostic finding'),
       reason,
       findingTs: snapshot.timestamp,
-      searchText: buildSearchText([finding.summary, finding.code, finding.unit, finding.mount])
+      searchText: buildSearchText(windows ? [finding.summary, finding.code, finding.name, finding.volume] : [finding.summary, finding.code, finding.unit, finding.mount])
     };
   });
   return {
@@ -372,8 +385,8 @@ function deriveVmInventory(vm: VirtualMachineTarget, snapshot: VirtualMachineSna
       criticalFindingCount: findings.filter((finding) => finding.severity === 'critical').length,
       summary: {
         host: host.hostname || vm.hostname || vm.name,
-        osFamily: 'linux',
-        serviceManager: 'systemd',
+        osFamily: vm.osFamily,
+        serviceManager: vm.serviceManager,
         serviceCount: array(data.degraded_services).length,
         processCount: array(data.top_processes).length,
         listenerCount: array(data.listeners).length,
@@ -388,6 +401,7 @@ export async function upsertVirtualMachineSnapshot(snapshot: VirtualMachineSnaps
     await lockActiveWorkspace(client, snapshot.workspaceId);
     const vm = await getVirtualMachine(snapshot.targetId);
     if (!vm) throw new Error(`Cannot upsert snapshot for missing VM ${snapshot.targetId}`);
+    validateVirtualMachineSnapshot(vm, snapshot);
     const canonicalSnapshot = { ...snapshot, workspaceId: vm.workspaceId };
     const previousSnapshotResult = await client.query<PreviousSnapshotRow>(
       `SELECT snapshot_ts

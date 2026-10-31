@@ -314,6 +314,17 @@ and must not be logged, saved, or shared. Durable AgentV credentials are
 returned only to the root installer; repair commands reuse the credential
 already protected on the VM.
 
+Windows enrollment is disabled by default (`AGENTV_WINDOWS_ENABLED=false`).
+Enable only after native Windows qualification with an independent exact
+`AGENTV_WINDOWS_RELEASE_VERSION` and HTTPS `AGENTV_WINDOWS_RELEASE_BASE_URL`.
+The release layout is `v<version>/install-agentv.ps1`; generated commands use
+PowerShell and a temporary script removed in `finally`. Windows targets are
+read-only, retain immutable Windows/SCM identity, and permit only the eight
+reviewed read tools. Feature-off disables Windows tool discovery and dispatch
+while preserving target metadata. Telemetry and packaging qualification must
+finish before enabling onboarding outside isolated tests. Linux settings and
+commands require no changes.
+
 VM snapshots atomically update the latest snapshot, inventory, and metric history.
 Inventory identifies processes by PID and listeners by protocol, bind address,
 port, and PID, while keeping their display labels unchanged. Repeated entries are

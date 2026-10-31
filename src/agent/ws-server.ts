@@ -1,3 +1,4 @@
+import { assertVirtualMachineRpcAllowed, filterVirtualMachineTools } from '../services/agentv-tool-policy.js';
 import { beginAgentDispatch, waitForOwnerHandoff } from './owner-handoff.js';
 import { assertAgentExecutionAllowed, currentAgentExecution, withAgentExecution } from './execution-authority.js';
 import { drainAgentConnections, shutdownAgentGateway } from './shutdown.js';
@@ -155,7 +156,7 @@ export class AgentGateway {
       tools?: AgentToolDefinition[];
     };
     const tools = Array.isArray(result?.tools) ? result.tools : [];
-    return tools.filter((tool) => typeof tool?.name === 'string' && typeof tool?.description === 'string');
+    return filterVirtualMachineTools(clusterId, tools.filter((tool) => typeof tool?.name === 'string' && typeof tool?.description === 'string'));
   }
 
   async disconnectCluster(clusterId: string, reason = 'Agent connection closed'): Promise<boolean> {
@@ -193,6 +194,7 @@ export class AgentGateway {
   ): Promise<unknown> {
     const conn = getAgentConnection(clusterId);
     if (conn?.ws.readyState === WebSocket.OPEN) {
+      if (conn.targetType === 'virtual_machine') await assertVirtualMachineRpcAllowed(clusterId, method, params);
       if (!distributedRoutingEnabled() || await isCurrentAgentOwner(clusterId, conn.connectionId)) {
         try { return await sendLocalJsonRpc(conn, method, params, requestId); }
         catch (error) {
@@ -272,6 +274,7 @@ export class AgentGateway {
       };
     }
     try {
+      if (conn.targetType === 'virtual_machine') await assertVirtualMachineRpcAllowed(request.clusterId, request.method, request.params);
       const result = await withAgentExecution(request.execution, () =>
         sendLocalJsonRpc(conn, request.method, request.params, request.agentRequestId, () => !this.shuttingDown));
       return {
