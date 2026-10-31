@@ -60,6 +60,17 @@ are unchanged. Follow the pinned maintenance procedure in
 
 ## Validation
 
+`013_target_delete_indexes.sql` adds indexes for the auto-triage job references
+to runs and sessions. These prevent repeated history scans during cluster/VM
+deletion and preserve the existing foreign-key cleanup behavior. This additive
+migration also supports rollback to the previous application binary.
+
+Like the other migrations, index creation runs in a transaction. It blocks
+writes to `target_auto_triage_jobs` while the indexes build; schedule the upgrade
+in a quiet maintenance window for installations with substantial history. Do
+not edit the baseline or substitute `CREATE INDEX CONCURRENTLY` in this runner,
+which wraps migrations in a transaction. No database reset is needed.
+
 `npm run migrations:check` verifies that startup remains migration-only, checks
 the immutable baseline checksum and required forward-migration behavior, and
 verifies repository-local deployment wiring.

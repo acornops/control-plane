@@ -30,6 +30,8 @@ This `docs/` tree is the repository-local system of record for agent-readable de
 
 ## Plans And Debt
 
+- [Target deletion latency](/docs/exec-plans/active/2026-10-31-target-delete-latency.md)
+
 - [Plans](/docs/PLANS.md)
 - [Active Plans](/docs/exec-plans/active/README.md)
 - [Completed Plans](/docs/exec-plans/completed/README.md)
