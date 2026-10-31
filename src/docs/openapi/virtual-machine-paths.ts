@@ -135,6 +135,25 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
         }
       }
     },
+    '/api/v1/workspaces/{workspaceId}/virtual-machines/registration-options': {
+      get: {
+        tags: ['workspaces'], summary: 'Get available VM registration platforms',
+        description: 'Requires a user session and manage_targets. Windows/scm is included only when the read-only Windows rollout is enabled with valid release coordinates. No release URLs or credentials are returned.',
+        security: [{ userSession: [] }], parameters: [workspaceParam],
+        responses: {
+          '200': { description: 'Available registration platforms.', content: { 'application/json': { schema: {
+            type: 'object', required: ['platforms'], additionalProperties: false,
+            properties: { platforms: { type: 'array', items: { oneOf: [
+              { type: 'object', required: ['osFamily', 'serviceManager', 'accessModes'], additionalProperties: false,
+                properties: { osFamily: { const: 'linux' }, serviceManager: { const: 'systemd' }, accessModes: { const: ['read_only', 'read_write'] } } },
+              { type: 'object', required: ['osFamily', 'serviceManager', 'accessModes'], additionalProperties: false,
+                properties: { osFamily: { const: 'windows' }, serviceManager: { const: 'scm' }, accessModes: { const: ['read_only'] } } }
+            ] } } }
+          } } } },
+          '401': { description: 'User session required.' }, '403': { description: 'Target management permission required.' }
+        }
+      }
+    },
     '/api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}': {
       get: {
         tags: ['workspaces'],
@@ -284,9 +303,14 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
         parameters: [
           workspaceParam,
           vmParam,
-          { in: 'query', name: 'source', required: false, schema: { type: 'string', example: 'system' } },
-          { in: 'query', name: 'query', required: false, schema: { type: 'string' } },
-          { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 200, default: 100 } }
+          { in: 'query', name: 'source', required: false, description: 'Linux only.', schema: { type: 'string', enum: ['journald'] } },
+          { in: 'query', name: 'unit', required: false, description: 'Linux systemd unit.', schema: { type: 'string' } },
+          { in: 'query', name: 'channel', required: false, description: 'Required for Windows. The channel must also be locally allowed by AgentV.', schema: { type: 'string', enum: ['Application', 'System'] } },
+          { in: 'query', name: 'since', required: false, description: 'Windows ISO timestamp; the native agent enforces the bounded time window.', schema: { type: 'string', format: 'date-time' } },
+          { in: 'query', name: 'until', required: false, description: 'Windows ISO timestamp.', schema: { type: 'string', format: 'date-time' } },
+          { in: 'query', name: 'q', required: false, schema: { type: 'string' } },
+          { in: 'query', name: 'tailLines', required: false, schema: { type: 'integer', minimum: 1, maximum: 500, default: 200 } },
+          { in: 'query', name: 'limitBytes', required: false, schema: { type: 'integer', minimum: 1024, maximum: 1048576, default: 1048576 } }
         ],
         responses: { '200': { description: 'VM log entries returned by the connected AgentV.' } }
       }

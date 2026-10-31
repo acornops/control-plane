@@ -19,6 +19,7 @@ export function registerVirtualMachineRoutes(router: Router): void {
     validateBody(registerVirtualMachineSchema),
     authed(workspacesController.registerVirtualMachine)
   );
+  router.get('/workspaces/:workspaceId/virtual-machines/registration-options', requireActor(['user']), authed(workspacesController.getVirtualMachineRegistrationOptions));
   router.get('/workspaces/:workspaceId/virtual-machines/:vmId', requireActor(['user', 'externalIntegration']), authed(workspacesController.getVirtualMachine));
   router.patch(
     '/workspaces/:workspaceId/virtual-machines/:vmId',

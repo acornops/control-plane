@@ -626,3 +626,32 @@ producer schemas consumed by Windows telemetry interpretation. Windows uses
 helper/restart handshake fields retain their released compatibility. Both OS
 identity fields remain required. Hosted native parsing does not qualify service
 permissions, reboot, packaging or enable rollout.
+
+
+## Windows telemetry consumption and registration options
+
+Snapshot ingestion validates Windows data against its native version and strict
+row shapes using the stored target OS. A Linux VM rejects Windows telemetry;
+legacy Linux snapshots need no new fields. Windows inventory uses native volume
+identities and `scm_service` names. Service issue fingerprints keep the native
+name (case-insensitive) and failure class stable across exit-code changes.
+Stopped services alone create no issue. Complete findings survive optional
+inventory trimming; failed or incomplete collection cannot resolve issues.
+Windows load and swap stay unavailable. Disk history uses the reported
+`host_summary.system_volume`, including system drives other than `C:`.
+
+`GET /api/v1/workspaces/{workspaceId}/virtual-machines/registration-options`
+requires a user session and `manage_targets`. Its response is
+`{platforms:[{osFamily:"linux",serviceManager:"systemd",accessModes:["read_only","read_write"]}]}`.
+The server appends
+`{osFamily:"windows",serviceManager:"scm",accessModes:["read_only"]}` only when
+Windows rollout is explicitly enabled with valid pinned release coordinates.
+The response contains no release URL, version, enrollment token or credential.
+The existing VM list response is unchanged; clients may request options when
+opening registration.
+
+VM log requests preserve Linux `unit` routing. Windows requires `channel` equal
+to `Application` or `System`, with optional ISO `since`/`until` and literal `q`.
+AgentV enforces its local channel allowlist and maximum time window. Built-in
+tool schemas remain scoped to each target; Windows sync excludes writes even
+when the agent advertises them.

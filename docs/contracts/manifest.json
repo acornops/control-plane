@@ -180,6 +180,12 @@
       }
     },
     "management-console": {
+      "virtualMachineRegistrationOptions": {
+        "path": "GET /api/v1/workspaces/{workspaceId}/virtual-machines/registration-options",
+        "authorization": "user session and manage_targets",
+        "response": "platforms: linux/systemd accessModes read_only,read_write; append windows/scm read_only only for explicitly enabled and valid pinned Windows rollout",
+        "secrets": "No release coordinates or enrollment credentials"
+      },
       "podLogsUnavailable": {
         "httpStatus": 409,
         "errorCode": "POD_LOGS_UNAVAILABLE",
