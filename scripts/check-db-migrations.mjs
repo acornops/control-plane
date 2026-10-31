@@ -1,4 +1,5 @@
 import { applyAndCheckHostedMigrations } from './lib/check-hosted-migrations.mjs';
+import { checkTargetDeleteIndexes, seedTargetDeleteIndexCheck } from './lib/check-target-delete-indexes.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -429,7 +430,9 @@ async function runSqlChecks(databaseUrl) {
     );
     await client.query("DELETE FROM mcp_secret_cleanup_jobs WHERE id='legacy-preflight-blocker'");
     await client.query(migrations[lifecycleIndex]);
+    await seedTargetDeleteIndexCheck(client);
     await applyAndCheckHostedMigrations(client, migrationFiles, migrations);
+    await checkTargetDeleteIndexes(client);
 
     const activeLifecycle = await client.query(
       `SELECT membership_generation,status,reconciliation_status,blocks_readiness
@@ -703,6 +706,8 @@ async function runSqlChecks(databaseUrl) {
       'idx_target_auto_triage_jobs_due',
       'idx_target_auto_triage_jobs_target_status',
       'idx_target_auto_triage_jobs_workspace_issue',
+      'idx_target_auto_triage_jobs_run_id',
+      'idx_target_auto_triage_jobs_session_id',
       'workflow_executions_workspace_created_idx',
       'workflow_executions_source_idx',
       'workflow_webhooks_workspace_idx',
