@@ -84,6 +84,7 @@ OIDC logout always deletes the current AcornOps browser session before redirecti
 - `EXTERNAL_INTEGRATION_CLIENTS_JSON`
 - `EXTERNAL_INTEGRATION_LINK_TOKEN_RETENTION_DAYS` (default `30`)
 - `TARGET_METRIC_HISTORY_RETENTION_DAYS` (default `30`)
+- `TARGET_ISSUE_OBSERVATION_RETENTION_DAYS` (default `30`, positive whole days)
 - `EXECUTION_ENGINE_DISPATCH_TOKEN`
 - `LLM_GATEWAY_ADMIN_TOKEN`
 - `LLM_PROVIDER_OPENAI_API_SURFACE=responses|chat_completions` must match the
@@ -104,6 +105,49 @@ When the selected provider is OpenAI and the configured API surface is
 marks it unavailable and omits it from target assistant run grants. Restoring
 `responses` makes the configured preference effective again. llm-gateway keeps
 its native-tool validation as defense in depth.
+
+### Target issue history storage
+
+Connected agents update issues even when nobody uses the console. Current issue
+state, occurrence counts, and latest evidence continue to update on every snapshot.
+Observation history records the first appearance, reopening, changed conditions
+or evidence sources, and otherwise one sample per hour. Each sample retains the
+observations from all sources in that snapshot. The condition comparison uses
+severity, reason, scope, affected object/pod/container and evidence source; changing
+timestamps, finding IDs, message text, restart counts and ages alone do not force
+a history entry. Full evidence is retained in each sample.
+
+The retention worker removes observations older than
+`TARGET_ISSUE_OBSERVATION_RETENTION_DAYS`, measured by their server-side `created_at`
+rather than the agent's clock. It keeps the issue row and its latest evidence.
+Back up history that must be retained before enabling cleanup; rolling back the
+application does not restore purged observations.
+Each sweep deletes at most 10,000 observations in 500-row transactions, with a
+five-second statement timeout per batch and locked rows skipped. It runs at startup
+and on `CONVERSATION_RETENTION_JOB_INTERVAL_SECONDS` (default one hour). Check logs
+for `Purged old target issue observations` and `Retention task failed` with task
+`target_issue_observations`. A large backlog takes multiple sweeps to drain; this
+is an age limit, not a fixed database size quota.
+
+Migration `013_target_issue_observation_history.sql` adds two nullable columns to
+`target_issues` and builds an index on observation creation time. Existing issues
+record one fresh history sample on their next observation. The migration uses the
+standard transactional runner: the issue-table alteration holds an exclusive lock
+until the index build commits, blocking issue reads and writes; index creation also
+blocks writes to the observation table. Schedule a maintenance window for a large database,
+quiesce snapshot ingestion, and ensure space for the index and WAL before migrating.
+The migration does not delete or rewrite old observation payloads. All ingestion
+replicas must be upgraded to stop the old per-snapshot history writes.
+
+For an already-full customer database, first inspect relation and WAL sizes and
+restore disk headroom. Apply the sampling fix, then let bounded retention drain the
+backlog. A shorter retention setting deletes more history and must reflect the
+customer's retention requirements; history within the configured window is kept.
+For a supervised faster cleanup, repeat the same indexed 500-row deletion in
+separate transactions with pauses and stop on load or errors. Do not replace it
+with a single large delete. Normal vacuum makes deleted space reusable inside
+PostgreSQL; it generally does not shrink files on disk. Plan physical compaction
+separately because `VACUUM FULL` needs extra space and exclusive locks.
 
 ## Automatic MCP OAuth
 

@@ -8,8 +8,31 @@ import {
   runControlPlaneRetentionSweep
 } from '../src/services/conversation-retention.js';
 import { repo } from '../src/store/repository.js';
+import * as retention from '../src/services/conversation-retention.js';
 
 describe('conversation retention service', () => {
+  it('caps issue observation cleanup at twenty batches and stops when caught up', async () => {
+    const original = repo.purgeOldTargetIssueObservations;
+    const calls: Array<{ retentionDays: number; limit?: number }> = [];
+    repo.purgeOldTargetIssueObservations = async (retentionDays, limit) => {
+      calls.push({ retentionDays, limit });
+      return 500;
+    };
+    try {
+      assert.equal(await retention.purgeOldTargetIssueObservations(), 10_000);
+      assert.equal(calls.length, 20);
+      assert(calls.every(call => call.retentionDays === 30 && call.limit === 500));
+      calls.length = 0;
+      repo.purgeOldTargetIssueObservations = async () => {
+        calls.push({ retentionDays: 30 });
+        return calls.length === 1 ? 500 : 25;
+      };
+      assert.equal(await retention.purgeOldTargetIssueObservations(), 525);
+      assert.equal(calls.length, 2);
+    } finally {
+      repo.purgeOldTargetIssueObservations = original;
+    }
+  });
   it('purges old workspace audit events in bounded batches', async () => {
     const originalPurge = repo.purgeOldWorkspaceAuditEvents;
     const calls: Array<{ retentionDays: number; limit: number }> = [];
@@ -112,6 +135,10 @@ describe('conversation retention service', () => {
         calls.push('target_metric_history');
         return 0;
       },
+      targetIssueObservations: async () => {
+        calls.push('target_issue_observations');
+        throw new Error('observation purge unavailable');
+      },
       skillSnapshotBlobs: async () => {
         calls.push('skill_snapshot_blobs');
         return 0;
@@ -128,6 +155,7 @@ describe('conversation retention service', () => {
       'workspace_audit_events',
       'external_integration_link_tokens',
       'target_metric_history',
+      'target_issue_observations',
       'skill_snapshot_blobs',
       'tool_result_artifacts'
     ]);

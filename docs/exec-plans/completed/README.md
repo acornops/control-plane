@@ -1,5 +1,6 @@
 # Completed Execution Plans
 
+- [Issue observation retention](2026-10-31-issue-observation-retention.md) — Sample repetitive history, expire old observations, and preserve current issue state.
 - [Graceful rolling restarts](2026-10-29-graceful-rolling-restarts.md) — Control-plane drain, agent handoff and additive authority/cancellation contracts validated locally; coordinated rollout acceptance belongs to deployment.
 - [Pod logs unavailable before startup](pod-logs-unavailable.md)
 

@@ -11,6 +11,7 @@ type RetentionTaskName =
   | 'workspace_audit_events'
   | 'external_integration_link_tokens'
   | 'target_metric_history'
+  | 'target_issue_observations'
   | 'skill_snapshot_blobs'
   | 'tool_result_artifacts';
 
@@ -20,6 +21,7 @@ interface RetentionSweepTasks {
   workspaceAuditEvents: () => Promise<number>;
   externalIntegrationLinkTokens: () => Promise<number>;
   targetMetricHistory: () => Promise<number>;
+  targetIssueObservations: () => Promise<number>;
   skillSnapshotBlobs: () => Promise<number>;
   toolResultArtifacts: () => Promise<number>;
 }
@@ -60,6 +62,7 @@ export async function runControlPlaneRetentionSweep(tasks: RetentionSweepTasks =
   workspaceAuditEvents: purgeOldWorkspaceAuditEvents,
   externalIntegrationLinkTokens: purgeOldExternalIntegrationLinkTokens,
   targetMetricHistory: purgeOldTargetMetricHistory,
+  targetIssueObservations: purgeOldTargetIssueObservations,
   skillSnapshotBlobs: purgeOrphanedSkillSnapshotBlobs,
   toolResultArtifacts: purgeExpiredToolResultArtifacts
 }): Promise<void> {
@@ -68,6 +71,7 @@ export async function runControlPlaneRetentionSweep(tasks: RetentionSweepTasks =
   await runRetentionTask('workspace_audit_events', tasks.workspaceAuditEvents);
   await runRetentionTask('external_integration_link_tokens', tasks.externalIntegrationLinkTokens);
   await runRetentionTask('target_metric_history', tasks.targetMetricHistory);
+  await runRetentionTask('target_issue_observations', tasks.targetIssueObservations);
   await runRetentionTask('skill_snapshot_blobs', tasks.skillSnapshotBlobs);
   await runRetentionTask('tool_result_artifacts', tasks.toolResultArtifacts);
 }
@@ -137,6 +141,19 @@ export async function purgeOldTargetMetricHistory(): Promise<number> {
     logger.info({ purgedTotal }, 'Purged old target metric history');
   }
 
+  return purgedTotal;
+}
+
+export async function purgeOldTargetIssueObservations(): Promise<number> {
+  let purgedTotal = 0;
+  // Existing deployments may have a large backlog. Leave time for other tasks
+  // and let later sweeps continue; each database batch also has a timeout.
+  for (let batch = 0; batch < 20; batch++) {
+    const purged = await repo.purgeOldTargetIssueObservations(config.TARGET_ISSUE_OBSERVATION_RETENTION_DAYS, PURGE_BATCH_SIZE);
+    purgedTotal += purged;
+    if (purged < PURGE_BATCH_SIZE) break;
+  }
+  if (purgedTotal > 0) logger.info({ purgedTotal }, 'Purged old target issue observations');
   return purgedTotal;
 }
 

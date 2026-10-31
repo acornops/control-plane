@@ -111,6 +111,7 @@ import {
   listWorkspaceIssues as listWorkspaceIssuesRecord,
   summarizeTargetIssues as summarizeTargetIssuesRecord
 } from './repository-target-issues.js';
+import { purgeOldTargetIssueObservations as purgeOldTargetIssueObservationsRecord } from './repository-target-issue-observations.js';
 import {
   addMessage as addMessageRecord,
   addRun as addRunRecord,
@@ -416,7 +417,6 @@ export class Repository {
   markRunToolApprovalExecutionFinished = markRunToolApprovalExecutionFinishedRecord;
 
   upsertClusterSnapshot = repositoryKubernetesClusters.upsertClusterSnapshot;
-
   getClusterSnapshot = repositoryKubernetesClusters.getClusterSnapshot;
 
   getClusterSnapshotSummary = getClusterSnapshotSummaryRecord;
@@ -433,6 +433,7 @@ export class Repository {
   autoTriage = repositoryAutoTriage;
   listTargetMetricHistory = listTargetMetricHistoryRecord;
   purgeOldTargetMetricHistory = purgeOldTargetMetricHistoryRecord;
+  purgeOldTargetIssueObservations = purgeOldTargetIssueObservationsRecord;
   upsertVirtualMachineSnapshot = upsertVirtualMachineSnapshotRecord;
   getVirtualMachineSnapshot = getVirtualMachineSnapshotRecord;
   getVirtualMachineSnapshotSummary = getVirtualMachineSnapshotSummaryRecord;

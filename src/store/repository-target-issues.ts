@@ -4,6 +4,7 @@ import { db } from '../infra/db.js';
 import { TargetIssue, TargetIssueObservation, TargetIssueStatus, TargetIssueSummary } from '../types/domain.js';
 import { containsSearchText, encodeCursor, pageWithCursor, PagedResult } from '../utils/pagination.js';
 import { severityRank } from '../services/snapshot-derived-data.js';
+import { observationSignature } from './repository-target-issue-observations.js';
 import { TargetIssueObservationInput } from '../services/target-issue-derivation.js';
 import {
   enqueueWebhookOutboxEvent,
@@ -108,25 +109,32 @@ async function insertIssueObservation(
 
 async function upsertObservedIssue(
   client: QueryClient,
-  observation: TargetIssueObservationInput
-): Promise<string> {
-  const previousResult = await client.query<Pick<TargetIssueDbRow, 'status' | 'lifecycle_version' | 'severity_rank'>>(
-    `SELECT status, lifecycle_version, severity_rank
+  observation: TargetIssueObservationInput,
+  signature: string
+): Promise<{ issueId: string; recordObservations: boolean }> {
+  const previousResult = await client.query<Pick<TargetIssueDbRow, 'status' | 'lifecycle_version' | 'severity_rank'> & {
+    observation_signature: string | null;
+    observation_sample_due: boolean;
+  }>(
+    `SELECT status, lifecycle_version, severity_rank, observation_signature,
+       COALESCE(last_observation_at <= NOW() - INTERVAL '1 hour', true) AS observation_sample_due
      FROM target_issues
      WHERE target_id = $1 AND fingerprint = $2
      FOR UPDATE`,
     [observation.targetId, observation.fingerprint]
   );
   const previous = previousResult.rows[0];
+  const recordObservations = !previous || previous.status === 'resolved'
+    || previous.observation_signature !== signature || previous.observation_sample_due;
   const result = await client.query<TargetIssueDbRow>(
     `INSERT INTO target_issues (
        id, workspace_id, target_id, target_type, fingerprint, issue_type, status, severity, severity_rank,
        title, summary, scope_kind, scope_name, object_kind, object_name, reason, first_seen_at, last_seen_at,
        last_observed_snapshot_at, resolved_at, occurrence_count, reopened_count, clean_snapshot_count,
-       lifecycle_version, latest_evidence, search_text
+       lifecycle_version, latest_evidence, search_text, observation_signature, last_observation_at
      )
      VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16, $16,
-       NULL, 1, 0, 0, 1, $17::jsonb, $18)
+       NULL, 1, 0, 0, 1, $17::jsonb, $18, $19, NOW())
      ON CONFLICT (target_id, fingerprint) DO UPDATE
      SET workspace_id = EXCLUDED.workspace_id,
          target_type = EXCLUDED.target_type,
@@ -151,6 +159,8 @@ async function upsertObservedIssue(
            CASE WHEN target_issues.status = 'resolved' THEN 1 ELSE 0 END,
          latest_evidence = EXCLUDED.latest_evidence,
          search_text = EXCLUDED.search_text,
+         observation_signature = EXCLUDED.observation_signature,
+         last_observation_at = CASE WHEN $20 THEN NOW() ELSE target_issues.last_observation_at END,
          updated_at = NOW()
      RETURNING *`,
     [
@@ -171,7 +181,9 @@ async function upsertObservedIssue(
       observation.reason,
       observation.snapshotTs,
       JSON.stringify(observation.evidence),
-      observation.searchText
+      observation.searchText,
+      signature,
+      recordObservations
     ]
   );
   const row = result.rows[0];
@@ -203,7 +215,7 @@ async function upsertObservedIssue(
   } else if (previous.status === 'recovering') {
     await resumeIssueWebhookJobs(client, issue.id, issue.lifecycleVersion);
   }
-  return issue.id;
+  return { issueId: issue.id, recordObservations };
 }
 
 function issueWebhookData(
@@ -301,9 +313,11 @@ export async function reconcileTargetIssues(
   const grouped = groupObservations(input.observations);
   for (const observations of grouped.values()) {
     const issueObservation = chooseIssueObservation(observations);
-    const issueId = await upsertObservedIssue(client, issueObservation);
-    for (const observation of observations) {
-      await insertIssueObservation(client, issueId, observation);
+    const { issueId, recordObservations } = await upsertObservedIssue(client, issueObservation, observationSignature(observations));
+    if (recordObservations) {
+      for (const observation of observations) {
+        await insertIssueObservation(client, issueId, observation);
+      }
     }
   }
   await markUnobservedIssues(client, {

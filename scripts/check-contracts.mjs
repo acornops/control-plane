@@ -503,7 +503,7 @@ expectIncludes(doc, '`operation` is `read` or `write`', 'Workspace audit operati
 expectIncludes(openApi, 'operation=read|write', 'Workspace audit operation OpenAPI doc');
 expectIncludes(configSource, 'WORKSPACE_AUDIT_LOGGING_MODE', 'Workspace audit logging mode config');
 expectIncludes(configSource, 'WORKSPACE_AUDIT_RETENTION_DAYS', 'Workspace audit retention config');
-expectIncludes(configSource, 'TARGET_METRIC_HISTORY_RETENTION_DAYS', 'Target metric history retention config');
+expectIncludes(read('src/config-retention.ts'), 'TARGET_METRIC_HISTORY_RETENTION_DAYS', 'Target metric history retention config');
 
 for (const contractToken of [
   'Roles with `permissions.manage_mcp` may mutate MCP server configuration.',
