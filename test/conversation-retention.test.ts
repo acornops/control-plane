@@ -11,6 +11,30 @@ import { repo } from '../src/store/repository.js';
 import * as retention from '../src/services/conversation-retention.js';
 
 describe('conversation retention service', () => {
+  it('caps generated document cleanup at twenty batches and stops when caught up', async () => {
+    const original = repo.purgeExpiredGeneratedDocuments;
+    const calls: Array<number | undefined> = [];
+    repo.purgeExpiredGeneratedDocuments = async limit => {
+      calls.push(limit);
+      return 500;
+    };
+    try {
+      assert.equal(await retention.purgeExpiredGeneratedDocuments(), 10_000);
+      assert.equal(calls.length, 20);
+      assert(calls.every(limit => limit === 500));
+      calls.length = 0;
+      repo.purgeExpiredGeneratedDocuments = async limit => {
+        calls.push(limit);
+        return calls.length === 1 ? 500 : 3;
+      };
+      assert.equal(await retention.purgeExpiredGeneratedDocuments(), 503);
+      assert.equal(calls.length, 2);
+      repo.purgeExpiredGeneratedDocuments = async () => 0;
+      assert.equal(await retention.purgeExpiredGeneratedDocuments(), 0);
+    } finally {
+      repo.purgeExpiredGeneratedDocuments = original;
+    }
+  });
   it('caps issue observation cleanup at twenty batches and stops when caught up', async () => {
     const original = repo.purgeOldTargetIssueObservations;
     const calls: Array<{ retentionDays: number; limit?: number }> = [];
@@ -146,6 +170,10 @@ describe('conversation retention service', () => {
       toolResultArtifacts: async () => {
         calls.push('tool_result_artifacts');
         return 0;
+      },
+      generatedDocuments: async () => {
+        calls.push('generated_documents');
+        throw new Error('document purge unavailable');
       }
     });
 
@@ -157,6 +185,7 @@ describe('conversation retention service', () => {
       'target_metric_history',
       'target_issue_observations',
       'skill_snapshot_blobs',
+      'generated_documents',
       'tool_result_artifacts'
     ]);
   });

@@ -13,6 +13,7 @@ type RetentionTaskName =
   | 'target_metric_history'
   | 'target_issue_observations'
   | 'skill_snapshot_blobs'
+  | 'generated_documents'
   | 'tool_result_artifacts';
 
 interface RetentionSweepTasks {
@@ -23,6 +24,7 @@ interface RetentionSweepTasks {
   targetMetricHistory: () => Promise<number>;
   targetIssueObservations: () => Promise<number>;
   skillSnapshotBlobs: () => Promise<number>;
+  generatedDocuments: () => Promise<number>;
   toolResultArtifacts: () => Promise<number>;
 }
 
@@ -64,6 +66,7 @@ export async function runControlPlaneRetentionSweep(tasks: RetentionSweepTasks =
   targetMetricHistory: purgeOldTargetMetricHistory,
   targetIssueObservations: purgeOldTargetIssueObservations,
   skillSnapshotBlobs: purgeOrphanedSkillSnapshotBlobs,
+  generatedDocuments: purgeExpiredGeneratedDocuments,
   toolResultArtifacts: purgeExpiredToolResultArtifacts
 }): Promise<void> {
   await runRetentionTask('conversations', tasks.conversations);
@@ -73,6 +76,7 @@ export async function runControlPlaneRetentionSweep(tasks: RetentionSweepTasks =
   await runRetentionTask('target_metric_history', tasks.targetMetricHistory);
   await runRetentionTask('target_issue_observations', tasks.targetIssueObservations);
   await runRetentionTask('skill_snapshot_blobs', tasks.skillSnapshotBlobs);
+  await runRetentionTask('generated_documents', tasks.generatedDocuments);
   await runRetentionTask('tool_result_artifacts', tasks.toolResultArtifacts);
 }
 
@@ -183,5 +187,17 @@ export async function purgeExpiredToolResultArtifacts(): Promise<number> {
   }
   if (purgedTotal > 0) logger.info({ purgedTotal }, 'Purged expired tool result artifacts');
   if (purgedTotal > 0) incrementToolResultArtifactEvent('expired_purged', purgedTotal);
+  return purgedTotal;
+}
+
+export async function purgeExpiredGeneratedDocuments(): Promise<number> {
+  let purgedTotal = 0;
+  // Bound catch-up work so an existing backlog cannot monopolize a sweep.
+  for (let batch = 0; batch < 20; batch++) {
+    const purged = await repo.purgeExpiredGeneratedDocuments(PURGE_BATCH_SIZE);
+    purgedTotal += purged;
+    if (purged < PURGE_BATCH_SIZE) break;
+  }
+  if (purgedTotal > 0) logger.info({ purgedTotal }, 'Purged expired generated documents');
   return purgedTotal;
 }

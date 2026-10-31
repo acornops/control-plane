@@ -4,6 +4,7 @@ import type { QueryResultRow } from 'pg';
 import { config } from '../config.js';
 import { db } from '../infra/db.js';
 import { observeAutomationPdfRender } from '../metrics.js';
+import { withTransaction } from './repository-transaction.js';
 
 export class GeneratedDocumentError extends Error {
   constructor(readonly code: 'REPORT_SOURCE_TOO_LARGE' | 'REPORT_RENDER_TIMEOUT' | 'REPORT_PDF_TOO_LARGE') {
@@ -116,6 +117,24 @@ export async function createConversationDocument(input: {
 export async function getGeneratedDocument(id: string): Promise<GeneratedDocumentRecord | null> {
   const result = await db.query<Row>('SELECT * FROM generated_documents WHERE id=$1 AND retention_expires_at>NOW()', [id]);
   return result.rowCount ? map(result.rows[0]) : null;
+}
+
+export async function purgeExpiredGeneratedDocuments(limit = 500): Promise<number> {
+  return withTransaction(async client => {
+    await client.query("SET LOCAL statement_timeout = '5s'");
+    const result = await client.query(
+      `WITH expired AS (
+         SELECT id FROM generated_documents
+         WHERE retention_expires_at <= NOW()
+         ORDER BY retention_expires_at, id
+         LIMIT $1
+         FOR UPDATE SKIP LOCKED
+       )
+       DELETE FROM generated_documents d USING expired WHERE d.id = expired.id`,
+      [Math.max(1, Math.min(500, limit))]
+    );
+    return result.rowCount ?? 0;
+  });
 }
 
 function pdfEscape(value: string): string {

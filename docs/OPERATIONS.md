@@ -149,6 +149,18 @@ with a single large delete. Normal vacuum makes deleted space reusable inside
 PostgreSQL; it generally does not shrink files on disk. Plan physical compaction
 separately because `VACUUM FULL` needs extra space and exclusive locks.
 
+### Generated document expiry
+
+The same retention worker deletes generated documents whose stored
+`retention_expires_at` has passed (set on creation using
+`GENERATED_DOCUMENT_RETENTION_DAYS`, default 30). Expired documents are already
+unavailable through the API. Each sweep deletes at most 10,000 documents in
+500-row batches with a five-second statement timeout; locked rows are retried on
+a later sweep. The existing expiry index supports this cleanup without a migration.
+Unexpired documents and parent conversations, runs, and workflow history are kept.
+Monitor `Purged expired generated documents` and `Retention task failed` logs.
+Rollback stops future cleanup but cannot restore deleted expired documents.
+
 ### Admin request metrics
 
 `control_plane_admin_requests_total` retains only registered admin/admin-auth route

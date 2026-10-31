@@ -112,6 +112,7 @@ import {
   summarizeTargetIssues as summarizeTargetIssuesRecord
 } from './repository-target-issues.js';
 import { purgeOldTargetIssueObservations as purgeOldTargetIssueObservationsRecord } from './repository-target-issue-observations.js';
+import { purgeExpiredGeneratedDocuments as purgeExpiredGeneratedDocumentsRecord } from './repository-generated-documents.js';
 import {
   addMessage as addMessageRecord,
   addRun as addRunRecord,
@@ -368,8 +369,6 @@ export class Repository {
   deleteSession = deleteSessionRecord;
 
   purgeExpiredOrDeletedSessions = purgeExpiredOrDeletedSessionsRecord;
-
-
   addMessage = addMessageRecord;
 
   listMessages = listMessagesRecord;
@@ -434,6 +433,7 @@ export class Repository {
   listTargetMetricHistory = listTargetMetricHistoryRecord;
   purgeOldTargetMetricHistory = purgeOldTargetMetricHistoryRecord;
   purgeOldTargetIssueObservations = purgeOldTargetIssueObservationsRecord;
+  purgeExpiredGeneratedDocuments = purgeExpiredGeneratedDocumentsRecord;
   upsertVirtualMachineSnapshot = upsertVirtualMachineSnapshotRecord;
   getVirtualMachineSnapshot = getVirtualMachineSnapshotRecord;
   getVirtualMachineSnapshotSummary = getVirtualMachineSnapshotSummaryRecord;
