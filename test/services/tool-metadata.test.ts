@@ -37,16 +37,15 @@ describe('tool metadata sanitization', () => {
     assert.equal(containsNull(sanitized), false);
   });
 
-  it('preserves intentional null literals and omits unsupported metadata values', () => {
+  it('preserves intentional null literals and rejects unsupported metadata values', () => {
     const sanitized = sanitizeToolInputSchema({
       type: 'object',
       properties: {
-        nullable_literal: { const: null },
-        unsupported: () => undefined
+        nullable_literal: { const: null }
       }
     }) as any;
 
     assert.equal(sanitized.properties.nullable_literal.const, null);
-    assert.equal('unsupported' in sanitized.properties, false);
+    assert.throws(() => sanitizeToolInputSchema({ properties: { unsupported: () => undefined } }), /TOOL_SCHEMA_REJECTED/);
   });
 });

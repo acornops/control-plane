@@ -48,7 +48,7 @@ export const webhookUrlSchema = z.string().url().refine(
 export const createWebhookSubscriptionSchema = z.object({
   name: z.string().min(1).max(120),
   url: webhookUrlSchema,
-  eventTypes: z.array(webhookEventTypeSchema).min(1),
+  eventTypes: z.array(webhookEventTypeSchema).min(1).max(webhookEventTypes.length),
   targetId: uuidV4Schema.nullish(),
   enabled: z.boolean().optional()
 }).strict();
@@ -56,7 +56,7 @@ export const createWebhookSubscriptionSchema = z.object({
 export const updateWebhookSubscriptionSchema = z.object({
   name: z.string().min(1).max(120).optional(),
   url: webhookUrlSchema.optional(),
-  eventTypes: z.array(webhookEventTypeSchema).min(1).optional(),
+  eventTypes: z.array(webhookEventTypeSchema).min(1).max(webhookEventTypes.length).optional(),
   targetId: uuidV4Schema.nullable().optional(),
   enabled: z.boolean().optional()
 }).strict().refine((input) => Object.keys(input).length > 0, {

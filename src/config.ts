@@ -1,4 +1,5 @@
 import { lifecycleConfigFields } from './config-lifecycle.js';
+import { retentionConfigFields } from './config-retention.js';
 import { randomUUID } from 'node:crypto';
 import { capacityConfigFields } from './config-capacity.js';
 import { z } from 'zod';
@@ -156,12 +157,9 @@ const envSchema = z.object({
   CSRF_COOKIE_NAME: z.string().default('acornops_cp_csrf'),
   CSRF_HEADER_NAME: z.string().default('x-csrf-token'),
   CSRF_SECRET: z.string().default('dev_csrf_secret_change_me_32_bytes_minimum'),
-  CONVERSATION_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
-  CONVERSATION_RETENTION_JOB_INTERVAL_SECONDS: z.coerce.number().int().positive().default(3600),
+  ...retentionConfigFields,
   TOOL_RESULT_ARTIFACT_RETENTION_DAYS: z.coerce.number().int().min(1).max(7).default(7),
   TOOL_RESULT_ARTIFACT_MAX_BYTES: z.coerce.number().int().min(1024).max(2 * 1024 * 1024).default(2 * 1024 * 1024),
-  SKILL_SNAPSHOT_BLOB_ORPHAN_GRACE_DAYS: z.coerce.number().int().positive().default(7),
-  TARGET_METRIC_HISTORY_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   GIT_IMPORT_HOSTS_JSON: gitImportHostsJsonSchema,
   WORKSPACE_AUDIT_LOGGING_MODE: workspaceAuditLoggingModeFromEnv,
   WORKSPACE_AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
@@ -223,8 +221,6 @@ const envSchema = z.object({
   EXTERNAL_INTEGRATION_LINK_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(600),
   EXTERNAL_INTEGRATION_LINK_TTL_SECONDS: z.coerce.number().int().min(86400).max(31536000).default(2592000),
   EXTERNAL_INTEGRATION_LINK_TOKEN_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
-  AUTOMATION_RUNTIME_MODE: z.enum(['off', 'shadow', 'canary', 'on']).default('off'),
-  AUTOMATION_CANARY_WORKSPACE_IDS: z.string().default(''),
   AUTOMATION_WORKER_INTERVAL_MS: z.coerce.number().int().min(250).default(1000),
   REPORT_SOURCE_MAX_BYTES: z.coerce.number().int().positive().default(262144),
   REPORT_PDF_MAX_BYTES: z.coerce.number().int().positive().default(5242880),

@@ -84,6 +84,7 @@ OIDC logout always deletes the current AcornOps browser session before redirecti
 - `EXTERNAL_INTEGRATION_CLIENTS_JSON`
 - `EXTERNAL_INTEGRATION_LINK_TOKEN_RETENTION_DAYS` (default `30`)
 - `TARGET_METRIC_HISTORY_RETENTION_DAYS` (default `30`)
+- `TARGET_ISSUE_OBSERVATION_RETENTION_DAYS` (default `30`, positive whole days)
 - `EXECUTION_ENGINE_DISPATCH_TOKEN`
 - `LLM_GATEWAY_ADMIN_TOKEN`
 - `LLM_PROVIDER_OPENAI_API_SURFACE=responses|chat_completions` must match the
@@ -104,6 +105,95 @@ When the selected provider is OpenAI and the configured API surface is
 marks it unavailable and omits it from target assistant run grants. Restoring
 `responses` makes the configured preference effective again. llm-gateway keeps
 its native-tool validation as defense in depth.
+
+### Target issue history storage
+
+Connected agents update issues even when nobody uses the console. Current issue
+state, occurrence counts, and latest evidence continue to update on every snapshot.
+Observation history records the first appearance, reopening, changed conditions
+or evidence sources, and otherwise one sample per hour. Each sample retains the
+observations from all sources in that snapshot. The condition comparison uses
+severity, reason, scope, affected object/pod/container and evidence source; changing
+timestamps, finding IDs, message text, restart counts and ages alone do not force
+a history entry. Full evidence is retained in each sample.
+
+The retention worker removes observations older than
+`TARGET_ISSUE_OBSERVATION_RETENTION_DAYS`, measured by their server-side `created_at`
+rather than the agent's clock. It keeps the issue row and its latest evidence.
+Back up history that must be retained before enabling cleanup; rolling back the
+application does not restore purged observations.
+Each sweep deletes at most 10,000 observations in 500-row transactions, with a
+five-second statement timeout per batch and locked rows skipped. It runs at startup
+and on `CONVERSATION_RETENTION_JOB_INTERVAL_SECONDS` (default one hour). Check logs
+for `Purged old target issue observations` and `Retention task failed` with task
+`target_issue_observations`. A large backlog takes multiple sweeps to drain; this
+is an age limit, not a fixed database size quota.
+
+Migration `014_target_issue_observation_history.sql` adds two nullable columns to
+`target_issues` and builds an index on observation creation time. Existing issues
+record one fresh history sample on their next observation. The migration uses the
+standard transactional runner: the issue-table alteration holds an exclusive lock
+until the index build commits, blocking issue reads and writes; index creation also
+blocks writes to the observation table. Schedule a maintenance window for a large database,
+quiesce snapshot ingestion, and ensure space for the index and WAL before migrating.
+The migration does not delete or rewrite old observation payloads. All ingestion
+replicas must be upgraded to stop the old per-snapshot history writes.
+
+For an already-full customer database, first inspect relation and WAL sizes and
+restore disk headroom. Apply the sampling fix, then let bounded retention drain the
+backlog. A shorter retention setting deletes more history and must reflect the
+customer's retention requirements; history within the configured window is kept.
+For a supervised faster cleanup, repeat the same indexed 500-row deletion in
+separate transactions with pauses and stop on load or errors. Do not replace it
+with a single large delete. Normal vacuum makes deleted space reusable inside
+PostgreSQL; it generally does not shrink files on disk. Plan physical compaction
+separately because `VACUUM FULL` needs extra space and exclusive locks.
+
+### Generated document expiry
+
+The same retention worker deletes generated documents whose stored
+`retention_expires_at` has passed (set on creation using
+`GENERATED_DOCUMENT_RETENTION_DAYS`, default 30). Expired documents are already
+unavailable through the API. Each sweep deletes at most 10,000 documents in
+500-row batches with a five-second statement timeout; locked rows are retried on
+a later sweep. The existing expiry index supports this cleanup without a migration.
+This document-only cleanup keeps unexpired documents and parent history; the separate
+workflow-history policy below can cascade documents when their parent expires.
+Monitor `Purged expired generated documents` and `Retention task failed` logs.
+Rollback stops future cleanup but cannot restore deleted expired documents.
+
+### Workflow history expiry
+
+`WORKFLOW_HISTORY_RETENTION_DAYS` defaults to 30. The existing hourly retention
+worker deletes whole inactive workflow sessions only after every execution/run
+has completed, failed or been cancelled and its latest recorded activity is older
+than the retention window. Active sessions keep their shared context. Pending
+approvals, approved but unexecuted writes, unknown outcomes, live dispatch and
+unsettled capacity protect history regardless of aggregate status.
+
+A sweep processes at most 1,000 sessions in batches of 50. Locked work is skipped;
+statements time out after five seconds and each batch stops taking new candidates
+after five seconds. Cascades remove execution/run events, messages, continuations,
+approvals and generated documents. Workflow definitions, schedules and inbound
+webhook delivery receipts remain. Expired history, including its client-request
+idempotency lookup, is no longer available. Export required records before rollout;
+rollback stops future cleanup but cannot restore deleted history. Long-lived active
+sessions retain old history until they become inactive; this is not a disk quota.
+
+Apply `015_workflow_history_retention.sql` before starting the new Control Plane.
+It adds indexes on sessions, executions and dispatch rows using the transactional
+migration runner; schedule the index build for a maintenance window on large
+databases, with headroom for index/WAL growth. Monitor `Purged expired workflow
+history` and retention failure logs (`workflow_history`). PostgreSQL vacuum reuses
+freed space; deletion does not immediately shrink database files.
+
+### Admin request metrics
+
+`control_plane_admin_requests_total` retains only registered admin/admin-auth route
+templates, standard methods, and HTTP statuses. Unknown paths use `route="unmatched"`
+and custom methods use `method="OTHER"`; parameter names remain in matched templates.
+The metric name and label names are unchanged. Queries that relied on raw unknown
+paths or the previously truncated parameterized route labels should use these labels.
 
 ## Automatic MCP OAuth
 
@@ -181,23 +271,54 @@ plaintext database, Redis, or internal-service URLs.
 
 ## Automation Runtime
 
-Production defaults keep new automation dispatch disabled until the greenfield
-baseline and current workspace provisioning are verified:
+Workflow dispatch is enabled by default after startup. Apply required migrations
+before starting the control plane. Worker cadence and approval expiry remain
+configurable:
 
 ```bash
-AUTOMATION_RUNTIME_MODE=off
-AUTOMATION_CANARY_WORKSPACE_IDS=
 AUTOMATION_WORKER_INTERVAL_MS=1000
 ASSISTANT_WRITE_CONFIRMATION_TIMEOUT_SECONDS=900
 ```
 
-Use `off`, then `shadow`, then `canary` with an explicit workspace allow-list,
-and finally `on`. A run is acknowledged only after its Postgres run record and
+A run is acknowledged only after its Postgres run record and
 dispatch-outbox entry commit. Postgres row claims are authoritative; Redis
 leases reduce duplicate work but do not own scheduler correctness.
 
+For maintenance, set `WORKSPACE_ADMISSION_ENABLED=false` to reject new execution
+admissions, or `WORKSPACE_DISPATCH_ENABLED=false` to pause dispatch of accepted
+work. These existing controls apply across workspace execution types. An
+admission-only pause lets accepted work drain; a dispatch pause retains pending
+work subject to its queue deadline and does not stop work already running.
+
+Remove `AUTOMATION_RUNTIME_MODE` and `AUTOMATION_CANARY_WORKSPACE_IDS` from
+deployment configuration when upgrading: they are no longer read. If the old
+mode intentionally kept work paused, configure the explicit maintenance controls
+before upgrading and review pending work before reopening dispatch. Diagnostics
+clients must replace `runtime.mode` and `runtime.workspaceEnabled` with
+`runtime.admissionEnabled` and `runtime.dispatchEnabled`.
+
+Queue deadlines continue to apply during a dispatch pause (600 seconds by
+default). Capacity maintenance records an expired Workflow run and its overall
+execution failure atomically, and closes delivery intent that was not already
+acknowledged. Suspension cleanup also updates the execution summary with its run
+transition. Capacity remains reserved while an execution lease or uncertain
+operation is still active.
+
+Before making a terminated coordinator resumable, maintenance cancels its active
+specialists, expires their pending approvals, clears their continuations and
+pending delivery, and revokes further capacity acquisition or renewal. Existing
+lease and operation charges remain until settlement. Engine cancellation is
+requested after the transaction commits.
+
+Each maintenance tick additionally repairs up to 200 unlocked stale summaries
+whose latest root already failed or was cancelled by capacity maintenance. This
+repairs records left by older binaries, including already-settled reservations,
+without starting any runs. Existing terminal summaries and newer retry attempts
+are preserved. After a failure, review any uncertain operations before explicitly
+resuming the Workflow.
+
 `GET /api/v1/workspaces/{workspaceId}/automation/diagnostics` reports the
-workspace's runtime mode, outbox depth and age, Workflow run states grouped by
+admission and dispatch availability, outbox depth and age, Workflow run states grouped by
 executor role and root/child graph position, trigger delivery state, scheduler
 lag, pending approval age, template readiness reasons, and retained
 report-source count. It requires workspace read access. Keep this dependency
@@ -230,10 +351,11 @@ disablement or a policy edit that commits first prevents a stale worker from
 starting a new chat.
 
 The worker has its own one-second timer and error boundary. It does not use
-`AUTOMATION_RUNTIME_MODE`, `AUTOMATION_WORKER_INTERVAL_MS`, Workflow schedulers,
-or the automation dispatch outbox, so disabling or failing the Automation
-runtime cannot pause target auto-triage. A process skips a tick while its prior
-tick is still running; multiple replicas remain safe through durable job leases.
+`AUTOMATION_WORKER_INTERVAL_MS`, Workflow schedulers, or the automation dispatch
+outbox, so a Workflow scheduler failure cannot pause target auto-triage. The
+shared workspace admission and dispatch controls still apply. A process skips a
+tick while its prior tick is still running; multiple replicas remain safe through
+durable job leases.
 
 The worker admits at most two nonterminal automatic investigations per target.
 Readiness blockers such as missing AI credentials, a disconnected target agent,
@@ -657,6 +779,24 @@ generation or clear a failed removed state.
 - Run in `needs_review`: an uncertain write or exhausted dispatch retry requires an authorized operator decision. Do not automatically replay the write.
 - Approval older than 15 minutes: verify the approval-expiry worker is running on every control-plane replica and Postgres time is correct.
 
+## Tool schema rejection
+
+`TOOL_SCHEMA_REJECTED` identifies a tool definition that cannot be preserved.
+Control Plane and Execution Engine allow 256 KiB of compact UTF-8 JSON per schema,
+depth 16 and 100 entries per container. Gateway remote discovery retains its
+8 KiB, depth 8 and 100-entry limits. Traversals also cap visited values at 16,384.
+These limits apply before annotation cleanup; over-limit definitions fail explicitly.
+Use the safe tool name/reason in logs or discovery status to correct the producer.
+
+Upgrade all three services before rediscovering remote tools or re-syncing builtins.
+Previously persisted truncated constraints cannot be reconstructed automatically.
+If authenticated rediscovery reports a reviewed-definition conflict, replace the
+obsolete registration through the existing administration workflow, then rediscover
+and review it. Rejected tools remain disabled until a valid definition is reviewed
+and enabled through the existing administration flow. If registry cleanup fails,
+built-in bootstrap keeps the schema rejection; retry sync/discovery once the registry
+recovers. No migration, dependency or setting is added. Validation CPU deadlines are described below.
+
 ## Required Validation
 
 Before release or deployment chart changes:
@@ -700,3 +840,22 @@ parameter callbacks and error middleware. Keep this call after route registratio
 and rerun lifecycle tests when upgrading Express or adding routing mechanisms.
 The adapter retains returned handler promises separately from response close so
 an aborted client cannot close dependencies under unfinished work.
+
+### Schema validation deadlines
+
+Each Python service permits four disposable validation children and sixteen
+waiters per service process. Queue wait and validation each have a one-second
+budget; validation includes launch, IPC and exit. Engine also honors the remaining
+run deadline. Cancellation terminates and reaps the child. Cleanup allows 100ms
+for TERM before KILL, with a 250ms request cleanup budget. If reaping exceeds that
+budget, capacity stays occupied and new validation is rejected until cleanup
+finishes; shutdown waits for tracked children. There is no deadline-disable option.
+
+Schemas retain the existing 256 KiB/depth16/100-items/16,384-values limits (remote
+metadata still has its tighter limits). Input instances are limited to 1,000,000
+compact UTF-8 JSON bytes; output instances to 2 MiB plus 1 KiB of envelope overhead (the existing 2 MiB data
+limit remains), both depth32/65,536 values.
+IPC is bounded to 3 MiB input and 8 KiB output; at most twelve diagnostics have
+256-byte paths/messages. Children receive schema/instance JSON and an empty
+environment, and do not load service configuration or retrieve external schemas.
+Roll out both Python services to remove inline validation from both boundaries.

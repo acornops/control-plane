@@ -115,14 +115,7 @@ describe('workflows controller', () => {
     assert.ok(body.executionId);
     assert.equal('compiledAccessScope' in body, false);
 
-    const mutableConfig = config as typeof config & { AUTOMATION_RUNTIME_MODE: 'off' | 'shadow' | 'canary' | 'on' };
-    const originalRuntimeMode = config.AUTOMATION_RUNTIME_MODE;
-    mutableConfig.AUTOMATION_RUNTIME_MODE = 'on';
-    try {
-      assert.equal(await runAutomationOutboxTick(), 1);
-    } finally {
-      mutableConfig.AUTOMATION_RUNTIME_MODE = originalRuntimeMode;
-    }
+    assert.equal(await runAutomationOutboxTick(), 1);
 
     const run = await getWorkflowRun(body.run_id);
     assert.ok(run);

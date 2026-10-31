@@ -30,7 +30,7 @@ export const adminRouter = Router();
 adminRouter.use((req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   res.on('finish', () => {
-    incrementAdminRequests(req.method, req.route?.path ? String(req.route.path) : req.path, res.statusCode);
+    incrementAdminRequests(req.method, req.route?.path ? String(req.route.path) : 'unmatched', res.statusCode);
   });
   next();
 });

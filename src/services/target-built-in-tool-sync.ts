@@ -8,11 +8,12 @@ import {
   isMcpLifecycleFencedError,
   listTargetMcpServers,
   listTargetMcpTools,
-  syncBuiltInMcpServer
+  syncBuiltInMcpServer,
+  updateTargetTool
 } from './mcp-registry-client.js';
 import { isReservedInternalToolName } from './internal-tool-names.js';
 import { targetWebhookScope } from './target-webhook-scope.js';
-import { sanitizeToolInputSchema } from './tool-metadata.js';
+import { sanitizeToolInputSchema, ToolSchemaRejectedError } from './tool-metadata.js';
 import { webhooks } from './webhooks.js';
 
 export interface BuiltInToolSyncResult {
@@ -38,14 +39,14 @@ function targetAgentResultContract(tool: {
   artifactPolicy?: 'never' | 'if_detailed' | 'always';
 }): { outputSchema: Record<string, unknown>; artifactPolicy: 'never' | 'if_detailed' | 'always' } {
   if (!tool.outputSchema || typeof tool.outputSchema !== 'object' || Array.isArray(tool.outputSchema)) {
-    throw new Error(`Target agent tool '${tool.name}' is missing a valid output schema`);
+    throw new ToolSchemaRejectedError('expected_output_object', tool.name);
   }
   const artifactPolicy = tool.artifactPolicy;
   if (artifactPolicy !== 'never' && artifactPolicy !== 'if_detailed' && artifactPolicy !== 'always') {
     throw new Error(`Target agent tool '${tool.name}' has an invalid artifact policy`);
   }
   return {
-    outputSchema: sanitizeToolInputSchema(tool.outputSchema),
+    outputSchema: sanitizeToolInputSchema(tool.outputSchema, tool.name),
     artifactPolicy,
   };
 }
@@ -59,6 +60,7 @@ export async function syncTargetBuiltInTools(
   targetId: string,
   targetType: TargetType
 ): Promise<BuiltInToolSyncResult> {
+  const rejected = new Map<string, ToolSchemaRejectedError>();
   try {
     const discoveredTools = await agentGateway.listAgentTools(targetId);
     const permittedTools = targetType === 'virtual_machine' ? await filterVirtualMachineTools(targetId, discoveredTools) : discoveredTools;
@@ -68,30 +70,36 @@ export async function syncTargetBuiltInTools(
         logger.warn({ workspaceId, targetId, targetType, toolName: tool.name }, 'Skipping reserved internal built-in tool name during sync');
         return false;
       })
-      .map((tool) => {
-        if (!tool.inputSchema || typeof tool.inputSchema !== 'object' || Array.isArray(tool.inputSchema)) {
-          throw new Error(`Target agent tool '${tool.name}' is missing a valid input schema`);
+      .flatMap((tool) => {
+        try {
+          if (!tool.inputSchema || typeof tool.inputSchema !== 'object' || Array.isArray(tool.inputSchema)) {
+            throw new ToolSchemaRejectedError('expected_input_object', tool.name);
+          }
+          const resultContract = targetAgentResultContract(tool);
+          const capability = normalizeCapability(tool.capability);
+          return [{
+            name: tool.name,
+            timeoutMs: tool.timeout_ms || config.ASSISTANT_TOOL_DEFAULT_TIMEOUT_MS,
+            description: tool.description,
+            capability,
+            version: typeof tool.version === 'string' && tool.version.length > 0 ? tool.version : 'v1',
+            source: 'builtin' as const,
+            inputSchema: sanitizeToolInputSchema(tool.inputSchema, tool.name),
+            outputSchema: resultContract.outputSchema,
+            artifactPolicy: resultContract.artifactPolicy,
+            enabled: true,
+            reviewState: 'approved' as const,
+            riskLevel: capability === 'read' ? 'read_only' as const : 'non_destructive_write' as const,
+            // Target run policy can auto-run only administrator-reviewed,
+            // non-destructive writes. AgentV additionally enforces its exact
+            // root-owned service allowlist on every restart.
+            autoAllowed: capability === 'write'
+          }];
+        } catch (err) {
+          if (!(err instanceof ToolSchemaRejectedError)) throw err;
+          rejected.set(tool.name, err);
+          return [];
         }
-        const resultContract = targetAgentResultContract(tool);
-        const capability = normalizeCapability(tool.capability);
-        return {
-          name: tool.name,
-          timeoutMs: tool.timeout_ms || config.ASSISTANT_TOOL_DEFAULT_TIMEOUT_MS,
-          description: tool.description,
-          capability,
-          version: typeof tool.version === 'string' && tool.version.length > 0 ? tool.version : 'v1',
-          source: 'builtin' as const,
-          inputSchema: sanitizeToolInputSchema(tool.inputSchema),
-          outputSchema: resultContract.outputSchema,
-          artifactPolicy: resultContract.artifactPolicy,
-          enabled: true,
-          reviewState: 'approved' as const,
-          riskLevel: capability === 'read' ? 'read_only' as const : 'non_destructive_write' as const,
-          // Target run policy can auto-run only administrator-reviewed,
-          // non-destructive writes. AgentV additionally enforces its exact
-          // root-owned service allowlist on every restart.
-          autoAllowed: capability === 'write'
-        };
       });
 
     const servers = await listTargetMcpServers(workspaceId, targetId, targetType);
@@ -108,6 +116,14 @@ export async function syncTargetBuiltInTools(
       targetType,
       { includeServerDisabled: true, includeDisabled: true }
     );
+    if (rejected.size > 0) {
+      for (const tool of existingTools) {
+        if (tool.source === 'builtin' && tool.server_id === existing?.id && rejected.has(tool.name)) {
+          await updateTargetTool(workspaceId, targetId, targetType, tool.server_id, tool.name, { enabled: false });
+        }
+      }
+      throw rejected.values().next().value;
+    }
     const existingBuiltinNames = new Set(existingTools.filter((tool) => tool.source === 'builtin').map((tool) => tool.name));
     const discoveredNames = new Set(builtinTools.map((tool) => tool.name));
     const removeTools = [...existingBuiltinNames].filter((name) => !discoveredNames.has(name));
@@ -234,7 +250,8 @@ export async function syncTargetBuiltInTools(
       registeredToolCount: 0,
       addedTools: [],
       removedTools: [],
-      error: err instanceof Error ? err.message : 'Built-in tool sync failed'
+      // Registry cleanup failure must not turn rejected schemas into optional-MCP fallback.
+      error: rejected.values().next().value?.message ?? (err instanceof Error ? err.message : 'Built-in tool sync failed')
     };
   }
 }

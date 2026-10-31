@@ -13,6 +13,15 @@ Assessment date: July 26, 2026.
 
 Re-score this file when a major architectural or operational change lands.
 
+## Workflow queue investigation — October 31, 2026
+
+Default dispatch and maintenance-pause regressions cover removal of the obsolete
+automation rollout mode. The reproduced capacity-maintenance defect that left
+summaries queued after run expiry now has an [atomic repair and bounded historical
+reconciliation](exec-plans/active/2026-10-31-capacity-maintenance-status.md), with
+PostgreSQL rollback, start/renewal races, suspension, and retry regressions.
+Existing scores are unchanged.
+
 ## Hosted-readiness evidence — September 6, 2026
 
 The full 1,284-test suite and SQL upgrade chain pass, with independent reviews of
@@ -32,3 +41,10 @@ not a production sign-off: unconstrained collection
 budgets remain open in the [debt tracker](exec-plans/tech-debt-tracker.md), and the
 actual production database ancestry and restore rehearsal have not been verified.
 Existing scores are unchanged.
+
+## Scoped hardening evidence — October 31, 2026
+
+[Validation and retention checks](exec-plans/completed/2026-10-31-validation-retention.md)
+cover webhook bounds, PostgreSQL cleanup races, real-process schema deadlines,
+cancellation and unknown-write outcomes. Fresh review findings have regression
+coverage. Existing scores and broader integration coverage gaps remain unchanged.

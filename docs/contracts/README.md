@@ -221,8 +221,9 @@ The control plane owns the platform API boundary. Keep this README as a short in
   Qualifying issue lifecycles enqueue one durable automatic investigation,
   existing issues require an explicit bulk-start request, and the system actor
   reuses target-chat runs, approvals, cancellation, retention, and audit paths.
-  Its worker has a dedicated timer and error boundary and ignores Automation
-  runtime mode, so Workflow failures cannot pause automatic investigations.
+  Its worker has a dedicated timer and error boundary, so Workflow scheduler
+  failures cannot pause automatic investigations. Shared workspace admission
+  and dispatch controls still apply.
   Requested write behavior can only become stricter after intersecting target
   settings and connector write policy. Kubernetes settings additionally narrow eligible issue
   namespaces and independently control cluster-scoped issues; virtual-machine
@@ -504,6 +505,32 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Built-in MCP tool calls use `Authorization: Bearer <run-scoped-jwt>` and derive scope from `run-scoped-jwt-claims`.
 - The built-in MCP bridge must classify calls as read or write before writing audit events.
 
+## Tool schema metadata preservation
+
+Generic tool metadata preparation preserves accepted constraint values and ordering.
+Only `title`, `description` and `markdownDescription` at schema-node positions are
+sanitized; property names, literal `const`/`enum`/`default` values and unknown
+extensions remain unchanged. Invalid JSON values or exceeded metadata budgets
+reject the complete schema with `TOOL_SCHEMA_REJECTED`, never a truncated or
+permissive replacement. Existing missing optional runtime schemas retain their
+defaults. Bootstrap aborts on rejection; discovery/sync disables matching stale
+registrations within that server's scope. Wire fields, provider-specific adapters
+and argument-validation dialects are unchanged.
+
+## Schema validation execution
+
+Execution Engine validates advertised tool arguments in a disposable child before
+approval; Gateway validates both Agent and target arguments before claiming a
+receipt or fetching secret headers. Gateway also validates trusted output in a
+child. Ordinary mismatches retain `TOOL_ARGS_INVALID`. A deadline, saturation,
+invalid schema or process failure yields `TOOL_VALIDATION_UNAVAILABLE` without
+dispatch (HTTP 503 at Gateway). Output validation failure retains
+`TOOL_RESULT_SCHEMA_INVALID`; after a write it has `outcome: unknown` and
+`retryable: false`, never automatic redispatch. Cancellation propagates.
+Existing Engine subset and Gateway jsonschema dialect rules remain; Gateway permits
+local references but rejects external reference retrieval. No schema, argument or
+result is truncated to pass validation, and there is no inline fallback.
+
 ## Change Checklist
 
 When changing a route, schema, event, or cross-service field:
@@ -655,3 +682,14 @@ to `Application` or `System`, with optional ISO `since`/`until` and literal `q`.
 AgentV enforces its local channel allowlist and maximum time window. Built-in
 tool schemas remain scoped to each target; Windows sync excludes writes even
 when the agent advertises them.
+
+## Webhook validation and workflow retention
+
+Webhook create/update requires workspace mutation capability before body validation.
+`eventTypes` accepts at most the supported event catalog length; diagnostic messages
+are bounded. The existing error envelope and permitted event values remain.
+Completed workflow history expires as whole inactive sessions after the configured
+retention period (30 days by default). Active/uncertain work and unresolved approvals
+are protected. Expiry removes historical client-request idempotency lookups along
+with messages, executions and payloads; webhook delivery identities and schedules
+remain. Consumers must not retry expired historical client request IDs as new work.

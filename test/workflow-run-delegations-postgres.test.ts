@@ -32,16 +32,11 @@ import {
   restoreControllerRegressionState
 } from './helpers/controller-regression-fixtures.js';
 import { actor, coordinatedRoot, delegationInput } from './helpers/workflow-delegation-postgres-fixtures.js';
-const mutableConfig = config as typeof config & { AUTOMATION_RUNTIME_MODE: 'off' | 'shadow' | 'canary' | 'on' };
-let originalRuntimeMode = config.AUTOMATION_RUNTIME_MODE;
 beforeEach(async () => {
-  originalRuntimeMode = config.AUTOMATION_RUNTIME_MODE;
-  mutableConfig.AUTOMATION_RUNTIME_MODE = 'on';
   await resetAutomationDatabaseFixtures();
   await installAutomationTemplateFixtures();
 });
 afterEach(() => {
-  mutableConfig.AUTOMATION_RUNTIME_MODE = originalRuntimeMode;
   mock.restoreAll();
   restoreControllerRegressionState();
 });

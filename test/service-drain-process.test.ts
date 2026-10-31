@@ -54,7 +54,7 @@ async function processDrainCase(expire: boolean, tls = false): Promise<void> {
   const child = spawn(process.execPath, ['--import', 'tsx', 'src/server.ts'], {
     env: { ...process.env, PORT: String(port), DATABASE_URL: database.toString(),
       SERVICE_DRAIN_TIMEOUT_SECONDS: expire ? '1' : '3', WORKSPACE_ADMISSION_ENABLED: 'false', WORKSPACE_DISPATCH_ENABLED: 'false',
-      AUTOMATION_RUNTIME_MODE: 'off', SEED_DEVELOPMENT_DATA: 'false', INTERNAL_TRANSPORT_TLS_ENABLED: String(tls),
+      SEED_DEVELOPMENT_DATA: 'false', INTERNAL_TRANSPORT_TLS_ENABLED: String(tls),
       ...(tls ? { INTERNAL_TRANSPORT_TLS_CERT_FILE: certFile, INTERNAL_TRANSPORT_TLS_KEY_FILE: keyFile,
         INTERNAL_TRANSPORT_TLS_CA_FILE: certFile, INTERNAL_TRANSPORT_TLS_REQUIRE_CLIENT_CERT: 'true',
         CONTROL_PLANE_INTERNAL_TRANSPORT_PORT: String(internalPort), EXECUTION_ENGINE_BASE_URL: 'https://127.0.0.1:9',

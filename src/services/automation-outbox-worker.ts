@@ -1,7 +1,6 @@
 import { serviceLifecycle } from './service-lifecycle.js';
 import { randomUUID } from 'node:crypto';
 import { config } from '../config.js';
-import { db } from '../infra/db.js';
 import { logger } from '../logger.js';
 import { incrementAutomationDispatch, observeAutomationDispatchDurationMs } from '../metrics.js';
 import { getWorkflowRun } from '../store/repository-workflows.js';
@@ -25,16 +24,6 @@ type OutboxRow = {
 };
 
 const workerId = `${config.CONTROL_PLANE_INSTANCE_ID}:${randomUUID()}`;
-const canaryWorkspaceIds = new Set(
-  config.AUTOMATION_CANARY_WORKSPACE_IDS.split(',').map((value) => value.trim()).filter(Boolean)
-);
-
-function workspaceEnabled(workspaceId: string): boolean {
-  if (config.AUTOMATION_RUNTIME_MODE === 'on') return true;
-  if (config.AUTOMATION_RUNTIME_MODE === 'canary') return canaryWorkspaceIds.has(workspaceId);
-  return false;
-}
-
 async function claim(limit: number): Promise<OutboxRow[]> {
   return withTransaction(async (client) => {
     const result = await client.query<OutboxRow>(
@@ -67,16 +56,6 @@ function recordOutcome(row: OutboxRow, outcome: DispatchSettlement, startedAt: n
 
 async function deliver(row: OutboxRow): Promise<void> {
   const startedAt = Date.now();
-  if (!workspaceEnabled(row.workspace_id)) {
-    const updated = await db.query(
-      `UPDATE automation_dispatch_outbox SET status='pending',claim_owner=NULL,claim_expires_at=NULL,
-       next_attempt_at=NOW()+INTERVAL '30 seconds',updated_at=NOW()
-       WHERE id=$1 AND status='claimed' AND claim_owner=$2 AND claim_expires_at>clock_timestamp()`,
-      [row.id, row.claim_owner]
-    );
-    recordOutcome(row, updated.rowCount ? 'deferred' : 'stale_claim', startedAt);
-    return;
-  }
   const prepared = await settleWorkflowDispatch(row, { kind: 'prepare' });
   if (prepared !== 'ready') {
     recordOutcome(row, prepared, startedAt);
@@ -110,7 +89,6 @@ async function deliver(row: OutboxRow): Promise<void> {
 
 export async function runAutomationOutboxTick(limit = 25): Promise<number> {
   if (!serviceLifecycle.accepting || !config.WORKSPACE_DISPATCH_ENABLED) return 0;
-  if (config.AUTOMATION_RUNTIME_MODE === 'off' || config.AUTOMATION_RUNTIME_MODE === 'shadow') return 0;
   let processed = 0;
   while (processed < limit && serviceLifecycle.accepting && config.WORKSPACE_DISPATCH_ENABLED) {
     const rows = await claim(1);

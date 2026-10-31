@@ -1,4 +1,5 @@
 import { EXAMPLE_TARGET_ID, EXAMPLE_WORKSPACE_ID } from '../../constants/dev-defaults.js';
+import { webhookEventTypes } from '../../types/webhook-contracts.js';
 
 export function buildWebhookPaths(): Record<string, unknown> {
   return {
@@ -97,6 +98,8 @@ export function buildWebhookPaths(): Record<string, unknown> {
                     url: { type: 'string', format: 'uri', example: 'https://example.com/acornops/webhook' },
                     eventTypes: {
                       type: 'array',
+                      minItems: 1,
+                      maxItems: webhookEventTypes.length,
                       items: { type: 'string', example: 'run.failed.v1' }
                     },
                     targetId: { type: ['string', 'null'], format: 'uuid', example: EXAMPLE_TARGET_ID },
@@ -147,7 +150,7 @@ export function buildWebhookPaths(): Record<string, unknown> {
                   properties: {
                     name: { type: 'string' },
                     url: { type: 'string', format: 'uri' },
-                    eventTypes: { type: 'array', items: { type: 'string' } },
+                    eventTypes: { type: 'array', minItems: 1, maxItems: webhookEventTypes.length, items: { type: 'string' } },
                     targetId: { type: ['string', 'null'], format: 'uuid' },
                     enabled: { type: 'boolean' }
                   },
