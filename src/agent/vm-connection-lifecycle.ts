@@ -5,8 +5,13 @@ import { webhooks } from '../services/webhooks.js';
 import { vmConnections, type VirtualMachineConnectionTransition } from '../store/repository-vm-connections.js';
 import { detachAgentConnection, getAgentConnection } from './connections.js';
 import type { AgentConnection } from './types.js';
+import { ownsVirtualMachineSocket, recordVirtualMachineSocketAttempt } from './vm-socket-ownership.js';
 
 const attempts = new Map<string, string>();
+
+function closeFailedSocket(conn: AgentConnection): void {
+  if (ownsVirtualMachineSocket(conn)) conn.ws.close(1012, 'VM handshake did not complete');
+}
 
 // Only reads and identity-matched cleanup use this bound. Racing a claim SET
 // would leave a mutating command capable of taking ownership after timeout.
@@ -56,7 +61,7 @@ export async function disconnectVirtualMachine(conn: AgentConnection): Promise<v
 async function cleanupFailedHandshake(conn: AgentConnection): Promise<void> {
   const targetId = conn.clusterId;
   detachAgentConnection(targetId, conn, 'VM handshake did not complete');
-  conn.ws.close(1012, 'VM handshake did not complete');
+  closeFailedSocket(conn);
   // A late CAS clear can remove only this attempt, never its replacement.
   await boundedOwnerOperation(clearAgentOwnerIfCurrent(targetId, conn.connectionId));
   const transition = await vmConnections.transition(targetId, {
@@ -77,9 +82,10 @@ export async function publishVirtualMachineConnection(input: {
   publish: (transition: VirtualMachineConnectionTransition) => void;
 }): Promise<void> {
   const conn = input.connection; const targetId = conn.clusterId;
-  if (!input.mayConnect()) { conn.ws.close(1012, 'VM handshake did not complete'); return; }
+  if (!input.mayConnect()) { closeFailedSocket(conn); return; }
   attempts.set(targetId, conn.connectionId);
-  const eligible = () => attempts.get(targetId) === conn.connectionId && input.mayConnect();
+  recordVirtualMachineSocketAttempt(conn);
+  const eligible = () => attempts.get(targetId) === conn.connectionId && ownsVirtualMachineSocket(conn) && input.mayConnect();
   const owns = async () => {
     const owner = await boundedOwnerOperation(getAgentOwner(targetId));
     return eligible() && (!distributedRoutingEnabled() || exactOwner(owner, conn));

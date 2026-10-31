@@ -11,6 +11,7 @@ import { db } from '../src/infra/db.js';
 import { redis } from '../src/infra/redis.js';
 import { repo } from '../src/store/repository.js';
 import { webhooks } from '../src/services/webhooks.js';
+import { serviceLifecycle } from '../src/services/service-lifecycle.js';
 import { resetAutomationDatabaseFixtures, closeAutomationDatabaseFixtures } from './helpers/automation-database-fixtures.js';
 import { FakeWebSocket, installRedisStore, setupControlPlaneCoordinationTest, teardownControlPlaneCoordinationTest, agentOwnerKey, setOwner } from './helpers/agent-gateway-fixtures.js';
 
@@ -96,7 +97,7 @@ describe('VM connection persistence', { skip: !process.env.CONTROL_PLANE_TEST_DA
     await query("UPDATE targets SET status='offline' WHERE id=$1", [targetId]); release.resolve(); await pending;
     const current = await state(); assert.equal(current.status, 'offline'); assert.equal(current.metadata.hostname, 'new-host'); assert.equal(current.metadata.custom, 'preserve');
   });
-  it('fences delayed post-commit local publication after a newer local handshake', async () => {
+  for (const sameSocket of [false, true]) it(`fences delayed post-commit publication with same socket=${sameSocket}`, async () => {
     const committed = deferred(); const release = deferred();
     const transition = vmConnections.transition.bind(vmConnections); let online = 0;
     mock.method(vmConnections, 'transition', async (id, input) => {
@@ -105,11 +106,62 @@ describe('VM connection persistence', { skip: !process.env.CONTROL_PLANE_TEST_DA
       return result;
     });
     const first = new FakeWebSocket(); const pending = handshake(first); await committed.promise;
-    const newer = await handshake(); const newerId = getAgentConnection(targetId)!.connectionId;
+    const newer = await handshake(sameSocket ? first : undefined); const newerId = getAgentConnection(targetId)!.connectionId;
     release.resolve(); await pending;
     assert.equal(getAgentConnection(targetId)!.ws, newer); assert.equal((await state()).last_connection_id, newerId);
-    assert.equal(first.sent.length, 0); assert.equal(first.readyState, WebSocket.CLOSED);
+    assert.equal(first.sent.length, sameSocket ? 1 : 0);
+    assert.equal(first.readyState, sameSocket ? WebSocket.OPEN : WebSocket.CLOSED);
+    assert.equal(newer.readyState, WebSocket.OPEN); assert.equal((await state()).status, 'online');
     assert.equal(events.filter((event) => event.type === 'agent.connected.v1').length, 1);
+  });
+  for (const distributed of [false, true]) it(`keeps a newer pending same-socket attempt open with distributed routing=${distributed}`, async () => {
+    config.CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED = distributed;
+    const committed = deferred(); const releaseFirst = deferred(); const started = deferred(); const releaseSecond = deferred();
+    const transition = vmConnections.transition.bind(vmConnections); let online = 0;
+    mock.method(vmConnections, 'transition', async (id, input) => {
+      if (input.status !== 'online') return transition(id, input);
+      const order = ++online;
+      if (order === 2) { started.resolve(); await releaseSecond.promise; }
+      const result = await transition(id, input);
+      if (order === 1) { committed.resolve(); await releaseFirst.promise; }
+      return result;
+    });
+    const ws = new FakeWebSocket(); const first = handshake(ws); await committed.promise;
+    const second = handshake(ws); await started.promise;
+    releaseFirst.resolve(); await first;
+    const stateWhilePending = ws.readyState;
+    releaseSecond.resolve(); await second;
+    assert.equal(stateWhilePending, WebSocket.OPEN);
+    assert.equal(ws.readyState, WebSocket.OPEN); assert.equal(ws.sent.length, 1);
+    assert.equal(getAgentConnection(targetId)!.ws, ws);
+    assert.equal((await state()).last_connection_id, getAgentConnection(targetId)!.connectionId);
+  });
+  it('retires the previous interval when a VM reauthenticates on its published socket', async () => {
+    const ws = await handshake(); const previous = getAgentConnection(targetId)!;
+    assert.ok(previous.ownerRefreshInterval);
+    await handshake(ws);
+    assert.equal(previous.ownerRefreshInterval, undefined);
+    assert.notEqual(getAgentConnection(targetId)!.connectionId, previous.connectionId);
+    assert.equal(ws.readyState, WebSocket.OPEN); assert.equal(ws.sent.length, 2);
+  });
+  for (const accepted of [false, true]) it(`fences a late old refresh while a same-socket replacement is pending (credential accepted=${accepted})`, async () => {
+    const intervals: Array<() => void> = []; const set = global.setInterval;
+    mock.method(global, 'setInterval', ((callback: () => void, ms: number) => { intervals.push(callback); return set(callback, ms); }) as typeof setInterval);
+    const ws = await handshake();
+    const started = deferred(); const release = deferred(); const transition = vmConnections.transition.bind(vmConnections);
+    mock.method(vmConnections, 'transition', async (id, input) => {
+      if (input.status === 'online') { started.resolve(); await release.promise; }
+      return transition(id, input);
+    });
+    const second = handshake(ws); await started.promise;
+    mock.method(repo.agentv, 'isAgentVCredentialAccepted', async () => accepted);
+    let refreshWork: Promise<unknown> | undefined;
+    mock.method(serviceLifecycle, 'track', ((work: () => Promise<unknown>) => { refreshWork = work(); return refreshWork; }) as typeof serviceLifecycle.track);
+    intervals[0](); await refreshWork;
+    const stateWhilePending = ws.readyState;
+    release.resolve(); await second;
+    assert.equal(stateWhilePending, WebSocket.OPEN); assert.equal(ws.readyState, WebSocket.OPEN);
+    assert.equal(getAgentConnection(targetId)!.ws, ws);
   });
   it('cleans a socket closed after online persistence without publishing success', async () => {
     const ws = new FakeWebSocket(); const transition = vmConnections.transition.bind(vmConnections);

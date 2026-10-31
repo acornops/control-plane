@@ -20,6 +20,7 @@ import {
   resolvePendingAgentResponse
 } from './connections.js';
 import { handleAgentHandshake } from './handshake.js';
+import { ownsVirtualMachineSocket } from './vm-socket-ownership.js';
 import { AGENT_COMMAND_TIMEOUT_MS, AgentConnectionChangedBeforeDispatchError, OwnerDrainingError, sendLocalJsonRpc } from './local-jsonrpc.js';
 import { decodeAgentMessage } from './message-utils.js';
 import { markConnectionOfflineIfUnowned } from './offline-reconciliation.js';
@@ -303,7 +304,8 @@ export class AgentGateway {
     pendingReason: string
   ): Promise<void> {
     detachAgentConnection(clusterId, conn, pendingReason);
-    if (conn.ws.readyState === WebSocket.OPEN || conn.ws.readyState === WebSocket.CONNECTING) {
+    if ((conn.targetType !== 'virtual_machine' || ownsVirtualMachineSocket(conn))
+      && (conn.ws.readyState === WebSocket.OPEN || conn.ws.readyState === WebSocket.CONNECTING)) {
       conn.ws.close(closeCode, closeReason);
     }
     await markConnectionOfflineIfUnowned(clusterId, conn).catch((err) => {

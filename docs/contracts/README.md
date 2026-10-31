@@ -700,6 +700,12 @@ Local connections and pending attempts also fence this cleanup when distributed
 routing is disabled. Owner read/cleanup timeouts are uncertainty, not successful
 cancellation. A Redis claim is never treated as cancelled by a Promise timeout.
 
+VM socket ownership follows the latest accepted handshake attempt even after it
+finishes. A superseded attempt cannot close a shared socket used by its pending
+or published replacement, including delayed heartbeat or credential checks.
+Reauthentication on the same socket retires the previous refresh interval and
+pending commands. Failed attempts on distinct sockets still close normally.
+
 This is not an atomic transaction across Redis and PostgreSQL. Cross-instance
 replacement retains the existing execution/heartbeat ownership checks and eventual
 socket closure; an unavailable dependency can prevent reconciliation. The row-lock

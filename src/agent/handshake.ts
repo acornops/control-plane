@@ -1,4 +1,5 @@
 import { publishVirtualMachineConnection } from './vm-connection-lifecycle.js';
+import { ownsVirtualMachineSocket } from './vm-socket-ownership.js';
 import type { AgentConnection } from './types.js';
 import { parseVirtualMachinePlatform, isWindowsReadTool } from '../types/virtual-machine-platform.js';
 import { serviceLifecycle } from '../services/service-lifecycle.js';
@@ -12,7 +13,7 @@ import { repo } from '../store/repository.js';
 import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE, isTargetType } from '../types/domain.js';
 import { createErrorResponse, createSuccessResponse } from '../types/jsonrpc.js';
 import { extractClusterIdFromAgentKey, verifySecret } from '../utils/crypto.js';
-import { closeStaleAgentConnection, getAgentConnection, setAgentConnection } from './connections.js';
+import { closeStaleAgentConnection, detachAgentConnection, getAgentConnection, setAgentConnection } from './connections.js';
 import { scheduleBuiltInToolSync } from './tool-sync-scheduler.js';
 
 export async function handleAgentHandshake(input: {
@@ -165,6 +166,8 @@ export async function handleAgentHandshake(input: {
     const previousLocalConnection = getAgentConnection(target.id);
     if (previousLocalConnection && previousLocalConnection.ws !== input.ws) {
       closeStaleAgentConnection(target.id, previousLocalConnection);
+    } else if (previousLocalConnection && targetType === VIRTUAL_MACHINE_TARGET_TYPE) {
+      detachAgentConnection(target.id, previousLocalConnection, 'VM connection replaced on the same socket');
     }
 
     const ownerRefreshInterval = setInterval(() => {
@@ -179,6 +182,7 @@ export async function handleAgentHandshake(input: {
           credentialStillAccepted
         ])
           .then(([stillOwner, accepted]) => {
+            if (targetType === VIRTUAL_MACHINE_TARGET_TYPE && !ownsVirtualMachineSocket(connection)) return;
             if (!accepted) {
               const conn = getAgentConnection(target.id);
               if (conn && conn.connectionId === connectionId && conn.ws.readyState === WebSocket.OPEN) {
