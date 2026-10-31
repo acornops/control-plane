@@ -7,6 +7,7 @@ import type { CompiledWorkflowAccessScope } from '../types/workflows.js';
 import type { AgentDefinition } from '../types/agents.js';
 import { insertWorkflowExecutionEvent } from '../store/repository-workflow-execution-events.js';
 import { WORKFLOW_COORDINATOR_INSTRUCTIONS } from './workflow-coordinator.js';
+import { cancelWorkflowChildren } from '../store/repository-workflow-child-cancellation.js';
 
 type Artifact = { id: string; type: string; title: string };
 
@@ -36,40 +37,7 @@ export async function advanceWorkflowExecution(
     if (['completed', 'failed', 'cancelled'].includes(execution.rows[0].status)) {
       return { executionStatus: execution.rows[0].status };
     }
-    const activeChildren = await client.query<{ id: string }>(
-      `SELECT id FROM workflow_runs
-       WHERE parent_run_id=$1 AND status NOT IN ('completed','failed','cancelled')
-       FOR UPDATE`,
-      [run.id]
-    );
-    const cancelledChildRunIds = activeChildren.rows.map((child) => child.id);
-    if (cancelledChildRunIds.length > 0) {
-      await client.query(
-        `UPDATE workflow_runs
-         SET status='cancelled',cancellation_requested_at=NOW(),ended_at=NOW(),
-             error_code='PARENT_RUN_TERMINATED',
-             error_message='The coordinator root terminated before this specialist completed.',
-             updated_at=NOW()
-         WHERE id=ANY($1::text[])`,
-        [cancelledChildRunIds]
-      );
-      await client.query(
-        `UPDATE workflow_run_approvals
-         SET status='expired'
-         WHERE run_id=ANY($1::text[]) AND status='pending'`,
-        [cancelledChildRunIds]
-      );
-      await client.query(
-        'DELETE FROM workflow_run_continuations WHERE run_id=ANY($1::text[])',
-        [cancelledChildRunIds]
-      );
-      await client.query(
-        `UPDATE automation_dispatch_outbox
-         SET status='cancelled',claim_owner=NULL,claim_expires_at=NULL,updated_at=NOW()
-         WHERE run_id=ANY($1::text[]) AND status<>'delivered'`,
-        [cancelledChildRunIds]
-      );
-    }
+    const cancelledChildRunIds = await cancelWorkflowChildren(client, run.id);
     await client.query(
       `UPDATE workflow_executions
        SET status=$2,ended_at=NOW(),error_code=$3,error_message=$4,updated_at=NOW()

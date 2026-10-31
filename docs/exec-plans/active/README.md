@@ -1,6 +1,7 @@
 # Active Execution Plans
 
 - [Remove Automation Rollout Mode](2026-10-31-remove-automation-rollout.md) — Default dispatch, preserved maintenance controls, and coordinated deployment cleanup.
+- [Capacity Maintenance Status Fix](2026-10-31-capacity-maintenance-status.md) — Atomic workflow summaries and bounded repair of historical maintenance failures.
 
 Reviewed 2026-10-18. Implementation-only plans that have landed are in
 [Completed plans](../completed/README.md). Historical validation results are not fresh release acceptance.

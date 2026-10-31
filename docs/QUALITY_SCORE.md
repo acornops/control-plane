@@ -16,9 +16,11 @@ Re-score this file when a major architectural or operational change lands.
 ## Workflow queue investigation — October 31, 2026
 
 Default dispatch and maintenance-pause regressions cover removal of the obsolete
-automation rollout mode. A separate reproduced capacity-maintenance defect can
-leave execution summaries queued after their runs expire; it remains open in the
-[debt tracker](exec-plans/tech-debt-tracker.md). Existing scores are unchanged.
+automation rollout mode. The reproduced capacity-maintenance defect that left
+summaries queued after run expiry now has an [atomic repair and bounded historical
+reconciliation](exec-plans/active/2026-10-31-capacity-maintenance-status.md), with
+PostgreSQL rollback, start/renewal races, suspension, and retry regressions.
+Existing scores are unchanged.
 
 ## Hosted-readiness evidence — September 6, 2026
 

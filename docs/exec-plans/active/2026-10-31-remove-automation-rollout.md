@@ -35,8 +35,9 @@ the currently pinned control-plane `0.0.1-experimental.42` image.
   migrations applied to a fresh database. SQL upgrade replay and live provider/
   agent workloads were not run; no schema or engine protocol changed.
 - Workspace `node scripts/harness/check-platform-contracts.mjs` passed.
-- One independent whole-change review found no actionable issues. The deployment
-  release prerequisite and separate capacity defect remain open.
+- One independent whole-change review found no actionable issues in rollout
+  removal. The subsequent capacity repair is tracked below; the compatible
+  runtime image is required before merging deployment configuration.
 
 ## Separate capacity-maintenance defect
 
@@ -48,9 +49,12 @@ current code and the pinned release reproduced this with capacity enabled and
 disabled, before and after dispatch acknowledgement. Repeated maintenance and
 outbox ticks did not repair the summary.
 
+The user subsequently authorized a [focused repair](2026-10-31-capacity-maintenance-status.md)
+and merging the coordinated changes. The following describes the original defect.
+
 This occurs after the queue deadline (600 seconds by default); it does not
 explain a run staying queued immediately at launch. Removing the rollout mode
 eliminates one source of undelivered work but does not repair this defect or old
-records. Follow up with transactional execution aggregation on maintenance
-terminal transitions, regression coverage, and bounded reconciliation of stale
+records by itself. The focused repair adds transactional execution aggregation on
+maintenance transitions, regression coverage, and bounded reconciliation of stale
 summaries without redispatching failed work.

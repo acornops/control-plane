@@ -207,6 +207,26 @@ before upgrading and review pending work before reopening dispatch. Diagnostics
 clients must replace `runtime.mode` and `runtime.workspaceEnabled` with
 `runtime.admissionEnabled` and `runtime.dispatchEnabled`.
 
+Queue deadlines continue to apply during a dispatch pause (600 seconds by
+default). Capacity maintenance records an expired Workflow run and its overall
+execution failure atomically, and closes delivery intent that was not already
+acknowledged. Suspension cleanup also updates the execution summary with its run
+transition. Capacity remains reserved while an execution lease or uncertain
+operation is still active.
+
+Before making a terminated coordinator resumable, maintenance cancels its active
+specialists, expires their pending approvals, clears their continuations and
+pending delivery, and revokes further capacity acquisition or renewal. Existing
+lease and operation charges remain until settlement. Engine cancellation is
+requested after the transaction commits.
+
+Each maintenance tick additionally repairs up to 200 unlocked stale summaries
+whose latest root already failed or was cancelled by capacity maintenance. This
+repairs records left by older binaries, including already-settled reservations,
+without starting any runs. Existing terminal summaries and newer retry attempts
+are preserved. After a failure, review any uncertain operations before explicitly
+resuming the Workflow.
+
 `GET /api/v1/workspaces/{workspaceId}/automation/diagnostics` reports the
 admission and dispatch availability, outbox depth and age, Workflow run states grouped by
 executor role and root/child graph position, trigger delivery state, scheduler
