@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { deriveKubernetesIssueObservations } from '../src/services/target-issue-derivation.js';
-import type { ClusterSnapshot, KubernetesCluster } from '../src/types/domain.js';
+import { deriveKubernetesIssueObservations, deriveVirtualMachineIssueObservations } from '../src/services/target-issue-derivation.js';
+import type { ClusterSnapshot, KubernetesCluster, VirtualMachineTarget, VirtualMachineSnapshot } from '../src/types/domain.js';
 import type { SnapshotFindingListItem } from '../src/services/snapshot-derived-data.js';
 
 function cluster(): KubernetesCluster {
@@ -48,6 +48,40 @@ function finding(overrides: Partial<SnapshotFindingListItem>): SnapshotFindingLi
 }
 
 describe('target issue fingerprints', () => {
+  it('preserves literal Linux service, filesystem and memory issue identities across observations', () => {
+    const vm: VirtualMachineTarget = {
+      id: 'vm-1', workspaceId: 'workspace-1', name: 'Linux VM', hostname: 'prod.example.test',
+      status: 'online', osFamily: 'linux', serviceManager: 'systemd', allowedLogSources: ['journald'],
+      createdAt: '2026-10-26T00:00:00.000Z', updatedAt: '2026-10-26T00:00:00.000Z'
+    };
+    for (const timestamp of ['2026-10-26T00:00:00.000Z', '2026-10-26T00:01:00.000Z']) {
+      // Legacy Linux snapshots do not require a schema discriminator or finding coverage.
+      const legacySnapshot: VirtualMachineSnapshot = {
+        targetId: vm.id, workspaceId: vm.workspaceId, timestamp,
+        data: {
+          degraded_services: [{ unit: 'Backup@Nightly.service', active_state: 'failed', sub_state: 'failed' }],
+          findings: [
+            { unit: 'Backup@Nightly.service', code: 'SERVICE_FAILED', severity: 'critical', summary: `Failed at ${timestamp}` },
+            { mount: '/var/lib', code: 'FILESYSTEM_PRESSURE', severity: 'warning', summary: `Disk pressure at ${timestamp}` },
+            { code: 'MEMORY_PRESSURE', severity: 'warning', summary: `Memory pressure at ${timestamp}` }
+          ]
+        }
+      };
+
+      const observations = deriveVirtualMachineIssueObservations(vm, legacySnapshot);
+
+      assert.deepEqual(observations.map((observation) => observation.fingerprint), [
+        'vm|vm-1|systemd_service|backup@nightly.service|failed|failed',
+        'vm|vm-1|systemd_service|backup@nightly.service|failed|failed',
+        'vm|vm-1|host|/var/lib|filesystem_pressure',
+        'vm|vm-1|host|prod.example.test|memory_pressure'
+      ]);
+      assert.deepEqual(observations.map((observation) => observation.issueType), [
+        'vm_service_unhealthy', 'vm_service_unhealthy', 'vm_host_finding', 'vm_host_finding'
+      ]);
+    }
+  });
+
   it('does not promote normal Kubernetes events into durable issues', () => {
     const observations = deriveKubernetesIssueObservations(
       cluster(),
