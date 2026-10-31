@@ -61,3 +61,4 @@ This `docs/` tree is the repository-local system of record for agent-readable de
 - [Validation deadlines and workflow retention](exec-plans/completed/2026-10-31-validation-retention.md)
 
 - [Admin console scaling plan](exec-plans/active/2026-11-01-admin-console-scaling.md) — Coordinated bounded directory reads; integration pending.
+- [http-parser-log-protection plan](exec-plans/active/2026-11-01-http-parser-log-protection.md)

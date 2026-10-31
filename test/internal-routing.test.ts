@@ -301,7 +301,7 @@ describe('internal service routing', () => {
     });
   });
 
-  it('does not expose parser exception details in global errors', async () => {
+  it('returns a safe client error without parser exception details', async () => {
     await withTestServer(async (baseUrl) => {
       const response = await fetch(`${baseUrl}/api/v1/auth/password/login`, {
         method: 'POST',
@@ -316,12 +316,12 @@ describe('internal service routing', () => {
         error: { code: string; message: string; retryable: boolean; request_id: string };
       };
 
-      assert.equal(response.status, 500);
+      assert.equal(response.status, 400);
       assert.equal(response.headers.get('x-request-id'), 'req-security-test');
       assert.deepEqual(body, {
         error: {
-          code: 'INTERNAL_ERROR',
-          message: 'Internal server error',
+          code: 'INVALID_REQUEST_BODY',
+          message: 'Request body could not be parsed.',
           retryable: false,
           request_id: 'req-security-test'
         }

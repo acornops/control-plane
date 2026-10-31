@@ -11,3 +11,4 @@ Reviewed 2026-10-18. Implementation-only plans that have landed are in
 - [Structured Log Redaction](../../../../agentk/docs/exec-plans/active/2026-10-30-structured-log-redaction.md) — AgentK-owned cross-repository implementation record; independent artifact-string protection validated, coordinated rollout pending.
 
 - [Admin console scaling](2026-11-01-admin-console-scaling.md) — Coordinated bounded directory reads; integration pending.
+- [http-parser-log-protection](2026-11-01-http-parser-log-protection.md) — Implementation verified; awaiting integration.
