@@ -617,3 +617,12 @@ uses a fresh temporary `.ps1` file and removes it in `finally`. Native packaging
 and telemetry qualification are separate gates; leave Windows rollout disabled
 until those gates pass. Deploy this compatible backend before enabling Windows
 consumers; an older backend may relabel Windows metadata during updates.
+
+## AgentV Windows native read producer
+
+The [Windows native read contract](windows-read-runtime.md) records the
+producer schemas consumed by Windows telemetry interpretation. Windows uses
+`acornops.agentv-windows-snapshot.v1`; Linux payloads and their existing optional
+helper/restart handshake fields retain their released compatibility. Both OS
+identity fields remain required. Hosted native parsing does not qualify service
+permissions, reboot, packaging or enable rollout.
