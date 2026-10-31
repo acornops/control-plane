@@ -109,8 +109,8 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
                 properties: {
                   name: { type: 'string', example: 'payments-vm-01' },
                   hostname: { type: 'string', example: 'payments-vm-01.internal' },
-                  osFamily: { type: 'string', enum: ['linux'], example: 'linux' },
-                  serviceManager: { type: 'string', enum: ['systemd'], example: 'systemd' },
+                  osFamily: { type: 'string', enum: ['linux', 'windows'], description: 'Immutable OS identity; defaults to linux. Windows requires scm and read-only access; rollout must be qualified and enabled.', example: 'linux' },
+                  serviceManager: { type: 'string', enum: ['systemd', 'scm'], description: 'Must match OS: linux/systemd or windows/scm.', example: 'systemd' },
                   allowedLogSources: {
                     type: 'array',
                     items: { type: 'string' },

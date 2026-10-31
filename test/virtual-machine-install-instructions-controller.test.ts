@@ -251,3 +251,29 @@ describe('virtual machine onboarding instructions', () => {
     assert.equal(body.installInstructions.enrollmentExpiresAt, undefined);
   });
 });
+
+it('refuses Windows read-write host policy updates before issuing enrollment', async () => {
+  repo.getWorkspaceRole = async () => 'owner';
+  repo.getTarget = async () => target;
+  repo.getTargetAgentRegistration = async () => agentRegistration();
+  repo.getVirtualMachine = async () => ({ ...virtualMachine, osFamily: 'windows', serviceManager: 'scm', agentAccessMode: 'read_only', restartServices: [] });
+  const create = mock.method(repo.agentv, 'createAgentVEnrollment', async () => true);
+  const res = response();
+  await createVirtualMachineAgentAccessPolicyUpdate(request({ agentAccessMode: 'read_write', restartServices: ['nginx.service'] }) as never, res as never, (error?: unknown) => { if (error) throw error; });
+  assert.equal(res.statusCode, 400);
+  assert.equal(create.mock.callCount(), 0);
+});
+
+it('refuses disabled Windows registration before inserting a target', async () => {
+  const { config } = await import('../src/config.js');
+  const previous = config.AGENTV_WINDOWS_ENABLED;
+  config.AGENTV_WINDOWS_ENABLED = false;
+  try {
+    repo.getWorkspaceRole = async () => 'owner';
+    const add = mock.method(repo, 'addVirtualMachine', async () => virtualMachine);
+    const res = response();
+    await registerVirtualMachine(request({ name: 'Windows', osFamily: 'windows', serviceManager: 'scm' }) as never, res as never, (error?: unknown) => { if (error) throw error; });
+    assert.equal(res.statusCode, 409);
+    assert.equal(add.mock.callCount(), 0);
+  } finally { config.AGENTV_WINDOWS_ENABLED = previous; }
+});

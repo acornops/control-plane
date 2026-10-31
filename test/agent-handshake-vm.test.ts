@@ -219,3 +219,29 @@ describe('AgentV handshake', () => {
     assert.equal(store.has(agentOwnerKey('vm-1')), false);
   });
 });
+
+it('suppresses Windows write capability and unreviewed tools at handshake', async () => {
+  const { config } = await import('../src/config.js');
+  const previous = config.AGENTV_WINDOWS_ENABLED;
+  config.AGENTV_WINDOWS_ENABLED = true;
+  try {
+    installRedisStore(new Map());
+    mock.method(repo.agentv, 'authenticateAgentVCredential', async (_id, _key, runtime) => {
+      assert.deepEqual(runtime, { osFamily: 'windows', serviceManager: 'scm' });
+      return { credential: { id: 'active', targetId: 'vm-1', enrollmentId: 'enrollment', keyHash: 'hash', generation: 1, state: 'active' as const }, workspaceId: 'workspace-1', provisional: false };
+    });
+    mock.method(repo, 'getTargetAgentRegistration', async () => ({ targetId: 'vm-1', targetType: 'virtual_machine' as const, workspaceId: 'workspace-1', agentKeyHash: 'hash', keyVersion: 1, capabilities: [] }));
+    mock.method(repo, 'getVirtualMachine', async () => ({ ...createVm('offline'), osFamily: 'windows', serviceManager: 'scm' }));
+    mock.method(repo, 'updateVirtualMachine', async () => ({ ...createVm('online'), osFamily: 'windows', serviceManager: 'scm' }));
+    mock.method(repo, 'updateTargetAgentCapabilities', async (_id, capabilities) => { assert.deepEqual(capabilities, ['read', 'windows', 'scm']); });
+    mock.method(repo, 'updateTargetAgentSeen', async () => undefined);
+    mock.method(webhooks, 'emit', () => undefined);
+    const ws = new FakeWebSocket();
+    await (new AgentGateway() as unknown as { handleMessage(ws: WebSocket, raw: WebSocket.RawData, key: string, version: string): Promise<void> }).handleMessage(ws as unknown as WebSocket, Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: 'windows', method: 'lifecycle/handshake', params: {
+      targetId: 'vm-1', targetType: 'virtual_machine', agentType: 'agentv', hostFeatures: { osFamily: 'windows', serviceManager: 'scm' }, supportedCapabilities: ['read', 'write', 'linux', 'systemd', 'windows', 'scm'],
+      advertisedTools: [{ name: 'query_logs', capability: 'read' }, { name: 'get_service', capability: 'write' }, { name: 'restart_service', capability: 'read' }, { name: 'arbitrary_shell', capability: 'read' }]
+    } })), 'key', 'agentv/test');
+    const result = parseLastSent(ws) as { result: { sessionPolicy: { allowedTools: string[]; writeEnabled: boolean } } };
+    assert.deepEqual(result.result.sessionPolicy, { allowedTools: ['query_logs'], writeEnabled: false });
+  } finally { config.AGENTV_WINDOWS_ENABLED = previous; }
+});

@@ -1,3 +1,4 @@
+import { allowVirtualMachineRegistration } from './virtual-machine-registration-policy.js';
 import { NextFunction, Response } from 'express';
 import { agentGateway } from '../../agent/ws-server.js';
 import { AuthenticatedRequest } from '../../auth/middleware.js';
@@ -8,7 +9,7 @@ import {
 } from '../../auth/workspace-authorization.js';
 import type { WorkspaceAuthorization } from '../../auth/workspace-authorization.js';
 import { webhooks } from '../../services/webhooks.js';
-import { buildAgentVRepairInstructions, issueAgentVEnrollment } from '../../services/agentv-enrollment.js';
+import { buildAgentVTargetRepairInstructions, issueAgentVEnrollment } from '../../services/agentv-enrollment.js';
 import { LlmGatewayHttpError } from '../../services/mcp-registry-client.js';
 import { cleanupVirtualMachineTargetMcpServers } from '../../services/target-mcp-cleanup.js';
 import { mapVirtualMachineMetricHistoryPoint } from '../../services/virtual-machine-metric-history.js';
@@ -60,9 +61,12 @@ export async function registerVirtualMachine(req: AuthenticatedRequest, res: Res
     if (!(await requireWorkspaceCapability(req, res, workspaceId, 'manage_targets', 'Only workspace roles with target management capability can register VMs'))) {
       return;
     }
+    if (!allowVirtualMachineRegistration(req.body.osFamily, res)) return;
     const vm = await repo.addVirtualMachine(workspaceId, {
       name: req.body.name,
       hostname: req.body.hostname,
+      osFamily: req.body.osFamily,
+      serviceManager: req.body.serviceManager,
       allowedLogSources: req.body.allowedLogSources,
       accessPolicy: {
         accessMode: req.body.agentAccessMode || 'read_only',
@@ -388,7 +392,7 @@ export async function getVirtualMachineInstallInstructions(req: AuthenticatedReq
       return;
     }
     res.setHeader('Cache-Control', 'no-store');
-    res.status(200).json({ targetId: vmId, installInstructions: buildAgentVRepairInstructions(vmId) });
+    res.status(200).json({ targetId: vmId, installInstructions: buildAgentVTargetRepairInstructions(vmId, access.target.metadata || {}) });
   } catch (err) {
     next(err);
   }

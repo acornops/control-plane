@@ -1,3 +1,4 @@
+import { parseVirtualMachinePlatform } from '../types/virtual-machine-platform.js';
 import { lockActiveWorkspace } from './repository-run-capacity.js';
 import { randomUUID } from 'node:crypto';
 import { config } from '../config.js';
@@ -102,6 +103,8 @@ function mapVirtualMachineSnapshotSummaryRecord(row: SnapshotSummaryDbRow): Virt
 
 function mapVm(row: VmRow): VirtualMachineTarget {
   const metadata = row.metadata || {};
+  const platform = parseVirtualMachinePlatform(metadata);
+  if (!platform) throw new Error(`Stored VM platform is invalid for target ${row.id}`);
   const storedAccessPolicy = parseAgentVAccessPolicy({
     accessMode: metadata.agentAccessMode,
     restartServices: metadata.restartServices
@@ -123,6 +126,10 @@ function mapVm(row: VmRow): VirtualMachineTarget {
   if ((pendingAccessPolicy === null) !== (pendingAccessPolicyEnrollmentId === null)) {
     throw new Error(`Stored pending AgentV access policy metadata is incomplete for VM target ${row.id}`);
   }
+  if (platform.osFamily === 'windows' && (accessPolicy.accessMode !== 'read_only'
+    || (pendingAccessPolicy && pendingAccessPolicy.accessMode !== 'read_only'))) {
+    throw new Error(`Stored Windows AgentV access policy must be read-only for VM target ${row.id}`);
+  }
   const hasPermissionModeOverride = metadata.permissionModeOverride !== undefined
     && metadata.permissionModeOverride !== null;
   if (hasPermissionModeOverride && !isRunPermissionMode(metadata.permissionModeOverride)) {
@@ -139,9 +146,8 @@ function mapVm(row: VmRow): VirtualMachineTarget {
     name: row.name,
     status: row.status,
     hostname: text(metadata.hostname) || undefined,
-    osFamily: 'linux',
-    serviceManager: 'systemd',
-    allowedLogSources: stringList(metadata.allowedLogSources, ['journald', 'syslog']),
+    ...platform,
+    allowedLogSources: stringList(metadata.allowedLogSources, platform.osFamily === 'windows' ? ['Application', 'System'] : ['journald', 'syslog']),
     agentAccessMode: accessPolicy.accessMode,
     restartServices: accessPolicy.restartServices,
     pendingAgentAccessPolicy: pendingAccessPolicy,
@@ -155,15 +161,20 @@ function mapVm(row: VmRow): VirtualMachineTarget {
 
 export async function addVirtualMachine(
   workspaceId: string,
-  input: { name: string; hostname?: string; allowedLogSources?: string[]; accessPolicy: AgentVAccessPolicy }
+  input: { name: string; hostname?: string; osFamily?: 'linux' | 'windows'; serviceManager?: 'systemd' | 'scm'; allowedLogSources?: string[]; accessPolicy: AgentVAccessPolicy }
 ): Promise<VirtualMachineTarget> {
+  const platform = parseVirtualMachinePlatform(input);
+  if (!platform) throw new Error('Invalid VM platform');
+  if (platform.osFamily === 'windows') {
+    if (!config.AGENTV_WINDOWS_ENABLED || !config.AGENTV_WINDOWS_RELEASE_VERSION || !config.AGENTV_WINDOWS_RELEASE_BASE_URL) throw new Error('Windows AgentV rollout is disabled or unqualified');
+    if (input.accessPolicy.accessMode !== 'read_only' || input.accessPolicy.restartServices.length) throw new Error('Windows AgentV supports read-only access');
+  }
   const id = randomUUID();
   const now = new Date().toISOString();
   const metadata = {
     hostname: input.hostname || input.name,
-    osFamily: 'linux',
-    serviceManager: 'systemd',
-    allowedLogSources: input.allowedLogSources || ['journald', 'syslog'],
+    ...platform,
+    allowedLogSources: input.allowedLogSources || (platform.osFamily === 'windows' ? ['Application', 'System'] : ['journald', 'syslog']),
     agentAccessMode: input.accessPolicy.accessMode,
     restartServices: input.accessPolicy.restartServices
   };
@@ -244,8 +255,8 @@ export async function updateVirtualMachine(
   const metadata = {
     ...(current.rows[0].metadata || {}),
     hostname: input.hostname ?? existing.hostname ?? existing.name,
-    osFamily: 'linux',
-    serviceManager: 'systemd',
+    osFamily: existing.osFamily,
+    serviceManager: existing.serviceManager,
     allowedLogSources: input.allowedLogSources ?? existing.allowedLogSources,
     agentAccessMode: existing.agentAccessMode,
     restartServices: existing.restartServices,

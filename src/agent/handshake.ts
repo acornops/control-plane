@@ -1,3 +1,4 @@
+import { parseVirtualMachinePlatform, isWindowsReadTool } from '../types/virtual-machine-platform.js';
 import { serviceLifecycle } from '../services/service-lifecycle.js';
 import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
@@ -29,7 +30,7 @@ export async function handleAgentHandshake(input: {
   const targetType = typeof input.params.targetType === 'string' ? input.params.targetType.trim() : '';
   const agentType = typeof input.params.agentType === 'string' ? input.params.agentType.trim() : '';
   const keyTargetId = extractClusterIdFromAgentKey(effectiveKey);
-  const supportedCapabilities = Array.isArray(input.params.supportedCapabilities)
+  let supportedCapabilities = Array.isArray(input.params.supportedCapabilities)
     ? input.params.supportedCapabilities
         .filter((entry): entry is string => typeof entry === 'string')
         .map((entry) => entry.trim())
@@ -49,6 +50,7 @@ export async function handleAgentHandshake(input: {
         .slice(0, 64)
     : [];
   const allowedTools = [...new Set(advertisedTools.map((tool) => tool.name))];
+  let sessionAllowedTools = allowedTools;
   const hostFeatures = input.params.hostFeatures && typeof input.params.hostFeatures === 'object'
     ? input.params.hostFeatures as Record<string, unknown>
     : {};
@@ -57,7 +59,7 @@ export async function handleAgentHandshake(input: {
   const connectorVersionValid = input.connectorVersion.startsWith(`${expectedAgentType}/`)
     && /^agent[kv]\/[^\s/]{1,127}$/.test(input.connectorVersion);
   const agentVRuntimeValid = targetType !== VIRTUAL_MACHINE_TARGET_TYPE
-    || (hostFeatures.osFamily === 'linux' && hostFeatures.serviceManager === 'systemd');
+    || ((hostFeatures.osFamily !== 'windows' || config.AGENTV_WINDOWS_ENABLED) && hostFeatures.osFamily !== undefined && hostFeatures.serviceManager !== undefined && Boolean(parseVirtualMachinePlatform(hostFeatures)));
   if (!targetId || !isTargetType(targetType) || agentType !== expectedAgentType
     || !connectorVersionValid || !agentVRuntimeValid || (keyTargetId && targetId !== keyTargetId)) {
     const reason = !targetId
@@ -78,7 +80,7 @@ export async function handleAgentHandshake(input: {
   }
 
   const agentVCredential = targetType === VIRTUAL_MACHINE_TARGET_TYPE
-    ? await repo.agentv.authenticateAgentVCredential(targetId, effectiveKey)
+    ? await repo.agentv.authenticateAgentVCredential(targetId, effectiveKey, parseVirtualMachinePlatform(hostFeatures)!)
     : null;
   if (agentVCredential?.provisional) {
     input.ws.send(JSON.stringify(createSuccessResponse(input.requestId, {
@@ -124,6 +126,10 @@ export async function handleAgentHandshake(input: {
 
   if (!mayConnect()) { rejectDraining(); return; }
 
+  if (targetType === VIRTUAL_MACHINE_TARGET_TYPE && hostFeatures.osFamily === 'windows') {
+    supportedCapabilities = supportedCapabilities.filter((capability) => ['read', 'logs', 'mcp', 'chat', 'windows', 'scm'].includes(capability));
+    sessionAllowedTools = advertisedTools.filter((tool) => isWindowsReadTool(tool.name, tool.capability)).map((tool) => tool.name);
+  }
   const previousCapabilities = reg.capabilities || [];
   const authenticatedKeyVersion = targetType === VIRTUAL_MACHINE_TARGET_TYPE
     ? agentVCredential?.credential.generation || reg.keyVersion
@@ -264,7 +270,7 @@ export async function handleAgentHandshake(input: {
     targetId: target.id,
     targetType,
     sessionPolicy: {
-      allowedTools,
+      allowedTools: sessionAllowedTools,
       writeEnabled: supportedCapabilities.includes('write')
     },
     config: {

@@ -1,3 +1,5 @@
+import { parseVirtualMachinePlatform } from '../types/virtual-machine-platform.js';
+import { buildVirtualMachineWindowsInstallInstructions } from './virtual-machine-windows-install-instructions.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { repo } from '../store/repository.js';
 import type { AgentVEnrollmentPurpose } from '../types/agentv-enrollment.js';
@@ -13,6 +15,10 @@ export async function issueAgentVEnrollment(input: {
   accessPolicy: AgentVAccessPolicy;
   markAccessPolicyUpdate?: boolean;
 }) {
+  const vm = await repo.getVirtualMachine(input.targetId);
+  const windows = vm?.osFamily === 'windows';
+  if (windows && (input.accessPolicy.accessMode !== 'read_only' || input.accessPolicy.restartServices.length)) throw new Error('Windows AgentV supports read-only access');
+  const release = agentVInstallRelease(windows);
   const id = randomUUID();
   const token = `aev_${id}_${randomBytes(32).toString('base64url')}`;
   const expiresAt = new Date(Date.now() + AGENTV_ENROLLMENT_TTL_MS).toISOString();
@@ -25,26 +31,37 @@ export async function issueAgentVEnrollment(input: {
   return {
     enrollmentId: id,
     expiresAt,
-    installInstructions: buildVirtualMachineInstallInstructions({
+    installInstructions: (windows ? buildVirtualMachineWindowsInstallInstructions : buildVirtualMachineInstallInstructions)({
       platformUrl: config.CONTROL_PLANE_BASE_URL,
       targetId: input.targetId,
       enrollmentToken: token,
       enrollmentExpiresAt: expiresAt,
       replaceCredential: input.purpose === 'replace',
       policyUpdate: input.markAccessPolicyUpdate,
-      releaseVersion: config.AGENTV_SYSTEMD_RELEASE_VERSION,
-      releaseBaseUrl: config.AGENTV_SYSTEMD_RELEASE_BASE_URL
+      ...release
     })
   };
 }
 
-export function buildAgentVRepairInstructions(targetId: string) {
-  return buildVirtualMachineInstallInstructions({
+function agentVInstallRelease(windows: boolean) {
+  if (!windows) return { releaseVersion: config.AGENTV_SYSTEMD_RELEASE_VERSION, releaseBaseUrl: config.AGENTV_SYSTEMD_RELEASE_BASE_URL };
+  if (!config.AGENTV_WINDOWS_ENABLED || !config.AGENTV_WINDOWS_RELEASE_VERSION || !config.AGENTV_WINDOWS_RELEASE_BASE_URL) throw new Error('Windows AgentV rollout is disabled or unqualified');
+  return { releaseVersion: config.AGENTV_WINDOWS_RELEASE_VERSION, releaseBaseUrl: config.AGENTV_WINDOWS_RELEASE_BASE_URL };
+}
+
+export function buildAgentVRepairInstructions(targetId: string, osFamily: 'linux' | 'windows' = 'linux') {
+  const windows = osFamily === 'windows';
+  return (windows ? buildVirtualMachineWindowsInstallInstructions : buildVirtualMachineInstallInstructions)({
     platformUrl: config.CONTROL_PLANE_BASE_URL,
     targetId,
-    releaseVersion: config.AGENTV_SYSTEMD_RELEASE_VERSION,
-    releaseBaseUrl: config.AGENTV_SYSTEMD_RELEASE_BASE_URL
+    ...agentVInstallRelease(windows)
   });
+}
+
+export function buildAgentVTargetRepairInstructions(targetId: string, metadata: Record<string, unknown>) {
+  const platform = parseVirtualMachinePlatform(metadata);
+  if (!platform) throw new Error('Stored VM platform is invalid');
+  return buildAgentVRepairInstructions(targetId, platform.osFamily);
 }
 
 export function parseAgentVEnrollmentToken(token: string): string | null {

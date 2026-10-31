@@ -1548,6 +1548,10 @@
       ]
     },
     "agentv": {
+      "runtimePlatforms": [{"osFamily": "linux", "serviceManager": "systemd"}, {"osFamily": "windows", "serviceManager": "scm"}],
+      "runtimeIdentityPolicy": "Both handshake identity fields are required and must match immutable stored target identity before provisional verification. Omitted registration or stored identity defaults to Linux/systemd.",
+      "windowsReadOnlyToolNames": ["get_host_summary", "list_filesystems", "list_processes", "get_process", "list_services", "get_service", "query_logs", "list_listeners"],
+      "windowsRollout": "Disabled by default; requires independently pinned Windows release settings. No Windows write enrollment, policies, discovery or dispatch.",
       "contractVersion": 2,
       "agentHeaders": [
         "x-agent-key",
