@@ -84,11 +84,35 @@ cannot assert service recovery. Findings are evaluated before inventory trimming
 and retained together with coverage, or the entire over-budget snapshot is
 dropped. Filesystem and memory pressure use the existing 90% threshold.
 
+## Executable compatibility checks
+
+AgentV's `src/windows/fixtures/snapshot-contract-cases.ts` builds synthetic
+healthy, denied, unavailable, partial and capped snapshots through the production
+`buildWindowsSnapshot`. `snapshot-contract.spec.ts` compares serialized output
+with `src/windows/fixtures/snapshot-contract.json`. Regenerate from AgentV with
+`node --import tsx scripts/windows-tests/generate-snapshot-contract.ts`, then
+copy the artifact to the control plane's `test/fixtures/windows-snapshot-contract.json`.
+The backend's `test/windows-vm-producer-contract.test.ts` validates those cases
+and checks collection health, retained/omitted counts and finding coverage against
+independent expectations, including findings retained beyond inventory trimming.
+
+The same backend test checks its installation builder against
+`test/fixtures/windows-generated-commands.json`, mirrored from AgentV's native
+`scripts/windows-tests/generated-command-fixtures.json`. Native wrapper tests
+execute those exact commands. Recorded source content hashes must match current
+builder/configuration files; the recorded Git revision is historical provenance.
+Each repository runs its checks without a sibling checkout. The parent workspace
+`scripts/harness/check-platform-contracts.mjs` checks both fixture copies and this
+runtime document for equality. Producer changes require regeneration, review of
+consumer expectations, and coordinated copies; fixture agreement alone does not
+qualify native execution.
+
 ## Execution and native qualification
 
 `acornops.windows-collectors.v1` fixed script identifiers use absolute Windows PowerShell, UTF-16LE
 encoded fixed code and UTF-8 JSON stdin. Input never becomes code or WQL. Each
-script runs for at most eight seconds, combined stdout/stderr is at most 1 MiB,
+script has a ten-second deadline for `host` and an eight-second deadline for all
+other collectors, combined stdout/stderr is at most 1 MiB,
 and enumeration is capped at 1000 retained rows plus a truncation sentinel.
 Event enumeration is additionally capped at the requested 500-row maximum and
 native byte budget. A minimal environment excludes credentials, profile/module
