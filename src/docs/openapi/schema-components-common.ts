@@ -1,4 +1,5 @@
 import { dateTime, JsonSchema, jsonObject, schemaRef, uuid } from './schema-types.js';
+import { targetConnectionObservationSchema } from '../../types/agent-connection.js';
 
 export const userSchema = {
   type: 'object',
@@ -29,6 +30,7 @@ export const targetSummarySchema = {
     name: { type: 'string' },
     status: { type: 'string' },
     connectionStatus: { type: 'string' },
+    connection: schemaRef('TargetConnectionObservation'),
     latestSnapshot: schemaRef('SnapshotReference'),
     summary: jsonObject,
     permissions: workspacePermissionsSchema
@@ -59,6 +61,7 @@ export const runSchema = {
 
 export function buildCommonSchemas(): Record<string, JsonSchema> {
   return {
+    TargetConnectionObservation: targetConnectionObservationSchema,
     JsonObject: jsonObject,
     EmptyObject: { type: 'object', additionalProperties: false },
     ErrorResponse: {

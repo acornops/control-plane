@@ -1,5 +1,7 @@
 # Completed Execution Plans
 
+- [Agent heartbeat freshness](agent-heartbeat-freshness.md) — Shared reporting expiry and console cache aging, with real-store and live transport validation.
+
 - [Tool schema preservation](2026-10-31-tool-schema-preservation.md) — Preserve constraints and reject unsupported metadata across Control Plane, Gateway and Engine.
 
 - [Admin metrics and document expiry](2026-10-31-metrics-document-retention.md) — Bounded labels and batched expiry cleanup.

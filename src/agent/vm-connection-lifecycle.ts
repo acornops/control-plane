@@ -78,6 +78,7 @@ async function cleanupFailedHandshake(conn: AgentConnection): Promise<void> {
 /** Publish a VM connection only after its guarded database transition commits. */
 export async function publishVirtualMachineConnection(input: {
   connection: AgentConnection;
+  heartbeatAt?: string;
   mayConnect: () => boolean;
   publish: (transition: VirtualMachineConnectionTransition) => void;
 }): Promise<void> {
@@ -94,7 +95,7 @@ export async function publishVirtualMachineConnection(input: {
   try {
     await claimAgentOwner({ clusterId: targetId, connectionId: conn.connectionId, workspaceId: conn.workspaceId, connectorVersion: conn.connectorVersion });
     if (!eligible()) return;
-    const transition = await vmConnections.transition(targetId, { status: 'online', connectionId: conn.connectionId, connectorVersion: conn.connectorVersion, allow: owns });
+    const transition = await vmConnections.transition(targetId, { status: 'online', connectionId: conn.connectionId, connectorVersion: conn.connectorVersion, heartbeatAt: input.heartbeatAt, allow: owns });
     if (!transition || !(await owns()) || !eligible()) return;
     // No await between the final local fence and publication. A delayed older
     // transaction/read cannot install its socket over a newer local attempt.

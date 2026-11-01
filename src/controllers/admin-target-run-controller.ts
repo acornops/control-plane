@@ -1,3 +1,4 @@
+import { reportedConnectionStatus } from '../services/agent-connection-freshness.js';
 import { NextFunction, Response } from 'express';
 import { agentGateway } from '../agent/ws-server.js';
 import { AdminAuthenticatedRequest } from '../auth/admin-token.js';
@@ -80,7 +81,8 @@ export async function getTargetAgent(req: AdminAuthenticatedRequest, res: Respon
       targetId,
       targetType: target.targetType,
       workspaceId: target.workspaceId,
-      connectionState: target.status,
+      connectionState: reportedConnectionStatus(target),
+      ...(target.connection ? { status: target.status, connection: target.connection } : {}),
       keyVersion: reg?.keyVersion || null,
       lastHeartbeatAt: reg?.lastHeartbeatAt || null,
       lastConnectionId: reg?.lastConnectionId || null,

@@ -183,6 +183,7 @@
       }
     },
     "management-console": {
+      "agentConnectionObservation": {"field":"connection?","states":["connected","disconnected","unknown"],"fields":["state","lastHeartbeatAt:string|null","observedAt:string","expiresAt:string|null","hasConnectionEvidence:boolean"],"graceSeconds":{"default":120,"min":60,"max":600},"statusSemantics":"persisted health/lifecycle and existing API status filters unchanged","cacheAging":"remaining server validity ages from original client receipt; no refresh on cache reads"},
       "windowsCollectionStatus": {
         "resources": "GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/resources",
         "projection": "Windows-only collectionStatus: {workspaceId,targetId,snapshotTs,categories:{host,filesystems,services,processes,network}} or null when the snapshot/read-model generation is missing",

@@ -7,3 +7,4 @@
 | [Workflow Activity Provenance](/docs/design-docs/workflow-activity-provenance.md) | Active | Immutable execution origins, workspace ledger queries, and trigger pointers | Verified against persistence and OpenAPI tests on July 26, 2026 |
 | [Target Auto-Triage](/docs/design-docs/target-auto-triage.md) | Experimental | Target-native settings, lifecycle jobs, shared investigations, write ceilings, and operations | Added with the first-class target auto-triage implementation on July 29, 2026 |
 | [VM connection status repair](/docs/design-docs/vm-connection-status-repair.md) | Design gate | Shared Linux/Windows outage repair; authority and mixed-version rollout must be reviewed before a periodic writer | Independent design review on 2026-11-01; runtime unchanged |
+| [Agent heartbeat freshness](agent-heartbeat-freshness.md) | Implementation | Shared reporting expiry without an ownership writer | Unit, gateway and real-store regression coverage |

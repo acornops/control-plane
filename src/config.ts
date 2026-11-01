@@ -138,6 +138,7 @@ const envSchema = z.object({
   MCP_OAUTH_ENABLED: envBoolean(true),
   ...lifecycleConfigFields,
   CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS: z.coerce.number().int().positive().default(90),
+  CONTROL_PLANE_AGENT_HEARTBEAT_FRESHNESS_SECONDS: z.coerce.number().int().min(60).max(600).default(120),
   CONTROL_PLANE_AGENT_SNAPSHOT_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(60),
   CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED: optionalEnvBoolean(),
   ...agentTransportConfigFields,

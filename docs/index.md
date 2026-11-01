@@ -64,3 +64,6 @@ This `docs/` tree is the repository-local system of record for agent-readable de
 - [http-parser-log-protection plan](exec-plans/active/2026-11-01-http-parser-log-protection.md)
 
 - [Shared VM status characterization](exec-plans/completed/windows-status-characterization.md) — Real-store tests only; ownership protocol remains open.
+
+- [Agent heartbeat freshness](design-docs/agent-heartbeat-freshness.md) — Shared connection observations and cache expiry.
+- [Heartbeat implementation](exec-plans/completed/agent-heartbeat-freshness.md) — Focused implementation and validation record.

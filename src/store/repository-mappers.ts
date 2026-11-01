@@ -1,5 +1,6 @@
 import { getConfiguredRoleTemplate, getWorkspacePermissions, isSupportedRole } from '../auth/authorization.js';
 import { config } from '../config.js';
+import { observeAgentConnection } from '../services/agent-connection-freshness.js';
 import { permissionModeForLegacyWriteConfirmation } from '../services/run-permission-policy.js';
 import { ChatSession, KubernetesCluster, KUBERNETES_TARGET_TYPE, Message, Role, Run, RunContinuation, RunEvent, TargetAgentRegistration, TargetSummary, User, Workspace, WorkspaceInvitation, WorkspaceMembership, WorkspaceSummary } from '../types/domain.js';
 import type { PasswordCredentialRow, PasswordCredentialWithUser, UserRow } from './repository-auth-row-types.js';
@@ -55,7 +56,20 @@ export interface WorkspaceInvitationRow {
   revoked_at: Date | string | null;
 }
 
-export interface ClusterRow {
+export interface ConnectionObservationRow {
+  status: TargetSummary['status'];
+  connection_id?: string | null;
+  connection_heartbeat_at?: Date | string | null;
+  connection_observed_at?: Date | string;
+}
+
+export function mapConnectionObservation(row: ConnectionObservationRow): Pick<TargetSummary, 'connection'> {
+  if (row.connection_observed_at === undefined) return {};
+  return { connection: observeAgentConnection(row.status, row.connection_id, row.connection_heartbeat_at,
+    row.connection_observed_at, config.CONTROL_PLANE_AGENT_HEARTBEAT_FRESHNESS_SECONDS) };
+}
+
+export interface ClusterRow extends ConnectionObservationRow {
   id: string;
   workspace_id: string;
   target_type?: string;
@@ -69,7 +83,7 @@ export interface ClusterRow {
   updated_at: Date | string;
 }
 
-export interface TargetRow {
+export interface TargetRow extends ConnectionObservationRow {
   id: string;
   workspace_id: string;
   target_type: TargetSummary['targetType'];
@@ -367,6 +381,7 @@ export function mapCluster(row: ClusterRow): KubernetesCluster {
     name: row.name,
     status: row.status,
     namespaceInclude: Array.isArray(row.namespace_include) ? row.namespace_include : [],
+    ...mapConnectionObservation(row),
     namespaceExclude: Array.isArray(row.namespace_exclude) ? row.namespace_exclude : [],
     permissionMode,
     permissionModeOverride,
@@ -390,6 +405,7 @@ export function mapTarget(row: TargetRow): TargetSummary {
     name: row.name,
     status: row.status,
     metadata: row.metadata || {},
+    ...mapConnectionObservation(row),
     createdAt: toIso(row.created_at)!,
     updatedAt: toIso(row.updated_at)!
   };

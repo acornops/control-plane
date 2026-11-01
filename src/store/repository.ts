@@ -62,6 +62,7 @@ import {
   listWorkspaceTargetAgentRegistrations as listWorkspaceTargetAgentRegistrationsRecord,
   rotateTargetAgentKey as rotateTargetAgentKeyRecord, updateTargetAgentCapabilities as updateTargetAgentCapabilitiesRecord,
   updateTargetAgentSeen as updateTargetAgentSeenRecord,
+  invalidateTargetAgentHeartbeat as invalidateTargetAgentHeartbeatRecord,
   upsertTargetAgentRegistration as upsertTargetAgentRegistrationRecord
 } from './repository-target-agent-registrations.js';
 import { agentVEnrollmentRepository } from './repository-agentv-enrollments.js';
@@ -343,6 +344,7 @@ export class Repository {
   rotateTargetAgentKey = rotateTargetAgentKeyRecord;
   updateTargetAgentCapabilities = updateTargetAgentCapabilitiesRecord;
   updateTargetAgentSeen = updateTargetAgentSeenRecord;
+  invalidateTargetAgentHeartbeat = invalidateTargetAgentHeartbeatRecord;
 
   addSession = addSessionRecord;
 

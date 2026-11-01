@@ -859,3 +859,17 @@ IPC is bounded to 3 MiB input and 8 KiB output; at most twelve diagnostics have
 256-byte paths/messages. Children receive schema/instance JSON and an empty
 environment, and do not load service configuration or retrieve external schemas.
 Roll out both Python services to remove inline validation from both boundaries.
+
+## Agent connection freshness
+
+`CONTROL_PLANE_AGENT_HEARTBEAT_FRESHNESS_SECONDS` defaults to 120 seconds and
+accepts 60–600. It bounds connection reporting for AgentV and AgentK (normally
+30-second heartbeats). An online/degraded row without recent accepted heartbeat
+evidence is no longer reported connected. The console expires cached observations
+even when the control plane is unavailable. A fresh heartbeat restores reporting.
+
+This setting does not alter owner TTL, command dispatch, persistent target health,
+permissions, collector health or disconnect events. Increasing it delays detection;
+a very short grace can report temporary delays as disconnection. Use synchronized
+control-plane/database clocks. The separate ownership/status-repair design remains
+open. See [the design](design-docs/agent-heartbeat-freshness.md) for boundaries.

@@ -766,3 +766,31 @@ to the rows' snapshot timestamp. Fixed category notices retain usable rows and
 qualify incomplete empty collections. Linux keeps its exact `{items}` inventory
 envelope, log handling, array caches and UI behavior. Deploy the additive backend
 before the consumer; an older backend leaves Windows collection status unknown.
+
+## Agent connection observations
+
+Target, Kubernetes cluster and VM read responses include optional `connection`:
+`{state: connected|disconnected|unknown, lastHeartbeatAt: string|null, observedAt: string, expiresAt: string|null}`.
+The shared server calculation uses the authenticated connection identity and
+server-received heartbeat, including the initial accepted handshake. It never
+uses snapshot age or `last_seen_at`, which also advances on disconnect. Known
+offline status wins; online/degraded needs a nonfuture heartbeat strictly
+younger than the grace period. Missing evidence is unknown.
+
+`status` and existing API status filters retain their persisted health/lifecycle
+meaning. Admin `connectionState` and Targets MCP `connection_status` report
+freshness; their optional `status` and `connection` fields retain stored health
+and the observation. A connected degraded target remains degraded.
+
+Deploy the backend before the console. Legacy consumers may ignore this additive
+field. New consumers age remaining validity (`expiresAt - observedAt`) from the
+original local receipt time, including during failed fetches/cache restoration,
+and keep legacy behavior only when the field is absent. No agent protocol or
+release is required. This is reporting, not a routing lease or a durable status
+repair; expiry does not emit a disconnect event.
+
+`connection.hasConnectionEvidence` preserves whether an identity or heartbeat
+was recorded, including unusable/future timestamps. This prevents invalid
+evidence from becoming fabricated initial setup. Failed Kubernetes publication
+invalidates only that attempt's heartbeat using its exact persisted identity;
+replacement evidence, keys and stored health remain unchanged.

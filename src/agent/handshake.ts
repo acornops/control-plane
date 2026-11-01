@@ -24,6 +24,7 @@ export async function handleAgentHandshake(input: {
   connectorVersion: string;
   mayConnect?: () => boolean;
 }): Promise<void> {
+  const receivedAt = new Date().toISOString();
   const mayConnect = () => input.ws.readyState === WebSocket.OPEN && (input.mayConnect?.() ?? serviceLifecycle.accepting);
   const rejectDraining = () => { input.ws.close(1012, 'Control plane draining'); };
   if (!mayConnect()) { rejectDraining(); return; }
@@ -142,7 +143,6 @@ export async function handleAgentHandshake(input: {
   const now = new Date().toISOString();
   await repo.updateTargetAgentSeen(reg.targetId, {
     lastSeenAt: now,
-    lastHeartbeatAt: now,
     lastAuthenticatedKeyVersion: authenticatedKeyVersion,
     lastConnectorVersion: targetType === KUBERNETES_TARGET_TYPE ? input.connectorVersion : undefined
   });
@@ -278,7 +278,7 @@ export async function handleAgentHandshake(input: {
     })));
   };
   if (targetType === VIRTUAL_MACHINE_TARGET_TYPE) {
-    await publishVirtualMachineConnection({ connection, mayConnect, publish: (transition) => {
+    await publishVirtualMachineConnection({ connection, heartbeatAt: receivedAt, mayConnect, publish: (transition) => {
       updatedTarget = transition; previousStatus = transition.previousStatus; publish();
     } });
     return;
@@ -286,8 +286,9 @@ export async function handleAgentHandshake(input: {
   updatedTarget = await repo.updateCluster(target.id, { status: 'online' });
   if (!mayConnect()) { rejectDraining(); return; }
   await claimAgentOwner({ clusterId: target.id, connectionId, workspaceId: target.workspaceId, connectorVersion: input.connectorVersion });
-  await repo.updateTargetAgentSeen(target.id, { lastConnectionId: connectionId });
+  await repo.updateTargetAgentSeen(target.id, { lastConnectionId: connectionId, lastHeartbeatAt: receivedAt });
   if (!mayConnect()) {
+    await repo.invalidateTargetAgentHeartbeat(target.id, connectionId);
     await clearAgentOwnerIfCurrent(target.id, connectionId); rejectDraining(); return;
   }
   publish();

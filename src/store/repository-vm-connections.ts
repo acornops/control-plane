@@ -17,6 +17,7 @@ export async function transitionVirtualMachineConnection(
     status: 'online' | 'offline';
     connectionId?: string;
     connectorVersion?: string;
+    heartbeatAt?: string;
     allow: () => Promise<boolean>;
   }
 ): Promise<VirtualMachineConnectionTransition | null> {
@@ -38,8 +39,10 @@ export async function transitionVirtualMachineConnection(
     if (!(await input.allow())) return null;
     const updatedAt = new Date().toISOString();
     await client.query('UPDATE targets SET status=$2,updated_at=$3 WHERE id=$1', [targetId, input.status, updatedAt]);
-    await client.query('UPDATE target_agent_registrations SET last_connection_id=$2,last_seen_at=$3,last_connector_version=COALESCE($4,last_connector_version) WHERE target_id=$1',
-      [targetId, input.status === 'online' ? input.connectionId : null, updatedAt, input.status === 'online' ? input.connectorVersion : null]);
+    await client.query(`UPDATE target_agent_registrations SET last_connection_id=$2,last_seen_at=$3,
+      last_connector_version=COALESCE($4,last_connector_version),last_heartbeat_at=COALESCE($5,last_heartbeat_at) WHERE target_id=$1`,
+      [targetId, input.status === 'online' ? input.connectionId : null, updatedAt, input.status === 'online' ? input.connectorVersion : null,
+        input.status === 'online' ? input.heartbeatAt ?? updatedAt : null]);
     return {
       workspaceId: target.rows[0].workspace_id, previousStatus: target.rows[0].status,
       status: input.status, updatedAt, connectionId: input.status === 'online' ? input.connectionId! : current.last_connection_id!,

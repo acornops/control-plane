@@ -1,3 +1,4 @@
+import type { TargetConnectionObservation } from './agent-connection.js';
 import type { VirtualMachinePlatform } from './virtual-machine-platform.js';
 import { type TargetType } from './target-types.js';
 import type { AgentVAccessPolicy } from './agentv-access-policy.js';
@@ -174,12 +175,15 @@ export interface WorkspaceAiSettings {
   updatedAt?: string;
 }
 
+export type { TargetConnectionObservation } from './agent-connection.js';
+
 export interface TargetSummary {
   id: string;
   workspaceId: string;
   targetType: TargetType;
   name: string;
   status: 'online' | 'offline' | 'degraded' | 'unknown';
+  connection?: TargetConnectionObservation;
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
@@ -310,6 +314,7 @@ export type VirtualMachineTarget = VirtualMachinePlatform & {
   workspaceId: string;
   name: string;
   status: 'online' | 'offline' | 'degraded' | 'unknown';
+  connection?: TargetConnectionObservation;
   hostname?: string;
   allowedLogSources: string[];
   agentAccessMode: AgentVAccessPolicy['accessMode'];

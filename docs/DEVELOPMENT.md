@@ -104,3 +104,5 @@ Keep `README.md`, `AGENTS.md`, `ARCHITECTURE.md`, `docs/index.md`, this file, an
 
 See [Workspace Execution Capacity](workspace-execution-capacity.md) for runtime
 invariants, rollout prerequisites and isolated replica verification.
+
+Heartbeat freshness regression coverage lives in `test/agent-connection-freshness.test.ts`, `test/agent-heartbeat-gateway.test.ts`, `test/agent-heartbeat-recording.test.ts` and `test/agent-connection-reads.test.ts`. Run the real-store cases with the disposable test database configuration described above; the existing VM ownership regressions remain required.

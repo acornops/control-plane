@@ -1,3 +1,4 @@
+import { handleAgentHeartbeat } from './heartbeat.js';
 import { assertVirtualMachineRpcAllowed, filterVirtualMachineTools } from '../services/agentv-tool-policy.js';
 import { beginAgentDispatch, waitForOwnerHandoff } from './owner-handoff.js';
 import { assertAgentExecutionAllowed, currentAgentExecution, withAgentExecution } from './execution-authority.js';
@@ -404,7 +405,9 @@ export class AgentGateway {
     connectorVersion: string,
     remoteAddress = 'unknown'
   ): Promise<void> {
-    const authenticated = Boolean(getAgentConnectionForWebSocket(ws));
+    const receivedAt = new Date().toISOString();
+    const receivedConnection = getAgentConnectionForWebSocket(ws);
+    const authenticated = Boolean(receivedConnection);
     let decoded: string;
     try {
       decoded = await decodeAgentMessage(raw, {
@@ -483,22 +486,7 @@ export class AgentGateway {
     }
 
     if (message.method === 'lifecycle/heartbeat') {
-      const conn = getAgentConnectionForWebSocket(ws);
-      if (conn) {
-        if (!(await this.ensureAgentConnectionCurrent(conn))) {
-          return;
-        }
-        if (!(await refreshAgentOwner(conn.clusterId, conn.connectionId))) {
-          closeStaleAgentConnection(conn.clusterId, conn);
-          return;
-        }
-        const now = new Date().toISOString();
-        await repo.updateTargetAgentSeen(conn.clusterId, {
-          lastSeenAt: now,
-          lastHeartbeatAt: now,
-          lastAuthenticatedKeyVersion: conn.keyVersion
-        });
-      }
+      await handleAgentHeartbeat(receivedConnection, receivedAt, (conn) => this.ensureAgentConnectionCurrent(conn));
       return;
     }
 

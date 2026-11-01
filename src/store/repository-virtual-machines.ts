@@ -18,7 +18,7 @@ import { isRunPermissionMode } from '../types/run-permission.js';
 import { PagedResult, encodeCursor, pageWithCursor } from '../utils/pagination.js';
 import { TargetFindingInput, TargetInventoryItemInput } from './repository-target-inventory.js';
 import { replaceTargetInventorySnapshot } from './repository-target-inventory.js';
-import { TargetRow, toIso } from './repository-mappers.js';
+import { mapConnectionObservation, TargetRow, toIso } from './repository-mappers.js';
 import { withTransaction } from './repository-transaction.js';
 import { reconcileTargetIssues } from './repository-target-issues.js';
 import { assertWorkspaceTargetQuota } from './repository-quotas.js';
@@ -27,6 +27,10 @@ import { upsertTargetMetricSample } from './repository-target-metrics.js';
 interface VmRow extends TargetRow {
   metadata: Record<string, unknown>;
 }
+
+const vmSelect = `SELECT t.*, r.last_connection_id AS connection_id,
+  r.last_heartbeat_at AS connection_heartbeat_at, CURRENT_TIMESTAMP AS connection_observed_at
+  FROM targets t LEFT JOIN target_agent_registrations r ON r.target_id = t.id`;
 
 interface PreviousSnapshotRow {
   snapshot_ts: Date | string;
@@ -146,6 +150,7 @@ function mapVm(row: VmRow): VirtualMachineTarget {
     workspaceId: row.workspace_id,
     name: row.name,
     status: row.status,
+    ...mapConnectionObservation(row),
     hostname: text(metadata.hostname) || undefined,
     ...platform,
     allowedLogSources: stringList(metadata.allowedLogSources, platform.osFamily === 'windows' ? ['Application', 'System'] : ['journald', 'syslog']),
@@ -204,7 +209,7 @@ export async function listVirtualMachines(
 ): Promise<PagedResult<VirtualMachineTarget>> {
   const limit = Math.max(1, Math.min(100, options.limit ?? 50));
   const params: Array<string | number> = [workspaceId, limit + 1];
-  const clauses = ['workspace_id = $1', "target_type = 'virtual_machine'"];
+  const clauses = ['t.workspace_id = $1', "target_type = 'virtual_machine'"];
   if (options.status) {
     params.push(options.status);
     clauses.push(options.status === 'offline'
@@ -220,8 +225,7 @@ export async function listVirtualMachines(
     clauses.push(`(created_at, id) > ($${params.length - 1}::timestamptz, $${params.length}::text)`);
   }
   const result = await db.query<VmRow>(
-    `SELECT id, workspace_id, target_type, name, status, metadata, created_at, updated_at
-     FROM targets
+    `${vmSelect}
      WHERE ${clauses.join(' AND ')}
      ORDER BY created_at ASC, id ASC
      LIMIT $2`,
@@ -234,8 +238,7 @@ export async function listVirtualMachines(
 
 export async function getVirtualMachine(vmId: string): Promise<VirtualMachineTarget | null> {
   const result = await db.query<VmRow>(
-    `SELECT id, workspace_id, target_type, name, status, metadata, created_at, updated_at
-     FROM targets
+    `${vmSelect}
      WHERE id = $1 AND target_type = 'virtual_machine'`,
     [vmId]
   );
