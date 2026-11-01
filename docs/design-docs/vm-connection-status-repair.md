@@ -96,3 +96,13 @@ dependency failure during close/commit, process death/restart, two repair replic
 settings/admin-status races, fair pagination and shutdown. In-memory mocks do not
 establish these guarantees. Parameterize Linux (including legacy missing OS
 metadata) and Windows; keep Kubernetes checks unchanged.
+
+## Executable characterization
+
+`test/vm-connection-repair-ownership.test.ts` uses real PostgreSQL and Redis.
+Its barriers delay an actual missing GET reply across B claiming ownership, then
+allow B to publish after A commits offline. It asserts that existing intermediate
+state, final B identity, and committed-B protection with both present and absent
+Redis ownership, edited settings and administrative degraded status. Legacy
+Linux and Windows share the tests. These tests do not implement a periodic
+repair worker or close the protocol design gate.

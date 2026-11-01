@@ -32,8 +32,8 @@
 
 **Interfaces:** Existing `publishVirtualMachineConnection` and `vmConnections.transition`; actual Redis claim/get/renew operations. No new public/runtime interface at this gate.
 
-- [ ] Add a deterministic real-store race: lock persisted A, pause a missing GET reply, claim B, release the reply, then allow B's SQL transition. Record the permitted current intermediate status and final identity without calling it a new regression.
-- [ ] Cover B committed before candidate locking; assert exact-ID cleanup cannot clear B and cannot alter settings/admin status.
+- [x] Add a deterministic real-store race: lock persisted A, pause a missing GET reply, claim B, release the reply, then allow B's SQL transition. Record the permitted current intermediate status and final identity without calling it a new regression.
+- [x] Cover B committed before candidate locking; assert exact-ID cleanup cannot clear B and cannot alter settings/admin status.
 - [ ] Define whether a replacement becomes live at Redis claim or at post-commit publication, then specify one authoritative ownership protocol with exact claim/renew/dispatch/heartbeat/close/drain ordering, lease expiry authority, failure/cancellation semantics, and mixed-version rollout/rollback. Enumerate every ownership writer/consumer before selecting SQL/schema changes.
 - [ ] Independently review that protocol against the above races. Do not proceed with a periodic writer if the only proof is repeated Redis reads or an expiring worker lock.
 
