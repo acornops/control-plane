@@ -1,4 +1,3 @@
-import { filterVirtualMachineTools } from './agentv-tool-policy.js';
 import { agentGateway } from '../agent/ws-server.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
@@ -63,8 +62,7 @@ export async function syncTargetBuiltInTools(
   const rejected = new Map<string, ToolSchemaRejectedError>();
   try {
     const discoveredTools = await agentGateway.listAgentTools(targetId);
-    const permittedTools = targetType === 'virtual_machine' ? await filterVirtualMachineTools(targetId, discoveredTools) : discoveredTools;
-    const builtinTools = permittedTools
+    const builtinTools = discoveredTools
       .filter((tool) => {
         if (!isReservedInternalToolName(tool.name)) return true;
         logger.warn({ workspaceId, targetId, targetType, toolName: tool.name }, 'Skipping reserved internal built-in tool name during sync');

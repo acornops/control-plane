@@ -45,8 +45,6 @@ export const windowsSnapshotSchema = z.object({
   finding_coverage: z.object({ filesystems: z.enum(['complete', 'incomplete']), services: z.enum(['complete', 'incomplete']) }).strict(),
   truncation: z.object({ filesystems: count, services: count, processes: count, listeners: count }).strict()
 }).strict();
-export type WindowsSnapshotData = z.infer<typeof windowsSnapshotSchema>;
-export type WindowsService = z.infer<typeof service>;
 
 export function isWindowsSnapshot(snapshot: VirtualMachineSnapshot): boolean {
   return snapshot.data.schema_version === 'acornops.agentv-windows-snapshot.v1';

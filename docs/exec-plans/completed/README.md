@@ -56,3 +56,5 @@ certification. Each archive note preserves outstanding acceptance or historical 
 - [Target chat slash references](target-chat-slash-references.md)
 
 - [Shared VM status characterization](windows-status-characterization.md) — Ten real-store race tests; production source unchanged and ownership repair still gated.
+
+- [Windows VM final catch-all](windows-final-catch-all.md) — Scoped audit fixes, redundancy removal and verification evidence.

@@ -50,9 +50,10 @@ it('denies unknown and restart tools at the actual local and remote-owner dispat
   await assert.rejects(gateway.sendJsonRpc('vm-1', 'tools/call', { name: 'query_logs' }), /reviewed read tools/);
   assert.deepEqual(ws.sent, []);
 });
-it('filters unsafe Windows tools at built-in synchronization even with independent discovery', async () => {
+it('synchronizes the gateway-filtered Windows catalog with one platform lookup', async () => {
   const { agentGateway } = await import('../src/agent/ws-server.js');
-  mock.method(agentGateway, 'listAgentTools', async () => tools);
+  mock.method(agentGateway, 'sendJsonRpc', async () => ({ tools }));
+  const platform = mock.method(repo, 'getVirtualMachine', async () => ({ osFamily: 'windows', serviceManager: 'scm' }) as Awaited<ReturnType<typeof repo.getVirtualMachine>>);
   let registeredNames: string[] = [];
   mock.method(globalThis, 'fetch', async (input, init) => {
     if (init?.method === 'PUT') {
@@ -65,6 +66,7 @@ it('filters unsafe Windows tools at built-in synchronization even with independe
   const result = await syncTargetBuiltInTools('ws', 'vm-1', 'virtual_machine');
   assert.equal(result.ok, true);
   assert.deepEqual(registeredNames, tools.slice(0, 8).map((tool) => tool.name));
+  assert.equal(platform.mock.callCount(), 1);
 });
 
 it('rejects deleted-target discovery instead of exposing a stale Windows catalog', async () => {

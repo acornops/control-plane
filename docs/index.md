@@ -67,3 +67,5 @@ This `docs/` tree is the repository-local system of record for agent-readable de
 
 - [Agent heartbeat freshness](design-docs/agent-heartbeat-freshness.md) — Shared connection observations and cache expiry.
 - [Heartbeat implementation](exec-plans/completed/agent-heartbeat-freshness.md) — Focused implementation and validation record.
+
+- [Windows VM final catch-all](exec-plans/completed/windows-final-catch-all.md).
