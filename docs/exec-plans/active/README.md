@@ -14,4 +14,3 @@ Reviewed 2026-10-18. Implementation-only plans that have landed are in
 - [http-parser-log-protection](2026-11-01-http-parser-log-protection.md) — Implementation verified; awaiting integration.
 
 - [VM connection status repair](vm-connection-status-repair.md) — Design gate; shared ownership/liveness and rollout contract required before outage repair implementation.
-
