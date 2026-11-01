@@ -32,7 +32,7 @@ validation helpers, and PR coordination workflow.
 - `src/routes`: HTTP route registration and middleware wiring
 - `src/controllers`: request handling and orchestration behavior
 - `src/services`: downstream clients and platform integration logic
-- `src/agent`: websocket bridge for agentk connectivity
+- `src/agent`: authenticated WebSocket bridge for AgentK and AgentV connectivity
 - `src/store`: Postgres-backed state and Redis-backed runtime coordination
 - `src/types`: API and internal boundary schemas
 

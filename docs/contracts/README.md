@@ -770,7 +770,7 @@ before the consumer; an older backend leaves Windows collection status unknown.
 ## Agent connection observations
 
 Target, Kubernetes cluster and VM read responses include optional `connection`:
-`{state: connected|disconnected|unknown, lastHeartbeatAt: string|null, observedAt: string, expiresAt: string|null}`.
+`{state: connected|disconnected|unknown, lastHeartbeatAt: string|null, observedAt: string, expiresAt: string|null, hasConnectionEvidence: boolean}`.
 The shared server calculation uses the authenticated connection identity and
 server-received heartbeat, including the initial accepted handshake. It never
 uses snapshot age or `last_seen_at`, which also advances on disconnect. Known
