@@ -72,6 +72,12 @@ export async function updateTargetAgentCapabilities(targetId: string, capabiliti
   );
 }
 
+/** A failed publication may invalidate only the heartbeat stamped by that identity. */
+export async function invalidateTargetAgentHeartbeat(targetId: string, connectionId: string): Promise<void> {
+  await db.query(`UPDATE target_agent_registrations SET last_heartbeat_at = NULL
+    WHERE target_id = $1 AND last_connection_id = $2`, [targetId, connectionId]);
+}
+
 export async function rotateTargetAgentKey(
   targetId: string,
   expectedKeyVersion: number,
@@ -98,23 +104,25 @@ export async function updateTargetAgentSeen(
     lastAuthenticatedKeyVersion?: number;
     lastConnectionId?: string;
     lastConnectorVersion?: string;
+    expectedConnectionId?: string;
   }
 ): Promise<void> {
   await db.query(
     `UPDATE target_agent_registrations
-     SET last_seen_at = COALESCE($2, last_seen_at),
-         last_heartbeat_at = COALESCE($3, last_heartbeat_at),
+     SET last_seen_at = CASE WHEN $7::text IS NULL THEN COALESCE($2, last_seen_at) ELSE GREATEST($2, last_seen_at) END,
+         last_heartbeat_at = CASE WHEN $7::text IS NULL THEN COALESCE($3, last_heartbeat_at) ELSE GREATEST($3, last_heartbeat_at) END,
          last_authenticated_key_version = COALESCE($4, last_authenticated_key_version),
          last_connection_id = COALESCE($5, last_connection_id),
          last_connector_version = COALESCE($6, last_connector_version)
-     WHERE target_id = $1`,
+     WHERE target_id = $1 AND ($7::text IS NULL OR last_connection_id = $7)`,
     [
       targetId,
       data.lastSeenAt ?? null,
       data.lastHeartbeatAt ?? null,
       data.lastAuthenticatedKeyVersion ?? null,
       data.lastConnectionId ?? null,
-      data.lastConnectorVersion ?? null
+      data.lastConnectorVersion ?? null,
+      data.expectedConnectionId ?? null
     ]
   );
 }

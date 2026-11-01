@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
+import WebSocket from 'ws';
+import { handleAgentHandshake } from '../src/agent/handshake.js';
+import { FakeWebSocket } from './helpers/agent-gateway-fixtures.js';
 import { after, beforeEach, describe, it } from 'node:test';
 import { db } from '../src/infra/db.js';
+import { config } from '../src/config.js';
+import { addVirtualMachine, updateVirtualMachine } from '../src/store/repository-virtual-machines.js';
 import { agentVEnrollmentRepository as baseEnrollmentRepo } from '../src/store/repository-agentv-enrollments.js';
 import type { AgentVAccessPolicy } from '../src/types/agentv-access-policy.js';
 import { hashSecret } from '../src/utils/crypto.js';
@@ -45,6 +50,63 @@ describe('AgentV enrollment credential transactions', { skip: !hasIsolatedDataba
     );
   });
   after(closeAutomationDatabaseFixtures);
+
+  it('binds pending authentication to stored OS before verification in either direction', async () => {
+    for (const osFamily of ['linux', 'windows'] as const) {
+      await db.query("DELETE FROM agentv_enrollments WHERE target_id = 'vm-1'");
+      await db.query("UPDATE targets SET metadata = $1::jsonb WHERE id = 'vm-1'", [JSON.stringify({ osFamily, serviceManager: osFamily === 'linux' ? 'systemd' : 'scm' })]);
+      const id = '91919191-9191-4191-8191-919191919191';
+      const rawToken = token(id, 'z');
+      assert.equal(await enrollmentRepo.createAgentVEnrollment(enrollmentInput(id, rawToken, 'initial')), true);
+      const exchanged = await enrollmentRepo.exchangeAgentVEnrollment({ enrollmentId: id, token: rawToken, targetId: 'vm-1', purpose: 'initial' });
+      assert.ok(exchanged);
+      const wrong = osFamily === 'linux' ? { osFamily: 'windows' as const, serviceManager: 'scm' as const } : { osFamily: 'linux' as const, serviceManager: 'systemd' as const };
+      assert.equal(await enrollmentRepo.authenticateAgentVCredential('vm-1', exchanged.agentKey, wrong), null);
+      const ws = new FakeWebSocket();
+      await handleAgentHandshake({ ws: ws as unknown as WebSocket, requestId: 'mismatch', params: { targetId: 'vm-1', targetType: 'virtual_machine', agentType: 'agentv', hostFeatures: wrong }, agentKeyHeader: exchanged.agentKey, connectorVersion: 'agentv/test', mayConnect: () => true });
+      assert.equal(ws.closeCode, 1008);
+      const target = await db.query("SELECT status FROM targets WHERE id = 'vm-1'");
+      assert.equal(target.rows[0].status, 'unknown');
+      assert.equal((await db.query("SELECT target_id FROM target_agent_registrations WHERE target_id = 'vm-1'")).rowCount, 0);
+      const state = await db.query('SELECT e.status, c.verified_at FROM agentv_enrollments e JOIN agentv_credentials c ON c.enrollment_id = e.id WHERE e.id = $1', [id]);
+      assert.equal(state.rows[0].status, 'exchanged');
+      assert.equal(state.rows[0].verified_at, null);
+      if (osFamily === 'windows') assert.equal(await enrollmentRepo.authenticateAgentVCredential('vm-1', exchanged.agentKey), null);
+      const correct = osFamily === 'linux' ? { osFamily, serviceManager: 'systemd' as const } : { osFamily, serviceManager: 'scm' as const };
+      assert.equal((await enrollmentRepo.authenticateAgentVCredential('vm-1', exchanged.agentKey, correct))?.provisional, true);
+      assert.equal((await enrollmentRepo.commitAgentVInstallation(id, exchanged.transactionSecret))?.state, 'active');
+      const registration = await db.query('SELECT capabilities FROM target_agent_registrations WHERE target_id = $1', ['vm-1']);
+      assert.deepEqual(registration.rows[0].capabilities, ['read', 'logs', 'mcp', 'chat', correct.serviceManager, osFamily]);
+      await db.query("DELETE FROM target_agent_registrations WHERE target_id = 'vm-1'");
+      await db.query("DELETE FROM agentv_credentials WHERE target_id = 'vm-1'");
+    }
+  });
+
+  it('refuses Windows write enrollments without creating provisional credentials or policy markers', async () => {
+    await db.query("UPDATE targets SET metadata = '{\"osFamily\":\"windows\",\"serviceManager\":\"scm\"}'::jsonb WHERE id = 'vm-1'");
+    const id = '92929292-9292-4292-8292-929292929292';
+    assert.equal(await enrollmentRepo.createAgentVEnrollment({ ...enrollmentInput(id, token(id, 'a'), 'initial'), accessPolicy: { accessMode: 'read_write', restartServices: ['nginx.service'] } }), false);
+    const rows = await db.query('SELECT id FROM agentv_enrollments WHERE id = $1', [id]);
+    assert.equal(rows.rowCount, 0);
+  });
+
+  it('persists qualified Windows registration and preserves its immutable identity on status/settings changes', async () => {
+    const previous = { enabled: config.AGENTV_WINDOWS_ENABLED, version: config.AGENTV_WINDOWS_RELEASE_VERSION, url: config.AGENTV_WINDOWS_RELEASE_BASE_URL };
+    try {
+      config.AGENTV_WINDOWS_ENABLED = true;
+      config.AGENTV_WINDOWS_RELEASE_VERSION = '1.2.3';
+      config.AGENTV_WINDOWS_RELEASE_BASE_URL = 'https://releases.test';
+      const vm = await addVirtualMachine('workspace-1', { name: 'Windows', osFamily: 'windows', serviceManager: 'scm', accessPolicy: { accessMode: 'read_only', restartServices: [] } });
+      assert.equal(vm.osFamily, 'windows');
+      assert.deepEqual(vm.allowedLogSources, ['Application', 'System']);
+      const updated = await updateVirtualMachine(vm.id, { status: 'online', name: 'Windows updated', hostname: 'win.example.test' });
+      assert.equal(updated?.osFamily, 'windows');
+      assert.equal(updated?.serviceManager, 'scm');
+      const raw = await db.query('SELECT metadata FROM targets WHERE id = $1', [vm.id]);
+      assert.equal(raw.rows[0].metadata.osFamily, 'windows');
+      assert.equal(raw.rows[0].metadata.serviceManager, 'scm');
+    } finally { config.AGENTV_WINDOWS_ENABLED = previous.enabled; config.AGENTV_WINDOWS_RELEASE_VERSION = previous.version; config.AGENTV_WINDOWS_RELEASE_BASE_URL = previous.url; }
+  });
 
   it('stores only hashes, consumes once, and restores the prior credential after a committed replacement', async () => {
     const initialId = '11111111-1111-4111-8111-111111111111';

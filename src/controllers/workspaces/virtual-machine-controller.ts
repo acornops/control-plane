@@ -1,3 +1,5 @@
+import { buildVirtualMachineLogRequest } from '../../services/virtual-machine-log-request.js';
+import { allowVirtualMachineRegistration } from './virtual-machine-registration-policy.js';
 import { NextFunction, Response } from 'express';
 import { agentGateway } from '../../agent/ws-server.js';
 import { AuthenticatedRequest } from '../../auth/middleware.js';
@@ -8,7 +10,7 @@ import {
 } from '../../auth/workspace-authorization.js';
 import type { WorkspaceAuthorization } from '../../auth/workspace-authorization.js';
 import { webhooks } from '../../services/webhooks.js';
-import { buildAgentVRepairInstructions, issueAgentVEnrollment } from '../../services/agentv-enrollment.js';
+import { buildAgentVTargetRepairInstructions, issueAgentVEnrollment } from '../../services/agentv-enrollment.js';
 import { LlmGatewayHttpError } from '../../services/mcp-registry-client.js';
 import { cleanupVirtualMachineTargetMcpServers } from '../../services/target-mcp-cleanup.js';
 import { mapVirtualMachineMetricHistoryPoint } from '../../services/virtual-machine-metric-history.js';
@@ -60,9 +62,12 @@ export async function registerVirtualMachine(req: AuthenticatedRequest, res: Res
     if (!(await requireWorkspaceCapability(req, res, workspaceId, 'manage_targets', 'Only workspace roles with target management capability can register VMs'))) {
       return;
     }
+    if (!allowVirtualMachineRegistration(req.body.osFamily, res)) return;
     const vm = await repo.addVirtualMachine(workspaceId, {
       name: req.body.name,
       hostname: req.body.hostname,
+      osFamily: req.body.osFamily,
+      serviceManager: req.body.serviceManager,
       allowedLogSources: req.body.allowedLogSources,
       accessPolicy: {
         accessMode: req.body.agentAccessMode || 'read_only',
@@ -388,7 +393,7 @@ export async function getVirtualMachineInstallInstructions(req: AuthenticatedReq
       return;
     }
     res.setHeader('Cache-Control', 'no-store');
-    res.status(200).json({ targetId: vmId, installInstructions: buildAgentVRepairInstructions(vmId) });
+    res.status(200).json({ targetId: vmId, installInstructions: buildAgentVTargetRepairInstructions(vmId, access.target.metadata || {}) });
   } catch (err) {
     next(err);
   }
@@ -398,7 +403,12 @@ export async function listVirtualMachineInventory(req: AuthenticatedRequest, res
   try {
     const workspaceId = toSingleParam(req.params.workspaceId);
     const vmId = toSingleParam(req.params.vmId);
-    if (!(await requireVirtualMachineTargetAccess(req, res, workspaceId, vmId))) return;
+    const access = await requireVirtualMachineTargetAccess(req, res, workspaceId, vmId);
+    if (!access) return;
+    if (access.target.metadata?.osFamily === 'windows') {
+      res.status(200).json(await repo.listWindowsVirtualMachineInventory(workspaceId, vmId));
+      return;
+    }
     const items = await repo.listVirtualMachineInventory(vmId);
     res.status(200).json({ items });
   } catch (err) {
@@ -435,22 +445,17 @@ export async function getVirtualMachineLogs(req: AuthenticatedRequest, res: Resp
     }
     const tailLines = parseBoundedIntQuery(req.query.tailLines || req.query.tail_lines, 200, 1, 500);
     const limitBytes = parseBoundedIntQuery(req.query.limitBytes || req.query.limit_bytes, 1024 * 1024, 1024, 1024 * 1024);
-    const source = typeof req.query.source === 'string' ? req.query.source : undefined;
-    if (source && source !== 'journald') {
-      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'VM logs support only source=journald', retryable: false } });
+    let logs: ReturnType<typeof buildVirtualMachineLogRequest>;
+    try { logs = buildVirtualMachineLogRequest(access.target.metadata || {}, req.query, tailLines, limitBytes); }
+    catch (error) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: (error as Error).message, retryable: false } });
       return;
     }
-    const unit = typeof req.query.unit === 'string' ? req.query.unit : undefined;
-    const query = typeof req.query.q === 'string' ? req.query.q : undefined;
+    const { source, unit, query, channel } = logs;
     const toolName = 'query_logs';
     const startedAt = Date.now();
     try {
-      const result = await agentGateway.callAgentTool(vmId, toolName, {
-        unit,
-        query,
-        limit: tailLines,
-        byte_limit: limitBytes
-      });
+      const result = await agentGateway.callAgentTool(vmId, toolName, logs.arguments);
       webhooks.emit({
         type: 'tool.called.v1',
         workspaceId,
@@ -480,7 +485,7 @@ export async function getVirtualMachineLogs(req: AuthenticatedRequest, res: Resp
           toolName,
           source: 'management_console_vm_logs',
           logSource: source || 'journald',
-          unit: unit || null,
+          unit: unit || null, ...(channel ? { channel } : {}),
           queried: Boolean(query),
           tailLines,
           limitBytes,

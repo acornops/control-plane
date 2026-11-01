@@ -4,6 +4,9 @@
 
 This repository owns the authoritative backend for auth, workspaces, the target core, Kubernetes cluster APIs, VM APIs, sessions, run state, agent WebSocket routing, and execution dispatch. Kubernetes clusters and Linux/systemd VMs are active target types; keep target-neutral session, MCP, and run behavior capability-driven so future VM variants can extend the model without Kubernetes-specific coupling. Deployment wiring and external service provisioning belong in `acornops-deployment`.
 
+Windows/SCM support is implemented as a read-only, default-off preview. Keep it
+disabled outside isolated qualification tests until the native release gates pass.
+
 ## Prerequisites
 
 - Node.js 22+
@@ -78,6 +81,25 @@ Canonical validation:
 npm run validate
 ```
 
+Full regression coverage requires a disposable PostgreSQL database and a separate
+Redis instance. Set the URLs below to those dependencies; database tests mutate
+their fixtures and require a database name containing `test`. Do not point them
+at a development or production database that holds data you need.
+
+```bash
+export NODE_ENV=test
+export DATABASE_URL=postgresql://acornops:acornops@127.0.0.1:55432/acornops_control_plane_test
+export CONTROL_PLANE_TEST_DATABASE_URL="$DATABASE_URL"
+export CONTROL_PLANE_MIGRATION_TEST_DATABASE_URL="$DATABASE_URL"
+export REDIS_URL=redis://127.0.0.1:56379/0
+npm run db:migrate
+npm run validate
+```
+
+The ports and credentials above are examples for isolated test services. Without
+the explicit test database URLs, database-backed cases can be skipped; a green
+unit-only run does not establish persistence, ownership or migration coverage.
+
 Focused checks:
 
 ```bash
@@ -104,3 +126,5 @@ Keep `README.md`, `AGENTS.md`, `ARCHITECTURE.md`, `docs/index.md`, this file, an
 
 See [Workspace Execution Capacity](workspace-execution-capacity.md) for runtime
 invariants, rollout prerequisites and isolated replica verification.
+
+Heartbeat freshness regression coverage lives in `test/agent-connection-freshness.test.ts`, `test/agent-heartbeat-gateway.test.ts`, `test/agent-heartbeat-recording.test.ts` and `test/agent-connection-reads.test.ts`. Run the real-store cases with the disposable test database configuration described above; the existing VM ownership regressions remain required.

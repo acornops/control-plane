@@ -619,6 +619,99 @@ enabling coordinated rolling restarts. Initial cutover and rollback require a
 controlled window; older binaries do not acquire these guarantees. No database
 migration or agent protocol version change is required.
 
+## AgentV runtime identity
+
+VM registration defaults omitted identity to Linux/systemd. Explicit Windows
+registration requires `osFamily: windows`, `serviceManager: scm`, read-only
+access, and enabled, independently pinned Windows rollout settings. Identity is
+immutable and survives status/settings changes. Every AgentV handshake must
+provide both runtime identity fields; credential authentication compares them to
+the stored target under its transaction lock before marking an enrollment
+verified. Existing Linux agents and direct legacy Linux authentication calls
+retain their behavior.
+
+Windows permits only `get_host_summary`, `list_filesystems`, `list_processes`,
+`get_process`, `list_services`, `get_service`, `query_logs`, and `list_listeners`.
+Advertisement, discovery, built-in synchronization and local/remote-owner RPC
+dispatch enforce this ceiling independently of a tool's claimed capability.
+Windows write enrollment and policy updates are refused. Linux restart schemas,
+allowlists, helper behavior and release coordinates remain unchanged.
+
+Windows instructions use `install-agentv.ps1` at the pinned `v<version>` release
+URL with `-ReleaseBaseUrl`, `-PlatformUrl`, `-TargetId`, optional
+`-EnrollmentToken`, and `-ReplaceCredential`. Repair omits the token. The command
+uses a fresh temporary `.ps1` file and removes it in `finally`. Native packaging
+and telemetry qualification are separate gates; leave Windows rollout disabled
+until those gates pass. Deploy this compatible backend before enabling Windows
+consumers; an older backend may relabel Windows metadata during updates.
+
+## AgentV Windows native read producer
+
+The [Windows native read contract](windows-read-runtime.md) records the
+producer schemas consumed by Windows telemetry interpretation. Windows uses
+`acornops.agentv-windows-snapshot.v1`; Linux payloads and their existing optional
+helper/restart handshake fields retain their released compatibility. Both OS
+identity fields remain required. Hosted native parsing does not qualify service
+permissions, reboot, packaging or enable rollout.
+
+
+## Windows telemetry consumption and registration options
+
+Snapshot ingestion validates Windows data against its native version and strict
+row shapes using the stored target OS. A Linux VM rejects Windows telemetry;
+legacy Linux snapshots need no new fields. Windows inventory uses native volume
+identities and `scm_service` names. Service issue fingerprints keep the native
+name (case-insensitive) and failure class stable across exit-code changes.
+Stopped services alone create no issue. Complete findings survive optional
+inventory trimming; failed or incomplete collection cannot resolve issues.
+Windows load and swap stay unavailable. Disk history uses the reported
+`host_summary.system_volume`, including system drives other than `C:`.
+
+`GET /api/v1/workspaces/{workspaceId}/virtual-machines/registration-options`
+requires a user session and `manage_targets`. Its response is
+`{platforms:[{osFamily:"linux",serviceManager:"systemd",accessModes:["read_only","read_write"]}]}`.
+The server appends
+`{osFamily:"windows",serviceManager:"scm",accessModes:["read_only"]}` only when
+Windows rollout is explicitly enabled with valid pinned release coordinates.
+The response contains no release URL, version, enrollment token or credential.
+The existing VM list response is unchanged; clients may request options when
+opening registration.
+
+VM log requests preserve Linux `unit` routing. Windows requires `channel` equal
+to `Application` or `System`, with optional ISO `since`/`until` and literal `q`.
+AgentV enforces its local channel allowlist and maximum time window. Built-in
+tool schemas remain scoped to each target; Windows sync excludes writes even
+when the agent advertises them.
+
+## VM connection status
+
+VM lifecycle persistence serializes target-first and registration-second row
+locks. Online status, connection ID and connector version commit together after
+an ownership check. Disconnects clear only the matching persisted identity and
+update status without replacing VM metadata. A settings patch that omits status
+preserves the current status column. VM lifecycle events use the VM target scope
+and omit Kubernetes `clusterId`.
+
+Redis claims occur outside the database lock. Connected events and handshake
+acknowledgements follow commit and a final ownership/local-attempt check. Failed
+handshakes use exact-ID cleanup; if no owner remains, a guarded transition can
+reconcile the prior persisted identity instead of leaving it online indefinitely.
+Local connections and pending attempts also fence this cleanup when distributed
+routing is disabled. Owner read/cleanup timeouts are uncertainty, not successful
+cancellation. A Redis claim is never treated as cancelled by a Promise timeout.
+
+VM socket ownership follows the latest accepted handshake attempt even after it
+finishes. A superseded attempt cannot close a shared socket used by its pending
+or published replacement, including delayed heartbeat or credential checks.
+Reauthentication on the same socket retires the previous refresh interval and
+pending commands. Failed attempts on distinct sockets still close normally.
+
+This is not an atomic transaction across Redis and PostgreSQL. Cross-instance
+replacement retains the existing execution/heartbeat ownership checks and eventual
+socket closure; an unavailable dependency can prevent reconciliation. The row-lock
+ordering applies between updated control-plane instances. Kubernetes lifecycle,
+agent payloads and the generic last-seen update semantics are unchanged.
+
 ## Webhook validation and workflow retention
 
 Webhook create/update requires workspace mutation capability before body validation.
@@ -649,3 +742,55 @@ retain their existing ISO format. Existing cursor strings remain accepted.
 Deploy the control-plane producer before the console consumer; roll back the
 consumer first. Existing list routes and membership mutation payloads are
 unchanged. No schema migration or additional scope is required.
+
+
+## Windows collection evidence
+
+Windows resources add `collectionStatus` with workspace/target identity,
+`snapshotTs`, and fixed host, filesystems, services, processes, and network
+categories. Each carries an allowlisted status; list categories include
+`omittedCount`, and volumes/services include separate `findingCoverage`.
+Missing collectors remain unknown, even when rows are empty. The response reads
+raw snapshot, summary generation and matching inventory together; absent or
+inconsistent projection is `null` (unknown), never a healthy empty collection.
+
+Windows logs can return HTTP 200 with denied, unavailable, partial or truncated
+collection. Preserve `health.status`, `truncated`, `returned_count`,
+`original_count`, and `byte_count` beside usable entries. Runtime health messages
+are untrusted and are not shown. Count metadata describes the bounded response,
+not the total number of events on the host.
+
+The console caches Windows envelopes by workspace/target and, for logs, channel;
+stale responses cannot replace another selection. Inventory evidence is bound
+to the rows' snapshot timestamp. Fixed category notices retain usable rows and
+qualify incomplete empty collections. Linux keeps its exact `{items}` inventory
+envelope, log handling, array caches and UI behavior. Deploy the additive backend
+before the consumer; an older backend leaves Windows collection status unknown.
+
+## Agent connection observations
+
+Target, Kubernetes cluster and VM read responses include optional `connection`:
+`{state: connected|disconnected|unknown, lastHeartbeatAt: string|null, observedAt: string, expiresAt: string|null, hasConnectionEvidence: boolean}`.
+The shared server calculation uses the authenticated connection identity and
+server-received heartbeat, including the initial accepted handshake. It never
+uses snapshot age or `last_seen_at`, which also advances on disconnect. Known
+offline status wins; online/degraded needs a nonfuture heartbeat strictly
+younger than the grace period. Missing evidence is unknown.
+
+`status` and existing API status filters retain their persisted health/lifecycle
+meaning. Admin `connectionState` and Targets MCP `connection_status` report
+freshness; their optional `status` and `connection` fields retain stored health
+and the observation. A connected degraded target remains degraded.
+
+Deploy the backend before the console. Legacy consumers may ignore this additive
+field. New consumers age remaining validity (`expiresAt - observedAt`) from the
+original local receipt time, including during failed fetches/cache restoration,
+and keep legacy behavior only when the field is absent. No agent protocol or
+release is required. This is reporting, not a routing lease or a durable status
+repair; expiry does not emit a disconnect event.
+
+`connection.hasConnectionEvidence` preserves whether an identity or heartbeat
+was recorded, including unusable/future timestamps. This prevents invalid
+evidence from becoming fabricated initial setup. Failed Kubernetes publication
+invalidates only that attempt's heartbeat using its exact persisted identity;
+replacement evidence, keys and stored health remain unchanged.

@@ -62,3 +62,10 @@ This `docs/` tree is the repository-local system of record for agent-readable de
 
 - [Admin console scaling plan](exec-plans/active/2026-11-01-admin-console-scaling.md) — Coordinated bounded directory reads; integration pending.
 - [http-parser-log-protection plan](exec-plans/active/2026-11-01-http-parser-log-protection.md)
+
+- [Shared VM status characterization](exec-plans/completed/windows-status-characterization.md) — Real-store tests only; ownership protocol remains open.
+
+- [Agent heartbeat freshness](design-docs/agent-heartbeat-freshness.md) — Shared connection observations and cache expiry.
+- [Heartbeat implementation](exec-plans/completed/agent-heartbeat-freshness.md) — Focused implementation and validation record.
+
+- [Windows VM final catch-all](exec-plans/completed/windows-final-catch-all.md).

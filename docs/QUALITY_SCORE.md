@@ -48,3 +48,14 @@ Existing scores are unchanged.
 cover webhook bounds, PostgreSQL cleanup races, real-process schema deadlines,
 cancellation and unknown-write outcomes. Fresh review findings have regression
 coverage. Existing scores and broader integration coverage gaps remain unchanged.
+
+VM lifecycle follow-up (2026-11-01): ordinary disconnect identity fencing does not
+provide durable outage recovery. The [shared repair design](design-docs/vm-connection-status-repair.md)
+records the Redis/PostgreSQL observation gap and the reviewed protocol gate. No
+periodic writer or shared lifecycle change is included in Windows hardening.
+
+Heartbeat reporting follow-up (2026-11-02): additive connection observations expire
+after the configured grace without rewriting stored status. Exact-ID, monotonic
+heartbeat writes and Linux/Windows/Kubernetes read paths have regression coverage.
+This addresses stale connection display; durable status repair and disconnect
+event recovery remain separate gaps.

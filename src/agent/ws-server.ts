@@ -1,3 +1,5 @@
+import { handleAgentHeartbeat } from './heartbeat.js';
+import { assertVirtualMachineRpcAllowed, filterVirtualMachineTools } from '../services/agentv-tool-policy.js';
 import { beginAgentDispatch, waitForOwnerHandoff } from './owner-handoff.js';
 import { assertAgentExecutionAllowed, currentAgentExecution, withAgentExecution } from './execution-authority.js';
 import { drainAgentConnections, shutdownAgentGateway } from './shutdown.js';
@@ -19,6 +21,7 @@ import {
   resolvePendingAgentResponse
 } from './connections.js';
 import { handleAgentHandshake } from './handshake.js';
+import { ownsVirtualMachineSocket } from './vm-socket-ownership.js';
 import { AGENT_COMMAND_TIMEOUT_MS, AgentConnectionChangedBeforeDispatchError, OwnerDrainingError, sendLocalJsonRpc } from './local-jsonrpc.js';
 import { decodeAgentMessage } from './message-utils.js';
 import { markConnectionOfflineIfUnowned } from './offline-reconciliation.js';
@@ -155,7 +158,7 @@ export class AgentGateway {
       tools?: AgentToolDefinition[];
     };
     const tools = Array.isArray(result?.tools) ? result.tools : [];
-    return tools.filter((tool) => typeof tool?.name === 'string' && typeof tool?.description === 'string');
+    return filterVirtualMachineTools(clusterId, tools.filter((tool) => typeof tool?.name === 'string' && typeof tool?.description === 'string'));
   }
 
   async disconnectCluster(clusterId: string, reason = 'Agent connection closed'): Promise<boolean> {
@@ -193,6 +196,7 @@ export class AgentGateway {
   ): Promise<unknown> {
     const conn = getAgentConnection(clusterId);
     if (conn?.ws.readyState === WebSocket.OPEN) {
+      if (conn.targetType === 'virtual_machine') await assertVirtualMachineRpcAllowed(clusterId, method, params);
       if (!distributedRoutingEnabled() || await isCurrentAgentOwner(clusterId, conn.connectionId)) {
         try { return await sendLocalJsonRpc(conn, method, params, requestId); }
         catch (error) {
@@ -272,6 +276,7 @@ export class AgentGateway {
       };
     }
     try {
+      if (conn.targetType === 'virtual_machine') await assertVirtualMachineRpcAllowed(request.clusterId, request.method, request.params);
       const result = await withAgentExecution(request.execution, () =>
         sendLocalJsonRpc(conn, request.method, request.params, request.agentRequestId, () => !this.shuttingDown));
       return {
@@ -300,7 +305,8 @@ export class AgentGateway {
     pendingReason: string
   ): Promise<void> {
     detachAgentConnection(clusterId, conn, pendingReason);
-    if (conn.ws.readyState === WebSocket.OPEN || conn.ws.readyState === WebSocket.CONNECTING) {
+    if ((conn.targetType !== 'virtual_machine' || ownsVirtualMachineSocket(conn))
+      && (conn.ws.readyState === WebSocket.OPEN || conn.ws.readyState === WebSocket.CONNECTING)) {
       conn.ws.close(closeCode, closeReason);
     }
     await markConnectionOfflineIfUnowned(clusterId, conn).catch((err) => {
@@ -399,7 +405,9 @@ export class AgentGateway {
     connectorVersion: string,
     remoteAddress = 'unknown'
   ): Promise<void> {
-    const authenticated = Boolean(getAgentConnectionForWebSocket(ws));
+    const receivedAt = new Date().toISOString();
+    const receivedConnection = getAgentConnectionForWebSocket(ws);
+    const authenticated = Boolean(receivedConnection);
     let decoded: string;
     try {
       decoded = await decodeAgentMessage(raw, {
@@ -478,22 +486,7 @@ export class AgentGateway {
     }
 
     if (message.method === 'lifecycle/heartbeat') {
-      const conn = getAgentConnectionForWebSocket(ws);
-      if (conn) {
-        if (!(await this.ensureAgentConnectionCurrent(conn))) {
-          return;
-        }
-        if (!(await refreshAgentOwner(conn.clusterId, conn.connectionId))) {
-          closeStaleAgentConnection(conn.clusterId, conn);
-          return;
-        }
-        const now = new Date().toISOString();
-        await repo.updateTargetAgentSeen(conn.clusterId, {
-          lastSeenAt: now,
-          lastHeartbeatAt: now,
-          lastAuthenticatedKeyVersion: conn.keyVersion
-        });
-      }
+      await handleAgentHeartbeat(receivedConnection, receivedAt, (conn) => this.ensureAgentConnectionCurrent(conn));
       return;
     }
 

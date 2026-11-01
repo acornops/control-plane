@@ -1,3 +1,4 @@
+import { reportedConnectionStatus } from './agent-connection-freshness.js';
 import { repo } from '../store/repository.js';
 import type { TargetIssue, TargetIssueSeverity, TargetIssueStatus } from '../types/target-issues.js';
 import type { TargetSummary, TargetType } from '../types/domain.js';
@@ -129,7 +130,8 @@ function targetSummary(target: TargetSummary) {
     id: target.id,
     name: target.name,
     target_type: target.targetType,
-    connection_status: target.status,
+    connection_status: reportedConnectionStatus(target),
+    ...(target.connection ? { status: target.status, connection: target.connection } : {}),
     created_at: target.createdAt,
     updated_at: target.updatedAt
   };

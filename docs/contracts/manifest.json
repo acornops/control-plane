@@ -183,6 +183,21 @@
       }
     },
     "management-console": {
+      "agentConnectionObservation": {"field":"connection?","states":["connected","disconnected","unknown"],"fields":["state","lastHeartbeatAt:string|null","observedAt:string","expiresAt:string|null","hasConnectionEvidence:boolean"],"graceSeconds":{"default":120,"min":60,"max":600},"statusSemantics":"persisted health/lifecycle and existing API status filters unchanged","cacheAging":"remaining server validity ages from original client receipt; no refresh on cache reads"},
+      "windowsCollectionStatus": {
+        "resources": "GET /api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/resources",
+        "projection": "Windows-only collectionStatus: {workspaceId,targetId,snapshotTs,categories:{host,filesystems,services,processes,network}} or null when the snapshot/read-model generation is missing",
+        "categoryFields": "status: ok|partial|unavailable|permission_denied|timed_out|unsupported|unknown; omittedCount for lists; findingCoverage: complete|incomplete only for filesystems/services",
+        "logs": "Windows HTTP200 retains health.status, truncated, returned_count, original_count and byte_count with entries; runtime health messages are not displayed",
+        "compatibility": "Linux resources remain exactly {items}; Linux logs, cache arrays and UI are unchanged",
+        "cache": "Windows complete envelopes cached by workspace/target (resources) or workspace/target/channel (logs); stale requests rejected; collection status bound to row snapshotTs"
+      },
+      "virtualMachineRegistrationOptions": {
+        "path": "GET /api/v1/workspaces/{workspaceId}/virtual-machines/registration-options",
+        "authorization": "user session and manage_targets",
+        "response": "platforms: linux/systemd accessModes read_only,read_write; append windows/scm read_only only for explicitly enabled and valid pinned Windows rollout",
+        "secrets": "No release coordinates or enrollment credentials"
+      },
       "podLogsUnavailable": {
         "httpStatus": 409,
         "errorCode": "POD_LOGS_UNAVAILABLE",
@@ -1553,6 +1568,13 @@
       ]
     },
     "agentv": {
+      "runtimePlatforms": [{"osFamily": "linux", "serviceManager": "systemd"}, {"osFamily": "windows", "serviceManager": "scm"}],
+      "runtimeIdentityPolicy": "Both handshake identity fields are required and must match immutable stored target identity before provisional verification. Omitted registration or stored identity defaults to Linux/systemd.",
+      "windowsReadOnlyToolNames": ["get_host_summary", "list_filesystems", "list_processes", "get_process", "list_services", "get_service", "query_logs", "list_listeners"],
+      "windowsRollout": "Disabled by default; requires independently pinned Windows release settings. No Windows write enrollment, policies, discovery or dispatch.",
+      "windowsSnapshotVersion": "acornops.agentv-windows-snapshot.v1",
+      "windowsNativeServiceFields": ["name", "display_name", "state", "start_mode", "process_id", "exit_code", "service_specific_exit_code"],
+      "windowsRuntimeContract": "windows-read-runtime.md",
       "contractVersion": 2,
       "agentHeaders": [
         "x-agent-key",
@@ -1566,8 +1588,8 @@
         "supportedCapabilities",
         "hostFeatures.osFamily",
         "hostFeatures.serviceManager",
-        "hostFeatures.helperReachable",
-        "hostFeatures.restartServices",
+        "hostFeatures.helperReachable?",
+        "hostFeatures.restartServices?",
         "advertisedTools[].name",
         "advertisedTools[].capability"
       ],

@@ -1,3 +1,5 @@
+import type { TargetConnectionObservation } from './agent-connection.js';
+import type { VirtualMachinePlatform } from './virtual-machine-platform.js';
 import { type TargetType } from './target-types.js';
 import type { AgentVAccessPolicy } from './agentv-access-policy.js';
 import type { RunPermissionMode } from './run-permission.js';
@@ -173,12 +175,15 @@ export interface WorkspaceAiSettings {
   updatedAt?: string;
 }
 
+export type { TargetConnectionObservation } from './agent-connection.js';
+
 export interface TargetSummary {
   id: string;
   workspaceId: string;
   targetType: TargetType;
   name: string;
   status: 'online' | 'offline' | 'degraded' | 'unknown';
+  connection?: TargetConnectionObservation;
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
@@ -304,14 +309,13 @@ export interface WorkspaceAuditEventInput {
   summary: string;
   metadata?: Record<string, unknown>;
 }
-export interface VirtualMachineTarget {
+export type VirtualMachineTarget = VirtualMachinePlatform & {
   id: string;
   workspaceId: string;
   name: string;
   status: 'online' | 'offline' | 'degraded' | 'unknown';
+  connection?: TargetConnectionObservation;
   hostname?: string;
-  osFamily: 'linux';
-  serviceManager: 'systemd';
   allowedLogSources: string[];
   agentAccessMode: AgentVAccessPolicy['accessMode'];
   restartServices: AgentVAccessPolicy['restartServices'];
@@ -321,7 +325,7 @@ export interface VirtualMachineTarget {
   permissionModeSource: 'virtual_machine_override' | 'deployment_default';
   createdAt: string;
   updatedAt: string;
-}
+};
 
 export interface VirtualMachineSnapshot {
   targetId: string;

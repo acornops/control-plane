@@ -1,3 +1,4 @@
+import { targetConnectionObservationSchema } from '../types/agent-connection.js';
 import type { AgentMcpInstallationSnapshot } from '../types/agents.js';
 
 export const AGENT_TARGETS_MCP_SERVER_NAME = 'AcornOps Targets';
@@ -35,6 +36,8 @@ const targetSummarySchema = {
     name: { type: 'string' },
     target_type: { enum: ['kubernetes', 'virtual_machine'] },
     connection_status: { enum: ['online', 'offline', 'degraded', 'unknown'] },
+    status: { enum: ['online', 'offline', 'degraded', 'unknown'] },
+    connection: targetConnectionObservationSchema,
     created_at: { type: 'string' },
     updated_at: { type: 'string' }
   }

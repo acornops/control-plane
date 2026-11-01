@@ -15,7 +15,9 @@ describe('virtual machine install instructions', () => {
 
     assert.equal(instructions.releaseVersion, '0.0.1-experimental.6');
     assert.equal(instructions.bootstrapUrl, 'https://artifacts.example.test/acornops/v0.0.1-experimental.6/install-agentv.sh');
-    assert.match(instructions.command, /^set -o pipefail; curl -fsSL --proto '=https' --proto-redir '=https' /);
+    assert.equal(instructions.command,
+      `set -o pipefail; curl -fsSL --proto '=https' --proto-redir '=https' 'https://artifacts.example.test/acornops/v0.0.1-experimental.6/install-agentv.sh' | sudo bash -s -- --release-base-url 'https://artifacts.example.test/acornops' --platform-url 'https://control-plane.example.test' --target-id 'vm-target-1' --enrollment-token 'aev-'"'"'$(must-not-expand)'`
+    );
     assert.match(instructions.command, /--platform-url 'https:\/\/control-plane\.example\.test'/);
     assert.match(instructions.command, /--enrollment-token 'aev-'"'"'\$\(must-not-expand\)'/);
     assert.doesNotMatch(instructions.command, /--agent-key/);
