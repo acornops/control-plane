@@ -63,6 +63,35 @@ async function workflowApproval() {
 }
 
 describe('approval presentation context', () => {
+  for (const kind of ['interactive', 'workflow'] as const) {
+    it(`omits email-shaped actor labels from ${kind} creation, decision, detail and inbox responses`, async () => {
+      // OIDC uses email as display_name when the identity provider supplies no name.
+      await db.query("UPDATE users SET display_name='private@example.test' WHERE id='approval-actor'");
+      await db.query("UPDATE users SET display_name='Operator <other@example.test>' WHERE id='user-1'");
+      const approval = await (kind === 'interactive' ? interactiveApproval() : workflowApproval());
+      assert.equal(approval.requestedBy, 'approval-actor');
+      assert.equal(approval.requestedByUser, undefined);
+      const decision = kind === 'interactive'
+        ? await repo.decideRunToolApprovalOutcome(approval.id, 'rejected', 'user-1')
+        : await decideAutomationRunApprovalOutcome(approval.id, 'rejected', 'user-1');
+      assert.equal(decision?.approval.decidedBy, 'user-1');
+      assert.equal(decision?.approval.decidedByUser, undefined);
+      const detail = await callController(listRunApprovals, createRequest({ runId: approval.runId }));
+      const [item] = detail.body as Record<string, unknown>[];
+      assert.equal(item.requestedBy, 'approval-actor');
+      assert.equal(item.decidedBy, 'user-1');
+      assert.equal(item.requestedByUser, undefined);
+      assert.equal(item.decidedByUser, undefined);
+      const inbox = await callController(listWorkspaceApprovalInbox, { ...createRequest({ workspaceId: 'workspace-1' }), query: { status: 'all' } });
+      const [row] = (inbox.body as { items: Record<string, unknown>[] }).items;
+      assert.equal(row.requestedBy, 'approval-actor');
+      assert.equal(row.decidedBy, 'user-1');
+      assert.equal(row.requestedByUser, undefined);
+      assert.equal(row.decidedByUser, undefined);
+      assert.doesNotMatch(JSON.stringify([approval, decision, detail.body, inbox.body]), /private@example|other@example/);
+    });
+  }
+
   it('shows historical actors and target context while preserving an approved but failed execution', async () => {
     const approval = await interactiveApproval();
     await repo.decideRunToolApprovalOutcome(approval.id, 'approved', 'user-1');

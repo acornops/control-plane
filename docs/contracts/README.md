@@ -33,7 +33,8 @@ The control plane owns the platform API boundary. Keep this README as a short in
 - Browser approval inbox, run approval lists, and decision responses may include
   `requestedByUser`/`decidedByUser` (`id`, `displayName`), `workspaceName`, and
   `targetName`. Display names follow persisted approval references, including
-  historical actors without current membership; they contain no email. Targets
+  historical actors without current membership; email-shaped actor labels
+  (including OIDC email fallbacks) are omitted. Targets
   must belong to the approval workspace. Missing or deleted references leave
   optional labels absent and retain stable IDs. The workspace inbox also exposes
   optional `targetId`, `targetType`, and `executionStatus`; decision `status` and

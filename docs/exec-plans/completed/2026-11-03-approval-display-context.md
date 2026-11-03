@@ -14,6 +14,48 @@ names must match the approval workspace. Missing users/targets leave optional
 display fields absent. Select only user IDs and display names, never email.
 External integration projections keep their existing allowlist.
 
+Final review found that OIDC may persist an email address as `display_name`.
+The approval mapper therefore omits email-shaped actor labels, including names
+containing an address, and keeps stable requester/decider IDs for the console
+fallback. Two real-database regressions cover interactive and workflow creation,
+decision, detail and inbox responses; normal names remain covered.
+
+Integration with current remote main (`a8f2b0a`) retains its Windows/heartbeat
+changes. The generated docs-website public API reference has exactly 13 optional
+property additions (+107 lines); the admin artifact is unchanged. OpenAPI size
+budgets increased by 150 lines to accommodate this measured schema growth;
+determinism, artifact-staleness, path and schema checks remain enforced.
+
+The integrated shared domain types reached 551 lines against a 550-line budget.
+`RunToolApproval` now lives unchanged in the focused `approvals.ts` module and
+is type-re-exported from `domain.ts`, retaining existing import compatibility.
+Transpilation confirms identical runtime JavaScript for both affected files.
+
+## Final pre-merge verification
+
+- Fresh `npm run validate` with dedicated `ux_merge_test` and
+  `ux_merge_migration_test` databases on port 55449 and Redis on 56449 passed
+  1,777/1,777 tests (zero skips), migration static/SQL upgrade, authorization,
+  membership, event durability, contract and OpenAPI checks. The wrapper then
+  stopped at the domain-file size guard described above.
+- After the type-only extraction, `npm run typecheck`, `npm run style:check`,
+  `npm run harness:check`, `npm run openapi:check` and `npm run build` passed.
+  The emitted-JavaScript equivalence check confirms no runtime change after
+  the full suite, so that full runtime suite was not repeated for moving types.
+- Post-extraction approval presentation, workflow architecture and pod-log
+  regressions passed 22/22 tests with the same isolated test environment.
+- The new privacy regressions first failed for both interactive/workflow
+  email labels, then all 8 approval presentation tests passed after the fix.
+- Independent review approved the privacy fix and narrow OpenAPI-budget update.
+- Docs-website `npm run validate` and `npm run links` passed after exporting
+  the generated public schema; admin output remained byte-identical.
+- The current local AgentV checkout predates its Windows contract files. An
+  isolated contract-only snapshot from AgentV `origin/main` at `b7df481` passes
+  the full platform contract checker with these producer/consumer branches.
+  No AgentV source or branch was changed.
+
+Fresh evidence is stored by the coordinating task in `evidence/merge/`.
+
 ## Tasks
 
 - [x] Add failing real-database regression tests for interactive and workflow
