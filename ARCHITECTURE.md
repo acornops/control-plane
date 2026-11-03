@@ -11,6 +11,11 @@ The control plane is the authoritative backend for:
 
 Kubernetes clusters and Linux/systemd virtual machines are active target types. Target persistence uses a common target model, while Kubernetes-specific lifecycle, namespace scope, and pod logs stay under `/kubernetes-clusters` APIs and VM-specific lifecycle, host inventory, metrics, and logs stay under `/virtual-machines` APIs. Target chat remains target-scoped; Agent conversations and Workflow execution use their own identities and may reach targets only through call-time arguments to the generic Targets MCP tools.
 
+Windows/SCM VM support is implemented behind `AGENTV_WINDOWS_ENABLED=false` by
+default. It preserves immutable OS identity and permits only reviewed read tools;
+native qualification and independently pinned artifacts are required before
+activation. Linux remains the default for omitted VM platform fields.
+
 ## High-Level Diagram
 
 ```mermaid

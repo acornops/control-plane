@@ -5,7 +5,7 @@ import { capacityConfigFields } from './config-capacity.js';
 import { z } from 'zod';
 import { agentTransportConfigFields, validateAgentTransportConfig } from './config-agent-transport.js';
 import { agentKHelmConfigFields, parseAgentKHelmValues, validateAgentKHelmConfig } from './config-agentk-helm.js';
-import { agentVSystemdConfigFields, normalizeAgentVSystemdConfig, validateAgentVSystemdConfig } from './config-agentv-systemd.js';
+import { agentVConfigFields, normalizeAgentVSystemdConfig, validateAgentVConfig } from './config-agentv.js';
 import { gitImportHostsJsonSchema, parseGitImportHosts } from './config-git-imports.js';
 import { configureWorkspaceRoleTemplates } from './auth/role-template-config.js';
 import { DEFAULT_LLM_PROVIDERS_JSON, llmPolicyConfigFields, validateLlmPolicyConfig } from './config-llm-policy.js';
@@ -138,6 +138,7 @@ const envSchema = z.object({
   MCP_OAUTH_ENABLED: envBoolean(true),
   ...lifecycleConfigFields,
   CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS: z.coerce.number().int().positive().default(90),
+  CONTROL_PLANE_AGENT_HEARTBEAT_FRESHNESS_SECONDS: z.coerce.number().int().min(60).max(600).default(120),
   CONTROL_PLANE_AGENT_SNAPSHOT_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(60),
   CONTROL_PLANE_DISTRIBUTED_ROUTING_ENABLED: optionalEnvBoolean(),
   ...agentTransportConfigFields,
@@ -172,7 +173,7 @@ const envSchema = z.object({
   SEED_AGENT_KEY: z.string().optional(),
   SEED_VM_AGENT_KEY: z.string().optional(),
   ...agentKHelmConfigFields,
-  ...agentVSystemdConfigFields,
+  ...agentVConfigFields,
   OIDC_ENABLED: envBoolean(true),
   OIDC_PROVIDER_NAME: z.string().min(1).default('oidc'),
   OIDC_ISSUER_URL: oidcHttpUrlFromEnv.default('http://localhost:8080/realms/acornops'),
@@ -310,7 +311,7 @@ const envSchema = z.object({
   validateAgentTransportConfig(ctx, value);
   validateLlmPolicyConfig(ctx, value);
   validateAgentKHelmConfig(ctx, value);
-  validateAgentVSystemdConfig(ctx, value);
+  validateAgentVConfig(ctx, value);
   validateOptionalReadableFile(ctx, 'ADDITIONAL_CA_BUNDLE_FILE', value.ADDITIONAL_CA_BUNDLE_FILE);
   for (const issue of mcpOAuthConfigIssues(value.MCP_OAUTH_ENABLED, value.MANAGEMENT_CONSOLE_BASE_URL)) {
     addConfigIssue(ctx, issue.field, issue.message);

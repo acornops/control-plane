@@ -1,0 +1,1945 @@
+[
+  {
+    "name": "healthy",
+    "data": {
+      "schema_version": "acornops.agentv-windows-snapshot.v1",
+      "host_summary": {
+        "os_family": "windows",
+        "hostname": "synthetic-windows",
+        "version": "10.0.20348",
+        "build": "20348",
+        "product_type": 3,
+        "architecture": "64-bit",
+        "system_volume": "C:",
+        "uptime_seconds": 3600,
+        "cpu": {
+          "usage_percent": 12,
+          "sampled_ms": 0
+        },
+        "memory": {
+          "total_bytes": 8000000000,
+          "available_bytes": 6000000000,
+          "used_bytes": 2000000000,
+          "used_percent": 25
+        },
+        "collector_health": [
+          {
+            "collector": "windows_host",
+            "status": "ok",
+            "duration_ms": 0
+          }
+        ]
+      },
+      "filesystems": [
+        {
+          "volume": "C:",
+          "filesystem": "NTFS",
+          "total_bytes": 100000000000,
+          "free_bytes": 60000000000,
+          "used_bytes": 40000000000,
+          "used_percent": 40
+        }
+      ],
+      "degraded_services": [],
+      "top_processes": [
+        {
+          "pid": 101,
+          "ppid": 4,
+          "name": "synthetic.exe",
+          "cpu_percent": null,
+          "memory_bytes": 1000000,
+          "start_time": null
+        }
+      ],
+      "listeners": [
+        {
+          "protocol": "tcp",
+          "address": "127.0.0.1",
+          "port": 8080,
+          "pid": 101,
+          "ownership_status": "available"
+        }
+      ],
+      "findings": [],
+      "collector_health": [
+        {
+          "collector": "windows_host",
+          "status": "ok",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_volumes",
+          "status": "ok",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_services",
+          "status": "ok",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_processes",
+          "status": "ok",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_listeners",
+          "status": "ok",
+          "duration_ms": 0
+        }
+      ],
+      "finding_coverage": {
+        "filesystems": "complete",
+        "services": "complete"
+      },
+      "truncation": {
+        "filesystems": 0,
+        "services": 0,
+        "processes": 0,
+        "listeners": 0
+      }
+    }
+  },
+  {
+    "name": "denied",
+    "data": {
+      "schema_version": "acornops.agentv-windows-snapshot.v1",
+      "host_summary": {
+        "os_family": "windows",
+        "hostname": "synthetic-windows",
+        "version": "10.0.20348",
+        "build": "20348",
+        "product_type": 3,
+        "architecture": "64-bit",
+        "system_volume": "C:",
+        "uptime_seconds": 3600,
+        "cpu": {
+          "usage_percent": 12,
+          "sampled_ms": 0
+        },
+        "memory": {
+          "total_bytes": 8000000000,
+          "available_bytes": 6000000000,
+          "used_bytes": 2000000000,
+          "used_percent": 25
+        },
+        "collector_health": [
+          {
+            "collector": "windows_host",
+            "status": "ok",
+            "duration_ms": 0
+          }
+        ]
+      },
+      "filesystems": [
+        {
+          "volume": "C:",
+          "filesystem": "NTFS",
+          "total_bytes": 100000000000,
+          "free_bytes": 60000000000,
+          "used_bytes": 40000000000,
+          "used_percent": 40
+        }
+      ],
+      "degraded_services": [],
+      "top_processes": [
+        {
+          "pid": 101,
+          "ppid": 4,
+          "name": "synthetic.exe",
+          "cpu_percent": null,
+          "memory_bytes": 1000000,
+          "start_time": null
+        }
+      ],
+      "listeners": [
+        {
+          "protocol": "tcp",
+          "address": "127.0.0.1",
+          "port": 8080,
+          "pid": 101,
+          "ownership_status": "available"
+        }
+      ],
+      "findings": [],
+      "collector_health": [
+        {
+          "collector": "windows_services",
+          "status": "permission_denied",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_host",
+          "status": "ok",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_volumes",
+          "status": "ok",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_processes",
+          "status": "ok",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_listeners",
+          "status": "ok",
+          "duration_ms": 0
+        }
+      ],
+      "finding_coverage": {
+        "filesystems": "complete",
+        "services": "incomplete"
+      },
+      "truncation": {
+        "filesystems": 0,
+        "services": 0,
+        "processes": 0,
+        "listeners": 0
+      }
+    }
+  },
+  {
+    "name": "unavailable",
+    "data": {
+      "schema_version": "acornops.agentv-windows-snapshot.v1",
+      "host_summary": null,
+      "filesystems": [],
+      "degraded_services": [
+        {
+          "name": "SyntheticFailed",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        }
+      ],
+      "top_processes": [
+        {
+          "pid": 101,
+          "ppid": 4,
+          "name": "synthetic.exe",
+          "cpu_percent": null,
+          "memory_bytes": 1000000,
+          "start_time": null
+        }
+      ],
+      "listeners": [
+        {
+          "protocol": "tcp",
+          "address": "127.0.0.1",
+          "port": 8080,
+          "pid": 101,
+          "ownership_status": "available"
+        }
+      ],
+      "findings": [
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed",
+          "summary": "Windows service SyntheticFailed stopped with exit code 1067"
+        }
+      ],
+      "collector_health": [
+        {
+          "collector": "windows_host",
+          "status": "unavailable",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_volumes",
+          "status": "unavailable",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_services",
+          "status": "ok",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_processes",
+          "status": "ok",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_listeners",
+          "status": "ok",
+          "duration_ms": 0
+        }
+      ],
+      "finding_coverage": {
+        "filesystems": "incomplete",
+        "services": "complete"
+      },
+      "truncation": {
+        "filesystems": 0,
+        "services": 0,
+        "processes": 0,
+        "listeners": 0
+      }
+    }
+  },
+  {
+    "name": "partial",
+    "data": {
+      "schema_version": "acornops.agentv-windows-snapshot.v1",
+      "host_summary": {
+        "os_family": "windows",
+        "hostname": "synthetic-windows",
+        "version": "10.0.20348",
+        "build": "20348",
+        "product_type": 3,
+        "architecture": "64-bit",
+        "system_volume": "C:",
+        "uptime_seconds": 3600,
+        "cpu": {
+          "usage_percent": 12,
+          "sampled_ms": 0
+        },
+        "memory": {
+          "total_bytes": 8000000000,
+          "available_bytes": 6000000000,
+          "used_bytes": 2000000000,
+          "used_percent": 25
+        },
+        "collector_health": [
+          {
+            "collector": "windows_host",
+            "status": "ok",
+            "duration_ms": 0
+          }
+        ]
+      },
+      "filesystems": [
+        {
+          "volume": "C:",
+          "filesystem": "NTFS",
+          "total_bytes": 100000000000,
+          "free_bytes": 60000000000,
+          "used_bytes": 40000000000,
+          "used_percent": null
+        }
+      ],
+      "degraded_services": [],
+      "top_processes": [
+        {
+          "pid": 101,
+          "ppid": 4,
+          "name": "synthetic.exe",
+          "cpu_percent": null,
+          "memory_bytes": 1000000,
+          "start_time": null
+        }
+      ],
+      "listeners": [
+        {
+          "protocol": "tcp",
+          "address": "127.0.0.1",
+          "port": 8080,
+          "pid": 101,
+          "ownership_status": "available"
+        }
+      ],
+      "findings": [],
+      "collector_health": [
+        {
+          "collector": "windows_host",
+          "status": "ok",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_volumes",
+          "status": "partial",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_services",
+          "status": "partial",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_processes",
+          "status": "ok",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_listeners",
+          "status": "ok",
+          "duration_ms": 0
+        }
+      ],
+      "finding_coverage": {
+        "filesystems": "incomplete",
+        "services": "incomplete"
+      },
+      "truncation": {
+        "filesystems": 2,
+        "services": 0,
+        "processes": 0,
+        "listeners": 0
+      }
+    }
+  },
+  {
+    "name": "capped",
+    "data": {
+      "schema_version": "acornops.agentv-windows-snapshot.v1",
+      "host_summary": {
+        "os_family": "windows",
+        "hostname": "synthetic-windows",
+        "version": "10.0.20348",
+        "build": "20348",
+        "product_type": 3,
+        "architecture": "64-bit",
+        "system_volume": "C:",
+        "uptime_seconds": 3600,
+        "cpu": {
+          "usage_percent": 12,
+          "sampled_ms": 0
+        },
+        "memory": {
+          "total_bytes": 8000000000,
+          "available_bytes": 6000000000,
+          "used_bytes": 2000000000,
+          "used_percent": 25
+        },
+        "collector_health": [
+          {
+            "collector": "windows_host",
+            "status": "ok",
+            "duration_ms": 0
+          }
+        ]
+      },
+      "filesystems": [
+        {
+          "volume": "SyntheticVolume0",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume1",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume2",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume3",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume4",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume5",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume6",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume7",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume8",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume9",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume10",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume11",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume12",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume13",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume14",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume15",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume16",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume17",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume18",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume19",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume20",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume21",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume22",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume23",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume24",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume25",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume26",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume27",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume28",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume29",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume30",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume31",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume32",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume33",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume34",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume35",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume36",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume37",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume38",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume39",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume40",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume41",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume42",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume43",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume44",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume45",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume46",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume47",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume48",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        },
+        {
+          "volume": "SyntheticVolume49",
+          "filesystem": "NTFS",
+          "total_bytes": 1000,
+          "free_bytes": 50,
+          "used_bytes": 950,
+          "used_percent": 95
+        }
+      ],
+      "degraded_services": [
+        {
+          "name": "SyntheticFailed0",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed1",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed2",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed3",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed4",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed5",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed6",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed7",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed8",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed9",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed10",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed11",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed12",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed13",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed14",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed15",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed16",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed17",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed18",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed19",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed20",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed21",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed22",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed23",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed24",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed25",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed26",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed27",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed28",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed29",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed30",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed31",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed32",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed33",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed34",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed35",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed36",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed37",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed38",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed39",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed40",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed41",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed42",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed43",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed44",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed45",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed46",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed47",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed48",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        },
+        {
+          "name": "SyntheticFailed49",
+          "display_name": "Synthetic Failed",
+          "state": "Stopped",
+          "start_mode": "Manual",
+          "process_id": 0,
+          "exit_code": 1067,
+          "service_specific_exit_code": null
+        }
+      ],
+      "top_processes": [
+        {
+          "pid": 101,
+          "ppid": 4,
+          "name": "synthetic.exe",
+          "cpu_percent": null,
+          "memory_bytes": 1000000,
+          "start_time": null
+        }
+      ],
+      "listeners": [
+        {
+          "protocol": "tcp",
+          "address": "127.0.0.1",
+          "port": 8080,
+          "pid": 101,
+          "ownership_status": "available"
+        }
+      ],
+      "findings": [
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed0",
+          "summary": "Windows service SyntheticFailed0 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed1",
+          "summary": "Windows service SyntheticFailed1 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed2",
+          "summary": "Windows service SyntheticFailed2 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed3",
+          "summary": "Windows service SyntheticFailed3 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed4",
+          "summary": "Windows service SyntheticFailed4 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed5",
+          "summary": "Windows service SyntheticFailed5 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed6",
+          "summary": "Windows service SyntheticFailed6 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed7",
+          "summary": "Windows service SyntheticFailed7 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed8",
+          "summary": "Windows service SyntheticFailed8 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed9",
+          "summary": "Windows service SyntheticFailed9 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed10",
+          "summary": "Windows service SyntheticFailed10 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed11",
+          "summary": "Windows service SyntheticFailed11 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed12",
+          "summary": "Windows service SyntheticFailed12 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed13",
+          "summary": "Windows service SyntheticFailed13 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed14",
+          "summary": "Windows service SyntheticFailed14 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed15",
+          "summary": "Windows service SyntheticFailed15 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed16",
+          "summary": "Windows service SyntheticFailed16 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed17",
+          "summary": "Windows service SyntheticFailed17 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed18",
+          "summary": "Windows service SyntheticFailed18 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed19",
+          "summary": "Windows service SyntheticFailed19 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed20",
+          "summary": "Windows service SyntheticFailed20 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed21",
+          "summary": "Windows service SyntheticFailed21 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed22",
+          "summary": "Windows service SyntheticFailed22 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed23",
+          "summary": "Windows service SyntheticFailed23 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed24",
+          "summary": "Windows service SyntheticFailed24 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed25",
+          "summary": "Windows service SyntheticFailed25 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed26",
+          "summary": "Windows service SyntheticFailed26 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed27",
+          "summary": "Windows service SyntheticFailed27 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed28",
+          "summary": "Windows service SyntheticFailed28 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed29",
+          "summary": "Windows service SyntheticFailed29 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed30",
+          "summary": "Windows service SyntheticFailed30 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed31",
+          "summary": "Windows service SyntheticFailed31 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed32",
+          "summary": "Windows service SyntheticFailed32 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed33",
+          "summary": "Windows service SyntheticFailed33 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed34",
+          "summary": "Windows service SyntheticFailed34 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed35",
+          "summary": "Windows service SyntheticFailed35 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed36",
+          "summary": "Windows service SyntheticFailed36 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed37",
+          "summary": "Windows service SyntheticFailed37 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed38",
+          "summary": "Windows service SyntheticFailed38 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed39",
+          "summary": "Windows service SyntheticFailed39 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed40",
+          "summary": "Windows service SyntheticFailed40 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed41",
+          "summary": "Windows service SyntheticFailed41 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed42",
+          "summary": "Windows service SyntheticFailed42 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed43",
+          "summary": "Windows service SyntheticFailed43 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed44",
+          "summary": "Windows service SyntheticFailed44 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed45",
+          "summary": "Windows service SyntheticFailed45 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed46",
+          "summary": "Windows service SyntheticFailed46 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed47",
+          "summary": "Windows service SyntheticFailed47 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed48",
+          "summary": "Windows service SyntheticFailed48 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed49",
+          "summary": "Windows service SyntheticFailed49 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "SERVICE_FAILED",
+          "name": "SyntheticFailed50",
+          "summary": "Windows service SyntheticFailed50 stopped with exit code 1067"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume0",
+          "summary": "Volume SyntheticVolume0 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume1",
+          "summary": "Volume SyntheticVolume1 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume2",
+          "summary": "Volume SyntheticVolume2 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume3",
+          "summary": "Volume SyntheticVolume3 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume4",
+          "summary": "Volume SyntheticVolume4 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume5",
+          "summary": "Volume SyntheticVolume5 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume6",
+          "summary": "Volume SyntheticVolume6 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume7",
+          "summary": "Volume SyntheticVolume7 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume8",
+          "summary": "Volume SyntheticVolume8 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume9",
+          "summary": "Volume SyntheticVolume9 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume10",
+          "summary": "Volume SyntheticVolume10 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume11",
+          "summary": "Volume SyntheticVolume11 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume12",
+          "summary": "Volume SyntheticVolume12 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume13",
+          "summary": "Volume SyntheticVolume13 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume14",
+          "summary": "Volume SyntheticVolume14 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume15",
+          "summary": "Volume SyntheticVolume15 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume16",
+          "summary": "Volume SyntheticVolume16 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume17",
+          "summary": "Volume SyntheticVolume17 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume18",
+          "summary": "Volume SyntheticVolume18 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume19",
+          "summary": "Volume SyntheticVolume19 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume20",
+          "summary": "Volume SyntheticVolume20 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume21",
+          "summary": "Volume SyntheticVolume21 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume22",
+          "summary": "Volume SyntheticVolume22 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume23",
+          "summary": "Volume SyntheticVolume23 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume24",
+          "summary": "Volume SyntheticVolume24 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume25",
+          "summary": "Volume SyntheticVolume25 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume26",
+          "summary": "Volume SyntheticVolume26 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume27",
+          "summary": "Volume SyntheticVolume27 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume28",
+          "summary": "Volume SyntheticVolume28 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume29",
+          "summary": "Volume SyntheticVolume29 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume30",
+          "summary": "Volume SyntheticVolume30 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume31",
+          "summary": "Volume SyntheticVolume31 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume32",
+          "summary": "Volume SyntheticVolume32 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume33",
+          "summary": "Volume SyntheticVolume33 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume34",
+          "summary": "Volume SyntheticVolume34 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume35",
+          "summary": "Volume SyntheticVolume35 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume36",
+          "summary": "Volume SyntheticVolume36 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume37",
+          "summary": "Volume SyntheticVolume37 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume38",
+          "summary": "Volume SyntheticVolume38 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume39",
+          "summary": "Volume SyntheticVolume39 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume40",
+          "summary": "Volume SyntheticVolume40 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume41",
+          "summary": "Volume SyntheticVolume41 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume42",
+          "summary": "Volume SyntheticVolume42 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume43",
+          "summary": "Volume SyntheticVolume43 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume44",
+          "summary": "Volume SyntheticVolume44 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume45",
+          "summary": "Volume SyntheticVolume45 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume46",
+          "summary": "Volume SyntheticVolume46 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume47",
+          "summary": "Volume SyntheticVolume47 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume48",
+          "summary": "Volume SyntheticVolume48 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume49",
+          "summary": "Volume SyntheticVolume49 is 95% used"
+        },
+        {
+          "severity": "critical",
+          "code": "FILESYSTEM_PRESSURE",
+          "volume": "SyntheticVolume50",
+          "summary": "Volume SyntheticVolume50 is 95% used"
+        }
+      ],
+      "collector_health": [
+        {
+          "collector": "windows_host",
+          "status": "ok",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_volumes",
+          "status": "partial",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_services",
+          "status": "partial",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_processes",
+          "status": "ok",
+          "duration_ms": 0
+        },
+        {
+          "collector": "windows_listeners",
+          "status": "ok",
+          "duration_ms": 0
+        }
+      ],
+      "finding_coverage": {
+        "filesystems": "incomplete",
+        "services": "incomplete"
+      },
+      "truncation": {
+        "filesystems": 3,
+        "services": 4,
+        "processes": 0,
+        "listeners": 0
+      }
+    }
+  }
+]

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { afterEach, it, mock } from 'node:test';
+import { afterEach, beforeEach, it, mock } from 'node:test';
+import { repo } from '../src/store/repository.js';
 import { resolveTargetRunTools } from '../src/services/target-run-tool-resolution.js';
 import { syncTargetBuiltInTools } from '../src/services/target-built-in-tool-sync.js';
 import { agentGateway } from '../src/agent/ws-server.js';
@@ -7,10 +8,20 @@ import { restoreControllerRegressionState } from './helpers/controller-regressio
 import { BASE_TOOLS, installResolverRepoStubs, mockToolList } from './helpers/target-run-tool-resolution-fixtures.js';
 
 afterEach(restoreControllerRegressionState);
+beforeEach(() => {
+  installResolverRepoStubs();
+  // These schema-rejection cases require an existing VM before discovery/sync.
+  mock.method(repo, 'getVirtualMachine', async () => ({
+    id: 'target-1', workspaceId: 'workspace-1', name: 'Linux VM', status: 'online',
+    osFamily: 'linux', serviceManager: 'systemd', allowedLogSources: ['journald'],
+    agentAccessMode: 'read_only', restartServices: [], permissionMode: 'read_only',
+    permissionModeOverride: null, permissionModeSource: 'deployment_default',
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z'
+  }));
+});
 const oversized = { enum: Array.from({ length: 101 }, (_, i) => i) };
 
 it('rejects bootstrap rather than swallowing schema failure with populated authority lists', async () => {
-  installResolverRepoStubs();
   mockToolList(BASE_TOOLS.map(tool => ({ ...tool, input_schema: oversized })));
   await assert.rejects(resolveTargetRunTools({
     workspaceId: 'workspace-1', targetId: 'target-1', targetType: 'virtual_machine',
@@ -52,7 +63,6 @@ it('disables only exact stale builtin registrations when advertised schemas are 
 });
 
 it('propagates schema rejection from initial builtin sync instead of bootstrapping without tools', async () => {
-  installResolverRepoStubs();
   mock.method(agentGateway, 'listAgentTools', async () => [{
     name: 'bad-new-tool', inputSchema: oversized, outputSchema: {}, artifactPolicy: 'never' as const
   }]);
@@ -65,8 +75,7 @@ it('propagates schema rejection from initial builtin sync instead of bootstrappi
 
 for (const failedStep of ['server lookup', 'tool lookup', 'disable patch']) {
   it(`keeps bootstrap rejected when schema cleanup fails at ${failedStep}`, async () => {
-    installResolverRepoStubs();
-    mock.method(agentGateway, 'listAgentTools', async () => [{
+      mock.method(agentGateway, 'listAgentTools', async () => [{
       name: 'query_logs', inputSchema: oversized, outputSchema: {}, artifactPolicy: 'never' as const
     }]);
     const staleTool = { ...BASE_TOOLS.find(tool => tool.name === 'query_logs'), source: 'builtin', server_id: 'builtin-server' };

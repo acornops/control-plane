@@ -1,4 +1,5 @@
 import type { RunPermissionMode } from './run-permission.js';
+import type { TargetConnectionObservation } from './agent-connection.js';
 
 export type WriteConfirmationPolicySource = 'cluster_override' | 'deployment_default';
 export type PermissionModePolicySource = WriteConfirmationPolicySource;
@@ -13,6 +14,7 @@ export interface KubernetesCluster {
   workspaceId: string;
   name: string;
   status: 'online' | 'offline' | 'degraded' | 'unknown';
+  connection?: TargetConnectionObservation;
   namespaceInclude: string[];
   namespaceExclude: string[];
   permissionMode: RunPermissionMode;

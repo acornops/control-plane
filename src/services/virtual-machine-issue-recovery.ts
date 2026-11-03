@@ -1,3 +1,5 @@
+import { isWindowsSnapshot } from './windows-vm-snapshot.js';
+import { canRecoverWindowsIssue } from './windows-vm-interpretation.js';
 import type { TargetIssue, VirtualMachineSnapshot } from '../types/domain.js';
 
 function records(value: unknown): Array<Record<string, unknown>> {
@@ -9,6 +11,7 @@ export function canRecoverVirtualMachineIssue(
   snapshot: VirtualMachineSnapshot,
   issue: Pick<TargetIssue, 'issueType' | 'reason' | 'objectName'>
 ): boolean {
+  if (isWindowsSnapshot(snapshot)) return canRecoverWindowsIssue(snapshot, issue);
   const data = snapshot.data;
   const health = records(data.collector_health);
   const healthy = (collector: string): boolean => {

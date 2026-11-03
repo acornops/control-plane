@@ -421,7 +421,9 @@ export async function listAdminTargets(options: {
     clauses.push(`(t.created_at, t.id) > ($${params.length - 1}::timestamptz, $${params.length}::text)`);
   }
   const result = await db.query(
-    `SELECT t.*, w.name AS workspace_name, r.last_heartbeat_at
+    `SELECT t.*, w.name AS workspace_name, r.last_heartbeat_at,
+       r.last_connection_id AS connection_id, r.last_heartbeat_at AS connection_heartbeat_at,
+       CURRENT_TIMESTAMP AS connection_observed_at
      FROM targets t
      INNER JOIN workspaces w ON w.id = t.workspace_id
      LEFT JOIN target_agent_registrations r ON r.target_id = t.id
@@ -442,9 +444,10 @@ export async function listAdminTargets(options: {
 
 export async function getTargetById(targetId: string): Promise<TargetSummary | null> {
   const result = await db.query<TargetRow>(
-    `SELECT id, workspace_id, target_type, name, status, metadata, created_at, updated_at
-     FROM targets
-     WHERE id = $1`,
+    `SELECT t.*, r.last_connection_id AS connection_id, r.last_heartbeat_at AS connection_heartbeat_at,
+       CURRENT_TIMESTAMP AS connection_observed_at
+     FROM targets t LEFT JOIN target_agent_registrations r ON r.target_id = t.id
+     WHERE t.id = $1`,
     [targetId]
   );
   return result.rowCount ? mapTarget(result.rows[0]) : null;

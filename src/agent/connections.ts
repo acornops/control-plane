@@ -2,6 +2,7 @@ import WebSocket from 'ws';
 import { logger } from '../logger.js';
 import { runtime } from '../store/runtime.js';
 import { AgentConnection, AgentToolCallError } from './types.js';
+import { ownsVirtualMachineSocket } from './vm-socket-ownership.js';
 
 const connections = new Map<string, AgentConnection>(); // Kubernetes target id -> conn
 
@@ -43,6 +44,7 @@ export function detachAgentConnection(clusterId: string, conn: AgentConnection, 
 
 export function closeStaleAgentConnection(clusterId: string, conn: AgentConnection): void {
   detachAgentConnection(clusterId, conn, 'Agent connection closed');
+  if (conn.targetType === 'virtual_machine' && !ownsVirtualMachineSocket(conn)) return;
   if (conn.ws.readyState === WebSocket.OPEN || conn.ws.readyState === WebSocket.CONNECTING) {
     conn.ws.close(1012, 'Agent ownership moved to another control-plane instance');
   }

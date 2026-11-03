@@ -22,7 +22,7 @@ describe('target agent registration updates', () => {
     await updateTargetAgentSeen('cluster-1', { lastHeartbeatAt: '2026-07-11T00:00:00.000Z' });
 
     assert.doesNotMatch(sql, /\bagent_key_hash\b|\bkey_version\b/);
-    assert.deepEqual(params, ['cluster-1', null, '2026-07-11T00:00:00.000Z', null, null, null]);
+    assert.deepEqual(params, ['cluster-1', null, '2026-07-11T00:00:00.000Z', null, null, null, null]);
   });
 
   it('updates capabilities without rewriting key material', async () => {

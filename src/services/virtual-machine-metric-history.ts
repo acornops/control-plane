@@ -87,7 +87,9 @@ export function mapVirtualMachineMetricHistoryPoint(
 ): VirtualMachineMetricHistoryPoint {
   const memory = record(point.metrics.memory);
   const swap = record(point.metrics.swap);
-  const rootDisk = chooseRootDisk(point.metrics.disks);
+  const rootDisk = point.metrics.osFamily === 'windows'
+    ? (Array.isArray(point.metrics.disks) ? point.metrics.disks.map(record).find((disk) => disk?.volume === point.metrics.systemVolume) || null : null)
+    : chooseRootDisk(point.metrics.disks);
   const memoryUsage = usageBytes(memory);
   const swapBytes = usageBytes(swap);
   const memoryFreeBytes = nonNegativeNumber(aliasedMetricValue(memory, 'freeBytes', 'free_bytes'));

@@ -1,3 +1,4 @@
+import { disconnectVirtualMachine } from './vm-connection-lifecycle.js';
 import { getAgentOwner, clearAgentOwnerIfCurrent, controlPlaneInstanceId, refreshAgentOwner } from '../services/control-plane-coordination.js';
 import { webhooks } from '../services/webhooks.js';
 import { repo } from '../store/repository.js';
@@ -5,6 +6,7 @@ import { KUBERNETES_TARGET_TYPE } from '../types/domain.js';
 import { AgentConnection } from './types.js';
 
 export async function markConnectionOfflineIfUnowned(clusterId: string, conn: AgentConnection): Promise<void> {
+  if (conn.targetType === 'virtual_machine') { await disconnectVirtualMachine(conn); return; }
   const owner = await getAgentOwner(clusterId);
   const draining = owner?.state === 'draining' && owner.instanceId === controlPlaneInstanceId() && owner.connectionId === conn.connectionId;
   if (draining) {

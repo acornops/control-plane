@@ -20,6 +20,21 @@ import { repo } from '../../src/store/repository.js';
 afterEach(() => mock.restoreAll());
 
 describe('Agent Targets MCP server', () => {
+  it('reports expired connectivity separately from persisted degraded health', async () => {
+    const connection = { state: 'disconnected' as const, lastHeartbeatAt: '2026-11-02T00:00:00Z',
+      observedAt: '2026-11-02T00:05:00Z', expiresAt: '2026-11-02T00:02:00Z', hasConnectionEvidence: true };
+    mock.method(repo, 'listTargets', async () => ({ items: [{
+      id: 'vm-1', workspaceId: 'workspace-1', targetType: 'virtual_machine' as const,
+      name: 'VM', status: 'degraded' as const, metadata: {}, connection,
+      createdAt: '2026-11-01T00:00:00Z', updatedAt: '2026-11-01T00:00:00Z'
+    }] }));
+    const result = await executeAgentTargetsMcpTool({ workspaceId: 'workspace-1', toolName: 'list_targets', arguments: {} });
+    const item = (result.structuredContent as { items: Record<string, unknown>[] }).items[0];
+    assert.equal(item.connection_status, 'offline');
+    assert.equal(item.status, 'degraded');
+    assert.deepEqual(item.connection, connection);
+  });
+
   it('publishes exactly three approved read-only tools', () => {
     const tools = agentTargetsMcpTools(12_000);
     assert.deepEqual(tools.map((tool) => tool.name), [...AGENT_TARGETS_MCP_TOOL_NAMES]);

@@ -9,6 +9,24 @@ describe('virtual machine repository reads', () => {
     mock.restoreAll();
   });
 
+  it('reads legacy metadata without OS or access fields as a read-only Linux/systemd VM', async () => {
+    mock.method(db, 'query', async () => ({
+      rowCount: 1,
+      rows: [{
+        id: 'vm-legacy', workspace_id: 'workspace-1', target_type: 'virtual_machine', name: 'Legacy VM', status: 'offline',
+        metadata: {}, created_at: '2026-08-09T00:00:00.000Z', updated_at: '2026-08-09T00:00:00.000Z'
+      }]
+    }));
+
+    const { items } = await listVirtualMachines('workspace-1');
+
+    assert.equal(items[0].osFamily, 'linux');
+    assert.equal(items[0].serviceManager, 'systemd');
+    assert.deepEqual(items[0].allowedLogSources, ['journald', 'syslog']);
+    assert.equal(items[0].agentAccessMode, 'read_only');
+    assert.deepEqual(items[0].restartServices, []);
+  });
+
   it('keeps offline status filters compatible with setup-required VMs', async () => {
     let capturedSql = '';
     mock.method(db, 'query', async (sql: string) => {

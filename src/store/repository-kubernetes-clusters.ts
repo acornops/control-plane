@@ -34,6 +34,9 @@ const clusterSelect = `
     t.target_type,
     t.name,
     t.status,
+    r.last_connection_id AS connection_id,
+    r.last_heartbeat_at AS connection_heartbeat_at,
+    CURRENT_TIMESTAMP AS connection_observed_at,
     COALESCE(k.namespace_include, '[]'::jsonb) AS namespace_include,
     COALESCE(k.namespace_exclude, '[]'::jsonb) AS namespace_exclude,
     k.permission_mode_override,
@@ -42,6 +45,7 @@ const clusterSelect = `
     t.updated_at
   FROM targets t
   LEFT JOIN kubernetes_target_settings k ON k.target_id = t.id
+  LEFT JOIN target_agent_registrations r ON r.target_id = t.id
 `;
 
 function isNewerSnapshot(currentTimestamp: string, previousTimestamp: string): boolean {

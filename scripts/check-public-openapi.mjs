@@ -51,6 +51,7 @@ for (const audience of ['public', 'admin']) {
   console.log(`${audience} OpenAPI document passed coverage checks (${pathCount} paths, ${schemaCount} schemas).`);
 }
 
-if (combinedLineCount > 34200) {
-  throw new Error(`Combined generated OpenAPI has ${combinedLineCount} lines; expected at most 34200`);
+// Shared heartbeat observations add one referenced schema to each audience.
+if (combinedLineCount > 34300) {
+  throw new Error(`Combined generated OpenAPI has ${combinedLineCount} lines; expected at most 34300`);
 }

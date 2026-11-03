@@ -9,6 +9,32 @@ import { createInternalApp } from '../src/internal-app.js';
 import { logger } from '../src/logger.js';
 import { jsonBodyParser } from '../src/middleware/json-body-parser.js';
 
+it('keeps VM registration and settings behind authentication after safe JSON parsing', async () => {
+  const server = createApp().listen(0, '127.0.0.1');
+  try {
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/workspaces/ws/virtual-machines`;
+    for (const [method, path, body] of [
+      ['POST', base, { name: 'Windows', osFamily: 'windows', serviceManager: 'scm', agentAccessMode: 'read_only' }],
+      ['PATCH', `${base}/vm`, { name: 'Renamed VM' }]
+    ] as const) {
+      for (const compressed of [false, true]) {
+        const headers = { 'Content-Type': 'application/json', ...(compressed ? { 'Content-Encoding': 'gzip' } : {}) };
+        const encode = (value: string) => compressed ? gzipSync(value) : value;
+        const malformed = await fetch(path, { method, headers, body: encode('{"name":') });
+        assert.equal(malformed.status, 400);
+        assert.equal((await malformed.json()).error.code, 'INVALID_REQUEST_BODY');
+        const valid = await fetch(path, { method, headers, body: encode(JSON.stringify(body)) });
+        assert.equal(valid.status, 401, 'valid Windows JSON must still require a user session');
+        await valid.arrayBuffer();
+      }
+    }
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 it('preserves exact valid JSON bytes for webhook signature verification', async () => {
   const app = express();
   app.use(jsonBodyParser());

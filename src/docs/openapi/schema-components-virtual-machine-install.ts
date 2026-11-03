@@ -11,8 +11,8 @@ export function buildVirtualMachineInstallSchemas(): Record<string, JsonSchema> 
       ],
       properties: {
         hostname: { type: 'string' },
-        osFamily: { type: 'string', enum: ['linux'] },
-        serviceManager: { type: 'string', enum: ['systemd'] },
+        osFamily: { type: 'string', enum: ['linux', 'windows'], description: 'Immutable OS identity; defaults to linux. Windows requires scm and read-only access; rollout must be qualified and enabled.' },
+        serviceManager: { type: 'string', enum: ['systemd', 'scm'], description: 'Must match OS: linux/systemd or windows/scm.' },
         allowedLogSources: stringArray,
         agentAccessMode: { type: 'string', enum: ['read_only', 'read_write'] },
         restartServices: stringArray,
@@ -53,7 +53,7 @@ export function buildVirtualMachineInstallSchemas(): Record<string, JsonSchema> 
       type: 'object',
       required: ['command', 'releaseVersion', 'bootstrapUrl', 'warnings'],
       properties: {
-        command: { type: 'string', description: 'Executable shell only; initial/replacement commands contain a short-lived enrollment token.' },
+        command: { type: 'string', description: 'OS-specific executable Bash or PowerShell command; initial/replacement commands contain a short-lived enrollment token.' },
         releaseVersion: { type: 'string', description: 'Exact immutable AgentV semantic version.' },
         bootstrapUrl: { type: 'string', format: 'uri' },
         enrollmentExpiresAt: { type: 'string', format: 'date-time' },

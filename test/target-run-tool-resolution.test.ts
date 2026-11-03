@@ -371,6 +371,10 @@ describe('target run tool resolution', () => {
 
   it('re-lists tools after built-in sync fallback registers tools', async () => {
     installResolverRepoStubs(['read']);
+    mock.method(repo, 'getVirtualMachine', async () => ({
+      id: 'target-1', workspaceId: 'workspace-1', osFamily: 'linux', serviceManager: 'systemd',
+      permissionMode: 'read_only', pendingAgentAccessPolicy: null
+    }) as Awaited<ReturnType<typeof repo.getVirtualMachine>>);
     repo.listEnabledTargetToolSettings = async () => [];
     let toolListCalls = 0;
     mock.method(agentGateway, 'listAgentTools', async () => [

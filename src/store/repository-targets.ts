@@ -3,6 +3,10 @@ import { TargetSummary, TargetType } from '../types/domain.js';
 import { PagedResult, encodeCursor, pageWithCursor } from '../utils/pagination.js';
 import { mapTarget, TargetRow } from './repository-mappers.js';
 
+const targetSelect = `SELECT t.*, r.last_connection_id AS connection_id,
+  r.last_heartbeat_at AS connection_heartbeat_at, CURRENT_TIMESTAMP AS connection_observed_at
+  FROM targets t LEFT JOIN target_agent_registrations r ON r.target_id = t.id`;
+
 export async function listTargets(
   workspaceId: string,
   options: {
@@ -16,7 +20,7 @@ export async function listTargets(
 ): Promise<PagedResult<TargetSummary>> {
   const limit = Math.max(1, Math.min(100, options.limit ?? 50));
   const params: Array<string | number | string[]> = [workspaceId, limit + 1];
-  const clauses = ['workspace_id = $1'];
+  const clauses = ['t.workspace_id = $1'];
   if (options.targetType) {
     params.push(options.targetType);
     clauses.push(`target_type = $${params.length}`);
@@ -36,8 +40,7 @@ export async function listTargets(
     clauses.push(`(created_at, id) > ($${params.length - 1}::timestamptz, $${params.length}::text)`);
   }
   const result = await db.query<TargetRow>(
-    `SELECT id, workspace_id, target_type, name, status, metadata, created_at, updated_at
-     FROM targets
+    `${targetSelect}
      WHERE ${clauses.join(' AND ')}
      ORDER BY created_at ASC, id ASC
      LIMIT $2`,
@@ -54,9 +57,8 @@ export async function listTargets(
 
 export async function getTarget(workspaceId: string, targetId: string): Promise<TargetSummary | null> {
   const result = await db.query<TargetRow>(
-    `SELECT id, workspace_id, target_type, name, status, metadata, created_at, updated_at
-     FROM targets
-     WHERE workspace_id = $1
+    `${targetSelect}
+     WHERE t.workspace_id = $1
        AND id = $2`,
     [workspaceId, targetId]
   );
@@ -66,9 +68,8 @@ export async function getTarget(workspaceId: string, targetId: string): Promise<
 
 export async function listWorkspaceTargetSnapshot(workspaceId: string): Promise<TargetSummary[]> {
   const result = await db.query<TargetRow>(
-    `SELECT id, workspace_id, target_type, name, status, metadata, created_at, updated_at
-     FROM targets
-     WHERE workspace_id = $1
+    `${targetSelect}
+     WHERE t.workspace_id = $1
      ORDER BY name ASC, id ASC`,
     [workspaceId]
   );

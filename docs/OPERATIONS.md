@@ -404,6 +404,17 @@ and must not be logged, saved, or shared. Durable AgentV credentials are
 returned only to the root installer; repair commands reuse the credential
 already protected on the VM.
 
+Windows enrollment is disabled by default (`AGENTV_WINDOWS_ENABLED=false`).
+Enable only after native Windows qualification with an independent exact
+`AGENTV_WINDOWS_RELEASE_VERSION` and HTTPS `AGENTV_WINDOWS_RELEASE_BASE_URL`.
+The release layout is `v<version>/install-agentv.ps1`; generated commands use
+PowerShell and a temporary script removed in `finally`. Windows targets are
+read-only, retain immutable Windows/SCM identity, and permit only the eight
+reviewed read tools. Feature-off disables Windows tool discovery and dispatch
+while preserving target metadata. Telemetry and packaging qualification must
+finish before enabling onboarding outside isolated tests. Linux settings and
+commands require no changes.
+
 VM snapshots atomically update the latest snapshot, inventory, and metric history.
 Inventory identifies processes by PID and listeners by protocol, bind address,
 port, and PID, while keeping their display labels unchanged. Repeated entries are
@@ -848,3 +859,17 @@ IPC is bounded to 3 MiB input and 8 KiB output; at most twelve diagnostics have
 256-byte paths/messages. Children receive schema/instance JSON and an empty
 environment, and do not load service configuration or retrieve external schemas.
 Roll out both Python services to remove inline validation from both boundaries.
+
+## Agent connection freshness
+
+`CONTROL_PLANE_AGENT_HEARTBEAT_FRESHNESS_SECONDS` defaults to 120 seconds and
+accepts 60–600. It bounds connection reporting for AgentV and AgentK (normally
+30-second heartbeats). An online/degraded row without recent accepted heartbeat
+evidence is no longer reported connected. The console expires cached observations
+even when the control plane is unavailable. A fresh heartbeat restores reporting.
+
+This setting does not alter owner TTL, command dispatch, persistent target health,
+permissions, collector health or disconnect events. Increasing it delays detection;
+a very short grace can report temporary delays as disconnection. Use synchronized
+control-plane/database clocks. The separate ownership/status-repair design remains
+open. See [the design](design-docs/agent-heartbeat-freshness.md) for boundaries.

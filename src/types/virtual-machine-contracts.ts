@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseVirtualMachinePlatform } from './virtual-machine-platform.js';
 import {
   AGENTV_MAX_RESTART_SERVICES,
   AGENTV_RESTART_SERVICE_PATTERN,
@@ -32,18 +33,24 @@ function validateAgentVAccessPolicy(
 export const registerVirtualMachineSchema = z.object({
   name: z.string().min(1),
   hostname: z.string().trim().min(1).max(253).optional(),
-  osFamily: z.literal('linux').optional(),
-  serviceManager: z.literal('systemd').optional(),
+  osFamily: z.enum(['linux', 'windows']).optional(),
+  serviceManager: z.enum(['systemd', 'scm']).optional(),
   allowedLogSources: z.array(z.string().trim().min(1).max(64)).max(10).optional(),
   agentAccessMode: agentVAccessPolicyFields.agentAccessMode.default('read_only'),
   restartServices: agentVAccessPolicyFields.restartServices.default([])
-}).superRefine(validateAgentVAccessPolicy);
+}).superRefine((input, context) => {
+  validateAgentVAccessPolicy(input, context);
+  if (!parseVirtualMachinePlatform(input)) context.addIssue({ code: 'custom', path: ['osFamily'], message: 'must specify a matching OS and service manager' });
+  if (input.osFamily === 'windows' && input.agentAccessMode !== 'read_only') context.addIssue({ code: 'custom', path: ['agentAccessMode'], message: 'Windows AgentV supports read-only access' });
+});
 
 export const updateAgentVAccessPolicySchema = z.object(agentVAccessPolicyFields)
   .strict()
   .superRefine(validateAgentVAccessPolicy);
 
 export const updateVirtualMachineSchema = z.object({
+  osFamily: z.never().optional(),
+  serviceManager: z.never().optional(),
   name: z.string().min(1).optional(),
   hostname: z.string().trim().min(1).max(253).optional(),
   allowedLogSources: z.array(z.string().trim().min(1).max(64)).max(10).optional(),

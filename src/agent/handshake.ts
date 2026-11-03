@@ -1,3 +1,7 @@
+import { publishVirtualMachineConnection } from './vm-connection-lifecycle.js';
+import { ownsVirtualMachineSocket } from './vm-socket-ownership.js';
+import type { AgentConnection } from './types.js';
+import { parseVirtualMachinePlatform, isWindowsReadTool } from '../types/virtual-machine-platform.js';
 import { serviceLifecycle } from '../services/service-lifecycle.js';
 import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
@@ -9,7 +13,7 @@ import { repo } from '../store/repository.js';
 import { KUBERNETES_TARGET_TYPE, VIRTUAL_MACHINE_TARGET_TYPE, isTargetType } from '../types/domain.js';
 import { createErrorResponse, createSuccessResponse } from '../types/jsonrpc.js';
 import { extractClusterIdFromAgentKey, verifySecret } from '../utils/crypto.js';
-import { closeStaleAgentConnection, getAgentConnection, setAgentConnection } from './connections.js';
+import { closeStaleAgentConnection, detachAgentConnection, getAgentConnection, setAgentConnection } from './connections.js';
 import { scheduleBuiltInToolSync } from './tool-sync-scheduler.js';
 
 export async function handleAgentHandshake(input: {
@@ -20,6 +24,7 @@ export async function handleAgentHandshake(input: {
   connectorVersion: string;
   mayConnect?: () => boolean;
 }): Promise<void> {
+  const receivedAt = new Date().toISOString();
   const mayConnect = () => input.ws.readyState === WebSocket.OPEN && (input.mayConnect?.() ?? serviceLifecycle.accepting);
   const rejectDraining = () => { input.ws.close(1012, 'Control plane draining'); };
   if (!mayConnect()) { rejectDraining(); return; }
@@ -29,7 +34,7 @@ export async function handleAgentHandshake(input: {
   const targetType = typeof input.params.targetType === 'string' ? input.params.targetType.trim() : '';
   const agentType = typeof input.params.agentType === 'string' ? input.params.agentType.trim() : '';
   const keyTargetId = extractClusterIdFromAgentKey(effectiveKey);
-  const supportedCapabilities = Array.isArray(input.params.supportedCapabilities)
+  let supportedCapabilities = Array.isArray(input.params.supportedCapabilities)
     ? input.params.supportedCapabilities
         .filter((entry): entry is string => typeof entry === 'string')
         .map((entry) => entry.trim())
@@ -49,6 +54,7 @@ export async function handleAgentHandshake(input: {
         .slice(0, 64)
     : [];
   const allowedTools = [...new Set(advertisedTools.map((tool) => tool.name))];
+  let sessionAllowedTools = allowedTools;
   const hostFeatures = input.params.hostFeatures && typeof input.params.hostFeatures === 'object'
     ? input.params.hostFeatures as Record<string, unknown>
     : {};
@@ -57,7 +63,7 @@ export async function handleAgentHandshake(input: {
   const connectorVersionValid = input.connectorVersion.startsWith(`${expectedAgentType}/`)
     && /^agent[kv]\/[^\s/]{1,127}$/.test(input.connectorVersion);
   const agentVRuntimeValid = targetType !== VIRTUAL_MACHINE_TARGET_TYPE
-    || (hostFeatures.osFamily === 'linux' && hostFeatures.serviceManager === 'systemd');
+    || ((hostFeatures.osFamily !== 'windows' || config.AGENTV_WINDOWS_ENABLED) && hostFeatures.osFamily !== undefined && hostFeatures.serviceManager !== undefined && Boolean(parseVirtualMachinePlatform(hostFeatures)));
   if (!targetId || !isTargetType(targetType) || agentType !== expectedAgentType
     || !connectorVersionValid || !agentVRuntimeValid || (keyTargetId && targetId !== keyTargetId)) {
     const reason = !targetId
@@ -78,7 +84,7 @@ export async function handleAgentHandshake(input: {
   }
 
   const agentVCredential = targetType === VIRTUAL_MACHINE_TARGET_TYPE
-    ? await repo.agentv.authenticateAgentVCredential(targetId, effectiveKey)
+    ? await repo.agentv.authenticateAgentVCredential(targetId, effectiveKey, parseVirtualMachinePlatform(hostFeatures)!)
     : null;
   if (agentVCredential?.provisional) {
     input.ws.send(JSON.stringify(createSuccessResponse(input.requestId, {
@@ -124,6 +130,10 @@ export async function handleAgentHandshake(input: {
 
   if (!mayConnect()) { rejectDraining(); return; }
 
+  if (targetType === VIRTUAL_MACHINE_TARGET_TYPE && hostFeatures.osFamily === 'windows') {
+    supportedCapabilities = supportedCapabilities.filter((capability) => ['read', 'logs', 'mcp', 'chat', 'windows', 'scm'].includes(capability));
+    sessionAllowedTools = advertisedTools.filter((tool) => isWindowsReadTool(tool.name, tool.capability)).map((tool) => tool.name);
+  }
   const previousCapabilities = reg.capabilities || [];
   const authenticatedKeyVersion = targetType === VIRTUAL_MACHINE_TARGET_TYPE
     ? agentVCredential?.credential.generation || reg.keyVersion
@@ -133,9 +143,8 @@ export async function handleAgentHandshake(input: {
   const now = new Date().toISOString();
   await repo.updateTargetAgentSeen(reg.targetId, {
     lastSeenAt: now,
-    lastHeartbeatAt: now,
     lastAuthenticatedKeyVersion: authenticatedKeyVersion,
-    lastConnectorVersion: input.connectorVersion
+    lastConnectorVersion: targetType === KUBERNETES_TARGET_TYPE ? input.connectorVersion : undefined
   });
 
   const target = targetType === KUBERNETES_TARGET_TYPE
@@ -146,141 +155,142 @@ export async function handleAgentHandshake(input: {
     return;
   }
 
-  const updatedTarget = targetType === KUBERNETES_TARGET_TYPE
-    ? await repo.updateCluster(target.id, { status: 'online' })
-    : await repo.updateVirtualMachine(target.id, { status: 'online' });
-  if (!mayConnect()) { rejectDraining(); return; }
   const connectionId = randomUUID();
-  await claimAgentOwner({
-    clusterId: target.id,
-    connectionId,
-    workspaceId: target.workspaceId,
-    connectorVersion: input.connectorVersion
-  });
-  await repo.updateTargetAgentSeen(target.id, { lastConnectionId: connectionId });
-
-  if (!mayConnect()) {
-    await clearAgentOwnerIfCurrent(target.id, connectionId);
-    rejectDraining();
-    return;
-  }
-  const previousLocalConnection = getAgentConnection(target.id);
-  if (previousLocalConnection && previousLocalConnection.ws !== input.ws) {
-    closeStaleAgentConnection(target.id, previousLocalConnection);
-  }
-
-  const ownerRefreshInterval = setInterval(() => {
-    if (serviceLifecycle.isStopping) return;
-    void serviceLifecycle.track(async () => {
-      const credentialStillAccepted = targetType === VIRTUAL_MACHINE_TARGET_TYPE && agentVCredential
-        ? repo.agentv.isAgentVCredentialAccepted(target.id, agentVCredential.credential.id)
-        : repo.getTargetAgentRegistration(target.id)
-            .then((currentRegistration) => currentRegistration?.keyVersion === authenticatedKeyVersion);
-      await Promise.all([
-        refreshAgentOwner(target.id, connectionId),
-        credentialStillAccepted
-      ])
-        .then(([stillOwner, accepted]) => {
-          if (!accepted) {
-            const conn = getAgentConnection(target.id);
-            if (conn && conn.connectionId === connectionId && conn.ws.readyState === WebSocket.OPEN) {
-              conn.ws.close(1008, 'Agent key rotated');
-            }
-            return;
-          }
-          if (!stillOwner) {
-            const conn = getAgentConnection(target.id);
-            if (conn && conn.connectionId === connectionId) {
-              closeStaleAgentConnection(target.id, conn);
-            }
-          }
-        })
-        .catch((err) => {
-          logger.warn({ err, targetId: target.id, targetType }, 'Failed refreshing agent owner');
-        });
-    });
-  }, Math.max(5_000, Math.floor(config.CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS * 1000 / 3)));
-  ownerRefreshInterval.unref();
-
-  setAgentConnection(target.id, {
-    connectionId,
-    ws: input.ws,
-    clusterId: target.id,
-    targetType,
-    workspaceId: target.workspaceId,
-    keyVersion: authenticatedKeyVersion,
-    credentialId: agentVCredential?.credential.id,
-    connectorVersion: input.connectorVersion,
-    ownerRefreshInterval
-  });
-
-  webhooks.emit({
-    type: 'agent.connected.v1',
-    workspaceId: target.workspaceId,
-    clusterId: targetType === KUBERNETES_TARGET_TYPE ? target.id : undefined,
-    targetId: target.id,
-    targetType,
-    subject: { type: 'agent', id: target.id },
-    data: {
-      connectionId,
-      connectorVersion: input.connectorVersion,
-      capabilities: supportedCapabilities
+  const connection: AgentConnection = {
+    connectionId, ws: input.ws, clusterId: target.id, targetType, workspaceId: target.workspaceId,
+    keyVersion: authenticatedKeyVersion, credentialId: agentVCredential?.credential.id, connectorVersion: input.connectorVersion
+  };
+  let updatedTarget: { updatedAt: string } | null = null;
+  let previousStatus = target.status;
+  const publish = () => {
+    const previousLocalConnection = getAgentConnection(target.id);
+    if (previousLocalConnection && previousLocalConnection.ws !== input.ws) {
+      closeStaleAgentConnection(target.id, previousLocalConnection);
+    } else if (previousLocalConnection && targetType === VIRTUAL_MACHINE_TARGET_TYPE) {
+      detachAgentConnection(target.id, previousLocalConnection, 'VM connection replaced on the same socket');
     }
-  });
-  if (target.status !== 'online') {
+
+    const ownerRefreshInterval = setInterval(() => {
+      if (serviceLifecycle.isStopping) return;
+      void serviceLifecycle.track(async () => {
+        const credentialStillAccepted = targetType === VIRTUAL_MACHINE_TARGET_TYPE && agentVCredential
+          ? repo.agentv.isAgentVCredentialAccepted(target.id, agentVCredential.credential.id)
+          : repo.getTargetAgentRegistration(target.id)
+              .then((currentRegistration) => currentRegistration?.keyVersion === authenticatedKeyVersion);
+        await Promise.all([
+          refreshAgentOwner(target.id, connectionId),
+          credentialStillAccepted
+        ])
+          .then(([stillOwner, accepted]) => {
+            if (targetType === VIRTUAL_MACHINE_TARGET_TYPE && !ownsVirtualMachineSocket(connection)) return;
+            if (!accepted) {
+              const conn = getAgentConnection(target.id);
+              if (conn && conn.connectionId === connectionId && conn.ws.readyState === WebSocket.OPEN) {
+                conn.ws.close(1008, 'Agent key rotated');
+              }
+              return;
+            }
+            if (!stillOwner) {
+              const conn = getAgentConnection(target.id);
+              if (conn && conn.connectionId === connectionId) {
+                closeStaleAgentConnection(target.id, conn);
+              }
+            }
+          })
+          .catch((err) => {
+            logger.warn({ err, targetId: target.id, targetType }, 'Failed refreshing agent owner');
+          });
+      });
+    }, Math.max(5_000, Math.floor(config.CONTROL_PLANE_AGENT_OWNER_TTL_SECONDS * 1000 / 3)));
+    ownerRefreshInterval.unref();
+
+    connection.ownerRefreshInterval = ownerRefreshInterval;
+    setAgentConnection(target.id, connection);
+
     webhooks.emit({
-      type: 'target.status_changed.v1',
-      workspaceId: target.workspaceId,
-      clusterId: targetType === KUBERNETES_TARGET_TYPE ? target.id : undefined,
-      targetId: target.id,
-      targetType,
-      subject: { type: 'target', id: target.id },
-      data: {
-        targetType,
-        previousStatus: target.status,
-        status: 'online',
-        updatedAt: updatedTarget?.updatedAt || new Date().toISOString()
-      }
-    });
-  }
-  if (JSON.stringify([...previousCapabilities].sort()) !== JSON.stringify([...supportedCapabilities].sort())) {
-    webhooks.emit({
-      type: 'agent.capabilities_changed.v1',
+      type: 'agent.connected.v1',
       workspaceId: target.workspaceId,
       clusterId: targetType === KUBERNETES_TARGET_TYPE ? target.id : undefined,
       targetId: target.id,
       targetType,
       subject: { type: 'agent', id: target.id },
       data: {
-        previousCapabilities,
+        connectionId,
+        connectorVersion: input.connectorVersion,
         capabilities: supportedCapabilities
       }
     });
-  }
-
-  scheduleBuiltInToolSync(target.workspaceId, target.id, targetType);
-  input.ws.send(JSON.stringify(createSuccessResponse(input.requestId, {
-    workspaceId: target.workspaceId,
-    targetId: target.id,
-    targetType,
-    sessionPolicy: {
-      allowedTools,
-      writeEnabled: supportedCapabilities.includes('write')
-    },
-    config: {
-      snapshotInterval: config.CONTROL_PLANE_AGENT_SNAPSHOT_INTERVAL_SECONDS,
-      maxSnapshotBytes: Math.min(
-        targetType === VIRTUAL_MACHINE_TARGET_TYPE ? 1024 * 1024 : 5 * 1024 * 1024,
-        config.AGENT_WS_MAX_PAYLOAD_BYTES
-      ),
-      ...(targetType === KUBERNETES_TARGET_TYPE
-        ? { maxDecodedSnapshotBytes: config.AGENT_WS_MAX_DECODED_BYTES } : {}),
-      namespaceScope: targetType === KUBERNETES_TARGET_TYPE && 'namespaceInclude' in target
-        ? {
-          include: target.namespaceInclude,
-          exclude: target.namespaceExclude
+    if (previousStatus !== 'online') {
+      webhooks.emit({
+        type: 'target.status_changed.v1',
+        workspaceId: target.workspaceId,
+        clusterId: targetType === KUBERNETES_TARGET_TYPE ? target.id : undefined,
+        targetId: target.id,
+        targetType,
+        subject: { type: 'target', id: target.id },
+        data: {
+          targetType,
+          previousStatus,
+          status: 'online',
+          updatedAt: updatedTarget?.updatedAt || new Date().toISOString()
         }
-        : undefined
+      });
     }
-  })));
+    if (JSON.stringify([...previousCapabilities].sort()) !== JSON.stringify([...supportedCapabilities].sort())) {
+      webhooks.emit({
+        type: 'agent.capabilities_changed.v1',
+        workspaceId: target.workspaceId,
+        clusterId: targetType === KUBERNETES_TARGET_TYPE ? target.id : undefined,
+        targetId: target.id,
+        targetType,
+        subject: { type: 'agent', id: target.id },
+        data: {
+          previousCapabilities,
+          capabilities: supportedCapabilities
+        }
+      });
+    }
+
+    scheduleBuiltInToolSync(target.workspaceId, target.id, targetType);
+    input.ws.send(JSON.stringify(createSuccessResponse(input.requestId, {
+      workspaceId: target.workspaceId,
+      targetId: target.id,
+      targetType,
+      sessionPolicy: {
+        allowedTools: sessionAllowedTools,
+        writeEnabled: supportedCapabilities.includes('write')
+      },
+      config: {
+        snapshotInterval: config.CONTROL_PLANE_AGENT_SNAPSHOT_INTERVAL_SECONDS,
+        maxSnapshotBytes: Math.min(
+          targetType === VIRTUAL_MACHINE_TARGET_TYPE ? 1024 * 1024 : 5 * 1024 * 1024,
+          config.AGENT_WS_MAX_PAYLOAD_BYTES
+        ),
+        ...(targetType === KUBERNETES_TARGET_TYPE
+          ? { maxDecodedSnapshotBytes: config.AGENT_WS_MAX_DECODED_BYTES } : {}),
+        namespaceScope: targetType === KUBERNETES_TARGET_TYPE && 'namespaceInclude' in target
+          ? {
+            include: target.namespaceInclude,
+            exclude: target.namespaceExclude
+          }
+          : undefined
+      }
+    })));
+  };
+  if (targetType === VIRTUAL_MACHINE_TARGET_TYPE) {
+    await publishVirtualMachineConnection({ connection, heartbeatAt: receivedAt, mayConnect, publish: (transition) => {
+      updatedTarget = transition; previousStatus = transition.previousStatus; publish();
+    } });
+    return;
+  }
+  updatedTarget = await repo.updateCluster(target.id, { status: 'online' });
+  if (!mayConnect()) { rejectDraining(); return; }
+  await claimAgentOwner({ clusterId: target.id, connectionId, workspaceId: target.workspaceId, connectorVersion: input.connectorVersion });
+  await repo.updateTargetAgentSeen(target.id, { lastConnectionId: connectionId, lastHeartbeatAt: receivedAt });
+  if (!mayConnect()) {
+    await repo.invalidateTargetAgentHeartbeat(target.id, connectionId);
+    await clearAgentOwnerIfCurrent(target.id, connectionId); rejectDraining(); return;
+  }
+  publish();
+
 }

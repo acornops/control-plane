@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it, mock } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import { agentGateway } from '../../src/agent/ws-server.js';
 import { config } from '../../src/config.js';
 import { syncTargetBuiltInTools } from '../../src/services/target-built-in-tool-sync.js';
+import { repo } from '../../src/store/repository.js';
 import { webhooks } from '../../src/services/webhooks.js';
+
+beforeEach(() => {
+  // These sync cases model an existing Linux VM; missing targets fail closed.
+  mock.method(repo, 'getVirtualMachine', async () => ({ osFamily: 'linux', serviceManager: 'systemd' }) as Awaited<ReturnType<typeof repo.getVirtualMachine>>);
+});
 
 afterEach(() => {
   mock.restoreAll();

@@ -1,6 +1,7 @@
 # Completed Execution Plans
 
 - [Approval display context](2026-11-03-approval-display-context.md) — Optional readable identities and workspace/target labels, independent inbox execution state, and isolated full validation.
+- [Agent heartbeat freshness](agent-heartbeat-freshness.md) — Shared reporting expiry and console cache aging, with real-store and live transport validation.
 
 - [Tool schema preservation](2026-10-31-tool-schema-preservation.md) — Preserve constraints and reject unsupported metadata across Control Plane, Gateway and Engine.
 
@@ -54,3 +55,7 @@ certification. Each archive note preserves outstanding acceptance or historical 
 - [First-Class Target Auto-Triage](first-class-target-auto-triage.md)
 - [OSS hosted readiness](oss-hosted-readiness.md)
 - [Target chat slash references](target-chat-slash-references.md)
+
+- [Shared VM status characterization](windows-status-characterization.md) — Ten real-store race tests; production source unchanged and ownership repair still gated.
+
+- [Windows VM final catch-all](windows-final-catch-all.md) — Scoped audit fixes, redundancy removal and verification evidence.

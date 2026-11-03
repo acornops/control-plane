@@ -1,0 +1,72 @@
+{
+  "controlPlaneRevision": "3a1b969d5a4782880b615d1f12c38c8dc1f62b6f",
+  "source": "src/services/virtual-machine-windows-install-instructions.ts",
+  "sourceSha256": "caacf74ba7a9a96f85c7ec618545b40e8ef183363d1520ecbc8cae48ad915225",
+  "configurationSource": "src/config-agentv-windows.ts",
+  "configurationSourceSha256": "7d46dc9d1b7bc9860b7c8e2de329e823f0972e49030fa7ddeb4037aa69ad04e9",
+  "generator": {
+    "runtime": "v24.2.0",
+    "invocation": "node --import tsx --input-type=module",
+    "import": "default CommonJS interop namespace",
+    "export": "buildVirtualMachineWindowsInstallInstructions",
+    "commandPostProcessing": "none",
+    "inputs": "Exact per-case input objects recorded below; expected binding values are separately hand-declared."
+  },
+  "syntheticOnly": true,
+  "cases": [
+    {
+      "name": "initial",
+      "input": {
+        "platformUrl": "https://platform.invalid/acornops/%27literal",
+        "targetId": "windows-wrapper-ci-synthetic",
+        "releaseVersion": "1.2.3-preview.1",
+        "releaseBaseUrl": "https://localhost:18443/releases",
+        "enrollmentToken": "aev_11111111-1111-4111-8111-111111111111_sssssssssssssssssssssssssssssssssssssssssss"
+      },
+      "command": "$agentvTemporaryFile = [System.IO.Path]::GetTempFileName(); $agentvInstaller = $agentvTemporaryFile + '.ps1'; try { Move-Item -LiteralPath $agentvTemporaryFile -Destination $agentvInstaller -ErrorAction Stop; $agentvCurl = Join-Path ([Environment]::GetFolderPath('System')) 'curl.exe'; & $agentvCurl -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --max-redirs 5 --connect-timeout 15 --max-time 60 --max-filesize 1048576 --output $agentvInstaller 'https://localhost:18443/releases/v1.2.3-preview.1/install-agentv.ps1'; if (-not $? -or $LASTEXITCODE -ne 0) { throw 'AgentV download failed' }; & $agentvInstaller -ReleaseBaseUrl 'https://localhost:18443/releases' -PlatformUrl 'https://platform.invalid/acornops/%27literal' -TargetId 'windows-wrapper-ci-synthetic' -EnrollmentToken 'aev_11111111-1111-4111-8111-111111111111_sssssssssssssssssssssssssssssssssssssssssss'; if (-not $?) { throw 'AgentV installation failed' } } finally { Remove-Item -LiteralPath $agentvInstaller,$agentvTemporaryFile -Force -ErrorAction SilentlyContinue }",
+      "expected": {
+        "releaseBaseUrl": "https://localhost:18443/releases",
+        "platformUrl": "https://platform.invalid/acornops/%27literal",
+        "targetId": "windows-wrapper-ci-synthetic",
+        "enrollmentToken": "aev_11111111-1111-4111-8111-111111111111_sssssssssssssssssssssssssssssssssssssssssss",
+        "replaceCredential": false
+      }
+    },
+    {
+      "name": "repair",
+      "input": {
+        "platformUrl": "https://platform.invalid/acornops/%27literal",
+        "targetId": "windows-wrapper-ci-synthetic",
+        "releaseVersion": "1.2.3-preview.1",
+        "releaseBaseUrl": "https://localhost:18443/releases"
+      },
+      "command": "$agentvTemporaryFile = [System.IO.Path]::GetTempFileName(); $agentvInstaller = $agentvTemporaryFile + '.ps1'; try { Move-Item -LiteralPath $agentvTemporaryFile -Destination $agentvInstaller -ErrorAction Stop; $agentvCurl = Join-Path ([Environment]::GetFolderPath('System')) 'curl.exe'; & $agentvCurl -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --max-redirs 5 --connect-timeout 15 --max-time 60 --max-filesize 1048576 --output $agentvInstaller 'https://localhost:18443/releases/v1.2.3-preview.1/install-agentv.ps1'; if (-not $? -or $LASTEXITCODE -ne 0) { throw 'AgentV download failed' }; & $agentvInstaller -ReleaseBaseUrl 'https://localhost:18443/releases' -PlatformUrl 'https://platform.invalid/acornops/%27literal' -TargetId 'windows-wrapper-ci-synthetic'; if (-not $?) { throw 'AgentV installation failed' } } finally { Remove-Item -LiteralPath $agentvInstaller,$agentvTemporaryFile -Force -ErrorAction SilentlyContinue }",
+      "expected": {
+        "releaseBaseUrl": "https://localhost:18443/releases",
+        "platformUrl": "https://platform.invalid/acornops/%27literal",
+        "targetId": "windows-wrapper-ci-synthetic",
+        "enrollmentToken": "",
+        "replaceCredential": false
+      }
+    },
+    {
+      "name": "replacement",
+      "input": {
+        "platformUrl": "https://platform.invalid/acornops/%27literal",
+        "targetId": "windows-wrapper-ci-synthetic",
+        "releaseVersion": "1.2.3-preview.1",
+        "releaseBaseUrl": "https://localhost:18443/releases",
+        "enrollmentToken": "aev_11111111-1111-4111-8111-111111111111_sssssssssssssssssssssssssssssssssssssssssss",
+        "replaceCredential": true
+      },
+      "command": "$agentvTemporaryFile = [System.IO.Path]::GetTempFileName(); $agentvInstaller = $agentvTemporaryFile + '.ps1'; try { Move-Item -LiteralPath $agentvTemporaryFile -Destination $agentvInstaller -ErrorAction Stop; $agentvCurl = Join-Path ([Environment]::GetFolderPath('System')) 'curl.exe'; & $agentvCurl -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --max-redirs 5 --connect-timeout 15 --max-time 60 --max-filesize 1048576 --output $agentvInstaller 'https://localhost:18443/releases/v1.2.3-preview.1/install-agentv.ps1'; if (-not $? -or $LASTEXITCODE -ne 0) { throw 'AgentV download failed' }; & $agentvInstaller -ReleaseBaseUrl 'https://localhost:18443/releases' -PlatformUrl 'https://platform.invalid/acornops/%27literal' -TargetId 'windows-wrapper-ci-synthetic' -EnrollmentToken 'aev_11111111-1111-4111-8111-111111111111_sssssssssssssssssssssssssssssssssssssssssss' -ReplaceCredential; if (-not $?) { throw 'AgentV installation failed' } } finally { Remove-Item -LiteralPath $agentvInstaller,$agentvTemporaryFile -Force -ErrorAction SilentlyContinue }",
+      "expected": {
+        "releaseBaseUrl": "https://localhost:18443/releases",
+        "platformUrl": "https://platform.invalid/acornops/%27literal",
+        "targetId": "windows-wrapper-ci-synthetic",
+        "enrollmentToken": "aev_11111111-1111-4111-8111-111111111111_sssssssssssssssssssssssssssssssssssssssssss",
+        "replaceCredential": true
+      }
+    }
+  ]
+}

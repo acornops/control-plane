@@ -44,6 +44,10 @@ export async function createVirtualMachineAgentAccessPolicyUpdate(
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Virtual machine not found', retryable: false } });
       return;
     }
+    if (vm.osFamily === 'windows' && (req.body.agentAccessMode !== 'read_only' || req.body.restartServices.length > 0)) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Windows AgentV supports read-only access', retryable: false } });
+      return;
+    }
     const requestedPolicy = {
       accessMode: req.body.agentAccessMode as 'read_only' | 'read_write',
       restartServices: req.body.restartServices as string[]

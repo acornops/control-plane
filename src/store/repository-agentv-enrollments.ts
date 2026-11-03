@@ -1,3 +1,4 @@
+import { parseVirtualMachinePlatform, type VirtualMachinePlatform } from '../types/virtual-machine-platform.js';
 import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { db } from '../infra/db.js';
@@ -71,6 +72,8 @@ async function createAgentVEnrollment(input: {
       [input.targetId, input.workspaceId]
     );
     if (!target.rowCount) return false;
+    const platform = parseVirtualMachinePlatform(target.rows[0].metadata || {});
+    if (!platform || (platform.osFamily === 'windows' && (input.accessPolicy.accessMode !== 'read_only' || input.accessPolicy.restartServices.length > 0))) return false;
     const active = await client.query(
       "SELECT id FROM agentv_credentials WHERE target_id = $1 AND state = 'active'",
       [input.targetId]
@@ -178,23 +181,28 @@ async function exchangeAgentVEnrollment(input: {
   });
 }
 
-async function authenticateAgentVCredential(targetId: string, agentKey: string): Promise<{
+async function authenticateAgentVCredential(targetId: string, agentKey: string, runtime: VirtualMachinePlatform = { osFamily: 'linux', serviceManager: 'systemd' }): Promise<{
   credential: AgentVCredential; workspaceId: string; provisional: boolean;
 } | null> {
-  const result = await db.query(
-    `SELECT c.*, e.workspace_id
-     FROM agentv_credentials c JOIN agentv_enrollments e ON e.id = c.enrollment_id
-     WHERE c.target_id = $1
-       AND (c.state = 'active'
-         OR (c.state = 'pending' AND e.status IN ('exchanged', 'verified') AND e.transaction_expires_at > NOW())
-         OR (c.state = 'grace' AND c.grace_expires_at > NOW()))
-     ORDER BY CASE c.state WHEN 'active' THEN 1 WHEN 'pending' THEN 2 ELSE 3 END`,
-    [targetId]
-  );
-  const match = result.rows.find((row) => verifySecret(agentKey, row.key_hash));
-  if (!match) return null;
-  if (match.state === 'pending') {
-    await withTransaction(async (client) => {
+  return withTransaction(async (client) => {
+    const target = await client.query(
+      "SELECT metadata FROM targets WHERE id = $1 AND target_type = 'virtual_machine' FOR UPDATE", [targetId]
+    );
+    const platform = target.rowCount ? parseVirtualMachinePlatform(target.rows[0].metadata || {}) : null;
+    if (!platform || platform.osFamily !== runtime.osFamily || platform.serviceManager !== runtime.serviceManager) return null;
+    const result = await client.query(
+      `SELECT c.*, e.workspace_id
+       FROM agentv_credentials c JOIN agentv_enrollments e ON e.id = c.enrollment_id
+       WHERE c.target_id = $1
+         AND (c.state = 'active'
+           OR (c.state = 'pending' AND e.status IN ('exchanged', 'verified') AND e.transaction_expires_at > NOW())
+           OR (c.state = 'grace' AND c.grace_expires_at > NOW()))
+       ORDER BY CASE c.state WHEN 'active' THEN 1 WHEN 'pending' THEN 2 ELSE 3 END`,
+      [targetId]
+    );
+    const match = result.rows.find((row) => verifySecret(agentKey, row.key_hash));
+    if (!match) return null;
+    if (match.state === 'pending') {
       await client.query(
         `UPDATE agentv_credentials SET verified_at = COALESCE(verified_at, NOW())
          WHERE id = $1 AND state = 'pending'`, [match.id]
@@ -203,9 +211,9 @@ async function authenticateAgentVCredential(targetId: string, agentKey: string):
         `UPDATE agentv_enrollments SET status = 'verified', verified_at = COALESCE(verified_at, NOW()), updated_at = NOW()
          WHERE id = $1 AND status IN ('exchanged', 'verified')`, [match.enrollment_id]
       );
-    });
-  }
-  return { credential: credential(match), workspaceId: match.workspace_id, provisional: match.state === 'pending' };
+    }
+    return { credential: credential(match), workspaceId: match.workspace_id, provisional: match.state === 'pending' };
+  });
 }
 
 async function isAgentVCredentialAccepted(targetId: string, credentialId: string): Promise<boolean> {
@@ -294,6 +302,9 @@ async function commitAgentVInstallation(id: string, secret: string): Promise<Age
       `UPDATE agentv_credentials SET state = 'active', activated_at = NOW()
        WHERE id = $1 AND state = 'pending' RETURNING *`, [candidate.id]
     );
+    const target = await client.query('SELECT metadata FROM targets WHERE id = $1 FOR UPDATE', [current.targetId]);
+    const platform = parseVirtualMachinePlatform(target.rows[0]?.metadata || {});
+    if (!platform) throw new Error('Invalid stored VM platform');
     await client.query(
       `INSERT INTO target_agent_registrations
          (target_id, workspace_id, agent_key_hash, key_version, capabilities)
@@ -302,13 +313,12 @@ async function commitAgentVInstallation(id: string, secret: string): Promise<Age
        SET workspace_id = EXCLUDED.workspace_id, agent_key_hash = EXCLUDED.agent_key_hash,
            key_version = EXCLUDED.key_version`,
       [current.targetId, current.workspaceId, activated.rows[0].key_hash, activated.rows[0].generation,
-        JSON.stringify(['read', 'logs', 'mcp', 'chat', 'systemd', 'linux'])]
+        JSON.stringify(['read', 'logs', 'mcp', 'chat', platform.serviceManager, platform.osFamily])]
     );
     await client.query(
       `UPDATE agentv_enrollments SET status = 'completed', completed_at = NOW(), updated_at = NOW()
        WHERE id = $1`, [id]
     );
-    const target = await client.query('SELECT metadata FROM targets WHERE id = $1 FOR UPDATE', [current.targetId]);
     const metadata = { ...(target.rows[0]?.metadata || {}) } as Record<string, unknown>;
     const isAccessPolicyUpdate = metadata.pendingAgentAccessPolicyEnrollmentId === id;
     if (isAccessPolicyUpdate) {

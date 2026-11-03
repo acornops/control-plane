@@ -22,6 +22,25 @@ const externalUserHeader = {
   description: 'Required only for external integration client-token requests. Must identify a linked external integration user.'
 };
 
+export const windowsCollectionCategorySchema = {
+  type: 'object', required: ['status'], additionalProperties: false,
+  properties: {
+    status: { type: 'string', enum: ['ok', 'partial', 'unavailable', 'permission_denied', 'timed_out', 'unsupported', 'unknown'] },
+    omittedCount: { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+    findingCoverage: { type: 'string', enum: ['complete', 'incomplete'] }
+  }
+};
+const collectionStatusSchema = {
+  type: ['object', 'null'], additionalProperties: false,
+  required: ['workspaceId', 'targetId', 'snapshotTs', 'categories'],
+  properties: {
+    workspaceId: { type: 'string' }, targetId: { type: 'string' }, snapshotTs: { type: 'string', format: 'date-time' },
+    categories: { type: 'object', additionalProperties: false,
+      required: ['host', 'filesystems', 'services', 'processes', 'network'],
+      properties: Object.fromEntries(['host', 'filesystems', 'services', 'processes', 'network'].map((key) => [key, { $ref: '#/components/schemas/WindowsCollectionCategory' }])) }
+  }
+};
+
 export function buildVirtualMachinePaths(): Record<string, unknown> {
   return {
     '/api/v1/agentv/enrollments/exchange': {
@@ -109,8 +128,8 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
                 properties: {
                   name: { type: 'string', example: 'payments-vm-01' },
                   hostname: { type: 'string', example: 'payments-vm-01.internal' },
-                  osFamily: { type: 'string', enum: ['linux'], example: 'linux' },
-                  serviceManager: { type: 'string', enum: ['systemd'], example: 'systemd' },
+                  osFamily: { type: 'string', enum: ['linux', 'windows'], description: 'Immutable OS identity; defaults to linux. Windows requires scm and read-only access; rollout must be qualified and enabled.', example: 'linux' },
+                  serviceManager: { type: 'string', enum: ['systemd', 'scm'], description: 'Must match OS: linux/systemd or windows/scm.', example: 'systemd' },
                   allowedLogSources: {
                     type: 'array',
                     items: { type: 'string' },
@@ -132,6 +151,25 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
         responses: {
           '201': { description: 'VM registration created with systemd agent install instructions.' },
           '409': { description: 'Virtual machine quota exceeded. Returns QUOTA_EXCEEDED with quotaKey=virtualMachines.' }
+        }
+      }
+    },
+    '/api/v1/workspaces/{workspaceId}/virtual-machines/registration-options': {
+      get: {
+        tags: ['workspaces'], summary: 'Get available VM registration platforms',
+        description: 'Requires a user session and manage_targets. Windows/scm is included only when the read-only Windows rollout is enabled with valid release coordinates. No release URLs or credentials are returned.',
+        security: [{ userSession: [] }], parameters: [workspaceParam],
+        responses: {
+          '200': { description: 'Available registration platforms.', content: { 'application/json': { schema: {
+            type: 'object', required: ['platforms'], additionalProperties: false,
+            properties: { platforms: { type: 'array', items: { oneOf: [
+              { type: 'object', required: ['osFamily', 'serviceManager', 'accessModes'], additionalProperties: false,
+                properties: { osFamily: { const: 'linux' }, serviceManager: { const: 'systemd' }, accessModes: { const: ['read_only', 'read_write'] } } },
+              { type: 'object', required: ['osFamily', 'serviceManager', 'accessModes'], additionalProperties: false,
+                properties: { osFamily: { const: 'windows' }, serviceManager: { const: 'scm' }, accessModes: { const: ['read_only'] } } }
+            ] } } }
+          } } } },
+          '401': { description: 'User session required.' }, '403': { description: 'Target management permission required.' }
         }
       }
     },
@@ -259,7 +297,12 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
         description: 'Browser callers use the session cookie. External integration callers may use the external integration client token plus x-acornops-external-user-id when the linked user and bot allowlist grant read_workspace_data.',
         security: [{ userSession: [] }, { externalIntegrationClientToken: [] }],
         parameters: [externalUserHeader, workspaceParam, vmParam],
-        responses: { '200': { description: 'VM inventory page payload: { items, nextCursor? }.' } }
+        responses: { '200': {
+          description: 'VM inventory: Linux retains {items}. Windows adds collectionStatus bound to the same committed snapshot as its rows; null means no matching snapshot/read-model generation. Missing collector evidence is unknown. Omitted counts describe inventory truncation; findingCoverage applies only to volumes/services and does not imply a complete inventory.',
+          content: { 'application/json': { schema: { type: 'object', required: ['items'], properties: {
+            items: { type: 'array', items: { type: 'object', additionalProperties: true } }, collectionStatus: collectionStatusSchema
+          } } } }
+        } }
       }
     },
     '/api/v1/workspaces/{workspaceId}/virtual-machines/{vmId}/metrics/history': {
@@ -284,11 +327,16 @@ export function buildVirtualMachinePaths(): Record<string, unknown> {
         parameters: [
           workspaceParam,
           vmParam,
-          { in: 'query', name: 'source', required: false, schema: { type: 'string', example: 'system' } },
-          { in: 'query', name: 'query', required: false, schema: { type: 'string' } },
-          { in: 'query', name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 200, default: 100 } }
+          { in: 'query', name: 'source', required: false, description: 'Linux only.', schema: { type: 'string', enum: ['journald'] } },
+          { in: 'query', name: 'unit', required: false, description: 'Linux systemd unit.', schema: { type: 'string' } },
+          { in: 'query', name: 'channel', required: false, description: 'Required for Windows. The channel must also be locally allowed by AgentV.', schema: { type: 'string', enum: ['Application', 'System'] } },
+          { in: 'query', name: 'since', required: false, description: 'Windows ISO timestamp; the native agent enforces the bounded time window.', schema: { type: 'string', format: 'date-time' } },
+          { in: 'query', name: 'until', required: false, description: 'Windows ISO timestamp.', schema: { type: 'string', format: 'date-time' } },
+          { in: 'query', name: 'q', required: false, schema: { type: 'string' } },
+          { in: 'query', name: 'tailLines', required: false, schema: { type: 'integer', minimum: 1, maximum: 500, default: 200 } },
+          { in: 'query', name: 'limitBytes', required: false, schema: { type: 'integer', minimum: 1024, maximum: 1048576, default: 1048576 } }
         ],
-        responses: { '200': { description: 'VM log entries returned by the connected AgentV.' } }
+        responses: { '200': { description: 'VM log entries returned by the connected AgentV. Windows HTTP 200 envelopes also include health.status (ok, partial, unavailable, permission_denied, timed_out, unsupported), truncated, returned_count, original_count and byte_count. A successful HTTP response does not imply complete collection; retain usable entries alongside failed/partial collection status. Linux envelopes are unchanged.' } }
       }
     }
   };
