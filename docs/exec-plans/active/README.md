@@ -1,7 +1,5 @@
 # Active Execution Plans
 
-- [Target Insights context role repair](2026-11-03-target-insights-context.md) — Restore Kubernetes and VM triage context compatibility.
-
 - [Remove Automation Rollout Mode](2026-10-31-remove-automation-rollout.md) — Default dispatch, preserved maintenance controls, and coordinated deployment cleanup.
 - [Capacity Maintenance Status Fix](2026-10-31-capacity-maintenance-status.md) — Atomic workflow summaries and bounded repair of historical maintenance failures.
 

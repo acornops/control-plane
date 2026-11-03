@@ -1,5 +1,7 @@
 # Completed Execution Plans
 
+- [Target Insights context role repair](2026-11-03-target-insights-context.md) — Restore Kubernetes and VM triage after retrieval hits; .46 verified on demo.
+
 - [Target Insights checkpoint request and retries](2026-11-03-target-insights-retries.md) — Restore the canonical gateway request and bound failed activity retries.
 
 - [Approval display context](2026-11-03-approval-display-context.md) — Optional readable identities and workspace/target labels, independent inbox execution state, and isolated full validation.
