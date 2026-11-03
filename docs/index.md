@@ -27,6 +27,7 @@ This `docs/` tree is the repository-local system of record for agent-readable de
 - [Product Spec Index](/docs/product-specs/index.md)
 - [Component Charter](/docs/product-specs/component-charter.md)
 - [Target Insights](/docs/product-specs/target-insights.md)
+- [Target Insights context role repair](/docs/exec-plans/active/2026-11-03-target-insights-context.md)
 
 ## Plans And Debt
 

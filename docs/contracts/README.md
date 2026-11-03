@@ -30,6 +30,11 @@ The control plane owns the platform API boundary. Keep this README as a short in
 
 ## Shared Invariants
 
+- Execution context messages use only `user` or `assistant` roles. Retrieved
+  Target Insights for Kubernetes and VM chats are prepended as user-priority,
+  untrusted reference data, preserving the operator's latest message and the
+  separate retrieval metadata. They must not enter trusted runtime instructions.
+
 - Browser approval inbox, run approval lists, and decision responses may include
   `requestedByUser`/`decidedByUser` (`id`, `displayName`), `workspaceName`, and
   `targetName`. Display names follow persisted approval references, including
