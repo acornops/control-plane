@@ -11,11 +11,14 @@ import {
 } from './repository-mappers.js';
 import { insertWorkspaceAuditEvent } from './repository-audit-events.js';
 import { withTransaction } from './repository-transaction.js';
+import { APPROVAL_DISPLAY_COLUMNS, APPROVAL_DISPLAY_JOINS } from './repository-approval-display-context.js';
 
 const RUN_TOOL_APPROVAL_SELECT = `
-  SELECT a.*, t.target_type, r.session_id, s.origin AS session_origin, s.title AS session_title
+  SELECT a.*, t.target_type, t.name AS target_name, r.session_id, s.origin AS session_origin, s.title AS session_title,
+         ${APPROVAL_DISPLAY_COLUMNS}
   FROM run_tool_approvals a
-  LEFT JOIN targets t ON t.id = a.target_id
+  LEFT JOIN targets t ON t.id = a.target_id AND t.workspace_id = a.workspace_id
+  ${APPROVAL_DISPLAY_JOINS}
   JOIN runs r ON r.id = a.run_id
   JOIN sessions s ON s.id = r.session_id`;
 
@@ -278,9 +281,10 @@ export async function decideRunToolApprovalOutcome(
        WHERE existing.id = $1
          AND NOT EXISTS (SELECT 1 FROM transitioned)
      )
-     SELECT a.*, t.target_type
+     SELECT a.*, t.target_type, t.name AS target_name, ${APPROVAL_DISPLAY_COLUMNS}
      FROM selected a
-     LEFT JOIN targets t ON t.id = a.target_id`,
+     LEFT JOIN targets t ON t.id = a.target_id AND t.workspace_id = a.workspace_id
+     ${APPROVAL_DISPLAY_JOINS}`,
     [approvalId, status, decision, decidedBy]
   );
   if (!result.rowCount) return null;

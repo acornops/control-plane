@@ -231,35 +231,6 @@ export function buildWorkflowSchemas(): Record<string, JsonSchema> {
       },
       additionalProperties: false
     },
-    WorkspaceApprovalInbox: {
-      type: 'object',
-      required: ['items', 'pendingCount'],
-      properties: {
-        items: { type: 'array', items: schemaRef('WorkspaceApprovalInboxRow') },
-        pendingCount: { type: 'integer', minimum: 0 },
-        nextCursor: { type: 'string' }
-      }
-    },
-    WorkspaceApprovalInboxRow: {
-      type: 'object',
-      required: ['approvalId', 'runId', 'source', 'status', 'summary'],
-      properties: {
-        approvalId: uuid,
-        runId: uuid,
-        source: { type: 'string', enum: ['interactive_tool', 'workflow_gate', 'agent_gate', 'agent_tool', 'workflow_tool'] },
-        workflowId,
-        summary: { type: 'string' },
-        toolName: { type: 'string' },
-        requestedBy: { type: 'string' },
-        expiresAt: dateTime,
-        status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'expired'] },
-        decision: { type: 'string', enum: ['approved', 'rejected'] },
-        decidedBy: { type: 'string' },
-        decidedAt: dateTime,
-        requestedAt: dateTime
-      },
-      additionalProperties: true
-    },
     WorkflowSession: {
       type: 'object',
       required: ['id', 'workspaceId', 'workflowId', 'createdBy'],

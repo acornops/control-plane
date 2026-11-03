@@ -3,6 +3,7 @@ import type { VirtualMachinePlatform } from './virtual-machine-platform.js';
 import { type TargetType } from './target-types.js';
 import type { AgentVAccessPolicy } from './agentv-access-policy.js';
 import type { RunPermissionMode } from './run-permission.js';
+export type { RunToolApproval } from './approvals.js';
 export type {
   KubernetesCluster,
   LegacyWriteConfirmationPolicy,
@@ -499,37 +500,6 @@ export interface RunEvent {
   ts: string;
   type: string;
   payload: Record<string, unknown>;
-}
-
-export interface RunToolApproval {
-  id: string;
-  runId: string;
-  workspaceId: string;
-  targetId?: string;
-  targetType?: TargetType;
-  clusterId?: string;
-  toolCallId: string;
-  toolName: string;
-  toolRef: { serverId: string; toolName: string };
-  requestedToolAlias: string;
-  argumentsDigest: string;
-  summary?: string;
-  arguments: Record<string, unknown>;
-  status: ToolApprovalStatus;
-  executionStatus: ToolApprovalExecutionStatus;
-  executionStartedAt?: string;
-  executionFinishedAt?: string;
-  toolResult?: unknown;
-  toolResultIsError?: boolean;
-  requestedBy?: string;
-  sessionId?: string;
-  sessionOrigin?: ChatSession['origin'];
-  sessionTitle?: string;
-  decidedBy?: string;
-  decision?: 'approved' | 'rejected';
-  createdAt: string;
-  decidedAt?: string;
-  expiresAt: string;
 }
 
 export interface RunContinuation {

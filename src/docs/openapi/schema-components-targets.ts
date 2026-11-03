@@ -5,6 +5,7 @@ import { buildWebhookSchemas } from './schema-components-webhooks.js';
 import { buildAutoTriageSchemas } from './schema-components-auto-triage.js';
 import { buildKubernetesRbacSchemas } from './schema-components-kubernetes-rbac.js';
 import { buildVirtualMachineInstallSchemas } from './schema-components-virtual-machine-install.js';
+import { approvalDisplayProperties } from './schema-components-approval-display.js';
 
 export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
   return {
@@ -299,6 +300,7 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
       type: 'object',
       required: ['id', 'runId', 'workspaceId', 'toolName', 'status', 'executionStatus', 'createdAt', 'expiresAt'],
       properties: {
+        ...approvalDisplayProperties,
         id: uuid,
         runId: uuid,
         workspaceId: uuid,
@@ -310,6 +312,8 @@ export function buildTargetRuntimeSchemas(): Record<string, JsonSchema> {
         clusterId: uuid,
         status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'expired'] },
         executionStatus: { type: 'string', enum: ['not_started', 'executing', 'succeeded', 'failed', 'unknown'] },
+        requestedBy: { type: 'string' },
+        decidedBy: { type: 'string' },
         decision: { type: 'string', enum: ['approved', 'rejected'] },
         toolName: { type: 'string' },
         summary: { type: 'string', description: 'Human-readable, non-authoritative description of the pending write action.' },

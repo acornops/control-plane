@@ -2,6 +2,8 @@
 
 - [Target Insights checkpoint request and retries](2026-11-03-target-insights-retries.md) — Restore the canonical gateway request and bound failed activity retries.
 
+- [Approval display context](2026-11-03-approval-display-context.md) — Optional readable identities and workspace/target labels, independent inbox execution state, and isolated full validation.
+
 - [Agent heartbeat freshness](agent-heartbeat-freshness.md) — Shared reporting expiry and console cache aging, with real-store and live transport validation.
 
 - [Tool schema preservation](2026-10-31-tool-schema-preservation.md) — Preserve constraints and reject unsupported metadata across Control Plane, Gateway and Engine.

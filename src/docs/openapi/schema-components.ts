@@ -7,6 +7,7 @@ import { buildTargetRuntimeSchemas } from './schema-components-targets.js';
 import { buildAuthWorkspaceSchemas } from './schema-components-workspace.js';
 import { buildWorkflowSchemas } from './schema-components-workflows.js';
 import { buildCatalogSchemas } from './schema-components-catalog.js';
+import { buildWorkspaceApprovalSchemas } from './schema-components-approval-display.js';
 
 export function buildSharedOpenApiSchemas(): Record<string, JsonSchema> {
   return {
@@ -14,6 +15,7 @@ export function buildSharedOpenApiSchemas(): Record<string, JsonSchema> {
     ...buildAgentSchemas(),
     ...buildAuthWorkspaceSchemas(),
     ...buildWorkflowSchemas(),
+    ...buildWorkspaceApprovalSchemas(),
     ...buildCatalogSchemas(),
     ...buildKubernetesRbacSchemas(),
     ...buildTargetRuntimeSchemas(),
