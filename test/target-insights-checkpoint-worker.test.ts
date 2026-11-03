@@ -17,6 +17,7 @@ function checkpointJob(lastActivityAt: string, overrides: Record<string, unknown
     sessionId: 'session-1',
     lastActivityAt,
     leaseOwner: 'lease-1',
+    attempts: 1,
     config: {},
     toolEnabled: true,
     sessionActive: true,
@@ -157,6 +158,32 @@ describe('Target Insights checkpoint worker', () => {
     assert.equal((rescheduledJobs[0] as { error: string }).error, 'run_active');
     assert.equal((rescheduledJobs[0] as { lastActivityAt: string }).lastActivityAt, lastActivityAt);
     assert.equal((rescheduledJobs[0] as { leaseOwner: string }).leaseOwner, 'lease-1');
+  });
+
+  it('refunds and releases a duplicate claim before ending the sweep', async () => {
+    const lastActivityAt = new Date(Date.now() - 45 * 60_000).toISOString();
+    const job = checkpointJob(lastActivityAt, { hasActiveRun: true, attempts: 3 });
+    const rescheduledJobs: Array<{ dueAt: string; error?: string | null; leaseOwner: string }> = [];
+    let claims = 0;
+    mock.method(repo, 'claimDueTargetInsightsCheckpointJobs', async () => {
+      claims += 1;
+      assert.ok(claims <= 2, 'a duplicate claim must end the sweep');
+      return [job];
+    });
+    mock.method(repo, 'rescheduleTargetInsightsCheckpointJob', async (params) => {
+      rescheduledJobs.push(params);
+      return true;
+    });
+    const before = Date.now();
+
+    await runTargetInsightsCheckpointSweep();
+
+    assert.equal(rescheduledJobs.length, 2);
+    assert.equal(rescheduledJobs[0].error, 'run_active');
+    assert.equal(rescheduledJobs[1].error, 'already_claimed');
+    assert.equal(rescheduledJobs[1].leaseOwner, 'lease-1');
+    const dueAt = new Date(rescheduledJobs[1].dueAt).getTime();
+    assert.ok(dueAt >= before + 60_000 && dueAt <= Date.now() + 60_000);
   });
 
   it('marks AI settings skips as processed for unchanged sessions', async () => {

@@ -102,8 +102,8 @@ describe('Target Insights checkpoint vertical integration', { skip: !hasIsolated
     );
     await db.query(
       `INSERT INTO target_insights_checkpoint_jobs (
-         workspace_id,target_id,session_id,target_type,last_activity_at,due_at,status
-       ) VALUES ('workspace-1','cluster-1','session-insights-1','kubernetes',$1,NOW(),'queued')`,
+         workspace_id,target_id,session_id,target_type,last_activity_at,due_at,status,attempts
+       ) VALUES ('workspace-1','cluster-1','session-insights-1','kubernetes',$1,NOW(),'queued',70)`,
       [activityAt]
     );
     installDeterministicCheckpointProvider();

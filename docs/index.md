@@ -30,6 +30,8 @@ This `docs/` tree is the repository-local system of record for agent-readable de
 
 ## Plans And Debt
 
+- [Target Insights checkpoint request and retries](/docs/exec-plans/completed/2026-11-03-target-insights-retries.md)
+
 - [Target deletion latency](/docs/exec-plans/completed/2026-10-31-target-delete-latency.md)
 
 - [Plans](/docs/PLANS.md)

@@ -1,4 +1,4 @@
-import { streamGatewayJsonPatch } from './checkpoint-gateway.js';
+import { streamGatewayJsonPatch, TargetInsightsGatewayHttpError } from './checkpoint-gateway.js';
 import { serviceLifecycle } from '../service-lifecycle.js';
 import { randomUUID } from 'node:crypto';
 import { withInsightsCapacity, assertInsightsExecution } from '../insights-capacity.js';
@@ -17,7 +17,8 @@ import { resolveWorkspaceLlmSettings } from '../workspace-ai-resolution.js';
 import { recordTargetInsightsAudit } from './audit.js';
 import {
   completeTargetInsightsCheckpoint,
-  rescheduleTargetInsightsCheckpointAfterStateChange
+  rescheduleTargetInsightsCheckpointAfterStateChange,
+  targetInsightsCheckpointRetryAfter
 } from './checkpoint-outcomes.js';
 import {
   parseTargetInsightsCheckpointResponse,
@@ -236,11 +237,15 @@ async function processJob(job: Awaited<ReturnType<typeof repo.claimDueTargetInsi
         evidenceSummary: entry.evidenceSummary
       }))
     });
-  } catch {
+  } catch (error) {
+    const httpStatus = error instanceof TargetInsightsGatewayHttpError ? error.status : undefined;
+    const permanentRejection = httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500 &&
+      httpStatus !== 408 && httpStatus !== 429;
     if (!(await completeTargetInsightsCheckpoint(job, llmSettings, {
       kind: 'provider_failure',
-      reasonCode: 'provider_failure',
-      proposedPatchCount: 0
+      reasonCode: permanentRejection ? 'gateway_request_rejected' : 'provider_failure',
+      proposedPatchCount: 0,
+      httpStatus
     }))) {
       await rescheduleTargetInsightsCheckpointAfterStateChange(job);
       return;
@@ -413,21 +418,24 @@ export async function runTargetInsightsCheckpointSweep(): Promise<void> {
     const [job] = await repo.claimDueTargetInsightsCheckpointJobs(1, leaseOwner);
     if (!job) break;
     const claimedKey = `${job.workspaceId}:${job.targetId}:${job.sessionId}:${job.lastActivityAt}`;
-    if (claimedKeys.has(claimedKey)) break;
+    if (claimedKeys.has(claimedKey)) {
+      await rescheduleJob(job, new Date(Date.now() + 60_000).toISOString(), 'already_claimed');
+      break;
+    }
     claimedKeys.add(claimedKey);
     const startedAt = Date.now();
     let status = 'unknown';
     try {
       await processJob(job);
       status = 'completed';
-    } catch (err) {
+    } catch {
       status = 'failed';
-      logger.warn({ err, targetId: job.targetId, sessionId: job.sessionId }, 'Target Insights checkpoint failed');
+      logger.warn({ reasonCode: 'exception', targetId: job.targetId, sessionId: job.sessionId }, 'Target Insights checkpoint failed');
       await repo.finishTargetInsightsCheckpointJob({
         ...jobKey(job),
         status: 'failed',
-        error: err instanceof Error ? err.message : 'Target Insights checkpoint failed',
-        retryAfter: new Date(Date.now() + 15 * 60_000).toISOString()
+        error: 'exception',
+        retryAfter: targetInsightsCheckpointRetryAfter(job)
       });
       incrementTargetInsightsCheckpointOutcome('failed', 'exception');
     } finally {

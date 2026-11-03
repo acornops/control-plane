@@ -14,7 +14,16 @@ test('Insights forwards its granted owner and generation with the persisted run 
     assert.equal(headers.get('authorization'), 'Bearer scoped-test-token');
     assert.equal(headers.get('x-acornops-execution-owner'), 'insights-lease-owner');
     assert.equal(headers.get('x-acornops-execution-generation'), '7');
-    assert.equal(JSON.parse(String(init?.body)).run_id, 'persisted-attempt');
+    const body = JSON.parse(String(init?.body));
+    assert.equal(body.run_id, 'persisted-attempt');
+    assert.equal(typeof body.runtime_instruction, 'string');
+    assert.match(body.runtime_instruction, /Return exactly one JSON object/);
+    assert.match(body.runtime_instruction, /Unknown fields are invalid/);
+    assert.deepEqual(body.transcript, [{
+      type: 'user',
+      content: JSON.stringify({ existingEntries: [], transcript: 'Supported evidence' })
+    }]);
+    assert.equal('messages' in body, false);
     return new Response('{"type":"delta","text":"{}"}\n{"type":"final","usage":{}}\n');
   });
   const result = await streamGatewayJsonPatch({

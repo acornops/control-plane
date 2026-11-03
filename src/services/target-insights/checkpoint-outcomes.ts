@@ -14,7 +14,12 @@ import type {
 type CheckpointTerminalOutcome =
   | { kind: 'noop'; reasonCode: TargetInsightsNoopReasonCode; proposedPatchCount: 1 }
   | { kind: 'invalid_response'; reasonCode: TargetInsightsCheckpointResponseReason; proposedPatchCount: number }
-  | { kind: 'provider_failure'; reasonCode: 'provider_failure'; proposedPatchCount: 0 };
+  | {
+      kind: 'provider_failure';
+      reasonCode: 'provider_failure' | 'gateway_request_rejected';
+      proposedPatchCount: 0;
+      httpStatus?: number;
+    };
 
 const outcomeAudit = {
   noop: {
@@ -41,13 +46,17 @@ function jobKey(job: TargetInsightsCheckpointJob) {
   };
 }
 
+export function targetInsightsCheckpointRetryAfter(job: TargetInsightsCheckpointJob): string | undefined {
+  return job.attempts < 3 ? new Date(Date.now() + 15 * 60_000).toISOString() : undefined;
+}
+
 async function finishCurrentJob(
   job: TargetInsightsCheckpointJob,
   outcome: CheckpointTerminalOutcome
 ): Promise<boolean> {
   const status = outcome.kind === 'noop' ? 'noop' : 'failed';
-  const retryAfter = outcome.kind === 'provider_failure'
-    ? new Date(Date.now() + 15 * 60_000).toISOString()
+  const retryAfter = outcome.kind === 'provider_failure' && outcome.reasonCode === 'provider_failure'
+    ? targetInsightsCheckpointRetryAfter(job)
     : undefined;
   return withTransaction(async (client) => {
     if (!(await repo.renewTargetInsightsCheckpointJobLeaseIfCurrent(jobKey(job), client))) return false;
@@ -79,10 +88,13 @@ export async function completeTargetInsightsCheckpoint(
     actorType: 'system',
     eventType: outcomeAudit[outcome.kind].eventType,
     objectId: job.targetId,
-    summary: outcomeAudit[outcome.kind].summary,
+    summary: outcome.reasonCode === 'gateway_request_rejected'
+      ? 'Target Insights checkpoint request rejected by gateway'
+      : outcomeAudit[outcome.kind].summary,
     metadata: {
       outcome: outcome.kind,
       reasonCode: outcome.reasonCode,
+      ...(outcome.kind === 'provider_failure' && outcome.httpStatus !== undefined ? { httpStatus: outcome.httpStatus } : {}),
       provider: model.provider,
       model: model.model,
       sessionId: job.sessionId,

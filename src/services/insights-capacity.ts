@@ -23,8 +23,10 @@ export async function withInsightsCapacity(job: { workspaceId: string; targetId:
     if (!config.WORKSPACE_DISPATCH_ENABLED) {
       await withTransaction(async (client) => {
         await lockActiveWorkspace(client, job.workspaceId);
-        await client.query(`UPDATE target_insights_checkpoint_jobs SET status='queued',due_at=clock_timestamp()+INTERVAL '10 seconds',lease_owner=NULL,lease_expires_at=NULL
-          WHERE workspace_id=$1 AND target_id=$2 AND session_id=$3 AND lease_owner=$4`, [job.workspaceId, job.targetId, job.sessionId, job.leaseOwner]);
+        await client.query(`UPDATE target_insights_checkpoint_jobs SET status='queued',due_at=clock_timestamp()+INTERVAL '10 seconds',lease_owner=NULL,lease_expires_at=NULL,
+          attempts=GREATEST(attempts-1,0)
+          WHERE workspace_id=$1 AND target_id=$2 AND session_id=$3 AND lease_owner=$4
+            AND last_activity_at=$5 AND lease_expires_at>clock_timestamp()`, [job.workspaceId, job.targetId, job.sessionId, job.leaseOwner, job.lastActivityAt]);
       });
       return;
     }
@@ -43,8 +45,10 @@ export async function withInsightsCapacity(job: { workspaceId: string; targetId:
       const grant = await acquireRunCapacity(runId, job.leaseOwner);
       if (grant.status === 'wait') {
         waiting = true;
-        await db.query(`UPDATE target_insights_checkpoint_jobs SET status='queued',due_at=NOW()+INTERVAL '10 seconds',lease_owner=NULL,lease_expires_at=NULL
-          WHERE workspace_id=$1 AND target_id=$2 AND session_id=$3 AND lease_owner=$4`, [job.workspaceId, job.targetId, job.sessionId, job.leaseOwner]);
+        await db.query(`UPDATE target_insights_checkpoint_jobs SET status='queued',due_at=NOW()+INTERVAL '10 seconds',lease_owner=NULL,lease_expires_at=NULL,
+          attempts=GREATEST(attempts-1,0)
+          WHERE workspace_id=$1 AND target_id=$2 AND session_id=$3 AND lease_owner=$4
+            AND last_activity_at=$5 AND lease_expires_at>clock_timestamp()`, [job.workspaceId, job.targetId, job.sessionId, job.leaseOwner, job.lastActivityAt]);
         return;
       }
       if (grant.status !== 'granted') throw new WorkspaceCapacityError('EXECUTION_AUTHORITY_LOST', 'Insights execution authority unavailable');

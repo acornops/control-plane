@@ -14,6 +14,7 @@ export interface TargetInsightsCheckpointJob {
   sessionId: string;
   lastActivityAt: string;
   leaseOwner: string;
+  attempts: number;
   config: Record<string, unknown>;
   toolEnabled: boolean;
   sessionActive: boolean;
@@ -29,6 +30,7 @@ interface TargetInsightsCheckpointJobRow {
   session_id: string;
   last_activity_at: Date;
   lease_owner: string;
+  attempts: number;
   config_json: Record<string, unknown> | null;
   tool_enabled: boolean | null;
   session_active: boolean;
@@ -45,6 +47,7 @@ function mapCheckpointJob(row: TargetInsightsCheckpointJobRow): TargetInsightsCh
     sessionId: row.session_id,
     lastActivityAt: row.last_activity_at.toISOString(),
     leaseOwner: row.lease_owner,
+    attempts: row.attempts,
     config: row.config_json || {},
     toolEnabled: row.tool_enabled ?? true,
     sessionActive: row.session_active,
@@ -199,6 +202,7 @@ export async function claimDueTargetInsightsCheckpointJobs(
        job.session_id,
        job.last_activity_at,
        job.lease_owner,
+       job.attempts,
        due.config_json,
        due.tool_enabled,
        due.session_active,
@@ -210,6 +214,7 @@ export async function claimDueTargetInsightsCheckpointJobs(
   return result.rows.map(mapCheckpointJob);
 }
 
+/** Defer the current claim without consuming its failure retry budget. */
 export async function rescheduleTargetInsightsCheckpointJob(params: {
   workspaceId: string;
   targetId: string;
@@ -223,6 +228,7 @@ export async function rescheduleTargetInsightsCheckpointJob(params: {
   const result = await queryable.query(
     `UPDATE target_insights_checkpoint_jobs
      SET status = 'queued',
+         attempts = GREATEST(attempts - 1, 0),
          due_at = $6::timestamptz,
          lease_owner = NULL,
          lease_expires_at = NULL,
@@ -341,6 +347,7 @@ export async function requeueTargetInsightsPausedCheckpoints(workspaceId: string
   const result = await db.query(
     `UPDATE target_insights_checkpoint_jobs job
      SET status = 'queued',
+         attempts = GREATEST(attempts - 1, 0),
          due_at = NOW(),
          lease_owner = NULL,
          lease_expires_at = NULL,

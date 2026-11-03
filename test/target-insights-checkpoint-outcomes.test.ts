@@ -4,6 +4,7 @@ import { afterEach, describe, it, mock } from 'node:test';
 import { db } from '../src/infra/db.js';
 import { runTargetInsightsCheckpointSweep } from '../src/services/target-insights/checkpoint-worker.js';
 import { repo } from '../src/store/repository.js';
+import { logger } from '../src/logger.js';
 
 afterEach(() => {
   mock.restoreAll();
@@ -13,7 +14,8 @@ async function runCheckpoint(
   responseText: string,
   gatewayStatus = 200,
   leaseCurrent = true,
-  tailEvents: Array<Record<string, unknown>> = [{ type: 'final', usage: {} }]
+  tailEvents: Array<Record<string, unknown>> = [{ type: 'final', usage: {} }],
+  options: { attempts?: number; fetchError?: Error; setupError?: Error } = {}
 ) {
   const lastActivityAt = new Date(Date.now() - 45 * 60_000).toISOString();
   const job = {
@@ -23,6 +25,7 @@ async function runCheckpoint(
     sessionId: 'session-1',
     lastActivityAt,
     leaseOwner: 'lease-1',
+    attempts: options.attempts ?? 1,
     config: {},
     toolEnabled: true,
     sessionActive: true,
@@ -31,8 +34,9 @@ async function runCheckpoint(
     hasPendingApproval: false
   };
   const finishedJobs: Array<{ status: string; error?: string | null; retryAfter?: string | null }> = [];
-  const auditEvents: Array<{ eventType: string; metadata?: Record<string, unknown> }> = [];
+  const auditEvents: Array<{ eventType: string; summary?: string; metadata?: Record<string, unknown> }> = [];
   const rescheduledJobs: Array<{ error?: string | null }> = [];
+  const warnings: unknown[] = [];
   let claimed = false;
 
   mock.method(repo, 'claimDueTargetInsightsCheckpointJobs', async () => {
@@ -41,6 +45,7 @@ async function runCheckpoint(
     return [job];
   });
   installInsightsCapacityFixture();
+  mock.method(logger, 'warn', (metadata) => { warnings.push(metadata); });
   mock.method(repo, 'finishTargetInsightsCheckpointJob', async (params) => {
     finishedJobs.push(params);
     return true;
@@ -51,9 +56,10 @@ async function runCheckpoint(
     return true;
   });
   mock.method(repo, 'getWorkspaceAiSettings', async () => null);
-  mock.method(repo, 'listMessages', async () => ({
-    items: [{ role: 'user', content: 'Diagnose recent target behavior.' }]
-  }));
+  mock.method(repo, 'listMessages', async () => {
+    if (options.setupError) throw options.setupError;
+    return { items: [{ role: 'user', content: 'Diagnose recent target behavior.' }] };
+  });
   mock.method(repo, 'listTargetInsightsEntries', async () => []);
   mock.method(repo, 'insertWorkspaceAuditEvent', async (event) => {
     auditEvents.push(event);
@@ -81,8 +87,9 @@ async function runCheckpoint(
         ]
       }), { status: 200 });
     }
+    if (options.fetchError) throw options.fetchError;
     if (gatewayStatus !== 200) {
-      return new Response('provider unavailable', { status: gatewayStatus });
+      return new Response('sensitive-response-body', { status: gatewayStatus });
     }
     const stream = new ReadableStream({
       start(controller) {
@@ -97,7 +104,7 @@ async function runCheckpoint(
   });
 
   await runTargetInsightsCheckpointSweep();
-  return { finishedJobs, auditEvents, rescheduledJobs };
+  return { finishedJobs, auditEvents, rescheduledJobs, warnings };
 }
 
 describe('Target Insights checkpoint outcomes', () => {
@@ -138,6 +145,77 @@ describe('Target Insights checkpoint outcomes', () => {
     assert.ok(finishedJobs[0].retryAfter);
     assert.equal(auditEvents[0].eventType, 'target_insights.checkpoint.failed.v1');
     assert.equal(auditEvents[0].metadata?.reasonCode, 'provider_failure');
+    assert.equal(auditEvents[0].metadata?.httpStatus, 502);
+  });
+
+  it('makes permanent gateway client rejections terminal with a safe status and reason', async () => {
+    for (const status of [400, 401, 403, 404, 422]) {
+      const result = await runCheckpoint('', status);
+      assert.deepEqual(result.finishedJobs.map(({ status, error, retryAfter }) => ({ status, error, retryAfter })), [
+        { status: 'failed', error: 'gateway_request_rejected', retryAfter: undefined }
+      ]);
+      assert.equal(result.auditEvents[0].eventType, 'target_insights.checkpoint.failed.v1');
+      assert.equal(result.auditEvents[0].summary, 'Target Insights checkpoint request rejected by gateway');
+      assert.equal(result.auditEvents[0].metadata?.reasonCode, 'gateway_request_rejected');
+      assert.equal(result.auditEvents[0].metadata?.httpStatus, status);
+      assert.doesNotMatch(JSON.stringify(result), /sensitive-response-body/);
+    }
+  });
+
+  it('retries timeout and rate limit responses with the existing fifteen minute delay', async () => {
+    for (const status of [408, 429]) {
+      const before = Date.now();
+      const { finishedJobs, auditEvents } = await runCheckpoint('', status);
+      const retryAt = new Date(finishedJobs[0].retryAfter!).getTime();
+      assert.ok(retryAt >= before + 15 * 60_000 && retryAt <= Date.now() + 15 * 60_000);
+      assert.equal(finishedJobs[0].error, 'provider_failure');
+      assert.equal(auditEvents[0].metadata?.httpStatus, status);
+    }
+  });
+
+  it('stops transient provider retries at three attempts, including old high-attempt jobs', async () => {
+    for (const attempts of [1, 2, 3, 70]) {
+      const { finishedJobs } = await runCheckpoint('', 502, true, undefined, { attempts });
+      assert.equal(Boolean(finishedJobs[0].retryAfter), attempts < 3);
+    }
+  });
+
+  it('keeps unknown network failures bounded and excludes exception text', async () => {
+    const result = await runCheckpoint('', 200, true, undefined, {
+      attempts: 3, fetchError: new Error('sensitive-network-error')
+    });
+    assert.equal(result.finishedJobs[0].error, 'provider_failure');
+    assert.equal(result.finishedJobs[0].retryAfter, undefined);
+    assert.equal(result.auditEvents[0].metadata?.httpStatus, undefined);
+    assert.doesNotMatch(JSON.stringify(result), /sensitive-network-error/);
+  });
+
+  it('bounds the sweep exception retry path without persisting or logging arbitrary errors', async () => {
+    for (const attempts of [2, 3, 70]) {
+      const result = await runCheckpoint('', 200, true, undefined, {
+        attempts, setupError: new Error('sensitive-setup-error')
+      });
+      assert.equal(result.finishedJobs[0].error, 'exception');
+      assert.equal(Boolean(result.finishedJobs[0].retryAfter), attempts < 3);
+      assert.deepEqual(result.warnings, [{ reasonCode: 'exception', targetId: 'cluster-1', sessionId: 'session-1' }]);
+      assert.doesNotMatch(JSON.stringify(result), /sensitive-setup-error/);
+    }
+  });
+
+  it('allows a successful no-op after earlier attempts', async () => {
+    const { finishedJobs, auditEvents } = await runCheckpoint(
+      '{"patches":[{"action":"noop","reasonCode":"already_captured"}]}', 200, true, undefined, { attempts: 70 }
+    );
+    assert.equal(finishedJobs[0].status, 'noop');
+    assert.equal(auditEvents[0].eventType, 'target_insights.checkpoint.noop.v1');
+  });
+
+  it('does not record rejected or failed provider outcomes for a stale lease', async () => {
+    for (const status of [422, 502]) {
+      const { finishedJobs, auditEvents } = await runCheckpoint('', status, false);
+      assert.equal(finishedJobs.length, 0);
+      assert.equal(auditEvents.length, 0);
+    }
   });
 
   it('rejects incomplete and post-terminal gateway streams as provider failures', async () => {
