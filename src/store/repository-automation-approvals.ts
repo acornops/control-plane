@@ -8,6 +8,8 @@ import { decideWorkflowApprovalRow } from './repository-approval-decisions.js';
 import { insertWorkspaceAuditEvent } from './repository-audit-events.js';
 import { withTransaction } from './repository-transaction.js';
 import { recomputeWorkflowExecutionStatus } from './repository-workflow-execution-aggregate.js';
+import type { ApprovalDisplayContext } from '../types/approvals.js';
+import { APPROVAL_DISPLAY_COLUMNS, APPROVAL_DISPLAY_JOINS, mapApprovalDisplayContext } from './repository-approval-display-context.js';
 
 export {
   deriveWorkflowExecutionAggregateStatus,
@@ -18,7 +20,7 @@ export type AutomationApprovalKind = 'pre_step' | 'tool_write';
 export type AutomationApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 export type AutomationApprovalExecutionStatus = 'not_started' | 'executing' | 'succeeded' | 'failed' | 'unknown';
 
-export interface AutomationRunApproval {
+export interface AutomationRunApproval extends ApprovalDisplayContext {
   id: string;
   workspaceId: string;
   runId: string;
@@ -80,6 +82,7 @@ const iso = (value: unknown): string | undefined => value ? new Date(value as st
 
 function mapApproval(row: QueryResultRow): AutomationRunApproval {
   return {
+    ...mapApprovalDisplayContext(row),
     id: row.id,
     workspaceId: row.workspace_id,
     runId: row.run_id,
@@ -231,13 +234,17 @@ export async function createAutomationRunApproval(input: CreateAutomationRunAppr
 }
 
 export async function getAutomationRunApproval(approvalId: string): Promise<AutomationRunApproval | null> {
-  const result = await db.query<QueryResultRow>('SELECT * FROM workflow_run_approvals WHERE id=$1', [approvalId]);
+  const result = await db.query<QueryResultRow>(
+    `SELECT a.*, ${APPROVAL_DISPLAY_COLUMNS} FROM workflow_run_approvals a ${APPROVAL_DISPLAY_JOINS} WHERE a.id=$1`,
+    [approvalId]
+  );
   return result.rowCount ? mapApproval(result.rows[0]) : null;
 }
 
 export async function listAutomationRunApprovals(runId: string): Promise<AutomationRunApproval[]> {
   const result = await db.query<QueryResultRow>(
-    'SELECT * FROM workflow_run_approvals WHERE run_id=$1 ORDER BY created_at,id',
+    `SELECT a.*, ${APPROVAL_DISPLAY_COLUMNS} FROM workflow_run_approvals a ${APPROVAL_DISPLAY_JOINS}
+     WHERE a.run_id=$1 ORDER BY a.created_at,a.id`,
     [runId]
   );
   return result.rows.map(mapApproval);
@@ -251,17 +258,17 @@ export async function listWorkspaceAutomationApprovals(params: {
 }): Promise<AutomationRunApproval[]> {
   const status = params.status || 'pending';
   const values: unknown[] = [params.workspaceId];
-  const where = ['workspace_id=$1'];
-  if (status === 'pending') where.push("status='pending'");
-  else if (status === 'decided') where.push("status<>'pending'");
+  const where = ['a.workspace_id=$1'];
+  if (status === 'pending') where.push("a.status='pending'");
+  else if (status === 'decided') where.push("a.status<>'pending'");
   if (params.cursor) {
     values.push(params.cursor);
-    where.push(`created_at < $${values.length}::timestamptz`);
+    where.push(`a.created_at < $${values.length}::timestamptz`);
   }
   values.push(Math.max(1, Math.min(100, params.limit || 50)));
   const result = await db.query<QueryResultRow>(
-    `SELECT * FROM workflow_run_approvals WHERE ${where.join(' AND ')}
-     ORDER BY created_at DESC,id DESC LIMIT $${values.length}`,
+    `SELECT a.*, ${APPROVAL_DISPLAY_COLUMNS} FROM workflow_run_approvals a ${APPROVAL_DISPLAY_JOINS}
+     WHERE ${where.join(' AND ')} ORDER BY a.created_at DESC,a.id DESC LIMIT $${values.length}`,
     values
   );
   return result.rows.map(mapApproval);

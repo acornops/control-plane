@@ -1,5 +1,7 @@
 # Completed Execution Plans
 
+- [Approval display context](2026-11-03-approval-display-context.md) — Optional readable identities and workspace/target labels, independent inbox execution state, and isolated full validation.
+
 - [Tool schema preservation](2026-10-31-tool-schema-preservation.md) — Preserve constraints and reject unsupported metadata across Control Plane, Gateway and Engine.
 
 - [Admin metrics and document expiry](2026-10-31-metrics-document-retention.md) — Bounded labels and batched expiry cleanup.

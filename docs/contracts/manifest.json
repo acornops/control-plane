@@ -909,8 +909,17 @@
         "workspaceApprovalInbox": [
           "query.{status?,limit?,cursor?,runId?,approvalId?}",
           "items[].{approvalId,runId,source,summary,toolName,requestedBy?,expiresAt,status,decision?,decidedBy?,decidedAt?,requestedAt}",
+          "items[].{requestedByUser?,decidedByUser?,workspaceName?,targetName?,targetId?,targetType?,executionStatus?}",
+          "items[].{requestedByUser?,decidedByUser?}.{id,displayName}",
           "pendingCount",
           "nextCursor?"
+        ],
+        "runApprovalDisplayContext": [
+          "requestedByUser?.{id,displayName}",
+          "decidedByUser?.{id,displayName}",
+          "workspaceName?",
+          "targetName?",
+          "status and executionStatus remain independent; stable IDs and toolRef remain authoritative"
         ]
       }
     },

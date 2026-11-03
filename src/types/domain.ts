@@ -1,6 +1,7 @@
 import { type TargetType } from './target-types.js';
 import type { AgentVAccessPolicy } from './agentv-access-policy.js';
 import type { RunPermissionMode } from './run-permission.js';
+import type { ApprovalDisplayContext } from './approvals.js';
 export type {
   KubernetesCluster,
   LegacyWriteConfirmationPolicy,
@@ -497,7 +498,7 @@ export interface RunEvent {
   payload: Record<string, unknown>;
 }
 
-export interface RunToolApproval {
+export interface RunToolApproval extends ApprovalDisplayContext {
   id: string;
   runId: string;
   workspaceId: string;

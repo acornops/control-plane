@@ -30,6 +30,18 @@ The control plane owns the platform API boundary. Keep this README as a short in
 
 ## Shared Invariants
 
+- Browser approval inbox, run approval lists, and decision responses may include
+  `requestedByUser`/`decidedByUser` (`id`, `displayName`), `workspaceName`, and
+  `targetName`. Display names follow persisted approval references, including
+  historical actors without current membership; they contain no email. Targets
+  must belong to the approval workspace. Missing or deleted references leave
+  optional labels absent and retain stable IDs. The workspace inbox also exposes
+  optional `targetId`, `targetType`, and `executionStatus`; decision `status` and
+  execution (`not_started`, `executing`, `succeeded`, `failed`, `unknown`) are
+  independent. A granted approval does not imply successful execution. Existing
+  authorization and external integration response allowlists are unchanged.
+  Deploy the additive producer before the console; roll back the consumer first.
+
 - Pod-log requests map only AgentK MCP errors with `code: PRECONDITION_FAILED`,
   `reason: ContainerNotStarted`, and upstream `status: 400` to HTTP 409
   `POD_LOGS_UNAVAILABLE` with `retryable: false` and constant no-logs-yet copy.

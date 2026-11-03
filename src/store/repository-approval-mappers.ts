@@ -1,9 +1,10 @@
 import { KUBERNETES_TARGET_TYPE, type ChatSession, type RunToolApproval } from '../types/domain.js';
+import { mapApprovalDisplayContext, type ApprovalDisplayContextRow } from './repository-approval-display-context.js';
 
 const toIso = (value: Date | string | null | undefined): string | undefined =>
   !value ? undefined : typeof value === 'string' ? value : value.toISOString();
 
-export interface RunToolApprovalRow {
+export interface RunToolApprovalRow extends ApprovalDisplayContextRow {
   id: string;
   run_id: string;
   workspace_id: string;
@@ -38,6 +39,7 @@ export function mapRunToolApproval(row: RunToolApprovalRow): RunToolApproval {
   const targetId = row.target_id || undefined;
   const targetType = row.target_type || undefined;
   return {
+    ...mapApprovalDisplayContext(row),
     id: row.id,
     runId: row.run_id,
     workspaceId: row.workspace_id,
